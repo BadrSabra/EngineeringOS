@@ -1,0 +1,101 @@
+rg: artifacts/api-server/src/routes/ai/executions.ts: No such file or directory (os error 2)
+artifacts/api-server/src/routes/ai/chat.ts:5: * POST /api/ai/chat/stream
+artifacts/api-server/src/routes/ai/chat.ts:2258:// ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts:2260:router.post("/ai/chat/stream", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:2571:      res.write(`data: ${JSON.stringify(data)}\n\n`);
+artifacts/api-server/src/routes/ai/chat.ts:2971:    res.on("close", () => {
+artifacts/api-server/src/routes/ai/chat.ts:3039:    }, "chat/stream: dispatching chatWithFallback");
+artifacts/api-server/src/routes/ai/chat.ts:3559:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+artifacts/api-server/src/routes/ai/chat.ts:4720:router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+artifacts/api-server/src/routes/ai-route-parity.test.ts:117:  const SPEC_EXEMPTIONS = new Set(["POST /api/ai/chat/stream"]);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:334:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:481:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:582:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:666:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/tasks.ts:682:    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+artifacts/api-server/src/routes/tasks.ts:699:  req.on("close", () => { closed = true; });
+artifacts/api-server/src/routes/git.ts:819:  tar.on("close", (code) => {
+artifacts/api-server/src/routes/discovery.test.ts:940:      child.on("close", () => {
+artifacts/api-server/src/routes/ai/chat.ts:5: * POST /api/ai/chat/stream
+artifacts/api-server/src/routes/ai/chat.ts:2258:// ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts:2260:router.post("/ai/chat/stream", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:2571:      res.write(`data: ${JSON.stringify(data)}\n\n`);
+artifacts/api-server/src/routes/ai/chat.ts:2971:    res.on("close", () => {
+artifacts/api-server/src/routes/ai/chat.ts:3039:    }, "chat/stream: dispatching chatWithFallback");
+artifacts/api-server/src/routes/ai/chat.ts:3559:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+artifacts/api-server/src/routes/ai/chat.ts:4720:router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:109:    if (!closed && !res.writableEnded) res.write(": heartbeat\n\n");
+artifacts/api-server/src/routes/ai/analysis.ts:114:      res.write(`data: ${JSON.stringify({ ...event, ...auditEnvelope(metadata) })}\n\n`);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:5: * `POST /api/ai/chat/stream` route in `artifacts/api-server/src/routes/ai/chat.ts`.
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:568:describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:618:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:639:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:681:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:713:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:757:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:791:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:836:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:893:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:933:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:981:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1006:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1029:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1053:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1078:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1099:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1130:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1160:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1188:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1209:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1235:describe("POST /api/ai/chat/stream — validation privacy boundary", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1248:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1295:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1332:describe("POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1362:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1384:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1412:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1447:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4: * Validates the POST /api/ai/chat/stream route end-to-end:
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:692:        const firstStream = fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:732:        const resumed = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:841:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:904:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1051:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1280:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1403:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1469:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1489:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1511:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1548:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1591:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1671:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1791:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2072:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2206:        .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2210:        .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2465:        .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2469:        .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2505:describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2511:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2602:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2728:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2898:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3053:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3091:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3101:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3180:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3229:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3239:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3284:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3314:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3325:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3362:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3476:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3562:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3680:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3837:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3913:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3991:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4006:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4114:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4144:      .post("/api/ai/chat/stream")

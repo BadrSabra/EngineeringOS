@@ -1,0 +1,163 @@
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+12: *   - Assert that the SSE response contains the expected `forensic_status`
+16: * will be absent from the SSE stream and these tests will fail — proving
+251:  const redactText = (value: string) => value
+254:    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]")
+255:    .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]")
+256:    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted token]");
+257:  const redactValue = (value: unknown): unknown => {
+258:    if (typeof value === "string") return redactText(value);
+259:    if (Array.isArray(value)) return value.map(redactValue);
+261:      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactValue(item)]));
+266:    redactUserFacingText: redactText,
+267:    redactUserFacingValue: redactValue,
+300:    release: vi.fn().mockResolvedValue(undefined),
+421:const PASSED_VALIDATION_STEP: Extract<AgentStep, { kind: "validation" }> = {
+429:    stdout: "PRIVATE_PASSED_OUTPUT=do-not-save",
+439: * orchestrator returns so the SSE route must forward it verbatim as a parsed
+467:/** Parse all SSE events from a text/event-stream response body. */
+530:  // Reset these implementations so a prior SSE scenario cannot leak callback
+549:    release: vi.fn().mockResolvedValue(undefined),
+568:describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+569:  it("persists a forensic session, then keeps ابدأ read-only across JSON and SSE routes", async () => {
+654:  it("keeps the cancelled Arabic incomplete report intact in the SSE done frame", async () => {
+697:  it("redacts runtime paths and opaque IDs from JSON, SSE, and persisted assistant content", async () => {
+725:  it("redacts runtime paths and opaque IDs from sources and persisted tool traces in both exports", async () => {
+770:  it("routes implementation-plan requests as read-only chat on JSON and SSE", async () => {
+815:  it("keeps non-imperative action questions in ordinary chat on JSON and SSE", async () => {
+860:  it("routes composed polite modification requests as delivery on JSON and SSE", async () => {
+968:  it("emits a forensic_status SSE event when chatWithFallback calls onStep with an isFixtureLocal:true step", async () => {
+984:    // Assert: the route returned a valid SSE response.
+1044:  it("forensic_status event arrives before the done event in the SSE stream", async () => {
+1150:    // the audit panel — the SSE decision_trace event carries the fields the
+1238:    { label: "passed", step: PASSED_VALIDATION_STEP },
+1261:    // This is the public wire contract. Keep raw command results and source
+1272:        .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]")
+1273:        .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]"),
+1286:  it("removes command output and test/source details from SSE and persisted trace", async () => {
+
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+10:  | "contract"
+20:  blocking: boolean;
+32:  kind: "ai-release-quality-decision";
+43:    blockingFailures: number;
+55:    blocking: true,
+62:    blocking: true,
+67:    kind: "contract",
+69:    blocking: true,
+76:    blocking: true,
+80:    id: "ai-contract-and-json",
+81:    kind: "contract",
+83:    blocking: true,
+84:    coverage: ["JSON contract", "structured audits", "tool policy", "false-success handling"],
+87:    id: "ai-sse-and-redaction",
+88:    kind: "contract",
+90:    blocking: true,
+91:    coverage: ["SSE contract", "redaction", "stale revision", "resume"],
+97:    blocking: true,
+104:    blocking: true,
+111:    blocking: true,
+115:    id: "dashboard-preview-contract",
+118:    blocking: true,
+136:    blocking: false,
+153:    .filter((result) => result.status === "failed" && result.blocking)
+157:    kind: "ai-release-quality-decision",
+168:      blockingFailures: blockers.length,
+169:      informationalFailures: failed.filter((result) => !result.blocking).length,
+181:    // persisted release artifacts.
+238:      path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+
+artifacts/api-server/src/routes/ai.test.ts
+4: * All AI orchestrator calls are mocked — these tests verify the HTTP contract
+85:describe("mission correlation report persistence contract", () => {
+90:      redacted: true,
+94:      "does not match the supported versioned contract",
+110:        redacted: true,
+121:      "Mission correlation report does not match the supported versioned contract.",
+130:      redacted: true,
+167:      redacted: true,
+211:      redacted: true,
+289:  // matches ChatOutput and the pendingChanges contract test below passes.
+947:    // both the runtime response and the generated client contract before this fix).
+952:    // Task #22 proved the SSE done event and GET /messages carry behaviorEvidence
+956:    // without breaking the in-app SSE path, and only a non-streaming test catches
+1017:  // forward it into chat(). These endpoint tests pin that contract down.
+1252:  it("keeps the newer resumable contract when concurrent JSON turns finish out of order", async () => {
+1314:    let releaseOld!: () => void;
+1315:    let releaseNew!: () => void;
+1316:    const oldReady = new Promise<void>((resolve) => { releaseOld = resolve; });
+1317:    const newReady = new Promise<void>((resolve) => { releaseNew = resolve; });
+1353:    releaseNew();
+1355:    releaseOld();
+1423:  it("returns only the selected owner's project's redacted incomplete executions", async () => {
+1517:              profile: "release-safe",
+1552:        profile: "release-safe",
+1581:        profile: "release-safe",
+1832:    // leaves the wire contract broken.
+1881:    // live SSE path does — dropping this parse leaves the panel empty on reload.
+1969:      redacted: true,
+2438:        name: `contract-${randomUUID().slice(0, 8)}`,
+2594:  it("keeps deleted legacy proposal links on the safe not-found contract", async () => {
+2607:  it("keeps every proposal action on its safe not-found contract for stale links", async () => {
+2730:  it("returns the safe not-found contract for deleted recovery links", async () => {
+4242:describe("task and workflow provider failure contract", () => {
+
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+2: * INT-005 / INT-006 / INT-007 — SSE Stream Integration Tests
+6: *   INT-006  Error path    : provider failover surfaces a structured SSE error event
+16: *   • Supertest collects the complete SSE body after res.end(), which the route
+163:  // Use the real routing contracts. Partial legacy classifier fixtures hide
+180:  const redactText = (value: string) => value
+184:  const redactValue = (value: unknown): unknown => {
+185:    if (typeof value === "string") return redactText(value);
+186:    if (Array.isArray(value)) return value.map(redactValue);
+188:      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactValue(item)]));
+193:  redactUserFacingText: redactText,
+194:  redactUserFacingValue: redactValue,
+283:          "SSE integration fixture exhausted its injected validation results. "
+1607:  it("keeps hostile repository evidence from changing the approved Build contract", async () => {
+1608:    const rootPath = await fs.mkdtemp("/tmp/stream-hostile-release-");
+1954:// ─── SSE helpers ─────────────────────────────────────────────────────────────
+1958:/** Parse a raw SSE response body into an array of JSON event objects. */
+1975:  it("preserves the Arabic report, structured evidence, verdict, and redacted trace after reload", async () => {
+2274:   * arrive before either is released, and the release order is explicitly the
+2283:    let released = false;
+2292:      if (released) return;
+2301:      async releaseReverse() {
+2303:        if (released) throw new Error("concurrent fixture barrier released twice");
+2304:        released = true;
+2384:    await barrier.releaseReverse();
+2426:  it("keeps interleaved SSE deltas, evidence, executions, and done messages request-owned", async () => {
+2473:    await barrier.releaseReverse();
+2503:// ─── INT-005: SSE success path ────────────────────────────────────────────────
+2505:describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {
+2506:  it("should stream successful OpenRouter completion over SSE", async () => {
+2515:    // SSE routes always respond with 200 — errors are surfaced as SSE events
+2558:  it("persists an Arabic behavioral answer with accepted evidence through SSE", async () => {
+2640:  it("keeps a completed read out of accepted sources when SSE has insufficient behavioral evidence", async () => {
+2797:  it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {
+2846:    // callbacks deterministic while retaining the route, DB, and SSE layers.
+2962:  it("persists and restores the resumable task contract for an SSE continuation", async () => {
+3120:  it("keeps the newest resumable contract when same-session turns finish out of order", async () => {
+3187:    let releaseOld!: () => void;
+3188:    let releaseNew!: () => void;
+3189:    const oldReady = new Promise<void>((resolve) => { releaseOld = resolve; });
+3190:    const newReady = new Promise<void>((resolve) => { releaseNew = resolve; });
+3202:      release: async () => undefined,
+3260:    releaseNew();
+3262:    releaseOld();
+3357:  it("keeps execution trace separate from the persisted SSE report content", async () => {
+3595:  it("hides provider and recovery diagnostic details from evidence-required SSE", async () => {
+3758:          reject(new Error("SSE cancellation fixture could not find its running execution."));
+4104:            response: "behavior contract mismatch",
+4137:  it("should reject execution without a session before opening an SSE/model turn", async () => {
+4170:// ─── INT-006: SSE error path (provider failover / empty chain) ────────────────
+4172:describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE", () => {
+4283:          "SSE failover fixture exhausted: expected only the initial fallback and one resumed read-only turn.",
+4348:  it("should surface provider failover cleanly through the SSE stream", async () => {
+4370:    // Route responds with 200 regardless — errors surface in the SSE body
+4385:    // No unhandled exception or stack trace leaked into the SSE body
+4431:  it("should respond with 400 before opening SSE stream when request body is invalid", async () => {
+4432:    // Validation errors return JSON 400, not SSE — the stream is never opened
+4534:  // opening any SSE/model turn. Without this, a real /api/ai/chat/stream request
+4560:  it("returns 400 before opening the SSE stream when the objective body is invalid", async () => {

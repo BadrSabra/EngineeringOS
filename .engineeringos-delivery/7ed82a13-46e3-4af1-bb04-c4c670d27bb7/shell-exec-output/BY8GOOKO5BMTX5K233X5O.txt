@@ -1,0 +1,180 @@
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4502:    expect(call).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4513:    expect(input.projectId).toBe(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4514:    expect(input.rootPath).toBe("/tmp");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4515:    expect(options).toEqual({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4526:    expect(trace).toEqual(expect.arrayContaining([
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4537:  it("threads a request objective into chatWithFallback for the streaming Objective Completion Gate", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4553:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4555:    expect(call).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4557:    expect(input?.objective).toEqual(objective);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4560:  it("returns 400 before opening the SSE stream when the objective body is invalid", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4577:    expect(res.status).toBe(400);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4578:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callCountBefore);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4581:  it("should not issue OpenRouter requests when the resolved chain is empty (fetch = 0)", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4600:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4604:    expect(errorEvent).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4605:    expect(errorEvent!["code"]).toBe("MODEL_NOT_FOUND");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4609:    expect(globalFetchCallsAfter).toBe(globalFetchCallsBefore);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4613:describe("INT-008 — concurrent idempotent stream retries", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4614:  it("returns one execution identity to both callers and invokes the provider once", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4649:    expect(firstResponse.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4650:    expect(secondResponse.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4661:    expect(executionIds[0]).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4662:    expect(executionIds[1]).toBe(executionIds[0]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4663:    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(1);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:470:    .split("\n\n")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:473:      const dataLine = chunk.split("\n").find((l) => l.startsWith("data: "));
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:568:describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:569:  it("persists a forensic session, then keeps ابدأ read-only across JSON and SSE routes", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:623:    expect(audit.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:626:    expect(typeof sessionId).toBe("string");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:627:    expect(persistedSession?.activeTaskState).toBeTruthy();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:632:    expect(jsonStart.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:633:    expect(JSON.stringify(jsonStart.body)).toContain(relativePath);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:634:    expect(JSON.stringify(jsonStart.body)).toContain("read_file");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:635:    expect(JSON.stringify(jsonStart.body)).not.toContain("write_file");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:636:    expect(JSON.stringify(jsonStart.body)).not.toContain("replace_text");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:641:    expect(streamStart.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:643:    expect(streamStart.text).toContain(relativePath);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:644:    expect(streamStart.text).toContain("read_file");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:645:    expect(streamStart.text).not.toContain("write_file");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:646:    expect(streamStart.text).not.toContain("replace_text");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:647:    expect(streamFrames.some((frame) =>
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:651:    expect(await fs.readFile(absolutePath, "utf8")).toBe(originalSource);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:654:  it("keeps the cancelled Arabic incomplete report intact in the SSE done frame", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:684:    expect(response.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:689:    expect(done).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:690:    expect(JSON.stringify(done)).toContain("ANALYSIS_INCOMPLETE");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:691:    expect(JSON.stringify(done)).toContain("Recovery needed");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:692:    expect(JSON.stringify(done)).toContain("Blocked by");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:693:    expect(JSON.stringify(done)).not.toContain("NO_VERIFIED_FINDING");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:694:    expect(JSON.stringify(done)).not.toContain("تعذر عرض الاستجابة لأنها لم تلتزم بلغة الطلب");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:697:  it("redacts runtime paths and opaque IDs from JSON, SSE, and persisted assistant content", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:715:    expect(json.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:716:    expect(JSON.stringify(json.body)).not.toContain(sensitive);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:717:    expect(JSON.stringify(json.body)).not.toContain(internalId);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:718:    expect(stream.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:719:    expect(stream.text).not.toContain(sensitive);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:720:    expect(stream.text).not.toContain(internalId);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:721:    expect(chatCapture.assistantContent).not.toContain(sensitive);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:722:    expect(chatCapture.assistantContent).not.toContain(internalId);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:725:  it("redacts runtime paths and opaque IDs from sources and persisted tool traces in both exports", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:760:      expect(exportBody).not.toContain(sensitive);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:761:      expect(exportBody).not.toContain(internalId);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:763:    expect(json.body.sources).toEqual(["[runtime path] (request [internal id])"]);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:764:    expect(JSON.parse(chatCapture.assistantToolTrace!)).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:770:  it("routes implementation-plan requests as read-only chat on JSON and SSE", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:793:    expect(json.status, JSON.stringify(json.body)).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:794:    expect(stream.status, stream.text).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:795:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:799:    expect(captured).toHaveLength(2);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:801:      expect(call.turnIntent).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:808:      expect(call.options).toEqual({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:815:  it("keeps non-imperative action questions in ordinary chat on JSON and SSE", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:838:    expect(json.status, JSON.stringify(json.body)).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:839:    expect(stream.status, stream.text).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:840:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:844:    expect(captured).toHaveLength(2);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:846:      expect(call.turnIntent).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:853:      expect(call.options).toEqual({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:860:  it("routes composed polite modification requests as delivery on JSON and SSE", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:895:    expect(json.status, JSON.stringify(json.body)).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:896:    expect(stream.status, stream.text).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:897:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:901:    expect(captured).toHaveLength(2);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:903:      expect(call.turnIntent).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:910:      expect(call.options).toEqual({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:917:  it("ignores stale Build and execution metadata for an Arabic greeting", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:942:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:943:    expect(requireProvider).toHaveBeenCalledWith(
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:948:    expect(capturedParams).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:961:    expect(frames.some((frame) => frame.type === "forensic_terminal")).toBe(false);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:962:    expect(frames.find((frame) => frame.type === "done")).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:968:  it("emits a forensic_status SSE event when chatWithFallback calls onStep with an isFixtureLocal:true step", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:985:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:986:    expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:994:    expect(forensicFrames).toHaveLength(1);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:997:  it("forensic_status event carries isFixtureLocal:true when the step has it", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1015:    expect(forensicFrame).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1016:    expect(forensicFrame!.isFixtureLocal).toBe(true);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1017:    expect(forensicFrame!.auditScope).toBe("FIXTURE_LOCAL");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1020:  it("isFixtureLocal is absent from the forensic_status event when the step has a production scope", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1038:    expect(forensicFrame).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1039:    expect(forensicFrame!.auditScope).toBe("PRODUCTION");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1041:    expect(forensicFrame).not.toHaveProperty("isFixtureLocal");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1044:  it("forensic_status event arrives before the done event in the SSE stream", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1064:    expect(forensicIdx).toBeGreaterThanOrEqual(0);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1065:    expect(doneIdx).toBeGreaterThanOrEqual(0);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1066:    expect(forensicIdx).toBeLessThan(doneIdx);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1069:  it("the done event is still emitted after the forensic_status event", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1087:    expect(doneFrame).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1090:  it("emits a cross_file_trace event with its exact source span", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1108:    expect(traceFrame).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1121:  it("emits a decision_trace event proving the task router reached the client", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1139:    expect(decisionFrame).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1145:    expect(decisionFrame).toHaveProperty("evidenceSelected", 1);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1148:  it("forwards verdictScope + scopedFindingStatus when the decision_trace step has them", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1169:    expect(decisionFrame).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1174:    expect(decisionFrame!.verdictScope).toBe("FIXTURE_LOCAL");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1175:    expect(decisionFrame!.scopedFindingStatus).toBe("FIXTURE_PROVEN");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1178:  it("omits verdictScope + scopedFindingStatus when the step has none", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1197:    expect(decisionFrame).toMatchObject({ type: "decision_trace" });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1198:    expect(decisionFrame).not.toHaveProperty("verdictScope");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1199:    expect(decisionFrame).not.toHaveProperty("scopedFindingStatus");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1202:  it("done event forwards behaviorEvidence as a parsed array with exact source spans", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1218:    expect(doneFrame).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1221:    expect(Array.isArray(rawEvidence)).toBe(true);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1223:    expect(evidence).toHaveLength(2);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1224:    expect(evidence[0]).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1231:    expect(evidence[1].sourceSpan).toEqual({ startLine: 12, endLine: 12 });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1235:describe("POST /api/ai/chat/stream — validation privacy boundary", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1251:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1259:    expect(validationFrame).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1264:    expect(validationFrame!.validation).toEqual({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1275:    expect(validationFrame!.validation).not.toHaveProperty("command");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1276:    expect(validationFrame!.validation).not.toHaveProperty("stdout");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1277:    expect(validationFrame!.validation).not.toHaveProperty("stderr");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1278:    expect(validationFrame!.validation).not.toHaveProperty("failedTests");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1279:    expect(validationFrame!.validation).not.toHaveProperty("changedFiles");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1280:    expect(res.text).not.toContain(step.result.command);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1281:    expect(res.text).not.toContain(step.result.stdout);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1282:    expect(res.text).not.toContain(step.result.stderr);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1283:    expect(res.text).not.toContain(step.result.changedFiles[0]);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1286:  it("removes command output and test/source details from SSE and persisted trace", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1298:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1300:    expect(body).not.toContain("pnpm test");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1301:    expect(body).not.toContain("PRIVATE_SOURCE");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1302:    expect(body).not.toContain("private.test.ts");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1303:    expect(body).not.toContain("secret@example.com");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1304:    expect(body).not.toContain("abc123");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1308:    expect(validation).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1309:    expect(validation!.validation).toEqual(expect.objectContaining({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1314:    expect(validation!.validation).not.toHaveProperty("command");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1315:    expect(validation!.validation).not.toHaveProperty("stdout");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1316:    expect(validation!.validation).not.toHaveProperty("stderr");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1317:    expect(validation!.validation).not.toHaveProperty("failedTests");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1318:    expect(validation!.validation).not.toHaveProperty("changedFiles");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1332:describe("POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1353:  it("persists verdictScope + scopedFindingStatus into tool_trace for a scoped decision_trace step", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1365:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1367:    expect(chatCapture.assistantToolTrace).not.toBeNull();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1371:    expect(decision).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1372:    expect(decision!.verdictScope).toBe("FIXTURE_LOCAL");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1373:    expect(decision!.scopedFindingStatus).toBe("FIXTURE_PROVEN");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1376:  it("persists verdictScope + scopedFindingStatus into repair_plan_metadata for a scoped scenario", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1387:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1388:    expect(chatCapture.assistantRepairPlanMetadata).not.toBeNull();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1394:    expect(result.success).toBe(true);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1395:    expect(result.data![0]).toMatchObject({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1402:  it("omits scope fields from the persisted tool_trace when the step has none", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1415:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1416:    expect(chatCapture.assistantToolTrace).not.toBeNull();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1420:    expect(decision).toBeDefined();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1421:    expect(decision).not.toHaveProperty("verdictScope");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1422:    expect(decision).not.toHaveProperty("scopedFindingStatus");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1425:  it("omits scope fields from the persisted repair_plan_metadata when the plan has none", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1450:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1451:    expect(chatCapture.assistantRepairPlanMetadata).not.toBeNull();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1455:    expect(result.success).toBe(true);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1456:    expect(result.data![0]).not.toHaveProperty("verdictScope");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1457:    expect(result.data![0]).not.toHaveProperty("scopedFindingStatus");

@@ -1,0 +1,135 @@
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > does not consume a proposal when behavioral verification blocks the write
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: ddae9fa9-dad9-4bde-8f16-de18e00f181b,test-user,apply-replay-ddae9fa9,/tmp,typescript,active,2026-08-26T00:07:44.118Z,2026-08-26T00:07:44.118Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:860:5
+    858|     const projectId = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > emits a warning AiChangesApplied event when no file can be written
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 6f9e559e-1e0c-4af1-9453-c48c27510c12,test-user,apply-test-6f9e559e,/tmp,typescript,active,2026-08-26T00:07:46.752Z,2026-08-26T00:07:46.752Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:2887:5
+    2885|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not promote a candidate when behavioral verification is unavailable
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: c16825e1-b4f6-4526-9ee5-cb0b5074f1b5,test-user,apply-test-c16825e1,/tmp,typescript,active,2026-08-26T00:07:46.758Z,2026-08-26T00:07:46.758Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:2934:5
+    2932|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > fails closed before promotion when behavioral verification is unavailable
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: f8583b4b-0af3-4779-9782-5aea60bbf70a,test-user,apply-rollback-failure-f8583b4b,/tmp,typescript,active,2026-08-26T00:07:46.760Z,2026-08-26T00:07:46.760Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:2996:5
+    2994|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > blocks a destructive source-file replacement and leaves the original intact
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: e7efee35-b4c5-4226-9c5f-b4b0343ff2a9,test-user,apply-guard-e7efee35,/tmp,typescript,active,2026-08-26T00:07:46.765Z,2026-08-26T00:07:46.765Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3081:5
+    3079|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not partially apply a safe sibling when another change is destructive
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 12a54d1e-029e-49e6-b8e2-da53ae32911f,test-user,apply-atomic-12a54d1e,/tmp,typescript,active,2026-08-26T00:07:46.767Z,2026-08-26T00:07:46.767Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3133:5
+    3131|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects applying a pending change when the file changed after proposal
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 81f4e51f-6530-4cac-9d96-1ead982c039f,test-user,apply-stale-81f4e51f,/tmp,typescript,active,2026-08-26T00:07:46.769Z,2026-08-26T00:07:46.769Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3198:5
+    3196|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns a base-hash conflict and never writes a stale patch
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 9d42844e-7bb8-4572-a1b4-743381a6f230,test-user,apply-hash-conflict-9d42844e,/tmp,typescript,active,2026-08-26T00:07:46.778Z,2026-08-26T00:07:46.778Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3244:5
+    3242|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > aborts the whole batch when one accepted change has a stale base
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 11e241a3-3b73-46a9-a71e-f573decfdd9b,test-user,apply-mixed-stale-base-11e241a3,/tmp,typescript,active,2026-08-26T00:07:46.787Z,2026-08-26T00:07:46.787Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3294:5
+    3292|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns a hunk conflict even when the submitted base hash is current
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 7970316b-ec4a-4e51-bf88-fbf4ca6772a1,test-user,apply-hunk-conflict-7970316b,/tmp,typescript,active,2026-08-26T00:07:46.797Z,2026-08-26T00:07:46.797Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3370:5
+    3368|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > applies a partial hunk selection — only accepted hunks are written via rebase
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: c48b1a95-a4e2-43ce-9bc7-2ed37f582553,test-user,apply-partial-hunks-c48b1a95,/tmp,typescript,active,2026-08-26T00:07:46.808Z,2026-08-26T00:07:46.808Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3424:5
+    3422|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects a partial-apply submission that sends empty hunks for a hunk-bearing proposal (bypass attempt)
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 52b5e78e-bf67-492d-ae29-2967dc227be8,test-user,apply-empty-hunks-52b5e78e,/tmp,typescript,active,2026-08-26T00:07:46.817Z,2026-08-26T00:07:46.817Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3515:5
+    3513|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects a partial-apply submission that omits hunks entirely for a hunk-bearing proposal
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 09039152-1924-4530-a0c8-c15236d2b9ee,test-user,apply-omit-hunks-09039152,/tmp,typescript,active,2026-08-26T00:07:46.826Z,2026-08-26T00:07:46.826Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3562:5
+    3560|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects a partial-apply submission that duplicates an authorized hunk (multiset bypass attempt)
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 0c667210-dbe1-4f42-9d3a-90adf5384c93,test-user,apply-dup-hunk-0c667210,/tmp,typescript,active,2026-08-26T00:07:46.834Z,2026-08-26T00:07:46.834Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3610:5
+    3608|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects a partial-apply submission that introduces a hunk not in the stored proposal
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 35f8a8f2-1e61-441c-b199-6eee5871b7a8,test-user,apply-unauthorized-hunk-35f8a8f2,/tmp,typescript,active,2026-08-26T00:07:46.842Z,2026-08-26T00:07:46.842Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3656:5
+    3654|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rebases a stale Patch Lab proposal without writing the workspace
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: c2b93291-a988-48d3-bda5-1e523f42dcd3,test-user,apply-rebase-c2b93291,/tmp,typescript,active,2026-08-26T00:07:46.851Z,2026-08-26T00:07:46.851Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3706:5
+    3704|     const id = randomUUID();
+--
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not update a proposal when one rebase hunk conflicts
+Error: Failed query: insert into "projects" ("id", "owner_id", "name", "description", "root_path", "language", "framework", "status", "quality_score", "last_scan_at", "git_remote_url", "git_default_branch", "created_at", "updated_at") values ($1, $2, $3, default, $4, $5, default, $6, default, default, default, default, $7, $8)
+params: 482a9684-952f-4547-9f16-418da3885be1,test-user,apply-rebase-conflict-482a9684,/tmp,typescript,active,2026-08-26T00:07:46.861Z,2026-08-26T00:07:46.861Z
+ ❯ NodePgPreparedQuery.queryWithCache ../../node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/src/pg-core/session.ts:73:10
+ ❯ src/routes/ai.test.ts:3804:5
+    3802|     const id = randomUUID();

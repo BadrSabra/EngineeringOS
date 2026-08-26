@@ -50,6 +50,7 @@
 - [OpenAPI/Zod compatibility](openapi-zod-compatibility.md) — uuid formats can generate unsupported zod.uuid() in the workspace's Zod 3 runtime; verify generated typechecks.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks into a safe blocking decision; live providers and Preview stay opt-in.
+- [AI cancellation checkpoint handling](ai-cancellation-checkpoint.md) — expected lease rejection after user cancellation must preserve the incomplete report, not become a stream 500.
 - [Task execution lifecycle](task-execution-lifecycle.md) — standalone task AI runs use durable ownership, idempotency, leases, checkpoints, and bounded receipts.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Execution audit exports](execution-audit-export.md) — portable audits use owner-scoped durable state with allowlisted fields and explicit redaction.

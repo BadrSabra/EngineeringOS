@@ -4239,7 +4239,7 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
 
 // ─── Provider failure parity for task/workflow AI runs ─────────────────────────
 
-describe("task and workflow provider failure contract", () => {
+describe.sequential("task and workflow provider failure contract", () => {
   const failureCases = [
     {
       name: "authentication",

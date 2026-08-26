@@ -1,0 +1,895 @@
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream model request raw-provider-message at /srv/provider/model.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream model request raw-provider-message at /srv/provider/model.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4378:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4376:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "MODEL_NOT_FOUND",
+      "name": "GroqClientError"
+    }
+[00:16:38.232] INFO (4314): request completed
+    req: {
+      "id": 2,
+      "method": "POST",
+      "url": "/api/ai/tasks/67f66801-cde3-45da-beed-10056a09e9ea/execute"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 61
+[00:16:38.281] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.281] INFO (4314): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[00:16:38.323] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.339] ERROR (4314): AI orchestrator request failed
+    projectId: "a09f609c-b530-45a5-9153-d24c21ac61d5"
+    operation: "task-execution"
+    provider: "openrouter"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream catalog request raw-provider-message at /srv/provider/catalog.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream catalog request raw-provider-message at /srv/provider/catalog.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4378:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4376:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "INVALID_CONFIG",
+      "providerCode": "NO_COMPATIBLE_FREE_MODEL",
+      "catalogStatus": "failed",
+      "catalogError": "raw catalog response at /tmp/catalog.json",
+      "name": "GroqClientError"
+    }
+[00:16:38.340] INFO (4314): request errored
+    req: {
+      "id": 3,
+      "method": "POST",
+      "url": "/api/ai/tasks/f0e16e8a-e3b5-493d-9ddd-3d2bb00f4313/execute"
+    }
+    res: {
+      "statusCode": 503
+    }
+    responseTime: 78
+    err: {
+      "type": "Error",
+      "message": "failed with status code 503",
+      "stack":
+          Error: failed with status code 503
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[00:16:38.371] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.371] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "task_execution"
+[00:16:38.402] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.402] WARN (4314): provider failed — trying next in chain
+    provider: "groq"
+    code: "QUOTA"
+    message: "Authorization: Bearer provider-key-secret; upstream quota request raw-provider-message at /srv/provider/quota.ts"
+[00:16:38.423] ERROR (4314): AI orchestrator request failed
+    projectId: "52527d56-8362-4f4c-bba1-14cee1b8cb09"
+    operation: "task-execution"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream quota request raw-provider-message at /srv/provider/quota.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream quota request raw-provider-message at /srv/provider/quota.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4378:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4376:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "QUOTA",
+      "name": "GroqClientError"
+    }
+[00:16:38.424] INFO (4314): request completed
+    req: {
+      "id": 4,
+      "method": "POST",
+      "url": "/api/ai/tasks/c8f35094-2c21-4906-a6c5-df2de74ee82d/execute"
+    }
+    res: {
+      "statusCode": 402
+    }
+    responseTime: 58
+[00:16:38.456] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.456] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "task_execution"
+[00:16:38.485] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.485] WARN (4314): provider failed — trying next in chain
+    provider: "groq"
+    code: "RATE_LIMITED"
+    message: "Authorization: Bearer provider-key-secret; upstream rate-limit request raw-provider-message at /srv/provider/rate-limit.ts"
+[00:16:38.503] ERROR (4314): AI orchestrator request failed
+    projectId: "e3f07b89-52d7-41f1-b289-79c99a5009c4"
+    operation: "task-execution"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream rate-limit request raw-provider-message at /srv/provider/rate-limit.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream rate-limit request raw-provider-message at /srv/provider/rate-limit.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4378:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4376:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "RATE_LIMITED",
+      "name": "GroqClientError"
+    }
+[00:16:38.503] INFO (4314): request completed
+    req: {
+      "id": 5,
+      "method": "POST",
+      "url": "/api/ai/tasks/588b5a41-355e-45d1-8a2f-a7b48dc82ada/execute"
+    }
+    res: {
+      "statusCode": 429
+    }
+    responseTime: 53
+[00:16:38.534] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.534] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "task_execution"
+[00:16:38.581] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.581] WARN (4314): provider failed — trying next in chain
+    provider: "groq"
+    code: "MODEL_NOT_FOUND"
+    message: "Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts"
+[00:16:38.597] ERROR (4314): AI orchestrator request failed
+    projectId: "1aad1e8f-4f94-4b1f-8167-9f017b199ee4"
+    operation: "task-execution"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4378:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4376:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "MODEL_NOT_FOUND",
+      "providerCode": "CIRCUIT_OPEN",
+      "name": "GroqClientError"
+    }
+[00:16:38.598] INFO (4314): request completed
+    req: {
+      "id": 6,
+      "method": "POST",
+      "url": "/api/ai/tasks/e44030fa-bfad-4d3d-9b43-bab2f8425a30/execute"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 70
+[00:16:38.625] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.625] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "task_execution"
+[00:16:38.655] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.655] WARN (4314): provider failed — trying next in chain
+    provider: "groq"
+    code: "SERVER_ERROR"
+    message: "Authorization: Bearer provider-key-secret; upstream outage request raw-provider-message at /srv/provider/outage.ts"
+[00:16:38.669] ERROR (4314): AI orchestrator request failed
+    projectId: "4a2c1333-269e-44a3-a0a5-44920dc976c4"
+    operation: "task-execution"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream outage request raw-provider-message at /srv/provider/outage.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream outage request raw-provider-message at /srv/provider/outage.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4378:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4376:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "SERVER_ERROR",
+      "name": "GroqClientError"
+    }
+[00:16:38.670] INFO (4314): request errored
+    req: {
+      "id": 7,
+      "method": "POST",
+      "url": "/api/ai/tasks/d69faa4b-2736-468b-8105-3b877070e363/execute"
+    }
+    res: {
+      "statusCode": 502
+    }
+    responseTime: 49
+    err: {
+      "type": "Error",
+      "message": "failed with status code 502",
+      "stack":
+          Error: failed with status code 502
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[00:16:38.710] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.710] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[00:16:38.738] ERROR (4314): AI orchestrator request failed
+    projectId: "31cef100-8a10-4744-9d00-fc5270cf408f"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream authentication request raw-provider-message at /srv/provider/authentication.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream authentication request raw-provider-message at /srv/provider/authentication.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "AUTH_ERROR",
+      "name": "GroqClientError"
+    }
+[00:16:38.739] INFO (4314): request completed
+    req: {
+      "id": 8,
+      "method": "POST",
+      "url": "/api/ai/workflows/516ce6f4-7d84-4e0c-bd4f-3b0933a99a30/orchestrate"
+    }
+    res: {
+      "statusCode": 401
+    }
+    responseTime: 45
+[00:16:38.798] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.799] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[00:16:38.816] ERROR (4314): AI orchestrator request failed
+    projectId: "7f6142db-f110-4698-bd48-dd1640cd2fb2"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream model request raw-provider-message at /srv/provider/model.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream model request raw-provider-message at /srv/provider/model.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "MODEL_NOT_FOUND",
+      "name": "GroqClientError"
+    }
+[00:16:38.817] INFO (4314): request completed
+    req: {
+      "id": 9,
+      "method": "POST",
+      "url": "/api/ai/workflows/70c5c87a-631f-4b6d-9dcd-20a6bcb9279d/orchestrate"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 25
+[00:16:38.848] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.848] INFO (4314): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "workflow"
+[00:16:38.867] ERROR (4314): AI orchestrator request failed
+    projectId: "54d86bf3-3f18-4e05-9cf7-3ba967251802"
+    operation: "workflow-orchestration"
+    provider: "openrouter"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream catalog request raw-provider-message at /srv/provider/catalog.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream catalog request raw-provider-message at /srv/provider/catalog.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "INVALID_CONFIG",
+      "providerCode": "NO_COMPATIBLE_FREE_MODEL",
+      "catalogStatus": "failed",
+      "catalogError": "raw catalog response at /tmp/catalog.json",
+      "name": "GroqClientError"
+    }
+[00:16:38.867] INFO (4314): request errored
+    req: {
+      "id": 10,
+      "method": "POST",
+      "url": "/api/ai/workflows/036e6faf-8e33-4253-801a-e1414efbed41/orchestrate"
+    }
+    res: {
+      "statusCode": 503
+    }
+    responseTime: 25
+    err: {
+      "type": "Error",
+      "message": "failed with status code 503",
+      "stack":
+          Error: failed with status code 503
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[00:16:38.899] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.899] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[00:16:38.921] ERROR (4314): AI orchestrator request failed
+    projectId: "9f249127-aa33-4511-9cb8-dcdcdbc4446d"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream quota request raw-provider-message at /srv/provider/quota.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream quota request raw-provider-message at /srv/provider/quota.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "QUOTA",
+      "name": "GroqClientError"
+    }
+[00:16:38.922] INFO (4314): request completed
+    req: {
+      "id": 11,
+      "method": "POST",
+      "url": "/api/ai/workflows/4fb54f91-e1f6-401f-8404-bc508fd4757d/orchestrate"
+    }
+    res: {
+      "statusCode": 402
+    }
+    responseTime: 28
+[00:16:38.951] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:38.951] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[00:16:38.970] ERROR (4314): AI orchestrator request failed
+    projectId: "551fce15-12db-4822-be3a-cd6e12895842"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream rate-limit request raw-provider-message at /srv/provider/rate-limit.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream rate-limit request raw-provider-message at /srv/provider/rate-limit.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "RATE_LIMITED",
+      "name": "GroqClientError"
+    }
+[00:16:38.970] INFO (4314): request completed
+    req: {
+      "id": 12,
+      "method": "POST",
+      "url": "/api/ai/workflows/ac8043ff-21ed-47d9-8e77-d65b39489f02/orchestrate"
+    }
+    res: {
+      "statusCode": 429
+    }
+    responseTime: 27
+[00:16:39.001] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:39.001] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[00:16:39.031] ERROR (4314): AI orchestrator request failed
+    projectId: "9f66f82e-bfca-4234-b50d-9568ecef384c"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "MODEL_NOT_FOUND",
+      "providerCode": "CIRCUIT_OPEN",
+      "name": "GroqClientError"
+    }
+[00:16:39.032] INFO (4314): request completed
+    req: {
+      "id": 13,
+      "method": "POST",
+      "url": "/api/ai/workflows/94c24cac-6f17-4566-a9b0-cfebeb34c916/orchestrate"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 37
+[00:16:39.087] INFO (4314): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[00:16:39.087] INFO (4314): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[00:16:39.108] ERROR (4314): AI orchestrator request failed
+    projectId: "47b6a056-b202-46fe-aabd-d29d482dcd70"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream outage request raw-provider-message at /srv/provider/outage.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream outage request raw-provider-message at /srv/provider/outage.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "SERVER_ERROR",
+      "name": "GroqClientError"
+    }
+[00:16:39.109] INFO (4314): request errored
+    req: {
+      "id": 14,
+      "method": "POST",
+      "url": "/api/ai/workflows/def9c21a-7069-443f-b104-c1c6b00d6742/orchestrate"
+    }
+    res: {
+      "statusCode": 502
+    }
+    responseTime: 30
+    err: {
+      "type": "Error",
+      "message": "failed with status code 502",
+      "stack":
+          Error: failed with status code 502
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+--------------------------------------------------------------------------------
+--------------------------------··············-
+
+ Test Files  1 passed (1)
+      Tests  14 passed | 113 skipped (127)
+   Start at  00:16:29
+   Duration  9.74s (transform 5.78s, setup 0ms, import 8.19s, tests 1.33s, environment 0ms)
+

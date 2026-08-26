@@ -4165,7 +4165,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         updatedAt: new Date().toISOString(),
       };
     }
-    if (checkpointFailure) {
+    if (checkpointFailure && !activeExecutionAbortController.signal.aborted) {
       throw new Error("AI execution checkpoint persistence failed before finalization");
     }
     if (endedBeforeEvidence) {
@@ -4175,6 +4175,23 @@ router.post("/ai/chat/stream", async (req, res) => {
         error: "Execution stopped before the first source read.",
         cancelled: false,
         nodeStates: executionNodeStates,
+        operation: autonomousOperation,
+      });
+    } else if (activeExecutionAbortController.signal.aborted) {
+      // Cancellation wins over completion even when the provider returns a
+      // bounded incomplete report after observing the abort. The report is
+      // still persisted above for reconnect/history, but the execution must
+      // remain terminally cancelled rather than entering the normal success
+      // finalizer (which can race the cancel endpoint's row update).
+      executionTerminal = true;
+      await failAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        error: "Execution cancelled by the user.",
+        cancelled: true,
+        nodeStates: executionNodeStates,
+        streamedPreview: streamedContent,
+        recentSteps: serializeExecutionCheckpointSteps(traceSteps),
         operation: autonomousOperation,
       });
     } else {
