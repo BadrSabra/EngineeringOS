@@ -114,8 +114,13 @@ function buildAcceptanceSummary(
   });
 }
 
-function unavailableTelemetry(allowedPaths: readonly string[]): CodeAgentExecutionTelemetry {
+function unavailableTelemetry(
+  allowedPaths: readonly string[],
+  provenance: { candidateHash?: string; sourceRevision?: string } = {},
+): CodeAgentExecutionTelemetry {
   return {
+    ...(provenance.candidateHash ? { candidateHash: provenance.candidateHash } : {}),
+    ...(provenance.sourceRevision ? { sourceRevision: provenance.sourceRevision } : {}),
     actualTerminal: "BLOCKED",
     validationStatus: "unavailable",
     changedPaths: [],
@@ -159,6 +164,7 @@ export async function runCodeAgentBenchmarkAirlock(args: {
   startedAt?: string;
   generatedAt?: string;
   sourceRevision?: string;
+  candidateHash?: string;
   signal?: AbortSignal;
   onObservation?: (
     observation: BenchmarkAirlockObservation,
@@ -225,7 +231,10 @@ export async function runCodeAgentBenchmarkAirlock(args: {
         provider: null,
         model: null,
         providerAttempts: 0,
-        observation: observationFromCodeAgentExecution(testCase, unavailableTelemetry([])),
+        observation: observationFromCodeAgentExecution(testCase, unavailableTelemetry([], {
+          candidateHash: args.candidateHash,
+          sourceRevision: args.sourceRevision,
+        })),
       };
       observations.push(observation);
       observedCaseIds.add(testCase.id);
@@ -330,7 +339,10 @@ export async function runCodeAgentBenchmarkAirlock(args: {
     }
 
     if (!telemetry || telemetry.providerUnavailable) {
-      telemetry = unavailableTelemetry([]);
+      telemetry = unavailableTelemetry([], {
+        candidateHash: args.candidateHash,
+        sourceRevision: args.sourceRevision,
+      });
     }
 
     const observation = observationFromCodeAgentExecution(testCase, telemetry);

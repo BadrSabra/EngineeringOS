@@ -1,0 +1,118 @@
+{
+  "kind": "code-agent-observable-parity-report",
+  "version": 1,
+  "basis": "observable-engineeringos-outcomes",
+  "comparator": "undocumented-behavior-not-asserted",
+  "campaign": {
+    "mode": "coverage",
+    "status": "coverage-complete",
+    "totalCases": 34,
+    "observedCases": 34,
+    "missingCaseIds": [],
+    "recoveryCaseIds": [
+      "single-file-001",
+      "single-file-002",
+      "single-file-003",
+      "single-file-004",
+      "multi-file-001",
+      "multi-file-002",
+      "multi-file-003",
+      "multi-file-004",
+      "test-failure-001",
+      "test-failure-002",
+      "test-failure-003",
+      "test-failure-004",
+      "typecheck-failure-001",
+      "typecheck-failure-002",
+      "typecheck-failure-003",
+      "typecheck-failure-004",
+      "dependency-graph-001",
+      "dependency-graph-002",
+      "dependency-graph-003",
+      "conflict-001",
+      "conflict-002",
+      "conflict-003",
+      "cancellation-001",
+      "scope-001",
+      "malformed-output-001",
+      "blocked-proof-001",
+      "broad-001",
+      "broad-002",
+      "broad-003",
+      "broad-004",
+      "blocked-001",
+      "blocked-002",
+      "blocked-003",
+      "blocked-004"
+    ],
+    "environmentUnavailableCases": 32,
+    "qualityFailures": 2,
+    "qualityEligible": false,
+    "cleanWitness": false
+  },
+  "dimensions": [
+    {
+      "dimension": "inspect-and-plan",
+      "caseCount": 8,
+      "observedCaseCount": 8,
+      "qualityPassRate": 0,
+      "toolEfficiency": null
+    },
+    {
+      "dimension": "multi-file-mutation",
+      "caseCount": 7,
+      "observedCaseCount": 7,
+      "qualityPassRate": null,
+      "toolEfficiency": null
+    },
+    {
+      "dimension": "validation-and-repair",
+      "caseCount": 8,
+      "observedCaseCount": 8,
+      "qualityPassRate": null,
+      "toolEfficiency": null
+    },
+    {
+      "dimension": "recovery-and-cancellation",
+      "caseCount": 4,
+      "observedCaseCount": 4,
+      "qualityPassRate": null,
+      "toolEfficiency": null
+    },
+    {
+      "dimension": "scope-and-false-success",
+      "caseCount": 7,
+      "observedCaseCount": 7,
+      "qualityPassRate": null,
+      "toolEfficiency": null
+    }
+  ],
+  "gaps": [
+    {
+      "dimension": "inspect-and-plan",
+      "priority": "high",
+      "status": "observed-gap",
+      "evidence": "Observed quality pass rate is 0.",
+      "remediation": "Keep bounded read/plan acceptance coverage green before mutation."
+    },
+    {
+      "dimension": "provider-availability",
+      "priority": "medium",
+      "status": "environment-gap",
+      "evidence": "32 provider-unavailable observation(s); U is excluded from quality rates.",
+      "remediation": "Retry only in an explicitly opted-in disposable campaign; do not convert U into quality evidence."
+    }
+  ],
+  "prioritizedRemediation": [
+    {
+      "priority": "high",
+      "dimension": "inspect-and-plan",
+      "action": "Keep bounded read/plan acceptance coverage green before mutation."
+    },
+    {
+      "priority": "medium",
+      "dimension": "provider-availability",
+      "action": "Retry only in an explicitly opted-in disposable campaign; do not convert U into quality evidence."
+    }
+  ]
+}

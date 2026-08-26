@@ -47,10 +47,10 @@ const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
   deepseek: "DEEPSEEK_API_KEY",
   groq: "GROQ_API_KEY",
 };
-const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", "docs", "coverage", "dist"]);
+const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", ".engineeringos-delivery", ".engineeringos-projects", "docs", "coverage", "dist", ".vite"]);
 const sourceRoot = path.resolve(process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."));
 const execFileAsync = promisify(execFile);
-const APPROVED_SOURCE_REVISION = "948d0624ddeacbbdb4a5a50b10d9e57da5f48823";
+const APPROVED_SOURCE_REVISION = "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a";
 async function resolveSourceRevision(root: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "main"], { maxBuffer: 4096 });
   const revision = stdout.trim();
@@ -178,7 +178,7 @@ async function createIsolatedBenchmarkRoot(): Promise<{ rootPath: string; cleanu
     await fs.cp(resolvedSource, rootPath, {
       recursive: true,
       dereference: false,
-      filter: (source) => !COPY_OMIT.has(path.relative(resolvedSource, source).split(path.sep)[0]!),
+      filter: (source) => !path.relative(resolvedSource, source).split(path.sep).some((segment) => COPY_OMIT.has(segment)),
     });
     await fs.symlink(path.join(resolvedSource, "node_modules"), path.join(rootPath, "node_modules"), "dir");
     return { rootPath, cleanup: () => fs.rm(rootPath, { recursive: true, force: true }) };

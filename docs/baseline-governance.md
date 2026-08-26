@@ -35,3 +35,12 @@ The deterministic artifact proves only that the suite and terminal-contract
 grading rules agree. It is not proof of live agent quality, rollout readiness,
 or provider performance. Live benchmark baselines require their own approved
 comparison and remain subject to the release quality gate.
+
+## Live-quality review record
+
+The 2026-08-26 disposable OpenRouter campaign is retained at
+`lib/ai-orchestrator/benchmark-results/live-quality-20260826/`. It observed all
+34 cases and records the server-owned source revision and candidate hash, but
+its coverage campaign contains provider-unavailable and failing observations.
+The review therefore remains blocked and is not an approved live-quality
+baseline. The deterministic contract baseline is unchanged.

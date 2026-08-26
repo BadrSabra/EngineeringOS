@@ -9,7 +9,7 @@ import {
 } from "@workspace/ai-orchestrator";
 
 export const BENCHMARK_RELEASE_GATE_VERSION = 1;
-export const APPROVED_BENCHMARK_SOURCE_REVISION = "948d0624ddeacbbdb4a5a50b10d9e57da5f48823";
+export const APPROVED_BENCHMARK_SOURCE_REVISION = "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a";
 
 export type BenchmarkReleaseGateDecision = {
   kind: "code-agent-benchmark-release-decision";
