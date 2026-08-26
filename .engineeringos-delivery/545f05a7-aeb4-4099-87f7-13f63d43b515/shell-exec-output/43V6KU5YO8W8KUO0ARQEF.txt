@@ -1,0 +1,127 @@
+647:async function installArabicAiFixture(
+1175:async function programmaticSignIn(page: Page) {
+1537:    await programmaticSignIn(page);
+1787:    await programmaticSignIn(page);
+1954:    await programmaticSignIn(page);
+2062:      await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
+2183:    await programmaticSignIn(page);
+2300:    await programmaticSignIn(page);
+2397:    await programmaticSignIn(page);
+2465:    await programmaticSignIn(page);
+2520:    await programmaticSignIn(page);
+2585:    await programmaticSignIn(page);
+2656:    const fixture = await installArabicAiFixture(page);
+2658:    await programmaticSignIn(page);
+2710:    const fixture = await installArabicAiFixture(page);
+2712:    await programmaticSignIn(page);
+2748:    const accepted = await installArabicAiFixture(page, {
+2752:    const blocked = await installArabicAiFixture(page, {
+2761:    await programmaticSignIn(page);
+2786:    const accepted = await installArabicAiFixture(page, {
+2790:    const blocked = await installArabicAiFixture(page, {
+2819:    await programmaticSignIn(page);
+2884:    const accepted = await installArabicAiFixture(page, {
+2888:    const blocked = await installArabicAiFixture(page, {
+2897:    await programmaticSignIn(page);
+3005:    await programmaticSignIn(page);
+3045:    await programmaticSignIn(page);
+3086:    await programmaticSignIn(page);
+3136:    await programmaticSignIn(page);
+3259:    await programmaticSignIn(page);
+3409:    await programmaticSignIn(page);
+3550:    await programmaticSignIn(page);
+3621:    await programmaticSignIn(page);
+3657:    const fixture = await installArabicAiFixture(page);
+3659:    await programmaticSignIn(page);
+3691:    await programmaticSignIn(page);
+8:import { Textarea } from '@/components/ui/textarea';
+573:  activeProvider,
+576:  activeProvider: ActiveProvider | undefined;
+579:  if (!activeProvider) {
+588:  if (!activeProvider.configured || !activeProvider.provider) {
+604:        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+612:      <span>AI ready · {activeProvider.provider}</span>
+6993:  const textareaRef = useRef<HTMLTextAreaElement>(null);
+6996:  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+7042:      projectId: selectedProjectId,
+7048:        queryKey: ['operation-trace', selectedProjectId, operationId],
+7049:        enabled: isLoaded && !!selectedProjectId && !!operationId,
+7109:  const executionPointerKey = selectedProjectId
+7110:    ? `eos_ai_execution_current_${selectedProjectId}`
+7118:  const executionStorageKey = selectedProjectId && executionStorageSessionId
+7119:    ? `eos_ai_execution_${selectedProjectId}_${executionStorageSessionId}`
+7138:        parsed.projectId !== selectedProjectId ||
+7167:    { projectId: selectedProjectId, limit: 20 },
+7170:        queryKey: ['ai-execution-history', selectedProjectId],
+7171:        enabled: isLoaded && !!selectedProjectId,
+7267:      activeExecution.projectId !== selectedProjectId ||
+7274:        projectId: selectedProjectId,
+7284:    selectedProjectId,
+7290:      activeExecution.projectId !== selectedProjectId ||
+7299:      void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+7322:    selectedProjectId,
+7368:              projectId: selectedProjectId,
+7403:    selectedProjectId,
+7482:    if (!selectedProjectId || isTaskSending) return;
+7508:    void taskStreamSend({ projectId: selectedProjectId, task }, {
+7619:  const { data: activeProvider } = useGetActiveProvider<ActiveProvider>({
+7706:    isLoading: projectsLoading,
+7727:  const projectLoadFailure = projectsError ? classifyProjectError(projectsError) : null;
+7741:    { projectId: selectedProjectId ?? '' },
+7744:        queryKey: ['ai-sessions', selectedProjectId],
+7745:        enabled: isLoaded && !!selectedProjectId,
+7783:    queryKey: ['ai-delivery-recoverable', selectedProjectId],
+7784:    enabled: isLoaded && !!selectedProjectId,
+7786:      const response = await fetch(`/api/ai/delivery/recoverable?projectId=${encodeURIComponent(selectedProjectId)}`, {
+7814:          void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+7826:          void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+7838:      void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+7880:      void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+7950:      && activeExecution.projectId === selectedProjectId
+7973:    selectedProjectId,
+7981:    if (projects.length > 0 && !selectedProjectId) {
+7982:      setSelectedProjectId(projects[0].id);
+7984:  }, [projects, selectedProjectId]);
+8085:        void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+8099:        if (!changesToApply || !selectedProjectId || !proposalId) return;
+8103:            projectId: selectedProjectId,
+8162:        void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+8179:        void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+8201:    if (!selectedProjectId || !proposalId) {
+8231:          projectId: selectedProjectId,
+8240:        projectId: selectedProjectId,
+8248:    if (!selectedProjectId || !proposalId) {
+8258:        projectId: selectedProjectId,
+8276:    if (!selectedProjectId || commitReadyPaths.length === 0) return;
+8282:      projectId: selectedProjectId,
+8292:    if (!selectedProjectId || !pushReady) return;
+8299:        ? { projectId: selectedProjectId, data: traceData }
+8300:        : { projectId: selectedProjectId },
+8315:    if (!selectedProjectId) {
+8319:    if (!activeProvider) {
+8323:    if (!activeProvider.configured || !activeProvider.provider) {
+8329:    const requestProjectId = selectedProjectId;
+8919:    if (!selectedProjectId || !sessionId || isSending || planBuildPending) return;
+8946:    if (projectsLoading || !selectedProjectId) return;
+9005:    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
+9006:    if (projectLoadFailure) return projectLoadFailure.message;
+9007:    if (!selectedProjectId) return 'Create or select a project first to start chatting.';
+9013:    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
+9014:    if (projectLoadFailure) return `${projectLoadFailure.message} Try refreshing\u2026`;
+9015:    if (!selectedProjectId) return 'Create a project first to start chatting\u2026';
+9021:    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
+9022:    if (projectLoadFailure) return projectLoadFailure.message;
+9023:    if (!selectedProjectId) return 'Select a project first';
+9128:              value={selectedProjectId}
+9131:                setSelectedProjectId(e.target.value);
+9297:            {activeProvider?.provider === 'deepseek'
+9299:              : activeProvider?.provider === 'openrouter'
+9303:                : activeProvider?.provider === 'gemini'
+9414:                <p className={`text-xs text-center max-w-xs ${projectLoadFailure ? 'text-destructive' : 'text-muted-foreground'}`}>
+9423:                    disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && isTaskSending) || (action.id === 'review' && isTaskSending)}
+9477:                  projectId={selectedProjectId}
+9676:              activeProvider={activeProvider}
+9677:              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
+9681:              ref={textareaRef}
+9688:              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || applyMutation.isPending || isAgentBusy}
+9693:               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || isAgentBusy || applyMutation.isPending}

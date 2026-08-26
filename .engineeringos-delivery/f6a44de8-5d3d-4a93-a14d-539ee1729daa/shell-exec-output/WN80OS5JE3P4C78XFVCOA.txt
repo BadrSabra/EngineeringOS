@@ -1,0 +1,467 @@
+          correlationId: supportReferences.authentication_failed,
+          operatorAction: "Replace the provider API key with a valid key, then retry.",
+          provider: "openrouter",
+          model: "secret-model-name",
+          terminalReason: rawDiagnostic,
+          operationId: rawCredential,
+        }),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      },
+      {
+        id: "e2e-quota-failed-task",
+        projectId: "e2e-project",
+        title: "Recover quota exhaustion",
+        description: "The provider quota test task failed.",
+        status: "failed",
+        priority: "p1",
+        retryCount: 0,
+        maxRetries: 2,
+        agentResponse: JSON.stringify({
+          kind: "AI_TASK_EXECUTION_RECEIPT",
+          terminalStatus: "FAILED",
+          availabilityState: "quota_exhausted",
+          correlationId: supportReferences.quota_exhausted,
+          provider: "openrouter",
+          model: "secret-model-name",
+          terminalReason: rawDiagnostic,
+          operationId: rawCredential,
+        }),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      },
+    ];
+    const workflowId = "e2e-outage-workflow";
+    await installApiFixtures(page, {
+      recoveryTasks,
+      recoveryWorkflows: [
+        {
+          id: workflowId,
+          projectId: "e2e-project",
+          name: "Recover provider outage",
+          description: "A pipeline used to verify outage recovery guidance.",
+          status: "failed",
+          phases: [
+            { name: "build", steps: ["compile"] },
+            { name: "test", steps: ["verify"] },
+          ],
+          currentPhase: "test",
+          executionCount: 1,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+        },
+      ],
+      recoveryWorkflowExecutions: {
+        [workflowId]: [
+          {
+            id: "e2e-outage-execution",
+            workflowId,
+            status: "failed",
+            currentPhase: "test",
+            completedPhases: ["build"],
+            startedAt: "2026-01-01T00:00:00.000Z",
+            errorMessage: rawDiagnostic,
+            recovery: {
+              availabilityState: "provider_outage",
+              correlationId: supportReferences.provider_outage,
+              operatorAction:
+                "Retry in a moment; configure another provider if the issue persists.",
+              diagnostic: rawCredential,
+            },
+          },
+        ],
+      },
+    });
+    await programmaticSignIn(page);
+
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    await expect(
+      page.getByLabel("Expand task Recover authentication failure"),
+    ).toBeVisible();
+    await page
+      .getByLabel("Expand task Recover authentication failure")
+      .click();
+    const taskDetails = page.locator("#task-details-e2e-auth-failed-task");
+    await expect(taskDetails).toContainText("Provider authentication failed");
+    await expect(taskDetails).toContainText(
+      "Replace the provider API key with a valid key, then retry.",
+    );
+    await expect(taskDetails).toContainText(
+      `Support reference: ${supportReferences.authentication_failed}`,
+    );
+    await page.getByLabel("Expand task Recover quota exhaustion").click();
+    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+    await expect(
+      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByLabel("Expand task Recover authentication failure"),
+    ).toBeVisible();
+    await page
+      .getByLabel("Expand task Recover authentication failure")
+      .click();
+    const reloadedAuthDetails = page.locator(
+      "#task-details-e2e-auth-failed-task",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      "Provider authentication failed",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      "Replace the provider API key with a valid key, then retry.",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      `Support reference: ${supportReferences.authentication_failed}`,
+    );
+    await page.getByLabel("Expand task Recover quota exhaustion").click();
+    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+    await expect(
+      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+    ).toBeVisible();
+    const reloadedTaskText = await page.locator("body").innerText();
+    expect(reloadedTaskText).not.toContain(rawDiagnostic);
+    expect(reloadedTaskText).not.toContain(rawCredential);
+    expect(reloadedTaskText).not.toMatch(
+      /secret-model-name|\/home\/runner|\/tmp\//i,
+    );
+
+    await openNavigation(page, "Workflows", `${DASHBOARD_PATH}workflows`);
+    await expect(page.getByText("Recover provider outage")).toBeVisible();
+    await page.getByRole("button", { name: "Execution history" }).click();
+    const execution = page
+      .getByText("failed · no successful completion")
+      .locator("..")
+      .locator("..");
+    await expect(execution).toContainText(
+      "The provider is temporarily unavailable",
+    );
+    await expect(execution).toContainText(
+      "Retry in a moment; configure another provider if the issue persists.",
+    );
+    await expect(execution).toContainText(
+      `Support reference: ${supportReferences.provider_outage}`,
+    );
+    await page.reload();
+    await expect(page.getByText("Recover provider outage")).toBeVisible();
+    await page.getByRole("button", { name: "Execution history" }).click();
+    const reloadedExecution = page
+      .getByText("failed · no successful completion")
+      .locator("..")
+      .locator("..");
+    await expect(reloadedExecution).toContainText(
+      "The provider is temporarily unavailable",
+    );
+    await expect(reloadedExecution).toContainText(
+      "Retry in a moment; configure another provider if the issue persists.",
+    );
+    await expect(reloadedExecution).toContainText(
+      `Support reference: ${supportReferences.provider_outage}`,
+    );
+
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain(rawDiagnostic);
+    expect(visibleText).not.toContain(rawCredential);
+    expect(visibleText).not.toMatch(
+      /secret-model-name|\/home\/runner|\/tmp\//i,
+    );
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test("converges two browser sessions across reload, reconnect, stale results, and API restart", async ({
+    browser,
+    page,
+  }) => {
+    test.skip(
+      !process.env.DASHBOARD_E2E_CONTROL_URL,
+      "The multi-process convergence campaign runs only under the release runner.",
+    );
+    test.setTimeout(90_000);
+
+    const secondContext = await browser.newContext();
+    const secondPage = await secondContext.newPage();
+    try {
+      await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
+      await Promise.all([
+        page.goto(DASHBOARD_PATH),
+        secondPage.goto(`${DASHBOARD_PATH}ai`),
+      ]);
+      await expectDashboardReady(page);
+      await expect(secondPage.locator("textarea").first()).toBeVisible();
+
+      // A response that arrives after a newer request must not replace the
+      // visible ready state with stale data. Keep the delay bounded so a
+      // hung request cannot make this campaign pass indefinitely.
+      const currentDashboardFixture = {
+        ...dashboardFixture,
+        freshnessRevision: "2026-01-01T00:03:00.000Z",
+        projectScores: [{ ...dashboardFixture.projectScores[0], projectName: "Concurrent Project", score: 97 }],
+        activeTaskCount: 1,
+        taskStatusBreakdown: { pending: 0, running: 1 },
+      };
+      let refreshCount = 0;
+      let releaseStaleResponse!: () => void;
+      const staleResponseReleased = new Promise<void>((resolve) => {
+        releaseStaleResponse = resolve;
+      });
+      await page.route("**/api/dashboard", async (route) => {
+          first_name: TEST_USER.firstName,
+          last_name: TEST_USER.lastName,
+          skip_password_checks: true,
+          skip_password_requirement: true,
+        },
+      },
+    );
+    userId = parseCreatedClerkUserResponse(await createdResponse.json());
+  }
+
+  if (!userId) {
+    throw new Error(
+      "The isolated Clerk release user could not be provisioned.",
+    );
+  }
+
+  const tokenResponse = await page.request.post(
+    "https://api.clerk.com/v1/sign_in_tokens",
+    { headers, data: { user_id: userId } },
+  );
+  const token = parseClerkSignInTokenResponse(await tokenResponse.json());
+
+  return `${new URL(DASHBOARD_PATH, page.url()).toString()}sign-in?__clerk_ticket=${encodeURIComponent(token)}`;
+}
+
+async function programmaticSignIn(page: Page) {
+  await page.goto(DASHBOARD_PATH);
+  await expect(
+    page.getByRole("link", { name: "Sign In", exact: true }),
+  ).toBeVisible();
+
+  const helper =
+    globalThis.signInClerkUser ??
+    globalThis.__ENGINEERINGOS_SIGN_IN_CLERK_USER__;
+  if (!helper) {
+    if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+      throw new Error(
+        "Clerk browser helper is unavailable. Run this journey in the Replit browser runner, which injects signInClerkUser.",
+      );
+    }
+    await page.goto(await createReleaseSignInUrl(page));
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+    );
+    return;
+  }
+  const signInUrl = await helper({
+    ...TEST_USER,
+    ttl: 900,
+    basePath: DASHBOARD_PATH,
+  });
+  await page.goto(signInUrl);
+  await expect(page).toHaveURL(
+    new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+  );
+}
+
+async function openNavigation(page: Page, label: string, path: string) {
+  await page.getByRole("link", { name: label, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
+}
+
+function apiUrl(page: Page, path: string): string {
+  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  return new URL(path, apiBaseUrl ? apiBaseUrl : page.url()).toString();
+}
+
+async function liveRequest(
+  page: Page,
+  path: string,
+  options?: { method?: string; body?: unknown; timeout?: number },
+): Promise<{ status: number; body: string }> {
+  return page.evaluate(
+    async ({ url, method, body, timeout }) => {
+      const response = await fetch(url, {
+        method,
+        credentials: "include",
+        headers:
+          body === undefined
+            ? undefined
+            : { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: timeout ? AbortSignal.timeout(timeout) : undefined,
+      });
+      return { status: response.status, body: await response.text() };
+    },
+    {
+      url: apiUrl(page, path),
+      method: options?.method ?? "GET",
+      body: options?.body,
+      timeout: options?.timeout,
+    },
+  );
+}
+
+type OriginDiagnostic = {
+  origin: string;
+  phase: "GET" | "preflight" | "mutation" | "rejection";
+  status?: number;
+  headers?: Record<string, string>;
+  error?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:7702:  // query uses customFetch — which throws ApiError on non-2xx, preserving the
+lib/api-spec/orval.config.ts:84:          name: "customFetch",
+lib/api-client-react/src/index.ts:1:export { setBaseUrl, setAuthTokenGetter, ApiError, customFetch } from "./custom-fetch";
+lib/api-client-react/src/generated/api.ts:142:import { customFetch } from '../custom-fetch';
+lib/api-client-react/src/generated/api.ts:182:  return customFetch<HealthStatus>(getGetHealthUrl(),
+lib/api-client-react/src/generated/api.ts:202:export const getGetHealthQueryOptions = <TData = Awaited<ReturnType<typeof getHealth>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:229:  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:266:  return customFetch<Project[]>(getListProjectsUrl(params),
+lib/api-client-react/src/generated/api.ts:286:export const getListProjectsQueryOptions = <TData = Awaited<ReturnType<typeof listProjects>>, TError = ErrorType<unknown>>(params?: ListProjectsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProjects>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:313: params?: ListProjectsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProjects>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:343:  return customFetch<Project>(getCreateProjectUrl(),
+lib/api-client-react/src/generated/api.ts:357:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProject>>, TError,{data: BodyType<CreateProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:391:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProject>>, TError,{data: BodyType<CreateProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:414:  return customFetch<Project>(getGetProjectUrl(projectId),
+lib/api-client-react/src/generated/api.ts:434:export const getGetProjectQueryOptions = <TData = Awaited<ReturnType<typeof getProject>>, TError = ErrorType<unknown>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProject>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:461: projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProject>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:492:  return customFetch<Project>(getUpdateProjectUrl(projectId),
+lib/api-client-react/src/generated/api.ts:506:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProject>>, TError,{projectId: string;data: BodyType<UpdateProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:540:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProject>>, TError,{projectId: string;data: BodyType<UpdateProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:563:  return customFetch<void>(getDeleteProjectUrl(projectId),
+lib/api-client-react/src/generated/api.ts:577:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:611:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:634:  return customFetch<ScanJob>(getScanProjectUrl(projectId),
+lib/api-client-react/src/generated/api.ts:648:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scanProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:682:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scanProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:707:  return customFetch<ScanJob>(getGetScanJobUrl(projectId,jobId),
+lib/api-client-react/src/generated/api.ts:729:    jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScanJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:757:    jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScanJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:787:  return customFetch<ProjectSummary>(getGetProjectSummaryUrl(projectId),
+lib/api-client-react/src/generated/api.ts:807:export const getGetProjectSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getProjectSummary>>, TError = ErrorType<unknown>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:834: projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:871:  return customFetch<Task[]>(getListTasksUrl(params),
+lib/api-client-react/src/generated/api.ts:891:export const getListTasksQueryOptions = <TData = Awaited<ReturnType<typeof listTasks>>, TError = ErrorType<unknown>>(params?: ListTasksParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTasks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:918: params?: ListTasksParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTasks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:948:  return customFetch<Task>(getCreateTaskUrl(),
+lib/api-client-react/src/generated/api.ts:962:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTask>>, TError,{data: BodyType<CreateTaskInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:996:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTask>>, TError,{data: BodyType<CreateTaskInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1019:  return customFetch<Task>(getGetTaskUrl(taskId),
+lib/api-client-react/src/generated/api.ts:1039:export const getGetTaskQueryOptions = <TData = Awaited<ReturnType<typeof getTask>>, TError = ErrorType<unknown>>(taskId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTask>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1066: taskId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTask>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1097:  return customFetch<Task>(getUpdateTaskUrl(taskId),
+lib/api-client-react/src/generated/api.ts:1111:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTask>>, TError,{taskId: string;data: BodyType<UpdateTaskInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1145:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTask>>, TError,{taskId: string;data: BodyType<UpdateTaskInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1168:  return customFetch<void>(getDeleteTaskUrl(taskId),
+lib/api-client-react/src/generated/api.ts:1182:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1216:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1239:  return customFetch<Task>(getExecuteTaskUrl(taskId),
+lib/api-client-react/src/generated/api.ts:1253:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof executeTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1287:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof executeTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1310:  return customFetch<Task>(getRetryTaskUrl(taskId),
+lib/api-client-react/src/generated/api.ts:1324:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1358:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1381:  return customFetch<Task>(getRollbackTaskUrl(taskId),
+lib/api-client-react/src/generated/api.ts:1395:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rollbackTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1429:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rollbackTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1452:  return customFetch<TaskLog[]>(getGetTaskLogsUrl(taskId),
+lib/api-client-react/src/generated/api.ts:1472:export const getGetTaskLogsQueryOptions = <TData = Awaited<ReturnType<typeof getTaskLogs>>, TError = ErrorType<unknown>>(taskId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTaskLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1499: taskId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTaskLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1536:  return customFetch<Rule[]>(getListRulesUrl(params),
+lib/api-client-react/src/generated/api.ts:1556:export const getListRulesQueryOptions = <TData = Awaited<ReturnType<typeof listRules>>, TError = ErrorType<unknown>>(params?: ListRulesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRules>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1583: params?: ListRulesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRules>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1613:  return customFetch<Rule>(getCreateRuleUrl(),
+lib/api-client-react/src/generated/api.ts:1627:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRule>>, TError,{data: BodyType<CreateRuleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1661:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRule>>, TError,{data: BodyType<CreateRuleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1684:  return customFetch<Rule>(getGetRuleUrl(ruleId),
+lib/api-client-react/src/generated/api.ts:1704:export const getGetRuleQueryOptions = <TData = Awaited<ReturnType<typeof getRule>>, TError = ErrorType<unknown>>(ruleId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRule>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1731: ruleId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRule>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1762:  return customFetch<Rule>(getUpdateRuleUrl(ruleId),
+lib/api-client-react/src/generated/api.ts:1776:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRule>>, TError,{ruleId: string;data: BodyType<UpdateRuleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1810:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRule>>, TError,{ruleId: string;data: BodyType<UpdateRuleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1833:  return customFetch<void>(getDeleteRuleUrl(ruleId),
+lib/api-client-react/src/generated/api.ts:1847:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRule>>, TError,{ruleId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1881:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRule>>, TError,{ruleId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1905:  return customFetch<RuleEvaluationResult>(getEvaluateRuleUrl(ruleId),
+lib/api-client-react/src/generated/api.ts:1919:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof evaluateRule>>, TError,{ruleId: string;data: BodyType<EvaluateRuleRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1953:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof evaluateRule>>, TError,{ruleId: string;data: BodyType<EvaluateRuleRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:1983:  return customFetch<Workflow[]>(getListWorkflowsUrl(params),
+lib/api-client-react/src/generated/api.ts:2003:export const getListWorkflowsQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflows>>, TError = ErrorType<unknown>>(params?: ListWorkflowsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWorkflows>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2030: params?: ListWorkflowsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWorkflows>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2060:  return customFetch<Workflow>(getCreateWorkflowUrl(),
+lib/api-client-react/src/generated/api.ts:2074:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkflow>>, TError,{data: BodyType<CreateWorkflowInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2108:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkflow>>, TError,{data: BodyType<CreateWorkflowInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2131:  return customFetch<Workflow>(getGetWorkflowUrl(workflowId),
+lib/api-client-react/src/generated/api.ts:2151:export const getGetWorkflowQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflow>>, TError = ErrorType<unknown>>(workflowId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWorkflow>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2178: workflowId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWorkflow>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2208:  return customFetch<void>(getDeleteWorkflowUrl(workflowId),
+lib/api-client-react/src/generated/api.ts:2222:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflow>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2256:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflow>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2279:  return customFetch<WorkflowExecution>(getStartWorkflowUrl(workflowId),
+lib/api-client-react/src/generated/api.ts:2293:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startWorkflow>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2327:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startWorkflow>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2350:  return customFetch<WorkflowExecution>(getStopWorkflowUrl(workflowId),
+lib/api-client-react/src/generated/api.ts:2364:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopWorkflow>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2398:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopWorkflow>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2421:  return customFetch<WorkflowExecution[]>(getListWorkflowExecutionsUrl(workflowId),
+lib/api-client-react/src/generated/api.ts:2441:export const getListWorkflowExecutionsQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowExecutions>>, TError = ErrorType<unknown>>(workflowId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWorkflowExecutions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2468: workflowId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWorkflowExecutions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2498:  return customFetch<WorkflowExecution>(getAdvanceWorkflowUrl(workflowId),
+lib/api-client-react/src/generated/api.ts:2512:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof advanceWorkflow>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2546:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof advanceWorkflow>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2570:  return customFetch<WorkflowExecution>(getFailWorkflowPhaseUrl(workflowId),
+lib/api-client-react/src/generated/api.ts:2584:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof failWorkflowPhase>>, TError,{workflowId: string;data?: BodyType<FailWorkflowPhaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2618:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof failWorkflowPhase>>, TError,{workflowId: string;data?: BodyType<FailWorkflowPhaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2643:  return customFetch<WorkflowExecution>(getRetryWorkflowPhaseUrl(workflowId,executionId),
+lib/api-client-react/src/generated/api.ts:2657:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryWorkflowPhase>>, TError,{workflowId: string;executionId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2691:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryWorkflowPhase>>, TError,{workflowId: string;executionId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2717:  return customFetch<WorkflowExecution>(getRollbackWorkflowPhaseUrl(workflowId,executionId),
+lib/api-client-react/src/generated/api.ts:2731:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rollbackWorkflowPhase>>, TError,{workflowId: string;executionId: string;data: BodyType<RollbackWorkflowPhaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2765:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rollbackWorkflowPhase>>, TError,{workflowId: string;executionId: string;data: BodyType<RollbackWorkflowPhaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2795:  return customFetch<ListEvents200>(getListEventsUrl(params),
+lib/api-client-react/src/generated/api.ts:2815:export const getListEventsQueryOptions = <TData = Awaited<ReturnType<typeof listEvents>>, TError = ErrorType<unknown>>(params?: ListEventsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2842: params?: ListEventsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2879:  return customFetch<MetricRecord[]>(getListMetricsUrl(params),
+lib/api-client-react/src/generated/api.ts:2899:export const getListMetricsQueryOptions = <TData = Awaited<ReturnType<typeof listMetrics>>, TError = ErrorType<unknown>>(params: ListMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2926: params: ListMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:2963:  return customFetch<MetricRecord[]>(getGetLatestMetricsUrl(params),
+lib/api-client-react/src/generated/api.ts:2983:export const getGetLatestMetricsQueryOptions = <TData = Awaited<ReturnType<typeof getLatestMetrics>>, TError = ErrorType<unknown>>(params?: GetLatestMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLatestMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3010: params?: GetLatestMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLatestMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3047:  return customFetch<GraphEntityList>(getListGraphEntitiesUrl(params),
+lib/api-client-react/src/generated/api.ts:3067:export const getListGraphEntitiesQueryOptions = <TData = Awaited<ReturnType<typeof listGraphEntities>>, TError = ErrorType<unknown>>(params?: ListGraphEntitiesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGraphEntities>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3094: params?: ListGraphEntitiesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGraphEntities>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3131:  return customFetch<GraphRelationshipList>(getListGraphRelationshipsUrl(params),
+lib/api-client-react/src/generated/api.ts:3151:export const getListGraphRelationshipsQueryOptions = <TData = Awaited<ReturnType<typeof listGraphRelationships>>, TError = ErrorType<unknown>>(params?: ListGraphRelationshipsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGraphRelationships>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3178: params?: ListGraphRelationshipsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGraphRelationships>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3215:  return customFetch<GraphImpactResult>(getGetGraphEntityImpactUrl(params),
+lib/api-client-react/src/generated/api.ts:3235:export const getGetGraphEntityImpactQueryOptions = <TData = Awaited<ReturnType<typeof getGraphEntityImpact>>, TError = ErrorType<ApiError>>(params: GetGraphEntityImpactParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphEntityImpact>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3262: params: GetGraphEntityImpactParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphEntityImpact>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3299:  return customFetch<GraphPathResult>(getGetGraphPathUrl(params),
+lib/api-client-react/src/generated/api.ts:3319:export const getGetGraphPathQueryOptions = <TData = Awaited<ReturnType<typeof getGraphPath>>, TError = ErrorType<unknown>>(params: GetGraphPathParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphPath>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3346: params: GetGraphPathParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphPath>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3376:  return customFetch<GraphSummary>(getGetGraphSummaryUrl(projectId),
+lib/api-client-react/src/generated/api.ts:3396:export const getGetGraphSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getGraphSummary>>, TError = ErrorType<unknown>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3423: projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3453:  return customFetch<GetGraphEntityNeighbors200>(getGetGraphEntityNeighborsUrl(entityId),
+lib/api-client-react/src/generated/api.ts:3473:export const getGetGraphEntityNeighborsQueryOptions = <TData = Awaited<ReturnType<typeof getGraphEntityNeighbors>>, TError = ErrorType<ApiError>>(entityId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphEntityNeighbors>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3500: entityId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphEntityNeighbors>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3537:  return customFetch<GraphSubgraph>(getGetGraphSubgraphUrl(params),
+lib/api-client-react/src/generated/api.ts:3557:export const getGetGraphSubgraphQueryOptions = <TData = Awaited<ReturnType<typeof getGraphSubgraph>>, TError = ErrorType<ApiError>>(params: GetGraphSubgraphParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphSubgraph>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3584: params: GetGraphSubgraphParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphSubgraph>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3621:  return customFetch<GraphSemanticNeighborhood>(getGetGraphSemanticNeighborhoodUrl(params),
+lib/api-client-react/src/generated/api.ts:3641:export const getGetGraphSemanticNeighborhoodQueryOptions = <TData = Awaited<ReturnType<typeof getGraphSemanticNeighborhood>>, TError = ErrorType<ApiError>>(params: GetGraphSemanticNeighborhoodParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphSemanticNeighborhood>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3668: params: GetGraphSemanticNeighborhoodParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphSemanticNeighborhood>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3698:  return customFetch<GraphEvidenceResponse>(getGetGraphEvidenceUrl(entityId),
+lib/api-client-react/src/generated/api.ts:3718:export const getGetGraphEvidenceQueryOptions = <TData = Awaited<ReturnType<typeof getGraphEvidence>>, TError = ErrorType<ApiError>>(entityId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphEvidence>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3745: entityId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphEvidence>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3775:  return customFetch<GraphRuntimeSubgraph>(getGetGraphRuntimeSubgraphUrl(projectId),
+lib/api-client-react/src/generated/api.ts:3795:export const getGetGraphRuntimeSubgraphQueryOptions = <TData = Awaited<ReturnType<typeof getGraphRuntimeSubgraph>>, TError = ErrorType<ApiError>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphRuntimeSubgraph>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3822: projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGraphRuntimeSubgraph>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3852:  return customFetch<Plugin[]>(getListPluginsUrl(),
+lib/api-client-react/src/generated/api.ts:3872:export const getListPluginsQueryOptions = <TData = Awaited<ReturnType<typeof listPlugins>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlugins>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3899:  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlugins>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3930:  return customFetch<Plugin>(getEnablePluginUrl(pluginId),
+lib/api-client-react/src/generated/api.ts:3944:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enablePlugin>>, TError,{pluginId: string;data: BodyType<PluginProjectRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:3978:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enablePlugin>>, TError,{pluginId: string;data: BodyType<PluginProjectRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:4002:  return customFetch<Plugin>(getDisablePluginUrl(pluginId),
+lib/api-client-react/src/generated/api.ts:4016:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disablePlugin>>, TError,{pluginId: string;data: BodyType<PluginProjectRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:4050:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disablePlugin>>, TError,{pluginId: string;data: BodyType<PluginProjectRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:4073:  return customFetch<DiscoverySourceCapability[]>(getListDiscoverySourcesUrl(),
+lib/api-client-react/src/generated/api.ts:4093:export const getListDiscoverySourcesQueryOptions = <TData = Awaited<ReturnType<typeof listDiscoverySources>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDiscoverySources>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:4120:  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDiscoverySources>>, TError, TData>, request?: SecondParameter<typeof customFetch>}

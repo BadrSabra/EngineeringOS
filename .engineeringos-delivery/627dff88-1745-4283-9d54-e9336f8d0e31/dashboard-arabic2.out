@@ -1,0 +1,613 @@
+
+> @workspace/dashboard@0.0.0 test:e2e /home/runner/workspace/artifacts/dashboard
+> playwright test --config=e2e/playwright.config.ts -- --grep 'renders an Arabic source-backed AI answer without internal diagnostics' --reporter=line
+
+
+Running 25 tests using 1 worker
+
+  ✘   1 e2e/dashboard.journey.ts:1515:3 › EngineeringOS dashboard browser journey › exports one redacted live-provider mission correlation report (2ms)
+  ✘   2 e2e/dashboard.journey.ts:1783:3 › EngineeringOS dashboard browser journey › signs in and traverses the authenticated operational shell (3ms)
+  ✘   3 e2e/dashboard.journey.ts:1855:3 › EngineeringOS dashboard browser journey › opens failed task and workflow details with redacted recovery guidance (4ms)
+  ✘   4 e2e/dashboard.journey.ts:2049:3 › EngineeringOS dashboard browser journey › converges two browser sessions across reload, reconnect, stale results, and API restart (5ms)
+  ✘   5 e2e/dashboard.journey.ts:2147:3 › EngineeringOS dashboard browser journey › previews and downloads the completed execution audit without duplicating effects (3ms)
+  ✘   6 e2e/dashboard.journey.ts:2248:3 › EngineeringOS dashboard browser journey › keeps the cancelled execution audit handoff redacted and terminal (3ms)
+  ✘   7 e2e/dashboard.journey.ts:2374:3 › EngineeringOS dashboard browser journey › uploads an archive and renders a live task update (6ms)
+  ✘   8 e2e/dashboard.journey.ts:2439:3 › EngineeringOS dashboard browser journey › recovers a live task update after a temporary stream failure (3ms)
+  ✘   9 e2e/dashboard.journey.ts:2490:3 › EngineeringOS dashboard browser journey › shows an actionable terminal state when live task reconnects are exhausted (5ms)
+  ✘  10 e2e/dashboard.journey.ts:2553:3 › EngineeringOS dashboard browser journey › pages and reloads the filtered event stream without losing its window (6ms)
+  ✘  11 e2e/dashboard.journey.ts:2653:3 › EngineeringOS dashboard browser journey › renders an Arabic source-backed AI answer without internal diagnostics (3ms)
+  ✘  12 e2e/dashboard.journey.ts:2706:3 › EngineeringOS dashboard browser journey › keeps the AI session drawer overlaid on a phone viewport with accepted evidence (3ms)
+  ✘  13 e2e/dashboard.journey.ts:2745:3 › EngineeringOS dashboard browser journey › keeps safe citation state across browser back and forward navigation with blocked evidence (3ms)
+  ✘  14 e2e/dashboard.journey.ts:2783:3 › EngineeringOS dashboard browser journey › keeps safe citation state when switching projects (2ms)
+  ✘  15 e2e/dashboard.journey.ts:2881:3 › EngineeringOS dashboard browser journey › keeps safe citation state across repeated navigation (3ms)
+  ✘  16 e2e/dashboard.journey.ts:3000:3 › EngineeringOS dashboard browser journey › keeps only the safe blocked citation reason after chat reload (5ms)
+  ✘  17 e2e/dashboard.journey.ts:3039:3 › EngineeringOS dashboard browser journey › keeps the failed AI session drawer overlaid on a phone viewport (3ms)
+  ✘  18 e2e/dashboard.journey.ts:3081:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete (2ms)
+  ✘  19 e2e/dashboard.journey.ts:3128:3 › EngineeringOS dashboard browser journey › resumes a failed analysis and keeps the execution incomplete (8ms)
+  ✘  20 e2e/dashboard.journey.ts:3202:3 › EngineeringOS dashboard browser journey › recovers a missing token after a real stream abort and resumes one execution (3ms)
+  ✘  21 e2e/dashboard.journey.ts:3351:3 › EngineeringOS dashboard browser journey › projects delivery recovery states safely after reload (3ms)
+  ✘  22 e2e/dashboard.journey.ts:3494:3 › EngineeringOS dashboard browser journey › explains when delivery recovery loses a race and refreshes state (2ms)
+  ✘  23 e2e/dashboard.journey.ts:3583:3 › EngineeringOS dashboard browser journey › explains when an old recovery link points to a deleted operation (2ms)
+  ✘  24 e2e/dashboard.journey.ts:3653:3 › EngineeringOS dashboard browser journey › keeps the resumed AI session drawer overlaid on a phone viewport (2ms)
+  ✘  25 e2e/dashboard.journey.ts:3685:3 › EngineeringOS dashboard browser journey › renders a user-visible API failure state (4ms)
+
+
+  1) e2e/dashboard.journey.ts:1515:3 › EngineeringOS dashboard browser journey › exports one redacted live-provider mission correlation report 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-a2089--mission-correlation-report/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-a2089--mission-correlation-report/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-a2089--mission-correlation-report/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) e2e/dashboard.journey.ts:1783:3 › EngineeringOS dashboard browser journey › signs in and traverses the authenticated operational shell 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-629d5-enticated-operational-shell/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-629d5-enticated-operational-shell/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-629d5-enticated-operational-shell/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) e2e/dashboard.journey.ts:1855:3 › EngineeringOS dashboard browser journey › opens failed task and workflow details with redacted recovery guidance 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-da370--redacted-recovery-guidance/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-da370--redacted-recovery-guidance/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-da370--redacted-recovery-guidance/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) e2e/dashboard.journey.ts:2049:3 › EngineeringOS dashboard browser journey › converges two browser sessions across reload, reconnect, stale results, and API restart 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-246f5-ale-results-and-API-restart/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-246f5-ale-results-and-API-restart/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-246f5-ale-results-and-API-restart/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) e2e/dashboard.journey.ts:2147:3 › EngineeringOS dashboard browser journey › previews and downloads the completed execution audit without duplicating effects 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-86ad1-without-duplicating-effects/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-86ad1-without-duplicating-effects/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-86ad1-without-duplicating-effects/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) e2e/dashboard.journey.ts:2248:3 › EngineeringOS dashboard browser journey › keeps the cancelled execution audit handoff redacted and terminal 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-a1b31-ndoff-redacted-and-terminal/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-a1b31-ndoff-redacted-and-terminal/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-a1b31-ndoff-redacted-and-terminal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  7) e2e/dashboard.journey.ts:2374:3 › EngineeringOS dashboard browser journey › uploads an archive and renders a live task update 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-ad8ee--renders-a-live-task-update/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-ad8ee--renders-a-live-task-update/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-ad8ee--renders-a-live-task-update/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  8) e2e/dashboard.journey.ts:2439:3 › EngineeringOS dashboard browser journey › recovers a live task update after a temporary stream failure 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-57444--a-temporary-stream-failure/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-57444--a-temporary-stream-failure/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-57444--a-temporary-stream-failure/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  9) e2e/dashboard.journey.ts:2490:3 › EngineeringOS dashboard browser journey › shows an actionable terminal state when live task reconnects are exhausted 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-6eece-sk-reconnects-are-exhausted/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-6eece-sk-reconnects-are-exhausted/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-6eece-sk-reconnects-are-exhausted/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  10) e2e/dashboard.journey.ts:2553:3 › EngineeringOS dashboard browser journey › pages and reloads the filtered event stream without losing its window 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-18301-m-without-losing-its-window/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-18301-m-without-losing-its-window/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-18301-m-without-losing-its-window/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  11) e2e/dashboard.journey.ts:2653:3 › EngineeringOS dashboard browser journey › renders an Arabic source-backed AI answer without internal diagnostics 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  12) e2e/dashboard.journey.ts:2706:3 › EngineeringOS dashboard browser journey › keeps the AI session drawer overlaid on a phone viewport with accepted evidence 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-e3df5-port-with-accepted-evidence/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-e3df5-port-with-accepted-evidence/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-e3df5-port-with-accepted-evidence/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  13) e2e/dashboard.journey.ts:2745:3 › EngineeringOS dashboard browser journey › keeps safe citation state across browser back and forward navigation with blocked evidence 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-f8501-ation-with-blocked-evidence/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-f8501-ation-with-blocked-evidence/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-f8501-ation-with-blocked-evidence/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  14) e2e/dashboard.journey.ts:2783:3 › EngineeringOS dashboard browser journey › keeps safe citation state when switching projects 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-18cb1-ate-when-switching-projects/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-18cb1-ate-when-switching-projects/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-18cb1-ate-when-switching-projects/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  15) e2e/dashboard.journey.ts:2881:3 › EngineeringOS dashboard browser journey › keeps safe citation state across repeated navigation 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-94c73--across-repeated-navigation/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-94c73--across-repeated-navigation/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-94c73--across-repeated-navigation/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  16) e2e/dashboard.journey.ts:3000:3 › EngineeringOS dashboard browser journey › keeps only the safe blocked citation reason after chat reload 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-04417-on-reason-after-chat-reload/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-04417-on-reason-after-chat-reload/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-04417-on-reason-after-chat-reload/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  17) e2e/dashboard.journey.ts:3039:3 › EngineeringOS dashboard browser journey › keeps the failed AI session drawer overlaid on a phone viewport 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-26a58-verlaid-on-a-phone-viewport/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-26a58-verlaid-on-a-phone-viewport/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-26a58-verlaid-on-a-phone-viewport/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  18) e2e/dashboard.journey.ts:3081:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  19) e2e/dashboard.journey.ts:3128:3 › EngineeringOS dashboard browser journey › resumes a failed analysis and keeps the execution incomplete 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-e1c61-ps-the-execution-incomplete/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-e1c61-ps-the-execution-incomplete/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-e1c61-ps-the-execution-incomplete/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  20) e2e/dashboard.journey.ts:3202:3 › EngineeringOS dashboard browser journey › recovers a missing token after a real stream abort and resumes one execution 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-facbb-t-and-resumes-one-execution/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-facbb-t-and-resumes-one-execution/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-facbb-t-and-resumes-one-execution/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  21) e2e/dashboard.journey.ts:3351:3 › EngineeringOS dashboard browser journey › projects delivery recovery states safely after reload 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-a58f2--states-safely-after-reload/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-a58f2--states-safely-after-reload/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-a58f2--states-safely-after-reload/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  22) e2e/dashboard.journey.ts:3494:3 › EngineeringOS dashboard browser journey › explains when delivery recovery loses a race and refreshes state 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-04afb--a-race-and-refreshes-state/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-04afb--a-race-and-refreshes-state/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-04afb--a-race-and-refreshes-state/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  23) e2e/dashboard.journey.ts:3583:3 › EngineeringOS dashboard browser journey › explains when an old recovery link points to a deleted operation 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-b9235-ints-to-a-deleted-operation/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-b9235-ints-to-a-deleted-operation/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-b9235-ints-to-a-deleted-operation/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  24) e2e/dashboard.journey.ts:3653:3 › EngineeringOS dashboard browser journey › keeps the resumed AI session drawer overlaid on a phone viewport 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-70473-verlaid-on-a-phone-viewport/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-70473-verlaid-on-a-phone-viewport/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-70473-verlaid-on-a-phone-viewport/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  25) e2e/dashboard.journey.ts:3685:3 › EngineeringOS dashboard browser journey › renders a user-visible API failure state 
+
+    Error: browserType.launch: Executable doesn't exist at /home/runner/workspace/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/dashboard.journey.ts-Engin-f85c5-r-visible-API-failure-state/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-f85c5-r-visible-API-failure-state/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-f85c5-r-visible-API-failure-state/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  25 failed
+    e2e/dashboard.journey.ts:1515:3 › EngineeringOS dashboard browser journey › exports one redacted live-provider mission correlation report 
+    e2e/dashboard.journey.ts:1783:3 › EngineeringOS dashboard browser journey › signs in and traverses the authenticated operational shell 
+    e2e/dashboard.journey.ts:1855:3 › EngineeringOS dashboard browser journey › opens failed task and workflow details with redacted recovery guidance 
+    e2e/dashboard.journey.ts:2049:3 › EngineeringOS dashboard browser journey › converges two browser sessions across reload, reconnect, stale results, and API restart 
+    e2e/dashboard.journey.ts:2147:3 › EngineeringOS dashboard browser journey › previews and downloads the completed execution audit without duplicating effects 
+    e2e/dashboard.journey.ts:2248:3 › EngineeringOS dashboard browser journey › keeps the cancelled execution audit handoff redacted and terminal 
+    e2e/dashboard.journey.ts:2374:3 › EngineeringOS dashboard browser journey › uploads an archive and renders a live task update 
+    e2e/dashboard.journey.ts:2439:3 › EngineeringOS dashboard browser journey › recovers a live task update after a temporary stream failure 
+    e2e/dashboard.journey.ts:2490:3 › EngineeringOS dashboard browser journey › shows an actionable terminal state when live task reconnects are exhausted 
+    e2e/dashboard.journey.ts:2553:3 › EngineeringOS dashboard browser journey › pages and reloads the filtered event stream without losing its window 
+    e2e/dashboard.journey.ts:2653:3 › EngineeringOS dashboard browser journey › renders an Arabic source-backed AI answer without internal diagnostics 
+    e2e/dashboard.journey.ts:2706:3 › EngineeringOS dashboard browser journey › keeps the AI session drawer overlaid on a phone viewport with accepted evidence 
+    e2e/dashboard.journey.ts:2745:3 › EngineeringOS dashboard browser journey › keeps safe citation state across browser back and forward navigation with blocked evidence 
+    e2e/dashboard.journey.ts:2783:3 › EngineeringOS dashboard browser journey › keeps safe citation state when switching projects 
+    e2e/dashboard.journey.ts:2881:3 › EngineeringOS dashboard browser journey › keeps safe citation state across repeated navigation 
+    e2e/dashboard.journey.ts:3000:3 › EngineeringOS dashboard browser journey › keeps only the safe blocked citation reason after chat reload 
+    e2e/dashboard.journey.ts:3039:3 › EngineeringOS dashboard browser journey › keeps the failed AI session drawer overlaid on a phone viewport 
+    e2e/dashboard.journey.ts:3081:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete 
+    e2e/dashboard.journey.ts:3128:3 › EngineeringOS dashboard browser journey › resumes a failed analysis and keeps the execution incomplete 
+    e2e/dashboard.journey.ts:3202:3 › EngineeringOS dashboard browser journey › recovers a missing token after a real stream abort and resumes one execution 
+    e2e/dashboard.journey.ts:3351:3 › EngineeringOS dashboard browser journey › projects delivery recovery states safely after reload 
+    e2e/dashboard.journey.ts:3494:3 › EngineeringOS dashboard browser journey › explains when delivery recovery loses a race and refreshes state 
+    e2e/dashboard.journey.ts:3583:3 › EngineeringOS dashboard browser journey › explains when an old recovery link points to a deleted operation 
+    e2e/dashboard.journey.ts:3653:3 › EngineeringOS dashboard browser journey › keeps the resumed AI session drawer overlaid on a phone viewport 
+    e2e/dashboard.journey.ts:3685:3 › EngineeringOS dashboard browser journey › renders a user-visible API failure state 
+/home/runner/workspace/artifacts/dashboard:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/dashboard@0.0.0 test:e2e: `playwright test --config=e2e/playwright.config.ts -- --grep 'renders an Arabic source-backed AI answer without internal diagnostics' --reporter=line`
+Exit status 1
