@@ -10,6 +10,7 @@ import {
 import { projectsTable } from "./projects.js";
 import { rulesTable } from "./rules.js";
 import { workflowsTable } from "./workflows.js";
+import type { RuleVerificationCheck } from "./rules.js";
 
 export type RemediationPlanStatus = "needs_review" | "ready" | "verified";
 
@@ -36,6 +37,8 @@ export interface RemediationPlan {
   relatedFiles: string[];
   fixDescription: string | null;
   verificationSteps: string[];
+  /** Server-owned checks derived from verificationSteps. */
+  verificationChecks?: RuleVerificationCheck[];
   source: {
     type: "scan" | "discovery";
     correlationId: string | null;
@@ -84,7 +87,16 @@ export const tasksTable = pgTable("tasks", {
   agentResponse: text("agent_response"),
   verificationResult: jsonb("verification_result").$type<{
     passed: boolean;
-    steps: Array<{ name: string; passed: boolean; output?: string }>;
+    decision?: "verified" | "incomplete" | "failed" | "cancelled";
+    steps: Array<{
+      id?: string;
+      name: string;
+      kind?: "automatic" | "operator_attestation";
+      guidance?: string;
+      passed: boolean;
+      evidence?: string;
+      output?: string;
+    }>;
   }>(),
   /** Optional structured context for tasks created from rule violations. */
   remediationPlan: jsonb("remediation_plan").$type<RemediationPlan>(),

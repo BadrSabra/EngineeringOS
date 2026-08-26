@@ -115,6 +115,7 @@ import type {
   Project,
   ProjectSummary,
   ProviderKeyStatus,
+  RecordTaskVerificationInput,
   RecoverAiExecution200,
   RecoverAiExecutionResumeCapability200,
   RegenerateMissionCorrelationReport200,
@@ -1292,6 +1293,78 @@ export const useExecuteTask = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getExecuteTaskMutationOptions(options));
+    }
+
+export const getRecordTaskVerificationUrl = (taskId: string,) => {
+
+
+
+
+  return `/api/tasks/${taskId}/verification`
+}
+
+/**
+ * @summary Record an operator result for a server-owned verification check
+ */
+export const recordTaskVerification = async (taskId: string,
+    recordTaskVerificationInput: RecordTaskVerificationInput, options?: RequestInit): Promise<Task> => {
+
+  return customFetch<Task>(getRecordTaskVerificationUrl(taskId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(recordTaskVerificationInput)
+  }
+);}
+
+
+
+
+
+export const getRecordTaskVerificationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordTaskVerification>>, TError,{taskId: string;data: BodyType<RecordTaskVerificationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordTaskVerification>>, TError,{taskId: string;data: BodyType<RecordTaskVerificationInput>}, TContext> => {
+
+const mutationKey = ['recordTaskVerification'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordTaskVerification>>, {taskId: string;data: BodyType<RecordTaskVerificationInput>}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  recordTaskVerification(taskId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordTaskVerificationMutationResult = NonNullable<Awaited<ReturnType<typeof recordTaskVerification>>>
+    export type RecordTaskVerificationMutationBody = BodyType<RecordTaskVerificationInput>
+    export type RecordTaskVerificationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Record an operator result for a server-owned verification check
+ */
+export const useRecordTaskVerification = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordTaskVerification>>, TError,{taskId: string;data: BodyType<RecordTaskVerificationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recordTaskVerification>>,
+        TError,
+        {taskId: string;data: BodyType<RecordTaskVerificationInput>},
+        TContext
+      > => {
+      return useMutation(getRecordTaskVerificationMutationOptions(options));
     }
 
 export const getRetryTaskUrl = (taskId: string,) => {

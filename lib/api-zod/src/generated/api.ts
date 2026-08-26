@@ -311,6 +311,8 @@ export const listTasksResponseRemediationPlanRelatedFilesMax = 20;
 
 export const listTasksResponseRemediationPlanVerificationStepsMax = 20;
 
+export const listTasksResponseRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const ListTasksResponseItem = zod.object({
@@ -331,9 +333,14 @@ export const ListTasksResponseItem = zod.object({
   "agentResponse": zod.string().optional(),
   "verificationResult": zod.object({
   "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
   "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
   "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
   "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
   "output": zod.string().optional()
 }))
 }).optional(),
@@ -353,6 +360,11 @@ export const ListTasksResponseItem = zod.object({
   "relatedFiles": zod.array(zod.string()).max(listTasksResponseRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(listTasksResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(listTasksResponseRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),
@@ -394,6 +406,8 @@ export const createTaskResponseRemediationPlanRelatedFilesMax = 20;
 
 export const createTaskResponseRemediationPlanVerificationStepsMax = 20;
 
+export const createTaskResponseRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const CreateTaskResponse = zod.object({
@@ -414,9 +428,14 @@ export const CreateTaskResponse = zod.object({
   "agentResponse": zod.string().optional(),
   "verificationResult": zod.object({
   "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
   "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
   "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
   "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
   "output": zod.string().optional()
 }))
 }).optional(),
@@ -436,6 +455,11 @@ export const CreateTaskResponse = zod.object({
   "relatedFiles": zod.array(zod.string()).max(createTaskResponseRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(createTaskResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(createTaskResponseRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),
@@ -468,6 +492,8 @@ export const getTaskResponseRemediationPlanRelatedFilesMax = 20;
 
 export const getTaskResponseRemediationPlanVerificationStepsMax = 20;
 
+export const getTaskResponseRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const GetTaskResponse = zod.object({
@@ -488,9 +514,14 @@ export const GetTaskResponse = zod.object({
   "agentResponse": zod.string().optional(),
   "verificationResult": zod.object({
   "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
   "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
   "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
   "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
   "output": zod.string().optional()
 }))
 }).optional(),
@@ -510,6 +541,11 @@ export const GetTaskResponse = zod.object({
   "relatedFiles": zod.array(zod.string()).max(getTaskResponseRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(getTaskResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(getTaskResponseRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),
@@ -549,6 +585,8 @@ export const updateTaskResponseRemediationPlanRelatedFilesMax = 20;
 
 export const updateTaskResponseRemediationPlanVerificationStepsMax = 20;
 
+export const updateTaskResponseRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const UpdateTaskResponse = zod.object({
@@ -569,9 +607,14 @@ export const UpdateTaskResponse = zod.object({
   "agentResponse": zod.string().optional(),
   "verificationResult": zod.object({
   "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
   "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
   "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
   "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
   "output": zod.string().optional()
 }))
 }).optional(),
@@ -591,6 +634,11 @@ export const UpdateTaskResponse = zod.object({
   "relatedFiles": zod.array(zod.string()).max(updateTaskResponseRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(updateTaskResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(updateTaskResponseRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),
@@ -633,6 +681,8 @@ export const executeTaskResponseRemediationPlanRelatedFilesMax = 20;
 
 export const executeTaskResponseRemediationPlanVerificationStepsMax = 20;
 
+export const executeTaskResponseRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const ExecuteTaskResponse = zod.object({
@@ -653,9 +703,14 @@ export const ExecuteTaskResponse = zod.object({
   "agentResponse": zod.string().optional(),
   "verificationResult": zod.object({
   "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
   "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
   "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
   "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
   "output": zod.string().optional()
 }))
 }).optional(),
@@ -675,6 +730,107 @@ export const ExecuteTaskResponse = zod.object({
   "relatedFiles": zod.array(zod.string()).max(executeTaskResponseRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(executeTaskResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(executeTaskResponseRemediationPlanVerificationChecksMax).optional(),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().optional()
+})
+
+
+/**
+ * @summary Record an operator result for a server-owned verification check
+ */
+export const RecordTaskVerificationParams = zod.object({
+  "taskId": zod.coerce.string()
+})
+
+export const recordTaskVerificationBodyEvidenceMax = 2000;
+
+
+
+export const RecordTaskVerificationBody = zod.object({
+  "checkId": zod.string(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().max(recordTaskVerificationBodyEvidenceMax).optional()
+})
+
+export const recordTaskVerificationResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const recordTaskVerificationResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const recordTaskVerificationResponseRemediationPlanEvidenceMax = 100;
+
+export const recordTaskVerificationResponseRemediationPlanRelatedFilesMax = 20;
+
+export const recordTaskVerificationResponseRemediationPlanVerificationStepsMax = 20;
+
+export const recordTaskVerificationResponseRemediationPlanVerificationChecksMax = 20;
+
+
+
+export const RecordTaskVerificationResponse = zod.object({
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "ruleId": zod.string().optional(),
+  "workflowId": zod.string().optional(),
+  "title": zod.string(),
+  "description": zod.string().optional(),
+  "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
+  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
+  "relatedFiles": zod.array(zod.string()).optional(),
+  "dependsOn": zod.array(zod.string()).optional(),
+  "retryCount": zod.number().optional(),
+  "maxRetries": zod.number().optional(),
+  "phase": zod.string().optional(),
+  "prompt": zod.string().optional(),
+  "agentResponse": zod.string().optional(),
+  "verificationResult": zod.object({
+  "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
+  "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "output": zod.string().optional()
+}))
+}).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(recordTaskVerificationResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(recordTaskVerificationResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(recordTaskVerificationResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(recordTaskVerificationResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(recordTaskVerificationResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(recordTaskVerificationResponseRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),
@@ -707,6 +863,8 @@ export const retryTaskResponseRemediationPlanRelatedFilesMax = 20;
 
 export const retryTaskResponseRemediationPlanVerificationStepsMax = 20;
 
+export const retryTaskResponseRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const RetryTaskResponse = zod.object({
@@ -727,9 +885,14 @@ export const RetryTaskResponse = zod.object({
   "agentResponse": zod.string().optional(),
   "verificationResult": zod.object({
   "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
   "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
   "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
   "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
   "output": zod.string().optional()
 }))
 }).optional(),
@@ -749,6 +912,11 @@ export const RetryTaskResponse = zod.object({
   "relatedFiles": zod.array(zod.string()).max(retryTaskResponseRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(retryTaskResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(retryTaskResponseRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),
@@ -781,6 +949,8 @@ export const rollbackTaskResponseRemediationPlanRelatedFilesMax = 20;
 
 export const rollbackTaskResponseRemediationPlanVerificationStepsMax = 20;
 
+export const rollbackTaskResponseRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const RollbackTaskResponse = zod.object({
@@ -801,9 +971,14 @@ export const RollbackTaskResponse = zod.object({
   "agentResponse": zod.string().optional(),
   "verificationResult": zod.object({
   "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
   "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
   "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
   "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
   "output": zod.string().optional()
 }))
 }).optional(),
@@ -823,6 +998,11 @@ export const RollbackTaskResponse = zod.object({
   "relatedFiles": zod.array(zod.string()).max(rollbackTaskResponseRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(rollbackTaskResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(rollbackTaskResponseRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),
@@ -2623,6 +2803,8 @@ export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanRelated
 
 export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanVerificationStepsMax = 20;
 
+export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const GetDiscoverySummaryResponse = zod.object({
@@ -2685,6 +2867,11 @@ export const GetDiscoverySummaryResponse = zod.object({
   "relatedFiles": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),
@@ -4573,6 +4760,8 @@ export const aiExecuteTaskResponseRemediationPlanRelatedFilesMax = 20;
 
 export const aiExecuteTaskResponseRemediationPlanVerificationStepsMax = 20;
 
+export const aiExecuteTaskResponseRemediationPlanVerificationChecksMax = 20;
+
 
 
 export const AiExecuteTaskResponse = zod.object({
@@ -4593,9 +4782,14 @@ export const AiExecuteTaskResponse = zod.object({
   "agentResponse": zod.string().optional(),
   "verificationResult": zod.object({
   "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
   "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
   "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
   "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
   "output": zod.string().optional()
 }))
 }).optional(),
@@ -4615,6 +4809,11 @@ export const AiExecuteTaskResponse = zod.object({
   "relatedFiles": zod.array(zod.string()).max(aiExecuteTaskResponseRemediationPlanRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
   "verificationSteps": zod.array(zod.string()).max(aiExecuteTaskResponseRemediationPlanVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(aiExecuteTaskResponseRemediationPlanVerificationChecksMax).optional(),
   "source": zod.object({
   "type": zod.enum(['scan', 'discovery']),
   "correlationId": zod.string().nullable(),

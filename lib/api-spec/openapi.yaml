@@ -311,6 +311,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/Task"
 
+  /api/tasks/{taskId}/verification:
+    post:
+      operationId: recordTaskVerification
+      summary: Record an operator result for a server-owned verification check
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordTaskVerificationInput"
+      responses:
+        "200":
+          description: Updated task with the recorded verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
   /api/tasks/{taskId}/retry:
     post:
       operationId: retryTask
@@ -5514,6 +5539,11 @@ components:
           maxItems: 20
           items:
             type: string
+        verificationChecks:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/RuleVerificationCheck"
         source:
           type: object
           required: [type, correlationId, revision, completeness]
@@ -5651,18 +5681,55 @@ components:
       properties:
         passed:
           type: boolean
+        decision:
+          type: string
+          enum: [verified, incomplete, failed, cancelled]
         steps:
           type: array
           items:
             type: object
             required: [name, passed]
             properties:
+              id:
+                type: string
               name:
+                type: string
+              kind:
+                type: string
+                enum: [automatic, operator_attestation]
+              guidance:
                 type: string
               passed:
                 type: boolean
+              evidence:
+                type: string
               output:
                 type: string
+
+    RuleVerificationCheck:
+      type: object
+      required: [id, kind, guidance]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [operator_attestation]
+        guidance:
+          type: string
+
+    RecordTaskVerificationInput:
+      type: object
+      required: [checkId, passed]
+      additionalProperties: false
+      properties:
+        checkId:
+          type: string
+        passed:
+          type: boolean
+        evidence:
+          type: string
+          maxLength: 2000
 
     # ─── Rule ──────────────────────────────────────────────────────────────────
     Rule:

@@ -5,6 +5,7 @@ import {
   useRetryTask,
   useRollbackTask,
   useGetTaskLogs,
+  useRecordTaskVerification,
   getListTasksQueryKey,
   getGetTaskLogsQueryKey,
   type TaskLog,
@@ -70,7 +71,16 @@ type TaskView = {
   agentResponse?: string;
   verificationResult?: {
     passed: boolean;
-    steps: Array<{ name: string; passed: boolean; output?: string }>;
+    decision?: 'verified' | 'incomplete' | 'failed' | 'cancelled';
+    steps: Array<{
+      id?: string;
+      name: string;
+      kind?: 'automatic' | 'operator_attestation';
+      guidance?: string;
+      passed: boolean;
+      evidence?: string;
+      output?: string;
+    }>;
   };
   ruleId?: string;
   remediationPlan?: {
@@ -84,6 +94,7 @@ type TaskView = {
     relatedFiles: string[];
     fixDescription?: string | null;
     verificationSteps: string[];
+    verificationChecks?: Array<{ id: string; kind: 'operator_attestation'; guidance: string }>;
     source: {
       type: string;
       correlationId?: string | null;
@@ -188,6 +199,10 @@ function taskPlan(task: TaskView): Array<{ title: string; status: 'done' | 'acti
 function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: string }) {
   const taskId = task.id;
   const isRunning = taskStatus === 'running';
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const recordVerification = useRecordTaskVerification();
+  const [verificationEvidence, setVerificationEvidence] = useState<Record<string, string>>({});
 
   // Live logs accumulated via SSE while the task is running
   const [liveLogs, setLiveLogs] = useState<TaskLog[]>([]);
@@ -277,6 +292,30 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     setReconnectAttempt(0);
     setConnectionState('reconnecting');
+  };
+  const verificationChecks = task.remediationPlan
+    ? task.remediationPlan.verificationChecks ??
+      task.remediationPlan.verificationSteps.map((guidance, index) => ({
+        id: `rule-verification-${index + 1}`,
+        kind: 'operator_attestation' as const,
+        guidance,
+      }))
+    : [];
+  const recordCheck = (checkId: string, passed: boolean) => {
+    const evidence = verificationEvidence[checkId]?.trim();
+    recordVerification.mutate(
+      { taskId, data: { checkId, passed, ...(evidence ? { evidence } : {}) } },
+      {
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }),
+        onError: (err: unknown) => {
+          toast({
+            title: 'Verification update failed',
+            description: err instanceof Error ? err.message : 'The server could not record this check.',
+            variant: 'destructive',
+          });
+        },
+      },
+    );
   };
 
   return (
@@ -382,6 +421,73 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
         )}
       </div>
       </section>
+      {verificationChecks.length > 0 && taskStatus === 'verifying' && (
+        <section
+          aria-labelledby={`operator-verification-${taskId}`}
+          className="mt-5 rounded-lg border border-primary/30 bg-primary/5 p-4"
+        >
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <h4 id={`operator-verification-${taskId}`} className="text-xs font-semibold uppercase tracking-wider flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-primary" /> Operator verification checks
+              </h4>
+              <p className="text-xs text-muted-foreground mt-1">
+                These checks are server-owned guidance. Record evidence after you perform each check; no model-supplied command is executed.
+              </p>
+            </div>
+            <span className="text-[10px] uppercase text-amber-500 font-semibold shrink-0">Incomplete</span>
+          </div>
+          <div className="space-y-3">
+            {verificationChecks.map((check) => {
+              const result = task.verificationResult?.steps.find((step) => step.id === check.id);
+              const evidence = verificationEvidence[check.id] ?? result?.evidence ?? '';
+              return (
+                <div key={check.id} className="rounded-md border border-border bg-background p-3">
+                  <div className="flex items-start gap-2 text-sm">
+                    {result?.passed
+                      ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                      : <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />}
+                    <div className="min-w-0">
+                      <div className="font-medium">{check.guidance}</div>
+                      <div className="text-[11px] text-muted-foreground mt-1">
+                        {result?.passed ? 'Evidence recorded' : result?.output ?? 'Not recorded yet'}
+                      </div>
+                    </div>
+                  </div>
+                  <textarea
+                    aria-label={`Evidence for ${check.guidance}`}
+                    value={evidence}
+                    onChange={(event) => setVerificationEvidence((previous) => ({ ...previous, [check.id]: event.target.value }))}
+                    placeholder="Describe the observed result or attach a bounded evidence reference"
+                    maxLength={2000}
+                    rows={2}
+                    className="mt-2 w-full rounded border border-border bg-card px-2 py-1.5 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-primary"
+                    disabled={recordVerification.isPending}
+                  />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => recordCheck(check.id, true)}
+                      disabled={recordVerification.isPending || evidence.trim().length === 0}
+                      className="rounded border border-emerald-500/40 px-2.5 py-1 text-xs text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-50"
+                    >
+                      Record passed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => recordCheck(check.id, false)}
+                      disabled={recordVerification.isPending}
+                      className="rounded border border-amber-500/40 px-2.5 py-1 text-xs text-amber-600 hover:bg-amber-500/10 disabled:opacity-50"
+                    >
+                      Record failed
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
       {final && (
         <section aria-labelledby={`report-${taskId}`} className="mt-5 rounded-lg border border-border bg-background p-4">
           <h4 id={`report-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
@@ -397,11 +503,16 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                    ? 'Task cancelled before completion.'
                    : 'Task ended without a confirmed successful verification.'}
            </p>
+          {task.verificationResult?.decision && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              Verification decision: <span className="font-semibold uppercase">{task.verificationResult.decision}</span>
+            </div>
+          )}
           {task.verificationResult?.steps?.length ? (
             <div className="mt-3 space-y-1">{task.verificationResult.steps.map((step) => (
               <div key={step.name} className="flex items-center gap-2 text-xs">
                 {step.passed ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />}
-                <span>{step.name}</span><span className="text-muted-foreground">— {safeTaskText(step.output, step.passed ? 'Passed' : 'Not confirmed')}</span>
+                <span>{step.guidance ?? step.name}</span><span className="text-muted-foreground">— {safeTaskText(step.evidence ?? step.output, step.passed ? 'Passed' : 'Not confirmed')}</span>
               </div>
             ))}</div>
           ) : <p className="text-xs text-muted-foreground mt-2">No server-owned verification details were recorded.</p>}
@@ -780,6 +891,17 @@ export default function Tasks() {
                                   ? ` · revision ${task.remediationPlan.source.revision.slice(0, 12)}`
                                   : ' · revision unavailable'}
                               </div>
+                              {task.status === 'verifying' &&
+                                (task.remediationPlan.verificationChecks?.length ?? task.remediationPlan.verificationSteps.length) > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailTab(task.id, 'logs')}
+                                    className="mt-3 inline-flex items-center gap-1.5 rounded border border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                                  >
+                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                    Run and record verification checks
+                                  </button>
+                                )}
                             </section>
                           )}
                           {task.description && (

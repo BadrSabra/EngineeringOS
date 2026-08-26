@@ -2,6 +2,7 @@ import type {
   RemediationEvidence,
   RemediationPlan,
   RemediationPlanStatus,
+  RuleVerificationCheck,
 } from "@workspace/db";
 
 export const REMEDIATION_PLAN_LIMITS = {
@@ -11,6 +12,16 @@ export const REMEDIATION_PLAN_LIMITS = {
   maxTextLength: 2_000,
   maxVerificationSteps: 20,
 } as const;
+
+export function buildRuleVerificationChecks(
+  verificationSteps: string[],
+): RuleVerificationCheck[] {
+  return verificationSteps.map((guidance, index) => ({
+    id: `rule-verification-${index + 1}`,
+    kind: "operator_attestation",
+    guidance,
+  }));
+}
 
 function boundedText(value: string | null | undefined, max: number): string | null {
   if (typeof value !== "string" || value.length === 0) return null;
@@ -59,6 +70,7 @@ export function buildRemediationPlan(input: RemediationPlanInput): RemediationPl
     .filter((step): step is string => typeof step === "string" && step.trim().length > 0)
     .slice(0, REMEDIATION_PLAN_LIMITS.maxVerificationSteps)
     .map((step) => step.slice(0, REMEDIATION_PLAN_LIMITS.maxTextLength));
+  const verificationChecks = buildRuleVerificationChecks(verificationSteps);
   const fixDescription = boundedText(
     input.fixDescription,
     REMEDIATION_PLAN_LIMITS.maxTextLength,
@@ -75,6 +87,7 @@ export function buildRemediationPlan(input: RemediationPlanInput): RemediationPl
     relatedFiles,
     fixDescription,
     verificationSteps,
+    verificationChecks,
     source: {
       type: input.source.type,
       correlationId: input.source.correlationId?.slice(0, 120) ?? null,

@@ -2069,6 +2069,19 @@ export const RemediationPlanStatus = {
   verified: 'verified',
 } as const;
 
+export type RuleVerificationCheckKind = typeof RuleVerificationCheckKind[keyof typeof RuleVerificationCheckKind];
+
+
+export const RuleVerificationCheckKind = {
+  operator_attestation: 'operator_attestation',
+} as const;
+
+export interface RuleVerificationCheck {
+  id: string;
+  kind: RuleVerificationCheckKind;
+  guidance: string;
+}
+
 export interface RemediationPlan {
   version: RemediationPlanVersion;
   /** @nullable */
@@ -2086,18 +2099,43 @@ export interface RemediationPlan {
   fixDescription?: string | null;
   /** @maxItems 20 */
   verificationSteps: string[];
+  /** @maxItems 20 */
+  verificationChecks?: RuleVerificationCheck[];
   source: RemediationPlanSource;
   status: RemediationPlanStatus;
 }
 
+export type VerificationResultDecision = typeof VerificationResultDecision[keyof typeof VerificationResultDecision];
+
+
+export const VerificationResultDecision = {
+  verified: 'verified',
+  incomplete: 'incomplete',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
+export type VerificationResultStepsItemKind = typeof VerificationResultStepsItemKind[keyof typeof VerificationResultStepsItemKind];
+
+
+export const VerificationResultStepsItemKind = {
+  automatic: 'automatic',
+  operator_attestation: 'operator_attestation',
+} as const;
+
 export type VerificationResultStepsItem = {
+  id?: string;
   name: string;
+  kind?: VerificationResultStepsItemKind;
+  guidance?: string;
   passed: boolean;
+  evidence?: string;
   output?: string;
 };
 
 export interface VerificationResult {
   passed: boolean;
+  decision?: VerificationResultDecision;
   steps: VerificationResultStepsItem[];
 }
 
@@ -2162,6 +2200,13 @@ export interface TaskLog {
   message: string;
   metadata?: TaskLogMetadata;
   timestamp: string;
+}
+
+export interface RecordTaskVerificationInput {
+  checkId: string;
+  passed: boolean;
+  /** @maxLength 2000 */
+  evidence?: string;
 }
 
 export interface Rule {

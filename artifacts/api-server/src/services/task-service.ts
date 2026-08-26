@@ -18,10 +18,15 @@
 import { walkProject, checkPatternInFiles } from "@workspace/scanner";
 import { db, rulesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { buildRuleVerificationChecks } from "../lib/remediation-plan.js";
 
 export interface VerificationStep {
+  id?: string;
   name: string;
+  kind?: "automatic" | "operator_attestation";
+  guidance?: string;
   passed: boolean;
+  evidence?: string;
   output?: string;
 }
 
@@ -46,7 +51,62 @@ export interface VerifiableTask {
     status: "needs_review" | "ready" | "verified";
     evidence: unknown;
     verificationSteps: unknown;
+    verificationChecks?: unknown;
   } | null;
+}
+
+function planVerificationChecks(
+  plan: VerifiableTask["remediationPlan"],
+): Array<{ id: string; kind: "operator_attestation"; guidance: string }> {
+  if (!plan) return [];
+  if (Array.isArray(plan.verificationChecks)) {
+    return plan.verificationChecks.filter(
+      (check): check is { id: string; kind: "operator_attestation"; guidance: string } =>
+        Boolean(
+          check &&
+            typeof check === "object" &&
+            typeof (check as { id?: unknown }).id === "string" &&
+            (check as { kind?: unknown }).kind === "operator_attestation" &&
+            typeof (check as { guidance?: unknown }).guidance === "string",
+        ),
+    );
+  }
+  if (Array.isArray(plan.verificationSteps)) {
+    return buildRuleVerificationChecks(
+      plan.verificationSteps.filter((step): step is string => typeof step === "string"),
+    );
+  }
+  return [];
+}
+
+function appendPendingGuidanceChecks(
+  steps: VerificationStep[],
+  plan: VerifiableTask["remediationPlan"],
+): VerificationStep[] {
+  return [
+    ...steps,
+    ...planVerificationChecks(plan).map((check) => ({
+      id: check.id,
+      name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+      kind: check.kind,
+      guidance: check.guidance,
+      passed: false,
+      output: "Not recorded — operator evidence is required",
+    })),
+  ];
+}
+
+function outcomeWithGuidance(
+  steps: VerificationStep[],
+  plan: VerifiableTask["remediationPlan"],
+  finalStatus: TaskFinalStatus,
+  summary: string,
+): VerificationOutcome {
+  return {
+    finalStatus,
+    steps: appendPendingGuidanceChecks(steps, plan),
+    summary,
+  };
 }
 
 /**
@@ -122,11 +182,12 @@ export async function runTaskVerification(
           passed: false,
           output: "relatedFiles specified but none found in project tree — cannot confirm fix",
         });
-        return {
-          finalStatus: "verifying",
+        return outcomeWithGuidance(
           steps,
-          summary: "Verification inconclusive — related files not found in project tree",
-        };
+          task.remediationPlan,
+          "verifying",
+          "Verification inconclusive — related files not found in project tree",
+        );
       }
     }
 
@@ -140,6 +201,16 @@ export async function runTaskVerification(
           : "Pattern no longer detected — fix confirmed",
       });
       const finalStatus: TaskFinalStatus = patternStillPresent ? "failed" : "completed";
+      if (task.remediationPlan) {
+        return outcomeWithGuidance(
+          steps,
+          task.remediationPlan,
+          patternStillPresent ? "failed" : "verifying",
+          patternStillPresent
+            ? "Task incomplete — rule pattern still present in codebase"
+            : "Pattern check passed — operator verification evidence is still required",
+        );
+      }
       return {
         finalStatus,
         steps,
@@ -162,6 +233,14 @@ export async function runTaskVerification(
 
     if (missing.length === 0) {
       steps.push({ name: "File existence check", passed: true, output: "All related files present" });
+      if (task.remediationPlan) {
+        return outcomeWithGuidance(
+          steps,
+          task.remediationPlan,
+          "verifying",
+          "File check passed — operator verification evidence is still required",
+        );
+      }
       return {
         finalStatus: "completed",
         steps,
@@ -173,23 +252,33 @@ export async function runTaskVerification(
         passed: false,
         output: `Missing files: ${missing.join(", ")}`,
       });
-      return {
-        finalStatus: "verifying",
+      return outcomeWithGuidance(
         steps,
-        summary: "Related files not yet present — awaiting implementation",
-      };
+        task.remediationPlan,
+        "verifying",
+        "Related files not yet present — awaiting implementation",
+      );
     }
   }
 
   // ── Branch 3: no automation signal → hand off to AI / human ──────────────
+  if (task.remediationPlan) {
+    return outcomeWithGuidance(
+      [],
+      task.remediationPlan,
+      "verifying",
+      "Operator verification evidence is required before completion",
+    );
+  }
   steps.push({
     name: "Manual verification required",
     passed: false,
     output: "No rule pattern or related files — task requires AI or human verification",
   });
-  return {
-    finalStatus: "verifying",
+  return outcomeWithGuidance(
     steps,
-    summary: "No automated verification signal — awaiting AI or human confirmation",
-  };
+    task.remediationPlan,
+    "verifying",
+    "No automated verification signal — awaiting AI or human confirmation",
+  );
 }

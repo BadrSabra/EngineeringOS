@@ -9,6 +9,7 @@ import type { RemediationEvidence } from './remediationEvidence';
 import type { RemediationPlanSource } from './remediationPlanSource';
 import type { RemediationPlanStatus } from './remediationPlanStatus';
 import type { RemediationPlanVersion } from './remediationPlanVersion';
+import type { RuleVerificationCheck } from './ruleVerificationCheck';
 
 export interface RemediationPlan {
   version: RemediationPlanVersion;
@@ -27,6 +28,8 @@ export interface RemediationPlan {
   fixDescription?: string | null;
   /** @maxItems 20 */
   verificationSteps: string[];
+  /** @maxItems 20 */
+  verificationChecks?: RuleVerificationCheck[];
   source: RemediationPlanSource;
   status: RemediationPlanStatus;
 }

@@ -28,9 +28,27 @@ import type { ProviderId } from "./ai-route-helpers.js";
 import { recordAudit, recordAuditInTransaction } from "./audit.js";
 import { logger } from "./logger.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
-import { markRemediationPlanVerified } from "./remediation-plan.js";
+import {
+  buildRuleVerificationChecks,
+  markRemediationPlanVerified,
+} from "./remediation-plan.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
+
+function pendingPlanVerificationSteps(plan: typeof tasksTable.$inferSelect["remediationPlan"]) {
+  if (!plan) return [];
+  const checks = plan.verificationChecks?.length
+    ? plan.verificationChecks
+    : buildRuleVerificationChecks(plan.verificationSteps ?? []);
+  return checks.map((check) => ({
+    id: check.id,
+    name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+    kind: check.kind,
+    guidance: check.guidance,
+    passed: false,
+    output: "Not recorded — operator evidence is required",
+  }));
+}
 
 export type TaskExecutionTrigger = "manual" | "automatic" | "reconciliation";
 export type TaskExecutionOutcome = {
@@ -387,10 +405,19 @@ export async function executeTaskLifecycle(params: {
         agentResponse: JSON.stringify(taskReceipt),
         verificationResult: {
           passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
-          steps: (taskReceipt.steps ?? []).map((name) => ({
-            name,
-            passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
-          })),
+          decision: before.remediationPlan
+            ? ("incomplete" as const)
+            : taskReceipt.terminalStatus === "SUCCEEDED"
+              ? ("verified" as const)
+              : ("failed" as const),
+          steps: [
+            ...(taskReceipt.steps ?? []).map((name) => ({
+              name,
+              ...(before.remediationPlan ? {} : { kind: "automatic" as const }),
+              passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
+            })),
+            ...pendingPlanVerificationSteps(before.remediationPlan),
+          ],
         },
         remediationPlan: markRemediationPlanVerified(
           before.remediationPlan,

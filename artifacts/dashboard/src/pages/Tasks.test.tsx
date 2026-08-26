@@ -9,6 +9,7 @@ vi.mock('@workspace/api-client-react', () => ({
   useRetryTask: vi.fn(),
   useRollbackTask: vi.fn(),
   useGetTaskLogs: vi.fn(),
+  useRecordTaskVerification: vi.fn(),
   getListTasksQueryKey: vi.fn(() => ['tasks']),
   getGetTaskLogsQueryKey: vi.fn((taskId: string) => ['task-logs', taskId]),
 }));
@@ -23,6 +24,7 @@ import {
   useListTasks,
   useRetryTask,
   useRollbackTask,
+  useRecordTaskVerification,
 } from '@workspace/api-client-react';
 
 const mutation = () => ({ mutate: vi.fn(), isPending: false });
@@ -108,6 +110,7 @@ beforeEach(() => {
   vi.mocked(useExecuteTask).mockReturnValue(mutation() as ReturnType<typeof useExecuteTask>);
   vi.mocked(useRetryTask).mockReturnValue(mutation() as ReturnType<typeof useRetryTask>);
   vi.mocked(useRollbackTask).mockReturnValue(mutation() as ReturnType<typeof useRollbackTask>);
+  vi.mocked(useRecordTaskVerification).mockReturnValue(mutation() as ReturnType<typeof useRecordTaskVerification>);
 });
 
 describe('Tasks recovery rendering', () => {

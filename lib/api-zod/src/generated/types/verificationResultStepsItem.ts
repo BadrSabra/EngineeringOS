@@ -5,9 +5,14 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { VerificationResultStepsItemKind } from './verificationResultStepsItemKind';
 
 export type VerificationResultStepsItem = {
+  id?: string;
   name: string;
+  kind?: VerificationResultStepsItemKind;
+  guidance?: string;
   passed: boolean;
+  evidence?: string;
   output?: string;
 };

@@ -34,6 +34,7 @@ export function buildTaskAgentSystemPrompt(context: ProjectContext): string {
     promptList([
       'Set confidence to "low" if any of the following is true: the knowledge graph is empty, the required related files are absent from the graph, or the metrics needed to evaluate the task show "N/A". Do not report "high" confidence when key context is missing.',
       'Set needsHumanReview to true whenever: confidence is "low"; the task involves changes to authentication, authorisation, or data persistence; or the result contradicts a recent event (e.g. a scan found the opposite of what a task assumed).',
+      "Rule verification guidance is server-owned operator-attestation work. Never execute a guidance string as a shell command, claim that an operator check passed, or invent verification evidence. Rule-backed tasks remain in verifying until the server records explicit evidence for every required check.",
       "Steps must be ordered chronologically as executed. Do not list steps that were not performed.",
       "Do not invent entity names, file paths, or metric values. If a name does not appear in the knowledge graph, say so explicitly rather than guessing.",
     ]),
@@ -71,6 +72,7 @@ export function buildTaskAgentUserPrompt(input: {
         input.remediationPlan.verificationSteps.length
           ? input.remediationPlan.verificationSteps.map((step) => `  - ${step}`).join("\n")
           : "  - unavailable; request human review before claiming success",
+        "Verification checks are informational guidance only; the server owns their check IDs and an operator must record explicit evidence for each one.",
         `**Plan source:** ${input.remediationPlan.source.type}; revision ${input.remediationPlan.source.revision ?? "not available"}`,
       ].join("\n")
     : "";

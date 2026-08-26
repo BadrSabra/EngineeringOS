@@ -30,10 +30,28 @@ import {
   runAgentWithFallback,
 } from "../../lib/ai-route-helpers.js";
 import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+import { buildRuleVerificationChecks } from "../../lib/remediation-plan.js";
 
 const router = Router();
 
 class TaskStateConflictError extends Error {}
+
+function pendingPlanVerificationSteps(
+  plan: typeof tasksTable.$inferSelect["remediationPlan"],
+) {
+  if (!plan) return [];
+  const checks = plan.verificationChecks?.length
+    ? plan.verificationChecks
+    : buildRuleVerificationChecks(plan.verificationSteps ?? []);
+  return checks.map((check) => ({
+    id: check.id,
+    name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+    kind: check.kind,
+    guidance: check.guidance,
+    passed: false,
+    output: "Not recorded — operator evidence is required",
+  }));
+}
 
 // ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
 
@@ -336,10 +354,17 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
           agentResponse: agentResponseText,
           verificationResult: {
             passed: !agentResult.needsHumanReview && !task.remediationPlan,
-            steps: agentResult.steps.map((s: string) => ({
-              name: s,
-              passed: !agentResult.needsHumanReview && !task.remediationPlan,
-            })),
+            decision: agentResult.needsHumanReview || task.remediationPlan
+              ? ("incomplete" as const)
+              : ("verified" as const),
+            steps: [
+              ...agentResult.steps.map((s: string) => ({
+                name: s,
+                ...(task.remediationPlan ? {} : { kind: "automatic" as const }),
+                passed: !agentResult.needsHumanReview && !task.remediationPlan,
+              })),
+              ...pendingPlanVerificationSteps(task.remediationPlan),
+            ],
           },
           updatedAt: new Date(),
           completedAt: finalStatus === "completed" ? new Date() : null,
@@ -652,7 +677,8 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
 
       invalidateContextCache(task.projectId);
 
-      const autoFinalStatus = agentResult.needsHumanReview ? "verifying" : "completed";
+      const autoFinalStatus =
+        agentResult.needsHumanReview || task.remediationPlan ? "verifying" : "completed";
 
       const [finalized] = await db
         .update(tasksTable)
@@ -661,9 +687,14 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
           agentResponse: JSON.stringify(agentResult, null, 2),
           verificationResult: {
             passed: !agentResult.needsHumanReview,
+            decision: agentResult.needsHumanReview
+              || task.remediationPlan
+              ? ("incomplete" as const)
+              : ("verified" as const),
             steps: agentResult.steps.map((s: string) => ({
               name: s,
-              passed: !agentResult.needsHumanReview,
+              ...(!task.remediationPlan ? { kind: "automatic" as const } : {}),
+              passed: !agentResult.needsHumanReview && !task.remediationPlan,
             })),
           },
           updatedAt: new Date(),

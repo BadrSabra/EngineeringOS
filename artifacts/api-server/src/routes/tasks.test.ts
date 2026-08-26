@@ -98,6 +98,123 @@ describe("Task lifecycle", () => {
     expect(logs.body.length).toBeGreaterThan(0);
   });
 
+  it("requires explicit evidence for every server-owned rule verification check", async () => {
+    const { taskId } = await createTask();
+    await db.update(tasksTable).set({
+      remediationPlan: {
+        version: 1,
+        ruleId: null,
+        ruleCode: "TEST-001",
+        ruleTitle: "Evidence-backed check",
+        severity: "medium",
+        occurrenceCount: 1,
+        evidence: [{ file: "src/example.ts", line: 1, snippet: "x", occurrences: 1 }],
+        relatedFiles: [],
+        fixDescription: "Make the check pass.",
+        verificationSteps: ["Run the focused test.", "Inspect the resulting behavior."],
+        source: { type: "scan", correlationId: null, revision: null, completeness: "COMPLETE" },
+        status: "ready",
+      },
+    }).where(eq(tasksTable.id, taskId));
+
+    const executed = await request(app).post(`/api/tasks/${taskId}/execute`);
+    expect(executed.status).toBe(202);
+    expect(executed.body.status).toBe("verifying");
+    expect(executed.body.verificationResult.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "rule-verification-1", passed: false }),
+        expect.objectContaining({ id: "rule-verification-2", passed: false }),
+      ]),
+    );
+
+    const unknownCheck = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+      checkId: "model-supplied-command",
+      passed: true,
+      evidence: "This must not be accepted.",
+    });
+    expect(unknownCheck.status).toBe(400);
+    expect(unknownCheck.body.error).toBe("verification_check_not_found");
+
+    const missingEvidence = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+      checkId: "rule-verification-1",
+      passed: true,
+    });
+    expect(missingEvidence.status).toBe(400);
+    expect(missingEvidence.body.error).toBe("verification_evidence_required");
+
+    const first = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+      checkId: "rule-verification-1",
+      passed: true,
+      evidence: "Focused test passed in the operator console.",
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.status).toBe("verifying");
+    expect(first.body.verificationResult.passed).toBe(false);
+
+    const failed = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+      checkId: "rule-verification-2",
+      passed: false,
+      evidence: "Behavior still needs correction.",
+    });
+    expect(failed.status).toBe(200);
+    expect(failed.body.status).toBe("verifying");
+    expect(failed.body.verificationResult.passed).toBe(false);
+
+    const second = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+      checkId: "rule-verification-2",
+      passed: true,
+      evidence: "Observed the expected behavior after the fix.",
+    });
+    expect(second.status).toBe(200);
+    expect(second.body.status).toBe("completed");
+    expect(second.body.verificationResult).toMatchObject({
+      passed: true,
+      decision: "verified",
+    });
+    expect(second.body.remediationPlan.status).toBe("verified");
+
+    const audits = await db
+      .select()
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.entityId, taskId));
+    expect(audits.some((audit) => audit.reason === "operator_verification_recorded")).toBe(true);
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.taskId, taskId));
+    expect(events.some((event) => event.type === "TaskVerified")).toBe(true);
+  });
+
+  it("does not record verification after cancellation or for an unknown check", async () => {
+    const { taskId } = await createTask();
+    await db.update(tasksTable).set({
+      remediationPlan: {
+        version: 1,
+        ruleId: null,
+        ruleCode: "TEST-002",
+        ruleTitle: "Cancelled check",
+        severity: "low",
+        occurrenceCount: 1,
+        evidence: [{ file: "src/example.ts", line: 1, snippet: "x", occurrences: 1 }],
+        relatedFiles: [],
+        fixDescription: "Make the check pass.",
+        verificationSteps: ["Confirm the result."],
+        source: { type: "scan", correlationId: null, revision: null, completeness: "COMPLETE" },
+        status: "ready",
+      },
+    }).where(eq(tasksTable.id, taskId));
+    await request(app).post(`/api/tasks/${taskId}/execute`);
+    await request(app).post(`/api/tasks/${taskId}/rollback`);
+
+    const cancelled = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+      checkId: "rule-verification-1",
+      passed: true,
+      evidence: "This must not be accepted.",
+    });
+    expect(cancelled.status).toBe(409);
+    expect(cancelled.body.error).toBe("task_not_verifying");
+  });
+
   it("returns 409 when executing a task that is not pending/queued", async () => {
     const { taskId } = await createTask();
     const first = await request(app).post(`/api/tasks/${taskId}/execute`);

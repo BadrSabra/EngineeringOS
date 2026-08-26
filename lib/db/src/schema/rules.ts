@@ -18,6 +18,19 @@ export const ruleSeverityEnum = pgEnum("rule_severity", [
   "info",
 ]);
 
+/**
+ * Rule verification guidance is intentionally descriptive. It is converted
+ * into these server-owned check records when a remediation plan is built;
+ * neither the model nor an operator can supply shell text for execution.
+ */
+export type RuleVerificationCheckKind = "operator_attestation";
+
+export interface RuleVerificationCheck {
+  id: string;
+  kind: RuleVerificationCheckKind;
+  guidance: string;
+}
+
 export const rulesTable = pgTable("rules", {
   id: text("id").primaryKey(),
   projectId: text("project_id").references(() => projectsTable.id, { onDelete: "set null" }),

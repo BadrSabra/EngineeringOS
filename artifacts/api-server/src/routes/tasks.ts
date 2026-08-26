@@ -17,6 +17,8 @@ import {
   RollbackTaskParams,
   GetTaskLogsParams,
   ListTasksQueryParams,
+  RecordTaskVerificationBody,
+  RecordTaskVerificationParams,
 } from "@workspace/api-zod";
 import { eq, and, desc, gt, asc, inArray, or, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -28,7 +30,10 @@ import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
 import { parsePagination } from "../lib/pagination.js";
 import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
-import { markRemediationPlanVerified } from "../lib/remediation-plan.js";
+import {
+  buildRuleVerificationChecks,
+  markRemediationPlanVerified,
+} from "../lib/remediation-plan.js";
 
 const router = Router();
 
@@ -37,6 +42,29 @@ const router = Router();
 router.use(requireAuth);
 
 class TaskStateConflictError extends Error {}
+
+function serverOwnedVerificationChecks(
+  plan: typeof tasksTable.$inferSelect["remediationPlan"],
+) {
+  if (!plan) return [];
+  if (Array.isArray(plan.verificationChecks)) {
+    return plan.verificationChecks.filter(
+      (check): check is { id: string; kind: "operator_attestation"; guidance: string } =>
+        Boolean(
+          check &&
+            typeof check === "object" &&
+            typeof (check as { id?: unknown }).id === "string" &&
+            (check as { kind?: unknown }).kind === "operator_attestation" &&
+            typeof (check as { guidance?: unknown }).guidance === "string",
+        ),
+    );
+  }
+  return buildRuleVerificationChecks(
+    (plan.verificationSteps ?? []).filter(
+      (step): step is string => typeof step === "string",
+    ),
+  );
+}
 
 // List tasks
 router.get("/tasks", async (req, res) => {
@@ -375,7 +403,19 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
 
   const { finalStatus, steps: verificationSteps } = verification;
 
-  const verificationResult = { passed: finalStatus === "completed", steps: verificationSteps };
+  const verificationResult = {
+    passed: finalStatus === "completed",
+    decision:
+      finalStatus === "completed"
+        ? ("verified" as const)
+        : finalStatus === "failed"
+          ? ("failed" as const)
+          : ("incomplete" as const),
+    steps: verificationSteps.map((step) => ({
+      ...step,
+      kind: step.kind ?? ("automatic" as const),
+    })),
+  };
   const completedAt = finalStatus === "completed" ? now : null;
 
   // The verification outcome, its log line, and its event are one logical
@@ -458,6 +498,221 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
   }
 
   return res.status(202).json(updated);
+});
+
+// Record one operator result for a server-owned rule verification check.
+// The client submits only the stable check ID and evidence; guidance and
+// check names always come from the persisted remediation plan.
+router.post("/tasks/:taskId/verification", async (req, res) => {
+  const { taskId } = RecordTaskVerificationParams.parse(req.params);
+  const body = RecordTaskVerificationBody.parse(req.body);
+  const [task] = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+
+  const project = await loadProjectByIdForUser(task.projectId, req.userId, res);
+  if (!project) return;
+
+  if (task.status !== "verifying") {
+    return res.status(409).json({
+      error: "task_not_verifying",
+      reason: `Verification can only be recorded while the task is verifying, not "${task.status}".`,
+    });
+  }
+  if (task.workerId || task.leaseUntil) {
+    return res.status(409).json({
+      error: "task_active_work",
+      reason: "The active task worker must terminate before verification can be recorded.",
+    });
+  }
+  if (body.passed && (!body.evidence || body.evidence.trim().length === 0)) {
+    return res.status(400).json({
+      error: "verification_evidence_required",
+      reason: "A passed verification check must include explicit operator evidence.",
+    });
+  }
+
+  const correlationId = randomUUID();
+  let updated: typeof tasksTable.$inferSelect;
+  try {
+    [updated] = await db.transaction(async (tx) => {
+      const [lockedTask] = await tx
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .for("update");
+      if (
+        !lockedTask ||
+        lockedTask.status !== "verifying" ||
+        lockedTask.workerId ||
+        lockedTask.leaseUntil
+      ) {
+        throw new TaskStateConflictError(
+          "Task state changed before verification could be recorded",
+        );
+      }
+
+      const checks = serverOwnedVerificationChecks(lockedTask.remediationPlan);
+      const check = checks.find((candidate) => candidate.id === body.checkId);
+      if (!check) {
+        throw new Error("verification_check_not_found");
+      }
+      if (
+        !lockedTask.remediationPlan ||
+        lockedTask.remediationPlan.status === "needs_review" ||
+        !Array.isArray(lockedTask.remediationPlan.evidence) ||
+        lockedTask.remediationPlan.evidence.length === 0
+      ) {
+        throw new Error("verification_plan_requires_review");
+      }
+
+      type RecordedStep = {
+        id?: string;
+        name: string;
+        kind?: "automatic" | "operator_attestation";
+        guidance?: string;
+        passed: boolean;
+        evidence?: string;
+        output?: string;
+      };
+      const existingSteps = (lockedTask.verificationResult?.steps ?? []) as RecordedStep[];
+      const existingById = new Map(
+        existingSteps
+          .filter((step) => typeof step.id === "string")
+          .map((step) => [step.id as string, step]),
+      );
+      const recordedStep: RecordedStep = {
+        id: check.id,
+        name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+        kind: check.kind,
+        guidance: check.guidance,
+        passed: body.passed,
+        ...(body.evidence ? { evidence: body.evidence.trim() } : {}),
+        output: body.passed
+          ? "Operator evidence recorded"
+          : "Operator reported that this check did not pass",
+      };
+      existingById.set(check.id, recordedStep);
+
+      const guidanceSteps = checks.map(
+        (candidate) =>
+          existingById.get(candidate.id) ?? {
+            id: candidate.id,
+            name: `Rule verification ${candidate.id.replace("rule-verification-", "#")}`,
+            kind: candidate.kind,
+            guidance: candidate.guidance,
+            passed: false,
+            output: "Not recorded — operator evidence is required",
+          },
+      );
+      const automaticSteps = existingSteps.filter(
+        (step) =>
+          step.kind === "automatic" &&
+          step.name !== "Manual verification required" &&
+          !checks.some((candidate) => candidate.id === step.id),
+      );
+      const steps = [...automaticSteps, ...guidanceSteps];
+      const allChecksPassed = guidanceSteps.every(
+        (step) => step.passed && Boolean(step.evidence?.trim()),
+      );
+      const automaticChecksPassed = automaticSteps.every((step) => step.passed);
+      const passed = allChecksPassed && automaticChecksPassed;
+      const nextStatus = passed ? "completed" : "verifying";
+      const verificationResult = {
+        passed,
+        decision: passed ? ("verified" as const) : ("incomplete" as const),
+        steps,
+      };
+
+      const [row] = await tx
+        .update(tasksTable)
+        .set({
+          status: nextStatus,
+          verificationResult,
+          remediationPlan: markRemediationPlanVerified(lockedTask.remediationPlan, passed),
+          completedAt: passed ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(tasksTable.id, taskId),
+            eq(tasksTable.status, "verifying"),
+            isNull(tasksTable.workerId),
+            isNull(tasksTable.leaseUntil),
+          ),
+        )
+        .returning();
+      if (!row) {
+        throw new TaskStateConflictError(
+          "Task state changed before verification could be finalized",
+        );
+      }
+
+      await tx.insert(taskLogsTable).values({
+        id: randomUUID(),
+        taskId,
+        level: passed ? "info" : "warn",
+        message: `Operator verification ${passed ? "completed" : "recorded"}: ${recordedStep.name}`,
+        metadata: {
+          checkId: check.id,
+          passed: body.passed,
+          evidenceRecorded: Boolean(body.evidence?.trim()),
+        },
+        correlationId,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: passed ? "TaskVerified" : "TaskVerificationRecorded",
+        projectId: lockedTask.projectId,
+        taskId,
+        severity: passed ? "success" : "warning",
+        message: `Task "${lockedTask.title}" verification ${passed ? "completed" : "updated"}`,
+        correlationId,
+        payload: {
+          checkId: check.id,
+          passed: body.passed,
+          overallPassed: passed,
+          after: { status: nextStatus },
+        },
+      });
+      await recordAuditInTransaction(tx, {
+        entityType: "task",
+        entityId: taskId,
+        action: "updated",
+        projectId: lockedTask.projectId,
+        actor: req.userId,
+        correlationId,
+        reason: "operator_verification_recorded",
+        changedFields: { checkId: check.id, passed: body.passed, overallPassed: passed },
+        stateBefore: { status: lockedTask.status, verificationResult: lockedTask.verificationResult },
+        stateAfter: { status: nextStatus, verificationResult },
+      });
+      return [row];
+    });
+  } catch (error) {
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({ error: "task_state_changed_concurrently" });
+    }
+    if (error instanceof Error && error.message === "verification_check_not_found") {
+      return res.status(400).json({
+        error: "verification_check_not_found",
+        reason: "The submitted check is not part of this task's server-owned verification plan.",
+      });
+    }
+    if (error instanceof Error && error.message === "verification_plan_requires_review") {
+      return res.status(409).json({
+        error: "verification_plan_requires_review",
+        reason: "Verification is blocked until the remediation plan has complete evidence and guidance.",
+      });
+    }
+    throw error;
+  }
+
+  invalidateContextCache(project.id);
+  return res.json(updated);
 });
 
 // Retry task
