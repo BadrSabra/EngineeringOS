@@ -1,0 +1,219 @@
+673-      "url": "/api/healthz"
+674-    }
+675-    res: {
+676-      "statusCode": 200
+677-    }
+678-[16/25] …journey › keeps only the safe blocked citation reason after chat reload
+679-[13:06:17.434] INFO (6900): request completed
+680-    req: {
+681-      "id": 17,
+682-      "method": "GET",
+683-      "url": "/api/healthz"
+684-    }
+685-    res: {
+686-      "statusCode": 200
+687-    }
+688-[17/25] …urney › keeps the failed AI session drawer overlaid on a phone viewport
+689-[13:06:23.314] INFO (6900): request completed
+690-    req: {
+691-      "id": 18,
+692-      "method": "GET",
+693-      "url": "/api/healthz"
+694-    }
+695-    res: {
+696-      "statusCode": 200
+697-    }
+698-[18/25] … one partial answer after a provider disconnect and marks it incomplete
+699-[13:06:28.837] INFO (6900): request completed
+700-    req: {
+701-      "id": 19,
+702-      "method": "GET",
+703-      "url": "/api/healthz"
+704-    }
+705-    res: {
+706-      "statusCode": 200
+707-    }
+708:  1) e2e/dashboard.journey.ts:3086:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete 
+709-
+710:    Error: expect(locator).toBeVisible() failed
+711-
+712-    Locator: getByText('The model started an answer, but the provider disconnected before completion.', { exact: true }).last()
+713-    Expected: visible
+714-    Timeout: 10000ms
+715:    Error: element(s) not found
+716-
+717-    Call log:
+718-      - Expect "toBeVisible" with timeout 10000ms
+719-      - waiting for getByText('The model started an answer, but the provider disconnected before completion.', { exact: true }).last()
+720-
+721-
+722-      3097 |
+723-      3098 |     const answer = page.getByText(fixture.answer, { exact: true });
+724-    > 3099 |     await expect(answer.last()).toBeVisible();
+725-           |                                 ^
+726-      3100 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+727-      3101 |     await expect(
+728-      3102 |       page.getByText("provider failure", { exact: false }).last(),
+729-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:3099:33
+730-
+731-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+732-    test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/test-failed-1.png
+733-    ────────────────────────────────────────────────────────────────────────────
+734-
+735-    Error Context: test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/error-context.md
+736-
+737-    attachment #3: trace (application/zip) ─────────────────────────────────────
+738-    test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/trace.zip
+739-    Usage:
+740-
+741-        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/trace.zip
+742-
+743-    ────────────────────────────────────────────────────────────────────────────
+744-
+745-[19/25] … journey › resumes a failed analysis and keeps the execution incomplete
+746-[13:06:55.738] INFO (6900): request completed
+747-    req: {
+748-      "id": 20,
+749-      "method": "GET",
+750-      "url": "/api/healthz"
+751-    }
+752-    res: {
+753-      "statusCode": 200
+754-    }
+755-[20/25] …ers a missing token after a real stream abort and resumes one execution
+756-[13:07:03.517] INFO (6900): request completed
+757-    req: {
+758-      "id": 21,
+759-      "method": "GET",
+760-      "url": "/api/healthz"
+761-    }
+762-    res: {
+763-      "statusCode": 200
+764-    }
+765:  2) e2e/dashboard.journey.ts:3207:3 › EngineeringOS dashboard browser journey › recovers a missing token after a real stream abort and resumes one execution 
+766-
+767-    Test timeout of 45000ms exceeded.
+768-
+769:    Error: locator.fill: Test timeout of 45000ms exceeded.
+770-    Call log:
+771-      - waiting for locator('textarea').first()
+772-        - locator resolved to <textarea rows="1" disabled data-component-name="textarea" placeholder="Ask about your codebase, tasks, or metrics… (Enter to send)" data-replit-metadata="artifacts/dashboard/src/components/ui/textarea.tsx:9:4" class="flex w-full rounded-md border px-3 py-2 shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border…></textarea>
+773-        - fill("Continue the interrupted release execution.")
+774-      - attempting fill action
+775-        2 × waiting for element to be visible, enabled and editable
+776-          - element is not enabled
+777-        - retrying fill action
+778-        - waiting 20ms
+779-        2 × waiting for element to be visible, enabled and editable
+780-          - element is not enabled
+781-        - retrying fill action
+782-          - waiting 100ms
+783-        77 × waiting for element to be visible, enabled and editable
+784-           - element is not enabled
+785-         - retrying fill action
+786-           - waiting 500ms
+787-
+788-
+789-      3283 |
+790-      3284 |     const composer = page.locator("textarea").first();
+791-    > 3285 |     await composer.fill(recovery.fixture.question);
+792-           |                    ^
+793-      3286 |     await composer.locator("xpath=..").getByRole("button").click();
+794-      3287 |
+795-      3288 |     await expect(
+796-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:3285:20
+797-
+798-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+799-    test-results/dashboard.journey.ts-Engin-facbb-t-and-resumes-one-execution/test-failed-1.png
+800-    ────────────────────────────────────────────────────────────────────────────
+801-
+802-    Error Context: test-results/dashboard.journey.ts-Engin-facbb-t-and-resumes-one-execution/error-context.md
+803-
+804-    attachment #3: trace (application/zip) ─────────────────────────────────────
+805-    test-results/dashboard.journey.ts-Engin-facbb-t-and-resumes-one-execution/trace.zip
+806-    Usage:
+807-
+808-        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-facbb-t-and-resumes-one-execution/trace.zip
+809-
+810-    ────────────────────────────────────────────────────────────────────────────
+811-
+812-[21/25] …browser journey › projects delivery recovery states safely after reload
+813-[13:07:50.989] INFO (6900): request completed
+814-    req: {
+815-      "id": 22,
+816-      "method": "GET",
+817-      "url": "/api/healthz"
+818-    }
+819-    res: {
+820-      "statusCode": 200
+821-    }
+822-[22/25] …rney › explains when delivery recovery loses a race and refreshes state
+823-[13:07:57.736] INFO (6900): request completed
+824-    req: {
+825-      "id": 23,
+826-      "method": "GET",
+827-      "url": "/api/healthz"
+828-    }
+829-    res: {
+830-      "statusCode": 200
+831-    }
+832-[23/25] …rney › explains when an old recovery link points to a deleted operation
+833-[13:08:02.725] INFO (6900): request completed
+834-    req: {
+835-      "id": 24,
+836-      "method": "GET",
+837-      "url": "/api/healthz"
+838-    }
+839-    res: {
+840-      "statusCode": 200
+841-    }
+842-[24/25] …rney › keeps the resumed AI session drawer overlaid on a phone viewport
+843-[13:08:08.021] INFO (6900): request completed
+844-    req: {
+845-      "id": 25,
+846-      "method": "GET",
+847-      "url": "/api/healthz"
+848-    }
+849-    res: {
+850-      "statusCode": 200
+851-    }
+852-[25/25] …OS dashboard browser journey › renders a user-visible API failure state
+853-[13:08:12.898] INFO (6900): request completed
+854-    req: {
+855-      "id": 26,
+856-      "method": "GET",
+857-      "url": "/api/healthz"
+858-    }
+859-    res: {
+860-      "statusCode": 200
+861-    }
+862-  2 failed
+863:    e2e/dashboard.journey.ts:3086:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete 
+864:    e2e/dashboard.journey.ts:3207:3 › EngineeringOS dashboard browser journey › recovers a missing token after a real stream abort and resumes one execution 
+865-  1 skipped
+866-  22 passed (4.6m)
+867-undefined
+868-/home/runner/workspace/artifacts/dashboard:
+869: ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test --config=e2e/playwright.config.ts
+870-/home/runner/workspace/artifacts/dashboard:
+871: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/dashboard@0.0.0 dev: `node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0`
+872-Command failed with signal "SIGTERM"
+873-[13:08:14.630] INFO (6900): Graceful shutdown started
+874-    signal: "SIGTERM"
+875-[13:08:14.630] INFO (6900): catalog-refresh: scheduler stopped
+876-[13:08:14.632] INFO (6900): Graceful shutdown complete
+877-Release service teardown results:
+878-- API release build: exit 0
+879-- API release service: exit 0
+880-- Dashboard release service: signal SIGTERM
+881-- API release service (restarted): exit 0
+882-Release services surviving teardown: none.
+883-Release origin diagnostics:
+884-- {"origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8.janeway.replit.dev","phase":"GET","status":200,"headers":{"access-control-allow-origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8.janeway.replit.dev","vary":"Origin"}}
+885-- {"origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8.janeway.replit.dev","phase":"preflight","status":204,"headers":{"access-control-allow-origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8.janeway.replit.dev","access-control-allow-methods":"GET,HEAD,PUT,PATCH,POST,DELETE","access-control-allow-headers":"content-type","vary":"Origin, Access-Control-Request-Headers"}}
+886-- {"origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8.janeway.replit.dev","phase":"mutation","status":401,"headers":{"access-control-allow-origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8.janeway.replit.dev","vary":"Origin"}}
+887-- {"origin":"https://attacker.example","phase":"rejection","status":403,"headers":{}}
+888-Release teardown artifact: /home/runner/workspace/test-results/dashboard-journey/release-teardown.json
+889-Release teardown evidence summary: validation run local; retained artifact /home/runner/workspace/test-results/dashboard-journey/release-teardown.json.
+890-Release teardown evidence coverage: API release build (process group 6464; descendants tracked by surviving PIDs); API release service (process group 6498; descendants tracked by surviving PIDs); Dashboard release service (process group 6499; descendants tracked by surviving PIDs); API release service (restarted) (process group 6900; descendants tracked by surviving PIDs).
+891- ELIFECYCLE  Command failed with exit code 1.

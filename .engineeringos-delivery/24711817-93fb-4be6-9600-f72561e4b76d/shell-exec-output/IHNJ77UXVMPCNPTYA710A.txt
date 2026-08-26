@@ -1,0 +1,73 @@
+artifacts/dashboard/src/pages/Tasks.tsx:159:  const verificationDone = Boolean(task.verificationResult);
+artifacts/dashboard/src/pages/Tasks.tsx:163:    { title: 'Verify the result', status: verificationDone ? 'done' : task.status === 'running' || task.status === 'verifying' ? 'active' : terminal ? 'blocked' : 'pending', detail: verificationDone ? 'Verification result recorded by the server.' : 'Waiting for a server-owned verification result.' },
+artifacts/dashboard/e2e/dashboard.journey.ts:202:    disconnectAi?: ArabicAiFixture;
+artifacts/dashboard/e2e/dashboard.journey.ts:259:    const disconnectAi = overrides?.disconnectAi;
+artifacts/dashboard/e2e/dashboard.journey.ts:260:    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
+artifacts/dashboard/e2e/dashboard.journey.ts:335:      disconnectAi ??
+artifacts/dashboard/e2e/dashboard.journey.ts:904:function installDisconnectedAiFixture(): ArabicAiFixture {
+artifacts/dashboard/e2e/dashboard.journey.ts:910:    "The model started an answer, but the provider disconnected before completion.";
+artifacts/dashboard/e2e/dashboard.journey.ts:924:        "The provider disconnected after visible response text.",
+artifacts/dashboard/e2e/dashboard.journey.ts:936:    errorMessage: "The provider disconnected before completion.",
+artifacts/dashboard/e2e/dashboard.journey.ts:954:    sse({ type: "stream_reset" }),
+artifacts/dashboard/e2e/dashboard.journey.ts:3089:  test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3092:    const fixture = installDisconnectedAiFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts:3093:    await installApiFixtures(page, { disconnectAi: fixture });
+artifacts/dashboard/e2e/dashboard.journey.ts:3111:      page.getByText("The provider disconnected after visible response text.", {
+artifacts/dashboard/e2e/dashboard.journey.ts:3130:      page.getByText("The provider disconnected after visible response text.", {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:490:        onDone?: (event: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:498:        onDone?: (event: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:499:      }).onDone?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:690:      onDone?: (event: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:705:    act(() => callbacks.onDone?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1983:      }).onDelta?.('partial answer that should be replaced');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1985:        onDone?: (data: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1986:      }).onDone?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1998:    expect(screen.queryByText('partial answer that should be replaced')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2010:        onDone?: (data: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2011:      }).onDone?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2042:        onDone?: (data: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2043:      }).onDone?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2083:        onDone?: (data: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2106:        onDone?: (data: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2107:      }).onDone?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2858:        onDone?: (data: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2859:      }).onDone?.({
+artifacts/api-server/src/routes/ai/chat.ts:3094:    // Emit stream_reset so the client discards the partial bubble before the
+artifacts/api-server/src/routes/ai/chat.ts:3096:    function onStreamReset(): void {
+artifacts/api-server/src/routes/ai/chat.ts:3099:          { scope: "chat-route", action: "stream_reset", provider, streamedBytes: streamedContent.length },
+artifacts/api-server/src/routes/ai/chat.ts:3100:          "SSE stream broke mid-flight — emitting stream_reset to client",
+artifacts/api-server/src/routes/ai/chat.ts:3103:        sse({ type: "stream_reset" });
+artifacts/api-server/src/routes/ai/chat.ts:3592:        onStreamReset,
+artifacts/dashboard/src/pages/AiChat.tsx:7588:      onStreamReset: () => {
+artifacts/dashboard/src/pages/AiChat.tsx:8459:        onStreamReset: () => {
+artifacts/dashboard/src/pages/AiChat.tsx:8710:        onDone: (data) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:973:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:999:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1022:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1046:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1071:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1092:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1123:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1153:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1181:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1204:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, _onStep) =>
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1241:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1288:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1355:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1405:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1428:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, _onStep) => ({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:206:      _onStreamReset?: unknown,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1366:      _onStreamReset,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3329:    const executionDone = executionEvents.find((e) => e["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3335:    expect(executionDone?.["message"]).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3453:        _onStreamReset: any,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3534:        _onStreamReset,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3631:        _onStreamReset,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3776:        _onStreamReset,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4083:        _onStreamReset,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4187:      const onStreamReset = args[5] as (() => void) | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4200:      onStreamReset?.();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4224:      expect.objectContaining({ type: "stream_reset" }),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4227:    const resetIndex = events.findIndex((event) => event.type === "stream_reset");
+artifacts/api-server/src/lib/ai-route-helpers.ts:420:  onStreamReset?: () => void,
+artifacts/api-server/src/lib/ai-route-helpers.ts:463:        onStreamReset,
