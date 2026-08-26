@@ -1,0 +1,338 @@
+      },
+      onTaskProgress: (event) => {
+        appendLiveActivityEvent({
+          kind: 'stage',
+          label: event.message,
+          detail: event.provider,
+          status: 'info',
+        });
+      },
+      onModelCall: (event) => {
+        setAgentModel(event.model);
+        setAgentModelHistory((previous) => (
+          previous.some((model) => model.id === event.model && model.provider === event.provider)
+            ? previous
+            : [...previous, { id: event.model, provider: event.provider }]
+        ));
+        appendLiveActivityEvent({
+          kind: 'model',
+          label: 'Model response',
+          detail: `${event.model} · ${event.provider}`,
+          status: 'info',
+        });
+      },
+      onTaskDone: (event) => {
+        appendLiveActivityEvent({
+          kind: 'stage',
+          label: task === 'analyze' ? 'Analysis result received' : 'Review result received',
+          status: 'done',
+        });
+        const activityEvents = agentActivityEventsRef.current;
+        setStructuredRetryMessageId(null);
+        structuredTaskRunRef.current = null;
+        resetStructuredTaskState();
+        setLocalMessages((prev) => [
+          ...prev.filter((message) => message.id !== placeholderId),
+          {
+            id: `${task}-${Date.now()}`,
+            role: 'assistant' as const,
+            content: task === 'analyze'
+              ? formatScanAnalysis(event.result as unknown as AiScanAnalysis)
+              : formatCodeReview(event.result as unknown as AiCodeReview),
+            activityEvents,
+            structuredTask: task,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      },
+      onError: (err) => {
+        const failureEvents = agentActivityEventsRef.current;
+        const failure = safeStructuredFailure(err);
+        resetStructuredTaskState();
+        setStructuredRetryMessageId(null);
+        setLocalMessages((prev) => [
+          ...prev.filter((message) => message.id !== placeholderId && message.id !== retryMessageId),
+          {
+            id: `${task}-failed-${Date.now()}`,
+            role: 'assistant' as const,
+            content: failure.reason,
+            outcome: err.outcome ?? 'FAILED',
+            errorCode: err.code,
+            errorMessage: failure.reason,
+            failureKind: err.failureKind,
+            structuredTask: task,
+            activityEvents: failureEvents,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      },
+      onStreamReset: () => {
+        const failureEvents = agentActivityEventsRef.current;
+        const failure = safeStructuredFailure({ type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
+        resetStructuredTaskState();
+        setStructuredRetryMessageId(null);
+        setLocalMessages((prev) => [
+          ...prev.filter((message) => message.id !== placeholderId && message.id !== retryMessageId),
+          {
+            id: `${task}-interrupted-${Date.now()}`,
+            role: 'assistant' as const,
+            content: failure.reason,
+            outcome: 'INTERRUPTED',
+            errorCode: 'transport_interrupted',
+            errorMessage: failure.reason,
+            failureKind: 'TRANSPORT',
+            structuredTask: task,
+            activityEvents: failureEvents,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      },
+    });
+  }
+
+  function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
+    const run = structuredTaskRunRef.current;
+    if (structuredRetryMessageId || isTaskSending || !run || run.task !== task) return;
+    setStructuredRetryMessageId(messageId);
+    startStructuredTask(task, run.prompt, messageId);
+  }
+
+  const { data: activeProvider } = useGetActiveProvider<ActiveProvider>({
+    query: {
+      queryKey: ['active-provider'],
+      staleTime: 30_000,
+    },
+  });
+
+  // PR-06: poll runtime health metrics so provider cards show live state
+  const { data: metricsData } = useGetAiMetrics<MetricsResponse>({
+    query: {
+      queryKey: ['ai-metrics'],
+      staleTime: 15_000,
+      refetchInterval: 30_000,
+      enabled: isLoaded,
+    },
+  });
+  const metricsMap = new Map(
+    (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
+  );
+
+  // G-06 fix: pending changes are stored with a timestamp so stale entries
+  // (from a crashed/closed tab after the server wrote the files but before
+  // onSuccess could clear them) expire automatically after 24 hours instead
+  // of becoming permanent phantom items.
+  const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  type StoredPending = { changes: PendingChange[]; savedAt: number };
+  const pendingKey = sessionId ? `eos_pending_${sessionId}` : undefined;
+          const owner = streamOwnerRef.current!;
+          owner.executionId = event.executionId;
+          const next = {
+            id: event.executionId,
+             projectId: requestProjectId,
+             ...(owner.sessionId ? { sessionId: owner.sessionId } : {}),
+            ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+            message: msg.trim(),
+            ...(options?.buildPlanMessageId ? { buildPlanMessageId: options.buildPlanMessageId } : {}),
+          };
+          activeExecutionRef.current = next;
+          setActiveExecution(next);
+          appendLiveActivityEvent({
+            kind: 'stage',
+            label: 'Durable execution reserved',
+            detail: event.executionId.slice(0, 8),
+            status: 'info',
+          });
+        },
+        onExecutionNodes: (event) => {
+          if (!ownsStream({ executionId: event.executionId })) return;
+          setExecutionNodes(event.nodes);
+          appendLiveActivityEvent({
+            kind: 'stage',
+            label: 'Execution plan loaded',
+            detail: `${event.nodes.length} node${event.nodes.length === 1 ? '' : 's'}`,
+            status: 'info',
+          });
+        },
+        onSessionStarted: (event) => {
+          if (!ownsStream({ sessionId: event.sessionId })) return;
+          streamOwnerRef.current!.sessionId = event.sessionId;
+          setSessionId(event.sessionId);
+          qc.setQueryData<Session[]>(
+            ['ai-sessions', requestProjectId],
+            (previous = []) => [
+              {
+                id: event.sessionId,
+                title: event.title,
+                updatedAt: event.updatedAt,
+              },
+              ...previous.filter((session) => session.id !== event.sessionId),
+            ],
+          );
+        },
+        onStage: (stage) => {
+          if (generation !== streamGenerationRef.current) return;
+          setAgentStage(STAGE_LABELS[stage] ?? stage);
+          appendLiveActivityEvent({
+            kind: 'stage',
+            label: 'Stage',
+            detail: STAGE_LABELS[stage] ?? stage,
+            status: 'info',
+          });
+        },
+        onDelta: (delta) => {
+          if (generation !== streamGenerationRef.current) return;
+          setStreamingContent((prev) => prev + delta);
+        },
+        onStreamReset: () => {
+          if (generation !== streamGenerationRef.current) return;
+          // GAP-A2: SSE stream broke mid-flight — clear the partial bubble so
+          // the full fallback response in the subsequent `done` event is shown
+          // cleanly without a flash of inconsistent partial content.
+          setStreamingContent('');
+        },
+        onToolCall: (event) => {
+          if (generation !== streamGenerationRef.current) return;
+          const activityId = appendLiveActivityEvent({
+            kind: 'tool',
+            label: liveToolLabel({ tool: event.tool, args: event.args, done: false, cached: event.cached }),
+            tool: event.tool,
+            status: 'active',
+          });
+          setAgentSteps((prev) => [...prev, {
+            activityId,
+            tool: event.tool,
+            args: event.args,
+            done: false,
+            cached: event.cached,
+          }]);
+        },
+        onToolResult: (event) => {
+          if (generation !== streamGenerationRef.current) return;
+          setAgentSteps((prev) => prev.map((s) =>
+            s.tool === event.tool && !s.done
+              ? { ...s, done: true, source: event.source, cached: event.cached }
+              : s
+          ));
+           const targetIndex = [...agentActivityEventsRef.current].reverse().findIndex(
+              (activity) => activity.kind === 'tool' && activity.status === 'active' &&
+                activity.tool === event.tool,
+           );
+           if (targetIndex >= 0) {
+             const index = agentActivityEventsRef.current.length - 1 - targetIndex;
+             const next = agentActivityEventsRef.current.map((activity, activityIndex) => activityIndex === index
+              ? {
+                  ...activity,
+                  status: 'done' as const,
+                  detail: event.source
+                    ? `${event.cached ? 'cached · ' : ''}${event.source}`
+                    : event.cached ? 'cached' : activity.detail,
+                }
+              : activity);
+             agentActivityEventsRef.current = next;
+             setAgentActivityEvents(next);
+           if (generation !== streamGenerationRef.current) return;
+           const state = event.sourceCoverage === 'COMPLETE' && event.findingStatus === 'PROVEN'
+             ? 'Evidence verified'
+             : event.sourceCoverage === 'NONE'
+               ? 'Evidence unavailable — audit incomplete'
+               : event.findingStatus === 'NOT_PROVEN' || event.repairReadiness === 'BLOCKED'
+                 ? 'Audit remains incomplete'
+                 : 'Evidence state updated';
+           setAgentStage(state);
+           appendLiveActivityEvent({
+             kind: 'stage',
+             label: 'Audit state',
+             detail: state,
+             status: state === 'Evidence verified' ? 'done' : 'info',
+           });
+         },
+         onVerification: (event) => {
+           if (generation !== streamGenerationRef.current) return;
+           const status = event.acceptedEvidenceCount > 0
+             ? 'Evidence verification completed'
+             : 'Verification incomplete — no accepted evidence';
+           setAgentStage(status);
+           appendLiveActivityEvent({
+             kind: 'validation',
+             label: 'Response verification',
+             detail: `${status} (${event.acceptedEvidenceCount}/${event.evidenceCount} accepted)`,
+             status: event.acceptedEvidenceCount > 0 ? 'done' : 'info',
+           });
+         },
+        onEvidenceIntegrity: (event) => {
+          if (generation !== streamGenerationRef.current) return;
+          setLiveEvidenceIntegrity({
+            consistent: event.consistent,
+            violations: event.violations,
+            objectiveType: event.objectiveType,
+            requiredEdges: event.requiredEdges ?? [],
+            provenEdges: event.provenEdges ?? [],
+            completionGateResult: event.completionGateResult,
+            finalAnswerType: event.finalAnswerType,
+          });
+        },
+        // Task #58: surface the verdict's proof scope live in the audit panel
+        // as soon as the task router decides it — before the report lands.
+        onDecisionTrace: (event) => {
+          if (generation !== streamGenerationRef.current) return;
+          setLiveVerdictScope({
+            scope: event.verdictScope,
+            findingStatus: event.scopedFindingStatus,
+          });
+        },
+        onDone: (data) => {
+          if (!ownsStream({ sessionId: data.sessionId })) return;
+           const activityEvents = agentActivityEventsRef.current;
+          setAgentStage(null);
+          setStreamingContent('');
+          setAgentSteps([]);
+          setAgentIter(null);
+          setAgentModel(null);
+          setAgentStartedAt(null);
+          setAgentElapsedSeconds(0);
+          setAgentModelHistory([]);
+          setAgentDiagnostics([]);
+          setLiveFixtureLocal(false);
+          setLiveEvidenceIntegrity(null);
+          setLiveVerdictScope(null);
+           setLiveAuditScopeDescription(null);
+           activeExecutionRef.current = null;
+           setActiveExecution(null);
+          setSessionId(data.sessionId);
+          qc.setQueryData<Session[]>(
+            ['ai-sessions', requestProjectId],
+            (previous = []) => {
+              const existing = previous.find((session) => session.id === data.sessionId);
+              return [
+                {
+                  id: data.sessionId,
+                  title: existing?.title ?? data.message.content.slice(0, 60),
+                  updatedAt: data.message.createdAt,
+                },
+                ...previous.filter((session) => session.id !== data.sessionId),
+              ];
+            },
+          );
+          setLocalMessages((prev) => {
+            const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
+            const base = data.message as ChatMessage;
+            return [...withoutOpt, {
+              ...base,
+               activityEvents,
+              behaviorEvidence: data.behaviorEvidence ?? base.behaviorEvidence ?? null,
+              taskResult: (data.taskResult as AiTaskResult | undefined) ?? null,
+              operationMode: inferOperationMode({
+                operationMode: data.operationMode,
+                taskResult: data.taskResult as AiTaskResult | undefined,
+                proposalId: data.proposalId,
+              }),
+            }];
+          });
+          setPendingChanges(data.pendingChanges ?? []);
+          setProposalId(data.proposalId ?? undefined);
+           const nextOperationMode = inferOperationMode({
+             operationMode: data.operationMode,
+             taskResult: data.taskResult as AiTaskResult | undefined,
+             proposalId: data.proposalId,
+           });
+           setOperationMode(nextOperationMode);

@@ -1,0 +1,403 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "codegen": "pnpm --filter @workspace/api-spec run codegen",
+    "codegen:check": "pnpm --filter @workspace/scripts run check-codegen-drift",
+    "db:schema:check": "pnpm --filter @workspace/db run check-audit-schema",
+    "verify:benchmark-rollout": "node scripts/verify-benchmark-rollout.mjs",
+    "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
+    "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",
+    "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
+    "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
+    "test:dashboard-contract-trigger": "node --test scripts/dashboard-contract-trigger.test.mjs",
+    "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
+    "validate:app-origins": "NODE_ENV=production node scripts/validate-app-origins.mjs",
+    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+    "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+    "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+    "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
+    "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
+    "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+    "truth:baseline:check": "pnpm --filter @workspace/scripts run generate-truth-flow",
+    "truth:baseline:materialize": "pnpm --filter @workspace/scripts run generate-truth-flow -- --write",
+    "truth:validate": "pnpm --filter @workspace/scripts run validate-truth-flow",
+    "benchmark:baseline:check": "pnpm --filter @workspace/scripts run validate-benchmark-baseline",
+    "build": "pnpm run codegen && pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "test": "pnpm -r --if-present run test"
+  },
+  "private": true,
+  "dependencies": {
+    "@replit/connectors-sdk": "^0.4.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.4",
+    "typescript": "~5.9.3"
+  }
+}
+
+--- dashboard package ---
+{
+  "name": "@workspace/dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0",
+    "smoke:restart": "node ./scripts/smoke-restart.mjs",
+    "test:e2e": "playwright test --config=e2e/playwright.config.ts",
+    "test:clerk-handoff": "vitest run src/lib/clerk-handoff.test.ts",
+    "build": "vite build --config vite.config.ts",
+    "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@hookform/resolvers": "^3.10.0",
+    "@radix-ui/react-accordion": "^1.2.4",
+    "@radix-ui/react-alert-dialog": "^1.1.7",
+    "@radix-ui/react-aspect-ratio": "^1.1.3",
+    "@radix-ui/react-avatar": "^1.1.4",
+    "@radix-ui/react-checkbox": "^1.1.5",
+    "@radix-ui/react-collapsible": "^1.1.4",
+    "@radix-ui/react-context-menu": "^2.2.7",
+    "@radix-ui/react-dialog": "^1.1.7",
+    "@radix-ui/react-dropdown-menu": "^2.1.7",
+    "@radix-ui/react-hover-card": "^1.1.7",
+    "@radix-ui/react-label": "^2.1.3",
+    "@radix-ui/react-menubar": "^1.1.7",
+    "@radix-ui/react-navigation-menu": "^1.2.6",
+    "@radix-ui/react-popover": "^1.1.7",
+    "@radix-ui/react-progress": "^1.1.3",
+    "@radix-ui/react-radio-group": "^1.2.4",
+    "@radix-ui/react-scroll-area": "^1.2.4",
+    "@radix-ui/react-select": "^2.1.7",
+    "@radix-ui/react-separator": "^1.1.3",
+    "@radix-ui/react-slider": "^1.2.4",
+    "@radix-ui/react-slot": "^1.2.0",
+    "@radix-ui/react-switch": "^1.1.4",
+    "@radix-ui/react-tabs": "^1.1.4",
+    "@radix-ui/react-toast": "^1.2.7",
+    "@radix-ui/react-toggle": "^1.1.3",
+    "@radix-ui/react-toggle-group": "^1.1.3",
+    "@radix-ui/react-tooltip": "^1.2.0",
+    "@replit/vite-plugin-cartographer": "catalog:",
+    "@replit/vite-plugin-dev-banner": "catalog:",
+    "@replit/vite-plugin-runtime-error-modal": "catalog:",
+    "@tailwindcss/typography": "^0.5.15",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@workspace/api-client-react": "workspace:*",
+    "@workspace/ai-orchestrator": "workspace:*",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
+    "cmdk": "^1.1.1",
+    "date-fns": "^3.6.0",
+    "embla-carousel-react": "^8.6.0",
+    "framer-motion": "catalog:",
+    "input-otp": "^1.4.2",
+    "jsdom": "^29.1.1",
+    "lucide-react": "catalog:",
+    "next-themes": "^0.4.6",
+    "react": "catalog:",
+    "react-day-picker": "^9.11.1",
+    "react-dom": "catalog:",
+    "react-hook-form": "^7.55.0",
+    "react-icons": "^5.4.0",
+    "react-resizable-panels": "^2.1.7",
+    "recharts": "^2.15.2",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "catalog:",
+    "tailwindcss": "catalog:",
+    "tw-animate-css": "^1.4.0",
+    "vaul": "^1.1.2",
+    "vite": "catalog:",
+    "vitest": "^4.1.10",
+    "wouter": "^3.3.5",
+    "zod": "catalog:"
+  },
+  "dependencies": {
+    "@clerk/react": "^6.12.2",
+    "@clerk/themes": "^2.4.57",
+    "react-markdown": "^10.1.0"
+  }
+}
+
+--- scripts ---
+#!/usr/bin/env node
+
+import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  acquireReleaseLock,
+  lockPath,
+} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+import {
+  formatMissionCorrelationSummary,
+  parseMissionCorrelationReportOutput,
+} from "./mission-correlation-report.mjs";
+
+if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+  console.error(
+    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+  );
+  process.exit(2);
+}
+
+const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23184);
+const dashboardBaseUrl =
+  process.env.DASHBOARD_E2E_BASE_URL ??
+  `http://127.0.0.1:${dashboardPort}/dashboard/`;
+const apiHealthUrl =
+  process.env.DASHBOARD_E2E_API_HEALTH_URL ??
+  `http://127.0.0.1:${apiPort}/api/healthz`;
+// Origin contract probes must reach the API listener directly. Sending them
+// through the dashboard dev proxy lets some browser environments terminate
+// OPTIONS locally with a bare 204, which hides the API's CORS response.
+const apiBaseUrl =
+  process.env.DASHBOARD_E2E_API_BASE_URL ??
+  `http://127.0.0.1:${apiPort}/`;
+const testEmail =
+  process.env.DASHBOARD_E2E_EMAIL ??
+  "engineeringos-dashboard-release@example.com";
+const timeoutMs = Number(
+  process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
+);
+const liveTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+);
+const childTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+);
+const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+if (
+  approvedDashboardOrigins.length === 0 &&
+  process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1"
+) {
+  approvedDashboardOrigins.push(`http://127.0.0.1:${dashboardPort}`);
+}
+if (approvedDashboardOrigins.length === 0) {
+  throw new Error(
+    "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+  );
+}
+const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
+const outputDir = resolve(
+  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+);
+const teardownArtifactPath = resolve(
+  process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
+    resolve(outputDir, "release-teardown.json"),
+);
+const originDiagnosticsPath = resolve(
+  process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
+    resolve(outputDir, "origin-diagnostics.json"),
+);
+const services = [];
+let releaseLockCleanup;
+const releasePorts = [apiPort, dashboardPort];
+const controlPort = Number(
+  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
+);
+let apiService;
+let campaignControlServer;
+
+function redact(value) {
+  const secretValues = Object.values(process.env).filter(
+    (item) => typeof item === "string" && item.length >= 8,
+  );
+  return secretValues.reduce(
+    (redacted, secret) => redacted.split(secret).join("[REDACTED]"),
+    value,
+  );
+}
+
+async function waitFor(url, label) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "not attempted";
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (response.ok) {
+        return response;
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`${label} did not become healthy: ${lastError} (${url})`);
+}
+
+function startService(label, command, args, env, port) {
+  const child = spawn(command, args, {
+    cwd: workspaceRoot,
+    env: { ...process.env, ...env },
+    stdio: "inherit",
+    detached: true,
+  });
+  services.push({ label, child, port });
+  child.on("error", (error) => {
+    console.error(`${label} could not start: ${redact(error.message)}`);
+  });
+  return child;
+}
+
+async function restartApiService() {
+  if (!apiService) throw new Error("API release service is not running.");
+  signalProcessGroup(apiService, "SIGTERM");
+  await waitForPortClosed(apiPort);
+  apiService = startService(
+    "API release service (restarted)",
+    "node",
+    ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
+    {
+      NODE_ENV: "development",
+      PORT: String(apiPort),
+      APP_ORIGINS: approvedDashboardOrigins.join(","),
+    },
+    apiPort,
+  );
+  await waitFor(apiHealthUrl, "restarted API workflow");
+}
+
+async function startCampaignControl() {
+  campaignControlServer = createServer(async (request, response) => {
+    if (request.method !== "POST" || request.url !== "/restart-api") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    try {
+      await restartApiService();
+      response.writeHead(204);
+      response.end();
+    } catch (error) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          error: redact(error instanceof Error ? error.message : String(error)),
+        }),
+      );
+    }
+  });
+  await new Promise((resolve, reject) => {
+    campaignControlServer.once("error", reject);
+    campaignControlServer.listen(controlPort, "127.0.0.1", resolve);
+  });
+}
+
+function listeningUsers(port) {
+  try {
+    const output = execFileSync(
+      "lsof",
+      ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return [
+      ...new Set(
+        [...output.matchAll(/\b\d+\b/g)].map((match) => Number(match[0])),
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function signalProcessGroup(child, signal) {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
+}
+
+async function waitForPortClosed(port, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (listeningUsers(port).length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const remainingPids = listeningUsers(port);
+  const error = new Error(
+    `Release port ${port} did not become available; surviving process IDs: ${
+      remainingPids.length > 0 ? remainingPids.join(", ") : "unknown"
+    }.`,
+  );
+  error.remainingPids = remainingPids;
+  throw error;
+}
+
+async function waitForPortOpen(port, timeoutMs = 2_500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (listeningUsers(port).length > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Teardown fixture did not open port ${port}.`);
+}
+
+async function ensureReleasePortFree(port) {
+  for (const pid of listeningUsers(port).filter(
+    (item) => item !== process.pid,
+  )) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch (error) {
+      if (error?.code !== "ESRCH") throw error;
+    }
+  }
+  try {
+    await waitForPortClosed(port, 2_500);
+    return;
+  } catch {
+    for (const pid of listeningUsers(port).filter(
+      (item) => item !== process.pid,
+    )) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch (error) {
+        if (error?.code !== "ESRCH") throw error;
+      }
+    }
+    await waitForPortClosed(port);
+  }
+}
+
+async function ensureReleasePortsFree() {
+  for (const port of releasePorts) await ensureReleasePortFree(port);
+}
+
+function releaseServiceForPort(port) {
+  if (port === apiPort) return "API release service";
+  if (port === dashboardPort) return "Dashboard release service";
+  return `Release service on port ${port}`;

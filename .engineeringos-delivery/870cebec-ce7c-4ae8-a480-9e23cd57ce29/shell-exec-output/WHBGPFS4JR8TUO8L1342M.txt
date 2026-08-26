@@ -1,0 +1,435 @@
+  /**
+   * Called as soon as a `forensic_status` step is emitted live during the
+   * audit stream.  Carries `isFixtureLocal` so callers can surface a
+   * FIXTURE-LOCAL warning before the full report arrives.
+   */
+  onForensicStatus?: (event: AiStreamForensicStatusEvent) => void;
+  /** FEG-017: called when a forensic investigation's failure terminal is classified. */
+  onForensicTerminal?: (event: AiStreamForensicTerminalEvent) => void;
+  /** Called when the server proves or rejects runtime production reachability. */
+  onProductionTrace?: (event: AiStreamProductionTraceEvent) => void;
+  /** Called for bounded graph-grounded cross-file provenance. */
+  onCrossFileTrace?: (event: AiStreamCrossFileTraceEvent) => void;
+  /**
+   * Called when the run-ledger telemetry reconciliation completes. Lets the UI
+   * surface EI-011/012 consistency + violations for the run as they happen.
+   */
+  onEvidenceIntegrity?: (event: AiStreamEvidenceIntegrityEvent) => void;
+  /**
+   * Called when the task router decides the verdict live. Carries the proof
+   * scope so callers can surface a FIXTURE-LOCAL / PRODUCTION badge (and the
+   * scoped finding status) before the full report lands.
+   */
+  onDecisionTrace?: (event: AiStreamDecisionTraceEvent) => void;
+  onTaskStarted?: (event: AiStreamTaskStartedEvent) => void;
+  onTaskProgress?: (event: AiStreamTaskProgressEvent) => void;
+  onTaskDone?: (event: AiStreamTaskDoneEvent) => void;
+};
+
+// ── Stream processor ──────────────────────────────────────────────────────────
+
+/**
+ * Reads a server-sent-events `body` to completion, parses each `data: {...}\n\n`
+ * frame, and dispatches the typed event to the matching callback in `callbacks`.
+ *
+ * Extracted from `useAiChatStream` so the routing logic can be tested directly
+ * without a React / fetch runtime.  The hook calls this function internally;
+ * the behaviour is identical to what it was before extraction.
+ *
+ * @internal Exported for testing — not part of the public API contract.
+ */
+export async function processAiStream(
+  body: ReadableStream<Uint8Array>,
+  callbacks: AiChatStreamCallbacks,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let executionStarted = false;
+  let taskStarted = false;
+  let terminalEventReceived = false;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      // A proxy/provider can close a healthy-looking SSE response without
+      // sending either `done` or `error`. Once the server has issued an
+      // execution identity, surface that EOF as a recoverable interruption so
+      // callers can resume the same operation instead of silently dropping it.
+      if ((executionStarted || taskStarted) && !terminalEventReceived) {
+        callbacks.onStreamReset?.();
+      }
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by double newlines: "data: {...}\n\n"
+    const chunks = buffer.split('\n\n');
+    // Last element is the incomplete chunk — keep it for the next read
+    buffer = chunks.pop() ?? '';
+
+    for (const chunk of chunks) {
+      const dataLine = chunk.split('\n').find((l) => l.startsWith('data: '));
+      if (!dataLine) continue;
+
+      let event: AiStreamEvent;
+      try {
+        event = JSON.parse(dataLine.slice('data: '.length)) as AiStreamEvent;
+      } catch {
+        continue; // malformed event — skip
+      }
+
+      if (event.type === 'execution_started') executionStarted = true;
+      if (event.type === 'task_started') taskStarted = true;
+      if (event.type === 'done' || event.type === 'error') terminalEventReceived = true;
+
+      switch (event.type) {
+        case 'execution_started':
+          callbacks.onExecutionStarted?.(event);
+          break;
+        case 'execution_nodes':
+          callbacks.onExecutionNodes?.(event);
+          break;
+        case 'session_started':
+          callbacks.onSessionStarted?.(event);
+          break;
+        case 'stage':
+          callbacks.onStage?.(event.stage);
+          break;
+        case 'intent':
+          callbacks.onIntent?.(event);
+          break;
+        case 'audit_state':
+          callbacks.onAuditState?.(event);
+          break;
+        case 'verification':
+          callbacks.onVerification?.(event);
+          break;
+        case 'delta':
+          callbacks.onDelta?.(event.delta);
+          break;
+        case 'done':
+          callbacks.onDone?.(event);
+          break;
+        case 'error':
+          callbacks.onError?.(event);
+          break;
+        case 'stream_reset':
+          callbacks.onStreamReset?.();
+          break;
+        case 'tool_call':
+          callbacks.onToolCall?.(event);
+          break;
+        case 'tool_result':
+          callbacks.onToolResult?.(event);
+          break;
+        case 'plan_activity':
+          callbacks.onPlanActivity?.(event);
+          break;
+        case 'validation': {
+          const validationEvent = parseValidationEvent(event);
+          if (validationEvent) callbacks.onValidation?.(validationEvent);
+          break;
+        }
+        case 'repair_state':
+          callbacks.onRepairState?.(event);
+          break;
+        case 'model_call':
+          callbacks.onModelCall?.(event);
+          break;
+        case 'thinking':
+          callbacks.onThinking?.(event);
+          break;
+        case 'execution_guard':
+          callbacks.onExecutionGuard?.(event);
+          break;
+        case 'synthesis_start':
+          callbacks.onSynthesisStart?.(event);
+          break;
+        case 'execution_diagnostic':
+          callbacks.onExecutionDiagnostic?.(event);
+          break;
+        case 'forensic_status':
+          callbacks.onForensicStatus?.(event);
+          break;
+        case 'forensic_terminal':
+          callbacks.onForensicTerminal?.(event);
+          break;
+        case 'production_trace':
+          callbacks.onProductionTrace?.(event);
+          break;
+        case 'cross_file_trace':
+          callbacks.onCrossFileTrace?.(event);
+          break;
+        case 'evidence_integrity':
+          callbacks.onEvidenceIntegrity?.(event);
+          break;
+        case 'decision_trace':
+          callbacks.onDecisionTrace?.(event);
+          break;
+        case 'task_started':
+          callbacks.onTaskStarted?.(event);
+          break;
+        case 'task_progress':
+          callbacks.onTaskProgress?.(event);
+          break;
+        case 'task_done':
+          callbacks.onTaskDone?.(event);
+          break;
+      }
+    }
+  }
+}
+
+// ── Hook ──────────────────────────────────────────────────────────────────────
+
+export function useAiChatStream() {
+  const [isPending, setIsPending] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  const executionRef = useRef<{ id: string; resumeToken?: string } | null>(null);
+  const executionRef = useRef<{ id: string; resumeToken?: string } | null>(null);
+  const generationRef = useRef(0);
+
+  const send = useCallback(async (
+    params: AiChatStreamParams,
+    callbacks: AiChatStreamCallbacks = {},
+  ): Promise<void> => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    const generation = ++generationRef.current;
+    controllerRef.current = controller;
+    if (params.executionId) {
+      executionRef.current = { id: params.executionId, resumeToken: params.resumeToken };
+    } else {
+      executionRef.current = null;
+    }
+    setIsPending(true);
+    const isCurrent = () => (
+      generationRef.current === generation
+      && controllerRef.current === controller
+      && !controller.signal.aborted
+    );
+    const guardedCallbacks: AiChatStreamCallbacks = {
+      onExecutionStarted: (event) => {
+        if (!isCurrent()) return;
+        executionRef.current = {
+          id: event.executionId,
+          ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+        };
+        callbacks.onExecutionStarted?.(event);
+      },
+      onExecutionNodes: (event) => { if (isCurrent()) callbacks.onExecutionNodes?.(event); },
+      onSessionStarted: (event) => { if (isCurrent()) callbacks.onSessionStarted?.(event); },
+      onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
+      onIntent: (event) => { if (isCurrent()) callbacks.onIntent?.(event); },
+      onAuditState: (event) => { if (isCurrent()) callbacks.onAuditState?.(event); },
+      onVerification: (event) => { if (isCurrent()) callbacks.onVerification?.(event); },
+      onDelta: (event) => { if (isCurrent()) callbacks.onDelta?.(event); },
+      onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
+      onDone: (event) => {
+        if (!isCurrent()) return;
+        executionRef.current = null;
+        callbacks.onDone?.(event);
+      },
+      onError: (event) => { if (isCurrent()) callbacks.onError?.(event); },
+      onToolCall: (event) => { if (isCurrent()) callbacks.onToolCall?.(event); },
+      onToolResult: (event) => { if (isCurrent()) callbacks.onToolResult?.(event); },
+      onPlanActivity: (event) => { if (isCurrent()) callbacks.onPlanActivity?.(event); },
+      onValidation: (event) => { if (isCurrent()) callbacks.onValidation?.(event); },
+      onRepairState: (event) => { if (isCurrent()) callbacks.onRepairState?.(event); },
+      onModelCall: (event) => { if (isCurrent()) callbacks.onModelCall?.(event); },
+      onThinking: (event) => { if (isCurrent()) callbacks.onThinking?.(event); },
+      onExecutionGuard: (event) => { if (isCurrent()) callbacks.onExecutionGuard?.(event); },
+      onSynthesisStart: (event) => { if (isCurrent()) callbacks.onSynthesisStart?.(event); },
+      onExecutionDiagnostic: (event) => { if (isCurrent()) callbacks.onExecutionDiagnostic?.(event); },
+      onForensicStatus: (event) => { if (isCurrent()) callbacks.onForensicStatus?.(event); },
+      onForensicTerminal: (event) => { if (isCurrent()) callbacks.onForensicTerminal?.(event); },
+      onProductionTrace: (event) => { if (isCurrent()) callbacks.onProductionTrace?.(event); },
+      onCrossFileTrace: (event) => { if (isCurrent()) callbacks.onCrossFileTrace?.(event); },
+      onEvidenceIntegrity: (event) => { if (isCurrent()) callbacks.onEvidenceIntegrity?.(event); },
+      onDecisionTrace: (event) => { if (isCurrent()) callbacks.onDecisionTrace?.(event); },
+      onTaskStarted: (event) => { if (isCurrent()) callbacks.onTaskStarted?.(event); },
+      onTaskProgress: (event) => { if (isCurrent()) callbacks.onTaskProgress?.(event); },
+      onTaskDone: (event) => { if (isCurrent()) callbacks.onTaskDone?.(event); },
+    };
+    try {
+      const requestParams = {
+        ...params,
+        idempotencyKey: params.idempotencyKey ?? crypto.randomUUID(),
+      };
+      const res = await fetch('/api/ai/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestParams),
+        signal: controller.signal,
+      });
+
+      // Handle non-SSE error responses (e.g. 400/401/428/429 before the stream starts)
+      if (!res.ok) {
+        let parsed: { code?: string; error?: string; hint?: string } = {};
+        try { parsed = await res.json() as typeof parsed; } catch { /* ignore */ }
+
+        // HTTP 401 without a structured code means the Clerk session expired
+        // (the auth middleware rejected the request before it reached the AI handler).
+        // Surface this as AUTH_ERROR so describeStreamError maps it to the
+        // correct 401 case with a session-expiry hint rather than the generic
+        // correct 401 case with a session-expiry hint rather than the generic
+        // "Groq API key is invalid" fallback.
+        const isSessionExpiry = res.status === 401 && !parsed.code;
+        guardedCallbacks.onError?.({
+          type: 'error',
+          code: isSessionExpiry ? 'AUTH_ERROR' : (parsed.code ?? 'request_failed'),
+          message: parsed.error ?? `Request failed (${res.status})`,
+          hint: isSessionExpiry
+            ? 'جلستك انتهت — أعد تحميل الصفحة لتسجيل الدخول. / Your session expired — refresh the page to sign in again.'
+            : parsed.hint,
+        });
+        return;
+      }
+
+      // Server sets Content-Type: text/event-stream for the happy path.
+      // If body is null (shouldn't happen in practice), treat as error.
+      if (!res.body) {
+        guardedCallbacks.onError?.({ type: 'error', code: 'no_body', message: 'Stream response had no body.' });
+        return;
+      }
+
+      await processAiStream(res.body, guardedCallbacks);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      // Network-level failure (fetch threw)
+      guardedCallbacks.onError?.({
+        type: 'error',
+        code: 'network_error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+        setIsPending(false);
+      }
+    }
+  }, []);
+
+  const cancel = useCallback(() => {
+    const execution = executionRef.current;
+    if (execution) {
+      void fetch(`/api/ai/executions/${execution.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }).catch(() => undefined);
+    }
+    generationRef.current += 1;
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    executionRef.current = null;
+    setIsPending(false);
+  }, []);
+
+  return { send, cancel, isPending, execution: executionRef.current };
+}
+
+export type AiTaskStreamParams = {
+  projectId: string;
+  task: 'analyze' | 'review';
+  fileContents?: Record<string, string>;
+};
+
+export type AiTaskStreamCallbacks = Pick<
+  AiChatStreamCallbacks,
+  'onStage' | 'onModelCall' | 'onTaskStarted' | 'onTaskProgress' | 'onTaskDone' | 'onError' | 'onStreamReset'
+>;
+
+/**
+ * Streams structured Analyze/Review operations through the shared SSE parser.
+ * The existing JSON endpoints remain available for non-streaming clients.
+ */
+export function useAiTaskStream() {
+  const [isPending, setIsPending] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  const generationRef = useRef(0);
+
+  const send = useCallback(async (
+    params: AiTaskStreamParams,
+    callbacks: AiTaskStreamCallbacks = {},
+  ): Promise<void> => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    const generation = ++generationRef.current;
+    controllerRef.current = controller;
+    setIsPending(true);
+    const isCurrent = () => (
+      generationRef.current === generation
+      && controllerRef.current === controller
+      && !controller.signal.aborted
+    );
+    const guardedCallbacks: AiTaskStreamCallbacks = {
+      onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
+      onModelCall: (event) => { if (isCurrent()) callbacks.onModelCall?.(event); },
+      onTaskStarted: (event) => { if (isCurrent()) callbacks.onTaskStarted?.(event); },
+      onTaskProgress: (event) => { if (isCurrent()) callbacks.onTaskProgress?.(event); },
+      onTaskDone: (event) => { if (isCurrent()) callbacks.onTaskDone?.(event); },
+      onError: (event) => { if (isCurrent()) callbacks.onError?.(event); },
+      onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
+    };
+
+    try {
+      const res = await fetch(`/api/ai/projects/${params.projectId}/${params.task}/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params.task === 'review' ? { fileContents: params.fileContents } : {}),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        let parsed: { code?: string; error?: string; hint?: string } = {};
+        try { parsed = await res.json() as typeof parsed; } catch { /* ignore */ }
+        guardedCallbacks.onError?.({
+          type: 'error',
+          code: parsed.code ?? 'request_failed',
+          message: parsed.error ?? `Request failed (${res.status})`,
+          hint: parsed.hint,
+          failureKind: res.status === 429
+            ? 'RATE_LIMIT'
+            : res.status === 401 || res.status === 402 || res.status === 422 || res.status === 428
+              ? 'CONFIGURATION'
+              : 'PROVIDER_FAILURE',
+          outcome: 'FAILED',
+        });
+        return;
+      }
+
+      if (!res.body) {
+        guardedCallbacks.onError?.({ type: 'error', code: 'no_body', message: 'Task stream response had no body.', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
+        return;
+      }
+
+      await processAiStream(res.body, guardedCallbacks);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      guardedCallbacks.onError?.({
+        type: 'error',
+        code: 'network_error',
+        message: err instanceof Error ? err.message : String(err),
+        failureKind: 'TRANSPORT',
+        outcome: 'INTERRUPTED',
+      });
+    } finally {
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+        setIsPending(false);
+      }
+    }
+  }, []);
+
+  const cancel = useCallback(() => {
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    setIsPending(false);
+  }, []);
+
+  return { send, cancel, isPending };
+}

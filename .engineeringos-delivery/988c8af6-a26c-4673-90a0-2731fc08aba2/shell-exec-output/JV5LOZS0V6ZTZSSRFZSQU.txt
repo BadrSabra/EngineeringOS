@@ -1,0 +1,438 @@
+                  );
+                }
+              });
+            });
+          },
+        };
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolveRetry) => setTimeout(resolveRetry, 50));
+  }
+
+  child.kill("SIGKILL");
+  throw new Error(`CORS harness did not start: ${lastError}.\n${output}`);
+}
+
+test("release API listener enforces approved and hostile-origin CORS", async () => {
+  const approvedOrigin = "https://dashboard-approved.example.test";
+  const hostileOrigin = "https://hostile.example.test";
+  const harness = await startApiCorsHarness();
+
+  try {
+    const getResponse = await fetch(`${harness.baseUrl}/api/healthz`, {
+      headers: { Origin: approvedOrigin },
+    });
+    assert.equal(getResponse.status, 200);
+    assert.equal(
+      getResponse.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      getResponse.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+
+    const preflightResponse = await fetch(`${harness.baseUrl}/api/projects`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: approvedOrigin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type, x-csrf-token",
+      },
+    });
+    assert.equal(preflightResponse.status, 204);
+    assert.equal(
+      preflightResponse.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      preflightResponse.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+    assert.match(
+      preflightResponse.headers.get("access-control-allow-methods") ?? "",
+      /\bPOST\b/,
+    );
+    assert.match(
+      preflightResponse.headers.get("access-control-allow-headers") ?? "",
+      /x-csrf-token/i,
+    );
+
+    const approvedMutation = await fetch(
+      `${harness.baseUrl}/api/release-cors-contract`,
+      {
+        method: "POST",
+        headers: { Origin: approvedOrigin, "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    assert.notEqual(
+      approvedMutation.status,
+      403,
+      "approved state-changing origins must reach the API route layer",
+    );
+    assert.equal(
+      approvedMutation.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      approvedMutation.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+
+    const hostileMutation = await fetch(
+      `${harness.baseUrl}/api/release-cors-contract`,
+      {
+        method: "POST",
+        headers: { Origin: hostileOrigin, "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    assert.equal(hostileMutation.status, 403);
+    assert.equal(
+      hostileMutation.headers.get("access-control-allow-origin"),
+      null,
+      "hostile state-changing origins must not receive CORS permission",
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
+test("release API listener protects upload and live-update requests", async () => {
+  const approvedOrigin = "https://dashboard-approved.example.test";
+  const hostileOrigin = "https://hostile.example.test";
+  const harness = await startApiCorsHarness();
+
+  function expectApprovedCors(response, description) {
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+      `${description} must receive approved-origin CORS permission`,
+    );
+    assert.equal(
+      response.headers.get("access-control-allow-credentials"),
+      "true",
+      `${description} must allow credentialed dashboard requests`,
+    );
+  }
+
+  try {
+    // A multipart request exercises the same shape sent by the dashboard
+    // upload flow without creating a durable upload or invoking discovery.
+    const uploadBody = new FormData();
+    uploadBody.append(
+      "archive",
+      new Blob(["not an archive"], { type: "application/zip" }),
+      "release-contract.zip",
+    );
+    const approvedUpload = await fetch(
+      `${harness.baseUrl}/api/upload/archive`,
+      {
+        method: "POST",
+        headers: { Origin: approvedOrigin },
+        body: uploadBody,
+      },
+    );
+    assert.equal(
+      approvedUpload.status,
+      422,
+      "approved upload requests should reach archive validation without provider work",
+    );
+    expectApprovedCors(approvedUpload, "approved upload request");
+
+    const hostileUploadBody = new FormData();
+    hostileUploadBody.append(
+      "archive",
+      new Blob(["not an archive"], { type: "application/zip" }),
+      "release-contract.zip",
+    );
+    const hostileUpload = await fetch(
+      `${harness.baseUrl}/api/upload/archive`,
+      {
+        method: "POST",
+        headers: { Origin: hostileOrigin },
+        body: hostileUploadBody,
+      },
+    );
+    assert.equal(
+      hostileUpload.status,
+      403,
+      "hostile upload origins must be rejected before multipart handling",
+    );
+    assert.equal(
+      hostileUpload.headers.get("access-control-allow-origin"),
+      null,
+      "hostile upload origins must not receive CORS permission",
+    );
+
+    // An invalid JSON payload stops before project/provider work while still
+    // traversing the live stream route and its state-changing CORS guard.
+    const approvedLiveUpdate = await fetch(
+      `${harness.baseUrl}/api/ai/chat/stream`,
+      {
+        method: "POST",
+        headers: {
+          Origin: approvedOrigin,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(
+      approvedLiveUpdate.status,
+      400,
+      "approved live-update requests should reach stream validation without provider work",
+    );
+    expectApprovedCors(approvedLiveUpdate, "approved live-update request");
+
+    const hostileLiveUpdate = await fetch(
+      `${harness.baseUrl}/api/ai/chat/stream`,
+      {
+        method: "POST",
+        headers: {
+          Origin: hostileOrigin,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(
+      hostileLiveUpdate.status,
+      403,
+      "hostile live-update origins must be rejected before stream handling",
+    );
+    assert.equal(
+      hostileLiveUpdate.headers.get("access-control-allow-origin"),
+      null,
+      "hostile live-update origins must not receive CORS permission",
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
+--- relevant runner start ---
+#!/usr/bin/env node
+
+import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  acquireReleaseLock,
+  lockPath,
+} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+import {
+  formatMissionCorrelationSummary,
+  parseMissionCorrelationReportOutput,
+} from "./mission-correlation-report.mjs";
+
+if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+  console.error(
+    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+  );
+  process.exit(2);
+}
+
+const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23184);
+const dashboardBaseUrl =
+  process.env.DASHBOARD_E2E_BASE_URL ??
+  `http://127.0.0.1:${dashboardPort}/dashboard/`;
+const apiHealthUrl =
+  process.env.DASHBOARD_E2E_API_HEALTH_URL ??
+  `http://127.0.0.1:${apiPort}/api/healthz`;
+// Origin contract probes must reach the API listener directly. Sending them
+// through the dashboard dev proxy lets some browser environments terminate
+// OPTIONS locally with a bare 204, which hides the API's CORS response.
+const apiBaseUrl =
+  process.env.DASHBOARD_E2E_API_BASE_URL ??
+  `http://127.0.0.1:${apiPort}/`;
+const testEmail =
+  process.env.DASHBOARD_E2E_EMAIL ??
+  "engineeringos-dashboard-release@example.com";
+const timeoutMs = Number(
+  process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
+);
+const liveTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+);
+const childTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+);
+const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+if (
+  approvedDashboardOrigins.length === 0 &&
+  process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1"
+) {
+  approvedDashboardOrigins.push(`http://127.0.0.1:${dashboardPort}`);
+}
+if (approvedDashboardOrigins.length === 0) {
+  throw new Error(
+    "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+  );
+}
+const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
+const outputDir = resolve(
+  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+);
+const teardownArtifactPath = resolve(
+  process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
+    resolve(outputDir, "release-teardown.json"),
+);
+const originDiagnosticsPath = resolve(
+  process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
+    resolve(outputDir, "origin-diagnostics.json"),
+);
+const services = [];
+let releaseLockCleanup;
+const releasePorts = [apiPort, dashboardPort];
+const controlPort = Number(
+  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
+);
+let apiService;
+let campaignControlServer;
+
+function redact(value) {
+  const secretValues = Object.values(process.env).filter(
+    (item) => typeof item === "string" && item.length >= 8,
+  );
+  return secretValues.reduce(
+    (redacted, secret) => redacted.split(secret).join("[REDACTED]"),
+    value,
+  );
+}
+
+async function waitFor(url, label) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "not attempted";
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (response.ok) {
+        return response;
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`${label} did not become healthy: ${lastError} (${url})`);
+}
+
+function startService(label, command, args, env, port) {
+  const child = spawn(command, args, {
+    cwd: workspaceRoot,
+    env: { ...process.env, ...env },
+    stdio: "inherit",
+    detached: true,
+  });
+  services.push({ label, child, port });
+  child.on("error", (error) => {
+    console.error(`${label} could not start: ${redact(error.message)}`);
+  });
+  return child;
+}
+
+async function restartApiService() {
+  if (!apiService) throw new Error("API release service is not running.");
+  signalProcessGroup(apiService, "SIGTERM");
+  await waitForPortClosed(apiPort);
+  apiService = startService(
+    "API release service (restarted)",
+    "node",
+    ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
+    {
+      NODE_ENV: "development",
+      PORT: String(apiPort),
+      APP_ORIGINS: approvedDashboardOrigins.join(","),
+    },
+    apiPort,
+  );
+  await waitFor(apiHealthUrl, "restarted API workflow");
+}
+
+async function startCampaignControl() {
+  campaignControlServer = createServer(async (request, response) => {
+    if (request.method !== "POST" || request.url !== "/restart-api") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    try {
+      await restartApiService();
+      response.writeHead(204);
+      response.end();
+    } catch (error) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          error: redact(error instanceof Error ? error.message : String(error)),
+        }),
+      );
+    }
+  });
+  await new Promise((resolve, reject) => {
+    campaignControlServer.once("error", reject);
+    campaignControlServer.listen(controlPort, "127.0.0.1", resolve);
+  });
+}
+
+function listeningUsers(port) {
+  try {
+    const output = execFileSync(
+      "lsof",
+      ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return [
+      ...new Set(
+        [...output.matchAll(/\b\d+\b/g)].map((match) => Number(match[0])),
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function signalProcessGroup(child, signal) {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
+}
+
+async function waitForPortClosed(port, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (listeningUsers(port).length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const remainingPids = listeningUsers(port);
+  const error = new Error(
+    `Release port ${port} did not become available; surviving process IDs: ${
+      remainingPids.length > 0 ? remainingPids.join(", ") : "unknown"
+    }.`,
+  );
+  error.remainingPids = remainingPids;
+  throw error;
+}
+
+async function waitForPortOpen(port, timeoutMs = 2_500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (listeningUsers(port).length > 0) return;

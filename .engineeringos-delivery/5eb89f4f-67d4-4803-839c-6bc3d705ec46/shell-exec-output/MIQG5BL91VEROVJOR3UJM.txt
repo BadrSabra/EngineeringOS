@@ -1,0 +1,218 @@
+        .where(eq(aiChangeProposalsTable.id, proposalId));
+      expect(stored?.status).toBe("pending");
+      expect(JSON.parse(stored!.changes)).toEqual(proposalChanges);
+      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const value = 9;\n");
+    } finally {
+      await fs.rm(absolutePath, { force: true });
+    }
+  });
+
+});
+
+describe("POST /api/ai/tasks/:taskId/execute", () => {
+  // executeTask is mocked — a real key is never sent to Groq.
+  // We set a dummy env key so requireGroqApiKey passes the availability check;
+  // the 428-without-key test explicitly deletes it and restores it in finally.
+  let savedGroqKey: string | undefined;
+  beforeAll(() => {
+    savedGroqKey = process.env.GROQ_API_KEY;
+    process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+  });
+  afterAll(() => {
+    if (savedGroqKey !== undefined) {
+      process.env.GROQ_API_KEY = savedGroqKey;
+    } else {
+      delete process.env.GROQ_API_KEY;
+    }
+  });
+
+  it("returns 404 for an unknown task", async () => {
+    const res = await request(app).post(`/api/ai/tasks/${randomUUID()}/execute`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("Task not found");
+  });
+
+  it("returns 409 for a completed task", async () => {
+    const projectId = await insertProject();
+    correlationId,
+    attempt: before.retryCount,
+    validationTargetPaths: Array.isArray(before.relatedFiles) ? before.relatedFiles : [],
+  };
+  let stage = "claim";
+  const startedAt = Date.now();
+  const stages: string[] = ["claim"];
+  let executionProvider = params.provider.provider;
+
+  const durable = await createAiExecution({
+    userId: params.userId,
+    request,
+    idempotencyKey,
+    correlationId,
+    attempt: before.retryCount,
+    projectId: before.projectId,
+    linkedTaskId: before.id,
+  });
+  const executionId = durable.execution.id;
+  const claimedExecution = durable.created
+    ? await claimAiExecution({ executionId, userId: params.userId, workerId })
+    : durable.execution.status === "running"
+      ? undefined
+      : await claimAiExecution({ executionId, userId: params.userId, workerId });
+  if (!claimedExecution) {
+    return { ok: false, status: "conflict", executionId, errorCode: "execution_already_claimed" };
+  }
+
+  const [claimedTask] = await db.update(tasksTable)
+    .set({
+      status: "running",
+      workerId,
+      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+      lastHeartbeatAt: new Date(),
+      correlationId,
+      idempotencyKey,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(tasksTable.id, before.id), inArray(tasksTable.status, allowed)))
+    .returning();
+  if (!claimedTask) {
+    await failAiExecution({ executionId, workerId, error: "Task state changed before claim." });
+    return { ok: false, status: "conflict", executionId, errorCode: "task_state_changed" };
+  }
+  const claimConflict = taskTransitionConflict(initialStatus, "running", "execution");
+  if (claimConflict) {
+    await failAiExecution({ executionId, workerId, error: claimConflict });
+    return { ok: false, status: "conflict", executionId, errorCode: "invalid_task_transition" };
+  }
+
+  const log = async (level: "info" | "warn" | "error", message: string, metadata?: Record<string, unknown>) => {
+    const safeMetadata = Object.fromEntries(
+      Object.entries(metadata ?? {})
+        .filter(([key]) => key !== "workerId")
+        .map(([key, value]) => [key, typeof value === "string" ? safeText(value, 240) : value]),
+    );
+    await db.insert(taskLogsTable).values({
+      id: randomUUID(), taskId: before.id, level, message: safeText(message, 500),
+      metadata: { ...safeMetadata, executionId, trigger: params.trigger },
+      correlationId,
+    }).catch((error) => logger.warn({ error, taskId: before.id }, "task execution log write failed"));
+  };
+  await log("info", "AI task execution claimed", { stage: "claim", workerId });
+  const initialCheckpointed = await checkpointAiExecution({
+    executionId, workerId,
+    checkpoint: { stage: "running", sequence: 1, detail: "Task claimed.", updatedAt: new Date().toISOString() },
+  });
+  if (!initialCheckpointed) {
+    await failAiExecution({
+      executionId,
+      workerId,
+      error: "Execution checkpoint could not be persisted after claim.",
+    });
+    await db.update(tasksTable).set({
+      status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
+      updatedAt: new Date(),
+        payload: {
+          executionId,
+          operationId: executionId,
+          revision: params.workspaceRevision ?? null,
+          attempt: before.retryCount,
+          stage: "parse",
+          code: "model_output_invalid",
+          retryable: true,
+        },
+      }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task parse failure event write failed"));
+      await db.update(tasksTable).set({ agentResponse: JSON.stringify(parseReceipt) })
+        .where(and(eq(tasksTable.id, before.id), eq(tasksTable.correlationId, correlationId)));
+      return {
+        ok: false,
+        status: "failed",
+        executionId,
+        errorCode: "model_output_invalid",
+        parseCode: result._parseError.code,
+      };
+    }
+
+    const finalStatus = result.needsHumanReview ? "verifying" : "completed";
+    const finalConflict = taskTransitionConflict("running", finalStatus, "execution");
+    if (finalConflict) throw new Error(finalConflict);
+    stage = "finalize";
+    stages.push("finalize");
+    const taskReceipt = buildAiTaskExecutionReceipt({
+      executionId, correlationId, revision: params.workspaceRevision,
+      provider: executionProvider, attempt: before.retryCount,
+      durationMs: Date.now() - startedAt, stages,
+      attempts: effectiveProvider === params.provider.provider ? 1 : 2, result,
+    });
+    const [updated] = await db.transaction(async (tx) => {
+      // Lock the durable execution before touching the task. Cancellation
+      // updates this row first, so a cancelling worker cannot publish a
+      // success after cancellation has won the race.
+      const [execution] = await tx
+        .select({ status: aiExecutionsTable.status })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, executionId),
+          eq(aiExecutionsTable.workerId, workerId),
+        ))
+        .for("update");
+      if (!execution || execution.status !== "running" || executionAbortController.signal.aborted) {
+        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+      }
+      const [row] = await tx.update(tasksTable).set({
+        status: finalStatus,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        agentResponse: JSON.stringify(taskReceipt),
+        verificationResult: {
+          passed: taskReceipt.terminalStatus === "SUCCEEDED",
+          steps: (taskReceipt.steps ?? []).map((name) => ({
+            name,
+            passed: taskReceipt.terminalStatus === "SUCCEEDED",
+          })),
+        },
+        completedAt: finalStatus === "completed" ? new Date() : null,
+        updatedAt: new Date(),
+      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running"))).returning();
+      if (!row) throw new Error("task_state_changed_during_finalize");
+      await tx.insert(taskLogsTable).values({
+        id: randomUUID(), taskId: before.id,
+        level: finalStatus === "completed" ? "info" : "warn",
+        message: `AI task ${finalStatus}: ${taskReceipt.summary}`,
+        metadata: { receipt: taskReceipt, executionId, trigger: params.trigger }, correlationId,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(), type: finalStatus === "completed" ? "TaskCompleted" : "TaskVerifying",
+        projectId: before.projectId, taskId: before.id,
+        severity: finalStatus === "completed" ? "success" : "warning",
+        message: `AI executed "${before.title}" → ${finalStatus}`,
+        correlationId,
+        payload: {
+          executionId,
+          operationId: executionId,
+          revision: taskReceipt.revision,
+          provider: taskReceipt.provider,
+          model: taskReceipt.model,
+          attempt: taskReceipt.attempt,
+          attempts: taskReceipt.attempts,
+          durationMs: taskReceipt.durationMs,
+          terminalStatus: taskReceipt.terminalStatus,
+          terminalReason: taskReceipt.terminalReason,
+          trigger: params.trigger,
+        },
+      });
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: before.id, action: "ai_executed",
+        projectId: before.projectId, stateBefore: { status: before.status },
+        stateAfter: {
+          status: finalStatus, executionId, operationId: executionId,
+          revision: taskReceipt.revision, terminalStatus: taskReceipt.terminalStatus,
+          terminalReason: taskReceipt.terminalReason,
+        },
+        correlationId,
+      });
+      await tx.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:159:export async function executeTaskLifecycle(params: {
+artifacts/api-server/src/routes/ai/tasks.ts:32:import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+artifacts/api-server/src/routes/ai/tasks.ts:72:  let lifecycle: Awaited<ReturnType<typeof executeTaskLifecycle>>;
+artifacts/api-server/src/routes/ai/tasks.ts:74:    lifecycle = await executeTaskLifecycle({
+artifacts/api-server/src/routes/ai/tasks.ts:445:      const lifecycle = await executeTaskLifecycle({

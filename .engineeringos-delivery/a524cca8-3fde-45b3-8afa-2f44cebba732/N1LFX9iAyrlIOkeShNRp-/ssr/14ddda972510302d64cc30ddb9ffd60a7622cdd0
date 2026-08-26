@@ -1,0 +1,35 @@
+__vite_ssr_exportName__("default", () => { try { return __vite_ssr_export_default__ } catch {} });
+const __vite_ssr_import_0__ = await __vite_ssr_import__("/@fs/home/runner/workspace/node_modules/.pnpm/express@5.2.1/node_modules/express/index.js", {"importedNames":["Router"]});
+const __vite_ssr_import_1__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/api-zod/src/index.ts", {"importedNames":["GetHealthResponse"]});
+const __vite_ssr_import_2__ = await __vite_ssr_import__("/src/lib/job-queue.ts", {"importedNames":["heavyJobQueue"]});
+const __vite_ssr_import_3__ = await __vite_ssr_import__("/src/lib/operational-counters.ts", {"importedNames":["getOperationalCounters"]});
+const __vite_ssr_import_4__ = await __vite_ssr_import__("/src/lib/startup-migrations.ts", {"importedNames":["getAiDiagnosticsRetentionHealth"]});
+const __vite_ssr_import_5__ = await __vite_ssr_import__("/src/lib/task-execution-retention.ts", {"importedNames":["getTaskExecutionRetentionHealth"]});
+const __vite_ssr_import_6__ = await __vite_ssr_import__("/src/lib/job-reconciliation.ts", {"importedNames":["getDurableJobHealth"]});
+"use strict";
+
+
+
+
+
+
+
+const router = (0,__vite_ssr_import_0__.Router)();
+router.get("/healthz", async (_req, res) => {
+  const data = __vite_ssr_import_1__.GetHealthResponse.parse({
+    status: "ok",
+    jobQueue: __vite_ssr_import_2__.heavyJobQueue.getStats(),
+    // Surface operational counters so operators can see degraded subsystems
+    // and whether failed audit writes are still awaiting recovery.
+    operationalCounters: (0,__vite_ssr_import_3__.getOperationalCounters)(),
+    aiDiagnosticsRetention: (0,__vite_ssr_import_4__.getAiDiagnosticsRetentionHealth)(),
+    taskExecutionRetention: (0,__vite_ssr_import_5__.getTaskExecutionRetentionHealth)(),
+    jobRecovery: await (0,__vite_ssr_import_6__.getDurableJobHealth)()
+  });
+  res.json(data);
+});
+const __vite_ssr_export_default__ = router;
+//# sourceMappingSource=vite-generated
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJtYXBwaW5ncyI6IkFBQUEsQ0FBQTtBQUFBO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBOzs7Ozs7Ozs7QUFFQSxNQUFNLFlBQWtCLDhCQUFPO0FBRS9CLE9BQU8sSUFBSSxZQUFZLE9BQU8sTUFBTSxRQUFRO0FBQzFDLFFBQU0sT0FBTyx3Q0FBa0IsTUFBTTtBQUFBLElBQ25DLFFBQVE7QUFBQSxJQUNSLFVBQVUsb0NBQWMsU0FBUztBQUFBO0FBQUE7QUFBQSxJQUdqQyx3QkFBcUIsOENBQXVCO0FBQUEsSUFDNUMsMkJBQXdCLHVEQUFnQztBQUFBLElBQ3hELDJCQUF3Qix1REFBZ0M7QUFBQSxJQUN4RCxhQUFhLFNBQU0sMkNBQW9CO0FBQUEsRUFDekMsQ0FBQztBQUNELE1BQUksS0FBSyxJQUFJO0FBQ2YsQ0FBQztBQUVELG9DQUFlIiwibmFtZXMiOltdLCJpZ25vcmVMaXN0IjpbXSwic291cmNlcyI6WyJoZWFsdGgudHMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IHsgUm91dGVyLCB0eXBlIElSb3V0ZXIgfSBmcm9tIFwiZXhwcmVzc1wiO1xuaW1wb3J0IHsgR2V0SGVhbHRoUmVzcG9uc2UgfSBmcm9tIFwiQHdvcmtzcGFjZS9hcGktem9kXCI7XG5pbXBvcnQgeyBoZWF2eUpvYlF1ZXVlIH0gZnJvbSBcIi4uL2xpYi9qb2ItcXVldWUuanNcIjtcbmltcG9ydCB7IGdldE9wZXJhdGlvbmFsQ291bnRlcnMgfSBmcm9tIFwiLi4vbGliL29wZXJhdGlvbmFsLWNvdW50ZXJzLmpzXCI7XG5pbXBvcnQgeyBnZXRBaURpYWdub3N0aWNzUmV0ZW50aW9uSGVhbHRoIH0gZnJvbSBcIi4uL2xpYi9zdGFydHVwLW1pZ3JhdGlvbnMuanNcIjtcbmltcG9ydCB7IGdldFRhc2tFeGVjdXRpb25SZXRlbnRpb25IZWFsdGggfSBmcm9tIFwiLi4vbGliL3Rhc2stZXhlY3V0aW9uLXJldGVudGlvbi5qc1wiO1xuaW1wb3J0IHsgZ2V0RHVyYWJsZUpvYkhlYWx0aCB9IGZyb20gXCIuLi9saWIvam9iLXJlY29uY2lsaWF0aW9uLmpzXCI7XG5cbmNvbnN0IHJvdXRlcjogSVJvdXRlciA9IFJvdXRlcigpO1xuXG5yb3V0ZXIuZ2V0KFwiL2hlYWx0aHpcIiwgYXN5bmMgKF9yZXEsIHJlcykgPT4ge1xuICBjb25zdCBkYXRhID0gR2V0SGVhbHRoUmVzcG9uc2UucGFyc2Uoe1xuICAgIHN0YXR1czogXCJva1wiLFxuICAgIGpvYlF1ZXVlOiBoZWF2eUpvYlF1ZXVlLmdldFN0YXRzKCksXG4gICAgLy8gU3VyZmFjZSBvcGVyYXRpb25hbCBjb3VudGVycyBzbyBvcGVyYXRvcnMgY2FuIHNlZSBkZWdyYWRlZCBzdWJzeXN0ZW1zXG4gICAgLy8gYW5kIHdoZXRoZXIgZmFpbGVkIGF1ZGl0IHdyaXRlcyBhcmUgc3RpbGwgYXdhaXRpbmcgcmVjb3ZlcnkuXG4gICAgb3BlcmF0aW9uYWxDb3VudGVyczogZ2V0T3BlcmF0aW9uYWxDb3VudGVycygpLFxuICAgIGFpRGlhZ25vc3RpY3NSZXRlbnRpb246IGdldEFpRGlhZ25vc3RpY3NSZXRlbnRpb25IZWFsdGgoKSxcbiAgICB0YXNrRXhlY3V0aW9uUmV0ZW50aW9uOiBnZXRUYXNrRXhlY3V0aW9uUmV0ZW50aW9uSGVhbHRoKCksXG4gICAgam9iUmVjb3Zlcnk6IGF3YWl0IGdldER1cmFibGVKb2JIZWFsdGgoKSxcbiAgfSk7XG4gIHJlcy5qc29uKGRhdGEpO1xufSk7XG5cbmV4cG9ydCBkZWZhdWx0IHJvdXRlcjtcbiJdLCJmaWxlIjoiL3NyYy9yb3V0ZXMvaGVhbHRoLnRzIn0=
+
+//# vitestCache=W3siZmlsZSI6IjEiLCJpZCI6IjEiLCJ1cmwiOiIyIiwiaW1wb3J0ZWRVcmxzIjoiMyIsIm1hcHBpbmdzIjpmYWxzZX0sIi9ob21lL3J1bm5lci93b3Jrc3BhY2UvYXJ0aWZhY3RzL2FwaS1zZXJ2ZXIvc3JjL3JvdXRlcy9oZWFsdGgudHMiLCIvc3JjL3JvdXRlcy9oZWFsdGgudHMiLFtdXQ==

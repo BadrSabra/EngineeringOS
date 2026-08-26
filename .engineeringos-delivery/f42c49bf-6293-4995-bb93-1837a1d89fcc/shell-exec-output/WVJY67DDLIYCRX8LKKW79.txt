@@ -1,0 +1,341 @@
+    ["--filter", "@workspace/dashboard", "run", "dev"],
+    {
+      PORT: String(dashboardPort),
+      BASE_PATH: "/dashboard/",
+      API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,
+    },
+    dashboardPort,
+  );
+  await waitFor(apiHealthUrl, "API workflow");
+  await startCampaignControl();
+  const dashboardResponse = await waitFor(
+    dashboardBaseUrl,
+    "Dashboard workflow",
+  );
+  const dashboardHtml = await dashboardResponse.text();
+  if (!dashboardHtml.includes("/dashboard/")) {
+    throw new Error(
+      `Dashboard workflow responded without the /dashboard/ base path (${dashboardBaseUrl}).`,
+    );
+  }
+}
+
+function runClerkHandoffContracts() {
+  return new Promise((resolve, reject) => {
+    const contractTests = spawn(
+      "pnpm",
+      ["--filter", "@workspace/dashboard", "run", "test:clerk-handoff"],
+      {
+        env: {
+          ...process.env,
+          CI: "true",
+        },
+        stdio: "inherit",
+      },
+    );
+
+    contractTests.on("error", (error) => {
+      reject(
+        new Error(
+          `Unable to start dashboard Clerk handoff contract checks: ${redact(error.message)}`,
+        ),
+      );
+    });
+
+    contractTests.on("exit", (code, signal) => {
+      if (signal) {
+        reject(
+          new Error(
+            `Dashboard Clerk handoff contract checks stopped by ${signal}.`,
+          ),
+        );
+        return;
+      }
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Dashboard Clerk handoff contract checks failed with exit code ${code ?? 1}; browser startup was skipped.`,
+          ),
+        );
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function runDashboardJourneyContracts() {
+  return new Promise((resolve, reject) => {
+    const contractTests = spawn(
+      "pnpm",
+      ["run", "test:dashboard-journey-contract"],
+      {
+        env: { ...process.env, CI: "true" },
+        stdio: "inherit",
+      },
+    );
+
+    contractTests.on("error", (error) => {
+      reject(
+        new Error(
+          `Unable to start dashboard journey contract checks: ${redact(error.message)}`,
+        ),
+      );
+    });
+    contractTests.on("exit", (code, signal) => {
+      if (signal) {
+        reject(
+          new Error(`Dashboard journey contract checks stopped by ${signal}.`),
+        );
+      } else if (code !== 0) {
+        reject(
+          new Error(
+            `Dashboard journey contract checks failed with exit code ${code ?? 1}.`,
+          ),
+        );
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function runMissionCorrelationReportContracts() {
+  return new Promise((resolve, reject) => {
+    const contractTests = spawn(
+      "pnpm",
+      ["run", "test:mission-correlation-report"],
+      {
+        env: { ...process.env, CI: "true" },
+        stdio: "inherit",
+      },
+    );
+
+    contractTests.on("error", (error) => {
+      reject(
+        new Error(
+          `Unable to start mission correlation report contract checks: ${redact(error.message)}`,
+        ),
+      );
+    });
+    contractTests.on("exit", (code, signal) => {
+      if (signal) {
+        reject(
+          new Error(
+            `Mission correlation report contract checks stopped by ${signal}.`,
+          ),
+        );
+      } else if (code !== 0) {
+        reject(
+          new Error(
+            `Mission correlation report contract checks failed with exit code ${code ?? 1}.`,
+          ),
+        );
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function runConcurrentChatContractChecks() {
+  const testRuns = [
+    {
+      file: "src/routes/ai.test.ts",
+      pattern:
+        "keeps the newer resumable contract when concurrent JSON turns finish out of order",
+    },
+    {
+      file: "src/routes/ai-stream-integration.test.ts",
+      pattern:
+        "keeps the newest resumable contract when same-session turns finish out of order|keeps a streamed forensic cancellation incomplete after recovery retains partial evidence",
+    },
+  ];
+
+  return testRuns.reduce(
+    (chain, testRun) =>
+      chain.then(
+        () =>
+          new Promise((resolve, reject) => {
+            const contractTests = spawn(
+              "pnpm",
+              [
+                "--filter",
+                "@workspace/api-server",
+                "exec",
+                "vitest",
+                "run",
+                testRun.file,
+                "-t",
+                testRun.pattern,
+                "--test-timeout",
+                process.env.DASHBOARD_E2E_CONTRACT_TIMEOUT_MS ?? "120000",
+              ],
+              {
+                env: {
+                  ...process.env,
+                  CI: "true",
+                  NODE_ENV: "test",
+                  GROQ_API_KEY: "",
+                  GEMINI_API_KEY: "",
+                  DEEPSEEK_API_KEY: "",
+                  OPENROUTER_API_KEY: "",
+                },
+                stdio: "inherit",
+              },
+            );
+
+            contractTests.on("error", (error) => {
+              reject(
+                new Error(
+                  `Unable to start chat contract checks for ${testRun.file}: ${redact(error.message)}`,
+                ),
+              );
+            });
+
+            contractTests.on("exit", (code, signal) => {
+              if (signal) {
+                reject(
+                  new Error(
+                    `Chat contract checks for ${testRun.file} stopped by ${signal}.`,
+                  ),
+                );
+                return;
+              }
+              if (code !== 0) {
+                reject(
+                  new Error(
+                    `Chat contract checks for ${testRun.file} failed with exit code ${code ?? 1}; browser startup was skipped.`,
+                  ),
+                );
+                return;
+              }
+              resolve();
+            });
+          }),
+      ),
+    Promise.resolve(),
+  );
+}
+
+function runLiveCorrelationReportCheck() {
+  return new Promise((resolveReport, reject) => {
+    const reportPath = resolve(
+      workspaceRoot,
+      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+        "test-results/dashboard-journey/live-mission-correlation.json",
+    );
+    const check = spawn(
+      "node",
+      ["scripts/mission-correlation-report.mjs", reportPath],
+      {
+        env: {
+          ...process.env,
+           MISSION_CORRELATION_REQUIRE_EVIDENCE: "1",
+          MISSION_CORRELATION_REQUIRE_CANDIDATE: "1",
+        },
+        stdio: ["ignore", "pipe", "inherit"],
+      },
+    );
+    let output = "";
+    check.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    check.on("error", reject);
+    check.on("close", (code, signal) => {
+      if (signal)
+        reject(
+          new Error(`Live mission correlation check stopped by ${signal}.`),
+        );
+      else if (code !== 0)
+        reject(
+          new Error(
+            `Live mission correlation report failed with exit code ${code ?? 1}.`,
+          ),
+        );
+      else {
+        try {
+          const report = parseMissionCorrelationReportOutput(output);
+          console.log(formatMissionCorrelationSummary(report));
+           resolveReport(report);
+        } catch (error) {
+          reject(
+            new Error(
+              `Live mission correlation report produced invalid output: ${
+                error instanceof Error ? error.message : String(error)
+              }.`,
+            ),
+          );
+        }
+      }
+    });
+  });
+}
+
+try {
+  if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
+    await startReleaseServices();
+  } else {
+    await runDashboardJourneyContracts();
+    console.log(
+      "Dashboard journey timeout and provider-mode contracts passed.",
+    );
+    await runMissionCorrelationReportContracts();
+    console.log("Mission correlation report contracts passed.");
+    await runClerkHandoffContracts();
+    console.log("Dashboard Clerk handoff response contracts passed.");
+    if (process.env.DASHBOARD_E2E_SKIP_API_CONTRACTS !== "1") {
+      await runConcurrentChatContractChecks();
+      console.log("Concurrent chat continuation contracts passed.");
+    } else {
+      console.log(
+        "Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.",
+      );
+    }
+    await startReleaseServices();
+    const apiHealth = await (await fetch(apiHealthUrl)).json();
+    if (apiHealth?.status !== "ok") {
+      throw new Error(
+        `API health check did not report status=ok (${apiHealthUrl}).`,
+      );
+    }
+    console.log(`Dashboard workflow healthy at ${dashboardBaseUrl}`);
+    console.log(`API workflow healthy at ${apiHealthUrl}`);
+    console.log(`Using isolated Clerk journey user ${testEmail}`);
+    const journey = spawn(
+      "pnpm",
+      [
+        "--filter",
+        "@workspace/dashboard",
+        "exec",
+        "playwright",
+        "test",
+        "--config=e2e/playwright.config.ts",
+        ...(process.env.DASHBOARD_E2E_GREP
+          ? ["--grep", process.env.DASHBOARD_E2E_GREP]
+          : []),
+      ],
+      {
+        cwd: workspaceRoot,
+        env: {
+          ...process.env,
+          CI: "true",
+          DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
+          DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
+          DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
+          DASHBOARD_E2E_EMAIL: testEmail,
+          DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
+          DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,
+          DASHBOARD_E2E_EXECUTABLE_PATH:
+            process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
+          PLAYWRIGHT_OUTPUT_DIR: outputDir,
+          DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
+            workspaceRoot,
+            process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+              "test-results/dashboard-journey/live-mission-correlation.json",
+          ),
+          ...(Number.isFinite(liveTimeoutMs) && liveTimeoutMs > 0
+            ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
+            : {}),
+        },
+        stdio: "inherit",
