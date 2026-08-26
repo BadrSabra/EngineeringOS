@@ -4189,6 +4189,10 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
 
   it("returns 409 and preserves a concurrent status change instead of overwriting it", async () => {
     const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+    let executeTaskStarted!: () => void;
+    const executeTaskStartedPromise = new Promise<void>((resolve) => {
+      executeTaskStarted = resolve;
+    });
     let resolveExecution!: (value: {
       summary: string;
       confidence: "low" | "medium" | "high";
@@ -4205,7 +4209,10 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     }>((resolve) => {
       resolveExecution = resolve;
     });
-    vi.mocked(mockExecuteTask).mockReturnValueOnce(executionPromise as never);
+    vi.mocked(mockExecuteTask).mockImplementationOnce(async () => {
+      executeTaskStarted();
+      return executionPromise;
+    });
 
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -4213,7 +4220,12 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
 
     const requestPromise = request(app).post(`/api/ai/tasks/${taskId}/execute`).then((res) => res);
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await Promise.race([
+      executeTaskStartedPromise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Timed out waiting for executeTask to start")), 2_000),
+      ),
+    ]);
     await db.update(tasksTable).set({ status: "verifying", updatedAt: new Date() }).where(eq(tasksTable.id, taskId));
 
     resolveExecution({
