@@ -1,9 +1,11 @@
 # EngineeringOS Actual Capability Baseline
 
-**Baseline version:** 1  
-**Observed date:** 2026-08-25  
-**Scope:** repository source and provider-free validation available in this workspace  
-**Status:** evidence report; no product fixes or provider campaigns were run
+**Baseline version:** 2 (historical filename retained)
+**Observed date:** 2026-08-26
+**Scope:** repository source, merged provider-free release checks, and recorded
+controlled-operation prerequisites available in this workspace
+**Status:** evidence report; no live-provider campaign or live Git delivery smoke
+was run for this update
 
 ## 1. Reading this report
 
@@ -14,7 +16,8 @@ This is a code-and-test baseline, not a parity claim. A capability is marked:
 - **Verified by automated test** — a provider-free unit, route, contract, or
   component test passed.
 - **Verified end-to-end** — a real browser/API journey passed against running
-  services. No capability receives this label in this baseline.
+  services. No capability receives this label in this update; the preview/browser
+  check is still disabled and live-provider checks were not run.
 - **Partial** — some path is implemented and/or tested, but an important
   transition, prerequisite, or integration remains unverified or failed.
 - **Blocked** — the path intentionally cannot run without a provider, credential,
@@ -31,53 +34,72 @@ capability state:
 | Committed | Git commit endpoint completed for the approved candidate. |
 | Pushed | Git push endpoint completed with configured credentials/remotes. |
 
-This audit did not propose or apply a product change. The report is the only
-baseline artifact produced by this task; it is **not pushed**, and its committed
-state is determined by the task merge process.
+This update did not propose or apply a product change. The report records
+capabilities already present in the merged source and the latest validation
+receipts; its committed/pushed state is determined by the task merge process.
+
+### Update ledger
+
+The previous 2026-08-25 baseline remains the historical starting point. This
+revision incorporates the merged work tracked by the repository task plans:
+
+- source-revision binding and server-derived candidate integrity for release
+  evidence (`.local/tasks/bind-releases-source-revision-v2.md`);
+- provider fallback/health classification and safe recovery guidance
+  (`.local/tasks/openrouter-fallback-root-cause.md` and provider diagnostics
+  tests);
+- bounded repair validation and dashboard-journey acceptance fixtures; and
+- restoration of provider-free runtime-oracle coverage and AI release-contract
+  checks.
+
+These changes improve what can be proven; they do not turn skipped live checks
+into passing evidence.
 
 ## 2. Executive result
 
 EngineeringOS is an implemented engineering-operations console with a real
 dashboard, API, persistence model, tool-using AI loop, evidence gates, durable
-execution state, and an approval-controlled delivery path. It is not currently
+execution state, source-bound release evidence, and an approval-controlled
+Git delivery path. The latest provider-free release decision is
+`status: "passed"` with 9 passed checks, 0 blocking failures, and 1 skipped
+preview check (2026-08-26, `ai-release-quality-decision.json`). It is not
 operationally proven as a complete Agent replacement:
 
-1. AI features require a configured provider and return a configuration response
-   when none is available; this audit deliberately did not add credentials.
-2. The dashboard component and client-contract checks pass, but no authenticated
-   browser journey was run in this audit.
-3. Core typechecks pass, while the selected API integration run has five failures
-   (including two 120-second validation timeouts), and the required benchmark
-   scenario gate currently asserts `broken` instead of `fixed`.
-4. The deterministic benchmark baseline is structurally valid but reports
-   `qualityEligible: false` and `rolloutAllowed: false`.
-5. OpenRouter catalog refresh and fixture/capability guard behavior are current
-   variables under test; neither is evidence of live-provider production
-   behavior.
+1. AI features still require a configured provider; live provider checks remain
+   disabled and no credentials were added for this update.
+2. The deterministic benchmark contract and release decision pass, but its
+   approved baseline intentionally remains `qualityEligible: false` and
+   `rolloutAllowed: false`; that artifact is not live quality evidence.
+3. No authenticated browser/API campaign completed the full discovery → Git
+   delivery journey. Preview validation is explicitly skipped, and the
+   recorded live Git proof prerequisite remains open.
+4. Provider-free contract, SSE/redaction, operational-safety, and deterministic
+   benchmark checks now pass. This supersedes the earlier targeted failures for
+   those gates, but does not prove every broad API suite or a live provider.
 
 ## 3. User-visible capability map
 
 | Capability | Implementation path and persisted boundary | Status | Evidence/confidence |
 |---|---|---|---|
-| Authenticated console and project-scoped navigation | Clerk setup in `replit.md`; `artifacts/dashboard/src/App.tsx` protects project, AI, Flight Deck, Mission Control, task, workflow, Git-related views; API uses auth/project-access middleware | **Verified by code** | Dashboard auth/page tests exist; no authenticated browser run in this baseline |
+| Authenticated console and project-scoped navigation | Clerk setup in `replit.md`; `artifacts/dashboard/src/App.tsx` protects project, AI, Flight Deck, Mission Control, task, workflow, Git-related views; API uses auth/project-access middleware | **Verified by automated test** | Dashboard auth/page and client-contract checks pass; authenticated browser journey remains skipped |
 | Project discovery/import | `artifacts/api-server/src/routes/discovery.ts`: source listing, discovery start/session/summary, import; durable materialization and owner-scoped cleanup; `DiscoverProjectWizard.tsx` calls generated discovery/import/scan hooks | **Partial** | Discovery route tests exist; selected run failed a durable Git fixture with HTTP 400 rather than expected 202 |
-| Ordinary AI chat | `POST /api/ai/chat` and `/stream` in `routes/ai/chat.ts`; context is built, request intent/classification selects route/profile, messages/session state persist in `aiChatSessionsTable`/`aiChatMessagesTable` | **Blocked / partial** | Provider prerequisite is explicit in `replit.md`; mocked route/SSE tests exist, but no live provider run |
-| Source-aware tool use | `chat-agent.ts` + `tool-execution-engine.ts`; read/list/search tools, cache, source provenance, tool authorization, bounded iterations/calls, soft synthesis limit | **Verified by code** | Strong implementation evidence; agent suite could not complete because its benchmark-scenario prerequisite failed |
+| Ordinary AI chat | `POST /api/ai/chat` and `/stream` in `routes/ai/chat.ts`; context is built, request intent/classification selects route/profile, messages/session state persist in `aiChatSessionsTable`/`aiChatMessagesTable` | **Verified by automated test; live blocked** | AI JSON/SSE, redaction, resume, and false-success release contracts pass; provider checks are disabled |
+| Source-aware tool use | `chat-agent.ts` + `tool-execution-engine.ts`; read/list/search tools, cache, source provenance, tool authorization, bounded iterations/calls, soft synthesis limit | **Verified by automated test** | Deterministic benchmark and AI contract gates pass; no live-provider tool journey |
 | Broad/hierarchical analysis | `hierarchical-executor.ts` schedules bounded waves, isolates write scopes, preserves partial sub-results, performs tool-free synthesis, and validates compound coverage | **Verified by code** | Explicit out-of-scope items remain: recursive nesting and per-subquery SSE |
-| Structured scan analysis | `POST /api/ai/projects/:projectId/analyze` and `/stream`; context, provider fallback, parse/error envelope, audit log and completion event persistence | **Partial / blocked** | Provider-free route fixtures are present; live execution is blocked without a provider and no E2E run was performed |
+| Structured scan analysis | `POST /api/ai/projects/:projectId/analyze` and `/stream`; context, provider fallback, parse/error envelope, audit log and completion event persistence | **Partial / live blocked** | Provider-free contracts and provider diagnostics are covered; live execution and authenticated E2E remain unproven |
 | Structured code review | `POST /api/ai/projects/:projectId/review` and `/stream`; validates relative file keys and 50 KB aggregate input, persists audit/event result | **Partial / blocked** | Same provider limitation; input safety is code-backed |
 | AI task execution | `POST /api/ai/tasks/:taskId/execute`; task ownership/status/rate-limit checks delegate to `executeTaskLifecycle`, with task logs/events and durable job helpers | **Partial / blocked** | `tasks.test.ts` covers scheduling/HTTP behavior; real provider execution was not run |
 | Workflow orchestration | `POST /api/ai/workflows/:workflowId/orchestrate`; regular workflow API supports start/stop/advance/fail/retry/rollback and execution history | **Partial / blocked** | Workflow route tests passed within selected run; AI orchestration still needs provider and E2E confirmation |
 | Execution history and Flight Deck | `GET /api/ai/executions/history`, detail, audit export; `FlightDeck.tsx` renders operation/checkpoint/evidence/validation state | **Verified by code** | `ai-execution-state.test.ts` and dashboard Flight Deck tests exist; no real browser/API journey |
 | Mission Control/correlation | Mission Control page consumes execution history; chat route can regenerate a redacted correlation report solely from retained durable evidence | **Verified by automated test** | Dashboard Mission Control/correlation tests passed (part of 101 dashboard tests) |
-| Cancellation and recovery | Chat route exposes cancel/recovery/resume-capability; `ai-execution-state.ts` owns leases, resume-token hashing, checkpoint recovery, restart reconciliation, cancellation terminalization | **Verified by code** | Dedicated state/recovery tests exist; selected API run had a streamed cancellation fixture abort |
+| Cancellation and recovery | Chat route exposes cancel/recovery/resume-capability; `ai-execution-state.ts` owns leases, resume-token hashing, checkpoint recovery, restart reconciliation, cancellation terminalization | **Verified by automated test** | Latest AI SSE and operational-safety release checks pass; browser reload/restart evidence is still absent |
 | Implementation planning | `implementation-planner.ts` requires verified filesystem manifest/source excerpts, validates provider paths, and returns `PENDING_APPROVAL`/`NOT_AUTHORIZED` fallback when grounding is absent | **Verified by code** | No provider-backed plan generation was run |
 | Proposed changes and approval | Chat route stores `aiChangeProposalsTable`; write tools queue `pendingChanges`; plan decision and proposal approve/delete routes are present; dashboard shows approval state | **Partial** | Approval boundary is code-backed; complete browser approval journey was not run |
-| Isolated delivery workspace | `delivery-workspace.ts` creates/hashes workspace and change set; chat apply path creates workspace before promotion and records `aiApplyJournalTable` | **Partial** | Unit coverage exists; selected isolated validation tests timed out at 120 seconds |
-| Validation and repair | `ai-repair-validation.ts` provides server-owned profiles, isolated validation/runtime/preview runners and scope checks; public validation receipts are redacted at route boundary | **Partial** | Validation code and tests exist; two selected integration tests timed out |
+| Isolated delivery workspace | `delivery-workspace.ts` creates/hashes workspace and change set; chat apply path creates workspace before promotion and records `aiApplyJournalTable` | **Verified by automated test; operationally partial** | Latest operational-safety gate passes; no full authenticated promotion journey |
+| Validation and repair | `ai-repair-validation.ts` provides server-owned profiles, isolated validation/runtime/preview runners and scope checks; public validation receipts are redacted at route boundary | **Verified by automated test; live journey partial** | Bounded validation and repair-loop checks pass; no live delivery workspace campaign |
 | Rebase/conflict handling | Chat route `rebase-changes` and apply path hash base content, rebase hunks, reject conflicts, and preserve conflict metadata | **Verified by code** | Route tests cover conflict-shaped responses; no full user journey |
 | Promotion/apply | Apply route checks owner/proposal state, root containment, duplicate paths, base hashes and validation receipts before atomically promoting files | **Verified by code** | `ai.test.ts` and delivery workspace tests cover portions; not E2E proven |
-| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; commit/push are proposal/operation-aware | **Partial** | Git route tests are present; push requires configured remote/credential and was not live-tested |
+| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; commit/push are proposal/operation-aware and release identity is source-bound | **Partial** | The live Git delivery path is implemented and route-tested, but the recorded controlled smoke prerequisite is blocked; push was not live-tested |
 | Audit export | Execution audit export and project export routes project allowlisted/redacted durable evidence | **Verified by code** | Export path is present; no downloaded artifact/API smoke check in this baseline |
 | Direct arbitrary model shell execution | Tool policy and execution tools accept server-owned command profiles; the model does not supply arbitrary executable/argv | **Not implemented by design** | `tool-execution-engine.ts` and execution-tools contract enforce the safer profile boundary |
 
@@ -147,8 +169,8 @@ fixtures timed out.
 | Leases/checkpoints | Postgres execution rows, worker lease/heartbeat, checkpoint versioning and restart reconciliation | Code-backed; dedicated state/job tests exist |
 | Idempotency | User/idempotency-key binding, apply journal, task lifecycle/job idempotency helpers | Code-backed; no production concurrency journey |
 | Revision/hash binding | Workspace revision, candidate/change-set/promoted hashes and apply/rebase checks | Code-backed |
-| Terminal-state rules | Cancellation terminal fence, ownership checks, recovery-to-paused behavior, terminal completion gates | Code-backed; selected stream cancellation fixture failed |
-| Fixture scope | Fixture/test/spec evidence maps to local verdicts and blocks production repair | Code-backed; fixture guard remains a known variable, not production proof |
+| Terminal-state rules | Cancellation terminal fence, ownership checks, recovery-to-paused behavior, terminal completion gates | Provider-free AI SSE and operational-safety release checks pass; no browser restart proof |
+| Fixture scope | Fixture/test/spec evidence maps to local verdicts and blocks production repair | Code-backed; deterministic benchmark remains contract evidence, not production proof |
 
 ## 7. Provider-free verification matrix
 
@@ -158,39 +180,45 @@ requires a live provider key unless noted.
 | Check | Command | Fixture/prerequisite | Observed outcome |
 |---|---|---|---|
 | Orchestrator typecheck | `pnpm --filter @workspace/ai-orchestrator run typecheck` | Installed workspace dependencies | **PASS** (the chained command proceeded to tests) |
-| Orchestrator required scenario gate | `pnpm --filter @workspace/ai-orchestrator run test:benchmark-scenarios` | Deterministic runtime-oracle fixture | **FAIL**: `runtime-oracle.test.ts` expected `fixed`, received `broken` |
+| Orchestrator required scenario gate | `pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios` | Deterministic runtime-oracle fixture | **PASS** after runtime-oracle coverage was restored; no live provider involved |
 | API typecheck | `pnpm --filter @workspace/api-server run typecheck` | Workspace declaration rebuild | **PASS** |
 | Dashboard AI/operations components | `pnpm --filter @workspace/dashboard exec vitest run src/pages/AiChat.authenticated.test.tsx src/pages/MissionControl.test.tsx src/pages/FlightDeck.test.tsx src/lib/mission-correlation-report.test.ts src/lib/validation-sse-contract.test.ts` | jsdom/component fixtures | **PASS**: 5 files, 101 tests |
 | API AI/discovery/Git/workflow/task subset | `pnpm --filter @workspace/api-server exec vitest run ...` (selected route and delivery files) | Mocked providers, fixture DB/workspaces | **PARTIAL**: 8 files passed, 3 files failed; 290 passed, 5 failed, 1 skipped |
-| API subset failure detail | Same command | See retained test output | Failures: out-of-order active task state persistence; streamed forensic cancellation abort; Git discovery fixture returned 400 vs 202; two isolated repair-validation tests timed out at 120s |
+| API subset failure detail | Same command | See retained test output | Historical failures remain part of the audit record; they are not the latest release-gate result. The latest targeted AI contract/SSE/operational-safety checks pass. Discovery async-contract and live Git smoke are still unproven. |
 | Truth-flow baseline | `pnpm run truth:baseline:check && pnpm run truth:validate` | Checked-in schema authority and attached matrix | **PASS** for both |
-| Deterministic benchmark baseline | `pnpm run benchmark:baseline:check` | Existing baseline | **PASS structurally**, 34 cases, `qualityEligible: false`, `rolloutAllowed: false` |
+| Deterministic benchmark baseline | `pnpm run benchmark:baseline:check` and `pnpm run verify:benchmark-rollout` | Checked-in baseline and server-owned candidate/source lineage | **PASS structurally and for regression comparison** (34 cases; comparator returned `rolloutAllowed: true`); the approved deterministic artifact still has `qualityEligible: false`, `rolloutAllowed: false` as intentional safety markers |
 | Dashboard client contract | `pnpm run validate:dashboard-client-contract` | OpenAPI/codegen/dashboard declarations | **PASS**: OpenAPI 90 paths/114 operations/156 schemas; generated files and dashboard typecheck aligned |
+| Latest AI release quality decision | `pnpm run validate:ai-release` | Provider-free release contract suite; preview/live checks opt-in | **PASS**: 9 checks passed, 0 blocking failures; preview check skipped, live provider disabled |
 
-The API subset was intentionally not rerun with live credentials. The full
-release validation and controlled dashboard journey were also not treated as
-provider-free acceptance; they remain opt-in gates.
+The latest release decision is authoritative for the provider-free gate, not
+for live quality or browser acceptance. The comparator's `rolloutAllowed: true`
+means only that the current comparison found no deterministic regression; it
+does not override the baseline's live-quality safety markers. Live credentials were not used. The
+controlled dashboard journey, live Git delivery, and full release campaign
+remain opt-in and are not represented as passes here.
 
 ## 8. Known variables and unresolved questions
 
 - **OpenRouter:** startup can refresh a dynamic catalog when a key is present,
   while static free-model candidates remain compatibility data when refresh
-  fails or expires. This is not live-provider evidence. The baseline currently
-  records the benchmark rollout as not allowed.
+  fails or expires. Provider classification and safe recovery guidance are
+  provider-free tested; live availability is not proven.
 - **Fixture guards:** explicit fixture/capability-audit mode and local verdict
   handling exist, but a fixture result must not be promoted to production
-  behavior. The failing runtime-oracle scenario is recorded as a variable.
+  behavior. The runtime-oracle blocker is closed for the provider-free gate.
 - **Provider availability:** dashboard AI operations intentionally require a
   saved provider key. No key was added or changed for this audit.
 - **Operational smoke:** authenticated Clerk browser state, API-to-dashboard
   streaming through the proxy, discovery with a real source, full approval to
   promotion, and Git push still require a controlled environment check.
-- **Failure triage:** the selected API run exposes concurrency ordering,
-  cancellation-stream, discovery-fixture, and validation-timeout issues. This
-  report does not change them, replace their tests, or infer their root causes.
-- **Release status:** structural truth and contract gates pass, but the
-  benchmark gate explicitly prevents quality rollout and the selected
-  provider-free integration run is not green.
+- **Failure triage:** the prior selected API run exposed concurrency ordering,
+  cancellation-stream, discovery-fixture, and validation-timeout issues. The
+  latest targeted release contracts cover the repaired AI contract,
+  cancellation, and bounded-validation paths; discovery and live Git proof
+  still need their own evidence.
+- **Release status:** the latest provider-free AI release decision passed, but
+  the deterministic benchmark baseline still prevents quality rollout and the
+  preview/live campaign remains disabled.
 
 ## 9. Capabilities requiring a real smoke check
 
@@ -205,7 +233,7 @@ provider-configured, isolated check:
 6. Rebase conflict and successful retry against a changed workspace revision.
 7. Flight Deck/Mission Control reload after cancellation, restart recovery, and
    audit export.
-8. Git status → scoped commit → push with a safe fixture remote.
+8. Git status → source-bound scoped commit → push with a safe fixture remote.
 
 These are acceptance prerequisites, not claims that the capabilities are
 absent.
