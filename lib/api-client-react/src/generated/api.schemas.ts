@@ -2123,6 +2123,26 @@ export const VerificationResultStepsItemKind = {
   operator_attestation: 'operator_attestation',
 } as const;
 
+export type VerificationHistoryEntryKind = typeof VerificationHistoryEntryKind[keyof typeof VerificationHistoryEntryKind];
+
+
+export const VerificationHistoryEntryKind = {
+  automatic: 'automatic',
+  operator_attestation: 'operator_attestation',
+} as const;
+
+export interface VerificationHistoryEntry {
+  id: string;
+  checkId: string;
+  name: string;
+  kind?: VerificationHistoryEntryKind;
+  guidance?: string;
+  passed: boolean;
+  evidence?: string;
+  actor: string;
+  recordedAt: string;
+}
+
 export type VerificationResultStepsItem = {
   id?: string;
   name: string;
@@ -2137,6 +2157,8 @@ export interface VerificationResult {
   passed: boolean;
   decision?: VerificationResultDecision;
   steps: VerificationResultStepsItem[];
+  /** Append-only operator decisions for each server-owned check, oldest first. */
+  history?: VerificationHistoryEntry[];
 }
 
 export interface Task {

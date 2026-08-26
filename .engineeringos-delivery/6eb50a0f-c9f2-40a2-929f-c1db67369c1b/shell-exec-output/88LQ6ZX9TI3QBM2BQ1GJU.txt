@@ -1,0 +1,529 @@
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/api-server
+
+[21:07:33.629] INFO (1907): request completed
+    req: {
+      "id": 1,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 63
+[21:07:33.646] INFO (1907): request completed
+    req: {
+      "id": 2,
+      "method": "GET",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 9
+[21:07:33.725] INFO (1907): request completed
+    req: {
+      "id": 3,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 14
+[21:07:33.923] INFO (1907): request completed
+    req: {
+      "id": 4,
+      "method": "POST",
+      "url": "/api/tasks/e95c49cb-4784-4aba-981d-b024e71bcfdb/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 193
+[21:07:33.936] INFO (1907): request completed
+    req: {
+      "id": 5,
+      "method": "GET",
+      "url": "/api/tasks/e95c49cb-4784-4aba-981d-b024e71bcfdb/logs"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 6
+[21:07:34.006] INFO (1907): request completed
+    req: {
+      "id": 6,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 14
+[21:07:34.055] INFO (1907): request completed
+    req: {
+      "id": 7,
+      "method": "POST",
+      "url": "/api/tasks/26dd60e9-3bbd-4c7c-9d15-9a0df8f9ea16/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 39
+[21:07:34.068] INFO (1907): request completed
+    req: {
+      "id": 8,
+      "method": "POST",
+      "url": "/api/tasks/26dd60e9-3bbd-4c7c-9d15-9a0df8f9ea16/verification"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 8
+[21:07:34.075] INFO (1907): request completed
+    req: {
+      "id": 9,
+      "method": "POST",
+      "url": "/api/tasks/26dd60e9-3bbd-4c7c-9d15-9a0df8f9ea16/verification"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 3
+[21:07:34.099] INFO (1907): request completed
+    req: {
+      "id": 10,
+      "method": "POST",
+      "url": "/api/tasks/26dd60e9-3bbd-4c7c-9d15-9a0df8f9ea16/verification"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 19
+[21:07:34.121] INFO (1907): request completed
+    req: {
+      "id": 11,
+      "method": "POST",
+      "url": "/api/tasks/26dd60e9-3bbd-4c7c-9d15-9a0df8f9ea16/verification"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 18
+[21:07:34.140] INFO (1907): request completed
+    req: {
+      "id": 12,
+      "method": "POST",
+      "url": "/api/tasks/26dd60e9-3bbd-4c7c-9d15-9a0df8f9ea16/verification"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 16
+[21:07:34.209] INFO (1907): request completed
+    req: {
+      "id": 13,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 13
+[21:07:34.260] INFO (1907): request completed
+    req: {
+      "id": 14,
+      "method": "POST",
+      "url": "/api/tasks/fb019457-62ae-40ab-811a-faa86da1984a/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 38
+[21:07:34.283] INFO (1907): request completed
+    req: {
+      "id": 15,
+      "method": "POST",
+      "url": "/api/tasks/fb019457-62ae-40ab-811a-faa86da1984a/rollback"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 19
+[21:07:34.290] INFO (1907): request completed
+    req: {
+      "id": 16,
+      "method": "POST",
+      "url": "/api/tasks/fb019457-62ae-40ab-811a-faa86da1984a/verification"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 4
+[21:07:34.362] INFO (1907): request completed
+    req: {
+      "id": 17,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 13
+[21:07:34.406] INFO (1907): request completed
+    req: {
+      "id": 18,
+      "method": "POST",
+      "url": "/api/tasks/380a827a-e2bc-4b53-80fa-805df0ce6064/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 40
+[21:07:34.415] INFO (1907): request completed
+    req: {
+      "id": 19,
+      "method": "POST",
+      "url": "/api/tasks/380a827a-e2bc-4b53-80fa-805df0ce6064/execute"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 6
+[21:07:34.482] INFO (1907): request completed
+    req: {
+      "id": 20,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 14
+[21:07:34.507] INFO (1907): request completed
+    req: {
+      "id": 21,
+      "method": "POST",
+      "url": "/api/tasks/e917896d-ead5-4c87-ac6a-fb28395fbd21/retry"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 15
+[21:07:34.522] INFO (1907): request completed
+    req: {
+      "id": 22,
+      "method": "POST",
+      "url": "/api/tasks/e917896d-ead5-4c87-ac6a-fb28395fbd21/retry"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 4
+[21:07:34.584] INFO (1907): request completed
+    req: {
+      "id": 23,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 15
+[21:07:34.603] INFO (1907): request completed
+    req: {
+      "id": 24,
+      "method": "POST",
+      "url": "/api/tasks/6fadc5d5-ea7f-4ebe-8318-e3a07b129156/rollback"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 16
+[21:07:34.665] INFO (1907): request completed
+    req: {
+      "id": 25,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 13
+[21:07:34.685] INFO (1907): request completed
+    req: {
+      "id": 26,
+      "method": "PATCH",
+      "url": "/api/tasks/5a760451-0fa7-430e-9189-bedfbb7cd585"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 15
+[21:07:34.706] INFO (1907): request completed
+    req: {
+      "id": 27,
+      "method": "DELETE",
+      "url": "/api/tasks/5a760451-0fa7-430e-9189-bedfbb7cd585"
+    }
+    res: {
+      "statusCode": 204
+    }
+    responseTime: 18
+[21:07:34.711] INFO (1907): request completed
+    req: {
+      "id": 28,
+      "method": "GET",
+      "url": "/api/tasks/5a760451-0fa7-430e-9189-bedfbb7cd585"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 2
+[21:07:34.763] INFO (1907): request completed
+    req: {
+      "id": 29,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[21:07:34.785] INFO (1907): request completed
+    req: {
+      "id": 30,
+      "method": "PATCH",
+      "url": "/api/tasks/80e8ad73-2bc7-425f-8674-83ceb729c883"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 18
+[21:07:34.808] INFO (1907): request completed
+    req: {
+      "id": 31,
+      "method": "DELETE",
+      "url": "/api/tasks/80e8ad73-2bc7-425f-8674-83ceb729c883"
+    }
+    res: {
+      "statusCode": 204
+    }
+    responseTime: 16
+[21:07:34.865] INFO (1907): request completed
+    req: {
+      "id": 32,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 14
+[21:07:34.882] INFO (1907): request completed
+    req: {
+      "id": 33,
+      "method": "PATCH",
+      "url": "/api/tasks/e36a43d0-f356-47ee-a123-2de5257cf577"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 13
+[21:07:34.940] INFO (1907): request completed
+    req: {
+      "id": 34,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[21:07:34.981] INFO (1907): request completed
+    req: {
+      "id": 35,
+      "method": "POST",
+      "url": "/api/tasks/85960db3-b927-46cd-85aa-41791b9af07d/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 38
+[21:07:35.158] INFO (1907): request completed
+    req: {
+      "id": 36,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 14
+[21:07:35.184] INFO (1907): request completed
+    req: {
+      "id": 37,
+      "method": "POST",
+      "url": "/api/tasks/dea40f3b-0f5d-44a8-acb0-338f6564ed8a/retry"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 16
+[21:07:35.253] INFO (1907): request completed
+    req: {
+      "id": 38,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 14
+[21:07:35.276] INFO (1907): request completed
+    req: {
+      "id": 39,
+      "method": "POST",
+      "url": "/api/tasks/b16baedb-767f-4e77-b340-3cef2c397033/rollback"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 20
+[21:07:35.337] INFO (1907): request completed
+    req: {
+      "id": 40,
+      "method": "GET",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 403
+    }
+    responseTime: 4
+[21:07:35.366] INFO (1907): request completed
+    req: {
+      "id": 41,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 403
+    }
+    responseTime: 1
+[21:07:35.396] INFO (1907): request completed
+    req: {
+      "id": 42,
+      "method": "GET",
+      "url": "/api/tasks/c405634a-abb5-402b-9fe0-15a22ed49391"
+    }
+    res: {
+      "statusCode": 403
+    }
+    responseTime: 2
+[21:07:35.439] INFO (1907): request completed
+    req: {
+      "id": 43,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 14
+[21:07:35.488] INFO (1907): request completed
+    req: {
+      "id": 44,
+      "method": "POST",
+      "url": "/api/tasks/fe835e79-fb29-4de7-8be1-7e316721cdf7/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 38
+[21:07:35.551] INFO (1907): request completed
+    req: {
+      "id": 45,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 13
+[21:07:35.592] INFO (1907): request completed
+    req: {
+      "id": 46,
+      "method": "POST",
+      "url": "/api/tasks/01acca19-b085-4961-a327-4e5f66fd3994/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 38
+[21:07:35.663] INFO (1907): request completed
+    req: {
+      "id": 47,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[21:07:35.691] INFO (1907): request completed
+    req: {
+      "id": 48,
+      "method": "PATCH",
+      "url": "/api/tasks/51f6fbd6-394b-4c89-a4a3-22bc270ba065"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 18
+[21:07:35.749] INFO (1907): request completed
+    req: {
+      "id": 49,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 17
+[21:07:35.767] INFO (1907): request completed
+    req: {
+      "id": 50,
+      "method": "PATCH",
+      "url": "/api/tasks/f2db61d3-d668-4780-acdd-76f7e03cd5bc"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 12
+[21:07:35.824] INFO (1907): request completed
+    req: {
+      "id": 51,
+      "method": "POST",
+      "url": "/api/tasks"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 13
+[21:07:35.853] INFO (1907): request completed
+    req: {
+      "id": 52,
+      "method": "PATCH",
+      "url": "/api/tasks/4450cca3-50b7-4937-9ed1-c2fe6e829959"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 17
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  21:07:25
+   Duration  10.81s (transform 4.90s, setup 0ms, import 7.71s, tests 2.90s, environment 0ms)
+

@@ -1,0 +1,580 @@
+  const response = await page.request.post(`${controlUrl}/restart-api`, {
+    timeout: 15_000,
+  });
+  expect(response.status()).toBe(204);
+}
+
+type ArabicAiFixture = {
+  question: string;
+  answer: string;
+  source: string;
+  sessionId: string;
+  executionId?: string;
+  projectId?: string;
+  streamBody: string;
+  message: Record<string, unknown>;
+};
+
+async function installApiFixtures(
+  page: Page,
+  overrides?: {
+    arabicAi?: ArabicAiFixture;
+    alternateAi?: ArabicAiFixture;
+    disconnectAi?: ArabicAiFixture;
+    resumeFailure?: {
+      fixture: ArabicAiFixture;
+      execution: Record<string, unknown>;
+    };
+    interruptedResume?: {
+      fixture: ArabicAiFixture;
+      execution: Record<string, unknown>;
+      recoveredToken: string;
+      resumedStreamBody: string;
+    };
+    deliveryRecovery?: {
+      operations: Array<Record<string, unknown>>;
+      requests: string[];
+      actionRequests?: string[];
+      recoveryAction?: {
+        proposalId: string;
+        action: "resume-validation" | "discard";
+        response: Record<string, unknown>;
+        status?: number;
+        nextOperations?: Array<Record<string, unknown>>;
+      };
+    };
+    projects?: Array<Record<string, unknown>>;
+    events?: Array<Record<string, unknown>>;
+    archiveUpload?: {
+      uploadId: string;
+      originalName: string;
+    };
+    auditExport?: {
+      body: Record<string, unknown>;
+      filename: string;
+      requests: string[];
+      execution?: Record<string, unknown>;
+      messageOutcome?: string;
+      failFirstPreview?: boolean;
+    };
+    liveTask?: {
+      id: string;
+      title: string;
+      projectId: string;
+      log: Record<string, unknown>;
+      initialLogs?: Array<Record<string, unknown>>;
+      streamRequests?: string[];
+      failFirstStream?: boolean;
+      failStreamAttempts?: number;
+    };
+    taskActions?: {
+      tasks: Array<Record<string, unknown>>;
+      requests: string[];
+    };
+    recoveryTasks?: Array<Record<string, unknown>>;
+    recoveryWorkflows?: Array<Record<string, unknown>>;
+    recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
+  },
+) {
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
+    const arabicAi = overrides?.arabicAi;
+    const alternateAi = overrides?.alternateAi;
+    const disconnectAi = overrides?.disconnectAi;
+    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
+      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
+    );
+    const hasConfiguredAiFixture =
+      aiFixtures.length > 0 ||
+      Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
+
+    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
+      const projectId = url.searchParams.get("projectId");
+      const projectSessions = aiFixtures.filter(
+        (fixture) => !fixture.projectId || fixture.projectId === projectId,
+      );
+      return route.fulfill(
+        jsonResponse(
+          projectSessions.map((fixture) => ({
+            id: fixture.sessionId,
+            title: fixture.question,
+            updatedAt: "2026-01-01T00:02:00.000Z",
+          })),
+        ),
+      );
+    }
+    if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
+      let requestBody: Record<string, unknown> = {};
+      try {
+        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+      } catch {
+        // The normal provider-free fallback below handles malformed requests.
+      }
+      if (
+        requestBody.executionId === overrides.resumeFailure.fixture.executionId
+      ) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          body: overrides.resumeFailure.fixture.streamBody,
+        });
+      }
+    }
+    if (overrides?.interruptedResume && path.endsWith("/api/ai/chat/stream")) {
+      let requestBody: Record<string, unknown> = {};
+      try {
+        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+      } catch {
+        // The normal provider-free fallback below handles malformed requests.
+      }
+      const { fixture, resumedStreamBody } = overrides.interruptedResume;
+      if (requestBody.executionId === fixture.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          body: resumedStreamBody,
+        });
+      }
+      if (!requestBody.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          // Deliberately stop after the durable execution identity. The
+          // journey wraps this response in a browser-level stream error.
+          body: fixture.streamBody,
+        });
+      }
+    }
+    let requestedMessage: string | undefined;
+    try {
+      requestedMessage = (route.request().postDataJSON() as Record<string, unknown>)
+        .message as string | undefined;
+    } catch {
+      // The default provider-unavailable response handles malformed requests.
+    }
+    const streamFixture =
+      disconnectAi ??
+      aiFixtures.find(
+        (fixture) =>
+          typeof requestedMessage === "string" &&
+          (requestedMessage === fixture.question ||
+            requestedMessage.includes(fixture.question)),
+      ) ??
+      arabicAi;
+    if (streamFixture && path.endsWith("/api/ai/chat/stream"))
+      return route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        headers: { "Cache-Control": "no-cache" },
+        body: streamFixture.streamBody,
+      });
+    const messageFixture = aiFixtures.find((fixture) =>
+      path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
+    );
+    if (messageFixture)
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: `${messageFixture.sessionId}-user-message`,
+            sessionId: messageFixture.sessionId,
+            role: "user",
+            content: messageFixture.question,
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          messageFixture.message,
+        ]),
+      );
+    if (
+      overrides?.auditExport &&
+      path.endsWith("/api/ai/chat/e2e-audit-session/messages")
+    ) {
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: "e2e-audit-user-message",
+            sessionId: "e2e-audit-session",
+            role: "user",
+            content: "Completed audit execution",
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          {
+            id: "e2e-audit-assistant-message",
+            sessionId: "e2e-audit-session",
+            role: "assistant",
+            content: "Completed audit execution",
+            executionId: EXECUTION_ID,
+            outcome: overrides.auditExport.messageOutcome ?? "SUCCEEDED",
+            createdAt: "2026-01-01T00:02:00.000Z",
+
+--- AI message rendering ---
+20-  useAiTaskStream,
+21-  useGetDeepSeekKeyStatus,
+22-  useGetGroqKeyStatus,
+23-  useGetProviderKeyStatus,
+24-  useGetOpenRouterKeyStatus,
+25-  useGetActiveProvider,
+26-  useGetAiMetrics,
+27-  useGetAiExecution,
+28-  useListAiExecutionHistory,
+29-  useListAiChatSessions,
+30:  useListAiChatMessages,
+31-  useGetAiPendingProposal,
+32-  useListEvents,
+33-  useGetAiChatFileContent,
+34-  getGetAiChatFileContentQueryKey,
+35-  useSaveDeepSeekKey,
+36-  useDeleteDeepSeekKey,
+37-  useSaveGroqKey,
+38-  useDeleteGroqKey,
+39-  useSaveGeminiKey,
+40-  useDeleteGeminiKey,
+--
+106-    baselineId?: string;
+107-    baselineGeneratedAt?: string;
+108-    metricDeltas?: {
+109-      correctCompletionRate?: number;
+110-      firstAttemptRate?: number;
+111-      safelyBlockedRate?: number;
+112-    };
+113-    blockers?: string[];
+114-  };
+115-};
+116:type ChatMessage = {
+117-  id: string;
+118-  role: 'user' | 'assistant';
+119-  content: string;
+120-  sources?: string;
+121-  toolTrace?: string | null;
+122-  turnIntent?: string | null;
+123-  executionId?: string | null;
+124-  outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
+125-  errorCode?: string | null;
+126-  errorMessage?: string | null;
+--
+698-  if (err instanceof Error) return err.message + availabilitySuffix(err);
+699-  return String(err);
+700-}
+701-
+702-/**
+703- * Chat history can contain provider-shaped diagnostics from older API
+704- * versions. Failed turns must render stable recovery guidance rather than
+705- * replaying that persisted payload. Support references are deliberately
+706- * allowlisted because they are safe for operators to search.
+707- */
+708:function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'errorCode' | 'errorMessage' | 'content'>): string {
+709-  const raw = [
+710-    message.failureKind,
+711-    message.errorCode,
+712-    message.errorMessage,
+713:    message.content,
+714-  ].filter(Boolean).join(' ').toLowerCase();
+715:  const supportReference = [message.errorMessage, message.content]
+716-    .map((value) => value?.match(/\bsupport reference:\s*([a-z0-9][a-z0-9_-]{2,80})\b/i)?.[1])
+717-    .find(Boolean);
+718-
+719-  let guidance = 'The AI provider could not complete this request. Try again in a moment.';
+720-  if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
+721-    guidance = 'Authentication failed. Check the provider configuration or choose another provider, then retry.';
+722-  } else if (message.failureKind === 'RATE_LIMIT' || /rate.?limit|quota|429/.test(raw)) {
+723-    guidance = 'The provider quota or rate limit was reached. Wait a moment, then retry or choose another provider.';
+724-  } else if (message.failureKind === 'TRANSPORT' || /outage|timeout|temporarily unavailable|disconnected|502|503/.test(raw)) {
+725-    guidance = 'The provider is temporarily unavailable. Retry in a moment; choose another provider if the issue persists.';
+--
+4238-  onPlanDecision,
+4239-  planDecisionPending,
+4240-  onPlanBuild,
+4241-  planBuildPending,
+4242-  browserProfileFreshness,
+4243-  onRegenerateReport,
+4244-  reportRegenerationPending,
+4245-  onRetryStructuredTask,
+4246-  retryPending,
+4247-}: {
+4248:  msg: ChatMessage;
+4249-  projectId?: string;
+4250-  proposalId?: string;
+4251-  onPlanDecision?: (messageId: string, decision: PlanDecision) => void;
+4252-  planDecisionPending?: boolean;
+4253-  onPlanBuild?: (messageId: string) => void;
+4254-  planBuildPending?: boolean;
+4255-  browserProfileFreshness?: BrowserValidationProfileFreshness | null;
+4256-  onRegenerateReport?: (messageId: string) => void;
+4257-  reportRegenerationPending?: boolean;
+4258-  onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
+--
+7116-  // can deep-link to /ai?taskId=<uuid>&projectId=<id> to open a task-aware session.
+7117-  const [linkedTaskId] = useState<string | undefined>(() => {
+7118-    const params = new URLSearchParams(window.location.search);
+7119-    return params.get('taskId') ?? undefined;
+7120-  });
+7121-  const [input, setInput] = useState('');
+7122-  const [auditExportPending, setAuditExportPending] = useState(false);
+7123-  const [auditPreviewPending, setAuditPreviewPending] = useState(false);
+7124-  const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
+7125-  const [auditPreviewError, setAuditPreviewError] = useState<string | null>(null);
+7126:  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+7127-  const [historicalReportError, setHistoricalReportError] = useState<string | null>(null);
+7128-  const [planDecisionPending, setPlanDecisionPending] = useState<string | null>(null);
+7129-  const [planBuildPending, setPlanBuildPending] = useState<string | null>(null);
+7130-  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
+7131-  const [proposalId, setProposalId] = useState<string | undefined>(undefined);
+7132-  const [operationId, setOperationId] = useState<string | undefined>(undefined);
+7133-  const [operationMode, setOperationMode] = useState<OperationMode | undefined>(undefined);
+7134-  const [proposalRequiresApproval, setProposalRequiresApproval] = useState(false);
+7135-  const [proposalRevision, setProposalRevision] = useState<number | undefined>(undefined);
+7136-  const [deliveryLifecycle, setDeliveryLifecycle] = useState<DeliveryLifecycle | undefined>(undefined);
+--
+7548-    const id = agentActivityIdRef.current++;
+7549-    const next = [
+7550-      ...agentActivityEventsRef.current,
+7551-      { ...event, id },
+7552-    ].slice(-160);
+7553-    agentActivityEventsRef.current = next;
+7554-    setAgentActivityEvents(() => next);
+7555-    return id;
+7556-  }
+7557-
+7558:  function resetStructuredTaskState() {
+7559-    setAgentStage(null);
+7560-    setAgentSteps([]);
+7561-    setAgentIter(null);
+7562-    setAgentModel(null);
+7563-    setAgentStartedAt(null);
+7564-    setAgentElapsedSeconds(0);
+7565-    setAgentModelHistory([]);
+7566-    setAgentDiagnostics([]);
+7567-    setExecutionNodes([]);
+7568-    setLiveFixtureLocal(false);
+--
+7662-      },
+7663-      onTaskDone: (event) => {
+7664-        appendLiveActivityEvent({
+7665-          kind: 'stage',
+7666-          label: task === 'analyze' ? 'Analysis result received' : 'Review result received',
+7667-          status: 'done',
+7668-        });
+7669-        const activityEvents = agentActivityEventsRef.current;
+7670-        setStructuredRetryMessageId(null);
+7671-        structuredTaskRunRef.current = null;
+7672:        resetStructuredTaskState();
+7673-        setLocalMessages((prev) => [
+7674-          ...prev.filter((message) => message.id !== placeholderId),
+7675-          {
+7676-            id: `${task}-${Date.now()}`,
+7677-            role: 'assistant' as const,
+7678-            content: task === 'analyze'
+7679-              ? formatScanAnalysis(event.result as unknown as AiScanAnalysis)
+7680-              : formatCodeReview(event.result as unknown as AiCodeReview),
+7681-            activityEvents,
+7682-            structuredTask: task,
+--
+7696-              : [
+7697-                  {
+7698-                    id: err.sessionId!,
+7699-                    title: task === 'review' ? 'Code review' : 'Scan analysis',
+7700-                    updatedAt: new Date().toISOString(),
+7701-                  },
+7702-                  ...previous,
+7703-                ],
+7704-          );
+7705-        }
+7706:        resetStructuredTaskState();
+7707-        setStructuredRetryMessageId(null);
+7708-        setLocalMessages((prev) => [
+7709-          ...prev.filter((message) => message.id !== placeholderId),
+7710-          {
+7711-            id: `${task}-failed-${Date.now()}`,
+7712-            role: 'assistant' as const,
+7713-            content: failure.reason,
+7714-            outcome: err.outcome ?? 'FAILED',
+7715-            errorCode: err.code,
+7716-            errorMessage: failure.reason,
+--
+7721-            createdAt: new Date().toISOString(),
+7722-          },
+7723-        ]);
+7724-      },
+7725-      onStreamReset: () => {
+7726-        const failureEvents = agentActivityEventsRef.current;
+7727-        const failure = safeStructuredFailure(
+7728-          { type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' },
+7729-          task,
+7730-        );
+7731:        resetStructuredTaskState();
+7732-        setStructuredRetryMessageId(null);
+7733-        setLocalMessages((prev) => [
+7734-          ...prev.filter((message) => message.id !== placeholderId),
+7735-          {
+7736-            id: `${task}-interrupted-${Date.now()}`,
+7737-            role: 'assistant' as const,
+7738-            content: failure.reason,
+7739-            outcome: 'INTERRUPTED',
+7740-            errorCode: 'transport_interrupted',
+7741-            errorMessage: failure.reason,
+--
+7881-  } = useListAiChatSessions<Session[]>(
+7882-    { projectId: selectedProjectId ?? '' },
+7883-    {
+7884-      query: {
+7885-        queryKey: ['ai-sessions', selectedProjectId],
+7886-        enabled: isLoaded && !!selectedProjectId,
+7887-      },
+7888-    },
+7889-  );
+7890-
+7891:  const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
+7892-    sessionId ?? '',
+7893-    {
+7894-      query: {
+7895-        queryKey: ['ai-messages', sessionId],
+7896-        enabled: isLoaded && !!sessionId,
+7897-      },
+7898-    },
+7899-  );
+7900-
+7901-  const { data: serverProposal } = useGetAiPendingProposal<{
+--
+8498-        binding?.executionId &&
+8499-        owner.executionId &&
+8500-        binding.executionId !== owner.executionId
+8501-      ) return false;
+8502-      return true;
+8503-    };
+8504-    setInput('');
+8505-
+8506-    const isResume = Boolean(options?.executionId);
+8507-    if (!isResume) {
+8508:      const optimistic: ChatMessage = {
+8509-        id: `opt-${Date.now()}`,
+8510-        role: 'user',
+8511-        content: msg.trim(),
+8512-        createdAt: new Date().toISOString(),
+8513-      };
+8514-      setLocalMessages((prev) => [...prev, optimistic]);
+8515-      clearExecutionScopedState({ preserveBuildPending: Boolean(options?.buildPlanMessageId) });
+8516-      streamOwnerRef.current = {
+8517-        generation,
+8518-        projectId: requestProjectId,
+--
+8876-           activeExecutionRef.current = null;
+8877-           setActiveExecution(null);
+8878-          setSessionId(data.sessionId);
+8879-          qc.setQueryData<Session[]>(
+8880-            ['ai-sessions', requestProjectId],
+8881-            (previous = []) => {
+8882-              const existing = previous.find((session) => session.id === data.sessionId);
+8883-              return [
+8884-                {
+8885-                  id: data.sessionId,
+8886:                  title: existing?.title ?? data.message.content.slice(0, 60),
+8887-                  updatedAt: data.message.createdAt,
+8888-                },
+8889-                ...previous.filter((session) => session.id !== data.sessionId),
+8890-              ];
+8891-            },
+8892-          );
+8893-          setLocalMessages((prev) => {
+8894-            const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
+8895:            const base = data.message as ChatMessage;
+8896-            return [...withoutOpt, {
+8897-              ...base,
+8898-               activityEvents,
+8899-              behaviorEvidence: data.behaviorEvidence ?? base.behaviorEvidence ?? null,
+8900-              taskResult: (data.taskResult as AiTaskResult | undefined) ?? null,
+8901-              operationMode: inferOperationMode({
+8902-                operationMode: data.operationMode,
+8903-                taskResult: data.taskResult as AiTaskResult | undefined,
+8904-                proposalId: data.proposalId,
+8905-              }),
+--
+9109-    sendMessage(action.prompt);
+9110-  }
+9111-
+9112-  function handleKeyDown(e: React.KeyboardEvent) {
+9113-    if (e.key === 'Enter' && !e.shiftKey) {
+9114-      e.preventDefault();
+9115-      handleSend();
+9116-    }
+9117-  }
+9118-
+9119:  function resetConversationView(options: { forgetCurrentExecution: boolean }) {
+9120-    streamGenerationRef.current += 1;
+9121-    cancelStream();
+9122-    if (options.forgetCurrentExecution && executionPointerKey) {
+9123-      localStorage.removeItem(executionPointerKey);
+9124-    }
+9125-    clearExecutionScopedState();
+9126-    setSessionId(undefined);
+9127-    setInput('');
+9128-    setLocalMessages([]);
+9129-    setPendingChanges([]);
+--
+9139-    setAgentStartedAt(null);
+9140-    setAgentElapsedSeconds(0);
+9141-    setAgentModelHistory([]);
+9142-    setAgentDiagnostics([]);
+9143-    setLiveFixtureLocal(false);
+9144-    setLiveEvidenceIntegrity(null);
+9145-    setLiveVerdictScope(null);
+9146-  }
+9147-
+9148-  function newSession() {
+9149:    resetConversationView({ forgetCurrentExecution: true });
+9150-  }
+9151-
+9152-  // Derive the subtitle shown in the empty-chat state. Each case maps to a
+9153-  // specific root cause — no more "session may have expired" for 500 errors.
+9154-  function getStatusSubtitle(): string {
+9155-    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
+9156-    if (projectLoadFailure) return projectLoadFailure.message;
+9157-    if (!selectedProjectId) return 'Create or select a project first to start chatting.';
+9158-    return 'Ask about your codebase, tasks, metrics, or workflows. I have full context.';
+9159-  }
+--
+9270-            </Button>
+9271-          </div>
+9272-        </div>
+9273-
+9274-        {/* Project selector */}
+9275-        <div className="p-2 border-b border-border">
+9276-          <div className="relative">
+9277-            <select
+9278-              value={selectedProjectId}
+9279-              onChange={(e) => {
+9280:                resetConversationView({ forgetCurrentExecution: false });
+9281-                setSelectedProjectId(e.target.value);
+9282-                if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false);
+9283-              }}
+9284-              className="w-full text-xs bg-secondary border border-border rounded-md px-2 py-1.5 text-foreground appearance-none pr-6"
+9285-            >
+9286-              {projects.map((p) => (
+9287-                <option key={p.id} value={p.id}>{p.name}</option>
+9288-              ))}
+9289-            </select>
+9290-            <ChevronDown className="w-3 h-3 absolute right-2 top-2 text-muted-foreground pointer-events-none" />
+--
+9613-                   controlPending={executionControlPending}
+9614-                 />
+9615-               )}
+9616-               {operationMode === 'DELIVERY' && operationId && (
+9617-                 <OperationTracePanel
+9618-                   operationId={operationId}
+9619-                   events={operationEvents}
+9620-                   isLoading={operationEventsLoading}
+9621-                 />
+9622-               )}
+9623:              {messages.map((msg) => (
+9624-                <MessageBubble
+9625-                  key={msg.id}
+9626-                  msg={msg}
+9627-                  projectId={selectedProjectId}
+9628-                   proposalId={proposalId}
+9629-                  onPlanDecision={handlePlanDecision}
+9630-                  planDecisionPending={planDecisionPending === msg.id}
+9631-                  onPlanBuild={handlePlanBuild}
+9632-                  planBuildPending={planBuildPending === msg.id}
+9633-                  onRegenerateReport={(messageId) => regenerateReportMutation.mutate(messageId)}

@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { VerificationHistoryEntry } from './verificationHistoryEntry';
 import type { VerificationResultDecision } from './verificationResultDecision';
 import type { VerificationResultStepsItem } from './verificationResultStepsItem';
 
@@ -12,4 +13,6 @@ export interface VerificationResult {
   passed: boolean;
   decision?: VerificationResultDecision;
   steps: VerificationResultStepsItem[];
+  /** Append-only operator decisions for each server-owned check, oldest first. */
+  history?: VerificationHistoryEntry[];
 }

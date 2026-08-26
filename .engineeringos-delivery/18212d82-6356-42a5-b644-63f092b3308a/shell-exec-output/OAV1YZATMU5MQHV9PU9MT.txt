@@ -1,0 +1,135 @@
+./lib/db/src/schema/tasks.ts:41:  verificationChecks?: RuleVerificationCheck[];
+./lib/db/src/schema/tasks.ts:88:  verificationResult: jsonb("verification_result").$type<{
+./artifacts/dashboard/src/pages/AiChat.tsx:3113:  verificationResults,
+./artifacts/dashboard/src/pages/AiChat.tsx:3127:  verificationResults: Record<string, BehavioralVerification>;
+./artifacts/dashboard/src/pages/AiChat.tsx:3142:  const hasPatchConflict = changes.some((change) => Boolean(verificationResults[change.path]?.conflict));
+./artifacts/dashboard/src/pages/AiChat.tsx:3276:                    {verificationResults[change.path] && (
+./artifacts/dashboard/src/pages/AiChat.tsx:3278:                        verificationResults[change.path].status === 'failed' ||
+./artifacts/dashboard/src/pages/AiChat.tsx:3279:                        verificationResults[change.path].status === 'unavailable'
+./artifacts/dashboard/src/pages/AiChat.tsx:3281:                          : verificationResults[change.path].status === 'passed'
+./artifacts/dashboard/src/pages/AiChat.tsx:3285:                        Behavioral verification: {verificationResults[change.path].status}
+./artifacts/dashboard/src/pages/AiChat.tsx:3286:                        {verificationResults[change.path].detail
+./artifacts/dashboard/src/pages/AiChat.tsx:3287:                          ? ` — ${verificationResults[change.path].detail}`
+./artifacts/dashboard/src/pages/AiChat.tsx:3291:                    {verificationResults[change.path]?.conflict && (
+./artifacts/dashboard/src/pages/AiChat.tsx:3293:                        Patch conflict: {verificationResults[change.path].conflict?.kind === 'hunk_mismatch'
+./artifacts/dashboard/src/pages/AiChat.tsx:3294:                          ? `hunk ${((verificationResults[change.path].conflict?.hunkIndex ?? 0) + 1)} no longer matches`
+./artifacts/dashboard/src/pages/AiChat.tsx:7139:  const [verificationResults, setVerificationResults] = useState<Record<string, BehavioralVerification>>({});
+./artifacts/dashboard/src/pages/AiChat.tsx:7797:    if (Object.keys(verificationResults).length > 0) {
+./artifacts/dashboard/src/pages/AiChat.tsx:7798:      localStorage.setItem(verificationKey, JSON.stringify(verificationResults));
+./artifacts/dashboard/src/pages/AiChat.tsx:7802:  }, [pendingChanges, pendingKey, verificationKey, verificationResults]);
+./artifacts/dashboard/src/pages/AiChat.tsx:9732:                  verificationResults={verificationResults}
+./artifacts/dashboard/src/pages/Tasks.tsx:8:  useRecordTaskVerification,
+./artifacts/dashboard/src/pages/Tasks.tsx:72:  verificationResult?: {
+./artifacts/dashboard/src/pages/Tasks.tsx:97:    verificationChecks?: Array<{ id: string; kind: 'operator_attestation'; guidance: string }>;
+./artifacts/dashboard/src/pages/Tasks.tsx:190:  const verificationDone = Boolean(task.verificationResult);
+./artifacts/dashboard/src/pages/Tasks.tsx:204:  const recordVerification = useRecordTaskVerification();
+./artifacts/dashboard/src/pages/Tasks.tsx:296:  const verificationChecks = task.remediationPlan
+./artifacts/dashboard/src/pages/Tasks.tsx:297:    ? task.remediationPlan.verificationChecks ??
+./artifacts/dashboard/src/pages/Tasks.tsx:424:      {verificationChecks.length > 0 && taskStatus === 'verifying' && (
+./artifacts/dashboard/src/pages/Tasks.tsx:441:            {verificationChecks.map((check) => {
+./artifacts/dashboard/src/pages/Tasks.tsx:442:              const result = task.verificationResult?.steps.find((step) => step.id === check.id);
+./artifacts/dashboard/src/pages/Tasks.tsx:494:            {task.verificationResult?.passed ? <ShieldCheck className="w-4 h-4 text-emerald-500" /> : <FileCheck2 className="w-4 h-4 text-muted-foreground" />}
+./artifacts/dashboard/src/pages/Tasks.tsx:498:             {taskStatus === 'completed' && task.verificationResult?.passed
+./artifacts/dashboard/src/pages/Tasks.tsx:506:          {task.verificationResult?.decision && (
+./artifacts/dashboard/src/pages/Tasks.tsx:508:              Verification decision: <span className="font-semibold uppercase">{task.verificationResult.decision}</span>
+./artifacts/dashboard/src/pages/Tasks.tsx:511:          {task.verificationResult?.steps?.length ? (
+./artifacts/dashboard/src/pages/Tasks.tsx:512:            <div className="mt-3 space-y-1">{task.verificationResult.steps.map((step) => (
+./artifacts/dashboard/src/pages/Tasks.tsx:895:                                (task.remediationPlan.verificationChecks?.length ?? task.remediationPlan.verificationSteps.length) > 0 && (
+./artifacts/dashboard/src/pages/Tasks.tsx:967:                          {task.verificationResult && (
+./artifacts/dashboard/src/pages/Tasks.tsx:973:                                {task.verificationResult.steps.map((step, i) => (
+./artifacts/dashboard/src/pages/Tasks.test.tsx:12:  useRecordTaskVerification: vi.fn(),
+./artifacts/dashboard/src/pages/Tasks.test.tsx:27:  useRecordTaskVerification,
+./artifacts/dashboard/src/pages/Tasks.test.tsx:113:  vi.mocked(useRecordTaskVerification).mockReturnValue(mutation() as ReturnType<typeof useRecordTaskVerification>);
+./lib/api-zod/src/generated/api.ts:334:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:363:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:429:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:458:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:515:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:544:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:608:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:637:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:704:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:733:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:755:export const RecordTaskVerificationParams = zod.object({
+./lib/api-zod/src/generated/api.ts:763:export const RecordTaskVerificationBody = zod.object({
+./lib/api-zod/src/generated/api.ts:784:export const RecordTaskVerificationResponse = zod.object({
+./lib/api-zod/src/generated/api.ts:800:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:829:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:886:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:915:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:972:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:1001:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:2870:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/api.ts:4783:  "verificationResult": zod.object({
+./lib/api-zod/src/generated/api.ts:4812:  "verificationChecks": zod.array(zod.object({
+./lib/api-zod/src/generated/types/verificationResultStepsItem.ts:8:import type { VerificationResultStepsItemKind } from './verificationResultStepsItemKind';
+./lib/api-zod/src/generated/types/verificationResult.ts:8:import type { VerificationResultDecision } from './verificationResultDecision';
+./lib/api-zod/src/generated/types/verificationResult.ts:9:import type { VerificationResultStepsItem } from './verificationResultStepsItem';
+./lib/api-zod/src/generated/types/remediationPlan.ts:32:  verificationChecks?: RuleVerificationCheck[];
+./lib/api-zod/src/generated/types/recordTaskVerificationInput.ts:9:export interface RecordTaskVerificationInput {
+./artifacts/api-server/src/services/task-service.ts:54:    verificationChecks?: unknown;
+./artifacts/api-server/src/services/task-service.ts:62:  if (Array.isArray(plan.verificationChecks)) {
+./artifacts/api-server/src/services/task-service.ts:63:    return plan.verificationChecks.filter(
+./artifacts/api-server/src/services/task-service.ts:121: * `verificationResult` and uses to set the final task status.
+./lib/api-zod/src/generated/types/index.ts:343:export * from './verificationResult';
+./lib/api-zod/src/generated/types/index.ts:344:export * from './verificationResultDecision';
+./lib/api-zod/src/generated/types/index.ts:345:export * from './verificationResultStepsItem';
+./lib/api-zod/src/generated/types/index.ts:346:export * from './verificationResultStepsItemKind';
+./lib/api-zod/src/generated/types/task.ts:11:import type { VerificationResult } from './verificationResult';
+./lib/api-zod/src/generated/types/task.ts:29:  verificationResult?: VerificationResult;
+./lib/api-spec/openapi.yaml:314:  /api/tasks/{taskId}/verification:
+./lib/api-spec/openapi.yaml:330:              $ref: "#/components/schemas/RecordTaskVerificationInput"
+./lib/api-spec/openapi.yaml:5542:        verificationChecks:
+./lib/api-spec/openapi.yaml:5603:        verificationResult:
+./lib/api-spec/openapi.yaml:5721:    RecordTaskVerificationInput:
+./artifacts/api-server/src/routes/tasks.ts:20:  RecordTaskVerificationBody,
+./artifacts/api-server/src/routes/tasks.ts:21:  RecordTaskVerificationParams,
+./artifacts/api-server/src/routes/tasks.ts:50:  if (Array.isArray(plan.verificationChecks)) {
+./artifacts/api-server/src/routes/tasks.ts:51:    return plan.verificationChecks.filter(
+./artifacts/api-server/src/routes/tasks.ts:406:  const verificationResult = {
+./artifacts/api-server/src/routes/tasks.ts:432:        verificationResult,
+./artifacts/api-server/src/routes/tasks.ts:451:      metadata: { verificationResult },
+./artifacts/api-server/src/routes/tasks.ts:479:        changedFields: { verificationResult }, correlationId,
+./artifacts/api-server/src/routes/tasks.ts:506:router.post("/tasks/:taskId/verification", async (req, res) => {
+./artifacts/api-server/src/routes/tasks.ts:507:  const { taskId } = RecordTaskVerificationParams.parse(req.params);
+./artifacts/api-server/src/routes/tasks.ts:508:  const body = RecordTaskVerificationBody.parse(req.body);
+./artifacts/api-server/src/routes/tasks.ts:581:      const existingSteps = (lockedTask.verificationResult?.steps ?? []) as RecordedStep[];
+./artifacts/api-server/src/routes/tasks.ts:624:      const verificationResult = {
+./artifacts/api-server/src/routes/tasks.ts:634:          verificationResult,
+./artifacts/api-server/src/routes/tasks.ts:690:        stateBefore: { status: lockedTask.status, verificationResult: lockedTask.verificationResult },
+./artifacts/api-server/src/routes/tasks.ts:691:        stateAfter: { status: nextStatus, verificationResult },
+./artifacts/api-server/src/routes/tasks.test.ts:94:    expect(res.body.verificationResult.passed).toBe(false);
+./artifacts/api-server/src/routes/tasks.test.ts:123:    expect(executed.body.verificationResult.steps).toEqual(
+./artifacts/api-server/src/routes/tasks.test.ts:152:    expect(first.body.verificationResult.passed).toBe(false);
+./artifacts/api-server/src/routes/tasks.test.ts:161:    expect(failed.body.verificationResult.passed).toBe(false);
+./artifacts/api-server/src/routes/tasks.test.ts:170:    expect(second.body.verificationResult).toMatchObject({
+./artifacts/api-server/src/lib/task-execution-service.ts:40:  const checks = plan.verificationChecks?.length
+./artifacts/api-server/src/lib/task-execution-service.ts:41:    ? plan.verificationChecks
+./artifacts/api-server/src/lib/task-execution-service.ts:406:        verificationResult: {
+./artifacts/api-server/src/lib/remediation-plan.ts:73:  const verificationChecks = buildRuleVerificationChecks(verificationSteps);
+./artifacts/api-server/src/lib/remediation-plan.ts:90:    verificationChecks,
+./lib/api-client-react/src/generated/api.ts:118:  RecordTaskVerificationInput,
+./lib/api-client-react/src/generated/api.ts:1298:export const getRecordTaskVerificationUrl = (taskId: string,) => {
+./lib/api-client-react/src/generated/api.ts:1310:    recordTaskVerificationInput: RecordTaskVerificationInput, options?: RequestInit): Promise<Task> => {
+./lib/api-client-react/src/generated/api.ts:1312:  return customFetch<Task>(getRecordTaskVerificationUrl(taskId),
+./lib/api-client-react/src/generated/api.ts:1325:export const getRecordTaskVerificationMutationOptions = <TError = ErrorType<unknown>,
+./lib/api-client-react/src/generated/api.ts:1326:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordTaskVerification>>, TError,{taskId: string;data: BodyType<RecordTaskVerificationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:1327:): UseMutationOptions<Awaited<ReturnType<typeof recordTaskVerification>>, TError,{taskId: string;data: BodyType<RecordTaskVerificationInput>}, TContext> => {
+./lib/api-client-react/src/generated/api.ts:1339:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordTaskVerification>>, {taskId: string;data: BodyType<RecordTaskVerificationInput>}> = (props) => {
+./lib/api-client-react/src/generated/api.ts:1352:    export type RecordTaskVerificationMutationResult = NonNullable<Awaited<ReturnType<typeof recordTaskVerification>>>
+./lib/api-client-react/src/generated/api.ts:1353:    export type RecordTaskVerificationMutationBody = BodyType<RecordTaskVerificationInput>
+./lib/api-client-react/src/generated/api.ts:1354:    export type RecordTaskVerificationMutationError = ErrorType<unknown>
+./lib/api-client-react/src/generated/api.ts:1359:export const useRecordTaskVerification = <TError = ErrorType<unknown>,
+./lib/api-client-react/src/generated/api.ts:1360:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordTaskVerification>>, TError,{taskId: string;data: BodyType<RecordTaskVerificationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:1364:        {taskId: string;data: BodyType<RecordTaskVerificationInput>},
+./lib/api-client-react/src/generated/api.ts:1367:      return useMutation(getRecordTaskVerificationMutationOptions(options));
+./artifacts/api-server/src/routes/ai/tasks.ts:43:  const checks = plan.verificationChecks?.length
+./artifacts/api-server/src/routes/ai/tasks.ts:44:    ? plan.verificationChecks
+./artifacts/api-server/src/routes/ai/tasks.ts:355:          verificationResult: {
+./artifacts/api-server/src/routes/ai/tasks.ts:688:          verificationResult: {
+./lib/api-client-react/src/generated/api.schemas.ts:2103:  verificationChecks?: RuleVerificationCheck[];
+./lib/api-client-react/src/generated/api.schemas.ts:2158:  verificationResult?: VerificationResult;
+./lib/api-client-react/src/generated/api.schemas.ts:2205:export interface RecordTaskVerificationInput {
+./docs/fact-record.md:184:| lib/api-zod/src/generated/types/verificationResult.ts | Schema/type مولد لـ `verificationResult` من OpenAPI. | يجب أن يُعاد توليده عند أي تغيير في العقد. | يحافظ على التوافق النوعي. | Medium | lib/api-zod/src/generated/types/verificationResult.ts |
+./docs/fact-record.md:185:| lib/api-zod/src/generated/types/verificationResultStepsItem.ts | Schema/type مولد لـ `verificationResultStepsItem` من OpenAPI. | يجب أن يُعاد توليده عند أي تغيير في العقد. | يحافظ على التوافق النوعي. | Medium | lib/api-zod/src/generated/types/verificationResultStepsItem.ts |
+./docs/completion-plan.md:39:  `verificationResult`, workflow `phases` shape) for stronger invariants — lower risk, deferred.

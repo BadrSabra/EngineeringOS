@@ -1,0 +1,520 @@
+artifacts/dashboard/src/pages/Workflows.test.tsx-97-    useRollbackWorkflowPhase,
+artifacts/dashboard/src/pages/Workflows.test.tsx-98-  ]) {
+artifacts/dashboard/src/pages/Workflows.test.tsx-99-    vi.mocked(hook).mockReturnValue(mutation() as never);
+artifacts/dashboard/src/pages/Workflows.test.tsx-100-  }
+artifacts/dashboard/src/pages/Workflows.test.tsx-101-});
+artifacts/dashboard/src/pages/Workflows.test.tsx-102-
+artifacts/dashboard/src/pages/Workflows.test.tsx-103-describe('Workflows recovery rendering', () => {
+artifacts/dashboard/src/pages/Workflows.test.tsx-104-  it('renders execution recovery metadata and preserves the support reference', () => {
+artifacts/dashboard/src/pages/Workflows.test.tsx-105-    renderPage();
+artifacts/dashboard/src/pages/Workflows.test.tsx-106-    fireEvent.click(screen.getByRole('button', { name: /Execution history/i }));
+artifacts/dashboard/src/pages/Workflows.test.tsx-107-
+artifacts/dashboard/src/pages/Workflows.test.tsx-108-    const card = screen.getByRole('region', { name: 'Provider recovery actions' });
+artifacts/dashboard/src/pages/Workflows.test.tsx:109:    expect(within(card).getByRole('heading', { name: 'The provider is temporarily unavailable' })).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-110-    expect(within(card).getByText('Availability: provider outage')).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-111-    expect(within(card).getByText('Next step: Retry in a moment; configure another provider if the issue persists.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-112-    expect(within(card).getByText('Support reference: workflow-support-42')).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-113-  });
+artifacts/dashboard/src/pages/Workflows.test.tsx-114-
+artifacts/dashboard/src/pages/Workflows.test.tsx-115-  it('does not expose raw provider diagnostics or credentials from an execution', () => {
+artifacts/dashboard/src/pages/Workflows.test.tsx-116-    renderPage();
+artifacts/dashboard/src/pages/Workflows.test.tsx-117-    fireEvent.click(screen.getByRole('button', { name: /Execution history/i }));
+artifacts/dashboard/src/pages/Workflows.test.tsx-118-
+artifacts/dashboard/src/pages/Workflows.test.tsx-119-    expect(screen.queryByText(/Internal provider diagnostic/i)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-120-    expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-121-    expect(screen.queryByText(/raw upstream response/i)).not.toBeInTheDocument();
+--
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-404-    expect(missionControl).toHaveTextContent('provider unavailable for 1 observed case');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-405-  });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-406-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-407-  it('keeps failed chat recovery guidance safe after the conversation is reloaded', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-408-    const unsafeDiagnostic = [
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-409-      'provider outage: model secret-model-name failed at /home/runner/workspace/artifacts/api-server/src/chat.ts',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-410-      'apiKey=sk-live-provider-secret',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-411-      'Support reference: support-chat-outage-34',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-412-    ].join(' ');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-413-    mocks.proposalMessages[0] = {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-414-      ...mocks.proposalMessages[0],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-415-      content: unsafeDiagnostic,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:416:      outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-417-      failureKind: 'TRANSPORT',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-418-      errorCode: 'PROVIDER_OUTAGE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-419-      errorMessage: unsafeDiagnostic,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-420-    };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-421-    mocks.serverProposal = { proposalId: 'failed-chat-recovery', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-422-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-423-    const firstRender = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-424-    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-425-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-426-    const assertSafeRecovery = () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:427:      expect(screen.getByText(/temporarily unavailable/i)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-428-      expect(screen.getByText(/Retry in a moment/i)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-429-      const visibleText = document.body.textContent ?? '';
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-430-      expect(visibleText).toContain('Support reference: support-chat-outage-34');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-431-      expect(visibleText).not.toMatch(/secret-model-name|\/home\/runner|sk-live-provider-secret/i);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-432-    };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-433-    assertSafeRecovery();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-434-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-435-    firstRender.unmount();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-436-    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-437-    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-438-    assertSafeRecovery();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-439-  });
+--
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-644-      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-pending-proposal', 'session-1'] });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-645-      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-sessions', 'project-1'] });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-646-    });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-647-    expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).not.toBeNull();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-648-    expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-649-  });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-650-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-651-  it('replays a persisted analysis failure after dashboard reload without showing completion', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-652-    mocks.serverProposal = { proposalId: 'failed-analysis-replay', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-653-    mocks.proposalMessages[0] = {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-654-      ...mocks.proposalMessages[0],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-655-      content: '',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:656:      outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-657-      executionId: 'execution-failed-analysis',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-658-      errorCode: 'TOOL_UNAVAILABLE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-659-      errorMessage: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-660-      toolTrace: JSON.stringify([
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-661-        {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-662-          kind: 'tool_result',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-663-          tool: 'query_knowledge_graph',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-664-          resultKind: 'unavailable',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-665-          diagnosticCode: 'TOOL_UNAVAILABLE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-666-          resultSummary: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-667-        },
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-668-        { kind: 'done', stopReason: 'tool_failure', diagnosticCodes: ['TOOL_UNAVAILABLE'] },
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-669-      ]),
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-670-    };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-671-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-672-    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-673-    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-674-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:675:    expect(await screen.findByText('Execution failed')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-676-    expect(screen.getByText(/The AI provider could not complete this request/i)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-677-    expect(screen.queryByText(/query_knowledge_graph was unavailable/)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-678-    expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-679-    expect(screen.queryByText(/COMPLETED/)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-680-  });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-681-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-682-  it('clears execution state for a new session and rejects late callbacks', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-683-    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-684-    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-685-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-686-    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-687-    fireEvent.change(composer, { target: { value: 'Audit src/app.ts' } });
+--
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1972-  });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1973-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1974-  it('commits the complete final SSE message instead of leaving streamed partial text', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1975-    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1976-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1977-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1978-    fireEvent.change(textarea, { target: { value: 'Explain the response path' } });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1979-    fireEvent.keyDown(textarea, { key: 'Enter' });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1980-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1981-    act(() => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1982-      (mocks.streamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1983-        onDelta?: (chunk: string) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1984:      }).onDelta?.('partial answer that should be replaced');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1985-      (mocks.streamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1986-        onDone?: (data: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1987-      }).onDone?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1988-        sessionId: 'session-1',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1989-        message: {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1990-          id: 'assistant-2',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1991-          role: 'assistant',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1992-          content: 'The complete final answer with the verified details.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1993-          createdAt: '2026-08-17T00:00:00.000Z',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1994-        },
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1995-      });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1996-    });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1997-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-1998-    expect(screen.getByText('The complete final answer with the verified details.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1999:    expect(screen.queryByText('partial answer that should be replaced')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2000-  });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2001-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2002-  it('does not render a delivery trace for a forensic audit operation', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2003-    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2004-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2005-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2006-    fireEvent.change(textarea, { target: { value: 'Review the declared source files only' } });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2007-    fireEvent.keyDown(textarea, { key: 'Enter' });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2008-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2009-    act(() => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2010-      (mocks.streamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-2011-        onDone?: (data: Record<string, unknown>) => void;
+--
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3028-    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3029-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3030-    fireEvent.click(await screen.findByRole('button', { name: 'Code Review' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3031-    act(() => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3032-      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3033-        onError?: (event: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3034-      }).onError?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3035-        type: 'error',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3036-        code: 'model_output_invalid',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3037-        message: 'The AI model returned an unexpected response.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3038-        failureKind: 'PROVIDER_FORMAT',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3039-        retryable: true,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3040:        outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3041-      });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3042-    });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3043-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3044-    expect(await screen.findByText('Code review incomplete')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3045-    expect(screen.getByText(/could not be verified/i)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3046-    expect(screen.getByText('Retry available')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3047-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3048-    fireEvent.click(screen.getByRole('button', { name: 'Retry code review' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3049-    expect(mocks.taskSentParams).toEqual({ projectId: 'project-1', task: 'review' });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3050-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3051-    act(() => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3052-      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+--
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3074-    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3075-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3076-    fireEvent.click(await screen.findByRole('button', { name: 'Code Review' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3077-    act(() => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3078-      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3079-        onError?: (event: Record<string, unknown>) => void;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3080-      }).onError?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3081-        type: 'error',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3082-        code: 'INVALID_CONFIG',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3083-        message: 'The AI provider configuration needs attention before this can run.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3084-        failureKind: 'CONFIGURATION',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3085-        retryable: false,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3086:        outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3087-      });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3088-    });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3089-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3090-    expect(await screen.findByText('Code review unavailable')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3091-    expect(screen.getByText('Retry unavailable')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3092-    expect(screen.queryByRole('button', { name: 'Retry code review' })).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3093-    expect(screen.getByText(/Update the AI setup/)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3094-  });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3095-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3096-  it('shows "Why this file?" panel with agent reasoning when a read tool step is expanded', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3097-    mocks.serverProposal = { proposalId: 'flight-recorder-reasoning', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-3098-    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+--
+artifacts/dashboard/src/pages/Workflows.test.tsx-97-    useRollbackWorkflowPhase,
+artifacts/dashboard/src/pages/Workflows.test.tsx-98-  ]) {
+artifacts/dashboard/src/pages/Workflows.test.tsx-99-    vi.mocked(hook).mockReturnValue(mutation() as never);
+artifacts/dashboard/src/pages/Workflows.test.tsx-100-  }
+artifacts/dashboard/src/pages/Workflows.test.tsx-101-});
+artifacts/dashboard/src/pages/Workflows.test.tsx-102-
+artifacts/dashboard/src/pages/Workflows.test.tsx-103-describe('Workflows recovery rendering', () => {
+artifacts/dashboard/src/pages/Workflows.test.tsx-104-  it('renders execution recovery metadata and preserves the support reference', () => {
+artifacts/dashboard/src/pages/Workflows.test.tsx-105-    renderPage();
+artifacts/dashboard/src/pages/Workflows.test.tsx-106-    fireEvent.click(screen.getByRole('button', { name: /Execution history/i }));
+artifacts/dashboard/src/pages/Workflows.test.tsx-107-
+artifacts/dashboard/src/pages/Workflows.test.tsx-108-    const card = screen.getByRole('region', { name: 'Provider recovery actions' });
+artifacts/dashboard/src/pages/Workflows.test.tsx:109:    expect(within(card).getByRole('heading', { name: 'The provider is temporarily unavailable' })).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-110-    expect(within(card).getByText('Availability: provider outage')).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-111-    expect(within(card).getByText('Next step: Retry in a moment; configure another provider if the issue persists.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-112-    expect(within(card).getByText('Support reference: workflow-support-42')).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-113-  });
+artifacts/dashboard/src/pages/Workflows.test.tsx-114-
+artifacts/dashboard/src/pages/Workflows.test.tsx-115-  it('does not expose raw provider diagnostics or credentials from an execution', () => {
+artifacts/dashboard/src/pages/Workflows.test.tsx-116-    renderPage();
+artifacts/dashboard/src/pages/Workflows.test.tsx-117-    fireEvent.click(screen.getByRole('button', { name: /Execution history/i }));
+artifacts/dashboard/src/pages/Workflows.test.tsx-118-
+artifacts/dashboard/src/pages/Workflows.test.tsx-119-    expect(screen.queryByText(/Internal provider diagnostic/i)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-120-    expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.test.tsx-121-    expect(screen.queryByText(/raw upstream response/i)).not.toBeInTheDocument();
+--
+artifacts/dashboard/src/pages/Tasks.test.tsx-41-  {
+artifacts/dashboard/src/pages/Tasks.test.tsx-42-    id: 'task-quota',
+artifacts/dashboard/src/pages/Tasks.test.tsx-43-    title: 'Recover from provider quota',
+artifacts/dashboard/src/pages/Tasks.test.tsx-44-    availabilityState: 'quota_exhausted',
+artifacts/dashboard/src/pages/Tasks.test.tsx-45-    heading: 'Provider quota is exhausted',
+artifacts/dashboard/src/pages/Tasks.test.tsx-46-    action: 'Add provider credits or configure another provider.',
+artifacts/dashboard/src/pages/Tasks.test.tsx-47-    correlationId: 'task-quota-support',
+artifacts/dashboard/src/pages/Tasks.test.tsx-48-  },
+artifacts/dashboard/src/pages/Tasks.test.tsx-49-  {
+artifacts/dashboard/src/pages/Tasks.test.tsx-50-    id: 'task-outage',
+artifacts/dashboard/src/pages/Tasks.test.tsx-51-    title: 'Recover from provider outage',
+artifacts/dashboard/src/pages/Tasks.test.tsx-52-    availabilityState: 'provider_outage',
+artifacts/dashboard/src/pages/Tasks.test.tsx:53:    heading: 'The provider is temporarily unavailable',
+artifacts/dashboard/src/pages/Tasks.test.tsx-54-    action: 'Retry in a moment; configure another provider if the issue persists.',
+artifacts/dashboard/src/pages/Tasks.test.tsx-55-    correlationId: 'task-outage-support',
+artifacts/dashboard/src/pages/Tasks.test.tsx-56-  },
+artifacts/dashboard/src/pages/Tasks.test.tsx-57-] as const;
+artifacts/dashboard/src/pages/Tasks.test.tsx-58-
+artifacts/dashboard/src/pages/Tasks.test.tsx-59-function renderPage() {
+artifacts/dashboard/src/pages/Tasks.test.tsx-60-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+artifacts/dashboard/src/pages/Tasks.test.tsx-61-  return render(
+artifacts/dashboard/src/pages/Tasks.test.tsx-62-    <QueryClientProvider client={queryClient}>
+artifacts/dashboard/src/pages/Tasks.test.tsx-63-      <Tasks />
+artifacts/dashboard/src/pages/Tasks.test.tsx-64-    </QueryClientProvider>,
+artifacts/dashboard/src/pages/Tasks.test.tsx-65-  );
+--
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-1-import { render, screen } from '@testing-library/react';
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-2-import { describe, expect, it } from 'vitest';
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-3-import { ProviderRecoveryCard } from './ProviderRecoveryCard';
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-4-
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-5-describe('ProviderRecoveryCard', () => {
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-6-  it.each([
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-7-    ['authentication_failed', 'Provider authentication failed'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-8-    ['incompatible_model', 'The selected model is unavailable'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-9-    ['catalog_stale', 'The provider model catalog needs to refresh'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-10-    ['quota_exhausted', 'Provider quota is exhausted'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-11-    ['rate_limited', 'The provider rate limit was reached'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-12-    ['circuit_open', 'Provider temporarily paused'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:13:    ['provider_outage', 'The provider is temporarily unavailable'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-14-  ])('explains %s with a recovery action', (state, heading) => {
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-15-    render(
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-16-      <ProviderRecoveryCard
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-17-        recovery={{ availabilityState: state, correlationId: 'support-reference-123' }}
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-18-      />,
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-19-    );
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-20-    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-21-    expect(screen.getByText(/Next step:/)).toBeInTheDocument();
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-22-    expect(screen.getByText('Support reference: support-reference-123')).toBeInTheDocument();
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-23-  });
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-24-
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx-25-  it('uses the safe server action while keeping upstream diagnostics out of the card', () => {
+--
+artifacts/dashboard/e2e/dashboard.journey.ts-2039-    expect(reloadedTaskText).not.toMatch(
+artifacts/dashboard/e2e/dashboard.journey.ts-2040-      /secret-model-name|\/home\/runner|\/tmp\//i,
+artifacts/dashboard/e2e/dashboard.journey.ts-2041-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-2042-
+artifacts/dashboard/e2e/dashboard.journey.ts-2043-    await openNavigation(page, "Workflows", `${DASHBOARD_PATH}workflows`);
+artifacts/dashboard/e2e/dashboard.journey.ts-2044-    await expect(page.getByText("Recover provider outage")).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-2045-    await page.getByRole("button", { name: "Execution history" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts-2046-    const execution = page
+artifacts/dashboard/e2e/dashboard.journey.ts-2047-      .getByText("failed · no successful completion")
+artifacts/dashboard/e2e/dashboard.journey.ts-2048-      .locator("..")
+artifacts/dashboard/e2e/dashboard.journey.ts-2049-      .locator("..");
+artifacts/dashboard/e2e/dashboard.journey.ts-2050-    await expect(execution).toContainText(
+artifacts/dashboard/e2e/dashboard.journey.ts:2051:      "The provider is temporarily unavailable",
+artifacts/dashboard/e2e/dashboard.journey.ts-2052-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-2053-    await expect(execution).toContainText(
+artifacts/dashboard/e2e/dashboard.journey.ts-2054-      "Retry in a moment; configure another provider if the issue persists.",
+artifacts/dashboard/e2e/dashboard.journey.ts-2055-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-2056-    await expect(execution).toContainText(
+artifacts/dashboard/e2e/dashboard.journey.ts-2057-      `Support reference: ${supportReferences.provider_outage}`,
+artifacts/dashboard/e2e/dashboard.journey.ts-2058-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-2059-    await page.reload();
+artifacts/dashboard/e2e/dashboard.journey.ts-2060-    await expect(page.getByText("Recover provider outage")).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-2061-    await page.getByRole("button", { name: "Execution history" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts-2062-    const reloadedExecution = page
+artifacts/dashboard/e2e/dashboard.journey.ts-2063-      .getByText("failed · no successful completion")
+artifacts/dashboard/e2e/dashboard.journey.ts-2064-      .locator("..")
+artifacts/dashboard/e2e/dashboard.journey.ts-2065-      .locator("..");
+artifacts/dashboard/e2e/dashboard.journey.ts-2066-    await expect(reloadedExecution).toContainText(
+artifacts/dashboard/e2e/dashboard.journey.ts:2067:      "The provider is temporarily unavailable",
+artifacts/dashboard/e2e/dashboard.journey.ts-2068-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-2069-    await expect(reloadedExecution).toContainText(
+artifacts/dashboard/e2e/dashboard.journey.ts-2070-      "Retry in a moment; configure another provider if the issue persists.",
+artifacts/dashboard/e2e/dashboard.journey.ts-2071-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-2072-    await expect(reloadedExecution).toContainText(
+artifacts/dashboard/e2e/dashboard.journey.ts-2073-      `Support reference: ${supportReferences.provider_outage}`,
+artifacts/dashboard/e2e/dashboard.journey.ts-2074-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-2075-
+artifacts/dashboard/e2e/dashboard.journey.ts-2076-    const visibleText = await page.locator("body").innerText();
+artifacts/dashboard/e2e/dashboard.journey.ts-2077-    expect(visibleText).not.toContain(rawDiagnostic);
+artifacts/dashboard/e2e/dashboard.journey.ts-2078-    expect(visibleText).not.toContain(rawCredential);
+artifacts/dashboard/e2e/dashboard.journey.ts-2079-    expect(visibleText).not.toMatch(
+--
+artifacts/dashboard/e2e/dashboard.journey.ts-2406-      );
+artifacts/dashboard/e2e/dashboard.journey.ts-2407-    });
+artifacts/dashboard/e2e/dashboard.journey.ts-2408-    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts-2409-
+artifacts/dashboard/e2e/dashboard.journey.ts-2410-    const proof = page.getByLabel("Agent execution proof");
+artifacts/dashboard/e2e/dashboard.journey.ts-2411-    await expect(proof).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-2412-    await expect(proof).toContainText(/completed/i);
+artifacts/dashboard/e2e/dashboard.journey.ts-2413-    await expect(proof).toContainText("Revision: e2e-revision-42");
+artifacts/dashboard/e2e/dashboard.journey.ts-2414-
+artifacts/dashboard/e2e/dashboard.journey.ts-2415-    await proof.getByRole("button", { name: "Preview audit" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts-2416-    const preview = page.getByLabel("Redacted audit preview");
+artifacts/dashboard/e2e/dashboard.journey.ts-2417-    await expect(preview).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts:2418:    await expect(preview).toContainText("Audit preview temporarily unavailable");
+artifacts/dashboard/e2e/dashboard.journey.ts-2419-    await expect(preview).toContainText("same execution and revision");
+artifacts/dashboard/e2e/dashboard.journey.ts-2420-    await expect(preview.getByRole("button", { name: "Retry preview" })).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-2421-    expect(auditRequests).toHaveLength(1);
+artifacts/dashboard/e2e/dashboard.journey.ts-2422-
+artifacts/dashboard/e2e/dashboard.journey.ts-2423-    await preview.getByRole("button", { name: "Retry preview" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts-2424-    await expect(preview).toContainText("provider secrets");
+artifacts/dashboard/e2e/dashboard.journey.ts-2425-    await expect(preview).toContainText("raw model output");
+artifacts/dashboard/e2e/dashboard.journey.ts-2426-    await expect(preview).toContainText("private runtime paths");
+artifacts/dashboard/e2e/dashboard.journey.ts-2427-    await expect(preview).toContainText(EXECUTION_ID);
+artifacts/dashboard/e2e/dashboard.journey.ts-2428-    await expect(preview).toContainText("e2e-operation");
+artifacts/dashboard/e2e/dashboard.journey.ts-2429-    await expect(preview).toContainText("e2e-revision-42");
+artifacts/dashboard/e2e/dashboard.journey.ts-2430-    expect(auditRequests).toHaveLength(2);
+--
+artifacts/dashboard/e2e/dashboard.journey.ts-2536-      proof.getByRole("button", { name: "Approve & apply" }),
+artifacts/dashboard/e2e/dashboard.journey.ts-2537-    ).toHaveCount(0);
+artifacts/dashboard/e2e/dashboard.journey.ts-2538-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-2539-      proof.getByRole("button", { name: /commit verified changes/i }),
+artifacts/dashboard/e2e/dashboard.journey.ts-2540-    ).toHaveCount(0);
+artifacts/dashboard/e2e/dashboard.journey.ts-2541-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-2542-      proof.getByRole("button", { name: /push committed changes/i }),
+artifacts/dashboard/e2e/dashboard.journey.ts-2543-    ).toHaveCount(0);
+artifacts/dashboard/e2e/dashboard.journey.ts-2544-
+artifacts/dashboard/e2e/dashboard.journey.ts-2545-    await proof.getByRole("button", { name: "Preview audit" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts-2546-    const preview = page.getByLabel("Redacted audit preview");
+artifacts/dashboard/e2e/dashboard.journey.ts-2547-    await expect(preview).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts:2548:    await expect(preview).toContainText("Audit preview temporarily unavailable");
+artifacts/dashboard/e2e/dashboard.journey.ts-2549-    await expect(preview).toContainText("same execution and revision");
+artifacts/dashboard/e2e/dashboard.journey.ts-2550-    await expect(preview.getByRole("button", { name: "Retry preview" })).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-2551-    expect(auditRequests).toHaveLength(1);
+artifacts/dashboard/e2e/dashboard.journey.ts-2552-
+artifacts/dashboard/e2e/dashboard.journey.ts-2553-    await preview.getByRole("button", { name: "Retry preview" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts-2554-    await expect(preview).toContainText("cancelled");
+artifacts/dashboard/e2e/dashboard.journey.ts-2555-    await expect(preview).toContainText(EXECUTION_ID);
+artifacts/dashboard/e2e/dashboard.journey.ts-2556-    await expect(preview).toContainText("e2e-operation");
+artifacts/dashboard/e2e/dashboard.journey.ts-2557-    await expect(preview).toContainText("e2e-revision-42");
+artifacts/dashboard/e2e/dashboard.journey.ts-2558-    await expect(preview).toContainText("provider secrets");
+artifacts/dashboard/e2e/dashboard.journey.ts-2559-    await expect(preview).toContainText("raw model output");
+artifacts/dashboard/e2e/dashboard.journey.ts-2560-    await expect(preview).toContainText("private runtime paths");
+--
+artifacts/dashboard/e2e/dashboard.journey.ts-3277-      "src/missing-release-fixture.ts",
+artifacts/dashboard/e2e/dashboard.journey.ts-3278-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-3279-    await expect(page.locator("body")).toContainText("Tool failed");
+artifacts/dashboard/e2e/dashboard.journey.ts-3280-    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+artifacts/dashboard/e2e/dashboard.journey.ts-3281-    const visibleText = await page.locator("body").innerText();
+artifacts/dashboard/e2e/dashboard.journey.ts-3282-    expect(visibleText).not.toMatch(
+artifacts/dashboard/e2e/dashboard.journey.ts-3283-      /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+artifacts/dashboard/e2e/dashboard.journey.ts-3284-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-3285-
+artifacts/dashboard/e2e/dashboard.journey.ts-3286-    await expectNoHorizontalOverflow(page);
+artifacts/dashboard/e2e/dashboard.journey.ts-3287-  });
+artifacts/dashboard/e2e/dashboard.journey.ts-3288-
+artifacts/dashboard/e2e/dashboard.journey.ts:3289:  test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts-3290-    page,
+artifacts/dashboard/e2e/dashboard.journey.ts-3291-  }) => {
+artifacts/dashboard/e2e/dashboard.journey.ts-3292-    const fixture = installDisconnectedAiFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts-3293-    await installApiFixtures(page, { disconnectAi: fixture });
+artifacts/dashboard/e2e/dashboard.journey.ts-3294-    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts-3295-    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts-3296-
+artifacts/dashboard/e2e/dashboard.journey.ts-3297-    const composer = page.locator("textarea").first();
+artifacts/dashboard/e2e/dashboard.journey.ts-3298-    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts-3299-    await composer.locator("xpath=..").getByRole("button").click();
+artifacts/dashboard/e2e/dashboard.journey.ts-3300-
+artifacts/dashboard/e2e/dashboard.journey.ts-3301-    const answer = page.getByText(fixture.answer, { exact: true });
+artifacts/dashboard/e2e/dashboard.journey.ts-3302-    await expect(answer.last()).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3303-    await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3304-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts:3305:      page.getByText("provider failure", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts-3306-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3307-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-3308-      page.getByText("stopped: provider timeout", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts-3309-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3310-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-3311-      page.getByText("The provider disconnected after visible response text.", {
+artifacts/dashboard/e2e/dashboard.journey.ts-3312-        exact: true,
+artifacts/dashboard/e2e/dashboard.journey.ts-3313-      }),
+artifacts/dashboard/e2e/dashboard.journey.ts-3314-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3315-
+artifacts/dashboard/e2e/dashboard.journey.ts-3316-    await page.reload();
+artifacts/dashboard/e2e/dashboard.journey.ts-3317-    await page
+artifacts/dashboard/e2e/dashboard.journey.ts-3318-      .getByRole("button", { name: fixture.question, exact: true })
+artifacts/dashboard/e2e/dashboard.journey.ts-3319-      .click();
+artifacts/dashboard/e2e/dashboard.journey.ts-3320-
+artifacts/dashboard/e2e/dashboard.journey.ts-3321-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3322-    await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3323-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts:3324:      page.getByText("provider failure", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts-3325-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3326-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-3327-      page.getByText("stopped: provider timeout", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts-3328-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3329-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-3330-      page.getByText("The provider disconnected after visible response text.", {
+artifacts/dashboard/e2e/dashboard.journey.ts-3331-        exact: true,
+artifacts/dashboard/e2e/dashboard.journey.ts-3332-      }),
+artifacts/dashboard/e2e/dashboard.journey.ts-3333-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3334-  });
+artifacts/dashboard/e2e/dashboard.journey.ts-3335-
+artifacts/dashboard/e2e/dashboard.journey.ts-3336-  test("resumes a failed analysis and keeps the execution incomplete", async ({
+--
+artifacts/dashboard/e2e/dashboard.journey.ts-3387-    ) as Record<string, unknown>;
+artifacts/dashboard/e2e/dashboard.journey.ts-3388-    expect(requestBody).toEqual(
+artifacts/dashboard/e2e/dashboard.journey.ts-3389-      expect.objectContaining({
+artifacts/dashboard/e2e/dashboard.journey.ts-3390-        projectId: "e2e-project",
+artifacts/dashboard/e2e/dashboard.journey.ts-3391-        sessionId: fixture.sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts-3392-        executionId: fixture.executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts-3393-        resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+artifacts/dashboard/e2e/dashboard.journey.ts-3394-        message: fixture.question,
+artifacts/dashboard/e2e/dashboard.journey.ts-3395-      }),
+artifacts/dashboard/e2e/dashboard.journey.ts-3396-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-3397-
+artifacts/dashboard/e2e/dashboard.journey.ts-3398-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts:3399:      page.getByText("Failed to send message", { exact: true }),
+artifacts/dashboard/e2e/dashboard.journey.ts-3400-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3401-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-3402-      page.getByText("A saved AI execution is ready to resume"),
+artifacts/dashboard/e2e/dashboard.journey.ts-3403-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3404-    const visibleText = await page.locator("body").innerText();
+artifacts/dashboard/e2e/dashboard.journey.ts-3405-    expect(visibleText).not.toContain("COMPLETED");
+artifacts/dashboard/e2e/dashboard.journey.ts-3406-    expect(visibleText).not.toContain("Persisted execution proof");
+artifacts/dashboard/e2e/dashboard.journey.ts-3407-    expect(visibleText).toContain("The required analysis did not complete.");
+artifacts/dashboard/e2e/dashboard.journey.ts-3408-  });
+artifacts/dashboard/e2e/dashboard.journey.ts-3409-
+artifacts/dashboard/e2e/dashboard.journey.ts-3410-  test("recovers a missing token after a real stream abort and resumes one execution", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts-3411-    page,
+--
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-404-    expect(missionControl).toHaveTextContent('provider unavailable for 1 observed case');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-405-  });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-406-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-407-  it('keeps failed chat recovery guidance safe after the conversation is reloaded', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-408-    const unsafeDiagnostic = [
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-409-      'provider outage: model secret-model-name failed at /home/runner/workspace/artifacts/api-server/src/chat.ts',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-410-      'apiKey=sk-live-provider-secret',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-411-      'Support reference: support-chat-outage-34',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-412-    ].join(' ');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-413-    mocks.proposalMessages[0] = {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-414-      ...mocks.proposalMessages[0],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-415-      content: unsafeDiagnostic,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:416:      outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-417-      failureKind: 'TRANSPORT',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-418-      errorCode: 'PROVIDER_OUTAGE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-419-      errorMessage: unsafeDiagnostic,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-420-    };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-421-    mocks.serverProposal = { proposalId: 'failed-chat-recovery', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-422-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-423-    const firstRender = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-424-    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-425-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-426-    const assertSafeRecovery = () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:427:      expect(screen.getByText(/temporarily unavailable/i)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-428-      expect(screen.getByText(/Retry in a moment/i)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-429-      const visibleText = document.body.textContent ?? '';
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-430-      expect(visibleText).toContain('Support reference: support-chat-outage-34');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-431-      expect(visibleText).not.toMatch(/secret-model-name|\/home\/runner|sk-live-provider-secret/i);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-432-    };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-433-    assertSafeRecovery();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-434-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-435-    firstRender.unmount();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-436-    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-437-    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-438-    assertSafeRecovery();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-439-  });
+--
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-644-      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-pending-proposal', 'session-1'] });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-645-      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-sessions', 'project-1'] });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-646-    });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-647-    expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).not.toBeNull();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-648-    expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-649-  });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-650-
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-651-  it('replays a persisted analysis failure after dashboard reload without showing completion', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-652-    mocks.serverProposal = { proposalId: 'failed-analysis-replay', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-653-    mocks.proposalMessages[0] = {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-654-      ...mocks.proposalMessages[0],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-655-      content: '',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:656:      outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-657-      executionId: 'execution-failed-analysis',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-658-      errorCode: 'TOOL_UNAVAILABLE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-659-      errorMessage: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-660-      toolTrace: JSON.stringify([
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-661-        {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-662-          kind: 'tool_result',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-663-          tool: 'query_knowledge_graph',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-664-          resultKind: 'unavailable',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-665-          diagnosticCode: 'TOOL_UNAVAILABLE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx-666-          resultSummary: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',

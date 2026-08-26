@@ -342,7 +342,18 @@ export const ListTasksResponseItem = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),
@@ -437,7 +448,18 @@ export const CreateTaskResponse = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),
@@ -523,7 +545,18 @@ export const GetTaskResponse = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),
@@ -616,7 +649,18 @@ export const UpdateTaskResponse = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),
@@ -712,7 +756,18 @@ export const ExecuteTaskResponse = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),
@@ -808,7 +863,18 @@ export const RecordTaskVerificationResponse = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),
@@ -894,7 +960,18 @@ export const RetryTaskResponse = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),
@@ -980,7 +1057,18 @@ export const RollbackTaskResponse = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),
@@ -4791,7 +4879,18 @@ export const AiExecuteTaskResponse = zod.object({
   "passed": zod.boolean(),
   "evidence": zod.string().optional(),
   "output": zod.string().optional()
-}))
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
 }).optional(),
   "remediationPlan": zod.object({
   "version": zod.literal(1),

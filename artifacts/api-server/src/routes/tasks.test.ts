@@ -171,6 +171,39 @@ describe("Task lifecycle", () => {
       passed: true,
       decision: "verified",
     });
+    expect(second.body.verificationResult.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "rule-verification-2",
+          passed: true,
+          evidence: "Observed the expected behavior after the fix.",
+        }),
+      ]),
+    );
+    expect(second.body.verificationResult.history).toHaveLength(3);
+    expect(second.body.verificationResult.history).toEqual([
+      expect.objectContaining({
+        checkId: "rule-verification-1",
+        passed: true,
+        evidence: "Focused test passed in the operator console.",
+        actor: "test-user",
+        recordedAt: expect.any(String),
+      }),
+      expect.objectContaining({
+        checkId: "rule-verification-2",
+        passed: false,
+        evidence: "Behavior still needs correction.",
+        actor: "test-user",
+        recordedAt: expect.any(String),
+      }),
+      expect.objectContaining({
+        checkId: "rule-verification-2",
+        passed: true,
+        evidence: "Observed the expected behavior after the fix.",
+        actor: "test-user",
+        recordedAt: expect.any(String),
+      }),
+    ]);
     expect(second.body.remediationPlan.status).toBe("verified");
 
     const audits = await db

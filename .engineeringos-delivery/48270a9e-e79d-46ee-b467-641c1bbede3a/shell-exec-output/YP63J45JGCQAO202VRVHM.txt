@@ -1,0 +1,360 @@
+artifacts/api-server/src/index.ts:181:// Keep compact task history bounded without touching audit logs/events or
+artifacts/api-server/src/services/task-service.ts:4: * Contains the verification logic that determines task completion status.
+artifacts/api-server/src/services/task-service.ts:14: * verification logic". Callers and unit tests must account for both the DB
+artifacts/api-server/src/services/task-service.ts:38:  /** Human-readable summary for the task log and verification result column. */
+artifacts/api-server/src/services/task-service.ts:53:    verificationSteps: unknown;
+artifacts/api-server/src/services/task-service.ts:54:    verificationChecks?: unknown;
+artifacts/api-server/src/services/task-service.ts:62:  if (Array.isArray(plan.verificationChecks)) {
+artifacts/api-server/src/services/task-service.ts:63:    return plan.verificationChecks.filter(
+artifacts/api-server/src/services/task-service.ts:74:  if (Array.isArray(plan.verificationSteps)) {
+artifacts/api-server/src/services/task-service.ts:76:      plan.verificationSteps.filter((step): step is string => typeof step === "string"),
+artifacts/api-server/src/services/task-service.ts:90:      name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+artifacts/api-server/src/services/task-service.ts:113: * Run the verification pipeline for a task:
+artifacts/api-server/src/services/task-service.ts:121: * `verificationResult` and uses to set the final task status.
+artifacts/api-server/src/services/task-service.ts:135:  // explicit remediation verification.
+artifacts/api-server/src/services/task-service.ts:141:      !Array.isArray(task.remediationPlan.verificationSteps) ||
+artifacts/api-server/src/services/task-service.ts:142:      task.remediationPlan.verificationSteps.length === 0)
+artifacts/api-server/src/services/task-service.ts:147:      output: "Plan evidence or verification guidance is incomplete — human review is required",
+artifacts/api-server/src/services/task-service.ts:211:            : "Pattern check passed — operator verification evidence is still required",
+artifacts/api-server/src/services/task-service.ts:241:          "File check passed — operator verification evidence is still required",
+artifacts/api-server/src/services/task-service.ts:270:      "Operator verification evidence is required before completion",
+artifacts/api-server/src/services/task-service.ts:274:    name: "Manual verification required",
+artifacts/api-server/src/services/task-service.ts:276:    output: "No rule pattern or related files — task requires AI or human verification",
+artifacts/api-server/src/services/task-service.ts:282:    "No automated verification signal — awaiting AI or human confirmation",
+artifacts/api-server/src/services/task-service.test.ts:14:          verificationSteps: [],
+artifacts/api-server/src/services/task-service.test.ts:36:          verificationSteps: ["Run the focused test.", "Confirm the safe log output."],
+artifacts/api-server/src/services/task-service.test.ts:46:          id: "rule-verification-1",
+artifacts/api-server/src/services/task-service.test.ts:52:          id: "rule-verification-2",
+artifacts/api-server/src/services/task-service.test.ts:70:          verificationSteps: ["rm -rf /"],
+scripts/run-dashboard-journey.mjs:66:  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+scripts/run-dashboard-journey.mjs:531:      "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH; configure Chromium before starting services.",
+scripts/run-dashboard-journey.mjs:630:      ["run", "test:dashboard-journey-contract"],
+scripts/run-dashboard-journey.mjs:785:        "test-results/dashboard-journey/live-mission-correlation.json",
+scripts/run-dashboard-journey.mjs:894:              "test-results/dashboard-journey/live-mission-correlation.json",
+scripts/release-port-cleanup.test.mjs:67:      [resolve(root, "scripts/run-dashboard-journey.mjs")],
+scripts/release-port-cleanup.test.mjs:139:    resolve(root, "scripts/run-dashboard-journey.mjs"),
+scripts/release-configuration.test.ts:41:    command: "run test:dashboard-journey-contract",
+scripts/release-configuration.test.ts:483:      /run test:dashboard-journey-contract|run test:mission-correlation-report|run test:process-recovery/,
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+scripts/release-configuration.test.ts:602:  const journeyStart = replitConfig.indexOf('name = "release-dashboard-journey"');
+scripts/release-configuration.test.ts:607:    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+scripts/release-configuration.test.ts:611:    /name = "release-dashboard-journey"/,
+scripts/release-configuration.test.ts:632:    /pnpm run validate:dashboard-journey/,
+scripts/release-configuration.test.ts:637:    /DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+scripts/release-configuration.test.ts:652:    /path:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+scripts/patch-generated-zod.ts:76:    console.error("❌  Zod post-codegen verification failed:");
+artifacts/dashboard/e2e/dashboard.journey.ts:244:      initialLogs?: Array<Record<string, unknown>>;
+artifacts/dashboard/e2e/dashboard.journey.ts:492:      if (!body?.includes(Buffer.from("dashboard-journey.zip"))) {
+artifacts/dashboard/e2e/dashboard.journey.ts:534:      return route.fulfill(jsonResponse(overrides.liveTask.initialLogs ?? []));
+artifacts/dashboard/e2e/dashboard.journey.ts:1457:          name: "hostile-dashboard-journey.zip",
+artifacts/dashboard/e2e/dashboard.journey.ts:1810:      "test-results/dashboard-journey/live-mission-correlation.json";
+artifacts/dashboard/e2e/dashboard.journey.ts:2045:    await page.getByRole("button", { name: "Execution history" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2061:    await page.getByRole("button", { name: "Execution history" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2127:          verificationSteps: [
+artifacts/dashboard/e2e/dashboard.journey.ts:2169:          verificationSteps: [],
+artifacts/dashboard/e2e/dashboard.journey.ts:2240:    await expect(reviewPlan).toContainText("No verification steps supplied.");
+artifacts/dashboard/e2e/dashboard.journey.ts:2596:        originalName: "dashboard-journey.zip",
+artifacts/dashboard/e2e/dashboard.journey.ts:2618:        "dashboard-journey.zip",
+artifacts/dashboard/e2e/dashboard.journey.ts:2632:      originalName: "dashboard-journey.zip",
+artifacts/dashboard/e2e/dashboard.journey.ts:2641:    await page.getByRole("button", { name: "Logs" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2679:    await page.getByRole("button", { name: "Logs" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2723:        initialLogs: [liveLog],
+artifacts/dashboard/e2e/dashboard.journey.ts:2732:    await page.getByRole("button", { name: "Logs" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2957:      sessionId: "e2e-history-accepted-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:2962:      sessionId: "e2e-history-blocked-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:2995:      sessionId: "e2e-history-accepted-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3000:      sessionId: "e2e-history-blocked-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3093:      sessionId: "e2e-history-accepted-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3098:      sessionId: "e2e-history-blocked-session",
+artifacts/dashboard/e2e/playwright.config.ts:31:      process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+scripts/dashboard-journey-contract.test.mjs:12:const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+artifacts/api-server/src/routes/tasks.test.ts:9:  taskLogsTable,
+artifacts/api-server/src/routes/tasks.test.ts:11:  auditLogsTable,
+artifacts/api-server/src/routes/tasks.test.ts:46:    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, task.id));
+artifacts/api-server/src/routes/tasks.test.ts:49:  await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, id));
+artifacts/api-server/src/routes/tasks.test.ts:94:    expect(res.body.verificationResult.passed).toBe(false);
+artifacts/api-server/src/routes/tasks.test.ts:101:  it("requires explicit evidence for every server-owned rule verification check", async () => {
+artifacts/api-server/src/routes/tasks.test.ts:114:        verificationSteps: ["Run the focused test.", "Inspect the resulting behavior."],
+artifacts/api-server/src/routes/tasks.test.ts:123:    expect(executed.body.verificationResult.steps).toEqual(
+artifacts/api-server/src/routes/tasks.test.ts:125:        expect.objectContaining({ id: "rule-verification-1", passed: false }),
+artifacts/api-server/src/routes/tasks.test.ts:126:        expect.objectContaining({ id: "rule-verification-2", passed: false }),
+artifacts/api-server/src/routes/tasks.test.ts:130:    const unknownCheck = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+artifacts/api-server/src/routes/tasks.test.ts:136:    expect(unknownCheck.body.error).toBe("verification_check_not_found");
+artifacts/api-server/src/routes/tasks.test.ts:138:    const missingEvidence = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+artifacts/api-server/src/routes/tasks.test.ts:139:      checkId: "rule-verification-1",
+artifacts/api-server/src/routes/tasks.test.ts:143:    expect(missingEvidence.body.error).toBe("verification_evidence_required");
+artifacts/api-server/src/routes/tasks.test.ts:145:    const first = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+artifacts/api-server/src/routes/tasks.test.ts:146:      checkId: "rule-verification-1",
+artifacts/api-server/src/routes/tasks.test.ts:152:    expect(first.body.verificationResult.passed).toBe(false);
+artifacts/api-server/src/routes/tasks.test.ts:154:    const failed = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+artifacts/api-server/src/routes/tasks.test.ts:155:      checkId: "rule-verification-2",
+artifacts/api-server/src/routes/tasks.test.ts:161:    expect(failed.body.verificationResult.passed).toBe(false);
+artifacts/api-server/src/routes/tasks.test.ts:163:    const second = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+artifacts/api-server/src/routes/tasks.test.ts:164:      checkId: "rule-verification-2",
+artifacts/api-server/src/routes/tasks.test.ts:170:    expect(second.body.verificationResult).toMatchObject({
+artifacts/api-server/src/routes/tasks.test.ts:174:    expect(second.body.verificationResult.steps).toEqual(
+artifacts/api-server/src/routes/tasks.test.ts:177:          id: "rule-verification-2",
+artifacts/api-server/src/routes/tasks.test.ts:183:    expect(second.body.verificationResult.history).toHaveLength(3);
+artifacts/api-server/src/routes/tasks.test.ts:184:    expect(second.body.verificationResult.history).toEqual([
+artifacts/api-server/src/routes/tasks.test.ts:186:        checkId: "rule-verification-1",
+artifacts/api-server/src/routes/tasks.test.ts:193:        checkId: "rule-verification-2",
+artifacts/api-server/src/routes/tasks.test.ts:200:        checkId: "rule-verification-2",
+artifacts/api-server/src/routes/tasks.test.ts:211:      .from(auditLogsTable)
+artifacts/api-server/src/routes/tasks.test.ts:212:      .where(eq(auditLogsTable.entityId, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:213:    expect(audits.some((audit) => audit.reason === "operator_verification_recorded")).toBe(true);
+artifacts/api-server/src/routes/tasks.test.ts:221:  it("does not record verification after cancellation or for an unknown check", async () => {
+artifacts/api-server/src/routes/tasks.test.ts:234:        verificationSteps: ["Confirm the result."],
+artifacts/api-server/src/routes/tasks.test.ts:242:    const cancelled = await request(app).post(`/api/tasks/${taskId}/verification`).send({
+artifacts/api-server/src/routes/tasks.test.ts:243:      checkId: "rule-verification-1",
+artifacts/api-server/src/routes/tasks.test.ts:308:      .from(auditLogsTable)
+artifacts/api-server/src/routes/tasks.test.ts:309:      .where(eq(auditLogsTable.projectId, projectId)))
+artifacts/api-server/src/routes/tasks.test.ts:324:      .from(auditLogsTable)
+artifacts/api-server/src/routes/tasks.test.ts:325:      .where(eq(auditLogsTable.projectId, projectId)))
+artifacts/api-server/src/routes/tasks.test.ts:339:      .from(auditLogsTable)
+artifacts/api-server/src/routes/tasks.test.ts:340:      .where(eq(auditLogsTable.projectId, projectId)))
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:130:    command: "pnpm run validate:dashboard-journey",
+scripts/check-codegen-drift.ts:187:  console.error("❌  Mutator import verification failed:");
+artifacts/api-server/src/lib/task-state.ts:13:  | "verification"
+artifacts/api-server/src/lib/task-state.ts:21:  verification: new Set(["running->completed", "running->failed", "running->verifying", "verifying->completed"]),
+artifacts/api-server/src/routes/tasks.ts:6:  taskLogsTable,
+artifacts/api-server/src/routes/tasks.ts:18:  GetTaskLogsParams,
+artifacts/api-server/src/routes/tasks.ts:50:  if (Array.isArray(plan.verificationChecks)) {
+artifacts/api-server/src/routes/tasks.ts:51:    return plan.verificationChecks.filter(
+artifacts/api-server/src/routes/tasks.ts:63:    (plan.verificationSteps ?? []).filter(
+artifacts/api-server/src/routes/tasks.ts:286: * Execute task — real verification state machine.
+artifacts/api-server/src/routes/tasks.ts:313:  // 409 instead of both requests running verification concurrently.
+artifacts/api-server/src/routes/tasks.ts:326:  // "started" log line, the verification log/event, and the audit entry so
+artifacts/api-server/src/routes/tasks.ts:330:  await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/tasks.ts:334:    message: "Task execution started — running verification against project root",
+artifacts/api-server/src/routes/tasks.ts:354:  let verification;
+artifacts/api-server/src/routes/tasks.ts:356:    verification = await runTaskVerification(task[0], project.rootPath);
+artifacts/api-server/src/routes/tasks.ts:365:    await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/tasks.ts:404:  const { finalStatus, steps: verificationSteps } = verification;
+artifacts/api-server/src/routes/tasks.ts:406:  const verificationResult = {
+artifacts/api-server/src/routes/tasks.ts:414:    steps: verificationSteps.map((step) => ({
+artifacts/api-server/src/routes/tasks.ts:421:  // The verification outcome, its log line, and its event are one logical
+artifacts/api-server/src/routes/tasks.ts:432:        verificationResult,
+artifacts/api-server/src/routes/tasks.ts:443:      throw new TaskStateConflictError("Task state changed before verification could be finalized");
+artifacts/api-server/src/routes/tasks.ts:446:    await tx.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/tasks.ts:450:      message: `Verification ${finalStatus}: ${verificationSteps[0]?.output ?? "no details"}`,
+artifacts/api-server/src/routes/tasks.ts:451:      metadata: { verificationResult },
+artifacts/api-server/src/routes/tasks.ts:479:        changedFields: { verificationResult }, correlationId,
+artifacts/api-server/src/routes/tasks.ts:503:// Record one operator result for a server-owned rule verification check.
+artifacts/api-server/src/routes/tasks.ts:506:router.post("/tasks/:taskId/verification", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:528:      reason: "The active task worker must terminate before verification can be recorded.",
+artifacts/api-server/src/routes/tasks.ts:533:      error: "verification_evidence_required",
+artifacts/api-server/src/routes/tasks.ts:534:      reason: "A passed verification check must include explicit operator evidence.",
+artifacts/api-server/src/routes/tasks.ts:554:          "Task state changed before verification could be recorded",
+artifacts/api-server/src/routes/tasks.ts:561:        throw new Error("verification_check_not_found");
+artifacts/api-server/src/routes/tasks.ts:569:        throw new Error("verification_plan_requires_review");
+artifacts/api-server/src/routes/tasks.ts:592:      const existingSteps = (lockedTask.verificationResult?.steps ?? []) as RecordedStep[];
+artifacts/api-server/src/routes/tasks.ts:593:      const existingHistory = (lockedTask.verificationResult?.history ?? []) as VerificationHistoryEntry[];
+artifacts/api-server/src/routes/tasks.ts:601:        name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+artifacts/api-server/src/routes/tasks.ts:627:            name: `Rule verification ${candidate.id.replace("rule-verification-", "#")}`,
+artifacts/api-server/src/routes/tasks.ts:637:          step.name !== "Manual verification required" &&
+artifacts/api-server/src/routes/tasks.ts:647:      const verificationResult = {
+artifacts/api-server/src/routes/tasks.ts:651:        history: [...existingHistory, recordedHistoryEntry],
+artifacts/api-server/src/routes/tasks.ts:658:          verificationResult,
+artifacts/api-server/src/routes/tasks.ts:674:          "Task state changed before verification could be finalized",
+artifacts/api-server/src/routes/tasks.ts:678:      await tx.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/tasks.ts:682:        message: `Operator verification ${passed ? "completed" : "recorded"}: ${recordedStep.name}`,
+artifacts/api-server/src/routes/tasks.ts:696:        message: `Task "${lockedTask.title}" verification ${passed ? "completed" : "updated"}`,
+artifacts/api-server/src/routes/tasks.ts:712:        reason: "operator_verification_recorded",
+artifacts/api-server/src/routes/tasks.ts:714:        stateBefore: { status: lockedTask.status, verificationResult: lockedTask.verificationResult },
+artifacts/api-server/src/routes/tasks.ts:715:        stateAfter: { status: nextStatus, verificationResult },
+artifacts/api-server/src/routes/tasks.ts:723:    if (error instanceof Error && error.message === "verification_check_not_found") {
+artifacts/api-server/src/routes/tasks.ts:725:        error: "verification_check_not_found",
+artifacts/api-server/src/routes/tasks.ts:726:        reason: "The submitted check is not part of this task's server-owned verification plan.",
+artifacts/api-server/src/routes/tasks.ts:729:    if (error instanceof Error && error.message === "verification_plan_requires_review") {
+artifacts/api-server/src/routes/tasks.ts:731:        error: "verification_plan_requires_review",
+artifacts/api-server/src/routes/tasks.ts:790:      await tx.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/tasks.ts:890:      await tx.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/tasks.ts:930:  const { taskId } = GetTaskLogsParams.parse(req.params);
+artifacts/api-server/src/routes/tasks.ts:942:    .from(taskLogsTable)
+artifacts/api-server/src/routes/tasks.ts:943:    .where(eq(taskLogsTable.taskId, taskId))
+artifacts/api-server/src/routes/tasks.ts:944:    .orderBy(desc(taskLogsTable.timestamp));
+artifacts/api-server/src/routes/tasks.ts:951:  const { taskId } = GetTaskLogsParams.parse(req.params);
+artifacts/api-server/src/routes/tasks.ts:977:    .from(taskLogsTable)
+artifacts/api-server/src/routes/tasks.ts:978:    .where(eq(taskLogsTable.taskId, taskId))
+artifacts/api-server/src/routes/tasks.ts:979:    .orderBy(asc(taskLogsTable.timestamp));
+artifacts/api-server/src/routes/tasks.ts:999:      const newLogs = await db
+artifacts/api-server/src/routes/tasks.ts:1001:        .from(taskLogsTable)
+artifacts/api-server/src/routes/tasks.ts:1003:          eq(taskLogsTable.taskId, taskId),
+artifacts/api-server/src/routes/tasks.ts:1005:            gt(taskLogsTable.timestamp, cursor.timestamp),
+artifacts/api-server/src/routes/tasks.ts:1006:            and(eq(taskLogsTable.timestamp, cursor.timestamp), gt(taskLogsTable.id, cursor.id)),
+artifacts/api-server/src/routes/tasks.ts:1009:        .orderBy(asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
+artifacts/api-server/src/routes/tasks.ts:1011:      for (const log of newLogs) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:364:    history: {
+artifacts/api-server/src/lib/task-execution-service.ts:7:  taskLogsTable,
+artifacts/api-server/src/lib/task-execution-service.ts:40:  const checks = plan.verificationChecks?.length
+artifacts/api-server/src/lib/task-execution-service.ts:41:    ? plan.verificationChecks
+artifacts/api-server/src/lib/task-execution-service.ts:42:    : buildRuleVerificationChecks(plan.verificationSteps ?? []);
+artifacts/api-server/src/lib/task-execution-service.ts:45:    name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+artifacts/api-server/src/lib/task-execution-service.ts:255:    await db.insert(taskLogsTable).values({
+artifacts/api-server/src/lib/task-execution-service.ts:372:    // tasks remain in verification until the explicit verification path passes.
+artifacts/api-server/src/lib/task-execution-service.ts:406:        verificationResult: {
+artifacts/api-server/src/lib/task-execution-service.ts:430:      await tx.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/discovery.ts:533:          verificationSteps:
+artifacts/api-server/src/routes/discovery.ts:536:            sourcePlan?.verificationSteps ??
+artifacts/api-server/src/lib/ai-repair-validation.ts:18:} from "./browser-preview-verification.js";
+artifacts/api-server/src/lib/ai-repair-validation.ts:295:  if (relativePaths.length === 0) return "No changed files were provided for behavioral verification.";
+artifacts/api-server/src/lib/remediation-plan.ts:17:  verificationSteps: string[],
+artifacts/api-server/src/lib/remediation-plan.ts:19:  return verificationSteps.map((guidance, index) => ({
+artifacts/api-server/src/lib/remediation-plan.ts:20:    id: `rule-verification-${index + 1}`,
+artifacts/api-server/src/lib/remediation-plan.ts:43:  verificationSteps: string[],
+artifacts/api-server/src/lib/remediation-plan.ts:46:  return fixDescription && verificationSteps.length > 0 && evidence.length > 0
+artifacts/api-server/src/lib/remediation-plan.ts:59:  verificationSteps?: string[];
+artifacts/api-server/src/lib/remediation-plan.ts:69:  const verificationSteps = (input.verificationSteps ?? [])
+artifacts/api-server/src/lib/remediation-plan.ts:73:  const verificationChecks = buildRuleVerificationChecks(verificationSteps);
+artifacts/api-server/src/lib/remediation-plan.ts:89:    verificationSteps,
+artifacts/api-server/src/lib/remediation-plan.ts:90:    verificationChecks,
+artifacts/api-server/src/lib/remediation-plan.ts:97:    status: planStatus(fixDescription, verificationSteps, evidence),
+artifacts/api-server/src/lib/remediation-plan.ts:111:  const verification = plan.verificationSteps.length
+artifacts/api-server/src/lib/remediation-plan.ts:112:    ? plan.verificationSteps.map((step, index) => `${index + 1}. ${step}`).join("\n")
+artifacts/api-server/src/lib/remediation-plan.ts:113:    : "No verification steps were supplied; request human review before claiming completion.";
+artifacts/api-server/src/lib/remediation-plan.ts:124:    "Required verification:",
+artifacts/api-server/src/lib/remediation-plan.ts:125:    verification,
+artifacts/api-server/src/lib/remediation-plan.ts:127:    "Do not report success unless the required verification passes explicitly. If evidence or fix guidance is missing, stop and request human review.",
+artifacts/api-server/src/lib/scan-runner.ts:353:        verificationSteps: rule.verifySteps ?? [],
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:11:} from "./browser-preview-verification.js";
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:45:describe("browser preview verification", () => {
+artifacts/api-server/src/lib/remediation-plan.test.ts:23:      verificationSteps: ["Run the security test suite."],
+artifacts/api-server/src/lib/remediation-plan.test.ts:40:  it("requires review when evidence or verification guidance is missing", () => {
+artifacts/api-server/src/lib/discovery-runner.ts:502:          verificationSteps: rule?.verifySteps ?? [],
+artifacts/api-server/src/lib/discovery-runner.ts:518:          verifySteps: remediationPlan.verificationSteps,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:41:  historyForCase?: (testCase: CodeAgentBenchmarkCase) => ChatMessage[];
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:121:    historyForCase: opts.historyForCase,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:171:  historyForCase?: (testCase: CodeAgentBenchmarkCase) => ChatMessage[];
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:254:      historyForCase: opts.historyForCase,
+artifacts/api-server/src/routes/ai.test.ts:26:  taskLogsTable,
+artifacts/api-server/src/routes/ai.test.ts:27:  auditLogsTable,
+artifacts/api-server/src/routes/ai.test.ts:386:  classifyRequest: vi.fn(() => ({ category: "code", contextDepth: "full", historyDepth: 4, maxTokens: 4096, temperature: 0.2, qualityProfile: "code_review" })),
+artifacts/api-server/src/routes/ai.test.ts:618:    await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/ai.test.ts:619:    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, pid)).catch(() => undefined); // may not match, that's fine
+artifacts/api-server/src/routes/ai.test.ts:857:  it("does not consume a proposal when behavioral verification blocks the write", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1001:    const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:1002:    expect(history.status).toBe(200);
+artifacts/api-server/src/routes/ai.test.ts:1003:    const assistant = history.body.find((m: { role: string }) => m.role === "assistant");
+artifacts/api-server/src/routes/ai.test.ts:1140:      historyDepth: 0,
+artifacts/api-server/src/routes/ai.test.ts:1257:      historyDepth: 0,
+artifacts/api-server/src/routes/ai.test.ts:1422:describe("GET /api/ai/executions/history", () => {
+artifacts/api-server/src/routes/ai.test.ts:1455:      .get("/api/ai/executions/history")
+artifacts/api-server/src/routes/ai.test.ts:1641:  it("returns stable derived forensic statuses after history reload", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1880:    // object so a reloaded/history session renders the same per-kind panel the
+artifacts/api-server/src/routes/ai.test.ts:1927:  it("preserves a WORKSPACE_REVIEW_RESULT through persisted history reload", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2021:  it("keeps ordinary history when a stored mission correlation report is invalid", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2929:  it("does not promote a candidate when behavioral verification is unavailable", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2993:  it("fails closed before promotion when behavioral verification is unavailable", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3436:    // Stub behavioral verification so the /tmp project root (no package.json)
+artifacts/api-server/src/routes/ai.test.ts:3944:      .from(taskLogsTable)
+artifacts/api-server/src/routes/ai.test.ts:3945:      .where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/routes/ai.test.ts:3966:      .from(auditLogsTable)
+artifacts/api-server/src/routes/ai.test.ts:3967:      .where(eq(auditLogsTable.entityId, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4014:    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4043:    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4102:    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4142:    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/lib/audit.integration.test.ts:78:  auditLogsTable: tables.audit,
+artifacts/api-server/src/lib/audit.integration.test.ts:79:  pendingAuditLogsTable: tables.pending,
+artifacts/api-server/src/lib/audit.ts:1:import { db, auditLogsTable, pendingAuditLogsTable, auditEntityTypeEnum, auditActionEnum } from "@workspace/db";
+artifacts/api-server/src/lib/audit.ts:38:  row: typeof auditLogsTable.$inferInsert;
+artifacts/api-server/src/lib/audit.ts:50:async function insertAudit(row: typeof auditLogsTable.$inferInsert): Promise<void> {
+artifacts/api-server/src/lib/audit.ts:51:  await db.insert(auditLogsTable).values(row).onConflictDoNothing();
+artifacts/api-server/src/lib/audit.ts:54:function buildAuditRow(params: RecordAuditParams): typeof auditLogsTable.$inferInsert {
+artifacts/api-server/src/lib/audit.ts:82:    .insert(pendingAuditLogsTable)
+artifacts/api-server/src/lib/audit.ts:90:      target: pendingAuditLogsTable.id,
+artifacts/api-server/src/lib/audit.ts:100:  await db.delete(pendingAuditLogsTable).where(eq(pendingAuditLogsTable.id, id));
+artifacts/api-server/src/lib/audit.ts:110:    const rows = await db.select().from(pendingAuditLogsTable);
+artifacts/api-server/src/lib/audit.ts:114:        row: persisted.row as typeof auditLogsTable.$inferInsert,
+artifacts/api-server/src/lib/audit.ts:205:  await tx.insert(auditLogsTable).values(buildAuditRow(params)).onConflictDoNothing();
+artifacts/api-server/src/lib/audit.test.ts:17:  auditLogsTable: auditTable,
+artifacts/api-server/src/lib/audit.test.ts:18:  pendingAuditLogsTable: pendingTable,
+artifacts/api-server/src/routes/workflows.test.ts:11:  auditLogsTable,
+artifacts/api-server/src/routes/workflows.test.ts:33:  await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, id));
+artifacts/api-server/src/routes/workflows.test.ts:226:      .from(auditLogsTable)
+artifacts/api-server/src/routes/workflows.test.ts:227:      .where(eq(auditLogsTable.projectId, projectId));
+artifacts/api-server/src/routes/workflows.test.ts:401:    const audits = await db.select().from(auditLogsTable).where(eq(auditLogsTable.projectId, projectId));
+artifacts/api-server/src/lib/task-execution-retention.ts:5: * Operational history policy:
+artifacts/api-server/src/lib/task-execution-retention.ts:149:      }, "Task execution history retention sweep removed old terminal rows");
+artifacts/api-server/src/lib/task-execution-retention.ts:157:      "Task execution history retention sweep failed — will retry on the next startup");
+artifacts/api-server/src/lib/task-execution-retention.test.ts:8:  taskLogsTable,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:20:describe("task execution history retention", () => {
+artifacts/api-server/src/lib/task-execution-retention.test.ts:123:    await db.insert(taskLogsTable).values([
+artifacts/api-server/src/lib/task-execution-retention.test.ts:135:        message: "eligible old history",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:160:      const remainingLogs = await db
+artifacts/api-server/src/lib/task-execution-retention.test.ts:161:        .select({ id: taskLogsTable.id })
+artifacts/api-server/src/lib/task-execution-retention.test.ts:162:        .from(taskLogsTable)
+artifacts/api-server/src/lib/task-execution-retention.test.ts:163:        .where(eq(taskLogsTable.taskId, racingTaskId));
+artifacts/api-server/src/lib/task-execution-retention.test.ts:164:      const eligibleLogs = await db
+artifacts/api-server/src/lib/task-execution-retention.test.ts:165:        .select({ id: taskLogsTable.id })
+artifacts/api-server/src/lib/task-execution-retention.test.ts:166:        .from(taskLogsTable)
+artifacts/api-server/src/lib/task-execution-retention.test.ts:167:        .where(eq(taskLogsTable.taskId, eligibleTaskId));
+artifacts/api-server/src/lib/task-execution-retention.test.ts:174:      expect(remainingLogs).toEqual([{ id: racingLogId }]);
+artifacts/api-server/src/lib/task-execution-retention.test.ts:175:      expect(eligibleLogs).toEqual([]);
+artifacts/api-server/src/lib/operation-evidence.ts:6:  auditLogsTable,
+artifacts/api-server/src/lib/operation-evidence.ts:8:  taskLogsTable,
+artifacts/api-server/src/lib/operation-evidence.ts:17:  taskLogs: 80,
+artifacts/api-server/src/lib/operation-evidence.ts:65:    taskLogs: number;
+artifacts/api-server/src/lib/operation-evidence.ts:80:  taskLogs?: Array<{ id: string; level: string; message: string; timestamp: Date; metadata: Record<string, unknown> | null }>;
+artifacts/api-server/src/lib/operation-evidence.ts:133:  const taskLogs = uniqueById(input.taskLogs ?? [], OPERATION_EVIDENCE_LIMITS.taskLogs);
+artifacts/api-server/src/lib/operation-evidence.ts:210:      taskLogs: taskLogs.length,
+artifacts/api-server/src/lib/operation-evidence.ts:246:  const [events, audits, taskLogs, journal, proposals] = await Promise.all([
+artifacts/api-server/src/lib/operation-evidence.ts:252:      id: auditLogsTable.id, action: auditLogsTable.action, entityType: auditLogsTable.entityType,
+artifacts/api-server/src/lib/operation-evidence.ts:253:      timestamp: auditLogsTable.timestamp, reason: auditLogsTable.reason,
+artifacts/api-server/src/lib/operation-evidence.ts:254:    }).from(auditLogsTable).where(and(eq(auditLogsTable.projectId, execution.projectId), eq(auditLogsTable.correlationId, operationId))),
+artifacts/api-server/src/lib/operation-evidence.ts:257:          id: taskLogsTable.id, level: taskLogsTable.level, message: taskLogsTable.message,
+artifacts/api-server/src/lib/operation-evidence.ts:258:          timestamp: taskLogsTable.timestamp, metadata: taskLogsTable.metadata,
+artifacts/api-server/src/lib/operation-evidence.ts:259:        }).from(taskLogsTable).where(and(eq(taskLogsTable.taskId, execution.linkedTaskId), eq(taskLogsTable.correlationId, operationId)))
+artifacts/api-server/src/lib/operation-evidence.ts:276:    taskLogs,
+artifacts/api-server/src/lib/startup-migrations.ts:144: * status and exit-code metadata remain available in history while operational
+artifacts/api-server/src/lib/startup-migrations.ts:296: * validation output was excluded from durable chat history. It is intentionally
+artifacts/api-server/src/lib/operation-evidence.test.ts:35:    taskLogs: [],
+artifacts/api-server/src/lib/operation-evidence.test.ts:43:  it("correlates bounded receipts and reports a complete history", () => {
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:50:  recentTasks: "No benchmark task history is injected.",
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:425:    historyForCase: defaultApiBenchmarkHistory,
+artifacts/api-server/src/routes/rules.test.ts:9:import { db, rulesTable, projectsTable, eventsTable, auditLogsTable } from "@workspace/db";
+artifacts/api-server/src/routes/rules.test.ts:59:    await db.delete(auditLogsTable).where(eq(auditLogsTable.entityId, id)).catch(() => undefined);
+artifacts/api-server/src/routes/rules.test.ts:64:    await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, id)).catch(() => undefined);
+artifacts/api-server/src/routes/rules.test.ts:160:      .from(auditLogsTable)
+artifacts/api-server/src/routes/rules.test.ts:161:      .where(eq(auditLogsTable.entityId, res.body.id));
+artifacts/api-server/src/routes/rules.test.ts:224:      .from(auditLogsTable)
+artifacts/api-server/src/routes/rules.test.ts:225:      .where(eq(auditLogsTable.entityId, id));
+artifacts/api-server/src/routes/rules.test.ts:355:      .from(auditLogsTable)
+artifacts/api-server/src/routes/rules.test.ts:356:      .where(eq(auditLogsTable.entityId, id));
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:460:      recentTasks: "No benchmark task history is injected.",
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:483:    historyForCase: defaultApiBenchmarkHistory,
+artifacts/api-server/src/lib/job-reconciliation.ts:55:  taskLogsTable,
+artifacts/api-server/src/lib/job-reconciliation.ts:630:      await db.insert(taskLogsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.ts:971:        await db.insert(taskLogsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.ts:1010:        await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/projects.ts:45:} from "../lib/browser-preview-verification.js";
+artifacts/api-server/src/lib/job-reconciliation.test.ts:4:import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-reconciliation.test.ts:455:      .from(taskLogsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:456:      .where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:461:    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:503:      .from(taskLogsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:504:      .where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:509:    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+artifacts/api-server/src/routes/projects.test.ts:11:  auditLogsTable,
+artifacts/api-server/src/routes/projects.test.ts:79:  await db.delete(auditLogsTable).where(
+artifacts/api-server/src/routes/projects.test.ts:80:    or(eq(auditLogsTable.projectId, id), eq(auditLogsTable.entityId, id)),
+artifacts/api-server/src/routes/projects.test.ts:265:      .from(auditLogsTable)
+artifacts/api-server/src/routes/projects.test.ts:266:      .where(eq(auditLogsTable.entityId, projectId));
+artifacts/api-server/src/routes/projects.test.ts:388:      .from(auditLogsTable)
+artifacts/api-server/src/routes/projects.test.ts:389:      .where(eq(auditLogsTable.entityId, res.body.id));
+artifacts/api-server/src/routes/projects.test.ts:412:      .from(auditLogsTable)
+artifacts/api-server/src/routes/projects.test.ts:413:      .where(eq(auditLogsTable.entityId, projectId));
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:77:        history: [],
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:659:        reason: "Prepare the bounded repair candidate before verification.",
+artifacts/api-server/src/routes/ai/analysis.ts:14:  auditLogsTable,
+artifacts/api-server/src/routes/ai/analysis.ts:384:    await tx.insert(auditLogsTable).values({
+artifacts/api-server/src/routes/ai/analysis.ts:494:    await tx.insert(auditLogsTable).values({
+artifacts/api-server/src/routes/ai/analysis.ts:617:      await tx.insert(auditLogsTable).values({
+artifacts/api-server/src/routes/ai/analysis.ts:782:      await tx.insert(auditLogsTable).values({
+artifacts/api-server/src/routes/git.ts:286:    return res.status(502).json({ error: "git_operation_failed", code: "GIT_LOG_FAILED", hint: "Git history could not be read. Check the project repository and try again." });
+artifacts/api-server/src/routes/git.ts:330:          error: "AI changes must pass Apply and behavioral verification before commit",
+artifacts/api-server/src/routes/git.ts:421:            error: "An applied AI file changed after verification; commit requires a fresh Apply",
+artifacts/api-server/src/routes/ai/tasks.ts:12:  taskLogsTable,
+artifacts/api-server/src/routes/ai/tasks.ts:43:  const checks = plan.verificationChecks?.length
+artifacts/api-server/src/routes/ai/tasks.ts:44:    ? plan.verificationChecks
+artifacts/api-server/src/routes/ai/tasks.ts:45:    : buildRuleVerificationChecks(plan.verificationSteps ?? []);

@@ -1,0 +1,296 @@
+artifacts/dashboard/e2e/dashboard.journey.ts-926-    sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts-927-    streamBody,
+artifacts/dashboard/e2e/dashboard.journey.ts-928-    message,
+artifacts/dashboard/e2e/dashboard.journey.ts-929-  };
+artifacts/dashboard/e2e/dashboard.journey.ts-930-}
+artifacts/dashboard/e2e/dashboard.journey.ts-931-
+artifacts/dashboard/e2e/dashboard.journey.ts-932-function installDisconnectedAiFixture(): ArabicAiFixture {
+artifacts/dashboard/e2e/dashboard.journey.ts-933-  const sessionId = "e2e-disconnected-ai-session";
+artifacts/dashboard/e2e/dashboard.journey.ts-934-  const executionId = "e2e-disconnected-ai-execution";
+artifacts/dashboard/e2e/dashboard.journey.ts-935-  const question =
+artifacts/dashboard/e2e/dashboard.journey.ts-936-    "What happens when the model disconnects after starting an answer?";
+artifacts/dashboard/e2e/dashboard.journey.ts-937-  const answer =
+artifacts/dashboard/e2e/dashboard.journey.ts:938:    "The model started an answer, but the provider disconnected before completion.";
+artifacts/dashboard/e2e/dashboard.journey.ts-939-  const diagnosticCode = "EXECUTION_PROVIDER_FAILURE";
+artifacts/dashboard/e2e/dashboard.journey.ts-940-  const toolTrace = [
+artifacts/dashboard/e2e/dashboard.journey.ts-941-    {
+artifacts/dashboard/e2e/dashboard.journey.ts-942-      kind: "done",
+artifacts/dashboard/e2e/dashboard.journey.ts-943-      stopReason: "provider_timeout",
+artifacts/dashboard/e2e/dashboard.journey.ts-944-      iterations: 1,
+artifacts/dashboard/e2e/dashboard.journey.ts-945-      maxIterations: 8,
+artifacts/dashboard/e2e/dashboard.journey.ts-946-      toolCalls: 0,
+artifacts/dashboard/e2e/dashboard.journey.ts-947-      prefetchToolCalls: 0,
+artifacts/dashboard/e2e/dashboard.journey.ts-948-      loopToolCalls: 0,
+artifacts/dashboard/e2e/dashboard.journey.ts-949-      synthesisStarted: false,
+artifacts/dashboard/e2e/dashboard.journey.ts-950-      diagnosticCodes: [diagnosticCode],
+artifacts/dashboard/e2e/dashboard.journey.ts-951-      diagnosticDetails: [
+artifacts/dashboard/e2e/dashboard.journey.ts:952:        "The provider disconnected after visible response text.",
+artifacts/dashboard/e2e/dashboard.journey.ts-953-      ],
+artifacts/dashboard/e2e/dashboard.journey.ts-954-    },
+artifacts/dashboard/e2e/dashboard.journey.ts-955-  ];
+artifacts/dashboard/e2e/dashboard.journey.ts-956-  const message = {
+artifacts/dashboard/e2e/dashboard.journey.ts-957-    id: "e2e-disconnected-ai-message",
+artifacts/dashboard/e2e/dashboard.journey.ts-958-    sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts-959-    role: "assistant",
+artifacts/dashboard/e2e/dashboard.journey.ts-960-    content: answer,
+artifacts/dashboard/e2e/dashboard.journey.ts-961-    toolTrace: JSON.stringify(toolTrace),
+artifacts/dashboard/e2e/dashboard.journey.ts-962-    outcome: "FAILED",
+artifacts/dashboard/e2e/dashboard.journey.ts-963-    errorCode: diagnosticCode,
+artifacts/dashboard/e2e/dashboard.journey.ts:964:    errorMessage: "The provider disconnected before completion.",
+artifacts/dashboard/e2e/dashboard.journey.ts-965-    executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts-966-    createdAt: "2026-01-01T00:02:00.000Z",
+artifacts/dashboard/e2e/dashboard.journey.ts-967-  };
+artifacts/dashboard/e2e/dashboard.journey.ts-968-  const sse = (event: Record<string, unknown>) =>
+artifacts/dashboard/e2e/dashboard.journey.ts-969-    `data: ${JSON.stringify(event)}\n\n`;
+artifacts/dashboard/e2e/dashboard.journey.ts-970-  const streamBody = [
+artifacts/dashboard/e2e/dashboard.journey.ts-971-    sse({ type: "session_started", sessionId }),
+artifacts/dashboard/e2e/dashboard.journey.ts-972-    sse({
+artifacts/dashboard/e2e/dashboard.journey.ts-973-      type: "execution_started",
+artifacts/dashboard/e2e/dashboard.journey.ts-974-      executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts-975-      status: "running",
+artifacts/dashboard/e2e/dashboard.journey.ts-976-      resumable: true,
+artifacts/dashboard/e2e/dashboard.journey.ts-977-    }),
+artifacts/dashboard/e2e/dashboard.journey.ts-978-    sse({ type: "stage", stage: "calling-model" }),
+artifacts/dashboard/e2e/dashboard.journey.ts-979-    sse({ type: "delta", delta: answer }),
+artifacts/dashboard/e2e/dashboard.journey.ts:980:    // The real route emits this after a provider disconnect so the client
+artifacts/dashboard/e2e/dashboard.journey.ts-981-    // drops the transient bubble before rendering the persisted result.
+artifacts/dashboard/e2e/dashboard.journey.ts-982-    sse({ type: "stream_reset" }),
+artifacts/dashboard/e2e/dashboard.journey.ts-983-    sse({
+artifacts/dashboard/e2e/dashboard.journey.ts-984-      type: "done",
+artifacts/dashboard/e2e/dashboard.journey.ts-985-      sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts-986-      executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts-987-      message,
+artifacts/dashboard/e2e/dashboard.journey.ts-988-      pendingChanges: [],
+artifacts/dashboard/e2e/dashboard.journey.ts-989-    }),
+artifacts/dashboard/e2e/dashboard.journey.ts-990-  ].join("");
+artifacts/dashboard/e2e/dashboard.journey.ts-991-
+artifacts/dashboard/e2e/dashboard.journey.ts-992-  return {
+--
+artifacts/dashboard/e2e/dashboard.journey.ts-3277-      "src/missing-release-fixture.ts",
+artifacts/dashboard/e2e/dashboard.journey.ts-3278-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-3279-    await expect(page.locator("body")).toContainText("Tool failed");
+artifacts/dashboard/e2e/dashboard.journey.ts-3280-    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+artifacts/dashboard/e2e/dashboard.journey.ts-3281-    const visibleText = await page.locator("body").innerText();
+artifacts/dashboard/e2e/dashboard.journey.ts-3282-    expect(visibleText).not.toMatch(
+artifacts/dashboard/e2e/dashboard.journey.ts-3283-      /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+artifacts/dashboard/e2e/dashboard.journey.ts-3284-    );
+artifacts/dashboard/e2e/dashboard.journey.ts-3285-
+artifacts/dashboard/e2e/dashboard.journey.ts-3286-    await expectNoHorizontalOverflow(page);
+artifacts/dashboard/e2e/dashboard.journey.ts-3287-  });
+artifacts/dashboard/e2e/dashboard.journey.ts-3288-
+artifacts/dashboard/e2e/dashboard.journey.ts:3289:  test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts-3290-    page,
+artifacts/dashboard/e2e/dashboard.journey.ts-3291-  }) => {
+artifacts/dashboard/e2e/dashboard.journey.ts-3292-    const fixture = installDisconnectedAiFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts-3293-    await installApiFixtures(page, { disconnectAi: fixture });
+artifacts/dashboard/e2e/dashboard.journey.ts-3294-    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts-3295-    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts-3296-
+artifacts/dashboard/e2e/dashboard.journey.ts-3297-    const composer = page.locator("textarea").first();
+artifacts/dashboard/e2e/dashboard.journey.ts-3298-    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts-3299-    await composer.locator("xpath=..").getByRole("button").click();
+artifacts/dashboard/e2e/dashboard.journey.ts-3300-
+artifacts/dashboard/e2e/dashboard.journey.ts-3301-    const answer = page.getByText(fixture.answer, { exact: true });
+artifacts/dashboard/e2e/dashboard.journey.ts-3302-    await expect(answer.last()).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3303-    await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3304-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts:3305:      page.getByText("provider failure", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts-3306-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3307-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-3308-      page.getByText("stopped: provider timeout", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts-3309-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3310-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts:3311:      page.getByText("The provider disconnected after visible response text.", {
+artifacts/dashboard/e2e/dashboard.journey.ts-3312-        exact: true,
+artifacts/dashboard/e2e/dashboard.journey.ts-3313-      }),
+artifacts/dashboard/e2e/dashboard.journey.ts-3314-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3315-
+artifacts/dashboard/e2e/dashboard.journey.ts-3316-    await page.reload();
+artifacts/dashboard/e2e/dashboard.journey.ts-3317-    await page
+artifacts/dashboard/e2e/dashboard.journey.ts-3318-      .getByRole("button", { name: fixture.question, exact: true })
+artifacts/dashboard/e2e/dashboard.journey.ts-3319-      .click();
+artifacts/dashboard/e2e/dashboard.journey.ts-3320-
+artifacts/dashboard/e2e/dashboard.journey.ts-3321-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3322-    await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3323-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts:3324:      page.getByText("provider failure", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts-3325-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3326-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts-3327-      page.getByText("stopped: provider timeout", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts-3328-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3329-    await expect(
+artifacts/dashboard/e2e/dashboard.journey.ts:3330:      page.getByText("The provider disconnected after visible response text.", {
+artifacts/dashboard/e2e/dashboard.journey.ts-3331-        exact: true,
+artifacts/dashboard/e2e/dashboard.journey.ts-3332-      }),
+artifacts/dashboard/e2e/dashboard.journey.ts-3333-    ).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts-3334-  });
+artifacts/dashboard/e2e/dashboard.journey.ts-3335-
+artifacts/dashboard/e2e/dashboard.journey.ts-3336-  test("resumes a failed analysis and keeps the execution incomplete", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts-3337-    page,
+artifacts/dashboard/e2e/dashboard.journey.ts-3338-  }) => {
+artifacts/dashboard/e2e/dashboard.journey.ts-3339-    const { fixture, execution } = installResumedAnalysisFailureFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts-3340-    await installApiFixtures(page, {
+artifacts/dashboard/e2e/dashboard.journey.ts-3341-      arabicAi: fixture,
+artifacts/dashboard/e2e/dashboard.journey.ts-3342-      resumeFailure: { fixture, execution },
+--
+artifacts/dashboard/src/pages/AiChat.tsx-1646-}
+artifacts/dashboard/src/pages/AiChat.tsx-1647-
+artifacts/dashboard/src/pages/AiChat.tsx-1648-/**
+artifacts/dashboard/src/pages/AiChat.tsx-1649- * Returns the first diagnosticDetail string that is a concrete bounded
+artifacts/dashboard/src/pages/AiChat.tsx-1650- * contract or recovery violation rather than an internal operational note.
+artifacts/dashboard/src/pages/AiChat.tsx-1651- * Operational/meta strings are excluded so that only user-surfaceable
+artifacts/dashboard/src/pages/AiChat.tsx-1652- * violation messages reach the UI.
+artifacts/dashboard/src/pages/AiChat.tsx-1653- */
+artifacts/dashboard/src/pages/AiChat.tsx-1654-function firstConcreteViolationDetail(details: string[]): string | undefined {
+artifacts/dashboard/src/pages/AiChat.tsx-1655-  // Prefixes/substrings that identify internal operational notes rather
+artifacts/dashboard/src/pages/AiChat.tsx-1656-  // than bounded contract violations surfaceable to the user.
+artifacts/dashboard/src/pages/AiChat.tsx-1657-  const OPERATIONAL_PATTERNS = [
+artifacts/dashboard/src/pages/AiChat.tsx:1658:    'provider failure codes:',
+artifacts/dashboard/src/pages/AiChat.tsx-1659-    'completed source reads preserved',
+artifacts/dashboard/src/pages/AiChat.tsx-1660-    'completed source reads were preserved',
+artifacts/dashboard/src/pages/AiChat.tsx-1661-    'evidence map rebuilt deterministically',
+artifacts/dashboard/src/pages/AiChat.tsx-1662-    'bounded recovery candidates produced no directly proven finding',
+artifacts/dashboard/src/pages/AiChat.tsx-1663-    'provider recovery exhausted without an accepted six-section report',
+artifacts/dashboard/src/pages/AiChat.tsx-1664-    'a high-confidence executable pattern was verified',
+artifacts/dashboard/src/pages/AiChat.tsx-1665-    'the deterministic finding passed',
+artifacts/dashboard/src/pages/AiChat.tsx-1666-    'complete implementation reads were preserved',
+artifacts/dashboard/src/pages/AiChat.tsx-1667-    'no directly verifiable deterministic defect pattern was found',
+artifacts/dashboard/src/pages/AiChat.tsx-1668-    'a source-grounded no_finding basis was emitted',
+artifacts/dashboard/src/pages/AiChat.tsx-1669-    'primary-evidence-target=',
+artifacts/dashboard/src/pages/AiChat.tsx-1670-    'first_evidence recovery failed',
+--
+artifacts/dashboard/src/pages/AiChat.tsx-1700-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1701-  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_PARSE_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx-1702-    return 'Recovery returned a response that was not a valid structured Findings envelope. The next bounded candidate was tried without weakening the evidence gate.';
+artifacts/dashboard/src/pages/AiChat.tsx-1703-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1704-  if (summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx-1705-    code.includes('FORENSIC_NO_FINDING') ||
+artifacts/dashboard/src/pages/AiChat.tsx-1706-    code.includes('STRUCTURED_RECOVERY_NO_FINDING'),
+artifacts/dashboard/src/pages/AiChat.tsx-1707-  )) {
+artifacts/dashboard/src/pages/AiChat.tsx-1708-    return 'No defect was directly proven from the completed source reads. This is a valid forensic outcome, so no repair phase is executable.';
+artifacts/dashboard/src/pages/AiChat.tsx-1709-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1710-  if (summary.diagnosticCodes.some((code) => code.includes('EVIDENCE_ONLY_FALLBACK'))) {
+artifacts/dashboard/src/pages/AiChat.tsx-1711-    const providerFailure = summary.diagnosticDetails.find((detail) =>
+artifacts/dashboard/src/pages/AiChat.tsx:1712:      detail.toLowerCase().includes('provider failure codes:'),
+artifacts/dashboard/src/pages/AiChat.tsx-1713-    );
+artifacts/dashboard/src/pages/AiChat.tsx-1714-    return providerFailure
+artifacts/dashboard/src/pages/AiChat.tsx:1715:      ? `Recovery could not obtain a provider response (${providerFailure.replace(/^.*provider failure codes:\s*/i, '')}). The completed source reads were preserved safely, but Findings and repair phases remain blocked.`
+artifacts/dashboard/src/pages/AiChat.tsx-1716-      : 'All bounded recovery attempts failed after the completed source reads were preserved. The Evidence Map was rebuilt safely, but Findings and repair phases remain blocked.';
+artifacts/dashboard/src/pages/AiChat.tsx-1717-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1718-  if (summary.diagnosticCodes.some((code) => code.includes('PARSE_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx-1719-    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+artifacts/dashboard/src/pages/AiChat.tsx-1720-    return violation
+artifacts/dashboard/src/pages/AiChat.tsx-1721-      ? `The recovery response could not be parsed into the required six-section forensic report: ${violation}.`
+artifacts/dashboard/src/pages/AiChat.tsx-1722-      : 'The recovery response could not be parsed into the required six-section forensic report.';
+artifacts/dashboard/src/pages/AiChat.tsx-1723-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1724-  if (summary.diagnosticCodes.some((code) => code.includes('RECOVERY_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx-1725-    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+artifacts/dashboard/src/pages/AiChat.tsx-1726-    return violation
+artifacts/dashboard/src/pages/AiChat.tsx-1727-      ? `The bounded recovery attempt failed: ${violation}.`
+--
+artifacts/dashboard/src/pages/AiChat.tsx-2474-    (summary.stopReason === 'response' && summary.diagnosticCodes.length === 0 && !hasSynthesisTelemetry)
+artifacts/dashboard/src/pages/AiChat.tsx-2475-  ) {
+artifacts/dashboard/src/pages/AiChat.tsx-2476-    return null;
+artifacts/dashboard/src/pages/AiChat.tsx-2477-  }
+artifacts/dashboard/src/pages/AiChat.tsx-2478-
+artifacts/dashboard/src/pages/AiChat.tsx-2479-  return (
+artifacts/dashboard/src/pages/AiChat.tsx-2480-    <div className="mt-1 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-muted-foreground">
+artifacts/dashboard/src/pages/AiChat.tsx-2481-      {summary.stopReason !== 'response' && (
+artifacts/dashboard/src/pages/AiChat.tsx-2482-        <span className="mr-1 font-semibold text-amber-200">INCOMPLETE:</span>
+artifacts/dashboard/src/pages/AiChat.tsx-2483-      )}
+artifacts/dashboard/src/pages/AiChat.tsx-2484-      <span className="text-amber-300">Execution diagnostic:</span>{' '}
+artifacts/dashboard/src/pages/AiChat.tsx-2485-      {summary.diagnosticCodes.some((code) => code === 'EXECUTION_PROVIDER_FAILURE') ? (
+artifacts/dashboard/src/pages/AiChat.tsx:2486:        <span className="text-red-300">provider failure — </span>
+artifacts/dashboard/src/pages/AiChat.tsx-2487-      ) : null}
+artifacts/dashboard/src/pages/AiChat.tsx-2488-      {String(summary.stopReason) === 'tool_failure' || summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx-2489-        code === 'TOOL_EXECUTION_FAILED' || code === 'TOOL_UNAVAILABLE' || code === 'TOOL_CANCELLED',
+artifacts/dashboard/src/pages/AiChat.tsx-2490-      ) ? (
+artifacts/dashboard/src/pages/AiChat.tsx-2491-        <span className="font-semibold text-red-300">required tool did not complete — BLOCKED/INCOMPLETE; no completed operation may be claimed — </span>
+artifacts/dashboard/src/pages/AiChat.tsx-2492-      ) : null}
+artifacts/dashboard/src/pages/AiChat.tsx-2493-      {summary.diagnosticCodes.some((code) => code === 'EXECUTION_NO_EDIT_TOOL') ? (
+artifacts/dashboard/src/pages/AiChat.tsx-2494-        <span className="text-amber-200">stopped before an edit tool — </span>
+artifacts/dashboard/src/pages/AiChat.tsx-2495-      ) : null}
+artifacts/dashboard/src/pages/AiChat.tsx-2496-      {summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx-2497-        code === 'EXECUTION_RESPONSE_FORMAT_INVALID' ||
+artifacts/dashboard/src/pages/AiChat.tsx-2498-        code === 'EXECUTION_JSON_CORRECTION_FAILED' ||
+--
+artifacts/dashboard/src/pages/AiChat.tsx-1646-}
+artifacts/dashboard/src/pages/AiChat.tsx-1647-
+artifacts/dashboard/src/pages/AiChat.tsx-1648-/**
+artifacts/dashboard/src/pages/AiChat.tsx-1649- * Returns the first diagnosticDetail string that is a concrete bounded
+artifacts/dashboard/src/pages/AiChat.tsx-1650- * contract or recovery violation rather than an internal operational note.
+artifacts/dashboard/src/pages/AiChat.tsx-1651- * Operational/meta strings are excluded so that only user-surfaceable
+artifacts/dashboard/src/pages/AiChat.tsx-1652- * violation messages reach the UI.
+artifacts/dashboard/src/pages/AiChat.tsx-1653- */
+artifacts/dashboard/src/pages/AiChat.tsx-1654-function firstConcreteViolationDetail(details: string[]): string | undefined {
+artifacts/dashboard/src/pages/AiChat.tsx-1655-  // Prefixes/substrings that identify internal operational notes rather
+artifacts/dashboard/src/pages/AiChat.tsx-1656-  // than bounded contract violations surfaceable to the user.
+artifacts/dashboard/src/pages/AiChat.tsx-1657-  const OPERATIONAL_PATTERNS = [
+artifacts/dashboard/src/pages/AiChat.tsx:1658:    'provider failure codes:',
+artifacts/dashboard/src/pages/AiChat.tsx-1659-    'completed source reads preserved',
+artifacts/dashboard/src/pages/AiChat.tsx-1660-    'completed source reads were preserved',
+artifacts/dashboard/src/pages/AiChat.tsx-1661-    'evidence map rebuilt deterministically',
+artifacts/dashboard/src/pages/AiChat.tsx-1662-    'bounded recovery candidates produced no directly proven finding',
+artifacts/dashboard/src/pages/AiChat.tsx-1663-    'provider recovery exhausted without an accepted six-section report',
+artifacts/dashboard/src/pages/AiChat.tsx-1664-    'a high-confidence executable pattern was verified',
+artifacts/dashboard/src/pages/AiChat.tsx-1665-    'the deterministic finding passed',
+artifacts/dashboard/src/pages/AiChat.tsx-1666-    'complete implementation reads were preserved',
+artifacts/dashboard/src/pages/AiChat.tsx-1667-    'no directly verifiable deterministic defect pattern was found',
+artifacts/dashboard/src/pages/AiChat.tsx-1668-    'a source-grounded no_finding basis was emitted',
+artifacts/dashboard/src/pages/AiChat.tsx-1669-    'primary-evidence-target=',
+artifacts/dashboard/src/pages/AiChat.tsx-1670-    'first_evidence recovery failed',
+--
+artifacts/dashboard/src/pages/AiChat.tsx-1700-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1701-  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_PARSE_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx-1702-    return 'Recovery returned a response that was not a valid structured Findings envelope. The next bounded candidate was tried without weakening the evidence gate.';
+artifacts/dashboard/src/pages/AiChat.tsx-1703-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1704-  if (summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx-1705-    code.includes('FORENSIC_NO_FINDING') ||
+artifacts/dashboard/src/pages/AiChat.tsx-1706-    code.includes('STRUCTURED_RECOVERY_NO_FINDING'),
+artifacts/dashboard/src/pages/AiChat.tsx-1707-  )) {
+artifacts/dashboard/src/pages/AiChat.tsx-1708-    return 'No defect was directly proven from the completed source reads. This is a valid forensic outcome, so no repair phase is executable.';
+artifacts/dashboard/src/pages/AiChat.tsx-1709-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1710-  if (summary.diagnosticCodes.some((code) => code.includes('EVIDENCE_ONLY_FALLBACK'))) {
+artifacts/dashboard/src/pages/AiChat.tsx-1711-    const providerFailure = summary.diagnosticDetails.find((detail) =>
+artifacts/dashboard/src/pages/AiChat.tsx:1712:      detail.toLowerCase().includes('provider failure codes:'),
+artifacts/dashboard/src/pages/AiChat.tsx-1713-    );
+artifacts/dashboard/src/pages/AiChat.tsx-1714-    return providerFailure
+artifacts/dashboard/src/pages/AiChat.tsx:1715:      ? `Recovery could not obtain a provider response (${providerFailure.replace(/^.*provider failure codes:\s*/i, '')}). The completed source reads were preserved safely, but Findings and repair phases remain blocked.`
+artifacts/dashboard/src/pages/AiChat.tsx-1716-      : 'All bounded recovery attempts failed after the completed source reads were preserved. The Evidence Map was rebuilt safely, but Findings and repair phases remain blocked.';
+artifacts/dashboard/src/pages/AiChat.tsx-1717-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1718-  if (summary.diagnosticCodes.some((code) => code.includes('PARSE_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx-1719-    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+artifacts/dashboard/src/pages/AiChat.tsx-1720-    return violation
+artifacts/dashboard/src/pages/AiChat.tsx-1721-      ? `The recovery response could not be parsed into the required six-section forensic report: ${violation}.`
+artifacts/dashboard/src/pages/AiChat.tsx-1722-      : 'The recovery response could not be parsed into the required six-section forensic report.';
+artifacts/dashboard/src/pages/AiChat.tsx-1723-  }
+artifacts/dashboard/src/pages/AiChat.tsx-1724-  if (summary.diagnosticCodes.some((code) => code.includes('RECOVERY_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx-1725-    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+artifacts/dashboard/src/pages/AiChat.tsx-1726-    return violation
+artifacts/dashboard/src/pages/AiChat.tsx-1727-      ? `The bounded recovery attempt failed: ${violation}.`
+--
+artifacts/dashboard/src/pages/AiChat.tsx-2474-    (summary.stopReason === 'response' && summary.diagnosticCodes.length === 0 && !hasSynthesisTelemetry)
+artifacts/dashboard/src/pages/AiChat.tsx-2475-  ) {
+artifacts/dashboard/src/pages/AiChat.tsx-2476-    return null;
+artifacts/dashboard/src/pages/AiChat.tsx-2477-  }
+artifacts/dashboard/src/pages/AiChat.tsx-2478-
+artifacts/dashboard/src/pages/AiChat.tsx-2479-  return (
+artifacts/dashboard/src/pages/AiChat.tsx-2480-    <div className="mt-1 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-muted-foreground">
+artifacts/dashboard/src/pages/AiChat.tsx-2481-      {summary.stopReason !== 'response' && (
+artifacts/dashboard/src/pages/AiChat.tsx-2482-        <span className="mr-1 font-semibold text-amber-200">INCOMPLETE:</span>
+artifacts/dashboard/src/pages/AiChat.tsx-2483-      )}
+artifacts/dashboard/src/pages/AiChat.tsx-2484-      <span className="text-amber-300">Execution diagnostic:</span>{' '}
+artifacts/dashboard/src/pages/AiChat.tsx-2485-      {summary.diagnosticCodes.some((code) => code === 'EXECUTION_PROVIDER_FAILURE') ? (
+artifacts/dashboard/src/pages/AiChat.tsx:2486:        <span className="text-red-300">provider failure — </span>
+artifacts/dashboard/src/pages/AiChat.tsx-2487-      ) : null}
+artifacts/dashboard/src/pages/AiChat.tsx-2488-      {String(summary.stopReason) === 'tool_failure' || summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx-2489-        code === 'TOOL_EXECUTION_FAILED' || code === 'TOOL_UNAVAILABLE' || code === 'TOOL_CANCELLED',
+artifacts/dashboard/src/pages/AiChat.tsx-2490-      ) ? (
+artifacts/dashboard/src/pages/AiChat.tsx-2491-        <span className="font-semibold text-red-300">required tool did not complete — BLOCKED/INCOMPLETE; no completed operation may be claimed — </span>
+artifacts/dashboard/src/pages/AiChat.tsx-2492-      ) : null}
+artifacts/dashboard/src/pages/AiChat.tsx-2493-      {summary.diagnosticCodes.some((code) => code === 'EXECUTION_NO_EDIT_TOOL') ? (
+artifacts/dashboard/src/pages/AiChat.tsx-2494-        <span className="text-amber-200">stopped before an edit tool — </span>
+artifacts/dashboard/src/pages/AiChat.tsx-2495-      ) : null}
+artifacts/dashboard/src/pages/AiChat.tsx-2496-      {summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx-2497-        code === 'EXECUTION_RESPONSE_FORMAT_INVALID' ||
+artifacts/dashboard/src/pages/AiChat.tsx-2498-        code === 'EXECUTION_JSON_CORRECTION_FAILED' ||

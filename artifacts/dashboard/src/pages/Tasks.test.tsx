@@ -137,4 +137,91 @@ describe('Tasks recovery rendering', () => {
     expect(screen.queryByText(/sk-provider-secret/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Internal prompts and provider diagnostics are not shown/i)).toBeInTheDocument();
   });
+
+  it('separates the current rule decision from its expandable verification history', () => {
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-history',
+        projectId: 'project-1',
+        title: 'Review a rule with reversals',
+        status: 'completed',
+        priority: 'p1',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:03:00.000Z',
+        remediationPlan: {
+          version: 1,
+          ruleId: 'rule-1',
+          ruleCode: 'TEST-001',
+          ruleTitle: 'Evidence-backed check',
+          severity: 'high',
+          occurrenceCount: 1,
+          evidence: [{ file: 'src/example.ts', line: 1, snippet: 'x', occurrences: 1 }],
+          relatedFiles: ['src/example.ts'],
+          fixDescription: 'Make the check pass.',
+          verificationSteps: ['Confirm the result.'],
+          verificationChecks: [{
+            id: 'rule-verification-1',
+            kind: 'operator_attestation',
+            guidance: 'Confirm the result.',
+          }],
+          source: { type: 'scan', correlationId: null, revision: null, completeness: 'COMPLETE' },
+          status: 'verified',
+        },
+        verificationResult: {
+          passed: true,
+          decision: 'verified',
+          steps: [{
+            id: 'rule-verification-1',
+            name: 'Rule verification #1',
+            kind: 'operator_attestation',
+            guidance: 'Confirm the result.',
+            passed: true,
+            evidence: 'Current evidence after the fix.',
+          }],
+          history: [
+            {
+              id: 'history-1',
+              checkId: 'rule-verification-1',
+              name: 'Rule verification #1',
+              kind: 'operator_attestation',
+              guidance: 'Confirm the result.',
+              passed: false,
+              evidence: 'The behavior still failed.',
+              actor: 'operator-a',
+              recordedAt: '2026-08-25T10:01:00.000Z',
+            },
+            {
+              id: 'history-2',
+              checkId: 'rule-verification-1',
+              name: 'Rule verification #1',
+              kind: 'operator_attestation',
+              guidance: 'Confirm the result.',
+              passed: true,
+              evidence: 'Current evidence after the fix.',
+              actor: 'operator-b',
+              recordedAt: '2026-08-25T10:03:00.000Z',
+            },
+          ],
+        },
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Review a rule with reversals' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Logs' }));
+
+    expect(screen.getByText('Current decision')).toBeInTheDocument();
+    expect(screen.getByText('Passed — evidence recorded')).toBeInTheDocument();
+    const history = screen.getByText('Verification history (2)');
+    fireEvent.click(history);
+    expect(screen.getByText('The behavior still failed.')).toBeInTheDocument();
+    expect(screen.getByText(/By operator-a/)).toBeInTheDocument();
+    expect(screen.getByText(/By operator-b/)).toBeInTheDocument();
+  });
 });

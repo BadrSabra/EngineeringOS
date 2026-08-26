@@ -578,7 +578,19 @@ router.post("/tasks/:taskId/verification", async (req, res) => {
         evidence?: string;
         output?: string;
       };
+      type VerificationHistoryEntry = {
+        id: string;
+        checkId: string;
+        name: string;
+        kind?: "automatic" | "operator_attestation";
+        guidance?: string;
+        passed: boolean;
+        evidence?: string;
+        actor: string;
+        recordedAt: string;
+      };
       const existingSteps = (lockedTask.verificationResult?.steps ?? []) as RecordedStep[];
+      const existingHistory = (lockedTask.verificationResult?.history ?? []) as VerificationHistoryEntry[];
       const existingById = new Map(
         existingSteps
           .filter((step) => typeof step.id === "string")
@@ -594,6 +606,17 @@ router.post("/tasks/:taskId/verification", async (req, res) => {
         output: body.passed
           ? "Operator evidence recorded"
           : "Operator reported that this check did not pass",
+      };
+      const recordedHistoryEntry: VerificationHistoryEntry = {
+        id: randomUUID(),
+        checkId: check.id,
+        name: recordedStep.name,
+        kind: check.kind,
+        guidance: check.guidance,
+        passed: body.passed,
+        ...(body.evidence ? { evidence: body.evidence.trim() } : {}),
+        actor: req.userId,
+        recordedAt: new Date().toISOString(),
       };
       existingById.set(check.id, recordedStep);
 
@@ -625,6 +648,7 @@ router.post("/tasks/:taskId/verification", async (req, res) => {
         passed,
         decision: passed ? ("verified" as const) : ("incomplete" as const),
         steps,
+        history: [...existingHistory, recordedHistoryEntry],
       };
 
       const [row] = await tx

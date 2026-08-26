@@ -48,6 +48,18 @@ export interface RemediationPlan {
   status: RemediationPlanStatus;
 }
 
+export interface VerificationHistoryEntry {
+  id: string;
+  checkId: string;
+  name: string;
+  kind?: "automatic" | "operator_attestation";
+  guidance?: string;
+  passed: boolean;
+  evidence?: string;
+  actor: string;
+  recordedAt: string;
+}
+
 export const taskStatusEnum = pgEnum("task_status", [
   "pending",
   "queued",
@@ -97,6 +109,7 @@ export const tasksTable = pgTable("tasks", {
       evidence?: string;
       output?: string;
     }>;
+    history?: VerificationHistoryEntry[];
   }>(),
   /** Optional structured context for tasks created from rule violations. */
   remediationPlan: jsonb("remediation_plan").$type<RemediationPlan>(),

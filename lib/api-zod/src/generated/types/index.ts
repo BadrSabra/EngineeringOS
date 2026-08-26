@@ -340,6 +340,8 @@ export * from './validationFailure';
 export * from './validationResult';
 export * from './validationResultStatus';
 export * from './validationResultTerminalState';
+export * from './verificationHistoryEntry';
+export * from './verificationHistoryEntryKind';
 export * from './verificationResult';
 export * from './verificationResultDecision';
 export * from './verificationResultStepsItem';

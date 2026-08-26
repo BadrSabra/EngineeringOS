@@ -1,0 +1,200 @@
+/home/runner/workspace
+
+Top-level:
+total 348
+-rw-r--r-- 1 runner runner    419 Aug 26 02:44 ''$'\r'
+-rw-r--r-- 1 runner runner    419 Aug 26 02:44 ''$'\r\r'
+drwxr-xr-x 1 runner runner    664 Aug 26 19:57  .
+drwxr-xr-x 1 runner runner     60 Aug 26 20:52  ..
+drwxr-xr-x 1 runner runner     76 Aug 26 02:45  .agents
+drwxr-xr-x 1 runner runner     66 Aug 26 02:44  artifacts
+drwxr-xr-x 1 runner runner    216 Aug 26 20:30  attached_assets
+drwxr-xr-x 1 runner runner     40 Aug 26 03:05  .cache
+drwx------ 1 runner runner     60 Aug 26 16:52  .config
+drwxr-xr-x 1 runner runner   1698 Aug 26 02:44  docs
+drwxr-xr-x 1 runner runner  31248 Aug 26 19:57  .engineeringos-delivery
+drwxr-xr-x 1 runner runner    216 Aug 26 19:47  .engineeringos-projects
+drwxr-xr-x 1 runner runner    140 Aug 26 20:51  .git
+-rw-r--r-- 1 runner runner    170 Aug 26 02:44  .gitattributes
+drwxr-xr-x 1 runner runner     94 Aug 26 02:44  .github
+-rw-r--r-- 1 runner runner   1143 Aug 26 02:44  .gitignore
+drwxr-xr-x 1 runner runner    142 Aug 26 02:44  lib
+drwxr-xr-x 1 runner runner    160 Aug 26 03:04  .local
+drwxr-xr-x 1 runner runner  12516 Aug 26 19:57  node_modules
+-rw-r--r-- 1 runner runner     78 Aug 26 02:44  .npmrc
+-rw-r--r-- 1 runner runner   3646 Aug 26 02:44  package.json
+-rw-r--r-- 1 runner runner 287279 Aug 26 02:44  pnpm-lock.yaml
+-rw-r--r-- 1 runner runner   6579 Aug 26 02:44  pnpm-workspace.yaml
+-rw-r--r-- 1 runner runner    105 Aug 26 02:44 ''$'\r\r''.pub'
+-rw-r--r-- 1 runner runner    105 Aug 26 02:44 ''$'\r''.pub'
+drwxr-xr-x 1 runner runner     58 Aug 26 02:44  release-evidence
+-rw-r--r-- 1 runner runner   3392 Aug 26 19:57  .replit
+-rw-r--r-- 1 runner runner    201 Aug 26 02:44  .replitignore
+-rw-r--r-- 1 runner runner   1689 Aug 26 02:44  replit.md
+drwxr-xr-x 1 runner runner   1304 Aug 26 02:48  scripts
+drwxr-xr-x 1 runner runner      0 Aug 26 16:18  test-results
+-rw-r--r-- 1 runner runner    691 Aug 26 02:44  tsconfig.base.json
+-rw-r--r-- 1 runner runner    692 Aug 26 02:44  tsconfig.base.json.bak
+-rw-r--r-- 1 runner runner    382 Aug 26 02:44  tsconfig.json
+
+Relevant paths:
+artifacts/api-server/src/app.ts
+artifacts/api-server/src/config.test.ts
+artifacts/api-server/src/config.ts
+artifacts/api-server/src/index.ts
+artifacts/api-server/src/lib/advisory-lock.ts
+artifacts/api-server/src/lib/ai-analysis-tools.ts
+artifacts/api-server/src/lib/ai-change-guard.ts
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+artifacts/api-server/src/lib/ai-execution-state.test.ts
+artifacts/api-server/src/lib/ai-execution-state.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+artifacts/api-server/src/lib/ai-repair-validation.test.ts
+artifacts/api-server/src/lib/ai-repair-validation.ts
+artifacts/api-server/src/lib/ai-route-helpers.test.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+artifacts/api-server/src/lib/approve-code-agent-baseline.ts
+artifacts/api-server/src/lib/archive-safety.test.ts
+artifacts/api-server/src/lib/archive-safety.ts
+artifacts/api-server/src/lib/audit.integration.test.ts
+artifacts/api-server/src/lib/audit.test.ts
+artifacts/api-server/src/lib/audit.ts
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts
+artifacts/api-server/src/lib/benchmark-release-gate.ts
+artifacts/api-server/src/lib/browser-preview-verification.test.ts
+artifacts/api-server/src/lib/browser-preview-verification.ts
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts
+artifacts/api-server/src/lib/condition-evaluator.ts
+artifacts/api-server/src/lib/credentials-crypto.ts
+artifacts/api-server/src/lib/db-rate-limiter.ts
+artifacts/api-server/src/lib/delivery-workspace.test.ts
+artifacts/api-server/src/lib/delivery-workspace.ts
+artifacts/api-server/src/lib/discovery-adapters.test.ts
+artifacts/api-server/src/lib/discovery-adapters.ts
+artifacts/api-server/src/lib/discovery-runner.test.ts
+artifacts/api-server/src/lib/discovery-runner.ts
+artifacts/api-server/src/lib/github-connector.test.ts
+artifacts/api-server/src/lib/github-connector.ts
+artifacts/api-server/src/lib/.gitkeep
+artifacts/api-server/src/lib/graph-provenance.ts
+artifacts/api-server/src/lib/job-concurrency.test.ts
+artifacts/api-server/src/lib/job-idempotency.test.ts
+artifacts/api-server/src/lib/job-lease.test.ts
+artifacts/api-server/src/lib/job-lease.ts
+artifacts/api-server/src/lib/job-queue.test.ts
+artifacts/api-server/src/lib/job-queue.ts
+artifacts/api-server/src/lib/job-reconciliation.test.ts
+artifacts/api-server/src/lib/job-reconciliation.ts
+artifacts/api-server/src/lib/job-recovery.test.ts
+artifacts/api-server/src/lib/logger.ts
+artifacts/api-server/src/lib/operational-counters.ts
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts
+artifacts/api-server/src/lib/operational-readiness-gate.ts
+artifacts/api-server/src/lib/operation-evidence.test.ts
+artifacts/api-server/src/lib/operation-evidence.ts
+artifacts/api-server/src/lib/pagination.ts
+artifacts/api-server/src/lib/path-validation.test.ts
+artifacts/api-server/src/lib/path-validation.ts
+artifacts/api-server/src/lib/plugin-runtime.test.ts
+artifacts/api-server/src/lib/plugin-runtime.ts
+artifacts/api-server/src/lib/project-error.test.ts
+artifacts/api-server/src/lib/project-materialization.test.ts
+artifacts/api-server/src/lib/project-materialization.ts
+artifacts/api-server/src/lib/project-root.test.ts
+artifacts/api-server/src/lib/project-root.ts
+artifacts/api-server/src/lib/remediation-plan.test.ts
+artifacts/api-server/src/lib/remediation-plan.ts
+artifacts/api-server/src/lib/rootpath-validator.ts
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts
+artifacts/api-server/src/lib/scan-runner.ts
+artifacts/api-server/src/lib/startup-migrations.test.ts
+artifacts/api-server/src/lib/startup-migrations.ts
+artifacts/api-server/src/lib/task-execution-retention.test.ts
+artifacts/api-server/src/lib/task-execution-retention.ts
+artifacts/api-server/src/lib/task-execution-service.test.ts
+artifacts/api-server/src/lib/task-execution-service.ts
+artifacts/api-server/src/lib/task-state.ts
+artifacts/api-server/src/lib/upload-store.test.ts
+artifacts/api-server/src/lib/upload-store.ts
+artifacts/api-server/src/lib/workflow-phase-execution.ts
+artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts
+artifacts/api-server/src/middlewares/.gitkeep
+artifacts/api-server/src/middlewares/requireAuth.test.ts
+artifacts/api-server/src/middlewares/requireAuth.ts
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts
+artifacts/api-server/src/middlewares/requireProjectAccess.ts
+artifacts/api-server/src/routes/ai/analysis.ts
+artifacts/api-server/src/routes/ai/benchmark.test.ts
+artifacts/api-server/src/routes/ai/benchmark.ts
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+artifacts/api-server/src/routes/ai/chat.ts
+artifacts/api-server/src/routes/ai/index.ts
+artifacts/api-server/src/routes/ai/providers.ts
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts
+artifacts/api-server/src/routes/ai-route-parity.test.ts
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+artifacts/api-server/src/routes/ai/tasks.ts
+artifacts/api-server/src/routes/ai.test.ts
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/routes/ai/workflows.ts
+artifacts/api-server/src/routes/dashboard.test.ts
+artifacts/api-server/src/routes/dashboard.ts
+artifacts/api-server/src/routes/discovery.test.ts
+artifacts/api-server/src/routes/discovery.ts
+artifacts/api-server/src/routes/empty-model-response-live.test.ts
+artifacts/api-server/src/routes/events.test.ts
+artifacts/api-server/src/routes/events.ts
+artifacts/api-server/src/routes/git.test.ts
+artifacts/api-server/src/routes/git.ts
+artifacts/api-server/src/routes/graph.test.ts
+artifacts/api-server/src/routes/graph.ts
+artifacts/api-server/src/routes/health.test.ts
+artifacts/api-server/src/routes/health.ts
+artifacts/api-server/src/routes/index.ts
+artifacts/api-server/src/routes/metrics.test.ts
+artifacts/api-server/src/routes/metrics.ts
+artifacts/api-server/src/routes/plugins.test.ts
+artifacts/api-server/src/routes/plugins.ts
+artifacts/api-server/src/routes/projects.test.ts
+artifacts/api-server/src/routes/projects.ts
+artifacts/api-server/src/routes/rules.test.ts
+artifacts/api-server/src/routes/rules.ts
+artifacts/api-server/src/routes/tasks.test.ts
+artifacts/api-server/src/routes/tasks.ts
+artifacts/api-server/src/routes/upload.ts
+artifacts/api-server/src/routes/workflows.test.ts
+artifacts/api-server/src/routes/workflows.ts
+artifacts/api-server/src/scripts/seed-provenance.ts
+artifacts/api-server/src/services/task-service.test.ts
+artifacts/api-server/src/services/task-service.ts
+artifacts/api-server/src/services/workflow-service.ts
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts
+artifacts/api-server/src/types/express.d.ts
+artifacts/dashboard/src/App.tsx
+artifacts/dashboard/src/components/GitPanel.test.tsx
+artifacts/dashboard/src/components/GitPanel.tsx
+artifacts/dashboard/src/components/layout/Shell.tsx
+artifacts/dashboard/src/components/layout/Sidebar.tsx
+artifacts/dashboard/src/components/OperatorResilience.test.tsx
+artifacts/dashboard/src/components/OperatorResilience.tsx
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx
+artifacts/dashboard/src/components/ui/accordion.tsx
+artifacts/dashboard/src/components/ui/alert-dialog.tsx
+artifacts/dashboard/src/components/ui/alert.tsx
+artifacts/dashboard/src/components/ui/aspect-ratio.tsx
+artifacts/dashboard/src/components/ui/avatar.tsx
+artifacts/dashboard/src/components/ui/badge.tsx
+artifacts/dashboard/src/components/ui/breadcrumb.tsx
+artifacts/dashboard/src/components/ui/button-group.tsx
+artifacts/dashboard/src/components/ui/button.tsx
+artifacts/dashboard/src/components/ui/calendar.tsx
+artifacts/dashboard/src/components/ui/card.tsx
+artifacts/dashboard/src/components/ui/carousel.tsx
+artifacts/dashboard/src/components/ui/chart.tsx
+artifacts/dashboard/src/components/ui/checkbox.tsx
+artifacts/dashboard/src/components/ui/collapsible.tsx
+artifacts/dashboard/src/components/ui/command.tsx
+artifacts/dashboard/src/components/ui/context-menu.tsx

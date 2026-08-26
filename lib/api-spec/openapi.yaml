@@ -5705,6 +5705,36 @@ components:
                 type: string
               output:
                 type: string
+        history:
+          type: array
+          description: Append-only operator decisions for each server-owned check, oldest first.
+          items:
+            $ref: "#/components/schemas/VerificationHistoryEntry"
+
+    VerificationHistoryEntry:
+      type: object
+      required: [id, checkId, name, passed, actor, recordedAt]
+      properties:
+        id:
+          type: string
+        checkId:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [automatic, operator_attestation]
+        guidance:
+          type: string
+        passed:
+          type: boolean
+        evidence:
+          type: string
+        actor:
+          type: string
+        recordedAt:
+          type: string
+          format: date-time
 
     RuleVerificationCheck:
       type: object

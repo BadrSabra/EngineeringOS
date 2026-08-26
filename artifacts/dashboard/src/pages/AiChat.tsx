@@ -730,6 +730,23 @@ function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'err
     : guidance;
 }
 
+function safePartialProviderResponse(
+  message: Pick<ChatMessage, 'errorCode' | 'errorMessage' | 'content'>,
+  displayContent: string,
+  internalTechnicalDump: boolean,
+): string | null {
+  const content = displayContent.trim();
+  if (
+    message.errorCode !== 'EXECUTION_PROVIDER_FAILURE' ||
+    !content ||
+    internalTechnicalDump ||
+    content === message.errorMessage?.trim()
+  ) {
+    return null;
+  }
+  return redactInternalDetails(content);
+}
+
 // AI-specific endpoints use cookie-based Clerk auth (same-origin — no Bearer needed).
 
 /**
@@ -4342,6 +4359,9 @@ function MessageBubble({
     ? readMissionCorrelationReportGeneratedAt(msg.missionCorrelationReport)
     : null;
   const safeFailureMessage = failedTurn ? safeChatRecoveryMessage(msg) : null;
+  const partialProviderResponse = failedTurn && !structuredFailure
+    ? safePartialProviderResponse(msg, displayContent, internalTechnicalDump)
+    : null;
 
   return (
     <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
@@ -4406,6 +4426,11 @@ function MessageBubble({
                 </div>
               ) : (
                 <>
+                  {partialProviderResponse && (
+                    <div className="mb-2 whitespace-pre-wrap border-b border-border/40 pb-2">
+                      {partialProviderResponse}
+                    </div>
+                  )}
                   <div className="mb-2 whitespace-pre-wrap">{safeFailureMessage}</div>
                   <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
                     <div className="font-medium">

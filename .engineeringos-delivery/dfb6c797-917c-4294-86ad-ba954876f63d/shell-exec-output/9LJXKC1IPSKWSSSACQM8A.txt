@@ -1,0 +1,360 @@
+lib/api-spec/openapi.yaml-171-      operationId: getProjectSummary
+lib/api-spec/openapi.yaml-172-      summary: Get project quality summary (scores, task counts, recent events)
+lib/api-spec/openapi.yaml-173-      tags: [Projects]
+lib/api-spec/openapi.yaml-174-      parameters:
+lib/api-spec/openapi.yaml-175-        - name: projectId
+lib/api-spec/openapi.yaml-176-          in: path
+lib/api-spec/openapi.yaml-177-          required: true
+lib/api-spec/openapi.yaml-178-          schema:
+lib/api-spec/openapi.yaml-179-            type: string
+lib/api-spec/openapi.yaml-180-      responses:
+lib/api-spec/openapi.yaml-181-        "200":
+lib/api-spec/openapi.yaml-182-          description: Project summary
+lib/api-spec/openapi.yaml-183-          content:
+lib/api-spec/openapi.yaml-184-            application/json:
+lib/api-spec/openapi.yaml-185-              schema:
+lib/api-spec/openapi.yaml-186-                $ref: "#/components/schemas/ProjectSummary"
+lib/api-spec/openapi.yaml-187-
+lib/api-spec/openapi.yaml-188-  # ─── Tasks ───────────────────────────────────────────────────────────────────
+lib/api-spec/openapi.yaml:189:  /api/tasks:
+lib/api-spec/openapi.yaml-190-    get:
+lib/api-spec/openapi.yaml-191-      operationId: listTasks
+lib/api-spec/openapi.yaml-192-      summary: List tasks with optional filters
+lib/api-spec/openapi.yaml-193-      tags: [Tasks]
+lib/api-spec/openapi.yaml-194-      parameters:
+lib/api-spec/openapi.yaml-195-        - name: projectId
+lib/api-spec/openapi.yaml-196-          in: query
+lib/api-spec/openapi.yaml-197-          schema:
+lib/api-spec/openapi.yaml-198-            type: string
+lib/api-spec/openapi.yaml-199-        - name: status
+lib/api-spec/openapi.yaml-200-          in: query
+lib/api-spec/openapi.yaml-201-          schema:
+lib/api-spec/openapi.yaml-202-            $ref: "#/components/schemas/TaskStatus"
+lib/api-spec/openapi.yaml-203-        - name: priority
+lib/api-spec/openapi.yaml-204-          in: query
+lib/api-spec/openapi.yaml-205-          schema:
+lib/api-spec/openapi.yaml-206-            $ref: "#/components/schemas/TaskPriority"
+lib/api-spec/openapi.yaml-207-        - name: page
+--
+lib/api-spec/openapi.yaml-312-                $ref: "#/components/schemas/Task"
+lib/api-spec/openapi.yaml-313-
+lib/api-spec/openapi.yaml-314-  /api/tasks/{taskId}/verification:
+lib/api-spec/openapi.yaml-315-    post:
+lib/api-spec/openapi.yaml-316-      operationId: recordTaskVerification
+lib/api-spec/openapi.yaml-317-      summary: Record an operator result for a server-owned verification check
+lib/api-spec/openapi.yaml-318-      tags: [Tasks]
+lib/api-spec/openapi.yaml-319-      parameters:
+lib/api-spec/openapi.yaml-320-        - name: taskId
+lib/api-spec/openapi.yaml-321-          in: path
+lib/api-spec/openapi.yaml-322-          required: true
+lib/api-spec/openapi.yaml-323-          schema:
+lib/api-spec/openapi.yaml-324-            type: string
+lib/api-spec/openapi.yaml-325-      requestBody:
+lib/api-spec/openapi.yaml-326-        required: true
+lib/api-spec/openapi.yaml-327-        content:
+lib/api-spec/openapi.yaml-328-          application/json:
+lib/api-spec/openapi.yaml-329-            schema:
+lib/api-spec/openapi.yaml:330:              $ref: "#/components/schemas/RecordTaskVerificationInput"
+lib/api-spec/openapi.yaml-331-      responses:
+lib/api-spec/openapi.yaml-332-        "200":
+lib/api-spec/openapi.yaml-333-          description: Updated task with the recorded verification result
+lib/api-spec/openapi.yaml-334-          content:
+lib/api-spec/openapi.yaml-335-            application/json:
+lib/api-spec/openapi.yaml-336-              schema:
+lib/api-spec/openapi.yaml-337-                $ref: "#/components/schemas/Task"
+lib/api-spec/openapi.yaml-338-
+lib/api-spec/openapi.yaml-339-  /api/tasks/{taskId}/retry:
+lib/api-spec/openapi.yaml-340-    post:
+lib/api-spec/openapi.yaml-341-      operationId: retryTask
+lib/api-spec/openapi.yaml-342-      summary: Retry a failed task
+lib/api-spec/openapi.yaml-343-      tags: [Tasks]
+lib/api-spec/openapi.yaml-344-      parameters:
+lib/api-spec/openapi.yaml-345-        - name: taskId
+lib/api-spec/openapi.yaml-346-          in: path
+lib/api-spec/openapi.yaml-347-          required: true
+lib/api-spec/openapi.yaml-348-          schema:
+--
+lib/api-spec/openapi.yaml-5585-        relatedFiles:
+lib/api-spec/openapi.yaml-5586-          type: array
+lib/api-spec/openapi.yaml-5587-          items:
+lib/api-spec/openapi.yaml-5588-            type: string
+lib/api-spec/openapi.yaml-5589-        dependsOn:
+lib/api-spec/openapi.yaml-5590-          type: array
+lib/api-spec/openapi.yaml-5591-          items:
+lib/api-spec/openapi.yaml-5592-            type: string
+lib/api-spec/openapi.yaml-5593-        retryCount:
+lib/api-spec/openapi.yaml-5594-          type: integer
+lib/api-spec/openapi.yaml-5595-        maxRetries:
+lib/api-spec/openapi.yaml-5596-          type: integer
+lib/api-spec/openapi.yaml-5597-        phase:
+lib/api-spec/openapi.yaml-5598-          type: string
+lib/api-spec/openapi.yaml-5599-        prompt:
+lib/api-spec/openapi.yaml-5600-          type: string
+lib/api-spec/openapi.yaml-5601-        agentResponse:
+lib/api-spec/openapi.yaml-5602-          type: string
+lib/api-spec/openapi.yaml:5603:        verificationResult:
+lib/api-spec/openapi.yaml:5604:          $ref: "#/components/schemas/VerificationResult"
+lib/api-spec/openapi.yaml-5605-        remediationPlan:
+lib/api-spec/openapi.yaml-5606-          $ref: "#/components/schemas/RemediationPlan"
+lib/api-spec/openapi.yaml-5607-          nullable: true
+lib/api-spec/openapi.yaml-5608-        createdAt:
+lib/api-spec/openapi.yaml-5609-          type: string
+lib/api-spec/openapi.yaml-5610-          format: date-time
+lib/api-spec/openapi.yaml-5611-        updatedAt:
+lib/api-spec/openapi.yaml-5612-          type: string
+lib/api-spec/openapi.yaml-5613-          format: date-time
+lib/api-spec/openapi.yaml-5614-        completedAt:
+lib/api-spec/openapi.yaml-5615-          type: string
+lib/api-spec/openapi.yaml-5616-          format: date-time
+lib/api-spec/openapi.yaml-5617-
+lib/api-spec/openapi.yaml-5618-    CreateTaskInput:
+lib/api-spec/openapi.yaml-5619-      type: object
+lib/api-spec/openapi.yaml-5620-      required: [projectId, title, priority]
+lib/api-spec/openapi.yaml-5621-      additionalProperties: false
+lib/api-spec/openapi.yaml-5622-      properties:
+--
+lib/api-spec/openapi.yaml-5660-      type: object
+lib/api-spec/openapi.yaml-5661-      required: [id, taskId, level, message, timestamp]
+lib/api-spec/openapi.yaml-5662-      properties:
+lib/api-spec/openapi.yaml-5663-        id:
+lib/api-spec/openapi.yaml-5664-          type: string
+lib/api-spec/openapi.yaml-5665-        taskId:
+lib/api-spec/openapi.yaml-5666-          type: string
+lib/api-spec/openapi.yaml-5667-        level:
+lib/api-spec/openapi.yaml-5668-          type: string
+lib/api-spec/openapi.yaml-5669-          enum: [debug, info, warn, error]
+lib/api-spec/openapi.yaml-5670-        message:
+lib/api-spec/openapi.yaml-5671-          type: string
+lib/api-spec/openapi.yaml-5672-        metadata:
+lib/api-spec/openapi.yaml-5673-          type: object
+lib/api-spec/openapi.yaml-5674-        timestamp:
+lib/api-spec/openapi.yaml-5675-          type: string
+lib/api-spec/openapi.yaml-5676-          format: date-time
+lib/api-spec/openapi.yaml-5677-
+lib/api-spec/openapi.yaml:5678:    VerificationResult:
+lib/api-spec/openapi.yaml-5679-      type: object
+lib/api-spec/openapi.yaml-5680-      required: [passed, steps]
+lib/api-spec/openapi.yaml-5681-      properties:
+lib/api-spec/openapi.yaml-5682-        passed:
+lib/api-spec/openapi.yaml-5683-          type: boolean
+lib/api-spec/openapi.yaml-5684-        decision:
+lib/api-spec/openapi.yaml-5685-          type: string
+lib/api-spec/openapi.yaml-5686-          enum: [verified, incomplete, failed, cancelled]
+lib/api-spec/openapi.yaml-5687-        steps:
+lib/api-spec/openapi.yaml-5688-          type: array
+lib/api-spec/openapi.yaml-5689-          items:
+lib/api-spec/openapi.yaml-5690-            type: object
+lib/api-spec/openapi.yaml-5691-            required: [name, passed]
+lib/api-spec/openapi.yaml-5692-            properties:
+lib/api-spec/openapi.yaml-5693-              id:
+lib/api-spec/openapi.yaml-5694-                type: string
+lib/api-spec/openapi.yaml-5695-              name:
+lib/api-spec/openapi.yaml-5696-                type: string
+--
+lib/api-spec/openapi.yaml-5703-                type: boolean
+lib/api-spec/openapi.yaml-5704-              evidence:
+lib/api-spec/openapi.yaml-5705-                type: string
+lib/api-spec/openapi.yaml-5706-              output:
+lib/api-spec/openapi.yaml-5707-                type: string
+lib/api-spec/openapi.yaml-5708-
+lib/api-spec/openapi.yaml-5709-    RuleVerificationCheck:
+lib/api-spec/openapi.yaml-5710-      type: object
+lib/api-spec/openapi.yaml-5711-      required: [id, kind, guidance]
+lib/api-spec/openapi.yaml-5712-      properties:
+lib/api-spec/openapi.yaml-5713-        id:
+lib/api-spec/openapi.yaml-5714-          type: string
+lib/api-spec/openapi.yaml-5715-        kind:
+lib/api-spec/openapi.yaml-5716-          type: string
+lib/api-spec/openapi.yaml-5717-          enum: [operator_attestation]
+lib/api-spec/openapi.yaml-5718-        guidance:
+lib/api-spec/openapi.yaml-5719-          type: string
+lib/api-spec/openapi.yaml-5720-
+lib/api-spec/openapi.yaml:5721:    RecordTaskVerificationInput:
+lib/api-spec/openapi.yaml-5722-      type: object
+lib/api-spec/openapi.yaml-5723-      required: [checkId, passed]
+lib/api-spec/openapi.yaml-5724-      additionalProperties: false
+lib/api-spec/openapi.yaml-5725-      properties:
+lib/api-spec/openapi.yaml-5726-        checkId:
+lib/api-spec/openapi.yaml-5727-          type: string
+lib/api-spec/openapi.yaml-5728-        passed:
+lib/api-spec/openapi.yaml-5729-          type: boolean
+lib/api-spec/openapi.yaml-5730-        evidence:
+lib/api-spec/openapi.yaml-5731-          type: string
+lib/api-spec/openapi.yaml-5732-          maxLength: 2000
+lib/api-spec/openapi.yaml-5733-
+lib/api-spec/openapi.yaml-5734-    # ─── Rule ──────────────────────────────────────────────────────────────────
+lib/api-spec/openapi.yaml-5735-    Rule:
+lib/api-spec/openapi.yaml-5736-      type: object
+lib/api-spec/openapi.yaml-5737-      required: [id, code, title, severity, enabled, createdAt, updatedAt]
+lib/api-spec/openapi.yaml-5738-      properties:
+lib/api-spec/openapi.yaml-5739-        id:
+--
+lib/api-zod/src/generated/api.ts-316-
+lib/api-zod/src/generated/api.ts-317-
+lib/api-zod/src/generated/api.ts-318-export const ListTasksResponseItem = zod.object({
+lib/api-zod/src/generated/api.ts-319-  "id": zod.string(),
+lib/api-zod/src/generated/api.ts-320-  "projectId": zod.string(),
+lib/api-zod/src/generated/api.ts-321-  "ruleId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-322-  "workflowId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-323-  "title": zod.string(),
+lib/api-zod/src/generated/api.ts-324-  "description": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-325-  "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
+lib/api-zod/src/generated/api.ts-326-  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
+lib/api-zod/src/generated/api.ts-327-  "relatedFiles": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-328-  "dependsOn": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-329-  "retryCount": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-330-  "maxRetries": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-331-  "phase": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-332-  "prompt": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-333-  "agentResponse": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:334:  "verificationResult": zod.object({
+lib/api-zod/src/generated/api.ts-335-  "passed": zod.boolean(),
+lib/api-zod/src/generated/api.ts-336-  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
+lib/api-zod/src/generated/api.ts-337-  "steps": zod.array(zod.object({
+lib/api-zod/src/generated/api.ts-338-  "id": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-339-  "name": zod.string(),
+lib/api-zod/src/generated/api.ts-340-  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+lib/api-zod/src/generated/api.ts-341-  "guidance": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-342-  "passed": zod.boolean(),
+lib/api-zod/src/generated/api.ts-343-  "evidence": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-344-  "output": zod.string().optional()
+lib/api-zod/src/generated/api.ts-345-}))
+lib/api-zod/src/generated/api.ts-346-}).optional(),
+lib/api-zod/src/generated/api.ts-347-  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts-348-  "version": zod.literal(1),
+lib/api-zod/src/generated/api.ts-349-  "ruleId": zod.string().nullish(),
+lib/api-zod/src/generated/api.ts-350-  "ruleCode": zod.string(),
+lib/api-zod/src/generated/api.ts-351-  "ruleTitle": zod.string(),
+lib/api-zod/src/generated/api.ts-352-  "severity": zod.string(),
+--
+lib/api-zod/src/generated/api.ts-411-
+lib/api-zod/src/generated/api.ts-412-
+lib/api-zod/src/generated/api.ts-413-export const CreateTaskResponse = zod.object({
+lib/api-zod/src/generated/api.ts-414-  "id": zod.string(),
+lib/api-zod/src/generated/api.ts-415-  "projectId": zod.string(),
+lib/api-zod/src/generated/api.ts-416-  "ruleId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-417-  "workflowId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-418-  "title": zod.string(),
+lib/api-zod/src/generated/api.ts-419-  "description": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-420-  "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
+lib/api-zod/src/generated/api.ts-421-  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
+lib/api-zod/src/generated/api.ts-422-  "relatedFiles": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-423-  "dependsOn": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-424-  "retryCount": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-425-  "maxRetries": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-426-  "phase": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-427-  "prompt": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-428-  "agentResponse": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:429:  "verificationResult": zod.object({
+lib/api-zod/src/generated/api.ts-430-  "passed": zod.boolean(),
+lib/api-zod/src/generated/api.ts-431-  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
+lib/api-zod/src/generated/api.ts-432-  "steps": zod.array(zod.object({
+lib/api-zod/src/generated/api.ts-433-  "id": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-434-  "name": zod.string(),
+lib/api-zod/src/generated/api.ts-435-  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+lib/api-zod/src/generated/api.ts-436-  "guidance": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-437-  "passed": zod.boolean(),
+lib/api-zod/src/generated/api.ts-438-  "evidence": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-439-  "output": zod.string().optional()
+lib/api-zod/src/generated/api.ts-440-}))
+lib/api-zod/src/generated/api.ts-441-}).optional(),
+lib/api-zod/src/generated/api.ts-442-  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts-443-  "version": zod.literal(1),
+lib/api-zod/src/generated/api.ts-444-  "ruleId": zod.string().nullish(),
+lib/api-zod/src/generated/api.ts-445-  "ruleCode": zod.string(),
+lib/api-zod/src/generated/api.ts-446-  "ruleTitle": zod.string(),
+lib/api-zod/src/generated/api.ts-447-  "severity": zod.string(),
+--
+lib/api-zod/src/generated/api.ts-497-
+lib/api-zod/src/generated/api.ts-498-
+lib/api-zod/src/generated/api.ts-499-export const GetTaskResponse = zod.object({
+lib/api-zod/src/generated/api.ts-500-  "id": zod.string(),
+lib/api-zod/src/generated/api.ts-501-  "projectId": zod.string(),
+lib/api-zod/src/generated/api.ts-502-  "ruleId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-503-  "workflowId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-504-  "title": zod.string(),
+lib/api-zod/src/generated/api.ts-505-  "description": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-506-  "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
+lib/api-zod/src/generated/api.ts-507-  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
+lib/api-zod/src/generated/api.ts-508-  "relatedFiles": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-509-  "dependsOn": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-510-  "retryCount": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-511-  "maxRetries": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-512-  "phase": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-513-  "prompt": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-514-  "agentResponse": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:515:  "verificationResult": zod.object({
+lib/api-zod/src/generated/api.ts-516-  "passed": zod.boolean(),
+lib/api-zod/src/generated/api.ts-517-  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
+lib/api-zod/src/generated/api.ts-518-  "steps": zod.array(zod.object({
+lib/api-zod/src/generated/api.ts-519-  "id": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-520-  "name": zod.string(),
+lib/api-zod/src/generated/api.ts-521-  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+lib/api-zod/src/generated/api.ts-522-  "guidance": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-523-  "passed": zod.boolean(),
+lib/api-zod/src/generated/api.ts-524-  "evidence": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-525-  "output": zod.string().optional()
+lib/api-zod/src/generated/api.ts-526-}))
+lib/api-zod/src/generated/api.ts-527-}).optional(),
+lib/api-zod/src/generated/api.ts-528-  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts-529-  "version": zod.literal(1),
+lib/api-zod/src/generated/api.ts-530-  "ruleId": zod.string().nullish(),
+lib/api-zod/src/generated/api.ts-531-  "ruleCode": zod.string(),
+lib/api-zod/src/generated/api.ts-532-  "ruleTitle": zod.string(),
+lib/api-zod/src/generated/api.ts-533-  "severity": zod.string(),
+--
+lib/api-zod/src/generated/api.ts-590-
+lib/api-zod/src/generated/api.ts-591-
+lib/api-zod/src/generated/api.ts-592-export const UpdateTaskResponse = zod.object({
+lib/api-zod/src/generated/api.ts-593-  "id": zod.string(),
+lib/api-zod/src/generated/api.ts-594-  "projectId": zod.string(),
+lib/api-zod/src/generated/api.ts-595-  "ruleId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-596-  "workflowId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-597-  "title": zod.string(),
+lib/api-zod/src/generated/api.ts-598-  "description": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-599-  "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
+lib/api-zod/src/generated/api.ts-600-  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
+lib/api-zod/src/generated/api.ts-601-  "relatedFiles": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-602-  "dependsOn": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-603-  "retryCount": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-604-  "maxRetries": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-605-  "phase": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-606-  "prompt": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-607-  "agentResponse": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:608:  "verificationResult": zod.object({
+lib/api-zod/src/generated/api.ts-609-  "passed": zod.boolean(),
+lib/api-zod/src/generated/api.ts-610-  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
+lib/api-zod/src/generated/api.ts-611-  "steps": zod.array(zod.object({
+lib/api-zod/src/generated/api.ts-612-  "id": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-613-  "name": zod.string(),
+lib/api-zod/src/generated/api.ts-614-  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+lib/api-zod/src/generated/api.ts-615-  "guidance": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-616-  "passed": zod.boolean(),
+lib/api-zod/src/generated/api.ts-617-  "evidence": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-618-  "output": zod.string().optional()
+lib/api-zod/src/generated/api.ts-619-}))
+lib/api-zod/src/generated/api.ts-620-}).optional(),
+lib/api-zod/src/generated/api.ts-621-  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts-622-  "version": zod.literal(1),
+lib/api-zod/src/generated/api.ts-623-  "ruleId": zod.string().nullish(),
+lib/api-zod/src/generated/api.ts-624-  "ruleCode": zod.string(),
+lib/api-zod/src/generated/api.ts-625-  "ruleTitle": zod.string(),
+lib/api-zod/src/generated/api.ts-626-  "severity": zod.string(),
+--
+lib/api-zod/src/generated/api.ts-686-
+lib/api-zod/src/generated/api.ts-687-
+lib/api-zod/src/generated/api.ts-688-export const ExecuteTaskResponse = zod.object({
+lib/api-zod/src/generated/api.ts-689-  "id": zod.string(),
+lib/api-zod/src/generated/api.ts-690-  "projectId": zod.string(),
+lib/api-zod/src/generated/api.ts-691-  "ruleId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-692-  "workflowId": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-693-  "title": zod.string(),
+lib/api-zod/src/generated/api.ts-694-  "description": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-695-  "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
+lib/api-zod/src/generated/api.ts-696-  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
+lib/api-zod/src/generated/api.ts-697-  "relatedFiles": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-698-  "dependsOn": zod.array(zod.string()).optional(),
+lib/api-zod/src/generated/api.ts-699-  "retryCount": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-700-  "maxRetries": zod.number().optional(),
+lib/api-zod/src/generated/api.ts-701-  "phase": zod.string().optional(),
+lib/api-zod/src/generated/api.ts-702-  "prompt": zod.string().optional(),
