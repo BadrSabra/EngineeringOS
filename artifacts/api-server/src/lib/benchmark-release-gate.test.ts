@@ -14,7 +14,7 @@ function scorecard(overrides: Partial<CodeAgentBenchmarkScorecard> = {}): CodeAg
     generatedAt: "2026-08-19T00:00:00.000Z",
     cases: [],
     candidateHash: "a".repeat(64),
-    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+    sourceRevision: "948d0624ddeacbbdb4a5a50b10d9e57da5f48823",
     missingCaseIds: [],
     metrics: {
       totalCases: 34,
@@ -59,7 +59,7 @@ function run(overrides: Partial<BenchmarkAirlockRun> = {}): BenchmarkAirlockRun 
     partial: false,
     baselineEligibility: "quality-gates-required",
     suiteVersion: "flight-deck-v2",
-    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+    sourceRevision: "948d0624ddeacbbdb4a5a50b10d9e57da5f48823",
     runId: "clean-witness-run",
     startedAt: "2026-08-19T02:00:00.000Z",
     completedAt: "2026-08-19T02:10:00.000Z",

@@ -50,7 +50,7 @@ const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
 const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", "docs", "coverage", "dist"]);
 const sourceRoot = path.resolve(process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."));
 const execFileAsync = promisify(execFile);
-const APPROVED_SOURCE_REVISION = "672a2447a0604e4f562796dab969b5d136582277";
+const APPROVED_SOURCE_REVISION = "948d0624ddeacbbdb4a5a50b10d9e57da5f48823";
 async function resolveSourceRevision(root: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "main"], { maxBuffer: 4096 });
   const revision = stdout.trim();
