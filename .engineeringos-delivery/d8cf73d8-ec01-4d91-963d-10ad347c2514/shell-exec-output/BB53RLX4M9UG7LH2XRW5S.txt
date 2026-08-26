@@ -1,0 +1,301 @@
+-- rule/task/scan references --
+lib/db/src/schema/tasks.ts:11:import { rulesTable } from "./rules.js";
+lib/db/src/schema/tasks.ts:31:export const tasksTable = pgTable("tasks", {
+lib/db/src/schema/tasks.ts:36:  ruleId: text("rule_id").references(() => rulesTable.id, { onDelete: "set null" }),
+lib/db/src/schema/tasks.ts:86:export type InsertTask = typeof tasksTable.$inferInsert;
+lib/db/src/schema/tasks.ts:87:export type Task = typeof tasksTable.$inferSelect;
+lib/db/src/schema/task_logs.ts:2:import { tasksTable } from "./tasks.js";
+lib/db/src/schema/task_logs.ts:15:    .references(() => tasksTable.id, { onDelete: "cascade" }),
+artifacts/api-server/src/services/task-service.ts:9: *   1. `db.select().from(rulesTable)` — to resolve the rule pattern for tasks
+artifacts/api-server/src/services/task-service.ts:10: *      that have a `ruleId`.
+artifacts/api-server/src/services/task-service.ts:19:import { db, rulesTable } from "@workspace/db";
+artifacts/api-server/src/services/task-service.ts:43:  ruleId: string | null;
+artifacts/api-server/src/services/task-service.ts:50: *   1. If the task has a `ruleId` with a pattern → scan the project rootPath
+artifacts/api-server/src/services/task-service.ts:69:  if (task.ruleId) {
+artifacts/api-server/src/services/task-service.ts:72:      .from(rulesTable)
+artifacts/api-server/src/services/task-service.ts:73:      .where(eq(rulesTable.id, task.ruleId))
+lib/db/src/schema/scan_jobs.ts:20:export const scanJobsTable = pgTable("scan_jobs", {
+lib/db/src/schema/scan_jobs.ts:70:  index("idx_scan_jobs_project_id").on(t.projectId),
+lib/db/src/schema/scan_jobs.ts:71:  index("idx_scan_jobs_status").on(t.status),
+lib/db/src/schema/scan_jobs.ts:77:  index("idx_scan_jobs_status_started_at").on(t.status, t.startedAt),
+lib/db/src/schema/scan_jobs.ts:83:  index("idx_scan_jobs_status_created_at").on(t.status, t.createdAt),
+lib/db/src/schema/scan_jobs.ts:88:  index("idx_scan_jobs_status_lease_until").on(t.status, t.leaseUntil),
+lib/db/src/schema/rules.ts:21:export const rulesTable = pgTable("rules", {
+lib/db/src/schema/rules.ts:58:export type InsertRule = typeof rulesTable.$inferInsert;
+lib/db/src/schema/rules.ts:59:export type Rule = typeof rulesTable.$inferSelect;
+lib/db/src/schema/index.ts:13:export * from "./scan_jobs.js";
+lib/db/src/schema/graph.ts:15:import { scanJobsTable } from "./scan_jobs.js";
+artifacts/dashboard/src/pages/Rules.tsx:193:              <div className="text-xs text-muted-foreground">Total violations</div>
+lib/db/src/schema/events.ts:3:import { tasksTable } from "./tasks.js";
+lib/db/src/schema/events.ts:19:  taskId: text("task_id").references(() => tasksTable.id, { onDelete: "set null" }),
+lib/db/src/schema/discovery.ts:104:  ruleViolations: DiscoveryRuleViolation[];
+lib/db/src/schema/ai_executions.ts:4:import { tasksTable } from "./tasks.js";
+lib/db/src/schema/ai_executions.ts:34:    .references(() => tasksTable.id, { onDelete: "set null" }),
+artifacts/api-server/src/routes/tasks.ts:4:  tasksTable,
+artifacts/api-server/src/routes/tasks.ts:47:  const conditions: ReturnType<typeof eq>[] = [eq(tasksTable.projectId, project.id)];
+artifacts/api-server/src/routes/tasks.ts:48:  if (params.status) conditions.push(eq(tasksTable.status, params.status));
+artifacts/api-server/src/routes/tasks.ts:50:    conditions.push(eq(tasksTable.priority, params.priority));
+artifacts/api-server/src/routes/tasks.ts:54:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:56:    .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+artifacts/api-server/src/routes/tasks.ts:71:    const rows = await tx.insert(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:97:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:98:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:111:  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+artifacts/api-server/src/routes/tasks.ts:154:    const rows = await tx.update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:157:        eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/tasks.ts:158:        eq(tasksTable.status, before[0].status),
+artifacts/api-server/src/routes/tasks.ts:159:        isNull(tasksTable.workerId),
+artifacts/api-server/src/routes/tasks.ts:205:  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+artifacts/api-server/src/routes/tasks.ts:213:    const [lockedTask] = await tx.select().from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:214:      .where(eq(tasksTable.id, taskId)).for("update");
+artifacts/api-server/src/routes/tasks.ts:242:    await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.ts:262: * 1. If task has a ruleId with a pattern → scan the project's rootPath and
+artifacts/api-server/src/routes/tasks.ts:271:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:272:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:286:    .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:288:    .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
+artifacts/api-server/src/routes/tasks.ts:332:      .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:334:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/routes/tasks.ts:384:  let updated: typeof tasksTable.$inferSelect | undefined;
+artifacts/api-server/src/routes/tasks.ts:388:      .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:390:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/tasks.ts:458:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:459:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:479:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:487:        .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:491:            eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/tasks.ts:492:            inArray(tasksTable.status, ["failed", "cancelled"]),
+artifacts/api-server/src/routes/tasks.ts:493:            eq(tasksTable.retryCount, retryCount),
+artifacts/api-server/src/routes/tasks.ts:544:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:545:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:583:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:591:        .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:593:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, task[0].status)))
+artifacts/api-server/src/routes/tasks.ts:644:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:645:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:666:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:667:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:729:        .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/tasks.ts:730:        .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:731:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.test.ts:8:  tasksTable,
+artifacts/api-server/src/routes/tasks.test.ts:44:  const tasks = await db.select().from(tasksTable).where(eq(tasksTable.projectId, id));
+artifacts/api-server/src/routes/tasks.test.ts:50:  await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
+artifacts/api-server/src/routes/tasks.test.ts:64:  async function createTask(overrides: Record<string, unknown> = {}) {
+artifacts/api-server/src/routes/tasks.test.ts:81:    const { projectId, taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:89:    const { taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:102:    const { taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:111:    const { taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:112:    await db.update(tasksTable).set({ status: "failed", maxRetries: 1 }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:119:    await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:125:    const { taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:133:    const { taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:149:    const { projectId, taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:200:    const { projectId, taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:216:    const { projectId, taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:232:    const { projectId, taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:233:    await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:245:    const { projectId, taskId } = await createTask();
+artifacts/api-server/src/routes/tasks.test.ts:311:    await db.insert(tasksTable).values({
+artifacts/api-server/src/routes/tasks.test.ts:342:  async function createTaskWithPrompt(prompt: string | null = "Fix the failing tests") {
+artifacts/api-server/src/routes/tasks.test.ts:351:      await db.update(tasksTable).set({ prompt }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:357:    const { taskId } = await createTaskWithPrompt("Fix the auth middleware");
+artifacts/api-server/src/routes/tasks.test.ts:368:    const { taskId } = await createTaskWithPrompt(null);
+artifacts/api-server/src/routes/tasks.test.ts:378:    const { taskId } = await createTaskWithPrompt("Refactor the DB layer");
+artifacts/api-server/src/routes/tasks.test.ts:391:    const { taskId } = await createTaskWithPrompt(null);
+artifacts/api-server/src/routes/tasks.test.ts:402:    const { taskId } = await createTaskWithPrompt("Some prompt");
+lib/db/src/schema/ai_chats.ts:3:import { tasksTable } from "./tasks.js";
+lib/db/src/schema/ai_chats.ts:23:    .references(() => tasksTable.id, { onDelete: "set null" }),
+artifacts/api-server/src/routes/rules.ts:4:import { rulesTable, eventsTable } from "@workspace/db";
+artifacts/api-server/src/routes/rules.ts:44:    conditions.push(eq(rulesTable.projectId, project.id));
+artifacts/api-server/src/routes/rules.ts:47:    conditions.push(isNull(rulesTable.projectId));
+artifacts/api-server/src/routes/rules.ts:49:  if (params.severity) conditions.push(eq(rulesTable.severity, params.severity));
+artifacts/api-server/src/routes/rules.ts:53:    .from(rulesTable)
+artifacts/api-server/src/routes/rules.ts:55:    .orderBy(desc(rulesTable.hitCount), desc(rulesTable.id))
+artifacts/api-server/src/routes/rules.ts:73:    const rows = await tx.insert(rulesTable)
+artifacts/api-server/src/routes/rules.ts:78:      correlationId, payload: { ruleId: rows[0].id },
+artifacts/api-server/src/routes/rules.ts:97:router.get("/rules/:ruleId", async (req, res) => {
+artifacts/api-server/src/routes/rules.ts:98:  const { ruleId } = GetRuleParams.parse(req.params);
+artifacts/api-server/src/routes/rules.ts:101:    .from(rulesTable)
+artifacts/api-server/src/routes/rules.ts:102:    .where(eq(rulesTable.id, ruleId))
+artifacts/api-server/src/routes/rules.ts:115:router.patch("/rules/:ruleId", async (req, res) => {
+artifacts/api-server/src/routes/rules.ts:116:  const { ruleId } = UpdateRuleParams.parse(req.params);
+artifacts/api-server/src/routes/rules.ts:119:  const before = await db.select().from(rulesTable).where(eq(rulesTable.id, ruleId)).limit(1);
+artifacts/api-server/src/routes/rules.ts:131:    const rows = await tx.update(rulesTable)
+artifacts/api-server/src/routes/rules.ts:133:      .where(eq(rulesTable.id, ruleId)).returning();
+artifacts/api-server/src/routes/rules.ts:147:    entityId: ruleId,
+artifacts/api-server/src/routes/rules.ts:161:router.delete("/rules/:ruleId", async (req, res) => {
+artifacts/api-server/src/routes/rules.ts:162:  const { ruleId } = DeleteRuleParams.parse(req.params);
+artifacts/api-server/src/routes/rules.ts:164:  const before = await db.select().from(rulesTable).where(eq(rulesTable.id, ruleId)).limit(1);
+artifacts/api-server/src/routes/rules.ts:181:    await tx.delete(rulesTable).where(eq(rulesTable.id, ruleId));
+artifacts/api-server/src/routes/rules.ts:186:    entityId: ruleId,
+artifacts/api-server/src/routes/rules.ts:198:router.post("/rules/:ruleId/evaluate", async (req, res) => {
+artifacts/api-server/src/routes/rules.ts:199:  const { ruleId } = EvaluateRuleParams.parse(req.params);
+artifacts/api-server/src/routes/rules.ts:202:  const rule = await db.select().from(rulesTable).where(eq(rulesTable.id, ruleId)).limit(1);
+artifacts/api-server/src/routes/rules.ts:220:      ruleId,
+artifacts/api-server/src/routes/rules.ts:252:    .update(rulesTable)
+artifacts/api-server/src/routes/rules.ts:254:      hitCount: sql`coalesce(${rulesTable.hitCount}, 0) + ${result.matchCount}`,
+artifacts/api-server/src/routes/rules.ts:257:    .where(eq(rulesTable.id, ruleId));
+artifacts/api-server/src/routes/rules.ts:269:    entityId: ruleId,
+artifacts/api-server/src/routes/rules.ts:280:    ruleId,
+artifacts/api-server/src/routes/rules.test.ts:9:import { db, rulesTable, projectsTable, eventsTable, auditLogsTable } from "@workspace/db";
+artifacts/api-server/src/routes/rules.test.ts:23:  await db.insert(rulesTable).values({
+artifacts/api-server/src/routes/rules.test.ts:60:    await db.delete(rulesTable).where(eq(rulesTable.id, id)).catch(() => undefined);
+artifacts/api-server/src/routes/rules.test.ts:123:    await db.update(rulesTable).set({ hitCount: 50 }).where(eq(rulesTable.id, highHitId));
+artifacts/api-server/src/routes/rules.test.ts:183:// ─── GET /rules/:ruleId ───────────────────────────────────────────────────────
+artifacts/api-server/src/routes/rules.test.ts:185:describe("GET /rules/:ruleId", () => {
+artifacts/api-server/src/routes/rules.test.ts:203:// ─── PATCH /rules/:ruleId ─────────────────────────────────────────────────────
+artifacts/api-server/src/routes/rules.test.ts:205:describe("PATCH /rules/:ruleId", () => {
+artifacts/api-server/src/routes/rules.test.ts:236:// ─── DELETE /rules/:ruleId ────────────────────────────────────────────────────
+artifacts/api-server/src/routes/rules.test.ts:238:describe("DELETE /rules/:ruleId", () => {
+artifacts/api-server/src/routes/rules.test.ts:246:    const rows = await db.select().from(rulesTable).where(eq(rulesTable.id, id));
+artifacts/api-server/src/routes/rules.test.ts:260:// ─── POST /rules/:ruleId/evaluate ─────────────────────────────────────────────
+artifacts/api-server/src/routes/rules.test.ts:262:describe("POST /rules/:ruleId/evaluate", () => {
+artifacts/api-server/src/routes/rules.test.ts:330:    expect(res.body.ruleId).toBe(id);
+artifacts/api-server/src/routes/projects.ts:6:  tasksTable,
+artifacts/api-server/src/routes/projects.ts:335: * `scan_jobs` row, flips the project to "scanning", and returns immediately;
+artifacts/api-server/src/routes/projects.ts:446:    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)),
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:94:  ruleViolations: Array<{ code: string; title: string; severity: string; count: number }>;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:959:        {/* Rule violations */}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:960:        {report.ruleViolations.length > 0 && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:964:                Rule Violations ({report.ruleViolations.length})
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:968:              {report.ruleViolations.slice(0, 5).map((v, i) => (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:976:              {report.ruleViolations.length > 5 && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:977:                <div className="px-4 py-2 text-xs text-muted-foreground/50">+{report.ruleViolations.length - 5} more violations…</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1026:          `Tasks created (${report?.ruleViolations.length ?? 0} from rule violations)`,
+artifacts/api-server/src/routes/projects.test.ts:10:  tasksTable,
+artifacts/api-server/src/routes/projects.test.ts:74:  await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
+artifacts/dashboard/src/pages/Dashboard.tsx:384:                key={rule.ruleId}
+artifacts/api-server/src/routes/ai.test.ts:17:  tasksTable,
+artifacts/api-server/src/routes/ai.test.ts:522:  await db.insert(tasksTable).values({
+artifacts/api-server/src/routes/ai.test.ts:646:    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/ai.test.ts:4008:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4009:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4038:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4039:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4087:    await db.update(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4089:      .where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4127:    await db.update(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4129:      .where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4177:        .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4178:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4217:    await db.update(tasksTable).set({ status: "verifying", updatedAt: new Date() }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4233:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4234:      .where(eq(tasksTable.id, taskId))
+lib/api-spec/openapi.yaml:223:      operationId: createTask
+lib/api-spec/openapi.yaml:421:  /api/rules/{ruleId}:
+lib/api-spec/openapi.yaml:427:        - name: ruleId
+lib/api-spec/openapi.yaml:444:        - name: ruleId
+lib/api-spec/openapi.yaml:467:        - name: ruleId
+lib/api-spec/openapi.yaml:476:  /api/rules/{ruleId}/evaluate:
+lib/api-spec/openapi.yaml:482:        - name: ruleId
+lib/api-spec/openapi.yaml:2028:             "consistent": true | false, "violations": ["bounded content-free reason"],
+lib/api-spec/openapi.yaml:2037:               the verdict failed closed on TELEMETRY_INCONSISTENT; violations are
+lib/api-spec/openapi.yaml:5475:        ruleId:
+lib/api-spec/openapi.yaml:5524:        ruleId:
+lib/api-spec/openapi.yaml:5675:      required: [ruleId, projectId, matched, matchCount, matches]
+lib/api-spec/openapi.yaml:5677:        ruleId:
+lib/api-spec/openapi.yaml:6577:        - ruleViolations
+lib/api-spec/openapi.yaml:6633:        ruleViolations:
+lib/api-spec/openapi.yaml:6681:            required: [ruleId, code, title, hitCount]
+lib/api-spec/openapi.yaml:6683:              ruleId:
+artifacts/dashboard/src/pages/AiChat.tsx:862:  violations?: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:1285:   * chats). `consistent: false` means the verdict failed closed, and violations
+artifacts/dashboard/src/pages/AiChat.tsx:1291:    violations: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:1482:      violations: Array.isArray(entry.violations)
+artifacts/dashboard/src/pages/AiChat.tsx:1483:        ? entry.violations.filter((v): v is string => typeof v === 'string')
+artifacts/dashboard/src/pages/AiChat.tsx:1655:  // than bounded contract violations surfaceable to the user.
+artifacts/dashboard/src/pages/AiChat.tsx:2031:              {evidence.evidenceIntegrity.violations.length > 0 && (() => {
+artifacts/dashboard/src/pages/AiChat.tsx:2032:                const violatingFiles = evidence.evidenceIntegrity.violations
+artifacts/dashboard/src/pages/AiChat.tsx:2625:              : `Telemetry reconciliation blocked ${integrity.violations.length || 1} unsupported claim${integrity.violations.length === 1 ? '' : 's'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:6504:    violations: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:6568:      : `${evidenceIntegrity.violations.length || 1} evidence violation${evidenceIntegrity.violations.length === 1 ? '' : 's'}`
+artifacts/dashboard/src/pages/AiChat.tsx:6972:      {(execution?.checkpointVersion !== undefined || execution?.resumable || evidenceIntegrity?.violations.length) && (
+artifacts/dashboard/src/pages/AiChat.tsx:7098:    violations: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:8693:            violations: event.violations,
+artifacts/dashboard/src/pages/AiChat.tsx:9525:                         {liveEvidenceIntegrity.violations.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:9526:                           <span className="truncate text-muted-foreground">· {liveEvidenceIntegrity.violations.length} violation{liveEvidenceIntegrity.violations.length === 1 ? '' : 's'}</span>
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2444:        violations: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2683:        violations: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2868:        violations: [],
+artifacts/api-server/src/routes/dashboard.test.ts:17:  tasksTable,
+artifacts/api-server/src/routes/dashboard.test.ts:19:  rulesTable,
+artifacts/api-server/src/routes/dashboard.test.ts:51:  await db.insert(tasksTable).values({
+artifacts/api-server/src/routes/dashboard.test.ts:99:  await db.insert(rulesTable).values({
+artifacts/api-server/src/routes/dashboard.test.ts:114:const ruleIds: string[] = [];
+artifacts/api-server/src/routes/dashboard.test.ts:119:    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/dashboard.test.ts:123:  for (const id of ruleIds.splice(0)) {
+artifacts/api-server/src/routes/dashboard.test.ts:124:    await db.delete(rulesTable).where(eq(rulesTable.id, id)).catch(() => undefined);
+artifacts/api-server/src/routes/dashboard.test.ts:223:    const ruleId = await insertRule(99); // null projectId → global rule
+artifacts/api-server/src/routes/dashboard.test.ts:224:    ruleIds.push(ruleId);
+artifacts/api-server/src/routes/dashboard.test.ts:228:      res.body.topRules as { ruleId: string; code: string; title: string; hitCount: number }[]
+artifacts/api-server/src/routes/dashboard.test.ts:229:    ).find((r) => r.ruleId === ruleId);
+artifacts/api-server/src/routes/dashboard.test.ts:384:    ruleIds.push(theirRuleId);
+artifacts/api-server/src/routes/dashboard.test.ts:388:      res.body.topRules as { ruleId: string }[]
+artifacts/api-server/src/routes/dashboard.test.ts:389:    ).find((r) => r.ruleId === theirRuleId);
+artifacts/api-server/src/routes/discovery.ts:9:  tasksTable,
+artifacts/api-server/src/routes/discovery.ts:473:          result.ruleViolations.filter(
+artifacts/api-server/src/routes/discovery.ts:481:        lintIssues: result.ruleViolations.reduce((s, r) => s + r.count, 0),
+artifacts/api-server/src/routes/discovery.ts:506:      // 4. Tasks from rule violations (top 20)
+artifacts/api-server/src/routes/discovery.ts:507:      for (const violation of result.ruleViolations.slice(0, 20)) {
+artifacts/api-server/src/routes/discovery.ts:508:        await tx.insert(tasksTable).values({
+artifacts/api-server/src/routes/discovery.test.ts:12:  tasksTable,
+artifacts/api-server/src/routes/discovery.test.ts:57:    ruleViolations: [],
+artifacts/api-server/src/routes/discovery.test.ts:108:    await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:585:  it("creates tasks capped at 20 from rule violations on import", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:586:    const violations = Array.from({ length: 30 }, (_, i) => ({
+artifacts/api-server/src/routes/discovery.test.ts:592:    const discoveryId = await insertReadySession(fakeResult({ ruleViolations: violations }));
+artifacts/api-server/src/routes/discovery.test.ts:600:      .from(tasksTable)
+artifacts/api-server/src/routes/discovery.test.ts:601:      .where(eq(tasksTable.projectId, res.body.id));
+artifacts/api-server/src/routes/discovery.test.ts:641:      await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:744:  it("maps rule violation severity to task priority: critical→p0, high→p1, other→p2", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:745:    const violations = [
+artifacts/api-server/src/routes/discovery.test.ts:750:    const discoveryId = await insertReadySession(fakeResult({ ruleViolations: violations }));
+artifacts/api-server/src/routes/discovery.test.ts:755:    const tasks = await db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId!));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1200:  it('renders the EI-012 telemetry reconciliation block with violations', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1213:        violations: ['claimed evidence with no backing completed read: src/routes/ai/chat.ts'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1274:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1341:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1405:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1476:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2169:        violations: [],
+artifacts/api-server/src/routes/dashboard.ts:5:  tasksTable,
+artifacts/api-server/src/routes/dashboard.ts:7:  rulesTable,
+artifacts/api-server/src/routes/dashboard.ts:24: * Global rules (rulesTable rows where projectId IS NULL) are visible to all
+artifacts/api-server/src/routes/dashboard.ts:51:          .from(tasksTable)
+artifacts/api-server/src/routes/dashboard.ts:52:          .where(inArray(tasksTable.projectId, projectIds))
+artifacts/api-server/src/routes/dashboard.ts:53:      : ([] as (typeof tasksTable.$inferSelect)[]),
+artifacts/api-server/src/routes/dashboard.ts:69:      .from(rulesTable)
+artifacts/api-server/src/routes/dashboard.ts:72:          ? or(isNull(rulesTable.projectId), inArray(rulesTable.projectId, projectIds))!
+artifacts/api-server/src/routes/dashboard.ts:73:          : isNull(rulesTable.projectId),
+artifacts/api-server/src/routes/dashboard.ts:75:      .orderBy(desc(rulesTable.hitCount))
+artifacts/api-server/src/routes/dashboard.ts:138:    ruleId: r.id,
+artifacts/api-server/src/routes/ai/tasks.ts:11:  tasksTable,
+artifacts/api-server/src/routes/ai/tasks.ts:45:    .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:46:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:84:      .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/ai/tasks.ts:85:      .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:86:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:109:      .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/ai/tasks.ts:110:      .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:111:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:150:    .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:154:        eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/ai/tasks.ts:155:        eq(tasksTable.status, task.status),
+artifacts/api-server/src/routes/ai/tasks.ts:178:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:180:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:243:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:245:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:293:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:295:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:325:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/ai/tasks.ts:329:        .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:343:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:406:        .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:407:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:467:        .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:469:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "verifying")))
+artifacts/api-server/src/routes/ai/tasks.ts:503:          .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:505:          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:561:          .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:563:          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))

@@ -160,9 +160,15 @@ export async function createDeliveryWorkspace(input: {
       force: false,
       errorOnExist: true,
       filter: (source) => {
+        const basename = path.basename(source);
         // Runtime command sockets/pipes are never project content and are
         // not copyable by fs.cp.
-        if (source.endsWith(".pipe") || source.endsWith(".sock")) return false;
+        if (
+          source.endsWith(".pipe")
+          || source.endsWith(".sock")
+          || basename.startsWith(".org.chromium.")
+          || /^(?:SingletonSocket|SingletonCookie|SingletonLock)$/.test(basename)
+        ) return false;
         if (source.includes(".engineeringos-delivery")) return false;
         // The managed delivery directory may live inside the project root
         // (the workspace itself is a valid project root). Never recurse into

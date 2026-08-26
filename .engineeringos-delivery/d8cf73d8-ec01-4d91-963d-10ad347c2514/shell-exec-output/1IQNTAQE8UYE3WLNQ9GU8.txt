@@ -1,0 +1,128 @@
+lib/ai-orchestrator/src/index.ts:1:export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+lib/ai-orchestrator/src/index.ts:32:export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities, getStrategy } from "./provider-registry.js";
+lib/ai-orchestrator/src/index.ts:69:export type { Message, GroqResponse, CompleteOptions, RawMessage, ToolCall, ToolDefinition, RawGroqResponse } from "./groq-client.js";
+lib/ai-orchestrator/src/index.ts:555:} from "./openrouter/index.js";
+lib/ai-orchestrator/src/index.ts:562:} from "./openrouter/index.js";
+lib/ai-orchestrator/src/index.ts:596:} from "./openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/index.ts:636:} from "./openrouter/circuit-breaker.js";
+lib/ai-orchestrator/src/groq-client.ts:17:import Groq from "groq-sdk";
+lib/ai-orchestrator/src/groq-client.ts:166:        JSON.stringify({ scope: "groq-client", event: "circuit_closed", key: key === "env" ? key : "user" }),
+lib/ai-orchestrator/src/groq-client.ts:178:          scope: "groq-client",
+lib/ai-orchestrator/src/groq-client.ts:370:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/groq-client.ts:482:  const line = JSON.stringify({ scope: "groq-client", ...meta });
+lib/ai-orchestrator/src/groq-client.ts:615:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/tool-execution-engine.ts:28:import type { RawMessage, RawGroqResponse } from "./groq-client.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:30:import type { ModelCapability } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1199:   *   openrouter → 2 048  (free-tier output caps)
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:4: * Wraps `openrouterCompleteWithFallback` and `openrouterCompleteStream` from
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:20:  openrouterCompleteWithFallback,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:21:  openrouterCompleteStream,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:24:import { refreshDynamicCatalog } from "../openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:29:} from "../openrouter/circuit-breaker.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:33:} from "../openrouter/model-resolver.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:34:import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:41:export const openrouterStrategy: ProviderStrategy = {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:42:  providerId: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:56:    if (isCircuitOpen("openrouter")) {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:59:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:61:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:75:        scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:77:        provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:105:            scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:113:      const result = await openrouterCompleteWithFallback(messages, { ...requestOpts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:115:      recordCircuitSuccess("openrouter");
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:118:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:120:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:129:      recordCircuitFailure("openrouter");
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:136:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:138:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:160:    if (isCircuitOpen("openrouter")) {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:163:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:165:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:179:        scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:181:        provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:199:            scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:207:      yield* openrouterCompleteStream(messages, { ...requestOpts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:208:      recordCircuitSuccess("openrouter");
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:211:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:213:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:218:      recordCircuitFailure("openrouter");
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:221:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:223:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:5: * (SSE generator) from groq-client.ts behind the `ProviderStrategy` interface.
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:8:import { completeRaw, completeStream } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:9:import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:16:export const groqStrategy: ProviderStrategy = {
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:17:  providerId: "groq",
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:19:import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:14:import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/startup-validator.ts:14:import { PROVIDER_PRIORITY, type ProviderId } from "./provider-registry.js";
+lib/ai-orchestrator/src/startup-validator.ts:15:import { FREE_MODELS } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/startup-validator.ts:19:} from "./openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/startup-validator.ts:31:  openrouter: "OPENROUTER_API_KEY",
+lib/ai-orchestrator/src/startup-validator.ts:34:  groq:       "GROQ_API_KEY",
+lib/ai-orchestrator/src/startup-validator.ts:48:  for (const providerId of PROVIDER_PRIORITY) {
+lib/ai-orchestrator/src/startup-validator.ts:102:  const openrouterKey = process.env["OPENROUTER_API_KEY"];
+lib/ai-orchestrator/src/startup-validator.ts:103:  if (openrouterKey) {
+lib/ai-orchestrator/src/startup-validator.ts:105:      await refreshDynamicCatalog(openrouterKey);
+lib/ai-orchestrator/src/quality-engine.ts:1:import { PROVIDER_PRIORITY, getProviderCapabilities, type ProviderId } from "./provider-registry.js";
+lib/ai-orchestrator/src/quality-engine.ts:161:  const uniqueIds = [...new Set(providerIds)].filter((id) => PROVIDER_PRIORITY.includes(id));
+lib/ai-orchestrator/src/quality-engine.ts:175:    const priorityA = PROVIDER_PRIORITY.indexOf(a);
+lib/ai-orchestrator/src/quality-engine.ts:176:    const priorityB = PROVIDER_PRIORITY.indexOf(b);
+lib/ai-orchestrator/src/deepseek-client.ts:5: * groq-client's RawGroqResponse so chat-agent.ts can route to either
+lib/ai-orchestrator/src/deepseek-client.ts:19:import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
+lib/ai-orchestrator/src/deepseek-client.ts:54: * used by groq-client.ts so callers (routes/ai.ts, chat-agent.ts) handle
+lib/ai-orchestrator/src/deepseek-client.ts:72: * Yields content deltas in the same way as groq-client's `completeStream`
+lib/ai-orchestrator/src/openai-compatible-client.ts:7: * groq-sdk client (which adds circuit-breaking and retry-with-backoff on top).
+lib/ai-orchestrator/src/openai-compatible-client.ts:10: * produced by groq-client.ts so chat-agent.ts and agent-complete.ts can route
+lib/ai-orchestrator/src/openai-compatible-client.ts:19:import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:25:} from "./openrouter/model-resolver.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:26:import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:27:import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:49:  /** Override base URL (e.g. "https://openrouter.ai/api/v1"). */
+lib/ai-orchestrator/src/openai-compatible-client.ts:714: * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
+lib/ai-orchestrator/src/openai-compatible-client.ts:931: * Yields content deltas in the same way as groq-client's `completeStream()`.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1082:const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+lib/ai-orchestrator/src/openai-compatible-client.ts:1094:export async function openrouterCompleteRaw(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1121:          scope: "openrouter-client",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1139:        scope: "openrouter-client",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1151: * Extended options for openrouterCompleteWithFallback.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1182:export async function openrouterCompleteWithFallback(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1240:        scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1255:      return await openrouterCompleteRaw(messages, { ...opts, model });
+lib/ai-orchestrator/src/openai-compatible-client.ts:1268:            scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1320: * OR-003: same context trim and conservative maxTokens as `openrouterCompleteRaw`.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1323:export async function* openrouterCompleteStream(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1414:          scope: "openrouter-fallback",
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:56:    providerId: "groq",
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:57:    candidates: ["groq"],
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:1:import type { ModelCapability } from "../openrouter/model-catalog.js";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:7:} from "../openrouter/model-resolver.js";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:9:import { getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:20:  source: "openrouter-catalog" | "provider-registry";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:91:  if (providerId === "openrouter") {
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:135:      source: "openrouter-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:17:const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+lib/ai-orchestrator/src/provider-registry.ts:12: *   3. An entry in PROVIDER_REGISTRY and PROVIDER_PRIORITY.
+lib/ai-orchestrator/src/provider-registry.ts:18:import { groqStrategy } from "./strategies/groq.strategy.js";
+lib/ai-orchestrator/src/provider-registry.ts:20:import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
+lib/ai-orchestrator/src/provider-registry.ts:22:import { FREE_MODELS } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/provider-registry.ts:33:export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
+lib/ai-orchestrator/src/provider-registry.ts:53: * Fallback priority order: openrouter → gemini → deepseek → groq.
+lib/ai-orchestrator/src/provider-registry.ts:61:export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter", "gemini", "deepseek", "groq"];
+lib/ai-orchestrator/src/provider-registry.ts:63:export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
+lib/ai-orchestrator/src/provider-registry.ts:64:  openrouter: {
+lib/ai-orchestrator/src/provider-registry.ts:65:    providerId: "openrouter",
+lib/ai-orchestrator/src/provider-registry.ts:67:    consoleUrl: "openrouter.ai/keys",
+lib/ai-orchestrator/src/provider-registry.ts:68:    statusUrl: "openrouter.ai",
+lib/ai-orchestrator/src/provider-registry.ts:144:  groq: {
+lib/ai-orchestrator/src/provider-registry.ts:145:    providerId: "groq",
+lib/ai-orchestrator/src/provider-registry.ts:147:    consoleUrl: "console.groq.com",
+4521:function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+4632:function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+4740:function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+4852:function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+9271:          <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
+9272:          <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
+9273:          <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />
+9274:          <GroqKeyCard      runtimeMetric={metricsMap.get('groq')} />

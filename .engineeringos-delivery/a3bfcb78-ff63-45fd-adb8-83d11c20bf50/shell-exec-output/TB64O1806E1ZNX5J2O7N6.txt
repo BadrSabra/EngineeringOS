@@ -1,0 +1,147 @@
+-- API contract sections --
+artifacts/dashboard/src/pages/Tasks.tsx:3:  useListTasks,
+artifacts/dashboard/src/pages/Tasks.tsx:8:  getListTasksQueryKey,
+artifacts/dashboard/src/pages/Tasks.tsx:64:  relatedFiles?: string[];
+artifacts/dashboard/src/pages/Tasks.tsx:168:function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: string }) {
+artifacts/dashboard/src/pages/Tasks.tsx:170:  const isRunning = taskStatus === 'running';
+artifacts/dashboard/src/pages/Tasks.tsx:189:    const es = new EventSource(`/api/tasks/${taskId}/logs/stream`);
+artifacts/dashboard/src/pages/Tasks.tsx:255:  const final = ['completed', 'failed', 'cancelled'].includes(taskStatus);
+artifacts/dashboard/src/pages/Tasks.tsx:267:          ['Status', taskStatus],
+artifacts/dashboard/src/pages/Tasks.tsx:372:             {taskStatus === 'completed' && task.verificationResult?.passed
+artifacts/dashboard/src/pages/Tasks.tsx:374:               : taskStatus === 'completed'
+artifacts/dashboard/src/pages/Tasks.tsx:376:                 : taskStatus === 'cancelled'
+artifacts/dashboard/src/pages/Tasks.tsx:397:type TaskStatusFilter = 'pending' | 'queued' | 'running' | 'verifying' | 'completed' | 'failed' | 'cancelled';
+artifacts/dashboard/src/pages/Tasks.tsx:402:export default function Tasks() {
+artifacts/dashboard/src/pages/Tasks.tsx:404:  const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
+artifacts/dashboard/src/pages/Tasks.tsx:410:  const { data: rawTasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
+artifacts/dashboard/src/pages/Tasks.tsx:414:        queryKey: getListTasksQueryKey({
+artifacts/dashboard/src/pages/Tasks.tsx:421:  const tasks = useMonotonicData(rawTasks, newestUpdatedAt(rawTasks));
+artifacts/dashboard/src/pages/Tasks.tsx:428:  const visibleTasks = tasks?.filter((t) =>
+artifacts/dashboard/src/pages/Tasks.tsx:437:      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }),
+artifacts/dashboard/src/pages/Tasks.tsx:482:            Orchestrate and monitor autonomous agent tasks.
+artifacts/dashboard/src/pages/Tasks.tsx:486:          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh tasks" />
+artifacts/dashboard/src/pages/Tasks.tsx:490:              onChange={(e) => setFilterStatus(e.target.value as TaskStatusFilter | '')}
+artifacts/dashboard/src/pages/Tasks.tsx:518:              placeholder="Search tasks..."
+artifacts/dashboard/src/pages/Tasks.tsx:537:          <span className="font-semibold">{visibleTasks.length}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:538:          <span className="text-muted-foreground">of {tasks?.length ?? 0} tasks matching</span>
+artifacts/dashboard/src/pages/Tasks.tsx:554:            message={error instanceof Error ? error.message : 'Unable to load tasks.'}
+artifacts/dashboard/src/pages/Tasks.tsx:557:        ) : visibleTasks.length === 0 ? (
+artifacts/dashboard/src/pages/Tasks.tsx:561:              {searchTerm ? 'No tasks match your search' : 'No tasks found'}
+artifacts/dashboard/src/pages/Tasks.tsx:566:                : 'Tasks are created automatically when a project scan detects issues.'}
+artifacts/dashboard/src/pages/Tasks.tsx:570:          visibleTasks.map((task) => (
+artifacts/dashboard/src/pages/Tasks.tsx:687:                          {task.relatedFiles && task.relatedFiles.length > 0 && (
+artifacts/dashboard/src/pages/Tasks.tsx:693:                                {task.relatedFiles.map((f, i) => (
+artifacts/dashboard/src/pages/Tasks.tsx:717:                            <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
+artifacts/dashboard/src/pages/Tasks.tsx:769:                      <TaskLogsPanel task={task} taskStatus={task.status} />
+artifacts/api-server/src/routes/dashboard.ts:5:  tasksTable,
+artifacts/api-server/src/routes/dashboard.ts:7:  rulesTable,
+artifacts/api-server/src/routes/dashboard.ts:21: * (for tasks, events, metrics, and project-specific rules). A user can
+artifacts/api-server/src/routes/dashboard.ts:24: * Global rules (rulesTable rows where projectId IS NULL) are visible to all
+artifacts/api-server/src/routes/dashboard.ts:25: * authenticated users because they represent system-wide quality rules, not
+artifacts/api-server/src/routes/dashboard.ts:46:  const [tasks, recentEvents, allRules, latestMetrics] = await Promise.all([
+artifacts/api-server/src/routes/dashboard.ts:47:    // Tasks are always project-scoped; return empty when the user has no projects.
+artifacts/api-server/src/routes/dashboard.ts:51:          .from(tasksTable)
+artifacts/api-server/src/routes/dashboard.ts:52:          .where(inArray(tasksTable.projectId, projectIds))
+artifacts/api-server/src/routes/dashboard.ts:53:      : ([] as (typeof tasksTable.$inferSelect)[]),
+artifacts/api-server/src/routes/dashboard.ts:65:    // Rules: show global (projectId = null) rules for all authenticated users,
+artifacts/api-server/src/routes/dashboard.ts:66:    // plus any rules tied specifically to this user's projects.
+artifacts/api-server/src/routes/dashboard.ts:69:      .from(rulesTable)
+artifacts/api-server/src/routes/dashboard.ts:72:          ? or(isNull(rulesTable.projectId), inArray(rulesTable.projectId, projectIds))!
+artifacts/api-server/src/routes/dashboard.ts:73:          : isNull(rulesTable.projectId),
+artifacts/api-server/src/routes/dashboard.ts:75:      .orderBy(desc(rulesTable.hitCount))
+artifacts/api-server/src/routes/dashboard.ts:90:  const activeTaskCount = tasks.filter(
+artifacts/api-server/src/routes/dashboard.ts:96:  const completedTaskCount = tasks.filter(
+artifacts/api-server/src/routes/dashboard.ts:99:  const failedTaskCount = tasks.filter((t) => t.status === "failed").length;
+artifacts/api-server/src/routes/dashboard.ts:101:  const taskStatusBreakdown: Record<string, number> = {};
+artifacts/api-server/src/routes/dashboard.ts:102:  for (const task of tasks) {
+artifacts/api-server/src/routes/dashboard.ts:103:    taskStatusBreakdown[task.status] =
+artifacts/api-server/src/routes/dashboard.ts:104:      (taskStatusBreakdown[task.status] ?? 0) + 1;
+artifacts/api-server/src/routes/dashboard.ts:137:  const topRules = allRules.map((r) => ({
+artifacts/api-server/src/routes/dashboard.ts:138:    ruleId: r.id,
+artifacts/api-server/src/routes/dashboard.ts:149:    ...tasks.map((t) => t.updatedAt),
+artifacts/api-server/src/routes/dashboard.ts:152:    ...allRules.map((rule) => rule.updatedAt),
+artifacts/api-server/src/routes/dashboard.ts:168:    taskStatusBreakdown,
+artifacts/api-server/src/routes/dashboard.ts:169:    topRules,
+lib/api-spec/openapi.yaml:188:  # ─── Tasks ───────────────────────────────────────────────────────────────────
+lib/api-spec/openapi.yaml:189:  /api/tasks:
+lib/api-spec/openapi.yaml:191:      operationId: listTasks
+lib/api-spec/openapi.yaml:192:      summary: List tasks with optional filters
+lib/api-spec/openapi.yaml:193:      tags: [Tasks]
+lib/api-spec/openapi.yaml:202:            $ref: "#/components/schemas/TaskStatus"
+lib/api-spec/openapi.yaml:215:          description: List of tasks
+lib/api-spec/openapi.yaml:225:      tags: [Tasks]
+lib/api-spec/openapi.yaml:240:  /api/tasks/{taskId}:
+lib/api-spec/openapi.yaml:244:      tags: [Tasks]
+lib/api-spec/openapi.yaml:261:      tags: [Tasks]
+lib/api-spec/openapi.yaml:284:      tags: [Tasks]
+lib/api-spec/openapi.yaml:295:  /api/tasks/{taskId}/execute:
+lib/api-spec/openapi.yaml:299:      tags: [Tasks]
+lib/api-spec/openapi.yaml:314:  /api/tasks/{taskId}/retry:
+lib/api-spec/openapi.yaml:318:      tags: [Tasks]
+lib/api-spec/openapi.yaml:333:  /api/tasks/{taskId}/rollback:
+lib/api-spec/openapi.yaml:337:      tags: [Tasks]
+lib/api-spec/openapi.yaml:352:  /api/tasks/{taskId}/logs:
+lib/api-spec/openapi.yaml:356:      tags: [Tasks]
+lib/api-spec/openapi.yaml:373:  # ─── Rules ───────────────────────────────────────────────────────────────────
+lib/api-spec/openapi.yaml:374:  /api/rules:
+lib/api-spec/openapi.yaml:376:      operationId: listRules
+lib/api-spec/openapi.yaml:377:      summary: List all rules
+lib/api-spec/openapi.yaml:378:      tags: [Rules]
+lib/api-spec/openapi.yaml:393:            $ref: "#/components/schemas/RuleSeverity"
+lib/api-spec/openapi.yaml:396:          description: List of rules
+lib/api-spec/openapi.yaml:406:      tags: [Rules]
+lib/api-spec/openapi.yaml:421:  /api/rules/{ruleId}:
+lib/api-spec/openapi.yaml:425:      tags: [Rules]
+lib/api-spec/openapi.yaml:427:        - name: ruleId
+lib/api-spec/openapi.yaml:442:      tags: [Rules]
+lib/api-spec/openapi.yaml:444:        - name: ruleId
+lib/api-spec/openapi.yaml:465:      tags: [Rules]
+lib/api-spec/openapi.yaml:467:        - name: ruleId
+lib/api-spec/openapi.yaml:476:  /api/rules/{ruleId}/evaluate:
+lib/api-spec/openapi.yaml:480:      tags: [Rules]
+lib/api-spec/openapi.yaml:482:        - name: ruleId
+lib/api-spec/openapi.yaml:1453:      summary: Aggregated dashboard data (projects, active tasks, recent events, scores)
+lib/api-spec/openapi.yaml:2014:               This may be a fallback model; it contains no prompt, source, or model text.
+lib/api-spec/openapi.yaml:2028:             "consistent": true | false, "violations": ["bounded content-free reason"],
+lib/api-spec/openapi.yaml:2037:               the verdict failed closed on TELEMETRY_INCONSISTENT; violations are
+lib/api-spec/openapi.yaml:2065:              "details"?: ["bounded contract violation"] }
+lib/api-spec/openapi.yaml:2109:             "diagnosticDetails"?: ["bounded contract violation"],
+lib/api-spec/openapi.yaml:2529:      x-sse-hook: "@workspace/api-client-react#useAiTaskStream"
+lib/api-spec/openapi.yaml:2566:      x-sse-hook: "@workspace/api-client-react#useAiTaskStream"
+lib/api-spec/openapi.yaml:2599:  /api/ai/tasks/{taskId}/execute:
+lib/api-spec/openapi.yaml:3461:            required: [operationId, caseId, outcome, verifiedCompletion, recovered, scopeViolation, repeatedSideEffect]
+lib/api-spec/openapi.yaml:3468:              scopeViolation: { type: boolean }
+lib/api-spec/openapi.yaml:3806:        - retryExhaustedTasks
+lib/api-spec/openapi.yaml:3826:        retryExhaustedTasks:
+lib/api-spec/openapi.yaml:5306:    TaskStatus:
+lib/api-spec/openapi.yaml:5314:    RuleSeverity:
+lib/api-spec/openapi.yaml:5391:      required: [projectId, scannedAt, filesFound, issuesDetected, tasksCreated]
+lib/api-spec/openapi.yaml:5402:        tasksCreated:
+lib/api-spec/openapi.yaml:5475:        ruleId:
+lib/api-spec/openapi.yaml:5484:          $ref: "#/components/schemas/TaskStatus"
+lib/api-spec/openapi.yaml:5487:        relatedFiles:
+lib/api-spec/openapi.yaml:5501:        prompt:
+lib/api-spec/openapi.yaml:5524:        ruleId:
+lib/api-spec/openapi.yaml:5534:        relatedFiles:
+lib/api-spec/openapi.yaml:5554:          $ref: "#/components/schemas/TaskStatus"
+lib/api-spec/openapi.yaml:5612:          $ref: "#/components/schemas/RuleSeverity"
+lib/api-spec/openapi.yaml:5615:        fixDescription:
+lib/api-spec/openapi.yaml:5617:        verifySteps:
+lib/api-spec/openapi.yaml:5646:          $ref: "#/components/schemas/RuleSeverity"
+lib/api-spec/openapi.yaml:5649:        fixDescription:
+lib/api-spec/openapi.yaml:5651:        verifySteps:
+lib/api-spec/openapi.yaml:5665:          $ref: "#/components/schemas/RuleSeverity"
+lib/api-spec/openapi.yaml:5668:        fixDescription:
+lib/api-spec/openapi.yaml:5675:      required: [ruleId, projectId, matched, matchCount, matches]
+lib/api-spec/openapi.yaml:5677:        ruleId:
+lib/api-spec/openapi.yaml:6024:          description: True when inferred by heuristic rules rather than direct parse evidence
+lib/api-spec/openapi.yaml:6372:            enum: [analyzer, rules, prompts, verifier, reporter]
+lib/api-spec/openapi.yaml:6423:        skipRules:
+lib/api-spec/openapi.yaml:6529:    DiscoveryRuleViolationItem:
+lib/api-spec/openapi.yaml:6577:        - ruleViolations
+lib/api-spec/openapi.yaml:6633:        ruleViolations:
+lib/api-spec/openapi.yaml:6636:            $ref: "#/components/schemas/DiscoveryRuleViolationItem"
+lib/api-spec/openapi.yaml:6673:        taskStatusBreakdown:
+lib/api-spec/openapi.yaml:6677:        topRules:
+lib/api-spec/openapi.yaml:6681:            required: [ruleId, code, title, hitCount]
+lib/api-spec/openapi.yaml:6683:              ruleId:

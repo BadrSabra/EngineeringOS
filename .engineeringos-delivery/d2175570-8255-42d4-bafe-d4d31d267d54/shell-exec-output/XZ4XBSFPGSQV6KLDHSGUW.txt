@@ -1,0 +1,904 @@
+rate-limit' guidance safe for task execution 79ms
+   → expected 402 to be 429 // Object.is equality
+ × src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'circuit' guidance safe for task execution 72ms
+   → expected 429 to be 422 // Object.is equality
+[03:13:37.203] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.203] WARN (7808): provider failed — trying next in chain
+    provider: "groq"
+    code: "MODEL_NOT_FOUND"
+    message: "Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts"
+[03:13:37.219] ERROR (7808): AI orchestrator request failed
+    projectId: "8aec669d-98fc-4343-ab01-cf5ba9794951"
+    operation: "task-execution"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4378:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4376:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "MODEL_NOT_FOUND",
+      "providerCode": "CIRCUIT_OPEN",
+      "name": "GroqClientError"
+    }
+[03:13:37.219] INFO (7808): request completed
+    req: {
+      "id": 139,
+      "method": "POST",
+      "url": "/api/ai/tasks/dba3bc51-242d-4b38-aa5a-a3b205aa6e1b/execute"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 50
+[03:13:37.250] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.250] INFO (7808): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[03:13:37.268] ERROR (7808): AI orchestrator request failed
+    projectId: "35259896-2624-4d3c-b534-80b7a28930d3"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream authentication request raw-provider-message at /srv/provider/authentication.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream authentication request raw-provider-message at /srv/provider/authentication.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "AUTH_ERROR",
+      "name": "GroqClientError"
+    }
+[03:13:37.268] INFO (7808): request completed
+    req: {
+      "id": 140,
+      "method": "POST",
+      "url": "/api/ai/workflows/1c78765c-c293-4165-9cbf-5f7a491c8ec2/orchestrate"
+    }
+    res: {
+      "statusCode": 401
+    }
+    responseTime: 25
+[03:13:37.303] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.303] INFO (7808): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+ × src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'outage' guidance safe for task execution 72ms
+   → expected 422 to be 502 // Object.is equality
+ ✓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'authentication' guidance safe for workflow orchestration 54ms
+[03:13:37.320] ERROR (7808): AI orchestrator request failed
+    projectId: "ddb1b3ab-1aba-4dbc-8ae3-ef100fc63cd4"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream model request raw-provider-message at /srv/provider/model.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream model request raw-provider-message at /srv/provider/model.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "MODEL_NOT_FOUND",
+      "name": "GroqClientError"
+    }
+[03:13:37.321] INFO (7808): request completed
+    req: {
+      "id": 141,
+      "method": "POST",
+      "url": "/api/ai/workflows/5d10fa7b-c2ee-4b66-95c6-d545a7d831d5/orchestrate"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 25
+[03:13:37.350] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.350] INFO (7808): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "workflow"
+[03:13:37.375] ERROR (7808): AI orchestrator request failed
+    projectId: "adab6c43-05ff-4401-bf6e-76ca7e30e35f"
+    operation: "workflow-orchestration"
+    provider: "openrouter"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream catalog request raw-provider-message at /srv/provider/catalog.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream catalog request raw-provider-message at /srv/provider/catalog.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "INVALID_CONFIG",
+      "providerCode": "NO_COMPATIBLE_FREE_MODEL",
+      "catalogStatus": "failed",
+      "catalogError": "raw catalog response at /tmp/catalog.json",
+      "name": "GroqClientError"
+    }
+[03:13:37.377] INFO (7808): request errored
+    req: {
+      "id": 142,
+      "method": "POST",
+      "url": "/api/ai/workflows/6a35b653-fca9-4a68-ba86-32f53e6cd70c/orchestrate"
+    }
+    res: {
+      "statusCode": 503
+    }
+    responseTime: 35
+    err: {
+      "type": "Error",
+      "message": "failed with status code 503",
+      "stack":
+          Error: failed with status code 503
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+ ✓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'model' guidance safe for workflow orchestration 46ms
+ ✓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'catalog' guidance safe for workflow orchestration 55ms
+[03:13:37.409] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.409] INFO (7808): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[03:13:37.437] ERROR (7808): AI orchestrator request failed
+    projectId: "e25a51d8-443a-4391-a6f1-efed7efaad63"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream quota request raw-provider-message at /srv/provider/quota.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream quota request raw-provider-message at /srv/provider/quota.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "QUOTA",
+      "name": "GroqClientError"
+    }
+[03:13:37.438] INFO (7808): request completed
+    req: {
+      "id": 143,
+      "method": "POST",
+      "url": "/api/ai/workflows/ff255314-24f9-4a7a-a6f7-ce5bb533a5c3/orchestrate"
+    }
+    res: {
+      "statusCode": 402
+    }
+    responseTime: 35
+[03:13:37.484] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.484] INFO (7808): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[03:13:37.505] ERROR (7808): AI orchestrator request failed
+    projectId: "eb6f222e-f7f4-4071-b415-e99fa5b8bb71"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream rate-limit request raw-provider-message at /srv/provider/rate-limit.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream rate-limit request raw-provider-message at /srv/provider/rate-limit.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "RATE_LIMITED",
+      "name": "GroqClientError"
+    }
+[03:13:37.506] INFO (7808): request completed
+    req: {
+      "id": 144,
+      "method": "POST",
+      "url": "/api/ai/workflows/c81ed52c-c5ce-45db-95b4-f11029e25e32/orchestrate"
+    }
+    res: {
+      "statusCode": 429
+    }
+    responseTime: 31
+ ✓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'quota' guidance safe for workflow orchestration 77ms
+ ✓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'rate-limit' guidance safe for workflow orchestration 52ms
+[03:13:37.533] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.533] INFO (7808): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[03:13:37.555] ERROR (7808): AI orchestrator request failed
+    projectId: "d892b750-235c-49fc-a4e3-96ef64ad31d7"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream circuit request raw-provider-message at /srv/provider/circuit.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "MODEL_NOT_FOUND",
+      "providerCode": "CIRCUIT_OPEN",
+      "name": "GroqClientError"
+    }
+[03:13:37.555] INFO (7808): request completed
+    req: {
+      "id": 145,
+      "method": "POST",
+      "url": "/api/ai/workflows/99ceb000-6945-46ae-9f57-9d5a74774b79/orchestrate"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 28
+[03:13:37.581] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "workflow"
+    requireTools: false
+    available: [
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.582] INFO (7808): resolved primary provider: groq
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "groq"
+    requireTools: false
+    qualityProfile: "workflow"
+[03:13:37.599] ERROR (7808): AI orchestrator request failed
+    projectId: "aa4e5af7-c248-4c7f-9e8a-7bc2144cc90a"
+    operation: "workflow-orchestration"
+    provider: "groq"
+    err: {
+      "type": "GroqClientError",
+      "message": "Authorization: Bearer provider-key-secret; upstream outage request raw-provider-message at /srv/provider/outage.ts",
+      "stack":
+          GroqClientError: Authorization: Bearer provider-key-secret; upstream outage request raw-provider-message at /srv/provider/outage.ts
+              at makeProviderError (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4317:12)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4392:56
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at withOnlyProvider (/home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4365:14)
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:4390:5
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "SERVER_ERROR",
+      "name": "GroqClientError"
+    }
+[03:13:37.599] INFO (7808): request errored
+    req: {
+      "id": 146,
+      "method": "POST",
+      "url": "/api/ai/workflows/9ee8e705-619e-43bf-8cd1-89cd84754051/orchestrate"
+    }
+    res: {
+      "statusCode": 502
+    }
+    responseTime: 23
+    err: {
+      "type": "Error",
+      "message": "failed with status code 502",
+      "stack":
+          Error: failed with status code 502
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+ ✓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'circuit' guidance safe for workflow orchestration 50ms
+ ✓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'outage' guidance safe for workflow orchestration 43ms
+ ✓ src/routes/ai.test.ts > resolveProvider tool-capability filtering > skips Gemini when a request requires tools 2ms
+[03:13:37.613] INFO (7808): Skipping provider that cannot satisfy the current request
+    provider: "gemini"
+    requireTools: true
+    reason: "no_tool_support"
+[03:13:37.614] INFO (7808): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: null
+    requireTools: true
+    available: []
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_tool_support"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[03:13:37.614] INFO (7808): no provider available
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: null
+    requireTools: true
+    qualityProfile: null
+ ✓ src/routes/ai-route-parity.test.ts > AI route / OpenAPI spec parity (PR-06) > has no code-only AI routes missing from the OpenAPI spec 2ms
+ ✓ src/routes/ai-route-parity.test.ts > AI route / OpenAPI spec parity (PR-06) > has no spec-only AI paths not implemented in code 0ms
+ ✓ src/routes/ai-route-parity.test.ts > AI route / OpenAPI spec parity (PR-06) > spec covers at least the known baseline AI routes 0ms
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 18 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > does not consume a proposal when behavioral verification blocks the write
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:884:28
+    882|     try {
+    883|       const first = await request(app).post("/api/ai/chat/apply-change…
+    884|       expect(first.status).toBe(207);
+       |                            ^
+    885|       expect(first.body.results[0]).toMatchObject({
+    886|         ok: false,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > emits a warning AiChangesApplied event when no file can be written
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:2915:24
+    2913|         changes: proposalChanges,
+    2914|       });
+    2915|     expect(res.status).toBe(207);
+       |                        ^
+    2916|     expect(res.body.results).toHaveLength(1);
+    2917|     expect(res.body.results[0].ok).toBe(false);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not promote a candidate when behavioral verification is unavailable
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:2964:24
+    2962|         changes: proposalChanges,
+    2963|       });
+    2964|     expect(res.status).toBe(207);
+       |                        ^
+    2965|     expect(res.body.results).toHaveLength(1);
+    2966|     expect(res.body.results[0]).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > fails closed before promotion when behavioral verification is unavailable
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:3028:26
+    3026|         });
+    3027|
+    3028|       expect(res.status).toBe(207);
+       |                          ^
+    3029|       expect(res.body).toMatchObject({
+    3030|         applyStatus: "BLOCKED",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > blocks a destructive source-file replacement and leaves the original intact
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:3121:26
+    3119|         });
+    3120|
+    3121|       expect(res.status).toBe(207);
+       |                          ^
+    3122|       expect(res.body.results[0].ok).toBe(false);
+    3123|       expect(res.body.results[0].error).toContain("destructive");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not partially apply a safe sibling when another change is destructive
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:3185:26
+    3183|         });
+    3184|
+    3185|       expect(res.status).toBe(207);
+       |                          ^
+    3186|       expect(res.body.results.every((result: { ok: boolean }) => !resu…
+    3187|       expect(await fs.readFile(dangerousPath, "utf-8")).toBe(original);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects applying a pending change when the file changed after proposal
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:3232:26
+    3230|           }],
+    3231|         });
+    3232|       expect(res.status).toBe(207);
+       |                          ^
+    3233|       expect(res.body.results[0].ok).toBe(false);
+    3234|       expect(res.body.results[0].error).toContain("changed after");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns a base-hash conflict and never writes a stale patch
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:3279:26
+    3277|         .send({ projectId: id, proposalId, changes: proposalChanges });
+    3278|
+    3279|       expect(res.status).toBe(207);
+       |                          ^
+    3280|       expect(res.body.results[0]).toMatchObject({
+    3281|         ok: false,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > aborts the whole batch when one accepted change has a stale base
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:3347:26
+    3345|         .send({ projectId: id, proposalId, changes: proposalChanges });
+    3346|
+    3347|       expect(res.status).toBe(207);
+       |                          ^
+    3348|       const staleResult = res.body.results.find((result: { path: strin…
+    3349|       const validResult = res.body.results.find((result: { path: strin…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns a hunk conflict even when the submitted base hash is current
+AssertionError: expected 500 to be 207 // Object.is equality
+
+- Expected
++ Received
+
+- 207
++ 500
+
+ ❯ src/routes/ai.test.ts:3409:26
+    3407|         .send({ projectId: id, proposalId, changes: proposalChanges });
+    3408|
+    3409|       expect(res.status).toBe(207);
+       |                          ^
+    3410|       expect(res.body.results[0]).toMatchObject({
+    3411|         ok: false,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/18]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > applies a partial hunk selection — only accepted hunks are written via rebase
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:3500:26
+    3498|
+    3499|       // allOk=true → 200; 207 is for partial success only.
+    3500|       expect(res.status).toBe(200);
+       |                          ^
+    3501|       expect(res.body.results[0]).toMatchObject({ ok: true });
+    3502|       // Only the first hunk (a→10) was applied; b stays at 2.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/18]⎯
+
+ FAIL  src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'authentication' guidance safe for task execution
+AssertionError: expected 202 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 202
+
+ ❯ assertSafeFailureResponse src/routes/ai.test.ts:4336:29
+    4334|     failure: (typeof failureCases)[number],
+    4335|   ): void {
+    4336|     expect(response.status).toBe(failure.expectedStatus);
+       |                             ^
+    4337|     expect(response.body).toMatchObject({
+    4338|       code: failure.errorCode,
+ ❯ src/routes/ai.test.ts:4385:7
+ ❯ withOnlyProvider src/routes/ai.test.ts:4365:14
+ ❯ src/routes/ai.test.ts:4376:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/18]⎯
+
+ FAIL  src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'model' guidance safe for task execution
+AssertionError: expected 401 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 401
+
+ ❯ assertSafeFailureResponse src/routes/ai.test.ts:4336:29
+    4334|     failure: (typeof failureCases)[number],
+    4335|   ): void {
+    4336|     expect(response.status).toBe(failure.expectedStatus);
+       |                             ^
+    4337|     expect(response.body).toMatchObject({
+    4338|       code: failure.errorCode,
+ ❯ src/routes/ai.test.ts:4385:7
+ ❯ withOnlyProvider src/routes/ai.test.ts:4365:14
+ ❯ src/routes/ai.test.ts:4376:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/18]⎯
+
+ FAIL  src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'catalog' guidance safe for task execution
+AssertionError: expected 422 to be 503 // Object.is equality
+
+- Expected
++ Received
+
+- 503
++ 422
+
+ ❯ assertSafeFailureResponse src/routes/ai.test.ts:4336:29
+    4334|     failure: (typeof failureCases)[number],
+    4335|   ): void {
+    4336|     expect(response.status).toBe(failure.expectedStatus);
+       |                             ^
+    4337|     expect(response.body).toMatchObject({
+    4338|       code: failure.errorCode,
+ ❯ src/routes/ai.test.ts:4385:7
+ ❯ withOnlyProvider src/routes/ai.test.ts:4365:14
+ ❯ src/routes/ai.test.ts:4376:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/18]⎯
+
+ FAIL  src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'quota' guidance safe for task execution
+AssertionError: expected 422 to be 402 // Object.is equality
+
+- Expected
++ Received
+
+- 402
++ 422
+
+ ❯ assertSafeFailureResponse src/routes/ai.test.ts:4336:29
+    4334|     failure: (typeof failureCases)[number],
+    4335|   ): void {
+    4336|     expect(response.status).toBe(failure.expectedStatus);
+       |                             ^
+    4337|     expect(response.body).toMatchObject({
+    4338|       code: failure.errorCode,
+ ❯ src/routes/ai.test.ts:4385:7
+ ❯ withOnlyProvider src/routes/ai.test.ts:4365:14
+ ❯ src/routes/ai.test.ts:4376:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/18]⎯
+
+ FAIL  src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'rate-limit' guidance safe for task execution
+AssertionError: expected 402 to be 429 // Object.is equality
+
+- Expected
++ Received
+
+- 429
++ 402
+
+ ❯ assertSafeFailureResponse src/routes/ai.test.ts:4336:29
+    4334|     failure: (typeof failureCases)[number],
+    4335|   ): void {
+    4336|     expect(response.status).toBe(failure.expectedStatus);
+       |                             ^
+    4337|     expect(response.body).toMatchObject({
+    4338|       code: failure.errorCode,
+ ❯ src/routes/ai.test.ts:4385:7
+ ❯ withOnlyProvider src/routes/ai.test.ts:4365:14
+ ❯ src/routes/ai.test.ts:4376:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/18]⎯
+
+ FAIL  src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'circuit' guidance safe for task execution
+AssertionError: expected 429 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 429
+
+ ❯ assertSafeFailureResponse src/routes/ai.test.ts:4336:29
+    4334|     failure: (typeof failureCases)[number],
+    4335|   ): void {
+    4336|     expect(response.status).toBe(failure.expectedStatus);
+       |                             ^
+    4337|     expect(response.body).toMatchObject({
+    4338|       code: failure.errorCode,
+ ❯ src/routes/ai.test.ts:4385:7
+ ❯ withOnlyProvider src/routes/ai.test.ts:4365:14
+ ❯ src/routes/ai.test.ts:4376:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/18]⎯
+
+ FAIL  src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'outage' guidance safe for task execution
+AssertionError: expected 422 to be 502 // Object.is equality
+
+- Expected
++ Received
+
+- 502
++ 422
+
+ ❯ assertSafeFailureResponse src/routes/ai.test.ts:4336:29
+    4334|     failure: (typeof failureCases)[number],
+    4335|   ): void {
+    4336|     expect(response.status).toBe(failure.expectedStatus);
+       |                             ^
+    4337|     expect(response.body).toMatchObject({
+    4338|       code: failure.errorCode,
+ ❯ src/routes/ai.test.ts:4385:7
+ ❯ withOnlyProvider src/routes/ai.test.ts:4365:14
+ ❯ src/routes/ai.test.ts:4376:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/18]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  18 failed | 112 passed (130)
+   Start at  03:13:21
+   Duration  16.19s (transform 3.75s, setup 0ms, import 6.46s, tests 9.39s, environment 0ms)
+
+/home/runner/workspace/artifacts/api-server:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/routes/ai-route-parity.test.ts src/routes/ai.test.ts --reporter=verbose

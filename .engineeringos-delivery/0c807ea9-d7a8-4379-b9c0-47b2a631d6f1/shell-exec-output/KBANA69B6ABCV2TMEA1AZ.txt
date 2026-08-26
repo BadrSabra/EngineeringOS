@@ -1,0 +1,75 @@
+EXIT:1
+24:[03:19:01.027] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/22ee5546-973a-446f-a299-b779cd09b733/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/22ee5546-973a-446f-a299-b779cd09b733/.org.chromium.Chromium.demGqb/SingletonSocket
+27:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/22ee5546-973a-446f-a299-b779cd09b733/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/22ee5546-973a-446f-a299-b779cd09b733/.org.chromium.Chromium.demGqb/SingletonSocket",
+29:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/22ee5546-973a-446f-a299-b779cd09b733/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/22ee5546-973a-446f-a299-b779cd09b733/.org.chromium.Chromium.demGqb/SingletonSocket
+64:      "message": "failed with status code 500",
+66:          Error: failed with status code 500
+76:[03:19:01.425] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/45936aee-2cee-4d73-8b01-63f90c1ccf77/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/45936aee-2cee-4d73-8b01-63f90c1ccf77/.org.chromium.Chromium.demGqb/SingletonSocket
+79:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/45936aee-2cee-4d73-8b01-63f90c1ccf77/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/45936aee-2cee-4d73-8b01-63f90c1ccf77/.org.chromium.Chromium.demGqb/SingletonSocket",
+81:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/45936aee-2cee-4d73-8b01-63f90c1ccf77/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/45936aee-2cee-4d73-8b01-63f90c1ccf77/.org.chromium.Chromium.demGqb/SingletonSocket
+116:      "message": "failed with status code 500",
+118:          Error: failed with status code 500
+128:xx[03:19:01.823] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/6c20c709-44b9-491f-ac7b-9963fc39914d/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/6c20c709-44b9-491f-ac7b-9963fc39914d/.org.chromium.Chromium.demGqb/SingletonSocket
+131:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/6c20c709-44b9-491f-ac7b-9963fc39914d/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/6c20c709-44b9-491f-ac7b-9963fc39914d/.org.chromium.Chromium.demGqb/SingletonSocket",
+133:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/6c20c709-44b9-491f-ac7b-9963fc39914d/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/6c20c709-44b9-491f-ac7b-9963fc39914d/.org.chromium.Chromium.demGqb/SingletonSocket
+168:      "message": "failed with status code 500",
+170:          Error: failed with status code 500
+180:[03:19:02.153] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/449934f4-be9d-4894-b212-4653c14208fb/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/449934f4-be9d-4894-b212-4653c14208fb/.org.chromium.Chromium.demGqb/SingletonSocket
+183:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/449934f4-be9d-4894-b212-4653c14208fb/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/449934f4-be9d-4894-b212-4653c14208fb/.org.chromium.Chromium.demGqb/SingletonSocket",
+185:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/449934f4-be9d-4894-b212-4653c14208fb/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/449934f4-be9d-4894-b212-4653c14208fb/.org.chromium.Chromium.demGqb/SingletonSocket
+220:      "message": "failed with status code 500",
+222:          Error: failed with status code 500
+232:x[03:19:02.511] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/0da44e69-03f5-42e1-b32d-9e5cbfd083f2/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/0da44e69-03f5-42e1-b32d-9e5cbfd083f2/.org.chromium.Chromium.demGqb/SingletonSocket
+235:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/0da44e69-03f5-42e1-b32d-9e5cbfd083f2/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/0da44e69-03f5-42e1-b32d-9e5cbfd083f2/.org.chromium.Chromium.demGqb/SingletonSocket",
+237:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/0da44e69-03f5-42e1-b32d-9e5cbfd083f2/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/0da44e69-03f5-42e1-b32d-9e5cbfd083f2/.org.chromium.Chromium.demGqb/SingletonSocket
+272:      "message": "failed with status code 500",
+274:          Error: failed with status code 500
+284:xx[03:19:02.887] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/78cd0843-326b-4adc-9215-81a896b5dfac/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/78cd0843-326b-4adc-9215-81a896b5dfac/.org.chromium.Chromium.demGqb/SingletonSocket
+287:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/78cd0843-326b-4adc-9215-81a896b5dfac/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/78cd0843-326b-4adc-9215-81a896b5dfac/.org.chromium.Chromium.demGqb/SingletonSocket",
+289:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/78cd0843-326b-4adc-9215-81a896b5dfac/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/78cd0843-326b-4adc-9215-81a896b5dfac/.org.chromium.Chromium.demGqb/SingletonSocket
+324:      "message": "failed with status code 500",
+326:          Error: failed with status code 500
+336:[03:19:03.225] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/0586d363-68dd-4ec4-82ee-54c6d70d4337/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/0586d363-68dd-4ec4-82ee-54c6d70d4337/.org.chromium.Chromium.demGqb/SingletonSocket
+339:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/0586d363-68dd-4ec4-82ee-54c6d70d4337/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/0586d363-68dd-4ec4-82ee-54c6d70d4337/.org.chromium.Chromium.demGqb/SingletonSocket",
+341:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/0586d363-68dd-4ec4-82ee-54c6d70d4337/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/0586d363-68dd-4ec4-82ee-54c6d70d4337/.org.chromium.Chromium.demGqb/SingletonSocket
+376:      "message": "failed with status code 500",
+378:          Error: failed with status code 500
+388:xx[03:19:03.605] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/592d3ade-1e11-425f-b54b-1221c7736947/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/592d3ade-1e11-425f-b54b-1221c7736947/.org.chromium.Chromium.demGqb/SingletonSocket
+391:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/592d3ade-1e11-425f-b54b-1221c7736947/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/592d3ade-1e11-425f-b54b-1221c7736947/.org.chromium.Chromium.demGqb/SingletonSocket",
+393:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/592d3ade-1e11-425f-b54b-1221c7736947/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/592d3ade-1e11-425f-b54b-1221c7736947/.org.chromium.Chromium.demGqb/SingletonSocket
+428:      "message": "failed with status code 500",
+430:          Error: failed with status code 500
+440:[03:19:03.954] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/24b17dd2-2004-40cf-8bc6-3dfdb3bef07d/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/24b17dd2-2004-40cf-8bc6-3dfdb3bef07d/.org.chromium.Chromium.demGqb/SingletonSocket
+443:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/24b17dd2-2004-40cf-8bc6-3dfdb3bef07d/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/24b17dd2-2004-40cf-8bc6-3dfdb3bef07d/.org.chromium.Chromium.demGqb/SingletonSocket",
+445:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/24b17dd2-2004-40cf-8bc6-3dfdb3bef07d/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/24b17dd2-2004-40cf-8bc6-3dfdb3bef07d/.org.chromium.Chromium.demGqb/SingletonSocket
+480:      "message": "failed with status code 500",
+482:          Error: failed with status code 500
+492:x[03:19:04.274] ERROR (8996): Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/7c2fa6db-f2b9-475e-b4a3-541b98581f3f/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/7c2fa6db-f2b9-475e-b4a3-541b98581f3f/.org.chromium.Chromium.demGqb/SingletonSocket
+495:      "message": "Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/7c2fa6db-f2b9-475e-b4a3-541b98581f3f/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/7c2fa6db-f2b9-475e-b4a3-541b98581f3f/.org.chromium.Chromium.demGqb/SingletonSocket",
+497:          SystemError: Cannot copy a socket file: cp returned EINVAL (cannot copy a socket file: /home/runner/workspace/.engineeringos-delivery/7c2fa6db-f2b9-475e-b4a3-541b98581f3f/.org.chromium.Chromium.demGqb/SingletonSocket) /home/runner/workspace/.engineeringos-delivery/7c2fa6db-f2b9-475e-b4a3-541b98581f3f/.org.chromium.Chromium.demGqb/SingletonSocket
+532:      "message": "failed with status code 500",
+534:          Error: failed with status code 500
+626:⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+628: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > emits a warning AiChangesApplied event when no file can be written
+629:AssertionError: expected 500 to be 207 // Object.is equality
+647: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not promote a candidate when behavioral verification is unavailable
+648:AssertionError: expected 500 to be 207 // Object.is equality
+666: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > fails closed before promotion when behavioral verification is unavailable
+667:AssertionError: expected 500 to be 207 // Object.is equality
+685: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > blocks a destructive source-file replacement and leaves the original intact
+686:AssertionError: expected 500 to be 207 // Object.is equality
+704: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not partially apply a safe sibling when another change is destructive
+705:AssertionError: expected 500 to be 207 // Object.is equality
+723: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects applying a pending change when the file changed after proposal
+724:AssertionError: expected 500 to be 207 // Object.is equality
+742: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns a base-hash conflict and never writes a stale patch
+743:AssertionError: expected 500 to be 207 // Object.is equality
+761: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > aborts the whole batch when one accepted change has a stale base
+762:AssertionError: expected 500 to be 207 // Object.is equality
+780: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns a hunk conflict even when the submitted base hash is current
+781:AssertionError: expected 500 to be 207 // Object.is equality
+799: FAIL  src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > applies a partial hunk selection — only accepted hunks are written via rebase
+800:AssertionError: expected 500 to be 200 // Object.is equality
+819: Test Files  1 failed (1)
+820:      Tests  10 failed | 8 passed | 109 skipped (127)
+826: ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/routes/ai.test.ts -t apply-changes --reporter=dot

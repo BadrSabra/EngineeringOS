@@ -1,0 +1,213 @@
+    return res.status(400).json({ error: "path must be a project-relative file path", code: "FILE_PATH_INVALID" });
+  }
+
+  const rawStart = Number(req.query.startLine);
+  const rawEnd = Number(req.query.endLine);
+  const startLine = Number.isFinite(rawStart) ? Math.max(1, Math.floor(rawStart)) : 1;
+  const endLine = Number.isFinite(rawEnd) ? Math.max(startLine, Math.floor(rawEnd)) : startLine;
+
+  // IMPORTANT: This endpoint must NOT use resolveRootPath, whose documented
+  // behaviour falls back to the global workspace root when the configured
+  // project root is inaccessible. Such a fallback would let a user authorized
+  // for a stale/inaccessible project request arbitrary files (e.g. .env) from
+  // OTHER projects living in the shared workspace — a cross-project data leak.
+  // Here the project's own configured rootPath is the ONLY authorization
+  // boundary: if it is unusable, we return `available:false` and serve nothing.
+  const storedRoot = project.rootPath;
+  if (!storedRoot) {
+    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+  }
+
+  // Canonicalize the root FIRST (realpath resolves its own symlinks) so both
+  // a real absolute path and a symlinked project root resolve to the same
+  // canonical directory, and containment can be checked against that truth.
+  let resolvedRoot: string;
+  try {
+    resolvedRoot = await fs.realpath(storedRoot);
+  } catch {
+    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+  }
+
+  const resolved = path.resolve(resolvedRoot, relPath);
+  if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+    return res.status(200).json({ available: false, reason: "outside_project_root" });
+  }
+
+  let realResolved: string;
+  try {
+    // realpath follows symlinks in the target — catches a symlink pointing
+    // outside the (canonical) project root.
+    realResolved = await fs.realpath(resolved);
+  } catch {
+    return res.status(200).json({ available: false, reason: "file_not_found" });
+  }
+  if (realResolved !== resolvedRoot && !realResolved.startsWith(resolvedRoot + path.sep)) {
+    return res.status(200).json({ available: false, reason: "outside_project_root" });
+  }
+    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]).optional(),
+    risk: z.enum(["low", "medium", "high"]).optional(),
+    evidence: z.array(z.object({
+      kind: z.enum(["finding", "source", "validation"]),
+      id: z.string().min(1),
+      label: z.string().min(1).max(240),
+      file: z.string().min(1).optional(),
+      line: z.number().int().min(1).optional(),
+    }).strict()).max(4).optional(),
+  }).strict();
+  const RebaseBodySchema = z.object({
+    projectId: z.string({ required_error: "projectId is required" }).min(1),
+    proposalId: z.string({ required_error: "proposalId is required" }).uuid(),
+    changes: z.array(RebaseChangeSchema).min(1).max(50),
+  });
+  const parsed = RebaseBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return res.status(400).json({
+      error: issue?.message ?? "Invalid rebase request",
+      field: String(issue?.path[0] ?? ""),
+    });
+  }
+
+  const { projectId, proposalId, changes } = parsed.data;
+  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+  if (!project) return;
+  const rootCheck = await resolveRootPath(project.rootPath, projectId);
+  if (!rootCheck.validRootPath) {
+    console.error("DEBUG_APPLY_ROOT", projectId, proposalId, project.rootPath);
+    return res.status(409).json({
+      error: "project_root_unavailable",
+      code: "PROJECT_ROOT_UNAVAILABLE",
+      message: "The project working directory is unavailable; restore or rescan the project before rebasing changes.",
+    });
+  }
+
+  const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+  if (!applyLock.acquired) {
+    return res.status(409).json({
+      error: "apply_in_progress",
+      code: "APPLY_IN_PROGRESS",
+      hint: "Another apply or rebase operation is already in progress for this project.",
+    });
+  }
+
+  try {
+    const [proposal] = await db
+      .select()
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposalId),
+        eq(aiChangeProposalsTable.projectId, projectId),
+      ))
+      .limit(1);
+    if (!proposal) {
+      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+    }
+    if (proposal.status !== "pending") {
+      return res.status(409).json({
+        error: "Change proposal has already been consumed",
+        code: "PROPOSAL_ALREADY_CONSUMED",
+      });
+    }
+
+    let approvedChanges: ServerPendingChange[];
+    try {
+      approvedChanges = parseStoredJson(proposal.changes) as ServerPendingChange[];
+    } catch {
+      return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
+    }
+    if (serializeCanonical(changes) !== serializeCanonical(approvedChanges)) {
+      return res.status(409).json({
+        error: "Submitted changes do not match the approved proposal",
+        code: "PROPOSAL_MISMATCH",
+      });
+    }
+
+    const rebasedChanges: ServerPendingChange[] = [];
+    const conflicts: Array<{
+      path: string;
+      ok: false;
+      code: "PATCH_REBASE_UNAVAILABLE" | "PATCH_REBASE_CONFLICT";
+      error: string;
+      conflict?: {
+        kind: "base_hash_mismatch" | "hunk_mismatch";
+        expectedHash?: string;
+        actualHash?: string;
+        hunkIndex?: number;
+      };
+    }> = [];
+    const seenRealPaths = new Set<string>();
+    const resolvedRoot = path.resolve(project.rootPath);
+    const BLOCKED_WRITE_EXTENSIONS =
+      /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+
+    for (const change of approvedChanges) {
+      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {
+        conflicts.push({
+          path: change.path,
+          ok: false,
+          code: "PATCH_REBASE_UNAVAILABLE",
+          error: "Sensitive files cannot be rebased through the AI approval flow.",
+        });
+        continue;
+      }
+      if (!change.hunks || change.hunks.length === 0 || !change.baseHash) {
+        conflicts.push({
+          path: change.path,
+          ok: false,
+          code: "PATCH_REBASE_UNAVAILABLE",
+          error: "This legacy proposal has no Patch Lab hunks/base hash; generate a fresh patch instead.",
+        });
+        continue;
+      }
+
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.proposalId, proposal.id),
+        eq(aiExecutionsTable.projectId, projectId),
+      ))
+      .orderBy(desc(aiExecutionsTable.updatedAt))
+      .limit(1);
+    const canonicalOperationId = proposalExecution?.operationId
+      ?? proposalExecution?.buildPlanMessageId
+      ?? proposalExecution?.id
+      ?? proposal.messageId;
+    if (operationId && operationId !== canonicalOperationId) {
+      return res.status(409).json({
+        error: "Operation identity does not match the server-owned execution",
+        code: "OPERATION_ID_MISMATCH",
+      });
+    }
+    const applyCorrelationId = canonicalOperationId;
+    const applyAttemptId = randomUUID();
+    // Materialize the approved change set into an operation-owned workspace
+    // before touching the user's checkout. This workspace is retained as the
+    // recovery/proof artifact; the durable root is only written after all
+    // revision, path, and validation gates below pass.
+    const deliveryWorkspace = await createDeliveryWorkspace({
+      rootPath: project.rootPath,
+      operationId: applyCorrelationId,
+      baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
+      changes: approvedChanges,
+    });
+    await db.update(aiChangeProposalsTable)
+      .set({
+        operationId: applyCorrelationId,
+        workspaceRoot: deliveryWorkspace.workspaceRoot,
+        baseRevision: deliveryWorkspace.baseRevision,
+        changeSetHash: deliveryWorkspace.changeSetHash,
+        lifecycle: "isolated",
+        conflictReason: null,
+      })
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposalId),
+        eq(aiChangeProposalsTable.status, "pending"),
+      ));
+    let journalSequence = 0;
+    const appendApplyJournal = async (
+      stage: ApplyJournalStage,
+      payload: Record<string, unknown> = {},
+    ): Promise<void> => {
+      journalSequence += 1;
+      await db.insert(aiApplyJournalTable).values({
+        id: randomUUID(),

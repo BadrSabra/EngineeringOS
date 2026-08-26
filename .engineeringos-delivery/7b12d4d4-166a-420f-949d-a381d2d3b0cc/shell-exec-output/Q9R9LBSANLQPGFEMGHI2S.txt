@@ -1,0 +1,239 @@
+artifacts/dashboard/src/pages/AiChat.tsx:23:  useGetProviderKeyStatus,
+artifacts/dashboard/src/pages/AiChat.tsx:25:  useGetActiveProvider,
+artifacts/dashboard/src/pages/AiChat.tsx:397:type ProviderKeyStatus  = { configured: boolean; last4: string | null; updatedAt: string | null };
+artifacts/dashboard/src/pages/AiChat.tsx:398:type GroqKeyStatus      = ProviderKeyStatus;
+artifacts/dashboard/src/pages/AiChat.tsx:399:type DeepSeekKeyStatus  = ProviderKeyStatus;
+artifacts/dashboard/src/pages/AiChat.tsx:400:type OpenRouterKeyStatus = ProviderKeyStatus;
+artifacts/dashboard/src/pages/AiChat.tsx:401:type GeminiKeyStatus    = ProviderKeyStatus;
+artifacts/dashboard/src/pages/AiChat.tsx:402:type ActiveProvider     = { provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini' | null; configured: boolean };
+artifacts/dashboard/src/pages/AiChat.tsx:405:type ProviderRuntimeMetric = {
+artifacts/dashboard/src/pages/AiChat.tsx:418:  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'incompatible_model' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'circuit_open' | 'provider_outage' | 'degraded' | 'healthy' | 'unknown';
+artifacts/dashboard/src/pages/AiChat.tsx:422:type MetricsResponse = { metrics: ProviderRuntimeMetric[] };
+artifacts/dashboard/src/pages/AiChat.tsx:496: * PR-06: Compact runtime status badge for a provider card.
+artifacts/dashboard/src/pages/AiChat.tsx:499:function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | undefined }) {
+artifacts/dashboard/src/pages/AiChat.tsx:516:    missing_credentials: 'Not configured',
+artifacts/dashboard/src/pages/AiChat.tsx:524:    provider_outage: 'Provider unavailable',
+artifacts/dashboard/src/pages/AiChat.tsx:572:function ProviderReadinessNotice({
+artifacts/dashboard/src/pages/AiChat.tsx:573:  activeProvider,
+artifacts/dashboard/src/pages/AiChat.tsx:576:  activeProvider: ActiveProvider | undefined;
+artifacts/dashboard/src/pages/AiChat.tsx:577:  metric: ProviderRuntimeMetric | undefined;
+artifacts/dashboard/src/pages/AiChat.tsx:579:  if (!activeProvider) {
+artifacts/dashboard/src/pages/AiChat.tsx:588:  if (!activeProvider.configured || !activeProvider.provider) {
+artifacts/dashboard/src/pages/AiChat.tsx:592:        <span>No AI provider is ready. Save an API key in the provider cards before sending a message.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:604:        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:612:      <span>AI ready · {activeProvider.provider}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:654:    if (ctx['providerName']) parts.push(`Provider: ${ctx['providerName']}`);
+artifacts/dashboard/src/pages/AiChat.tsx:680:      case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:690:        return (err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:691:      case 428: return (err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:719:  if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
+artifacts/dashboard/src/pages/AiChat.tsx:2434:              <div className="font-medium text-amber-200">Provider Recovery: rejected</div>
+artifacts/dashboard/src/pages/AiChat.tsx:4274:    ? 'Provider format issue'
+artifacts/dashboard/src/pages/AiChat.tsx:4281:          : 'Provider failure';
+artifacts/dashboard/src/pages/AiChat.tsx:4521:function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+artifacts/dashboard/src/pages/AiChat.tsx:4543:        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:4606:      <ProviderRuntimeBadge metric={runtimeMetric} />
+artifacts/dashboard/src/pages/AiChat.tsx:4622:            disabled={saveMutation.isPending || !keyInput.trim()}
+artifacts/dashboard/src/pages/AiChat.tsx:4632:function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+artifacts/dashboard/src/pages/AiChat.tsx:4653:        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:4710:        <p className="text-muted-foreground mb-2">No personal key saved — the server's key will be used if one is configured.</p>
+artifacts/dashboard/src/pages/AiChat.tsx:4713:      <ProviderRuntimeBadge metric={runtimeMetric} />
+artifacts/dashboard/src/pages/AiChat.tsx:4730:            disabled={saveMutation.isPending || !keyInput.trim()}
+artifacts/dashboard/src/pages/AiChat.tsx:4740:function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+artifacts/dashboard/src/pages/AiChat.tsx:4746:  const { data: status, isLoading } = useGetProviderKeyStatus<GeminiKeyStatus>('gemini', {
+artifacts/dashboard/src/pages/AiChat.tsx:4762:        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:4825:      <ProviderRuntimeBadge metric={runtimeMetric} />
+artifacts/dashboard/src/pages/AiChat.tsx:4852:function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+artifacts/dashboard/src/pages/AiChat.tsx:4874:        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:4937:      <ProviderRuntimeBadge metric={runtimeMetric} />
+artifacts/dashboard/src/pages/AiChat.tsx:4953:            disabled={saveMutation.isPending || !keyInput.trim()}
+artifacts/dashboard/src/pages/AiChat.tsx:6344:            <div className="text-[9px] text-muted-foreground">{grade === 'U' ? 'Provider unavailable' : `Grade ${grade}`}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:6384:        {data.provider ? `Provider: ${data.provider}` : 'Provider not recorded'}
+artifacts/dashboard/src/pages/AiChat.tsx:6395:      const response = await fetch('/api/ai/benchmark/scorecard', { credentials: 'include' });
+artifacts/dashboard/src/pages/AiChat.tsx:7188:      credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7344:      credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7362:        // from losing the only resumable credential held by the browser.
+artifacts/dashboard/src/pages/AiChat.tsx:7619:  const { data: activeProvider } = useGetActiveProvider<ActiveProvider>({
+artifacts/dashboard/src/pages/AiChat.tsx:7626:  // PR-06: poll runtime health metrics so provider cards show live state
+artifacts/dashboard/src/pages/AiChat.tsx:7787:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7803:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7870:        { method: 'POST', credentials: 'include' },
+artifacts/dashboard/src/pages/AiChat.tsx:8319:    if (!activeProvider) {
+artifacts/dashboard/src/pages/AiChat.tsx:8323:    if (!activeProvider.configured || !activeProvider.provider) {
+artifacts/dashboard/src/pages/AiChat.tsx:8324:      toast({ title: 'AI provider unavailable', description: 'Save an API key in the provider cards before sending a message.', variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:8847:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:8881:          credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:9269:        {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
+artifacts/dashboard/src/pages/AiChat.tsx:9297:            {activeProvider?.provider === 'deepseek'
+artifacts/dashboard/src/pages/AiChat.tsx:9299:              : activeProvider?.provider === 'openrouter'
+artifacts/dashboard/src/pages/AiChat.tsx:9303:                : activeProvider?.provider === 'gemini'
+artifacts/dashboard/src/pages/AiChat.tsx:9675:            <ProviderReadinessNotice
+artifacts/dashboard/src/pages/AiChat.tsx:9676:              activeProvider={activeProvider}
+artifacts/dashboard/src/pages/AiChat.tsx:9677:              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
+artifacts/dashboard/src/pages/AiChat.tsx:9688:              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || applyMutation.isPending || isAgentBusy}
+artifacts/dashboard/src/pages/AiChat.tsx:9693:               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || isAgentBusy || applyMutation.isPending}
+artifacts/api-server/src/routes/ai/workflows.ts:28:  requireProvider,
+artifacts/api-server/src/routes/ai/workflows.ts:80:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/tasks.ts:27:  requireProvider,
+artifacts/api-server/src/routes/ai/tasks.ts:28:  resolveProvider,
+artifacts/api-server/src/routes/ai/tasks.ts:59:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/tasks.ts:223:  let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/tasks.ts:225:    ({ result: agentResult, effectiveProvider } = await runAgentWithFallback(
+artifacts/api-server/src/routes/ai/tasks.ts:283:    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider: effectiveProvider })) return;
+artifacts/api-server/src/routes/ai/tasks.ts:418:      const resolved = await resolveProvider(userId, {
+artifacts/api-server/src/routes/ai/providers.ts:5: *   GET/PUT/DELETE /api/ai/providers/:provider/key
+artifacts/api-server/src/routes/ai/providers.ts:17:import { aiProviderCredentialsTable } from "@workspace/db";
+artifacts/api-server/src/routes/ai/providers.ts:19:import { encryptApiKey } from "../../lib/credentials-crypto.js";
+artifacts/api-server/src/routes/ai/providers.ts:21:import { resolveProvider } from "../../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai/providers.ts:23:  validateProviderKey,
+artifacts/api-server/src/routes/ai/providers.ts:26:  getProviderMetrics,
+artifacts/api-server/src/routes/ai/providers.ts:31:import type { ProviderId } from "@workspace/ai-orchestrator";
+artifacts/api-server/src/routes/ai/providers.ts:40:function isValidProvider(p: string): p is ProviderId {
+artifacts/api-server/src/routes/ai/providers.ts:45:async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
+artifacts/api-server/src/routes/ai/providers.ts:48:      last4: aiProviderCredentialsTable.last4,
+artifacts/api-server/src/routes/ai/providers.ts:49:      updatedAt: aiProviderCredentialsTable.updatedAt,
+artifacts/api-server/src/routes/ai/providers.ts:51:    .from(aiProviderCredentialsTable)
+artifacts/api-server/src/routes/ai/providers.ts:54:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/ai/providers.ts:55:        eq(aiProviderCredentialsTable.provider, provider),
+artifacts/api-server/src/routes/ai/providers.ts:65:async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
+artifacts/api-server/src/routes/ai/providers.ts:76:  const validation = await validateProviderKey(provider, trimmed);
+artifacts/api-server/src/routes/ai/providers.ts:96:    .insert(aiProviderCredentialsTable)
+artifacts/api-server/src/routes/ai/providers.ts:107:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+artifacts/api-server/src/routes/ai/providers.ts:114:/** Shared DELETE handler — remove the saved key. */
+artifacts/api-server/src/routes/ai/providers.ts:115:async function handleDeleteKey(req: Request, res: Response, provider: ProviderId) {
+artifacts/api-server/src/routes/ai/providers.ts:117:    .delete(aiProviderCredentialsTable)
+artifacts/api-server/src/routes/ai/providers.ts:120:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/ai/providers.ts:121:        eq(aiProviderCredentialsTable.provider, provider),
+artifacts/api-server/src/routes/ai/providers.ts:129:router.get("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:131:  if (!isValidProvider(provider)) {
+artifacts/api-server/src/routes/ai/providers.ts:139:router.put("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:141:  if (!isValidProvider(provider)) {
+artifacts/api-server/src/routes/ai/providers.ts:149:router.delete("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:151:  if (!isValidProvider(provider)) {
+artifacts/api-server/src/routes/ai/providers.ts:163:  const resolved = await resolveProvider(req.userId);
+artifacts/api-server/src/routes/ai/providers.ts:168:// ── PR-011: Provider metrics ──────────────────────────────────────────────────
+artifacts/api-server/src/routes/ai/providers.ts:184:  const metricsMap = new Map(getProviderMetrics().map((m) => [m.provider, m]));
+artifacts/api-server/src/routes/ai/providers.ts:186:    .select({ provider: aiProviderCredentialsTable.provider })
+artifacts/api-server/src/routes/ai/providers.ts:187:    .from(aiProviderCredentialsTable)
+artifacts/api-server/src/routes/ai/providers.ts:188:    .where(eq(aiProviderCredentialsTable.ownerId, req.userId));
+artifacts/api-server/src/routes/ai/providers.ts:217:      ? "missing_credentials"
+artifacts/api-server/src/routes/ai/providers.ts:232:        ? "Save an API key for this provider to enable it."
+artifacts/api-server/src/routes/ai/index.ts:12:import providersRouter from "./providers.js";
+artifacts/api-server/src/routes/ai/chat.ts:137:  requireProvider,
+artifacts/api-server/src/routes/ai/chat.ts:1941:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:2535:  // Provider/model routing must use the same authoritative intent as the
+artifacts/api-server/src/routes/ai/chat.ts:2538:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:3715:      const effectiveProvider = chatOut.effectiveProvider ?? provider;
+artifacts/api-server/src/routes/ai/chat.ts:3716:      recordLatency(effectiveProvider, callLatency);
+artifacts/api-server/src/routes/ai/chat.ts:3717:      recordSuccess(effectiveProvider);
+artifacts/api-server/src/routes/ai/chat.ts:3718:      // effectiveProvider differs from `provider` when fallback occurred
+artifacts/api-server/src/routes/ai/chat.ts:3719:      if (chatOut.effectiveProvider && chatOut.effectiveProvider !== provider) {
+artifacts/api-server/src/routes/ai/chat.ts:3737:        const providerCtx = err.toProviderContext() ?? {};
+artifacts/api-server/src/routes/ai/chat.ts:3738:        // Provider messages can contain request IDs, file paths, or upstream
+artifacts/api-server/src/routes/ai/chat.ts:3741:        const publicProviderCtx = Object.fromEntries(
+artifacts/api-server/src/routes/ai/chat.ts:3777:          ...(Object.keys(publicProviderCtx).length > 0
+artifacts/api-server/src/routes/ai/chat.ts:3778:            ? { providerContext: redactUserFacingValue(publicProviderCtx) }
+artifacts/api-server/src/routes/ai/chat.ts:3826:              suggestedFix: "Add credit balance to your OpenRouter account, or save a Groq/Gemini API key as a free fallback.",
+artifacts/api-server/src/routes/ai/chat.ts:3850:            // request diagnostics, paths, or credentials even after the
+artifacts/api-server/src/routes/ai/chat.ts:4508:    // Provider and worker errors are retained for server diagnostics only.
+artifacts/api-server/src/routes/ai/chat.ts:6208:          error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+artifacts/dashboard/src/components/ui/tooltip.tsx:7:const TooltipProvider = TooltipPrimitive.Provider;
+artifacts/dashboard/src/components/ui/tooltip.tsx:31:export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+artifacts/dashboard/src/components/ui/form.tsx:6:  FormProvider,
+artifacts/dashboard/src/components/ui/form.tsx:15:const Form = FormProvider;
+artifacts/dashboard/src/components/ui/form.tsx:35:    <FormFieldContext.Provider value={{ name: props.name }}>
+artifacts/dashboard/src/components/ui/form.tsx:37:    </FormFieldContext.Provider>
+artifacts/dashboard/src/components/ui/form.tsx:81:    <FormItemContext.Provider value={{ id }}>
+artifacts/dashboard/src/components/ui/form.tsx:83:    </FormItemContext.Provider>
+artifacts/dashboard/src/components/ui/toggle-group.tsx:26:    <ToggleGroupContext.Provider value={{ variant, size }}>
+artifacts/dashboard/src/components/ui/toggle-group.tsx:28:    </ToggleGroupContext.Provider>
+artifacts/dashboard/src/components/ui/toaster.tsx:5:  ToastProvider,
+artifacts/dashboard/src/components/ui/toaster.tsx:15:    <ToastProvider>
+artifacts/dashboard/src/components/ui/toaster.tsx:31:    </ToastProvider>
+artifacts/dashboard/src/components/ui/toast.tsx:7:const ToastProvider = ToastPrimitives.Provider;
+artifacts/dashboard/src/components/ui/toast.tsx:119:  ToastProvider,
+artifacts/dashboard/src/components/ui/chart.tsx:47:    <ChartContext.Provider value={{ config }}>
+artifacts/dashboard/src/components/ui/chart.tsx:62:    </ChartContext.Provider>
+artifacts/dashboard/src/components/ui/carousel.tsx:121:      <CarouselContext.Provider
+artifacts/dashboard/src/components/ui/carousel.tsx:144:      </CarouselContext.Provider>
+artifacts/dashboard/src/components/ui/sidebar.tsx:19:  TooltipProvider,
+artifacts/dashboard/src/components/ui/sidebar.tsx:49:    throw new Error('useSidebar must be used within a SidebarProvider.');
+artifacts/dashboard/src/components/ui/sidebar.tsx:55:function SidebarProvider({
+artifacts/dashboard/src/components/ui/sidebar.tsx:129:    <SidebarContext.Provider value={contextValue}>
+artifacts/dashboard/src/components/ui/sidebar.tsx:130:      <TooltipProvider delayDuration={0}>
+artifacts/dashboard/src/components/ui/sidebar.tsx:148:      </TooltipProvider>
+artifacts/dashboard/src/components/ui/sidebar.tsx:149:    </SidebarContext.Provider>
+artifacts/dashboard/src/components/ui/sidebar.tsx:721:  SidebarProvider,
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:3:export type ProviderAvailabilityState =
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:4:  | 'missing_credentials'
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:18:export type ProviderRecoveryDetails = {
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:25:  missing_credentials: { label: 'Provider credentials are missing', action: 'Configure an API key for a supported provider, then retry.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:26:  authentication_failed: { label: 'Provider authentication failed', action: 'Replace the provider API key with a valid key, then retry.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:30:  quota_exhausted: { label: 'Provider quota is exhausted', action: 'Add provider credits or configure another provider.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:32:  circuit_open: { label: 'Provider temporarily paused', action: 'Wait for the provider cooldown to finish, then retry or configure another provider.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:34:  degraded: { label: 'Provider service is degraded', action: 'Retry in a moment or configure another provider.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:35:  healthy: { label: 'Provider is available', action: 'Retry the operation.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:36:  unknown: { label: 'Provider availability is unknown', action: 'Retry in a moment or configure another provider.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:43:export function ProviderRecoveryCard({
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:47:  recovery: ProviderRecoveryDetails | null | undefined;
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:65:      aria-label="Provider recovery actions"
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:3:import { ProviderRecoveryCard } from './ProviderRecoveryCard';
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:5:describe('ProviderRecoveryCard', () => {
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:7:    ['authentication_failed', 'Provider authentication failed'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:10:    ['quota_exhausted', 'Provider quota is exhausted'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:12:    ['circuit_open', 'Provider temporarily paused'],
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:16:      <ProviderRecoveryCard
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:27:      <ProviderRecoveryCard
+artifacts/dashboard/src/components/GitPanel.test.tsx:2:import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+artifacts/dashboard/src/components/GitPanel.test.tsx:80:    <QueryClientProvider client={queryClient}>
+artifacts/dashboard/src/components/GitPanel.test.tsx:82:    </QueryClientProvider>,
+artifacts/api-server/src/routes/ai/analysis.ts:23:  requireProvider,
+artifacts/api-server/src/routes/ai/analysis.ts:183:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:201:  let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/analysis.ts:203:    ({ result, effectiveProvider } = await runAgentWithFallback(
+artifacts/api-server/src/routes/ai/analysis.ts:211:    recordTrace(metadata, "analyze", "failed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:212:    if (handleOrchestratorError(err, res, { projectId, operation: "scan-analysis", provider: effectiveProvider })) return;
+artifacts/api-server/src/routes/ai/analysis.ts:222:    recordTrace(metadata, "analyze", "incomplete", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:224:      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+artifacts/api-server/src/routes/ai/analysis.ts:258:  recordTrace(metadata, "analyze", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:299:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:309:  let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/analysis.ts:311:    ({ result, effectiveProvider } = await runAgentWithFallback(
+artifacts/api-server/src/routes/ai/analysis.ts:319:    recordTrace(metadata, "review", "failed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:320:    if (handleOrchestratorError(err, res, { projectId, operation: "code-review", provider: effectiveProvider })) return;
+artifacts/api-server/src/routes/ai/analysis.ts:328:    recordTrace(metadata, "review", "incomplete", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:330:      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+artifacts/api-server/src/routes/ai/analysis.ts:364:  recordTrace(metadata, "review", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:374:  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "analysis" });
+artifacts/api-server/src/routes/ai/analysis.ts:397:    let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/analysis.ts:412:      effectiveProvider = output.effectiveProvider;
+artifacts/api-server/src/routes/ai/analysis.ts:418:      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:433:    recordTrace(metadata, "persisting-result", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:456:    recordTrace(metadata, "analyze", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:466:    logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");
+artifacts/api-server/src/routes/ai/analysis.ts:500:  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "code_review" });
+artifacts/api-server/src/routes/ai/analysis.ts:523:    let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/analysis.ts:538:      effectiveProvider = output.effectiveProvider;
+artifacts/api-server/src/routes/ai/analysis.ts:544:      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:559:    recordTrace(metadata, "persisting-result", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:582:    recordTrace(metadata, "review", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:592:    logger.info({ projectId, provider: effectiveProvider }, "AI code review stream completed");
+artifacts/api-server/src/routes/ai/benchmark.ts:47:type BoundedProviderRecoverySummary = {
+artifacts/api-server/src/routes/ai/benchmark.ts:61:  providerRecoverySummaries?: BoundedProviderRecoverySummary[];
+artifacts/api-server/src/routes/ai/benchmark.ts:303:  const latestProviderStep = [...steps].reverse().find((step) => textValue(step.provider));
+artifacts/api-server/src/routes/ai/benchmark.ts:340:    provider: textValue(latestProviderStep?.provider),
+artifacts/api-server/src/routes/ai/benchmark.ts:411:    ? value.providerRecoverySummaries.flatMap((raw): BoundedProviderRecoverySummary[] => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:255:    .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:268:    requireProvider:        vi.fn(),
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:309:import { chatWithFallback, requireProvider, requestLooksToolBound } from "../../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:394:  effectiveProvider: "openai",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:462:  effectiveProvider: "openai",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:533:  vi.mocked(requireProvider).mockReset();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:542:  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:795:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:840:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:897:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:943:    expect(requireProvider).toHaveBeenCalledWith(
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1273:        .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]"),
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1350:    effectiveProvider: "openai",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1442:        effectiveProvider: "openai",

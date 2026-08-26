@@ -1,0 +1,165 @@
+artifacts/dashboard/src/lib/api-fetch.ts:2: * Structured error from any /api/* endpoint.
+artifacts/dashboard/src/lib/api-fetch.ts:14:    public readonly providerContext?: Record<string, unknown>,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:2:import { useQueryClient } from '@tanstack/react-query';
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:144:    disabledReason: 'Requires server-side file-upload handling — not supported in this deployment. Use Git Repository instead.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:203:      message: 'Authentication failed — this repository requires credentials. Go back and add your Personal Access Token.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:209:      message: 'Repository not found. Verify the URL is correct. If it\'s a private repository, go back and add your credentials.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:335:  const queryClient = useQueryClient();
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:429:        sourceConfig.credentials = { username: gitUsername.trim() || 'oauth2', token: gitToken.trim() };
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:648:                {useCredentials ? 'Hide credentials' : 'Private repo? Add credentials'}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:783:                      ← Go back and add credentials
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:816:                <div className="text-xs opacity-80">{extractApiError(summaryError, 'Unable to retrieve the analysis results.')}</div>
+artifacts/dashboard/src/pages/ProjectDetail.tsx:15:import { useQueryClient } from '@tanstack/react-query';
+artifacts/dashboard/src/pages/ProjectDetail.tsx:36:import { useQuery } from '@tanstack/react-query';
+artifacts/dashboard/src/pages/ProjectDetail.tsx:52:  const queryClient = useQueryClient();
+artifacts/dashboard/src/pages/ProjectDetail.tsx:80:  const { data: browserProfileData, isError: browserProfilesError } = useQuery<BrowserValidationProfile[]>({
+artifacts/dashboard/src/pages/ProjectDetail.tsx:84:      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/browser-validation-profiles`);
+artifacts/dashboard/src/pages/AiChat.tsx:3:import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+artifacts/dashboard/src/pages/AiChat.tsx:86:  provider?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:92:    providerUnavailableCount?: number;
+artifacts/dashboard/src/pages/AiChat.tsx:402:type ActiveProvider     = { provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini' | null; configured: boolean };
+artifacts/dashboard/src/pages/AiChat.tsx:404:/** PR-06: runtime health snapshot returned by /api/ai/metrics */
+artifacts/dashboard/src/pages/AiChat.tsx:406:  provider: string;
+artifacts/dashboard/src/pages/AiChat.tsx:418:  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'incompatible_model' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'circuit_open' | 'provider_outage' | 'degraded' | 'healthy' | 'unknown';
+artifacts/dashboard/src/pages/AiChat.tsx:496: * PR-06: Compact runtime status badge for a provider card.
+artifacts/dashboard/src/pages/AiChat.tsx:516:    missing_credentials: 'Not configured',
+artifacts/dashboard/src/pages/AiChat.tsx:524:    provider_outage: 'Provider unavailable',
+artifacts/dashboard/src/pages/AiChat.tsx:583:        <span>Checking AI provider health…</span>
+artifacts/dashboard/src/pages/AiChat.tsx:588:  if (!activeProvider.configured || !activeProvider.provider) {
+artifacts/dashboard/src/pages/AiChat.tsx:592:        <span>No AI provider is ready. Save an API key in the provider cards before sending a message.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:604:        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:612:      <span>AI ready · {activeProvider.provider}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:638: * Keep implementation details useful to the agent out of the normal chat
+artifacts/dashboard/src/pages/AiChat.tsx:649:/** Build a provider context suffix for error messages, showing model/status/raw hint. */
+artifacts/dashboard/src/pages/AiChat.tsx:650:function providerContextSuffix(err: ApiError): string {
+artifacts/dashboard/src/pages/AiChat.tsx:652:  const ctx = err.providerContext as Record<string, unknown> | undefined;
+artifacts/dashboard/src/pages/AiChat.tsx:654:    if (ctx['providerName']) parts.push(`Provider: ${ctx['providerName']}`);
+artifacts/dashboard/src/pages/AiChat.tsx:655:    if (ctx['providerModel']) parts.push(`Model: ${fmtModelId(String(ctx['providerModel']))}`);
+artifacts/dashboard/src/pages/AiChat.tsx:656:    if (ctx['providerStatus']) parts.push(`Status: ${ctx['providerStatus']}`);
+artifacts/dashboard/src/pages/AiChat.tsx:677:    const suffix = providerContextSuffix(err) + availabilitySuffix(err);
+artifacts/dashboard/src/pages/AiChat.tsx:680:      case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:688:          return (err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:690:        return (err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:692:      case 502: return (err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:693:      case 503: return (err.errorMessage || err.hint || 'AI provider is temporarily unreachable — try again in a moment.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:702: * Chat history can contain provider-shaped diagnostics from older API
+artifacts/dashboard/src/pages/AiChat.tsx:718:  let guidance = 'The AI provider could not complete this request. Try again in a moment.';
+artifacts/dashboard/src/pages/AiChat.tsx:719:  if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
+artifacts/dashboard/src/pages/AiChat.tsx:720:    guidance = 'Authentication failed. Check the provider configuration or choose another provider, then retry.';
+artifacts/dashboard/src/pages/AiChat.tsx:722:    guidance = 'The provider quota or rate limit was reached. Wait a moment, then retry or choose another provider.';
+artifacts/dashboard/src/pages/AiChat.tsx:724:    guidance = 'The provider is temporarily unavailable. Retry in a moment; choose another provider if the issue persists.';
+artifacts/dashboard/src/pages/AiChat.tsx:735: * Safely parse the `sources` field from a chat message.
+artifacts/dashboard/src/pages/AiChat.tsx:857:  provider?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:1062:  'provider_timeout',
+artifacts/dashboard/src/pages/AiChat.tsx:1127:    // Cancellation diagnostics are internal recovery/provider details. The
+artifacts/dashboard/src/pages/AiChat.tsx:1129:    // provider errors must not become visible just because the persisted
+artifacts/dashboard/src/pages/AiChat.tsx:1285:   * chats). `consistent: false` means the verdict failed closed, and violations
+artifacts/dashboard/src/pages/AiChat.tsx:1471: * (e.g. a generic chat), evidenceIntegrity is null and the block is hidden.
+artifacts/dashboard/src/pages/AiChat.tsx:1637:        : 'empty provider response';
+artifacts/dashboard/src/pages/AiChat.tsx:1638:    case 'provider_timeout':
+artifacts/dashboard/src/pages/AiChat.tsx:1639:      return 'provider timed out — partial report returned';
+artifacts/dashboard/src/pages/AiChat.tsx:1657:    'provider failure codes:',
+artifacts/dashboard/src/pages/AiChat.tsx:1662:    'provider recovery exhausted without an accepted six-section report',
+artifacts/dashboard/src/pages/AiChat.tsx:1710:    const providerFailure = summary.diagnosticDetails.find((detail) =>
+artifacts/dashboard/src/pages/AiChat.tsx:1711:      detail.toLowerCase().includes('provider failure codes:'),
+artifacts/dashboard/src/pages/AiChat.tsx:1713:    return providerFailure
+artifacts/dashboard/src/pages/AiChat.tsx:1714:      ? `Recovery could not obtain a provider response (${providerFailure.replace(/^.*provider failure codes:\s*/i, '')}). The completed source reads were preserved safely, but Findings and repair phases remain blocked.`
+artifacts/dashboard/src/pages/AiChat.tsx:2417:                The provider Recovery attempt was not required for acceptance. A deterministic executable pattern was verified against the completed source read and passed the evidence gate.
+artifacts/dashboard/src/pages/AiChat.tsx:2436:                The provider-generated report did not satisfy the Recovery contract. This status is separate from the final evidence decision above.
+artifacts/dashboard/src/pages/AiChat.tsx:2485:        <span className="text-red-300">provider failure — </span>
+artifacts/dashboard/src/pages/AiChat.tsx:3569: * - Blocked citations expose only a stable, user-facing reason; provider
+artifacts/dashboard/src/pages/AiChat.tsx:3680: * project-authorized /api/ai/chat/file-content endpoint, anchored at the
+artifacts/dashboard/src/pages/AiChat.tsx:3836:    'Source collection reached an empty provider response, but bounded forensic recovery did not produce an accepted report. The run is blocked without calling it budget exhaustion.',
+artifacts/dashboard/src/pages/AiChat.tsx:3852: * typed result is present (generic chat turns fall back to plain prose).
+artifacts/dashboard/src/pages/AiChat.tsx:3880:  const { data: browserProfileData } = useQuery<BrowserValidationProfileFreshness[]>({
+artifacts/dashboard/src/pages/AiChat.tsx:3884:      const response = await fetch(`/api/projects/${encodeURIComponent(projectId!)}/browser-validation-profiles`);
+artifacts/dashboard/src/pages/AiChat.tsx:4343:    <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
+artifacts/dashboard/src/pages/AiChat.tsx:4351:      <div className={`chat-message-content flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
+artifacts/dashboard/src/pages/AiChat.tsx:4353:          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+artifacts/dashboard/src/pages/AiChat.tsx:4378:                    aria-label={`Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:4381:                    {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:4523:  const qc = useQueryClient();
+artifacts/dashboard/src/pages/AiChat.tsx:4537:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4552:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4602:          Get a free API key at <span className="font-mono">platform.deepseek.com</span> to use DeepSeek as your AI provider.
+artifacts/dashboard/src/pages/AiChat.tsx:4634:  const qc = useQueryClient();
+artifacts/dashboard/src/pages/AiChat.tsx:4742:  const qc = useQueryClient();
+artifacts/dashboard/src/pages/AiChat.tsx:4756:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4771:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4854:  const qc = useQueryClient();
+artifacts/dashboard/src/pages/AiChat.tsx:4868:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4883:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4963:/** Format a scan analysis result as a markdown chat message. */
+artifacts/dashboard/src/pages/AiChat.tsx:4985:/** Format a code review result as a markdown chat message. */
+artifacts/dashboard/src/pages/AiChat.tsx:5029:  // (C1–C7) straight to the chat agent; all SSE diagnostics / forensic_status
+artifacts/dashboard/src/pages/AiChat.tsx:5157:        detail: `${entry.model}${entry.provider ? ` · ${entry.provider}` : ''}`,
+artifacts/dashboard/src/pages/AiChat.tsx:5342:  modelHistory: Array<{ id: string; provider: string }>;
+artifacts/dashboard/src/pages/AiChat.tsx:5382:      : stage ?? (phaseIndex === 2 ? 'Preparing the final result' : 'Starting analysis');
+artifacts/dashboard/src/pages/AiChat.tsx:6309:  const providerUnavailable = metrics?.providerUnavailableCount ?? gradeCounts.U ?? 0;
+artifacts/dashboard/src/pages/AiChat.tsx:6310:  const qualityObserved = Math.max(0, observed - providerUnavailable);
+artifacts/dashboard/src/pages/AiChat.tsx:6336:          {providerUnavailable > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:6384:        {data.provider ? `Provider: ${data.provider}` : 'Provider not recorded'}
+artifacts/dashboard/src/pages/AiChat.tsx:6392:  const { data, isLoading, isError } = useQuery<BenchmarkScorecard>({
+artifacts/dashboard/src/pages/AiChat.tsx:6395:      const response = await fetch('/api/ai/benchmark/scorecard', { credentials: 'include' });
+artifacts/dashboard/src/pages/AiChat.tsx:6498:  modelHistory: Array<{ id: string; provider: string }>;
+artifacts/dashboard/src/pages/AiChat.tsx:6991:  const qc = useQueryClient();
+artifacts/dashboard/src/pages/AiChat.tsx:7035:  const [lastResolvedModel, setLastResolvedModel] = useState<{ id: string; provider: string; free: boolean } | undefined>(undefined);
+artifacts/dashboard/src/pages/AiChat.tsx:7071:  const [agentModelHistory, setAgentModelHistory] = useState<Array<{ id: string; provider: string }>>([]);
+artifacts/dashboard/src/pages/AiChat.tsx:7187:    const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/audit-export`, {
+artifacts/dashboard/src/pages/AiChat.tsx:7188:      credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7342:    void fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/resume-capability`, {
+artifacts/dashboard/src/pages/AiChat.tsx:7344:      credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7362:        // from losing the only resumable credential held by the browser.
+artifacts/dashboard/src/pages/AiChat.tsx:7458:      case 'PROVIDER_FORMAT': return { title: 'Incomplete analysis', reason: 'The AI returned an unexpected response format. No scan result was created.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7459:      case 'RATE_LIMIT': return { title: 'Analysis paused by rate limit', reason: 'The AI provider is rate-limited. Wait a moment, then retry.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7460:      case 'CONFIGURATION': return { title: 'Analysis needs provider configuration', reason: 'The configured AI provider could not run this task. Check its key or choose another provider.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7461:      case 'TRANSPORT': return { title: 'Analysis interrupted', reason: 'The connection ended before the analysis finished. No scan result was created.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7462:      default: return { title: 'Analysis failed', reason: 'The AI provider could not complete this task. No scan result was created.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7485:    const startLabel = task === 'analyze' ? 'Starting scan analysis' : 'Starting code review';
+artifacts/dashboard/src/pages/AiChat.tsx:7525:          detail: event.provider,
+artifacts/dashboard/src/pages/AiChat.tsx:7532:          previous.some((model) => model.id === event.model && model.provider === event.provider)
+artifacts/dashboard/src/pages/AiChat.tsx:7534:            : [...previous, { id: event.model, provider: event.provider }]
+artifacts/dashboard/src/pages/AiChat.tsx:7539:          detail: `${event.model} · ${event.provider}`,
+artifacts/dashboard/src/pages/AiChat.tsx:7621:      queryKey: ['active-provider'],
+artifacts/dashboard/src/pages/AiChat.tsx:7626:  // PR-06: poll runtime health metrics so provider cards show live state
+artifacts/dashboard/src/pages/AiChat.tsx:7636:    (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
+artifacts/dashboard/src/pages/AiChat.tsx:7782:  const { data: recoverableDeliveries } = useQuery<{ operations: RecoverableDelivery[] }>({
+artifacts/dashboard/src/pages/AiChat.tsx:7786:      const response = await fetch(`/api/ai/delivery/recoverable?projectId=${encodeURIComponent(selectedProjectId)}`, {
+artifacts/dashboard/src/pages/AiChat.tsx:7787:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7801:      const response = await fetch(`/api/ai/delivery/${encodeURIComponent(proposal.proposalId)}/${action}`, {
+artifacts/dashboard/src/pages/AiChat.tsx:7803:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7866:  const regenerateReportMutation = useMutation({
+artifacts/dashboard/src/pages/AiChat.tsx:7868:      const response = await fetch(
+artifacts/dashboard/src/pages/AiChat.tsx:7869:        `/api/ai/chat/${encodeURIComponent(sessionId ?? '')}/messages/${encodeURIComponent(messageId)}/mission-correlation-report/regenerate`,
+artifacts/dashboard/src/pages/AiChat.tsx:7870:        { method: 'POST', credentials: 'include' },
+artifacts/dashboard/src/pages/AiChat.tsx:8204:        description: 'Refresh the chat before applying these changes.',
+artifacts/dashboard/src/pages/AiChat.tsx:8222:          description: 'Refresh the chat before approving this rebased patch.',
+artifacts/dashboard/src/pages/AiChat.tsx:8251:        description: 'Refresh the chat before rebasing this patch.',
+artifacts/dashboard/src/pages/AiChat.tsx:8316:      toast({ title: 'No project selected', description: 'Select a project first to start chatting.', variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:8320:      toast({ title: 'Checking AI provider health', description: 'Please wait a moment and try again.', variant: 'default' });
+artifacts/dashboard/src/pages/AiChat.tsx:8323:    if (!activeProvider.configured || !activeProvider.provider) {
+artifacts/dashboard/src/pages/AiChat.tsx:8324:      toast({ title: 'AI provider unavailable', description: 'Save an API key in the provider cards before sending a message.', variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:8575:              : [...prev, { id: event.model, provider: event.provider }]
+artifacts/dashboard/src/pages/AiChat.tsx:8581:            detail: `${fmtModelId(event.model)} · ${event.provider}`,
+artifacts/dashboard/src/pages/AiChat.tsx:8845:      const response = await fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/cancel`, {
+artifacts/dashboard/src/pages/AiChat.tsx:8847:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:8877:      const response = await fetch(
+artifacts/dashboard/src/pages/AiChat.tsx:8878:        `/api/ai/chat/plans/${encodeURIComponent(messageId)}/decision`,
+artifacts/dashboard/src/pages/AiChat.tsx:8881:          credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:8941:   *  - 'analyze' → POST /api/ai/projects/:id/analyze (structured result rendered in chat)
+artifacts/dashboard/src/pages/AiChat.tsx:8942:   *  - 'review'  → POST /api/ai/projects/:id/review  (structured result rendered in chat)
+artifacts/dashboard/src/pages/AiChat.tsx:8943:   *  - others    → send the prompt directly through the chat agent
+artifacts/dashboard/src/pages/AiChat.tsx:8958:    // 'tasks' and 'workflow' — route through chat agent, send immediately.
+artifacts/dashboard/src/pages/AiChat.tsx:9002:  // Derive the subtitle shown in the empty-chat state. Each case maps to a
+artifacts/dashboard/src/pages/AiChat.tsx:9007:    if (!selectedProjectId) return 'Create or select a project first to start chatting.';
+artifacts/dashboard/src/pages/AiChat.tsx:9015:    if (!selectedProjectId) return 'Create a project first to start chatting\u2026';
+artifacts/dashboard/src/pages/AiChat.tsx:9076:  // overlay drawer so it never steals the chat column's usable width.
+artifacts/dashboard/src/pages/AiChat.tsx:9094:      {/* UI-01: desktop sidebar; mobile drawer overlays the chat instead of
+artifacts/dashboard/src/pages/AiChat.tsx:9278:      {/* Main chat area */}
+artifacts/dashboard/src/pages/AiChat.tsx:9297:            {activeProvider?.provider === 'deepseek'
+artifacts/dashboard/src/pages/AiChat.tsx:9299:              : activeProvider?.provider === 'openrouter'
+artifacts/dashboard/src/pages/AiChat.tsx:9303:                : activeProvider?.provider === 'gemini'
+artifacts/dashboard/src/pages/AiChat.tsx:9433:            <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
+artifacts/dashboard/src/pages/AiChat.tsx:9491:                <div className="chat-message flex min-w-0 max-w-full gap-3 mb-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9495:                  <div className="chat-message-content min-w-0 max-w-[calc(100%-2.75rem)] rounded-xl rounded-tl-sm border border-border bg-secondary px-3 py-3 flex flex-col gap-2 sm:max-w-[75%] sm:px-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9677:              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
