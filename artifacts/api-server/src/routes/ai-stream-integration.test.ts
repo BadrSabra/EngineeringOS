@@ -2014,6 +2014,51 @@ exec "$ENGINEERINGOS_TEST_REAL_GIT" "$@"
         "GitCommitCreated",
         "GitPushed",
       ]));
+
+      const receiptPath = process.env.CONTROLLED_AGENT_JOURNEY_RECEIPT_PATH;
+      if (receiptPath) {
+        const validationEvidence = Array.isArray(apply.body.validationEvidence)
+          ? apply.body.validationEvidence
+          : [];
+        await fs.mkdir(path.dirname(receiptPath), { recursive: true });
+        await fs.writeFile(
+          receiptPath,
+          `${JSON.stringify(
+            {
+              kind: "controlled-agent-journey",
+              version: 1,
+              redacted: true,
+              stages: {
+                discovery: discoveryStatus?.status,
+                import: "created",
+                scan: scanStatus?.status,
+                plan: "approved",
+                build: "completed",
+                apply: apply.body.applyStatus,
+                promotion: apply.body.applyStatus === "APPLIED" ? "promoted" : "blocked",
+                commit: commit.body.ok ? "created" : "not_created",
+                push: push.body.ok ? "pushed" : "not_pushed",
+              },
+              correlation: {
+                discoveryId,
+                scanJobId,
+                projectId,
+                operationId,
+                proposalId,
+              },
+              evidence: {
+                validationCheckpoints: validationEvidence.length,
+                candidateBound: validationEvidence.length > 0,
+                correlatedEventTypes: [...traceTypes].sort(),
+                commitHash: commit.body.commitHash,
+              },
+            },
+            null,
+            2,
+          )}\n`,
+          "utf8",
+        );
+      }
     } finally {
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;
