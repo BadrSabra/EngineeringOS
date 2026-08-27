@@ -24,6 +24,7 @@ import {
 import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
 import { drainPendingAudits, loadPendingAudits } from "./lib/audit";
 import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
+import { getMissingDatabaseColumns } from "./lib/database-schema-preflight";
 
 /**
  * DB-07: Bootstrap guard — verify the Drizzle schema has been pushed before
@@ -32,17 +33,9 @@ import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
  * the server logs a clear, actionable error and exits.
  */
 async function assertDatabaseSchema(): Promise<void> {
-  let result;
+  let missing: string[];
   try {
-    result = await pool.query(
-      `SELECT table_name, column_name
-       FROM information_schema.columns
-       WHERE table_schema = 'public'
-         AND (
-           (table_name = 'projects' AND column_name = 'id')
-           OR (table_name = 'ai_executions' AND column_name = 'operation_id')
-         )`,
-    );
+    missing = await getMissingDatabaseColumns(pool);
   } catch (err) {
     logger.error(
       { err },
@@ -50,15 +43,6 @@ async function assertDatabaseSchema(): Promise<void> {
     );
     process.exit(1);
   }
-
-  const found = new Set(
-    result.rows.map((row: { table_name?: string; column_name?: string }) =>
-      `${row.table_name}.${row.column_name}`),
-  );
-  const missing = [
-    "projects.id",
-    "ai_executions.operation_id",
-  ].filter((required) => !found.has(required));
 
   if (missing.length > 0) {
     logger.error(
