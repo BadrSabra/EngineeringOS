@@ -6,6 +6,33 @@
 
 ---
 
+## Current AI execution note (2026-08-27)
+
+The AI layer is provider-agnostic at the route boundary. Provider selection is
+driven by `lib/ai-orchestrator/src/provider-registry.ts` and
+`artifacts/api-server/src/lib/ai-route-helpers.ts`, with capability checks,
+priority ordering, circuit handling, and bounded fallback across the configured
+providers.
+
+The current analysis surfaces are:
+
+- `POST /api/ai/chat` and `POST /api/ai/chat/stream`
+- `POST /api/ai/projects/:projectId/analyze` and `/analyze/stream`
+- `POST /api/ai/projects/:projectId/review` and `/review/stream`
+- `POST /api/ai/tasks/:taskId/execute`
+- `POST /api/ai/workflows/:workflowId/orchestrate`
+
+Context loading uses a repeatable-read database snapshot with a short-lived
+cache. Streamed executions persist identity, checkpoints, evidence/proof
+metadata, and terminal failures so reconnects cannot turn incomplete work into
+success.
+
+Forensic conclusions are fail-closed: complete reads with no accepted Finding
+may produce `NO_VERIFIED_FINDING`; zero or partial reads, stale or
+unattributed evidence, cancellation, provider exhaustion, or failed recovery
+produce `ANALYSIS_INCOMPLETE`. Only server-owned evidence and validation gates
+can produce a verified Finding.
+
 ## 1. Layer Map
 
 ```
