@@ -1,0 +1,209 @@
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    await expect(
+      page.getByLabel("Expand task Recover authentication failure"),
+    ).toBeVisible();
+    await page
+      .getByLabel("Expand task Recover authentication failure")
+      .click();
+    const taskDetails = page.locator("#task-details-e2e-auth-failed-task");
+    await expect(taskDetails).toContainText("Provider authentication failed");
+    await expect(taskDetails).toContainText(
+      "Replace the provider API key with a valid key, then retry.",
+    );
+    await expect(taskDetails).toContainText(
+      `Support reference: ${supportReferences.authentication_failed}`,
+    );
+    await page.getByLabel("Expand task Recover quota exhaustion").click();
+    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+    await expect(
+      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByLabel("Expand task Recover authentication failure"),
+    ).toBeVisible();
+    await page
+      .getByLabel("Expand task Recover authentication failure")
+      .click();
+    const reloadedAuthDetails = page.locator(
+      "#task-details-e2e-auth-failed-task",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      "Provider authentication failed",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      "Replace the provider API key with a valid key, then retry.",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      `Support reference: ${supportReferences.authentication_failed}`,
+    );
+    await page.getByLabel("Expand task Recover quota exhaustion").click();
+    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+    await expect(
+      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+    ).toBeVisible();
+    const reloadedTaskText = await page.locator("body").innerText();
+    expect(reloadedTaskText).not.toContain(rawDiagnostic);
+    expect(reloadedTaskText).not.toContain(rawCredential);
+    expect(reloadedTaskText).not.toMatch(
+      /secret-model-name|\/home\/runner|\/tmp\//i,
+    );
+
+    await openNavigation(page, "Workflows", `${DASHBOARD_PATH}workflows`);
+    await expect(page.getByText("Recover provider outage")).toBeVisible();
+    await page.getByRole("button", { name: "Execution history" }).click();
+    const execution = page
+      .getByText("failed · no successful completion")
+      .locator("..")
+      .locator("..");
+    await expect(execution).toContainText(
+      "The provider is temporarily unavailable",
+    );
+    await expect(execution).toContainText(
+      "Retry in a moment; configure another provider if the issue persists.",
+    );
+    await expect(execution).toContainText(
+      `Support reference: ${supportReferences.provider_outage}`,
+    );
+    await page.reload();
+    await expect(page.getByText("Recover provider outage")).toBeVisible();
+    await page.getByRole("button", { name: "Execution history" }).click();
+    const reloadedExecution = page
+      .getByText("failed · no successful completion")
+      .locator("..")
+      .locator("..");
+    await expect(reloadedExecution).toContainText(
+      "The provider is temporarily unavailable",
+    );
+    await expect(reloadedExecution).toContainText(
+      "Retry in a moment; configure another provider if the issue persists.",
+    );
+    await expect(reloadedExecution).toContainText(
+      `Support reference: ${supportReferences.provider_outage}`,
+    );
+
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain(rawDiagnostic);
+async function installApiFixtures(
+  page: Page,
+  overrides?: {
+    arabicAi?: ArabicAiFixture;
+    alternateAi?: ArabicAiFixture;
+    disconnectAi?: ArabicAiFixture;
+    resumeFailure?: {
+      fixture: ArabicAiFixture;
+      execution: Record<string, unknown>;
+    };
+    interruptedResume?: {
+      fixture: ArabicAiFixture;
+      execution: Record<string, unknown>;
+      recoveredToken: string;
+      resumedStreamBody: string;
+    };
+    deliveryRecovery?: {
+      operations: Array<Record<string, unknown>>;
+      requests: string[];
+      actionRequests?: string[];
+      recoveryAction?: {
+        proposalId: string;
+        action: "resume-validation" | "discard";
+        response: Record<string, unknown>;
+        status?: number;
+        nextOperations?: Array<Record<string, unknown>>;
+      };
+    };
+    projects?: Array<Record<string, unknown>>;
+    events?: Array<Record<string, unknown>>;
+    archiveUpload?: {
+      uploadId: string;
+      originalName: string;
+    };
+    auditExport?: {
+      body: Record<string, unknown>;
+      filename: string;
+      requests: string[];
+      execution?: Record<string, unknown>;
+      messageOutcome?: string;
+      failFirstPreview?: boolean;
+    };
+    liveTask?: {
+      id: string;
+      title: string;
+      projectId: string;
+      log: Record<string, unknown>;
+      initialLogs?: Array<Record<string, unknown>>;
+      streamRequests?: string[];
+      failFirstStream?: boolean;
+      failStreamAttempts?: number;
+    };
+    taskActions?: {
+      tasks: Array<Record<string, unknown>>;
+      requests: string[];
+      verificationRequests?: Array<Record<string, unknown>>;
+    };
+    recoveryTasks?: Array<Record<string, unknown>>;
+    recoveryWorkflows?: Array<Record<string, unknown>>;
+    recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
+  },
+) {
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
+    const arabicAi = overrides?.arabicAi;
+    const alternateAi = overrides?.alternateAi;
+    const disconnectAi = overrides?.disconnectAi;
+    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
+      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
+    );
+    const hasConfiguredAiFixture =
+      aiFixtures.length > 0 ||
+      Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
+
+    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
+      const projectId = url.searchParams.get("projectId");
+      const projectSessions = aiFixtures.filter(
+        (fixture) => !fixture.projectId || fixture.projectId === projectId,
+      );
+      return route.fulfill(
+        jsonResponse(
+          projectSessions.map((fixture) => ({
+            id: fixture.sessionId,
+import { defineConfig } from "@playwright/test";
+
+/**
+ * This suite is intentionally separate from Vitest. The release runner starts
+ * the dashboard and API workflows and performs their health checks before
+ * invoking Playwright.
+ */
+export default defineConfig({
+  testDir: ".",
+  testMatch: "**/*.journey.ts",
+  timeout: 45_000,
+  expect: { timeout: 10_000 },
+  fullyParallel: false,
+  workers: 1,
+  forbidOnly: Boolean(process.env.CI),
+    // Assertion/configuration failures are deterministic; retrying them hides
+    // the real release signal. Infrastructure retries are handled by the
+    // bounded release wrapper instead.
+    retries: 0,
+  reporter: process.env.CI ? "line" : "list",
+  use: {
+    launchOptions: {
+      ...(process.env.DASHBOARD_E2E_EXECUTABLE_PATH
+        ? { executablePath: process.env.DASHBOARD_E2E_EXECUTABLE_PATH }
+        : {}),
+      args: ["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
+    },
+    baseURL:
+      process.env.DASHBOARD_E2E_BASE_URL ?? "http://127.0.0.1:5173/dashboard/",
+    outputDir:
+      process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    // The managed release runner retains trace and screenshot artifacts. Do
+    // not require Playwright's separately downloaded ffmpeg video helper.
+    video: "off",
+    ignoreHTTPSErrors: true,
+  },
+});

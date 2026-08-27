@@ -1,0 +1,344 @@
+Refresh index: 100% (396176/396176), done.
+ M artifacts/dashboard/e2e/dashboard.journey.ts
+ artifacts/dashboard/e2e/dashboard.journey.ts | 298 ++++++++++++++++++++++++++-
+ 1 file changed, 297 insertions(+), 1 deletion(-)
+diff --git a/artifacts/dashboard/e2e/dashboard.journey.ts b/artifacts/dashboard/e2e/dashboard.journey.ts
+index 78d9a10..41953e6 100644
+--- a/artifacts/dashboard/e2e/dashboard.journey.ts
++++ b/artifacts/dashboard/e2e/dashboard.journey.ts
+@@ -249,6 +249,7 @@ async function installApiFixtures(
+     taskActions?: {
+       tasks: Array<Record<string, unknown>>;
+       requests: string[];
++      verificationRequests?: Array<Record<string, unknown>>;
+     };
+     recoveryTasks?: Array<Record<string, unknown>>;
+     recoveryWorkflows?: Array<Record<string, unknown>>;
+@@ -396,6 +397,153 @@ async function installApiFixtures(
+     if (path === "/api/dashboard")
+       return route.fulfill(jsonResponse(dashboardFixture));
+     if (overrides?.taskActions) {
++      const verificationMatch = path.match(
++        /^\/api\/tasks\/([^/]+)\/verification$/,
++      );
++      if (verificationMatch && route.request().method() === "POST") {
++        const [, taskId] = verificationMatch;
++        const task = overrides.taskActions.tasks.find(
++          (candidate) => candidate.id === taskId,
++        );
++        if (!task) {
++          return route.fulfill(jsonResponse({ error: "Task not found" }, 404));
++        }
++
++        let body: Record<string, unknown> = {};
++        try {
++          body = route.request().postDataJSON() as Record<string, unknown>;
++        } catch {
++          return route.fulfill(
++            jsonResponse({ error: "Invalid verification request" }, 400),
++          );
++        }
++        const plan = task.remediationPlan as
++          | {
++              verificationChecks?: Array<Record<string, unknown>>;
++              verificationSteps?: string[];
++            }
++          | undefined;
++        const checks =
++          plan?.verificationChecks ??
++          (plan?.verificationSteps ?? []).map((guidance, index) => ({
++            id: `rule-verification-${index + 1}`,
++            kind: "operator_attestation",
++            guidance,
++          }));
++        const check = checks.find((candidate) => candidate.id === body.checkId);
++        if (!check) {
++          return route.fulfill(
++            jsonResponse(
++              {
++                error: "verification_check_not_found",
++                reason:
++                  "The submitted check is not part of this task's server-owned verification plan.",
++              },
++              400,
++            ),
++          );
++        }
++        const passed = body.passed === true;
++        const evidence =
++          typeof body.evidence === "string" ? body.evidence.trim() : "";
++        if (passed && !evidence) {
++          return route.fulfill(
++            jsonResponse(
++              {
++                error: "verification_evidence_required",
++                reason:
++                  "A passed verification check must include explicit operator evidence.",
++              },
++              400,
++            ),
++          );
++        }
++
++        overrides.taskActions.verificationRequests?.push({
++          taskId,
++          checkId: body.checkId,
++          passed,
++          ...(evidence ? { evidence } : {}),
++        });
++
++        const priorResult = (task.verificationResult ?? {}) as {
++          steps?: Array<Record<string, unknown>>;
++          history?: Array<Record<string, unknown>>;
++        };
++        const priorSteps = priorResult.steps ?? [];
++        const steps = checks.map((candidate) => {
++          const prior = priorSteps.find((step) => step.id === candidate.id);
++          if (candidate.id !== body.checkId) {
++            return (
++              prior ?? {
++                id: candidate.id,
++                name: `Rule verification ${String(candidate.id).replace(
++                  "rule-verification-",
++                  "#",
++                )}`,
++                kind: candidate.kind ?? "operator_attestation",
++                guidance: candidate.guidance,
++                passed: false,
++                output: "Not recorded — operator evidence is required",
++              }
++            );
++          }
++          return {
++            id: candidate.id,
++            name: `Rule verification ${String(candidate.id).replace(
++              "rule-verification-",
++              "#",
++            )}`,
++            kind: candidate.kind ?? "operator_attestation",
++            guidance: candidate.guidance,
++            passed,
++            ...(evidence ? { evidence } : {}),
++            output: passed
++              ? "Operator evidence recorded"
++              : "Operator reported that the check failed",
++          };
++        });
++        const completed = steps.every(
++          (step) => step.passed === true && Boolean(String(step.evidence ?? "").trim()),
++        );
++        task.status = completed ? "completed" : "verifying";
++        task.verificationResult = {
++          passed: completed,
++          decision: completed ? "verified" : "incomplete",
++          steps,
++          history: [
++            ...(priorResult.history ?? []),
++            {
++              id: `verification-history-${String(
++                (priorResult.history ?? []).length + 1,
++              )}`,
++              checkId: check.id,
++              name: `Rule verification ${String(check.id).replace(
++                "rule-verification-",
++                "#",
++              )}`,
++              kind: check.kind ?? "operator_attestation",
++              guidance: check.guidance,
++              passed,
++              ...(evidence ? { evidence } : {}),
++              actor: "e2e-operator",
++              recordedAt: `2026-01-01T00:0${
++                (priorResult.history ?? []).length + 2
++              }:00.000Z`,
++            },
++          ],
++        };
++        if (task.remediationPlan && completed) {
++          task.remediationPlan = {
++            ...(task.remediationPlan as Record<string, unknown>),
++            status: "verified",
++          };
++        }
++        task.updatedAt = "2026-01-01T00:04:00.000Z";
++        if (completed) task.completedAt = task.updatedAt;
++        return route.fulfill(jsonResponse(task));
++      }
++
+       const actionMatch = path.match(/^\/api\/tasks\/([^/]+)\/(execute|retry)$/);
+       if (actionMatch && route.request().method() === "POST") {
+         const [, taskId, action] = actionMatch;
+@@ -2089,6 +2237,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
+     const rawDiagnostic = "raw-provider-diagnostic-should-never-render";
+     const readyTaskId = "e2e-ready-remediation-task";
+     const reviewTaskId = "e2e-review-remediation-task";
++    const verificationTaskId = "e2e-verification-remediation-task";
+     const remediationTasks = [
+       {
+         id: readyTaskId,
+@@ -2178,10 +2327,59 @@ test.describe("EngineeringOS dashboard browser journey", () => {
+         createdAt: "2026-01-01T00:00:00.000Z",
+         updatedAt: "2026-01-01T00:01:00.000Z",
+       },
++      {
++        id: verificationTaskId,
++        projectId: "e2e-project",
++        title: "Verify parameterized SQL remediation",
++        description: "An operator must record evidence for every verification check.",
++        status: "verifying",
++        priority: "p1",
++        phase: "Remediation",
++        relatedFiles: ["src/auth/input.ts"],
++        retryCount: 0,
++        maxRetries: 2,
++        prompt: rawPrompt,
++        remediationPlan: {
++          version: 1,
++          ruleId: "e2e-rule-verification",
++          ruleCode: "SEC-003",
++          ruleTitle: "Parameterized SQL remediation",
++          severity: "high",
++          occurrenceCount: 2,
++          evidence: [
++            {
++              file: "src/auth/input.ts",
++              line: 10,
++              snippet: "query(userInput)",
++              occurrences: 1,
++            },
++          ],
++          relatedFiles: ["src/auth/input.ts"],
++          fixDescription: "Use the parameterized query helper for every user-controlled value.",
++          verificationSteps: [
++            "Run the SQL injection regression test.",
++            "Confirm all user-controlled query values use parameters.",
++          ],
++          source: {
++            type: "scan",
++            correlationId: "e2e-verification-correlation",
++            revision: "remediation-revision-43",
++            completeness: "COMPLETE",
++          },
++          status: "ready",
++        },
++        createdAt: "2026-01-01T00:00:00.000Z",
++        updatedAt: "2026-01-01T00:03:00.000Z",
++      },
+     ];
+     const actionRequests: string[] = [];
++    const verificationRequests: Array<Record<string, unknown>> = [];
+     await installApiFixtures(page, {
+-      taskActions: { tasks: remediationTasks, requests: actionRequests },
++      taskActions: {
++        tasks: remediationTasks,
++        requests: actionRequests,
++        verificationRequests,
++      },
+     });
+     await programmaticSignIn(page);
+     await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+@@ -2248,6 +2446,104 @@ test.describe("EngineeringOS dashboard browser journey", () => {
+     await expect(reviewRow).toContainText("queued");
+     await expect(page.getByTitle("Retry")).toHaveCount(0);
+ 
++    const verificationRow = page.getByRole("button", {
++      name: /task Verify parameterized SQL remediation/,
++    });
++    await verificationRow.click();
++    const verificationDetails = page.locator(
++      `#task-details-${verificationTaskId}`,
++    );
++    const verificationPlan = verificationDetails.getByRole("region", {
++      name: "Remediation plan",
++    });
++    const verificationChecks = verificationDetails.getByRole("region", {
++      name: "Operator verification checks",
++    });
++    await expect(verificationPlan).toContainText("SEC-003");
++    await expect(verificationPlan).toContainText("Ready to execute");
++    await verificationDetails
++      .getByRole("button", { name: "Run and record verification checks" })
++      .click();
++    await expect(verificationChecks).toBeVisible();
++    await expect(verificationChecks).toContainText("Incomplete");
++
++    const firstGuidance = "Run the SQL injection regression test.";
++    const secondGuidance =
++      "Confirm all user-controlled query values use parameters.";
++    const firstEvidence = verificationChecks.getByLabel(
++      `Evidence for ${firstGuidance}`,
++    );
++    const secondEvidence = verificationChecks.getByLabel(
++      `Evidence for ${secondGuidance}`,
++    );
++    const passButtons = verificationChecks.getByRole("button", {
++      name: "Record passed",
++    });
++    const failedButtons = verificationChecks.getByRole("button", {
++      name: "Record failed",
++    });
++    await expect(passButtons.nth(0)).toBeDisabled();
++    await firstEvidence.fill("The regression test still fails before the fix.");
++    await failedButtons.nth(0).click();
++    await expect.poll(() => verificationRequests.length).toBe(1);
++    expect(verificationRequests[0]).toMatchObject({
++      taskId: verificationTaskId,
++      checkId: "rule-verification-1",
++      passed: false,
++    });
++    await expect(verificationChecks).toContainText("Incomplete");
++    await expect(verificationRow).toContainText("verifying");
++
++    await firstEvidence.fill("The focused regression test passes after the fix.");
++    await passButtons.nth(0).click();
++    await expect.poll(() => verificationRequests.length).toBe(2);
++    expect(verificationRequests[1]).toMatchObject({
++      taskId: verificationTaskId,
++      checkId: "rule-verification-1",
++      passed: true,
++      evidence: "The focused regression test passes after the fix.",
++    });
++    await expect(verificationChecks).toContainText("Incomplete");
++
++    await secondEvidence.fill(
++      "All user-controlled query values use the parameterized helper.",
++    );
++    await passButtons.nth(1).click();
++    await expect.poll(() => verificationRequests.length).toBe(3);
++    expect(verificationRequests[2]).toMatchObject({
++      taskId: verificationTaskId,
++      checkId: "rule-verification-2",
++      passed: true,
++      evidence: "All user-controlled query values use the parameterized helper.",
++    });
++    await expect(verificationRow).toContainText("completed");
++    await verificationDetails.getByRole("button", { name: "Details" }).click();
++    await expect(verificationPlan).toContainText("Verified");
++    await verificationDetails.getByRole("button", { name: "Logs" }).click();
++    await expect(verificationChecks).toContainText("Verified");
++    await expect(verificationDetails).toContainText(
++      "Task completed and verified by the server.",
++    );
++
++    await page.reload();
++    const reloadedVerificationRow = page.getByRole("button", {
++      name: /task Verify parameterized SQL remediation/,
++    });
++    await expect(reloadedVerificationRow).toContainText("completed");
++    await reloadedVerificationRow.click();
++    const reloadedDetails = page.locator(
++      `#task-details-${verificationTaskId}`,
++    );
++    await reloadedDetails.getByRole("button", { name: "Logs" }).click();
++    await expect(
++      reloadedDetails.getByRole("region", {
++        name: "Operator verification checks",
++      }),
++    ).toContainText("Verified");
++    await expect(reloadedDetails).toContainText(
++      "Task completed and verified by the server.",
++    );
++
+     const visibleText = await page.locator("body").innerText();
+     expect(visibleText).not.toContain(rawPrompt);
+     expect(visibleText).not.toContain(rawDiagnostic);

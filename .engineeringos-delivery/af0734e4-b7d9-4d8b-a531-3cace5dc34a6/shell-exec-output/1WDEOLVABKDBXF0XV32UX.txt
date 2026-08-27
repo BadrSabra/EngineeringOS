@@ -1,0 +1,840 @@
+
+> workspace@0.0.0 validate:dashboard-journey /home/runner/workspace
+> RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs
+
+
+> workspace@0.0.0 test:dashboard-journey-contract /home/runner/workspace
+> node --test scripts/dashboard-journey-contract.test.mjs
+
+✔ release API listener enforces approved and hostile-origin CORS (2189.707884ms)
+✔ release API listener protects upload and live-update requests (2110.316548ms)
+✔ live journey timeout has Playwright headroom (0.728367ms)
+✔ the standard release journey remains provider-free (0.455519ms)
+✔ dashboard convergence carries a server revision and asserts rendered freshness (0.548232ms)
+✔ the opt-in live journey requests and captures forensic proof (0.232307ms)
+✔ the live journey requires an explicitly disposable project (0.144511ms)
+✔ runs the mission correlation report contract before browser startup (0.156386ms)
+✔ release teardown reports each service and any surviving listener (0.271313ms)
+✔ release teardown writes a structured CI artifact (0.308601ms)
+✔ release diagnostics expose a run-scoped summary and artifact link (0.288156ms)
+✔ release diagnostics remain useful when teardown evidence is absent (0.328882ms)
+✔ live recovery requires an evidence-backed success (2.662691ms)
+✔ live campaign covers provider failures and candidate-bound delivery (1.870209ms)
+✔ release output reports redacted proof counts and non-success status (0.198901ms)
+✔ release journey passes the complete approved origin list to API and browser checks (5.684015ms)
+✔ origin failures preserve only sanitized phase and CORS diagnostics (1.447344ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4405.155219
+Dashboard journey timeout and provider-mode contracts passed.
+
+> workspace@0.0.0 test:mission-correlation-report /home/runner/workspace
+> node --test scripts/mission-correlation-report.test.mjs
+
+✔ keeps the mission correlation report version compatible with stored report readers (2.514152ms)
+✔ formats a redacted release summary with evidence and validation counts (0.22909ms)
+✔ labels non-success release terminals without exposing report contents (0.167031ms)
+✔ validates child-process release output and keeps the emitted summary redacted (99.417563ms)
+✔ rejects malformed validator stdout before release summary formatting (0.618513ms)
+✔ rejects incompatible mission correlation report versions with an upgrade action (0.49922ms)
+✔ correlates every mission surface by operation and workspace revision (0.344467ms)
+✔ rejects a successful terminal without accepted evidence or validation (0.271742ms)
+✔ records provider failover and unavailable runs as non-success terminals (0.213454ms)
+✔ requires the redacted report identity, terminal, and core surfaces (0.344885ms)
+✔ names the missing core surface instead of accepting an incomplete report (3.633742ms)
+✔ keeps every supported terminal explicit and classifies success terminals (0.963148ms)
+✔ strict live validation rejects success without evidence and validation (0.201094ms)
+✔ strict live validation accepts completed evidence-backed missions (1.119414ms)
+✔ strict live validation requires a matching candidate revision (0.392851ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 181.808917
+Mission correlation report contracts passed.
+
+> @workspace/dashboard@0.0.0 test:clerk-handoff /home/runner/workspace/artifacts/dashboard
+> vitest run src/lib/clerk-handoff.test.ts
+
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/dashboard
+
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  23:03:48
+   Duration  1.22s (transform 79ms, setup 148ms, import 65ms, tests 6ms, environment 844ms)
+
+Dashboard Clerk handoff response contracts passed.
+Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.
+
+> @workspace/api-server@0.0.0 build /home/runner/workspace/artifacts/api-server
+> node ./build.mjs
+
+
+  dist/index.mjs                      15.0mb ⚠️
+  dist/pino-worker.mjs               153.4kb
+  dist/pino-file.mjs                 142.1kb
+  dist/pino-pretty.mjs               114.6kb
+  dist/thread-stream-worker.mjs        7.3kb
+  dist/index.mjs.map                  24.3mb
+  dist/pino-worker.mjs.map           256.9kb
+  dist/pino-file.mjs.map             229.0kb
+  dist/pino-pretty.mjs.map           204.0kb
+  dist/thread-stream-worker.mjs.map   12.0kb
+
+⚡ Done in 2205ms
+
+> @workspace/dashboard@0.0.0 dev /home/runner/workspace/artifacts/dashboard
+> node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0
+
+[replit-cartographer] Loaded @theme tokens from /home/runner/workspace/artifacts/dashboard/src/index.css
+
+  VITE v7.3.6  ready in 567 ms
+
+  ➜  Local:   http://localhost:23184/dashboard/
+  ➜  Network: http://172.24.0.2:23184/dashboard/
+{"scope":"ctx-cache-channel","code":"LISTEN_READY","channel":"ctx_invalid"}
+{"scope":"startup-validator","provider":"openrouter","status":"ok","keyEnv":"OPENROUTER_API_KEY"}
+{"scope":"startup-validator","provider":"gemini","status":"skipped","reason":"GEMINI_API_KEY not set"}
+{"scope":"startup-validator","provider":"deepseek","status":"skipped","reason":"DEEPSEEK_API_KEY not set"}
+{"scope":"startup-validator","provider":"groq","status":"skipped","reason":"GROQ_API_KEY not set"}
+{"scope":"session-memory","code":"SWEEP_COMPLETE","ts":"2026-08-26T23:03:54.610Z"}
+[23:03:54.516] INFO (5128): catalog-refresh: background free-model catalog refresh scheduler started
+    intervalMs: 300000
+[23:03:54.606] INFO (5128): reloaded pending audit log entries
+    pendingAudits: 0
+[23:03:54.609] INFO (5128): Server listening
+    port: 18081
+    jobQueue: {
+      "running": 0,
+      "queued": 0,
+      "concurrency": 2
+    }
+[23:03:54.609] INFO (5128): stale-job sweep scheduled
+    intervalMs: 1800000
+    timeoutMs: 7200000
+    pendingTimeoutMs: 900000
+[23:03:54.609] INFO (5128): durable job dispatcher scheduled
+    intervalMs: 10000
+{"scope":"dynamic-catalog","code":"REFRESHED","freeModelCount":20,"totalModelCount":417}
+[23:03:54.839] INFO (5128): catalog-refresh: OpenRouter free-model catalog refreshed
+    staleModelCount: 0
+Dashboard workflow healthy at http://127.0.0.1:23184/dashboard/
+API workflow healthy at http://127.0.0.1:18081/api/healthz
+Using isolated Clerk journey user engineeringos-dashboard-release@example.com
+[23:03:55.045] INFO (5128): request completed
+    req: {
+      "id": 1,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 51
+[23:03:55.120] INFO (5128): request completed
+    req: {
+      "id": 2,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 16
+
+Running 26 tests using 1 worker
+[2/26] …ser journey › signs in and traverses the authenticated operational shell
+Attention: Clerk collects telemetry data from its SDKs when connected to development instances.
+The data collected is used to inform Clerk's product roadmap.
+To learn more, including how to opt-out from the telemetry program, visit: https://clerk.com/docs/telemetry.
+
+[23:04:06.611] INFO (5128): request completed
+    req: {
+      "id": 3,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 53
+[23:04:06.879] INFO (5128): request completed
+    req: {
+      "id": 4,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 7
+[23:04:06.896] INFO (5128): request completed
+    req: {
+      "id": 5,
+      "method": "OPTIONS",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 204
+    }
+    responseTime: 3
+[23:04:06.926] INFO (5128): request completed
+    req: {
+      "id": 6,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 401
+    }
+    responseTime: 21
+[23:04:06.943] INFO (5128): request completed
+    req: {
+      "id": 7,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 403
+    }
+    responseTime: 2
+[23:04:06.963] INFO (5128): request completed
+    req: {
+      "id": 8,
+      "method": "POST",
+      "url": "/api/upload/archive"
+    }
+    res: {
+      "statusCode": 403
+    }
+    responseTime: 1
+[23:04:06.979] INFO (5128): request completed
+    req: {
+      "id": 9,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 403
+    }
+[3/26] …› opens failed task and workflow details with redacted recovery guidance
+[23:04:09.861] INFO (5128): request completed
+    req: {
+      "id": 11,
+      "method": "GET",
+      "url": "/api/projects/e2e-project/git/log"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 140
+[23:04:09.862] INFO (5128): request completed
+    req: {
+      "id": 10,
+      "method": "GET",
+      "url": "/api/projects/e2e-project/git/status"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 150
+[23:04:13.584] INFO (5128): request completed
+    req: {
+      "id": 12,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[4/26] …ey › proves remediation plans, review state, and task action transitions
+[23:04:20.808] INFO (5128): request completed
+    req: {
+      "id": 13,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 54
+[23:04:22.275] INFO (5128): request completed
+    req: {
+      "id": 14,
+      "method": "GET",
+      "url": "/api/tasks/e2e-verification-remediation-task/logs"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 8
+[23:04:22.966] INFO (5128): request completed
+    req: {
+      "id": 15,
+      "method": "GET",
+      "url": "/api/tasks/e2e-verification-remediation-task/logs"
+    }
+    res: {
+      "statusCode": 404
+    }
+[5/26] …rowser sessions across reload, reconnect, stale results, and API restart
+[23:04:24.362] INFO (5128): request completed
+    req: {
+      "id": 16,
+      "method": "GET",
+      "url": "/api/tasks/e2e-verification-remediation-task/logs"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 9
+[23:04:28.363] INFO (5128): request completed
+    req: {
+      "id": 18,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 15
+[23:04:28.633] INFO (5128): request completed
+    req: {
+      "id": 20,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 28
+[23:04:28.759] INFO (5128): request completed
+    req: {
+      "id": 19,
+      "method": "GET",
+      "url": "/api/dashboard"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 158
+[23:04:28.760] INFO (5128): request completed
+    req: {
+      "id": 17,
+      "method": "GET",
+      "url": "/api/dashboard"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 414
+[23:04:29.790] INFO (5128): request completed
+    req: {
+      "id": 22,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 23
+[23:04:29.803] INFO (5128): request completed
+    req: {
+      "id": 21,
+      "method": "GET",
+      "url": "/api/dashboard"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 42
+[23:04:29.998] INFO (5128): request completed
+    req: {
+      "id": 26,
+      "method": "GET",
+      "url": "/api/ai/groq-key"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 132
+[23:04:30.003] INFO (5128): request completed
+    req: {
+      "id": 24,
+      "method": "GET",
+      "url": "/api/ai/providers/gemini/key"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 155
+[23:04:30.009] INFO (5128): request completed
+    req: {
+      "id": 28,
+      "method": "GET",
+      "url": "/api/ai/metrics"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 136
+[23:04:30.010] INFO (5128): request completed
+    req: {
+      "id": 23,
+      "method": "GET",
+      "url": "/api/ai/openrouter-key"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 168
+[23:04:30.016] INFO (5128): request completed
+    req: {
+      "id": 25,
+      "method": "GET",
+      "url": "/api/ai/deepseek-key"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 162
+[23:04:30.018] INFO (5128): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: null
+    requireTools: false
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[23:04:30.018] INFO (5128): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: null
+[23:04:30.018] INFO (5128): request completed
+    req: {
+      "id": 27,
+      "method": "GET",
+      "url": "/api/ai/active-provider"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 148
+[23:04:30.049] INFO (5128): GET /projects completed
+    requestId: "285b4205-90c4-43d4-9ad4-f404bd2ceb10"
+    userId: "user_3IR3N89HUxFEhBgjKrTo1Bxwtmw"
+    status: 200
+    projectCount: 0
+    elapsedMs: 11
+[23:04:30.056] INFO (5128): request completed
+    req: {
+      "id": 29,
+      "method": "GET",
+      "url": "/api/projects"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 21
+[23:04:30.201] INFO (5128): request completed
+    req: {
+      "id": 30,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 6
+[23:04:30.357] INFO (5128): request completed
+    req: {
+      "id": 31,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 6
+[23:04:31.107] INFO (5128): request completed
+    req: {
+      "id": 33,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 10
+[23:04:31.113] INFO (5128): request completed
+    req: {
+      "id": 32,
+      "method": "GET",
+      "url": "/api/dashboard"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 17
+[23:04:32.724] INFO (5128): request completed
+    req: {
+      "id": 34,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 24
+[23:04:33.970] INFO (5128): request completed
+    req: {
+      "id": 35,
+      "method": "GET",
+      "url": "/api/dashboard"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 26
+[23:04:34.047] INFO (5128): Graceful shutdown started
+    signal: "SIGTERM"
+[23:04:34.047] INFO (5128): catalog-refresh: scheduler stopped
+[23:04:34.048] INFO (5128): Graceful shutdown complete
+{"scope":"ctx-cache-channel","code":"LISTEN_READY","channel":"ctx_invalid"}
+{"scope":"startup-validator","provider":"openrouter","status":"ok","keyEnv":"OPENROUTER_API_KEY"}
+{"scope":"startup-validator","provider":"gemini","status":"skipped","reason":"GEMINI_API_KEY not set"}
+{"scope":"startup-validator","provider":"deepseek","status":"skipped","reason":"DEEPSEEK_API_KEY not set"}
+{"scope":"startup-validator","provider":"groq","status":"skipped","reason":"GROQ_API_KEY not set"}
+[23:04:36.234] INFO (5557): catalog-refresh: background free-model catalog refresh scheduler started
+    intervalMs: 300000
+[23:04:36.423] INFO (5557): reloaded pending audit log entries
+    pendingAudits: 0
+{"scope":"session-memory","code":"SWEEP_COMPLETE","ts":"2026-08-26T23:04:36.433Z"}
+[23:04:36.430] INFO (5557): Server listening
+    port: 18081
+    jobQueue: {
+      "running": 0,
+      "queued": 0,
+      "concurrency": 2
+    }
+[23:04:36.431] INFO (5557): stale-job sweep scheduled
+    intervalMs: 1800000
+    timeoutMs: 7200000
+    pendingTimeoutMs: 900000
+[23:04:36.431] INFO (5557): durable job dispatcher scheduled
+    intervalMs: 10000
+{"scope":"dynamic-catalog","code":"REFRESHED","freeModelCount":20,"totalModelCount":417}
+[23:04:36.688] INFO (5557): catalog-refresh: OpenRouter free-model catalog refreshed
+    staleModelCount: 0
+[23:04:36.697] INFO (5557): request completed
+    req: {
+      "id": 1,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 30
+Attention: Clerk collects telemetry data from its SDKs when connected to development instances.
+The data collected is used to inform Clerk's product roadmap.
+To learn more, including how to opt-out from the telemetry program, visit: https://clerk.com/docs/telemetry.
+
+[23:04:37.834] INFO (5557): request completed
+    req: {
+      "id": 3,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 20
+[23:04:37.918] INFO (5557): request completed
+    req: {
+      "id": 2,
+      "method": "GET",
+      "url": "/api/dashboard"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 122
+[23:04:38.235] INFO (5557): request completed
+    req: {
+      "id": 4,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[23:04:39.606] INFO (5557): request completed
+    req: {
+      "id": 5,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[6/26] … and downloads the completed execution audit without duplicating effects
+[23:04:44.605] INFO (5557): request completed
+    req: {
+      "id": 6,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[7/26] …rney › keeps the cancelled execution audit handoff redacted and terminal
+[23:04:56.362] INFO (5557): request completed
+    req: {
+      "id": 7,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[8/26] …oard browser journey › uploads an archive and renders a live task update
+[23:05:09.466] INFO (5557): request completed
+    req: {
+      "id": 8,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[9/26] …r journey › recovers a live task update after a temporary stream failure
+[23:05:13.877] INFO (5557): request completed
+    req: {
+      "id": 9,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[10/26] …ws an actionable terminal state when live task reconnects are exhausted
+[23:05:19.657] INFO (5557): request completed
+    req: {
+      "id": 10,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[11/26] …› pages and reloads the filtered event stream without losing its window
+[23:05:48.431] INFO (5557): request completed
+    req: {
+      "id": 11,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[12/26] … renders an Arabic source-backed AI answer without internal diagnostics
+[23:05:55.329] INFO (5557): request completed
+    req: {
+      "id": 12,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[13/26] …e AI session drawer overlaid on a phone viewport with accepted evidence
+[23:06:01.036] INFO (5557): request completed
+    req: {
+      "id": 13,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[14/26] … state across browser back and forward navigation with blocked evidence
+[23:06:06.623] INFO (5557): request completed
+    req: {
+      "id": 14,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[15/26] …ard browser journey › keeps safe citation state when switching projects
+[23:06:12.486] INFO (5557): request completed
+    req: {
+      "id": 15,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[16/26] … browser journey › keeps safe citation state across repeated navigation
+[23:06:18.696] INFO (5557): request completed
+    req: {
+      "id": 16,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[17/26] …journey › keeps only the safe blocked citation reason after chat reload
+[23:06:26.211] INFO (5557): request completed
+    req: {
+      "id": 17,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[18/26] …urney › keeps the failed AI session drawer overlaid on a phone viewport
+[23:06:31.678] INFO (5557): request completed
+    req: {
+      "id": 18,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[19/26] … one partial answer after a provider disconnect and marks it incomplete
+[23:06:36.960] INFO (5557): request completed
+    req: {
+      "id": 19,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[20/26] … journey › resumes a failed analysis and keeps the execution incomplete
+[23:06:44.060] INFO (5557): request completed
+    req: {
+      "id": 20,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[21/26] …ers a missing token after a real stream abort and resumes one execution
+[23:06:49.762] INFO (5557): request completed
+    req: {
+      "id": 21,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[22/26] …browser journey › projects delivery recovery states safely after reload
+[23:06:56.913] INFO (5557): request completed
+    req: {
+      "id": 22,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[23/26] …rney › explains when delivery recovery loses a race and refreshes state
+[23:07:04.770] INFO (5557): request completed
+    req: {
+      "id": 23,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[24/26] …rney › explains when an old recovery link points to a deleted operation
+[23:07:10.226] INFO (5557): request completed
+    req: {
+      "id": 24,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[25/26] …rney › keeps the resumed AI session drawer overlaid on a phone viewport
+[23:07:15.936] INFO (5557): request completed
+    req: {
+      "id": 25,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[26/26] …OS dashboard browser journey › renders a user-visible API failure state
+[23:07:21.344] INFO (5557): request completed
+    req: {
+      "id": 26,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+  1 skipped
+  25 passed (3.4m)
+/home/runner/workspace/artifacts/dashboard:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/dashboard@0.0.0 dev: `node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0`
+Command failed with signal "SIGTERM"
+[23:07:24.102] INFO (5557): Graceful shutdown started
+    signal: "SIGTERM"
+[23:07:24.102] INFO (5557): catalog-refresh: scheduler stopped
+[23:07:24.103] INFO (5557): Graceful shutdown complete
+Release service teardown results:
+- API release build: exit 0
+- API release service: exit 0
+- Dashboard release service: signal SIGTERM
+- API release service (restarted): exit 0
+Release services surviving teardown: none.
+Release origin diagnostics:
+- {"origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8-awfxcdsx.janeway.replit.dev","phase":"GET","status":200,"headers":{"access-control-allow-origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8-awfxcdsx.janeway.replit.dev","vary":"Origin"}}
+- {"origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8-awfxcdsx.janeway.replit.dev","phase":"preflight","status":204,"headers":{"access-control-allow-origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8-awfxcdsx.janeway.replit.dev","access-control-allow-methods":"GET,HEAD,PUT,PATCH,POST,DELETE","access-control-allow-headers":"content-type","vary":"Origin, Access-Control-Request-Headers"}}
+- {"origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8-awfxcdsx.janeway.replit.dev","phase":"mutation","status":401,"headers":{"access-control-allow-origin":"https://97a6b12f-4851-42c1-8433-a58a1aec9510-00-s2yjtgh3wat8-awfxcdsx.janeway.replit.dev","vary":"Origin"}}
+- {"origin":"https://attacker.example","phase":"rejection","status":403,"headers":{}}
+Release teardown artifact: /home/runner/workspace/test-results/dashboard-journey-task9-full/release-teardown.json
+Release teardown evidence summary: validation run local; retained artifact /home/runner/workspace/test-results/dashboard-journey-task9-full/release-teardown.json.
+Release teardown evidence coverage: API release build (process group 5096; descendants tracked by surviving PIDs); API release service (process group 5128; descendants tracked by surviving PIDs); Dashboard release service (process group 5129; descendants tracked by surviving PIDs); API release service (restarted) (process group 5557; descendants tracked by surviving PIDs).

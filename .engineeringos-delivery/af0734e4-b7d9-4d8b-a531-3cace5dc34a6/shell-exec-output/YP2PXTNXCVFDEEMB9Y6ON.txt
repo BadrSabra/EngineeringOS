@@ -1,0 +1,116 @@
+   840              </div>
+   841
+   842              {expandedTask === task.id && (
+   843                <div id={`task-details-${task.id}`} className="border-t border-border bg-secondary/20">
+   844                  {/* Tab bar */}
+   845                  <div className="flex gap-1 p-3 pb-0">
+   846                    {(['details', 'logs'] as const).map((tab) => (
+   847                      <button
+   848                        key={tab}
+   849                        onClick={() => setDetailTab(task.id, tab)}
+   850                        className={`text-xs px-3 py-1.5 rounded-t-md font-medium capitalize transition-colors ${
+   851                          getDetailTab(task.id) === tab
+   852                            ? 'bg-card border border-border border-b-card text-foreground -mb-px relative z-10'
+   853                            : 'text-muted-foreground hover:text-foreground'
+   854                        }`}
+   855                      >
+   856                        {tab === 'logs' ? <span className="flex items-center gap-1"><Terminal className="w-3 h-3" /> Logs</span> : 'Details'}
+   857                      </button>
+   858                    ))}
+   859                  </div>
+   860
+   861                  {/* Tab content */}
+   862                  <div className="p-4 pt-3 text-sm">
+   863                    {getDetailTab(task.id) === 'details' ? (
+   864                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+   865                        <div>
+   866                          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+   867                            Task Details
+   868                          </h4>
+   869                          {task.remediationPlan && (
+   870                            <section
+   871                              aria-labelledby={`remediation-${task.id}`}
+   872                              className="mb-4 rounded-lg border border-primary/25 bg-primary/5 p-3"
+   873                            >
+   874                              <div className="flex items-center justify-between gap-2 mb-3">
+   875                                <h5 id={`remediation-${task.id}`} className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+   876                                  <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+   877                                  Remediation plan
+   878                                </h5>
+   879                                <span className={`text-[10px] rounded-full border px-2 py-0.5 font-semibold ${
+   880                                  task.remediationPlan.status === 'verified'
+   881                                    ? 'border-emerald-500/30 text-emerald-500'
+   882                                    : task.remediationPlan.status === 'ready'
+   883                                      ? 'border-primary/30 text-primary'
+   884                                      : 'border-amber-500/30 text-amber-500'
+   885                                }`}>
+   886                                  {task.remediationPlan.status === 'verified'
+   887                                    ? 'Verified'
+   888                                    : task.remediationPlan.status === 'ready'
+   889                                      ? 'Ready to execute'
+   890                                      : 'Needs review'}
+   891                                </span>
+   892                              </div>
+   893                              <div className="flex flex-wrap items-center gap-2 text-xs mb-3">
+   894                                <span className="font-mono font-semibold">{task.remediationPlan.ruleCode}</span>
+   895                                <span className="text-muted-foreground">·</span>
+   896                                <span>{task.remediationPlan.ruleTitle}</span>
+   897                                <span className="rounded border border-border px-1.5 py-0.5 uppercase">{task.remediationPlan.severity}</span>
+   898                                <span className="text-muted-foreground">{task.remediationPlan.occurrenceCount} occurrence(s)</span>
+   899                              </div>
+   900                              {task.remediationPlan.fixDescription ? (
+   901                                <p className="text-xs text-muted-foreground mb-3">
+   902                                  <span className="font-semibold text-foreground">Recommended fix: </span>
+   903                                  {task.remediationPlan.fixDescription}
+   904                                </p>
+   905                              ) : (
+   906                                <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+   907                                  Fix guidance is missing; review the rule before execution.
+   908                                </p>
+   909                              )}
+   910                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+   911                                <div>
+   912                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Evidence</div>
+   913                                  {task.remediationPlan.evidence.length > 0 ? (
+   914                                    <div className="space-y-1.5">
+   915                                      {task.remediationPlan.evidence.slice(0, 5).map((match, index) => (
+   916                                        <div key={`${match.file}:${match.line}:${index}`} className="rounded border border-border bg-background px-2 py-1.5 text-[11px]">
+   917                                          <div className="font-mono">{match.file}:{match.line}</div>
+   918                                          <div className="text-muted-foreground truncate">{match.snippet}</div>
+   919                                        </div>
+   920                                      ))}
+   921                                      {task.remediationPlan.evidence.length > 5 && (
+   922                                        <div className="text-[11px] text-muted-foreground">+{task.remediationPlan.evidence.length - 5} more evidence items</div>
+   923                                      )}
+   924                                    </div>
+   925                                  ) : (
+   926                                    <div className="text-xs text-amber-600 dark:text-amber-400">No bounded evidence was retained.</div>
+   927                                  )}
+   928                                </div>
+   929                                <div>
+   930                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Required verification</div>
+   931                                  {task.remediationPlan.verificationSteps.length > 0 ? (
+   932                                    <ol className="space-y-1 text-xs text-muted-foreground list-decimal list-inside">
+   933                                      {task.remediationPlan.verificationSteps.map((step, index) => (
+   934                                        <li key={`${step}:${index}`}>{step}</li>
+   935                                      ))}
+   936                                    </ol>
+   937                                  ) : (
+   938                                    <div className="text-xs text-amber-600 dark:text-amber-400">No verification steps supplied.</div>
+   939                                  )}
+   940                                </div>
+   941                              </div>
+   942                              <div className="mt-3 text-[11px] text-muted-foreground font-mono">
+   943                                Source: {task.remediationPlan.source.type}
+   944                                {task.remediationPlan.source.revision
+   945                                  ? ` · revision ${task.remediationPlan.source.revision.slice(0, 12)}`
+   946                                  : ' · revision unavailable'}
+   947                              </div>
+   948                              {task.status === 'verifying' &&
+   949                                (task.remediationPlan.verificationChecks?.length ?? task.remediationPlan.verificationSteps.length) > 0 && (
+   950                                  <button
+   951                                    type="button"
+   952                                    onClick={() => setDetailTab(task.id, 'logs')}
+   953                                    className="mt-3 inline-flex items-center gap-1.5 rounded border border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+   954                                  >
+   955                                    <ShieldCheck className="w-3.5 h-3.5" />

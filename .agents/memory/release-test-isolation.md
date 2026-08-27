@@ -8,3 +8,9 @@ Release API integration checks must run from the owning artifact root, name the 
 **Why:** Historical artifact copies can otherwise resolve the same suite in parallel and make cleanup races look like flaky application behavior.
 
 **How to apply:** Keep the release wrapper package-scoped and fail clearly on a duplicate root or an existing isolation lock; do not delete historical copies as a workaround.
+
+Browser release checks should be judged from the release runner's own service ports and owning workspace, not from whichever historical artifact copy happens to be listening on a similar port.
+
+**Why:** Concurrent validation artifacts can leave healthy but stale dashboard servers running; probing one of those servers can produce failures that do not match the current source.
+
+**How to apply:** Use the controlled release wrapper for the final browser result and treat direct checks against copied artifact ports as diagnostic only.

@@ -1,0 +1,484 @@
+197:async function installApiFixtures(
+249:    taskActions?: {
+399:    if (overrides?.taskActions) {
+405:        const task = overrides.taskActions.tasks.find(
+420:        const plan = task.remediationPlan as
+462:        overrides.taskActions.verificationRequests?.push({
+536:        if (task.remediationPlan && completed) {
+537:          task.remediationPlan = {
+538:            ...(task.remediationPlan as Record<string, unknown>),
+550:        const task = overrides.taskActions.tasks.find(
+557:        overrides.taskActions.requests.push(`${action}:${taskId}`);
+569:    if (path === "/api/tasks") {
+572:          overrides?.taskActions?.tasks ??
+659:    if (overrides?.liveTask && path === "/api/tasks") {
+680:      path === `/api/tasks/${overrides.liveTask.id}/logs`
+686:      path === `/api/tasks/${overrides.liveTask.id}/logs/stream`
+2259:        remediationPlan: {
+2308:        remediationPlan: {
+2342:        remediationPlan: {
+2378:      taskActions: {
+2980:      `/api/tasks/${taskId}/logs/stream`,
+3003:      if (!request.url().includes("/api/tasks/")) return;
+   140  objective: { objective: "Verify the dashboard browser journey" },
+   141  startedAt: "2026-01-01T00:00:00.000Z",
+   142  completedAt: "2026-01-01T00:01:00.000Z",
+   143  createdAt: "2026-01-01T00:00:00.000Z",
+   144  updatedAt: "2026-01-01T00:01:00.000Z",
+   145};
+   146
+   147function jsonResponse(
+   148  body: unknown,
+   149  status = 200,
+   150  headers?: Record<string, string>,
+   151) {
+   152  return {
+   153    status,
+   154    contentType: "application/json",
+   155    ...(headers ? { headers } : {}),
+   156    body: JSON.stringify(body),
+   157  };
+   158}
+   159
+   160async function expectNoHorizontalOverflow(page: Page) {
+   161  const overflow = await page.evaluate(() => ({
+   162    document: document.documentElement.scrollWidth,
+   163    body: document.body.scrollWidth,
+   164    viewport: window.innerWidth,
+   165  }));
+   166  expect(overflow.document).toBeLessThanOrEqual(overflow.viewport + 1);
+   167  expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
+   168}
+   169
+   170async function expectDashboardReady(page: Page) {
+   171  await expect(
+   172    page.getByRole("heading", { name: "System Overview" }),
+   173  ).toBeVisible();
+   174  await expect(page.getByText("SYSTEM ONLINE", { exact: true })).toBeVisible();
+   175}
+   176
+   177async function restartApiForCampaign(page: Page) {
+   178  const controlUrl = process.env.DASHBOARD_E2E_CONTROL_URL;
+   179  if (!controlUrl) throw new Error("Dashboard campaign control URL is missing.");
+   180  const response = await page.request.post(`${controlUrl}/restart-api`, {
+   181    timeout: 15_000,
+   182  });
+   183  expect(response.status()).toBe(204);
+   184}
+   185
+   186type ArabicAiFixture = {
+   187  question: string;
+   188  answer: string;
+   189  source: string;
+   190  sessionId: string;
+   191  executionId?: string;
+   192  projectId?: string;
+   193  streamBody: string;
+   194  message: Record<string, unknown>;
+   195};
+   196
+   197async function installApiFixtures(
+   198  page: Page,
+   199  overrides?: {
+   200    arabicAi?: ArabicAiFixture;
+   201    alternateAi?: ArabicAiFixture;
+   202    disconnectAi?: ArabicAiFixture;
+   203    resumeFailure?: {
+   204      fixture: ArabicAiFixture;
+   205      execution: Record<string, unknown>;
+   206    };
+   207    interruptedResume?: {
+   208      fixture: ArabicAiFixture;
+   209      execution: Record<string, unknown>;
+   210      recoveredToken: string;
+   211      resumedStreamBody: string;
+   212    };
+   213    deliveryRecovery?: {
+   214      operations: Array<Record<string, unknown>>;
+   215      requests: string[];
+   216      actionRequests?: string[];
+   217      recoveryAction?: {
+   218        proposalId: string;
+   219        action: "resume-validation" | "discard";
+   220        response: Record<string, unknown>;
+   221        status?: number;
+   222        nextOperations?: Array<Record<string, unknown>>;
+   223      };
+   224    };
+   225    projects?: Array<Record<string, unknown>>;
+   226    events?: Array<Record<string, unknown>>;
+   227    archiveUpload?: {
+   228      uploadId: string;
+   229      originalName: string;
+   230    };
+   231    auditExport?: {
+   232      body: Record<string, unknown>;
+   233      filename: string;
+   234      requests: string[];
+   235      execution?: Record<string, unknown>;
+   236      messageOutcome?: string;
+   237      failFirstPreview?: boolean;
+   238    };
+   239    liveTask?: {
+   240      id: string;
+   241      title: string;
+   242      projectId: string;
+   243      log: Record<string, unknown>;
+   244      initialLogs?: Array<Record<string, unknown>>;
+   245      streamRequests?: string[];
+   246      failFirstStream?: boolean;
+   247      failStreamAttempts?: number;
+   248    };
+   249    taskActions?: {
+   250      tasks: Array<Record<string, unknown>>;
+   251      requests: string[];
+   252      verificationRequests?: Array<Record<string, unknown>>;
+   253    };
+   254    recoveryTasks?: Array<Record<string, unknown>>;
+   255    recoveryWorkflows?: Array<Record<string, unknown>>;
+   256    recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
+   257  },
+   258) {
+   259  await page.route("**/api/**", async (route) => {
+   260    const url = new URL(route.request().url());
+   261    const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
+   262    const arabicAi = overrides?.arabicAi;
+   263    const alternateAi = overrides?.alternateAi;
+   264    const disconnectAi = overrides?.disconnectAi;
+   265    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
+   266      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
+   267    );
+   268    const hasConfiguredAiFixture =
+   269      aiFixtures.length > 0 ||
+   270      Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
+   271
+   272    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
+   273      const projectId = url.searchParams.get("projectId");
+   274      const projectSessions = aiFixtures.filter(
+   275        (fixture) => !fixture.projectId || fixture.projectId === projectId,
+   276      );
+   277      return route.fulfill(
+   278        jsonResponse(
+   279          projectSessions.map((fixture) => ({
+   280            id: fixture.sessionId,
+   281            title: fixture.question,
+   282            updatedAt: "2026-01-01T00:02:00.000Z",
+   283          })),
+   284        ),
+   285      );
+   286    }
+   287    if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
+   288      let requestBody: Record<string, unknown> = {};
+   289      try {
+   290        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+   291      } catch {
+   292        // The normal provider-free fallback below handles malformed requests.
+   293      }
+   294      if (
+   295        requestBody.executionId === overrides.resumeFailure.fixture.executionId
+   296      ) {
+   297        return route.fulfill({
+   298          status: 200,
+   299          contentType: "text/event-stream",
+   300          headers: { "Cache-Control": "no-cache" },
+   301          body: overrides.resumeFailure.fixture.streamBody,
+   302        });
+   303      }
+   304    }
+   305    if (overrides?.interruptedResume && path.endsWith("/api/ai/chat/stream")) {
+   306      let requestBody: Record<string, unknown> = {};
+   307      try {
+   308        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+   309      } catch {
+   310        // The normal provider-free fallback below handles malformed requests.
+   311      }
+   312      const { fixture, resumedStreamBody } = overrides.interruptedResume;
+   313      if (requestBody.executionId === fixture.executionId) {
+   314        return route.fulfill({
+   315          status: 200,
+   316          contentType: "text/event-stream",
+   317          headers: { "Cache-Control": "no-cache" },
+   318          body: resumedStreamBody,
+   319        });
+   320      }
+   321      if (!requestBody.executionId) {
+   322        return route.fulfill({
+   323          status: 200,
+   324          contentType: "text/event-stream",
+   325          headers: { "Cache-Control": "no-cache" },
+   326          // Deliberately stop after the durable execution identity. The
+   327          // journey wraps this response in a browser-level stream error.
+   328          body: fixture.streamBody,
+   329        });
+   330      }
+   331    }
+   332    let requestedMessage: string | undefined;
+   333    try {
+   334      requestedMessage = (route.request().postDataJSON() as Record<string, unknown>)
+   335        .message as string | undefined;
+   336    } catch {
+   337      // The default provider-unavailable response handles malformed requests.
+   338    }
+   339    const streamFixture =
+   340      disconnectAi ??
+   341      aiFixtures.find(
+   342        (fixture) =>
+   343          typeof requestedMessage === "string" &&
+   344          (requestedMessage === fixture.question ||
+   345            requestedMessage.includes(fixture.question)),
+   346      ) ??
+   347      arabicAi;
+   348    if (streamFixture && path.endsWith("/api/ai/chat/stream"))
+   349      return route.fulfill({
+   350        status: 200,
+   351        contentType: "text/event-stream",
+   352        headers: { "Cache-Control": "no-cache" },
+   353        body: streamFixture.streamBody,
+   354      });
+   355    const messageFixture = aiFixtures.find((fixture) =>
+   356      path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
+   357    );
+   358    if (messageFixture)
+   359      return route.fulfill(
+   360        jsonResponse([
+  2150      "Replace the provider API key with a valid key, then retry.",
+  2151    );
+  2152    await expect(taskDetails).toContainText(
+  2153      `Support reference: ${supportReferences.authentication_failed}`,
+  2154    );
+  2155    await page.getByLabel("Expand task Recover quota exhaustion").click();
+  2156    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+  2157    await expect(
+  2158      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+  2159    ).toBeVisible();
+  2160    await page.reload();
+  2161    await expect(
+  2162      page.getByLabel("Expand task Recover authentication failure"),
+  2163    ).toBeVisible();
+  2164    await page
+  2165      .getByLabel("Expand task Recover authentication failure")
+  2166      .click();
+  2167    const reloadedAuthDetails = page.locator(
+  2168      "#task-details-e2e-auth-failed-task",
+  2169    );
+  2170    await expect(reloadedAuthDetails).toContainText(
+  2171      "Provider authentication failed",
+  2172    );
+  2173    await expect(reloadedAuthDetails).toContainText(
+  2174      "Replace the provider API key with a valid key, then retry.",
+  2175    );
+  2176    await expect(reloadedAuthDetails).toContainText(
+  2177      `Support reference: ${supportReferences.authentication_failed}`,
+  2178    );
+  2179    await page.getByLabel("Expand task Recover quota exhaustion").click();
+  2180    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+  2181    await expect(
+  2182      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+  2183    ).toBeVisible();
+  2184    const reloadedTaskText = await page.locator("body").innerText();
+  2185    expect(reloadedTaskText).not.toContain(rawDiagnostic);
+  2186    expect(reloadedTaskText).not.toContain(rawCredential);
+  2187    expect(reloadedTaskText).not.toMatch(
+  2188      /secret-model-name|\/home\/runner|\/tmp\//i,
+  2189    );
+  2190
+  2191    await openNavigation(page, "Workflows", `${DASHBOARD_PATH}workflows`);
+  2192    await expect(page.getByText("Recover provider outage")).toBeVisible();
+  2193    await page.getByRole("button", { name: "Execution history" }).click();
+  2194    const execution = page
+  2195      .getByText("failed · no successful completion")
+  2196      .locator("..")
+  2197      .locator("..");
+  2198    await expect(execution).toContainText(
+  2199      "The provider is temporarily unavailable",
+  2200    );
+  2201    await expect(execution).toContainText(
+  2202      "Retry in a moment; configure another provider if the issue persists.",
+  2203    );
+  2204    await expect(execution).toContainText(
+  2205      `Support reference: ${supportReferences.provider_outage}`,
+  2206    );
+  2207    await page.reload();
+  2208    await expect(page.getByText("Recover provider outage")).toBeVisible();
+  2209    await page.getByRole("button", { name: "Execution history" }).click();
+  2210    const reloadedExecution = page
+  2211      .getByText("failed · no successful completion")
+  2212      .locator("..")
+  2213      .locator("..");
+  2214    await expect(reloadedExecution).toContainText(
+  2215      "The provider is temporarily unavailable",
+  2216    );
+  2217    await expect(reloadedExecution).toContainText(
+  2218      "Retry in a moment; configure another provider if the issue persists.",
+  2219    );
+  2220    await expect(reloadedExecution).toContainText(
+  2221      `Support reference: ${supportReferences.provider_outage}`,
+  2222    );
+  2223
+  2224    const visibleText = await page.locator("body").innerText();
+  2225    expect(visibleText).not.toContain(rawDiagnostic);
+  2226    expect(visibleText).not.toContain(rawCredential);
+  2227    expect(visibleText).not.toMatch(
+  2228      /secret-model-name|\/home\/runner|\/tmp\//i,
+  2229    );
+  2230    await expectNoHorizontalOverflow(page);
+  2231  });
+  2232
+  2233  test("proves remediation plans, review state, and task action transitions", async ({
+  2234    page,
+  2235  }) => {
+  2236    const rawPrompt = "INTERNAL_PROMPT_should_never_render";
+  2237    const rawDiagnostic = "raw-provider-diagnostic-should-never-render";
+  2238    const readyTaskId = "e2e-ready-remediation-task";
+  2239    const reviewTaskId = "e2e-review-remediation-task";
+  2240    const verificationTaskId = "e2e-verification-remediation-task";
+  2241    const remediationTasks = [
+  2242      {
+  2243        id: readyTaskId,
+  2244        projectId: "e2e-project",
+  2245        title: "Execute SQL input sanitization remediation",
+  2246        description: "A complete remediation plan is ready for operator execution.",
+  2247        status: "pending",
+  2248        priority: "p1",
+  2249        phase: "Remediation",
+  2250        relatedFiles: ["src/auth/input.ts"],
+  2251        retryCount: 0,
+  2252        maxRetries: 2,
+  2253        prompt: rawPrompt,
+  2254        agentResponse: JSON.stringify({
+  2255          kind: "AI_TASK_EXECUTION_RECEIPT",
+  2256          terminalStatus: "RECORDED",
+  2257          terminalReason: rawDiagnostic,
+  2258        }),
+  2259        remediationPlan: {
+  2260          version: 1,
+  2261          ruleId: "e2e-rule-sql-input",
+  2262          ruleCode: "SEC-001",
+  2263          ruleTitle: "Unsanitized SQL input",
+  2264          severity: "high",
+  2265          occurrenceCount: 2,
+  2266          evidence: [
+  2267            { file: "src/auth/input.ts", line: 10, snippet: "query(userInput)", occurrences: 1 },
+  2268            { file: "src/auth/input.ts", line: 18, snippet: "query(accountId)", occurrences: 1 },
+  2269            { file: "src/auth/input.ts", line: 27, snippet: "query(filter)", occurrences: 1 },
+  2270            { file: "src/auth/input.ts", line: 31, snippet: "query(sort)", occurrences: 1 },
+  2271            { file: "src/auth/input.ts", line: 44, snippet: "query(limit)", occurrences: 1 },
+  2272            { file: "src/auth/input.ts", line: 52, snippet: "query(offset)", occurrences: 1 },
+  2273          ],
+  2274          relatedFiles: ["src/auth/input.ts"],
+  2275          fixDescription: "Use the parameterized query helper for every user-controlled value.",
+  2276          verificationSteps: [
+  2277            "Run the SQL injection regression test.",
+  2278            "Confirm all user-controlled query values use parameters.",
+  2279          ],
+  2280          source: {
+  2281            type: "scan",
+  2282            correlationId: "e2e-scan-correlation",
+  2283            revision: "remediation-revision-42",
+  2284            completeness: "COMPLETE",
+  2285          },
+  2286          status: "ready",
+  2287        },
+  2288        createdAt: "2026-01-01T00:00:00.000Z",
+  2289        updatedAt: "2026-01-01T00:01:00.000Z",
+  2290      },
+  2291      {
+  2292        id: reviewTaskId,
+  2293        projectId: "e2e-project",
+  2294        title: "Review incomplete SQL remediation evidence",
+  2295        description: "An incomplete plan must stay blocked until an operator reviews it.",
+  2296        status: "failed",
+  2297        priority: "p1",
+  2298        phase: "Remediation",
+  2299        relatedFiles: ["src/auth/input.ts"],
+  2300        retryCount: 0,
+  2301        maxRetries: 2,
+  2302        prompt: rawPrompt,
+  2303        agentResponse: JSON.stringify({
+  2304          kind: "AI_TASK_EXECUTION_RECEIPT",
+  2305          terminalStatus: "FAILED",
+  2306          terminalReason: rawDiagnostic,
+  2307        }),
+  2308        remediationPlan: {
+  2309          version: 1,
+  2310          ruleId: "e2e-rule-missing-evidence",
+  2311          ruleCode: "SEC-002",
+  2312          ruleTitle: "Incomplete evidence review",
+  2313          severity: "critical",
+  2314          occurrenceCount: 1,
+  2315          evidence: [],
+  2316          relatedFiles: ["src/auth/input.ts"],
+  2317          fixDescription: null,
+  2318          verificationSteps: [],
+  2319          source: {
+  2320            type: "discovery",
+  2321            correlationId: "e2e-discovery-correlation",
+  2322            revision: null,
+  2323            completeness: "PARTIAL",
+  2324          },
+  2325          status: "needs_review",
+  2326        },
+  2327        createdAt: "2026-01-01T00:00:00.000Z",
+  2328        updatedAt: "2026-01-01T00:01:00.000Z",
+  2329      },
+  2330      {
+  2331        id: verificationTaskId,
+  2332        projectId: "e2e-project",
+  2333        title: "Verify parameterized SQL remediation",
+  2334        description: "An operator must record evidence for every verification check.",
+  2335        status: "verifying",
+  2336        priority: "p1",
+  2337        phase: "Remediation",
+  2338        relatedFiles: ["src/auth/input.ts"],
+  2339        retryCount: 0,
+  2340        maxRetries: 2,
+  2341        prompt: rawPrompt,
+  2342        remediationPlan: {
+  2343          version: 1,
+  2344          ruleId: "e2e-rule-verification",
+  2345          ruleCode: "SEC-003",
+  2346          ruleTitle: "Parameterized SQL remediation",
+  2347          severity: "high",
+  2348          occurrenceCount: 2,
+  2349          evidence: [
+  2350            {
+  2351              file: "src/auth/input.ts",
+  2352              line: 10,
+  2353              snippet: "query(userInput)",
+  2354              occurrences: 1,
+  2355            },
+  2356          ],
+  2357          relatedFiles: ["src/auth/input.ts"],
+  2358          fixDescription: "Use the parameterized query helper for every user-controlled value.",
+  2359          verificationSteps: [
+  2360            "Run the SQL injection regression test.",
+  2361            "Confirm all user-controlled query values use parameters.",
+  2362          ],
+  2363          source: {
+  2364            type: "scan",
+  2365            correlationId: "e2e-verification-correlation",
+  2366            revision: "remediation-revision-43",
+  2367            completeness: "COMPLETE",
+  2368          },
+  2369          status: "ready",
+  2370        },
+  2371        createdAt: "2026-01-01T00:00:00.000Z",
+  2372        updatedAt: "2026-01-01T00:03:00.000Z",
+  2373      },
+  2374    ];
+  2375    const actionRequests: string[] = [];
+  2376    const verificationRequests: Array<Record<string, unknown>> = [];
+  2377    await installApiFixtures(page, {
+  2378      taskActions: {
+  2379        tasks: remediationTasks,
+  2380        requests: actionRequests,
+  2381        verificationRequests,
+  2382      },
+  2383    });
+  2384    await programmaticSignIn(page);
+  2385    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+  2386
+  2387    const readyRow = page.getByRole("button", {
+  2388      name: /task Execute SQL input sanitization remediation/,
+  2389    });
+  2390    await expect(readyRow).toBeVisible();
