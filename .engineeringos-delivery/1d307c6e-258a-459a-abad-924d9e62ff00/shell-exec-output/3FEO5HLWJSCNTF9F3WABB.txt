@@ -1,0 +1,256 @@
+     1import { spawn } from "node:child_process";
+     2import { promises as fs } from "node:fs";
+     3import path from "node:path";
+     4import process from "node:process";
+     5
+     6export const AI_RELEASE_QUALITY_GATE_VERSION = 1;
+     7
+     8export type AiReleaseCheckKind =
+     9  | "typecheck"
+    10  | "contract"
+    11  | "evidence"
+    12  | "operation"
+    13  | "benchmark"
+    14  | "preview";
+    15
+    16export type AiReleaseCheckDefinition = {
+    17  id: string;
+    18  kind: AiReleaseCheckKind;
+    19  command: string;
+    20  blocking: boolean;
+    21  enabled: boolean;
+    22  coverage: readonly string[];
+    23};
+    24
+    25export type AiReleaseCheckResult = AiReleaseCheckDefinition & {
+    26  status: "passed" | "failed" | "skipped";
+    27  failureCode?: string;
+    28  durationMs: number;
+    29};
+    30
+    31export type AiReleaseQualityDecision = {
+    32  kind: "ai-release-quality-decision";
+    33  version: typeof AI_RELEASE_QUALITY_GATE_VERSION;
+    34  generatedAt: string;
+    35  status: "passed" | "blocked";
+    36  liveProviderChecks: "disabled" | "enabled";
+    37  previewChecks: "disabled" | "enabled";
+    38  summary: {
+    39    totalCases: number;
+    40    passedCases: number;
+    41    failedCases: number;
+    42    skippedCases: number;
+    43    blockingFailures: number;
+    44    informationalFailures: number;
+    45  };
+    46  blockers: string[];
+    47  checks: AiReleaseCheckResult[];
+    48};
+    49
+    50const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
+    51  {
+    52    id: "api-typecheck",
+    53    kind: "typecheck",
+    54    command: "pnpm --filter @workspace/api-server run typecheck",
+    55    blocking: true,
+    56    coverage: ["API typecheck"],
+    57  },
+    58  {
+    59    id: "dashboard-typecheck",
+    60    kind: "typecheck",
+    61    command: "pnpm --filter @workspace/dashboard run typecheck",
+    62    blocking: true,
+    63    coverage: ["dashboard/client typecheck"],
+    64  },
+    65  {
+    66    id: "openapi-client-parity",
+    67    kind: "contract",
+    68    command: "pnpm run codegen:check",
+    69    blocking: true,
+    70    coverage: ["OpenAPI/client parity", "Zod 3 generated-schema compatibility"],
+    71  },
+    72  {
+    73    id: "truth-flow-parity",
+    74    kind: "evidence",
+    75    command: "pnpm run truth:validate",
+    76    blocking: true,
+    77    coverage: ["structured evidence baseline"],
+    78  },
+    79  {
+    80    id: "ai-contract-and-json",
+    81    kind: "contract",
+    82    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-route-parity.test.ts src/routes/ai.test.ts",
+    83    blocking: true,
+    84    coverage: ["JSON contract", "structured audits", "tool policy", "false-success handling"],
+    85  },
+    86  {
+    87    id: "ai-structured-review-fallback",
+    88    kind: "contract",
+    89    command: "pnpm --filter @workspace/ai-orchestrator run test:structured-review-fallback-release",
+    90    blocking: true,
+    91    coverage: [
+    92      "structured-review reasoning-only fallback",
+    93      "agent-harness fallback",
+    94      "rate-limit fallback",
+    95      "empty/malformed output incomplete status",
+    96      "catalog refresh failure compatibility routing",
+    97    ],
+    98  },
+    99  {
+   100    id: "ai-sse-and-redaction",
+   101    kind: "contract",
+   102    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts",
+   103    blocking: true,
+   104    coverage: ["SSE contract", "redaction", "stale revision", "resume"],
+   105  },
+   106  {
+   107    id: "ai-operational-safety",
+   108    kind: "operation",
+   109    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-repair-loop-e2e.test.ts src/lib/ai-repair-validation.test.ts src/lib/job-concurrency.test.ts",
+   110    blocking: true,
+   111    coverage: ["ownership", "concurrency", "cancellation", "apply/rollback", "Terminal"],
+   112  },
+   113  {
+   114    id: "ai-deterministic-benchmark",
+   115    kind: "benchmark",
+   116    command: "pnpm --filter @workspace/ai-orchestrator run benchmark:code-agent:deterministic",
+   117    blocking: true,
+   118    coverage: ["deterministic fixtures", "validation/provider-turn exhaustion", "scope safety", "false success"],
+   119  },
+   120  {
+   121    id: "benchmark-baseline-regression",
+   122    kind: "benchmark",
+   123    command: "pnpm run verify:benchmark-rollout",
+   124    blocking: true,
+   125    coverage: ["baseline comparison", "regression threshold", "scope escape"],
+   126  },
+   127  {
+   128    id: "dashboard-preview-contract",
+   129    kind: "preview",
+   130    command: "pnpm run validate:dashboard-journey",
+   131    blocking: true,
+   132    coverage: ["Preview dashboard journey"],
+   133  },
+   134];
+   135
+   136export function getAiReleaseChecks(options: {
+   137  enablePreview?: boolean;
+   138  enableLiveProvider?: boolean;
+   139} = {}): AiReleaseCheckDefinition[] {
+   140  const enablePreview = options.enablePreview === true;
+   141  const enableLiveProvider = options.enableLiveProvider === true;
+   142  return CHECKS.map((check) => ({
+   143    ...check,
+   144    enabled: check.kind !== "preview" || enablePreview,
+   145  })).concat(enableLiveProvider ? [{
+   146    id: "live-provider-quality",
+   147    kind: "benchmark" as const,
+   148    command: "pnpm --filter @workspace/api-server run benchmark:witness",
+   149    blocking: false,
+   150    enabled: true,
+   151    coverage: ["optional live-provider observation"],
+   152  }] : []);
+   153}
+   154
+   155function failureCode(check: AiReleaseCheckDefinition, exitCode: number | null, signal: NodeJS.Signals | null): string {
+   156  if (signal) return `${check.id.toUpperCase().replaceAll("-", "_")}_TERMINATED`;
+   157  return `${check.id.toUpperCase().replaceAll("-", "_")}_FAILED_${exitCode ?? "UNKNOWN"}`;
+   158}
+   159
+   160export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[], options: {
+   161  enableLiveProvider?: boolean;
+   162  enablePreview?: boolean;
+   163  generatedAt?: string;
+   164} = {}): AiReleaseQualityDecision {
+   165  const blockers = results
+   166    .filter((result) => result.status === "failed" && result.blocking)
+   167    .map((result) => result.failureCode ?? `${result.id.toUpperCase().replaceAll("-", "_")}_FAILED`);
+   168  const failed = results.filter((result) => result.status === "failed");
+   169  return {
+   170    kind: "ai-release-quality-decision",
+   171    version: AI_RELEASE_QUALITY_GATE_VERSION,
+   172    generatedAt: options.generatedAt ?? new Date().toISOString(),
+   173    status: blockers.length === 0 ? "passed" : "blocked",
+   174    liveProviderChecks: options.enableLiveProvider ? "enabled" : "disabled",
+   175    previewChecks: options.enablePreview ? "enabled" : "disabled",
+   176    summary: {
+   177      totalCases: results.length,
+   178      passedCases: results.filter((result) => result.status === "passed").length,
+   179      failedCases: failed.length,
+   180      skippedCases: results.filter((result) => result.status === "skipped").length,
+   181      blockingFailures: blockers.length,
+   182      informationalFailures: failed.filter((result) => !result.blocking).length,
+   183    },
+   184    blockers: [...new Set(blockers)],
+   185    checks: [...results],
+   186  };
+   187}
+   188
+   189async function runCommand(check: AiReleaseCheckDefinition, cwd: string): Promise<AiReleaseCheckResult> {
+   190  const started = Date.now();
+   191  return await new Promise((resolve) => {
+   192    // Output is deliberately drained but never included in the report. This
+   193    // keeps prompts, model output, source snippets, and credentials out of
+   194    // persisted release artifacts.
+   195    const child = spawn("sh", ["-c", check.command], {
+   196      cwd,
+   197      env: { ...process.env, RUN_CONTROLLED_RELEASE_VALIDATION: "1" },
+   198      stdio: ["ignore", "ignore", "ignore"],
+   199    });
+   200    child.once("error", () => resolve({
+   201      ...check,
+   202      status: "failed",
+   203      failureCode: failureCode(check, null, null),
+   204      durationMs: Date.now() - started,
+   205    }));
+   206    child.once("exit", (exitCode, signal) => resolve({
+   207      ...check,
+   208      status: exitCode === 0 ? "passed" : "failed",
+   209      ...(exitCode === 0 ? {} : { failureCode: failureCode(check, exitCode, signal) }),
+   210      durationMs: Date.now() - started,
+   211    }));
+   212  });
+   213}
+   214
+   215export async function runAiReleaseQualityGate(options: {
+   216  cwd?: string;
+   217  enablePreview?: boolean;
+   218  enableLiveProvider?: boolean;
+   219  generatedAt?: string;
+   220} = {}): Promise<AiReleaseQualityDecision> {
+   221  const enablePreview = options.enablePreview === true;
+   222  const enableLiveProvider = options.enableLiveProvider === true;
+   223  const checks = getAiReleaseChecks({ enablePreview, enableLiveProvider });
+   224  const results: AiReleaseCheckResult[] = [];
+   225  for (const check of checks) {
+   226    if (!check.enabled) {
+   227      results.push({ ...check, status: "skipped", durationMs: 0 });
+   228      continue;
+   229    }
+   230    results.push(await runCommand(check, options.cwd ?? path.resolve(process.cwd(), "../..")));
+   231  }
+   232  return evaluateAiReleaseQuality(results, { enableLiveProvider, enablePreview, generatedAt: options.generatedAt });
+   233}
+   234
+   235export async function writeAiReleaseQualityDecision(filePath: string, decision: AiReleaseQualityDecision): Promise<void> {
+   236  const temporaryPath = `${filePath}.tmp-${process.pid}`;
+   237  await fs.mkdir(path.dirname(filePath), { recursive: true });
+   238  await fs.writeFile(temporaryPath, `${JSON.stringify(decision, null, 2)}\n`, "utf8");
+   239  await fs.rename(temporaryPath, filePath);
+   240}
+   241
+   242if (import.meta.url === `file://${process.argv[1]}`) {
+   243  const workspaceRoot = path.resolve(process.cwd(), "../..");
+   244  const decision = await runAiReleaseQualityGate({
+   245    enablePreview: process.env.AI_RELEASE_ENABLE_PREVIEW === "true",
+   246    enableLiveProvider: process.env.AI_RELEASE_ENABLE_LIVE_PROVIDER === "true",
+   247    cwd: workspaceRoot,
+   248  });
+   249  const outputPath = path.resolve(
+   250    process.env.AI_RELEASE_QUALITY_REPORT_PATH ??
+   251      path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+   252  );
+   253  await writeAiReleaseQualityDecision(outputPath, decision);
+   254  console.log(JSON.stringify({ ...decision, outputPath }, null, 2));
+   255  if (decision.status === "blocked") process.exitCode = 1;
+   256}

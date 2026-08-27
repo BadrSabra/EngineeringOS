@@ -14,6 +14,7 @@
     "test:release-synthesis-telemetry": "node ./scripts/run-release-ai-stream.mjs && node ./scripts/run-release-synthesis-telemetry.mjs",
     "test:process-recovery": "node ./scripts/run-real-process-recovery.mjs",
     "test:live-empty-model-response": "node ./scripts/run-live-empty-model-response.mjs",
+    "validate:live-provider-review": "node ./scripts/run-live-provider-review-campaign.mjs",
     "smoke:openrouter-free": "tsx ./scripts/run-live-openrouter-free-smoke.mjs",
     "benchmark:live": "tsx src/lib/run-code-agent-benchmark.ts",
     "benchmark:airlock": "tsx src/lib/run-code-agent-benchmark-airlock.ts",

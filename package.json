@@ -20,6 +20,7 @@
     "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
     "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
     "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+    "validate:live-provider-review": "pnpm --filter @workspace/api-server run validate:live-provider-review",
     "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
     "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
     "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",

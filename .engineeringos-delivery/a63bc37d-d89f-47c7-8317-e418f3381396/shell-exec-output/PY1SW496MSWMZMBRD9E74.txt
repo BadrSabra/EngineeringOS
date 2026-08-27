@@ -1,0 +1,420 @@
+     1import type { ModelCapability } from "../openrouter/model-catalog.js";
+     2import {
+     3  isCatalogFreeModel,
+     4  isCatalogFreeModelForCapability,
+     5  resolveFallbackChain,
+     6  type FreeModelCapabilityOptions,
+     7} from "../openrouter/model-resolver.js";
+     8import { loadProvider, type ProviderId } from "../provider-registry.js";
+     9import { getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
+    10import { GroqClientError } from "../errors.js";
+    11import type { ExecutionPlan } from "./execution-plan.js";
+    12
+    13export type ExecutionModelDecision = {
+    14  providerId: ProviderId;
+    15  model: string;
+    16  powerModel: string;
+    17  fallbackChain: string[];
+    18  capability: ModelCapability;
+    19  quality: "fast" | "powerful";
+    20  source: "openrouter-catalog" | "provider-registry";
+    21};
+    22
+    23export function isFreeOpenRouterModel(modelId: string): boolean {
+    24  return isCatalogFreeModel(modelId);
+    25}
+    26
+    27export function resolveFreeModelOverride(
+    28  modelId: string,
+    29  options: ModelCapability | FreeModelCapabilityOptions = {},
+    30): string {
+    31  const normalized = modelId.trim();
+    32  const capabilityOptions = typeof options === "string" ? { capability: options } : options;
+    33  if (!isCatalogFreeModelForCapability(normalized, capabilityOptions)) {
+    34    const detail = capabilityOptions.capability
+    35      ? `; missing capability="${capabilityOptions.capability}"`
+    36      : "";
+    37    throw new Error(`OpenRouter model override is not a currently-free catalog model: ${normalized}${detail}`);
+    38  }
+    39  return normalized;
+    40}
+    41
+    42function wantsPowerfulModel(plan: ExecutionPlan): boolean {
+    43  const taskType = plan.taskProfile.taskType;
+    44  return (
+    45    taskType === "analysis" ||
+    46    taskType === "code_review" ||
+    47    taskType === "task_execution" ||
+    48    taskType === "workflow" ||
+    49    plan.strictHints.requireThinking === true ||
+    50    plan.strictHints.requireReasoning === true ||
+    51    plan.strictHints.requireTools === true ||
+    52    (plan.strictHints.minimumContext ?? 0) >= 16_000
+    53  );
+    54}
+    55
+    56function selectCapability(plan: ExecutionPlan): ModelCapability {
+    57  if (plan.strictHints.requireTools || plan.taskProfile.useTools) {
+    58    return "tool_calling";
+    59  }
+    60  // Structured single-shot reviewers need a model that can reliably emit the
+    61  // declared JSON contract. Requiring a reasoning-capable model here is
+    62  // counterproductive on OpenRouter: several free reasoning models place the
+    63  // useful work in reasoning_content and leave message.content empty.
+    64  if (
+    65    plan.taskProfile.taskType === "code_review" ||
+    66    plan.strictHints.requireJsonMode
+    67  ) {
+    68    return "json";
+    69  }
+    70  if (
+    71    plan.taskProfile.taskType === "analysis" ||
+    72    plan.taskProfile.taskType === "workflow" ||
+    73    plan.strictHints.requireThinking ||
+    74    plan.strictHints.requireReasoning
+    75  ) {
+    76    return "reasoning";
+    77  }
+    78  if ((plan.strictHints.minimumContext ?? 0) >= 16_000) {
+    79    return "long_context";
+    80  }
+    81  return plan.taskProfile.taskType === "task_execution" ? "coding" : "chat";
+    82}
+    83
+    84export function resolveExecutionModel(
+    85  providerId: ProviderId,
+    86  plan: ExecutionPlan,
+    87): ExecutionModelDecision {
+    88  const provider = loadProvider(providerId);
+    89  // Capability probes are deliberately a fast, tool-capable contract. They
+    90  // need exact source quoting, not a long reasoning trace or a large synthesis
+    91  // envelope. Keeping this exception in model resolution prevents a probe
+    92  // from inheriting task_execution's paid/reasoning-oriented tier merely
+    93  // because its read-only tool loop lives inside chat-agent.
+    94  const isCapabilityProbe = plan.qualityProfile === "capability_probe";
+    95  const wantPowerful = isCapabilityProbe ? false : wantsPowerfulModel(plan);
+    96  const capability = selectCapability(plan);
+    97
+    98  let decision: ExecutionModelDecision;
+    99
+   100  if (providerId === "openrouter") {
+   101    const fallbackChain = resolveFallbackChain({
+   102      capability,
+   103      quality: wantPowerful ? "powerful" : "fast",
+   104      requireTools: plan.strictHints.requireTools ?? false,
+   105    }).map((model) => model.id);
+   106
+   107    // Controlled live checks may opt into a known paid OpenRouter model. Keep
+   108    // this override environment-only so ordinary provider-free validation and
+   109    // normal free-tier routing retain the catalog-driven fallback chain.
+   110    const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+   111    let liveModel: string | undefined;
+   112    if (configuredModel) {
+   113      try {
+   114        liveModel = resolveFreeModelOverride(configuredModel, {
+   115          capability,
+   116          requireTools: plan.strictHints.requireTools ?? false,
+   117        });
+   118      } catch (error) {
+   119        // An environment-pinned model can become paid, retired, or lose the
+   120        // requested capability between deploys. Treat it as a stale hint and
+   121        // use the already-resolved live fallback chain instead of making a
+   122        // review fail before the provider is contacted.
+   123        console.warn(
+   124          JSON.stringify({
+   125            scope: "model-resolver",
+   126            action: "ignore_unusable_configured_model",
+   127            configuredModel,
+   128            capability,
+   129            reason: error instanceof Error ? error.message : "model is not currently usable",
+   130          }),
+   131        );
+   132      }
+   133    }
+   134    if (fallbackChain.length === 0 && !liveModel) {
+   135      const catalog = getDynamicCatalogStatus();
+   136      throw new GroqClientError(
+   137        "INVALID_CONFIG",
+   138        `No compatible free OpenRouter model is available for capability="${capability}"`,
+   139        {
+   140          context: {
+   141            providerName: "OpenRouter",
+   142            providerCode: "NO_COMPATIBLE_FREE_MODEL",
+   143            catalogLoaded: catalog.loaded,
+   144            catalogUsable: catalog.usable,
+   145            catalogStatus: catalog.lastRefreshStatus,
+   146            catalogError: catalog.lastRefreshError ?? undefined,
+   147          },
+   148        },
+   149      );
+   150    }
+     1/**
+     2 * Provider Registry — single source of truth for AI provider metadata.
+     3 *
+     4 * The static registry remains the compatibility surface used by the rest of
+     5 * the workspace, while the helper functions below provide a path toward a
+     6 * more declarative capability-driven registry.
+     7 *
+     8 * `getStrategy(id)` maps a ProviderId to its ProviderStrategy implementation.
+     9 * Adding a new provider requires:
+    10 *   1. A new strategy file in `strategies/`.
+    11 *   2. An entry in STRATEGY_MAP below.
+    12 *   3. An entry in PROVIDER_REGISTRY and PROVIDER_PRIORITY.
+    13 *   Nothing else changes.
+    14 */
+    15
+    16import { DEFAULT_PROVIDER_CAPABILITIES, providerMatchesHints, scoreProviderCapabilities, type ProviderCapabilityHints, type ProviderCapabilitySummary } from "./provider-capabilities.js";
+    17import type { ProviderStrategy } from "./provider-strategy.js";
+    18import { groqStrategy } from "./strategies/groq.strategy.js";
+    19import { deepseekStrategy } from "./strategies/deepseek.strategy.js";
+    20import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
+    21import { geminiStrategy } from "./strategies/gemini.strategy.js";
+    22import { FREE_MODELS } from "./openrouter/model-catalog.js";
+    23import { recordBehavioralModelCall } from "./behavioral-scorecard.js";
+    24// RC-03: avoid hardcoding a dead OpenRouter model ID at module-load time.
+    25// The emergency fallback is derived from the current static free-tier catalog
+    26// so the registry never points at a model that the local codebase no longer
+    27// considers valid.
+    28const OR_EMERGENCY_FALLBACK =
+    29  FREE_MODELS.find((m) => m.quality === "fast")?.id ??
+    30  FREE_MODELS[0]?.id ??
+    31  "liquid/lfm-2.5-2.6b:free";
+    32
+    33export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
+    34
+    35export type ProviderConfig = {
+    36  providerId: ProviderId;
+    37  /** Human-readable label used in error messages and UI hints. */
+    38  label: string;
+    39  /** Console / dashboard URL shown in error hints (no https:// prefix). */
+    40  consoleUrl: string;
+    41  /** Status page URL shown in 5xx hints (no https:// prefix). */
+    42  statusUrl: string;
+    43  supportsStreaming: boolean;
+    44  supportsTools: boolean;
+    45  supportsJsonMode: boolean;
+    46  /** Default model slugs for fast (tool-loop) and powerful (single-shot) tasks. */
+    47  defaultModels: { fast: string; powerful: string };
+    48  /** Optional richer capability summary used by discovery helpers. */
+    49  capabilities?: Partial<ProviderCapabilitySummary>;
+    50};
+    51
+    52/**
+    53 * Fallback priority order: openrouter → gemini → deepseek → groq.
+    54 *
+    55 * resolveProvider() returns the first provider in this list whose key is
+    56 * available. resolveFallbackProvider() skips the current provider and returns
+    57 * the next one in this order.
+    58 *
+    59 * To change the ordering, edit this array — no if/else chains to update.
+    60 */
+    61export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter", "gemini", "deepseek", "groq"];
+    62
+    63export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
+    64  openrouter: {
+    65    providerId: "openrouter",
+    66    label: "OpenRouter",
+    67    consoleUrl: "openrouter.ai/keys",
+    68    statusUrl: "openrouter.ai",
+    69    supportsStreaming: true,
+    70    supportsTools: true,
+    71    supportsJsonMode: true,
+    72    defaultModels: {
+    73      // RC-03: these are emergency last-resort IDs only — the smallest, most
+    74      // reliably-free model in the static catalog.  Execution paths that
+    75      // actually use OpenRouter must call resolveFallbackChain() at call time
+    76      // (see agent-complete.ts RC-04 fix) so the live free-tier catalog is
+    77      // consulted rather than a baked-in string from module-load time.
+    78      fast: OR_EMERGENCY_FALLBACK,
+    79      powerful: OR_EMERGENCY_FALLBACK,
+    80    },
+    81    capabilities: {
+    82      supportsStreaming: true,
+    83      supportsTools: true,
+    84      supportsJsonMode: true,
+    85      supportsVision: false,
+    86      supportsReasoning: true,
+    87      supportsFunctionCalling: true,
+    88      supportsThinking: false,
+    89      maxContext: 128_000,
+    90      maxOutput: 32_000,
+    91      costTier: "low",
+    92    },
+    93  },
+    94  deepseek: {
+    95    providerId: "deepseek",
+    96    label: "DeepSeek",
+    97    consoleUrl: "platform.deepseek.com",
+    98    statusUrl: "platform.deepseek.com",
+    99    supportsStreaming: true,
+   100    supportsTools: true,
+   101    supportsJsonMode: true,
+   102    defaultModels: {
+   103      fast: "deepseek-chat",
+   104      powerful: "deepseek-chat",
+   105    },
+   106    capabilities: {
+   107      supportsStreaming: true,
+   108      supportsTools: true,
+   109      supportsJsonMode: true,
+   110      supportsVision: false,
+   111      supportsReasoning: true,
+   112      supportsFunctionCalling: true,
+   113      supportsThinking: true,
+   114      maxContext: 64_000,
+   115      maxOutput: 8_000,
+   116      costTier: "low",
+   117    },
+   118  },
+   119  gemini: {
+   120    providerId: "gemini",
+   230
+   231const STRATEGY_MAP = new Map<ProviderId, ProviderStrategy>([
+   232  ["groq",       groqStrategy],
+   233  ["deepseek",   deepseekStrategy],
+   234  ["openrouter", openrouterStrategy],
+   235  ["gemini",     geminiStrategy],
+   236]);
+   237
+   238/**
+   239 * Return the `ProviderStrategy` for `id`.
+   240 * Throws if no strategy is registered (only possible for providers added to
+   241 * PROVIDER_REGISTRY without a corresponding strategy entry — caught at dev time).
+   242 */
+   243export function getStrategy(id: ProviderId): ProviderStrategy {
+   244  const strategy = STRATEGY_MAP.get(id);
+   245  if (!strategy) throw new Error(`No ProviderStrategy registered for provider: ${id}`);
+   246  return strategy;
+   247}
+   248
+   249// ─── Provider telemetry (OR-007) ──────────────────────────────────────────────
+   250
+   251/**
+   252 * Structured record emitted after every model API call.
+   253 * Written to stdout as a JSON line so it can be ingested by any log processor.
+   254 */
+   255export type ProviderTelemetry = {
+   256  /** Provider that handled this request. */
+   257  provider: ProviderId;
+   258  /** Exact model slug used. */
+   259  model: string;
+   260  /** GroqErrorCode that triggered a model fallback, if any. */
+   261  fallbackReason?: string;
+   262  /** Total number of API attempts (1 = first try succeeded, 2 = one retry). */
+   263  attemptCount: number;
+   264  /** Prompt token count from usage metadata (0 when unavailable). */
+   265  promptTokens: number;
+   266  /** Completion token count from usage metadata (0 when unavailable). */
+   267  completionTokens: number;
+   268  /** Wall-clock time in ms from first attempt start to final response. */
+   269  durationMs: number;
+   270};
+   271
+   272/**
+   273 * Emit a single telemetry record to stdout.
+   274 * The scope field makes these log lines easy to grep or stream to analytics.
+   275 */
+   276export function recordProviderTelemetry(entry: ProviderTelemetry): void {
+   277  recordBehavioralModelCall(entry.model);
+   278  console.info(JSON.stringify({ scope: "provider-telemetry", ...entry }));
+   279}
+lib/ai-orchestrator/src/openai-compatible-client.ts:15: * PR-003: 410 and 422 treated as MODEL_UNAVAILABLE (fallback-worthy).
+lib/ai-orchestrator/src/openai-compatible-client.ts:17: * PR-008: QUOTA code for billing exhaustion; MODEL_UNAVAILABLE for 410/422.
+lib/ai-orchestrator/src/openai-compatible-client.ts:320:    case "MODEL_NOT_FOUND":
+lib/ai-orchestrator/src/openai-compatible-client.ts:321:    case "MODEL_UNAVAILABLE":
+lib/ai-orchestrator/src/openai-compatible-client.ts:341: * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier),
+lib/ai-orchestrator/src/openai-compatible-client.ts:342: * MODEL_UNAVAILABLE (temporarily offline — 422/410), and EMPTY_RESPONSE
+lib/ai-orchestrator/src/openai-compatible-client.ts:348:    (err.code === "MODEL_NOT_FOUND" ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:350:      err.code === "MODEL_UNAVAILABLE" ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:517:      "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openai-compatible-client.ts:549:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openai-compatible-client.ts:572:        "MODEL_UNAVAILABLE",
+lib/ai-orchestrator/src/openai-compatible-client.ts:580:  // temporarily offline or being retired. Both are MODEL_UNAVAILABLE (not
+lib/ai-orchestrator/src/openai-compatible-client.ts:581:  // MODEL_NOT_FOUND) — the distinction is useful for dashboards (temporary
+lib/ai-orchestrator/src/openai-compatible-client.ts:588:      "MODEL_UNAVAILABLE",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1121:      (err.code === "NON_200" || err.code === "MODEL_UNAVAILABLE") &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:1179: * PR-003: MODEL_UNAVAILABLE (410/422) is now also fallback-worthy in addition
+lib/ai-orchestrator/src/openai-compatible-client.ts:1180: * to MODEL_NOT_FOUND (404/402/400). EMPTY_RESPONSE is also fallback-worthy
+lib/ai-orchestrator/src/openai-compatible-client.ts:1226:          providerCode: "MODEL_CAPABILITY_MISMATCH",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1262:      // PR-003: treat MODEL_UNAVAILABLE (422/410) the same as MODEL_NOT_FOUND.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1274:            code: "MODEL_FALLBACK",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1311:  throw new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted", {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1420:          code: "STREAM_MODEL_FALLBACK",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1436:  throw new GroqClientError("MODEL_NOT_FOUND", "No OpenRouter free model satisfies the stream capability", {
+lib/ai-orchestrator/src/groq-client.ts:92:export const MODEL_POWERFUL = "llama-3.3-70b-versatile";
+lib/ai-orchestrator/src/groq-client.ts:93:/** Same as MODEL_POWERFUL — both confirmed on free Groq tier. */
+lib/ai-orchestrator/src/groq-client.ts:94:export const MODEL_FAST = "llama-3.3-70b-versatile";
+lib/ai-orchestrator/src/groq-client.ts:318:    model = MODEL_POWERFUL,
+lib/ai-orchestrator/src/groq-client.ts:396:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/groq-client.ts:504:    model = MODEL_POWERFUL,
+lib/ai-orchestrator/src/groq-client.ts:580:    model = MODEL_POWERFUL,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2506:            code: "MODEL_FALLBACK",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2609:            code: "MODEL_ERROR",
+lib/ai-orchestrator/src/provider-metrics.ts:11: *   invalid_model_total        — MODEL_NOT_FOUND + MODEL_UNAVAILABLE per provider
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:67:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:171:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/parsing.ts:17:  | { ok: false; code: Extract<AgentErrorCode, "EMPTY_MODEL_RESPONSE" | "MALFORMED_JSON">; message: string };
+lib/ai-orchestrator/src/parsing.ts:34:    return { ok: false, code: "EMPTY_MODEL_RESPONSE", message: "Model returned an empty response" };
+lib/ai-orchestrator/src/errors.ts:11: *   EMPTY_MODEL_RESPONSE      Raw text from the model was empty.
+lib/ai-orchestrator/src/errors.ts:31: *   MODEL_NOT_FOUND    404: model permanently discontinued.
+lib/ai-orchestrator/src/errors.ts:33: *   MODEL_UNAVAILABLE  422/410: model temporarily offline or being retired.
+lib/ai-orchestrator/src/errors.ts:42:export type AgentErrorCode = "EMPTY_MODEL_RESPONSE" | "MALFORMED_JSON" | "SCHEMA_VALIDATION_FAILED";
+lib/ai-orchestrator/src/errors.ts:55:  | "MODEL_NOT_FOUND"     // 404 — model permanently discontinued
+lib/ai-orchestrator/src/errors.ts:57:  | "MODEL_UNAVAILABLE"   // 422/410 — model temporarily offline (PR-008)
+lib/ai-orchestrator/src/deepseek-client.ts:22:export const DEEPSEEK_MODEL_FAST    = "deepseek-chat";
+lib/ai-orchestrator/src/deepseek-client.ts:23:export const DEEPSEEK_MODEL_POWERFUL = "deepseek-chat";
+lib/ai-orchestrator/src/deepseek-client.ts:85:    model     = DEEPSEEK_MODEL_FAST,
+lib/ai-orchestrator/src/deepseek-client.ts:199:    model     = DEEPSEEK_MODEL_FAST,
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:21: *   the chain — a MODEL_NOT_FOUND on model[i] advances to model[i+1] before
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:115: * order when the primary returns MODEL_NOT_FOUND (STORY-03). The chain always
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:238: * the initial model returns MODEL_NOT_FOUND. The initial model is placed first;
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:45: * Models removed/repriced by OpenRouter trigger MODEL_NOT_FOUND (404) or
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:110:    const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+lib/ai-orchestrator/src/index.ts:1:export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+lib/ai-orchestrator/src/audit-telemetry.ts:60:export const VerificationStageSchema = z.enum(["MODEL_RESPONSE", "VERIFIED_RESPONSE"]);
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts:97:        code: "MODEL_RETRY",
+lib/ai-orchestrator/src/benchmark/run-forensic-benchmark.ts:30:const selectedModel = process.env.BENCHMARK_MODEL?.trim() || undefined;
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:128:    case "MODEL_NOT_FOUND":
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:129:    case "MODEL_UNAVAILABLE":
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:159:  if (code === "MODEL_NOT_FOUND" || code === "MODEL_UNAVAILABLE" || code === "PLAN_RESTRICTED" || code === "EMPTY_RESPONSE") {
+lib/ai-orchestrator/src/agents/query-planner.ts:641:          code: "MODEL_ERROR",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4064:    code: "MODEL_TIER_DECISION",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6540:  // JSON format correction: when MODEL_FAST ignores the JSON output instruction
+lib/ai-orchestrator/src/agents/chat-agent.ts:7308:              code: "FORENSIC_RECOVERY_MODEL_ADVANCE",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7824:            code: "FORENSIC_RECOVERY_MODEL_ADVANCE",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8101:      stage: "MODEL_RESPONSE",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8134:    parseError?.code === "EMPTY_MODEL_RESPONSE" &&
+lib/ai-orchestrator/src/agents/base-agent.ts:55:        console.warn(JSON.stringify({ scope: this.scope, code: "MODEL_RETRY", originalError: err.code }));
+lib/ai-orchestrator/src/agents/base-agent.ts:94:          code: "MODEL_RETRY",
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:17:const MODEL_VALIDATION_MISMATCH =
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:25:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:39:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:81:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:88:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:95:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:102:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:109:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:116:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts:123:    diagnosis: MODEL_VALIDATION_MISMATCH,
+lib/ai-orchestrator/src/__tests__/parsing.test.ts:29:  it("reports EMPTY_MODEL_RESPONSE for an empty string", () => {
+lib/ai-orchestrator/src/__tests__/parsing.test.ts:31:    expect(result).toEqual({ ok: false, code: "EMPTY_MODEL_RESPONSE", message: expect.any(String) });
+lib/ai-orchestrator/src/__tests__/parsing.test.ts:34:  it("reports EMPTY_MODEL_RESPONSE for whitespace-only input", () => {
+lib/ai-orchestrator/src/__tests__/parsing.test.ts:37:    if (!result.ok) expect(result.code).toBe("EMPTY_MODEL_RESPONSE");
+lib/ai-orchestrator/src/__tests__/parsing.test.ts:98:    if (!result.ok) expect(result.code).toBe("EMPTY_MODEL_RESPONSE");
+lib/ai-orchestrator/src/__tests__/parsing.test.ts:131:  it("includes the original raw string in the failure result for EMPTY_MODEL_RESPONSE", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:5: *   • Model Removed (404)           → MODEL_NOT_FOUND, automatic fallback
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:11: *   • Provider Failover             → MODEL_UNAVAILABLE triggers next model
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:345:  it("404 → MODEL_NOT_FOUND", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:349:      e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:494:  it("410 → MODEL_UNAVAILABLE", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:498:      e instanceof GroqClientError && e.code === "MODEL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:502:  it("422 → MODEL_UNAVAILABLE", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:506:      e instanceof GroqClientError && e.code === "MODEL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:511:    expect(classifyOpenRouterFailure("MODEL_NOT_FOUND")).toMatchObject({
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:516:    expect(classifyOpenRouterFailure("MODEL_UNAVAILABLE").action).toBe("choose-alternative");
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:994:    // openrouterCompleteWithFallback must throw MODEL_NOT_FOUND immediately —
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1002:      (e: unknown) => e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1043:      (e: unknown) => e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:6: *   • 400 invalid model id → MODEL_NOT_FOUND + fallback (existing)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:7: *   • 404 → MODEL_NOT_FOUND + fallback (PR-003)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:8: *   • 410 → MODEL_UNAVAILABLE + fallback (PR-003)

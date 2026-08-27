@@ -4108,7 +4108,8 @@ router.post("/ai/chat/stream", async (req, res) => {
             WHEN COALESCE(
               NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
               ${aiChatSessionsTable.updatedAt}
-            ) <= ${msgNow} THEN ${activeTaskState}
+            ) <= ${msgNow}
+            AND ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState}
             ELSE ${aiChatSessionsTable.activeTaskState}
           END`,
           updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,

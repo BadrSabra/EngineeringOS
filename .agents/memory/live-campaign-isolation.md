@@ -14,3 +14,9 @@ Disposable source copies must exclude generated validation/project roots and dep
 **Why:** Retained validation workspaces can exhaust process, port, or filesystem quotas before a campaign reaches provider execution, making the evidence incomplete.
 
 **How to apply:** Treat generated workspace trees as non-source inputs in every recursive candidate copy; never delete shared evidence just to make a campaign fit.
+
+Structured-review live receipts may retain only allowlisted provider/error/model identifiers and a bounded hash for a finding cited to the selected file; they must not retain model text, prompts, raw provider messages, or source bodies.
+
+**Why:** A live provider response can contain credentials, paths, or untrusted instructions even when the campaign itself is disposable.
+
+**How to apply:** Build receipts at the review-result boundary and make incomplete outcomes carry zero evidence; keep raw diagnostics in transient server logs only.

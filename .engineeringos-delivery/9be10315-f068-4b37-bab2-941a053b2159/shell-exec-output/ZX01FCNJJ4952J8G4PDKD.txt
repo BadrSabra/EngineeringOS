@@ -1,0 +1,70 @@
+docs/runtime-coverage-matrix.md:17:| Release isolation and provider-free default | `scripts/dashboard-journey-contract.test.mjs`, release validation contracts | live campaigns require explicit opt-in and disposable targets |
+docs/replit-agent-parity-gaps.md:169:- **Non-goals:** no production deployment, no broad live campaign, and no claim
+scripts/run-dashboard-journey.mjs:44:  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+scripts/run-dashboard-journey.mjs:784:      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+scripts/run-dashboard-journey.mjs:891:          DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
+scripts/run-dashboard-journey.mjs:893:            process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+scripts/run-dashboard-journey.mjs:897:            ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
+scripts/run-dashboard-journey.mjs:917:      process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+docs/golden-repair-matrix.md:19:| Provider emits malformed tool arguments or output | Preserve the parse failure; no pending patch and no success claim | `golden-repair-matrix.test.ts`, Code Agent benchmark `malformed-output` case |
+scripts/dashboard-journey-contract.test.mjs:29:    /DASHBOARD_E2E_LIVE_TIMEOUT_MS\s*\?\?\s*([0-9_]+)/,
+scripts/dashboard-journey-contract.test.mjs:334:    /test\.skip\(\s*process\.env\.DASHBOARD_E2E_LIVE_PROVIDER !== "1"/,
+scripts/dashboard-journey-contract.test.mjs:339:    /process\.env\.DASHBOARD_E2E_LIVE_PROVIDER === "1"/,
+scripts/dashboard-journey-contract.test.mjs:352:    /DASHBOARD_E2E_LIVE_PROVIDER\s*:/,
+scripts/dashboard-journey-contract.test.mjs:411:    /DASHBOARD_E2E_LIVE_DISPOSABLE !== "1"/,
+scripts/dashboard-journey-contract.test.mjs:416:    /DASHBOARD_E2E_LIVE_PROJECT_ID/,
+scripts/dashboard-journey-contract.test.mjs:569:test("live campaign covers provider failures and candidate-bound delivery", () => {
+scripts/dashboard-journey-contract.test.mjs:572:    /provider-outage[\s\S]*malformed-output[\s\S]*delivery-success/,
+scripts/dashboard-journey-contract.test.mjs:573:    "The live campaign must define outage, malformed-output, and delivery-success scenarios.",
+scripts/dashboard-journey-contract.test.mjs:577:    /OpenRouter rate-limit\/provider-exhaustion/,
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:106:| End-to-end Replit-Agent parity / cannot verify | No source contract can establish undocumented comparator internals; current routes terminate at approval/guarded delivery | Requirements comparable to another product must be measured by observable behavior, not marketing or names. No retained live campaign proves parity. | critical | Define an observable acceptance suite and run opt-in isolated provider/deployment campaigns. | cannot verify |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:326:| Live provider behavior | **NOT VERIFIED** | Deterministic fixtures and bounded fallback are available; the opt-in harness records outage, malformed-output, and delivery evidence without making live credentials a release prerequisite |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:357:`DASHBOARD_E2E_LIVE_PROVIDER=1`, `DASHBOARD_E2E_LIVE_CAMPAIGN=1`,
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:358:`DASHBOARD_E2E_LIVE_DISPOSABLE=1`, and a project supplied through
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:359:`DASHBOARD_E2E_LIVE_PROJECT_ID`. Each run selects one bounded scenario with
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:360:`DASHBOARD_E2E_LIVE_SCENARIO`:
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:362:* `provider-outage` records OpenRouter rate-limit/provider-exhaustion as a
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:364:* `malformed-output` records malformed provider output as non-success;
+docs/actual-capability-baseline-v1.md:96:| AI task execution | `POST /api/ai/tasks/:taskId/execute`; task ownership/status/rate-limit checks delegate to `executeTaskLifecycle`, with task logs/events and durable job helpers | **Partial / blocked** | `tasks.test.ts` covers scheduling/HTTP behavior; real provider execution was not run |
+docs/actual-capability-baseline-v1.md:185:- **Not run by design:** `DASHBOARD_E2E_LIVE_PROVIDER=1` and
+docs/actual-capability-baseline-v1.md:186:  `DASHBOARD_E2E_LIVE_CAMPAIGN=1`; no provider-backed project, production
+docs/actual-capability-baseline-v1.md:255:  preview/live campaign remains disabled.
+docs/PR_BACKLOG.md:107:- AiChat shows distinct toast messages for rate-limit vs. parse failure vs. network error
+docs/code-agent-benchmark-rollout.md:5:cancellation, scope-safety, malformed-output, and blocked-proof cases without
+docs/code-agent-benchmark-rollout.md:109:BENCHMARK_CASE_IDS=cancellation-001,scope-001,malformed-output-001,blocked-proof-001 \
+docs/ai-orchestrator-trace-analysis.md:185:| Orchestrator error (rate-limit, auth) | ❌ | **D-04 fixed** |
+docs/code-agent-benchmark-campaign.md:193:BENCHMARK_LIVE_CAMPAIGN=1 \
+docs/baseline-governance.md:8:| Code Agent Benchmark | The benchmark suite and its explicit approved benchmark artifacts | Code Agent Benchmark schema version `1`, suite version `flight-deck-v2` | Run the deterministic contract replay or an approved live campaign, review its suite/version and case comparison, then run `benchmark:baseline:check`; live quality approval is separate |
+docs/architecture.md:96:- Rate limit check occurs **before** the atomic task claim so a task is never left stuck in `running` on a rate-limit rejection.
+docs/architecture.md:334:| Audit PR-2 | Observability hardening — audit + rate-limiter failures surfaced in `/api/healthz` via `operationalCounters`; rate-limiter fail-open upgraded from WARN to ERROR | ✅ Closed |
+artifacts/dashboard/e2e/dashboard.journey.ts:32:const LIVE_CAMPAIGN_SCENARIOS = new Set([
+artifacts/dashboard/e2e/dashboard.journey.ts:33:  "provider-outage",
+artifacts/dashboard/e2e/dashboard.journey.ts:34:  "malformed-output",
+artifacts/dashboard/e2e/dashboard.journey.ts:39:  const scenario = process.env.DASHBOARD_E2E_LIVE_SCENARIO?.trim();
+artifacts/dashboard/e2e/dashboard.journey.ts:40:  if (process.env.DASHBOARD_E2E_LIVE_CAMPAIGN === "1" && !scenario) {
+artifacts/dashboard/e2e/dashboard.journey.ts:42:      "Live campaign requires DASHBOARD_E2E_LIVE_SCENARIO=provider-outage, malformed-output, or delivery-success.",
+artifacts/dashboard/e2e/dashboard.journey.ts:45:  if (scenario && !LIVE_CAMPAIGN_SCENARIOS.has(scenario)) {
+artifacts/dashboard/e2e/dashboard.journey.ts:46:    throw new Error(`Unsupported live campaign scenario: ${scenario}.`);
+artifacts/dashboard/e2e/dashboard.journey.ts:53:  if (scenario === "provider-outage") {
+artifacts/dashboard/e2e/dashboard.journey.ts:54:    return "Run a bounded forensic audit and report the OpenRouter rate-limit/provider-exhaustion outage as a failed or incomplete operation. Do not use prior analysis as a current answer; include the current operation and revision.";
+artifacts/dashboard/e2e/dashboard.journey.ts:56:  if (scenario === "malformed-output") {
+artifacts/dashboard/e2e/dashboard.journey.ts:62:  return process.env.DASHBOARD_E2E_LIVE_PROMPT ?? DEFAULT_LIVE_PROMPT;
+artifacts/dashboard/e2e/dashboard.journey.ts:66:  const configured = Number(process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS);
+artifacts/dashboard/e2e/dashboard.journey.ts:1706:      process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
+artifacts/dashboard/e2e/dashboard.journey.ts:1709:    if (process.env.DASHBOARD_E2E_LIVE_DISPOSABLE !== "1") {
+artifacts/dashboard/e2e/dashboard.journey.ts:1711:        "Live-provider journey requires DASHBOARD_E2E_LIVE_DISPOSABLE=1 and a disposable project.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1715:    const projectId = process.env.DASHBOARD_E2E_LIVE_PROJECT_ID;
+artifacts/dashboard/e2e/dashboard.journey.ts:1718:        "DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1808:      process.env.DASHBOARD_E2E_LIVE_CAMPAIGN === "1" &&
+artifacts/dashboard/e2e/dashboard.journey.ts:1957:      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+artifacts/dashboard/e2e/README.md:50:DASHBOARD_E2E_LIVE_PROVIDER=1 \
+artifacts/dashboard/e2e/README.md:51:DASHBOARD_E2E_LIVE_CAMPAIGN=1 \
+artifacts/dashboard/e2e/README.md:52:DASHBOARD_E2E_LIVE_SCENARIO=delivery-success \
+artifacts/dashboard/e2e/README.md:53:DASHBOARD_E2E_LIVE_DISPOSABLE=1 \
+artifacts/dashboard/e2e/README.md:54:DASHBOARD_E2E_LIVE_PROJECT_ID=<disposable-project-id> \
+artifacts/dashboard/e2e/README.md:55:DASHBOARD_E2E_LIVE_REPORT_PATH=test-results/dashboard-journey/live-mission-correlation.json \
+artifacts/dashboard/e2e/README.md:60:The run is bounded by `DASHBOARD_E2E_LIVE_TIMEOUT_MS` (default 120 seconds)
+artifacts/dashboard/e2e/README.md:63:provider-backed path is skipped unless `DASHBOARD_E2E_LIVE_PROVIDER=1` is set.
+artifacts/dashboard/e2e/README.md:85:`provider-outage`, `malformed-output`, and `delivery-success`. The first
+artifacts/dashboard/e2e/README.md:86:records OpenRouter rate-limit/provider-exhaustion as a current non-success
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:31:  rate_limited: { label: 'The provider rate limit was reached', action: 'Wait for the rate-limit window to reset, then retry or configure another provider.' },

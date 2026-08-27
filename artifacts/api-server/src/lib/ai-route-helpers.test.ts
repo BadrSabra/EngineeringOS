@@ -7,6 +7,7 @@ import {
   type ProviderId,
 } from "@workspace/ai-orchestrator";
 import {
+  handleOrchestratorError,
   redactUserFacingText,
   redactUserFacingValue,
   providerAvailabilityProjection,
@@ -163,6 +164,36 @@ describe("provider health failure contract", () => {
     expect(circuit.availabilityState).toBe("circuit_open");
     expect(incompatible.availabilityState).toBe("incompatible_model");
     expect(stale.catalogStatus).toBe("empty");
+  });
+
+  it("renders real provider outages as terminal incomplete reviews", () => {
+    let body: Record<string, unknown> | undefined;
+    const response = {
+      status: () => response,
+      json: (value: Record<string, unknown>) => {
+        body = value;
+        return response;
+      },
+    } as never;
+
+    expect(handleOrchestratorError(
+      new GroqClientError("MODEL_UNAVAILABLE", "raw provider response /srv/provider.ts"),
+      response,
+      {
+        provider,
+        incompleteReview: { sessionId: "review-session", failureKind: "PROVIDER_FAILURE" },
+      },
+    )).toBe(true);
+    expect(body).toMatchObject({
+      code: "MODEL_UNAVAILABLE",
+      incomplete: true,
+      outcomeClass: "terminal-incomplete",
+      terminalStatus: "INCOMPLETE",
+      sessionId: "review-session",
+      failureKind: "PROVIDER_FAILURE",
+      availabilityState: "incompatible_model",
+    });
+    expect(JSON.stringify(body)).not.toContain("raw provider response");
   });
 
   it("serializes only safe provider reference details", () => {

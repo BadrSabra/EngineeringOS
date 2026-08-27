@@ -1,0 +1,210 @@
+     1/**
+     2 * Explicit live-provider contract check.
+     3 *
+     4 * This file intentionally has no provider mocks. It is excluded from the
+     5 * normal test command and is run only by run-live-empty-model-response.mjs.
+     6 * The selected model must be documented by the operator as capable of
+     7 * returning an empty final message for the controlled prompt.
+     8 */
+     9import { afterEach, describe, expect, it } from "vitest";
+    10import { promises as fs } from "node:fs";
+    11import path from "node:path";
+    12import {
+    13  ChatResponseSchema,
+    14  chat,
+    15  parseAgentResponse,
+    16} from "@workspace/ai-orchestrator";
+    17import type { ProviderId } from "@workspace/ai-orchestrator";
+    18
+    19const provider = (process.env.EMPTY_MODEL_RESPONSE_TEST_PROVIDER ??
+    20  "openrouter") as ProviderId;
+    21const providerKeyEnvironment: Partial<Record<ProviderId, string>> = {
+    22  openrouter: "OPENROUTER_API_KEY",
+    23  gemini: "GEMINI_API_KEY",
+    24};
+    25const providerKey = providerKeyEnvironment[provider];
+    26const enabled =
+    27  process.env.RUN_LIVE_EMPTY_MODEL_RESPONSE === "1" &&
+    28  Boolean(process.env.DATABASE_URL) &&
+    29  Boolean(providerKey && process.env[providerKey]) &&
+    30  Boolean(process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL);
+    31
+    32const roots: string[] = [];
+    33
+    34afterEach(async () => {
+    35  for (const root of roots.splice(0)) {
+    36    await fs.rm(root, { recursive: true, force: true });
+    37  }
+    38});
+    39
+    40describe("controlled live empty-model-response contract", () => {
+    41  // Provider-free coverage for the provider-shaped empty-final fixtures lives
+    42  // in the normal ai-orchestrator test suite. This file intentionally remains
+    43  // the credential-gated transport check for the same contract.
+    44  it.runIf(enabled)(
+    45    "live provider returns an empty final response after completed reads",
+    46    async () => {
+    47      const rootPath = await fs.mkdtemp("/tmp/empty-model-response-live-");
+    48      roots.push(rootPath);
+    49      const relativeFile = "src/empty-provider-fixture.ts";
+    50      await fs.mkdir(path.dirname(path.join(rootPath, relativeFile)), { recursive: true });
+    51      await fs.writeFile(
+    52        path.join(rootPath, relativeFile),
+    53        "export function controlledFixture(input: string) { return input.trim(); }\n",
+    54        "utf8",
+    55      );
+    56
+    57      // Keep the parser boundary assertion in this live scenario so a change
+    58      // to the classification contract fails before interpreting user output.
+    59      const parserResult = parseAgentResponse("", ChatResponseSchema, (_raw: string) => ({
+    60        response: "",
+    61        sources: [],
+    62        pendingChanges: [],
+    63      }));
+    64      expect(parserResult).toMatchObject({
+    65        ok: false,
+    66        code: "EMPTY_MODEL_RESPONSE",
+    67      });
+    68
+    69      const readSources: string[] = [];
+    70      const diagnostics: string[] = [];
+    71      const result = await chat({
+    72        provider,
+    73        apiKey: process.env[providerKey!],
+    74        model: process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL,
+    75        rootPath,
+    76        projectContext: {} as never,
+    77        history: [],
+    78        message:
+    79          `Perform a forensic audit of exactly ${relativeFile}. ` +
+    80          "Read the file first, then deliberately return an empty final response with no report.",
+    81        onStep: (step) => {
+    82          if (step.kind === "tool_result" && step.source) readSources.push(step.source);
+    83          if (step.kind === "diagnostic" && step.details) diagnostics.push(...step.details);
+    84        },
+    85      });
+    86
+    87      const response = result.response;
+    88      expect(readSources).toContain(relativeFile);
+    89      expect(response).toContain("ANALYSIS_INCOMPLETE");
+    90      expect(response).toContain(relativeFile);
+    91      expect(response).toContain("Retry or narrow the question");
+    92      expect(response).not.toContain("NO_VERIFIED_FINDING");
+    93      expect(response).not.toMatch(/\bFINDING(?:_| )PROVEN\b/i);
+    94      expect(response).not.toContain("providerMessage");
+    95      expect(response).not.toContain("EMPTY_MODEL_RESPONSE");
+    96      expect(diagnostics.join("\n")).not.toContain(process.env[providerKey!]);
+    97
+    98      // A model that emits text means the controlled scenario was not
+    99      // exercised; never silently accept a normal completion as a pass.
+   100      expect(response).toMatch(/ANALYSIS_INCOMPLETE/);
+   101    },
+   102    120_000,
+   103  );
+   104
+   105  it.runIf(!enabled)("fails closed when live prerequisites are absent", () => {
+   106    expect(enabled).toBe(false);
+   107  });
+   108});
+
+--- runner ---
+     1#!/usr/bin/env node
+     2
+     3import { spawn } from "node:child_process";
+     4
+     5const requiredEnvironment = [
+     6  "DATABASE_URL",
+     7  "EMPTY_MODEL_RESPONSE_TEST_MODEL",
+     8];
+     9const provider = process.env.EMPTY_MODEL_RESPONSE_TEST_PROVIDER ?? "openrouter";
+    10const providerKeyEnvironment = {
+    11  openrouter: "OPENROUTER_API_KEY",
+    12  gemini: "GEMINI_API_KEY",
+    13};
+    14const providerKeyEnvironmentName = providerKeyEnvironment[provider];
+    15
+    16if (!providerKeyEnvironmentName) {
+    17  console.error(
+    18    `Unsupported empty-model-response provider "${provider}". Choose openrouter or gemini.`,
+    19  );
+    20  process.exit(2);
+    21}
+    22
+    23requiredEnvironment.push(providerKeyEnvironmentName);
+    24const missingEnvironment = requiredEnvironment.filter((name) => !process.env[name]);
+    25
+    26if (process.env.RUN_LIVE_EMPTY_MODEL_RESPONSE !== "1") {
+    27  console.error(
+    28    "SKIP: live empty-model-response validation is opt-in. Set RUN_LIVE_EMPTY_MODEL_RESPONSE=1 to run it.",
+    29  );
+    30  process.exit(0);
+    31}
+    32
+    33if (missingEnvironment.length > 0) {
+    34  console.error(
+    35    `Live empty-model-response validation requires provider/database configuration: ${missingEnvironment.join(", ")}.`,
+    36  );
+    37  console.error(
+    38    "Set EMPTY_MODEL_RESPONSE_TEST_PROVIDER and EMPTY_MODEL_RESPONSE_TEST_MODEL to a documented provider/model used for the controlled empty-response scenario.",
+    39  );
+    40  process.exit(2);
+    41}
+    42
+    43if (provider === "openrouter" && !process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL.endsWith(":free")) {
+    44  console.error("OpenRouter live checks accept only a model explicitly marked :free.");
+    45  process.exit(2);
+    46}
+    47
+    48const secretValues = Object.values(process.env).filter(
+    49  (value) => typeof value === "string" && value.length >= 8,
+    50);
+    51
+    52function redact(value) {
+    53  return secretValues.reduce(
+    54    (redacted, secret) => redacted.split(secret).join("[REDACTED]"),
+    55    value,
+    56  );
+    57}
+    58
+    59const child = spawn(
+    60  "pnpm",
+    61  [
+    62    "exec",
+    63    "vitest",
+    64    "run",
+    65    "src/routes/empty-model-response-live.test.ts",
+    66    "-t",
+    67    "live provider returns an empty final response",
+    68  ],
+    69  {
+    70    env: {
+    71      ...process.env,
+    72      NODE_ENV: "test",
+    73      RUN_LIVE_EMPTY_MODEL_RESPONSE: "1",
+    74    },
+    75    stdio: ["ignore", "pipe", "pipe"],
+    76  },
+    77);
+    78
+    79child.stdout.on("data", (chunk) => process.stdout.write(redact(chunk.toString("utf8"))));
+    80child.stderr.on("data", (chunk) => process.stderr.write(redact(chunk.toString("utf8"))));
+    81
+    82child.on("error", (error) => {
+    83  console.error(`Unable to start live empty-model-response validation: ${redact(error.message)}`);
+    84  process.exitCode = 1;
+    85});
+    86
+    87child.on("exit", (code, signal) => {
+    88  if (signal) {
+    89    console.error(`Live empty-model-response validation stopped by ${signal}.`);
+    90    process.exitCode = 1;
+    91    return;
+    92  }
+    93  if (code !== 0) {
+    94    console.error(`Live empty-model-response validation failed (exit code ${code ?? "unknown"}).`);
+    95    process.exitCode = code ?? 1;
+    96    return;
+    97  }
+    98  console.log("Live empty-model-response validation completed successfully.");
+    99  process.exitCode = 0;
+   100});

@@ -1,0 +1,190 @@
+292:export type OpenRouterFailureAction =
+310:export function classifyOpenRouterFailure(
+315:      return { action: "wait", terminal: false, evidenceStatus: "incomplete" };
+319:      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+324:      return {
+330:      return { action: "narrow-request", terminal: true, evidenceStatus: "incomplete" };
+334:      return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
+367:      return {
+374:      return { message: error };
+379:      return { message };
+384:  return {};
+654:    return { ...tc, function: { ...tc.function, arguments: fixed } };
+919:  return {
+    70// no model string is ever hardcoded in this file.
+    71const FALLBACK_DEFAULT_MODEL: string =
+    72  FREE_MODELS.find((m) => m.quality === "fast")?.id ??
+    73  "meta-llama/llama-3.1-8b-instruct:free";
+    74
+    75// ── OpenRouter free-tier helpers ──────────────────────────────────────────────
+    76
+    77/**
+    78 * OR-003: Conservative token cap for OpenRouter free-tier requests.
+    79 * Free models have tight per-request output limits; 2 048 keeps us well inside
+    80 * them while still allowing meaningful responses.
+    81 */
+    82const OPENROUTER_DEFAULT_MAX_TOKENS = 2_048;
+    83
+    84/**
+    85 * OR-003: Maximum number of non-system messages forwarded to OpenRouter.
+    86 * The system prompt is always kept; the most-recent messages are preferred.
+    87 * Trimming reduces token consumption without hurting conversational coherence.
+    88 */
+    89const OPENROUTER_MAX_MESSAGES = 20;
+    90
+    91/**
+    92 * An atomic message group:
+    93 *   - "single"     — a user, system, or assistant-without-tool-calls message.
+    94 *   - "tool_group" — an assistant turn that requested tool calls plus ALL of
+    95 *                    the immediately following tool-result messages that belong
+    96 *                    to it.  This group is never split: it is either kept whole
+    97 *                    or dropped whole.
+    98 */
+    99type MessageGroup =
+   100  | { kind: "single";     message:  RawMessage }
+   101  | { kind: "tool_group"; messages: RawMessage[] };
+   102
+   103/**
+   104 * Partition a flat message array into atomic groups.
+   105 *
+   106 * Walking forward:
+   107 *   - An assistant message that carries `tool_calls` opens a tool_group and
+   108 *     greedily absorbs the immediately following `tool` role messages whose
+   109 *     `tool_call_id` is in that assistant turn's declared IDs.
+   110 *   - Everything else becomes a "single" group.
+   111 *
+   112 * The result lets the trimmer drop or keep complete groups so the conversation
+   113 * reaching the model is always structurally valid.
+   114 */
+   115function groupMessages(messages: RawMessage[]): MessageGroup[] {
+   116  const groups: MessageGroup[] = [];
+   117  let i = 0;
+   118
+   119  while (i < messages.length) {
+   120    const m = messages[i];
+   121
+   122    if (
+   123      m.role === "assistant" &&
+   124      Array.isArray(m.tool_calls) &&
+   125      m.tool_calls.length > 0
+   126    ) {
+   127      // Collect the IDs this assistant turn declared.
+   128      const declaredIds = new Set<string>(
+   129        m.tool_calls.map((tc) => tc.id).filter((id): id is string => !!id),
+   130      );
+   131
+   132      // Greedily absorb the immediately following tool-result messages.
+   133      const groupMsgs: RawMessage[] = [m];
+   134      let j = i + 1;
+   135      while (j < messages.length && messages[j].role === "tool") {
+   136        const toolMsg = messages[j] as { role: "tool"; tool_call_id?: string };
+   137        if (toolMsg.tool_call_id && declaredIds.has(toolMsg.tool_call_id)) {
+   138          groupMsgs.push(messages[j]);
+   139          j++;
+   140        } else {
+   141          break; // tool result belongs to a different (later) assistant turn
+   142        }
+   143      }
+   144
+   145      groups.push({ kind: "tool_group", messages: groupMsgs });
+   146      i = j;
+   147    } else {
+   148      groups.push({ kind: "single", message: m });
+   149      i++;
+   150    }
+   151  }
+   152
+   153  return groups;
+   154}
+   155
+   156/**
+   157 * Remove structurally invalid messages before sending to strict
+   158 * OpenAI-compatible providers. A provider may return an empty assistant turn
+   159 * after a tool loop; replaying that turn during synthesis/recovery produces a
+   160 * 400 even when the context is below the trimming limit. Tool results are
+   161 * retained only when they belong to the immediately preceding assistant
+   162 * tool-call turn.
+   163 */
+   164function sanitizeOutboundMessages(messages: RawMessage[]): RawMessage[] {
+   165  const sanitized: RawMessage[] = [];
+   166  let activeToolCallIds = new Set<string>();
+   167
+   168  for (const message of messages) {
+   169    if (message.role === "assistant") {
+   170      const hasContent =
+   171        typeof message.content === "string" && message.content.trim().length > 0;
+   172      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+   173
+   174      if (!hasContent && toolCalls.length === 0) {
+   175        activeToolCallIds = new Set<string>();
+   176        continue;
+   177      }
+   178
+   179      activeToolCallIds = new Set(
+   180        toolCalls
+   181          .map((toolCall) => toolCall.id)
+   182          .filter((id): id is string => Boolean(id)),
+   183      );
+   184      sanitized.push(message);
+   185      continue;
+   110    blocking: true,
+   111    coverage: ["ownership", "concurrency", "cancellation", "apply/rollback", "Terminal"],
+   112  },
+   113  {
+   114    id: "ai-deterministic-benchmark",
+   115    kind: "benchmark",
+   116    command: "pnpm --filter @workspace/ai-orchestrator run benchmark:code-agent:deterministic",
+   117    blocking: true,
+   118    coverage: ["deterministic fixtures", "validation/provider-turn exhaustion", "scope safety", "false success"],
+   119  },
+   120  {
+   121    id: "benchmark-baseline-regression",
+   122    kind: "benchmark",
+   123    command: "pnpm run verify:benchmark-rollout",
+   124    blocking: true,
+   125    coverage: ["baseline comparison", "regression threshold", "scope escape"],
+   126  },
+   127  {
+   128    id: "dashboard-preview-contract",
+   129    kind: "preview",
+   130    command: "pnpm run validate:dashboard-journey",
+   131    blocking: true,
+   132    coverage: ["Preview dashboard journey"],
+   133  },
+   134];
+   135
+   136export function getAiReleaseChecks(options: {
+   137  enablePreview?: boolean;
+   138  enableLiveProvider?: boolean;
+   139} = {}): AiReleaseCheckDefinition[] {
+   140  const enablePreview = options.enablePreview === true;
+   141  const enableLiveProvider = options.enableLiveProvider === true;
+   142  return CHECKS.map((check) => ({
+   143    ...check,
+   144    enabled: check.kind !== "preview" || enablePreview,
+   145  })).concat(enableLiveProvider ? [{
+   146    id: "live-provider-quality",
+   147    kind: "benchmark" as const,
+   148    command: "pnpm --filter @workspace/api-server run validate:live-provider-review",
+   149    blocking: false,
+   150    enabled: true,
+   151    coverage: [
+   152      "optional live structured-review provider observation",
+   153      "reasoning-only and agent-harness recovery",
+   154      "rate-limit, empty, and malformed incomplete receipts",
+   155    ],
+   156  }] : []);
+   157}
+   158
+   159function failureCode(check: AiReleaseCheckDefinition, exitCode: number | null, signal: NodeJS.Signals | null): string {
+   160  if (signal) return `${check.id.toUpperCase().replaceAll("-", "_")}_TERMINATED`;
+   161  return `${check.id.toUpperCase().replaceAll("-", "_")}_FAILED_${exitCode ?? "UNKNOWN"}`;
+   162}
+   163
+   164export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[], options: {
+   165  enableLiveProvider?: boolean;
+   166  enablePreview?: boolean;
+   167  generatedAt?: string;
+   168} = {}): AiReleaseQualityDecision {
+   169  const blockers = results
+   170    .filter((result) => result.status === "failed" && result.blocking)

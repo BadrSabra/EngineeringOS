@@ -1,0 +1,162 @@
+rg: artifacts/api-server/src/routes/ai/stream.ts: No such file or directory (os error 2)
+artifacts/api-server/src/routes/ai/chat.ts-2005-              content: m.content,
+artifacts/api-server/src/routes/ai/chat.ts-2006-              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+artifacts/api-server/src/routes/ai/chat.ts-2007-                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
+artifacts/api-server/src/routes/ai/chat.ts-2008-                : {}),
+artifacts/api-server/src/routes/ai/chat.ts-2009-            })),
+artifacts/api-server/src/routes/ai/chat.ts-2010-          projectContext,
+artifacts/api-server/src/routes/ai/chat.ts-2011-          rootPath: validRootPath,
+artifacts/api-server/src/routes/ai/chat.ts-2012-          projectId,
+artifacts/api-server/src/routes/ai/chat.ts:2013:          activeTaskState: resumableStateForTurn,
+artifacts/api-server/src/routes/ai/chat.ts-2014-          activeTask,
+artifacts/api-server/src/routes/ai/chat.ts-2015-          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
+artifacts/api-server/src/routes/ai/chat.ts-2016-          objective,
+artifacts/api-server/src/routes/ai/chat.ts-2017-          turnIntent,
+artifacts/api-server/src/routes/ai/chat.ts-2018-          allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
+artifacts/api-server/src/routes/ai/chat.ts-2019-          analysisToolRunner,
+artifacts/api-server/src/routes/ai/chat.ts-2020-          analysisCorrelation,
+artifacts/api-server/src/routes/ai/chat.ts-2021-        },
+--
+artifacts/api-server/src/routes/ai/chat.ts-2199-          message: "AI implementation plan created and is awaiting approval",
+artifacts/api-server/src/routes/ai/chat.ts-2200-          correlationId: operationId,
+artifacts/api-server/src/routes/ai/chat.ts-2201-          payload: { messageId: operationId, proposalId: proposalId ?? null },
+artifacts/api-server/src/routes/ai/chat.ts-2202-        });
+artifacts/api-server/src/routes/ai/chat.ts-2203-      }
+artifacts/api-server/src/routes/ai/chat.ts-2204-      await tx
+artifacts/api-server/src/routes/ai/chat.ts-2205-        .update(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts-2206-        .set({
+artifacts/api-server/src/routes/ai/chat.ts:2207:          activeTaskState: sql`CASE WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState} ELSE ${aiChatSessionsTable.activeTaskState} END`,
+artifacts/api-server/src/routes/ai/chat.ts-2208-          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+artifacts/api-server/src/routes/ai/chat.ts-2209-        })
+artifacts/api-server/src/routes/ai/chat.ts-2210-        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+artifacts/api-server/src/routes/ai/chat.ts-2211-      return msg;
+artifacts/api-server/src/routes/ai/chat.ts-2212-    });
+artifacts/api-server/src/routes/ai/chat.ts-2213-    // Fire-and-forget memory write — must not block the JSON response.
+artifacts/api-server/src/routes/ai/chat.ts-2214-    writeSessionMemories(
+artifacts/api-server/src/routes/ai/chat.ts-2215-      sessionIdToUse,
+--
+artifacts/api-server/src/routes/ai/chat.ts-3548-              content: m.content,
+artifacts/api-server/src/routes/ai/chat.ts-3549-              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+artifacts/api-server/src/routes/ai/chat.ts-3550-                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
+artifacts/api-server/src/routes/ai/chat.ts-3551-                : {}),
+artifacts/api-server/src/routes/ai/chat.ts-3552-            })),
+artifacts/api-server/src/routes/ai/chat.ts-3553-          projectContext,
+artifacts/api-server/src/routes/ai/chat.ts-3554-          rootPath: validRootPath,
+artifacts/api-server/src/routes/ai/chat.ts-3555-          projectId,
+artifacts/api-server/src/routes/ai/chat.ts:3556:          activeTaskState: streamResumableStateForTurn,
+artifacts/api-server/src/routes/ai/chat.ts-3557-          executionPlanOverride: executionPlanForRun ?? undefined,
+artifacts/api-server/src/routes/ai/chat.ts-3558-          activeTask,
+artifacts/api-server/src/routes/ai/chat.ts-3559-          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+artifacts/api-server/src/routes/ai/chat.ts-3560-          objective,
+artifacts/api-server/src/routes/ai/chat.ts-3561-          allowValidationTools: Boolean(validationRunner),
+artifacts/api-server/src/routes/ai/chat.ts-3562-          validationRunner,
+artifacts/api-server/src/routes/ai/chat.ts-3563-          browserValidationRunner,
+artifacts/api-server/src/routes/ai/chat.ts-3564-          browserValidationContext: {
+--
+artifacts/api-server/src/routes/ai/chat.ts-4097-      await tx
+artifacts/api-server/src/routes/ai/chat.ts-4098-        .update(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts-4099-        .set({
+artifacts/api-server/src/routes/ai/chat.ts-4100-          // The session row lock serializes concurrent completions, but the
+artifacts/api-server/src/routes/ai/chat.ts-4101-          // older turn may acquire it after the newer turn. Compare against
+artifacts/api-server/src/routes/ai/chat.ts-4102-          // the state-owned progress timestamp, not only the session
+artifacts/api-server/src/routes/ai/chat.ts-4103-          // timestamp, so a late completion cannot resurrect stale evidence
+artifacts/api-server/src/routes/ai/chat.ts-4104-          // or an older execution plan.
+artifacts/api-server/src/routes/ai/chat.ts:4105:          activeTaskState: sql`CASE
+artifacts/api-server/src/routes/ai/chat.ts-4106-            WHEN CAST(${activeTaskState} AS text) IS NULL THEN NULL
+artifacts/api-server/src/routes/ai/chat.ts-4107-            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
+artifacts/api-server/src/routes/ai/chat.ts-4108-            WHEN COALESCE(
+artifacts/api-server/src/routes/ai/chat.ts-4109-              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+artifacts/api-server/src/routes/ai/chat.ts-4110-              ${aiChatSessionsTable.updatedAt}
+artifacts/api-server/src/routes/ai/chat.ts-4111-            ) <= ${msgNow} THEN ${activeTaskState}
+artifacts/api-server/src/routes/ai/chat.ts-4112-            ELSE ${aiChatSessionsTable.activeTaskState}
+artifacts/api-server/src/routes/ai/chat.ts-4113-          END`,
+--
+artifacts/api-server/src/routes/ai/chat.ts-2005-              content: m.content,
+artifacts/api-server/src/routes/ai/chat.ts-2006-              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+artifacts/api-server/src/routes/ai/chat.ts-2007-                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
+artifacts/api-server/src/routes/ai/chat.ts-2008-                : {}),
+artifacts/api-server/src/routes/ai/chat.ts-2009-            })),
+artifacts/api-server/src/routes/ai/chat.ts-2010-          projectContext,
+artifacts/api-server/src/routes/ai/chat.ts-2011-          rootPath: validRootPath,
+artifacts/api-server/src/routes/ai/chat.ts-2012-          projectId,
+artifacts/api-server/src/routes/ai/chat.ts:2013:          activeTaskState: resumableStateForTurn,
+artifacts/api-server/src/routes/ai/chat.ts-2014-          activeTask,
+artifacts/api-server/src/routes/ai/chat.ts-2015-          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
+artifacts/api-server/src/routes/ai/chat.ts-2016-          objective,
+artifacts/api-server/src/routes/ai/chat.ts-2017-          turnIntent,
+artifacts/api-server/src/routes/ai/chat.ts-2018-          allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
+artifacts/api-server/src/routes/ai/chat.ts-2019-          analysisToolRunner,
+artifacts/api-server/src/routes/ai/chat.ts-2020-          analysisCorrelation,
+artifacts/api-server/src/routes/ai/chat.ts-2021-        },
+--
+artifacts/api-server/src/routes/ai/chat.ts-2199-          message: "AI implementation plan created and is awaiting approval",
+artifacts/api-server/src/routes/ai/chat.ts-2200-          correlationId: operationId,
+artifacts/api-server/src/routes/ai/chat.ts-2201-          payload: { messageId: operationId, proposalId: proposalId ?? null },
+artifacts/api-server/src/routes/ai/chat.ts-2202-        });
+artifacts/api-server/src/routes/ai/chat.ts-2203-      }
+artifacts/api-server/src/routes/ai/chat.ts-2204-      await tx
+artifacts/api-server/src/routes/ai/chat.ts-2205-        .update(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts-2206-        .set({
+artifacts/api-server/src/routes/ai/chat.ts:2207:          activeTaskState: sql`CASE WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState} ELSE ${aiChatSessionsTable.activeTaskState} END`,
+artifacts/api-server/src/routes/ai/chat.ts-2208-          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+artifacts/api-server/src/routes/ai/chat.ts-2209-        })
+artifacts/api-server/src/routes/ai/chat.ts-2210-        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+artifacts/api-server/src/routes/ai/chat.ts-2211-      return msg;
+artifacts/api-server/src/routes/ai/chat.ts-2212-    });
+artifacts/api-server/src/routes/ai/chat.ts-2213-    // Fire-and-forget memory write — must not block the JSON response.
+artifacts/api-server/src/routes/ai/chat.ts-2214-    writeSessionMemories(
+artifacts/api-server/src/routes/ai/chat.ts-2215-      sessionIdToUse,
+--
+artifacts/api-server/src/routes/ai/chat.ts-3548-              content: m.content,
+artifacts/api-server/src/routes/ai/chat.ts-3549-              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+artifacts/api-server/src/routes/ai/chat.ts-3550-                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
+artifacts/api-server/src/routes/ai/chat.ts-3551-                : {}),
+artifacts/api-server/src/routes/ai/chat.ts-3552-            })),
+artifacts/api-server/src/routes/ai/chat.ts-3553-          projectContext,
+artifacts/api-server/src/routes/ai/chat.ts-3554-          rootPath: validRootPath,
+artifacts/api-server/src/routes/ai/chat.ts-3555-          projectId,
+artifacts/api-server/src/routes/ai/chat.ts:3556:          activeTaskState: streamResumableStateForTurn,
+artifacts/api-server/src/routes/ai/chat.ts-3557-          executionPlanOverride: executionPlanForRun ?? undefined,
+artifacts/api-server/src/routes/ai/chat.ts-3558-          activeTask,
+artifacts/api-server/src/routes/ai/chat.ts-3559-          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+artifacts/api-server/src/routes/ai/chat.ts-3560-          objective,
+artifacts/api-server/src/routes/ai/chat.ts-3561-          allowValidationTools: Boolean(validationRunner),
+artifacts/api-server/src/routes/ai/chat.ts-3562-          validationRunner,
+artifacts/api-server/src/routes/ai/chat.ts-3563-          browserValidationRunner,
+artifacts/api-server/src/routes/ai/chat.ts-3564-          browserValidationContext: {
+--
+artifacts/api-server/src/routes/ai/chat.ts-4097-      await tx
+artifacts/api-server/src/routes/ai/chat.ts-4098-        .update(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts-4099-        .set({
+artifacts/api-server/src/routes/ai/chat.ts-4100-          // The session row lock serializes concurrent completions, but the
+artifacts/api-server/src/routes/ai/chat.ts-4101-          // older turn may acquire it after the newer turn. Compare against
+artifacts/api-server/src/routes/ai/chat.ts-4102-          // the state-owned progress timestamp, not only the session
+artifacts/api-server/src/routes/ai/chat.ts-4103-          // timestamp, so a late completion cannot resurrect stale evidence
+artifacts/api-server/src/routes/ai/chat.ts-4104-          // or an older execution plan.
+artifacts/api-server/src/routes/ai/chat.ts:4105:          activeTaskState: sql`CASE
+artifacts/api-server/src/routes/ai/chat.ts-4106-            WHEN CAST(${activeTaskState} AS text) IS NULL THEN NULL
+artifacts/api-server/src/routes/ai/chat.ts-4107-            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
+artifacts/api-server/src/routes/ai/chat.ts-4108-            WHEN COALESCE(
+artifacts/api-server/src/routes/ai/chat.ts-4109-              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+artifacts/api-server/src/routes/ai/chat.ts-4110-              ${aiChatSessionsTable.updatedAt}
+artifacts/api-server/src/routes/ai/chat.ts-4111-            ) <= ${msgNow} THEN ${activeTaskState}
+artifacts/api-server/src/routes/ai/chat.ts-4112-            ELSE ${aiChatSessionsTable.activeTaskState}
+artifacts/api-server/src/routes/ai/chat.ts-4113-          END`,
+--
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-619-      .send({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-620-        projectId: "test-project-id",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-621-        message: "Perform a forensic audit of the source and determine whether there is a defect.",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-622-      });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-623-    expect(audit.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-624-    const persistedSession = dbFixture.session as Record<string, unknown> | null;
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-625-    const sessionId = persistedSession?.id;
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-626-    expect(typeof sessionId).toBe("string");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:627:    expect(persistedSession?.activeTaskState).toBeTruthy();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-628-
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-629-    const jsonStart = await request(app)
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-630-      .post("/api/ai/chat")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-631-      .send({ projectId: "test-project-id", sessionId, message: "ابدأ" });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-632-    expect(jsonStart.status).toBe(200);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-633-    expect(JSON.stringify(jsonStart.body)).toContain(relativePath);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-634-    expect(JSON.stringify(jsonStart.body)).toContain("read_file");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts-635-    expect(JSON.stringify(jsonStart.body)).not.toContain("write_file");

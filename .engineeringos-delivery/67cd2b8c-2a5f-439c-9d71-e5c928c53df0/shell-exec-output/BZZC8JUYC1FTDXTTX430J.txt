@@ -1,0 +1,481 @@
+   280 * User errors (AUTH_ERROR, NON_200) and empty responses are not retried.
+   281 */
+   282function isTransientError(err: unknown): err is GroqClientError {
+   283  return (
+   284    err instanceof GroqClientError &&
+   285    (err.code === "RATE_LIMITED" ||
+   286      err.code === "SERVER_ERROR" ||
+   287      err.code === "TIMEOUT" ||
+   288      err.code === "NETWORK_ERROR")
+   289  );
+   290}
+   291
+   292export type OpenRouterFailureAction =
+   293  | "retry"
+   294  | "choose-alternative"
+   295  | "wait"
+   296  | "narrow-request"
+   297  | "stop-safely";
+   298
+   299export type OpenRouterFailureDisposition = {
+   300  action: OpenRouterFailureAction;
+   301  terminal: boolean;
+   302  evidenceStatus: "complete" | "incomplete";
+   303};
+   304
+   305/**
+   306 * Stable, provider-free policy used by recovery callers and diagnostics.
+   307 * Authentication/quota failures never consume a paid fallback, while an
+   308 * empty or interrupted result can never be presented as a verified finding.
+   309 */
+   310export function classifyOpenRouterFailure(
+   311  code: GroqErrorCode,
+   312): OpenRouterFailureDisposition {
+   313  switch (code) {
+   314    case "RATE_LIMITED":
+   315      return { action: "wait", terminal: false, evidenceStatus: "incomplete" };
+   316    case "TIMEOUT":
+   317    case "NETWORK_ERROR":
+   318    case "SERVER_ERROR":
+   319      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+   320    case "MODEL_NOT_FOUND":
+   321    case "MODEL_UNAVAILABLE":
+   322    case "PLAN_RESTRICTED":
+   323    case "EMPTY_RESPONSE":
+   324      return {
+   325        action: "choose-alternative",
+   326        terminal: false,
+   327        evidenceStatus: "incomplete",
+   328      };
+   329    case "NON_200":
+   330      return { action: "narrow-request", terminal: true, evidenceStatus: "incomplete" };
+   331    case "AUTH_ERROR":
+   332    case "QUOTA":
+   333    case "INVALID_CONFIG":
+   334      return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
+   335  }
+   336}
+   337
+   338/**
+   339 * PR-003 / PR-004 / PR-008: true for errors that indicate the model itself is
+   340 * unusable and the fallback engine should advance to the next candidate.
+   341 * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier),
+   342 * MODEL_UNAVAILABLE (temporarily offline — 422/410), and EMPTY_RESPONSE
+   343 * (a model-specific silent completion).
+   344 */
+   345function isModelUnavailableError(err: unknown): err is GroqClientError {
+   346  return (
+   347    err instanceof GroqClientError &&
+   348    (err.code === "MODEL_NOT_FOUND" ||
+   349      err.code === "PLAN_RESTRICTED" ||
+   350      err.code === "MODEL_UNAVAILABLE" ||
+   351      err.code === "EMPTY_RESPONSE")
+   352  );
+   353}
+   354
+   355/**
+   356 * PR-007 / PR-008: extract a structured error code and message from a provider
+   357 * response body string. Returns { code, message } where code is the provider's
+   358 * own error tag (e.g. "model_not_found") and message is the human text.
+   359 */
+   360function extractProviderError(body: string): { code?: string; message?: string } {
+   361  try {
+   362    const parsed = JSON.parse(body) as Record<string, unknown>;
+   363    const error = parsed.error;
+   364
+   365    if (typeof error === "object" && error !== null) {
+   366      const errorObj = error as Record<string, unknown>;
+   367      return {
+   368        code:    asString(errorObj.code) ?? asString(errorObj.type),
+   369        message: asString(errorObj.message),
+   370      };
+   371    }
+   372
+   373    if (typeof error === "string") {
+   374      return { message: error };
+   375    }
+   376
+   377    const message = parsed.message;
+   378    if (typeof message === "string") {
+   379      return { message };
+   380    }
+   381  } catch {
+   382    // not JSON
+   383  }
+   384  return {};
+   385}
+   386
+   387/**
+   388 * OpenRouter sometimes returns HTTP 400 for request-shape issues that are
+   389 * recoverable by trying another model in the fallback chain — for example,
+   390 * unsupported `response_format` / structured-output requests.
+   391 */
+   392function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?: string): boolean {
+   393  const normalizedBody = body.toLowerCase();
+   394  return (
+   395    normalizedBody.includes("response_format") ||
+   396    normalizedBody.includes("tool_choice") ||
+   397    normalizedBody.includes("structured output") ||
+   398    normalizedBody.includes("structured outputs") ||
+   399    normalizedBody.includes("unsupported parameter") ||
+   400    normalizedBody.includes("request parameter") ||
+   401    normalizedBody.includes("invalid request") ||
+   402    normalizedBody.includes("not supported") ||
+   403    normalizedBody.includes("agent harness") ||
+   404    normalizedBody.includes("requires an agent") ||
+   405    normalizedBody.includes("only available through an agent") ||
+   406    normalizedBody.includes("agent-only") ||
+   407    normalizedBody.includes("agentic") ||
+   408    (providerCode?.includes("invalid_request") ?? false) ||
+   409    (providerCode?.includes("unsupported") ?? false)
+   410  );
+   411}
+   412
+   413const MAX_RETRY_AFTER_MS = 60_000;
+   414
+   415function parseRetryAfterMs(headers?: Headers): number | undefined {
+   416  const value = headers?.get("retry-after")?.trim();
+   417  if (!value) return undefined;
+   418  const seconds = Number(value);
+   419  if (Number.isFinite(seconds)) {
+   420    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, Math.ceil(seconds * 1000)));
+   421  }
+   422  const timestamp = Date.parse(value);
+   423  if (!Number.isFinite(timestamp)) return undefined;
+   424  return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, timestamp - Date.now()));
+   425}
+   426
+   427/** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
+   428function classifyStatus(
+   429  status: number,
+   430  body: string,
+   431  providerName: string,
+   432  model?: string,
+   433  headers?: Headers,
+   434): GroqClientError {
+   435  const { code: pCode, message: pMessage } = extractProviderError(body);
+   436  const providerCode = asString(pCode);
+   437  const ctx = {
+   438    providerStatus:  status,
+   439    providerCode,
+   440    providerMessage: pMessage ?? body.slice(0, 200),
+   441    providerName,
+   442    providerModel:   model,
+   443    retryAfterMs:    status === 429 ? parseRetryAfterMs(headers) : undefined,
+   444  };
+   445
+   446  // Log the classification decision so errors can be traced back to their root cause.
+   447  console.warn(
+   448    JSON.stringify({
+   449      scope: "openai-compatible-client",
+   450      action: "classify_status",
+   451      providerName,
+   452      model,
+   453      providerStatus: status,
+   454      providerCode,
+   455      providerMessage: pMessage ?? null,
+   456      bodyPreview: body.slice(0, 300),
+   457    }),
+   458  );
+   459
+   460  if (status === 401 || status === 403) {
+   461    return new GroqClientError(
+   462      "AUTH_ERROR",
+   463      `${providerName} API authentication failed (${status}) — check your API key`,
+   464      { context: ctx },
+   465    );
+   466  }
+   467
+   468  if (status === 429) {
+   469    // PR-008: distinguish QUOTA (credits exhausted) from RATE_LIMITED (per-minute).
+   470    const bodyLower = body.toLowerCase();
+   471    if (
+   472      bodyLower.includes("quota") ||
+   473      bodyLower.includes("credits") ||
+   474      bodyLower.includes("billing") ||
+   475      bodyLower.includes("insufficient")
+   476    ) {
+   477      return new GroqClientError(
+   478        "QUOTA",
+   479        `${providerName} billing quota or credits exhausted (${status}) — check your account`,
+   480        { context: ctx },
+   481      );
+   482    }
+   483    return new GroqClientError(
+   484      "RATE_LIMITED",
+   485      `${providerName} API rate limit exceeded — wait a moment before retrying`,
+   486      { context: ctx },
+   487    );
+   488  }
+   489
+   490  if (status >= 500) {
+   491    return new GroqClientError(
+   492      "SERVER_ERROR",
+   493      `${providerName} API server error (${status}): ${body.slice(0, 200)}`,
+   494      { context: ctx },
+   495    );
+   496  }
+   497
+   498  const normalizedBody = body.toLowerCase();
+   499  const looksLikeMissingModel =
+   500    normalizedBody.includes("not a valid model id") ||
+   501    normalizedBody.includes("invalid model id") ||
+   502    normalizedBody.includes("unknown model") ||
+   503    normalizedBody.includes("model not found") ||
+   504    normalizedBody.includes("model unavailable") ||
+   505    normalizedBody.includes("unavailable for free") ||
+   506    normalizedBody.includes("no endpoints") ||
+   507    (providerCode?.includes("model_not_found") ||
+   508      providerCode?.includes("invalid_model") ||
+   509      providerCode?.includes("model_unavailable"));
+   510
+   511  // PR-004: distinguish removed models (404) from plan-restricted (402).
+   512  //   404 — model permanently discontinued / removed.
+   513  //   402 — model requires a paid plan or the free quota is exhausted.
+   514  //   400 — invalid model slug (body confirms it's a model error).
+   515  if (providerName === "OpenRouter" && status === 404) {
+   516    return new GroqClientError(
+   517      "MODEL_NOT_FOUND",
+   518      `OpenRouter model not found (404) — the model has been discontinued or removed. ${body.slice(0, 200)}`,
+   519      { context: ctx },
+   520    );
+   521  }
+   522
+   523  if (providerName === "OpenRouter" && status === 402) {
+   524    const accountQuota =
+   525      normalizedBody.includes("quota") ||
+   526      normalizedBody.includes("credits exhausted") ||
+   527      normalizedBody.includes("credit balance") ||
+   528      normalizedBody.includes("insufficient funds") ||
+   529      normalizedBody.includes("insufficient credits") ||
+   530      normalizedBody.includes("balance is") ||
+   531      normalizedBody.includes("account limit");
+   532    if (accountQuota) {
+   533      return new GroqClientError(
+   534        "QUOTA",
+   535        `OpenRouter account quota or credits exhausted (402) — stop safely and check your account`,
+   536        { context: ctx },
+   537      );
+   538    }
+   539    return new GroqClientError(
+   540      "PLAN_RESTRICTED",
+   541      `OpenRouter model requires a paid plan or free-tier credit balance (402). ${body.slice(0, 200)}`,
+   542      { context: ctx },
+   543    );
+   544  }
+   545
+   546  if (providerName === "OpenRouter" && status === 400) {
+   547    if (looksLikeMissingModel) {
+   548      return new GroqClientError(
+   549        "MODEL_NOT_FOUND",
+   550        `OpenRouter rejected the model slug (400) — the model ID may be invalid. ${body.slice(0, 200)}`,
+   551        { context: ctx },
+   552      );
+   553    }
+   554
+   555    if (
+   556      normalizedBody.includes("unavailable for free") ||
+   557      normalizedBody.includes("free tier") ||
+   558      normalizedBody.includes("requires a paid plan") ||
+   559      normalizedBody.includes("paid plan") ||
+   560      normalizedBody.includes("credits") ||
+   561      normalizedBody.includes("billing")
+   562    ) {
+   563      return new GroqClientError(
+   564        "PLAN_RESTRICTED",
+   565        `OpenRouter rejected the request because the selected model requires a paid plan or free-tier credits (400). ${body.slice(0, 200)}`,
+   566        { context: ctx },
+   567      );
+   568    }
+   569
+   570    if (looksLikeRecoverableOpenRouterRequestError(body, providerCode)) {
+   571      return new GroqClientError(
+   572        "MODEL_UNAVAILABLE",
+   573        `OpenRouter rejected a request feature or parameter (400) — the selected model cannot satisfy this request shape. ${body.slice(0, 200)}`,
+   574        { context: ctx },
+   575      );
+   576    }
+   577  }
+   578
+   579  // PR-003 / PR-008: 410 Gone = model retired; 422 Unprocessable = model
+   580  // temporarily offline or being retired. Both are MODEL_UNAVAILABLE (not
+   581  // MODEL_NOT_FOUND) — the distinction is useful for dashboards (temporary
+   582  // vs. permanent), but both are fallback-worthy.
+   583  if (
+   584    providerName === "OpenRouter" &&
+   585    (status === 410 || status === 422)
+   586  ) {
+   587    return new GroqClientError(
+   588      "MODEL_UNAVAILABLE",
+   589      `OpenRouter model unavailable (${status}) — the model is temporarily offline or being retired. ${body.slice(0, 200)}`,
+   590      { context: ctx },
+   591    );
+   592  }
+   593
+   594  return new GroqClientError(
+   595    "NON_200",
+   596    `${providerName} API responded with status ${status}: ${body.slice(0, 200)}`,
+   597    { context: ctx },
+   598  );
+   599}
+   600
+   601// ── XML tool-call helpers ─────────────────────────────────────────────────────
+   602// Some free models (e.g. InclusionAI Ling) output tool calls as XML text in
+   603// their content field instead of (or in addition to) the standard OpenAI
+   604// ── Tool-call argument normalization ────────────────────────────────────────
+   605// Some free-tier models return `function.arguments` as a raw object, an empty
+   606// string, or otherwise-invalid JSON. If we echo such a tool_call back into the
+   607// message history on the next iteration, strict providers (e.g. Cohere via
+   608// OpenRouter) reject the WHOLE request with 400:
+   609//   "tool arguments must be a stringified JSON object"
+   610// Normalize at ingestion so every ToolCall we ever store/replay carries a
+   611// stringified JSON *object* in `arguments`.
+   612function normalizeToolCallArguments(
+   613  calls: ToolCall[],
+   614  providerName: string,
+   615  model: string,
+   616): ToolCall[] {
+   617  return calls.map((tc) => {
+   618    const raw: unknown = tc.function?.arguments;
+   619    let fixed: string | null = null;
+   620
+   621    if (typeof raw === "string") {
+   622      const trimmed = raw.trim();
+   623      if (trimmed === "") {
+   624        fixed = "{}";
+   625      } else {
+   626        try {
+   627          const parsed: unknown = JSON.parse(trimmed);
+   628          fixed =
+   629            parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+   630              ? trimmed === raw ? null : trimmed // valid object — keep (trim only if needed)
+   631              : "{}"; // valid JSON but not an object (number/array/string)
+   632        } catch {
+   633          fixed = "{}"; // unparseable string
+   634        }
+   635      }
+   636    } else if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+   637      fixed = JSON.stringify(raw); // model returned a raw object
+   638    } else {
+   639      fixed = "{}"; // undefined / null / array / number
+   640    }
+   641
+   642    if (fixed === null) return tc;
+   643
+   644    console.warn(
+   645      JSON.stringify({
+   646        scope: "openai-compatible-client",
+   647        code: "TOOL_ARGS_NORMALIZED",
+   648        providerName,
+   649        model,
+   650        tool: tc.function?.name,
+   651        rawType: typeof raw,
+   652      }),
+   653    );
+   654    return { ...tc, function: { ...tc.function, arguments: fixed } };
+   655  });
+   656}
+   657
+   658// `tool_calls` JSON array.  These helpers normalise both cases so the rest of
+   659// the codebase never sees raw XML.
+   660
+   661/** Strip all <tool_call>…</tool_call> blocks from a content string. */
+   662function stripXmlToolCalls(text: string): string {
+   663  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+   664}
+   665
+   666/**
+   667 * Attempt to parse XML-style tool calls from content.
+   668 * Handles two common formats:
+   669 *   1. JSON inside tags:  <tool_call>{"name":"fn","arguments":{…}}</tool_call>
+   670 *   2. Attribute syntax:  <tool_call> <function=fn> <parameter=k>v</parameter> </function> </tool_call>
+   671 * Returns null when the content contains no recognisable tool-call XML.
+   672 */
+   673function parseXmlToolCalls(content: string): ToolCall[] | null {
+   674  const blocks = [...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)];
+   675  if (blocks.length === 0) return null;
+   676
+   677  const calls: ToolCall[] = [];
+   678  for (const [, inner] of blocks) {
+   679    const trimmed = inner.trim();
+   680
+   681    // Format 1 — JSON inside <tool_call>
+   682    if (trimmed.startsWith("{")) {
+   683      try {
+   684        const parsed = JSON.parse(trimmed) as { name?: string; arguments?: unknown };
+   685        if (parsed.name) {
+   686          calls.push({
+   687            id: `xml_${Math.random().toString(36).slice(2, 9)}`,
+   688            type: "function",
+   689            function: {
+   690              name: parsed.name,
+   691              arguments: JSON.stringify(parsed.arguments ?? {}),
+   692            },
+   693          });
+   694        }
+   695      } catch { /* ignore malformed JSON */ }
+   696      continue;
+   697    }
+   698
+   699    // Format 2 — attribute syntax  <function=NAME> <parameter=KEY>VALUE</parameter>
+   700    const fnMatch = trimmed.match(/<function=([^\s>]+)/);
+   701    if (!fnMatch) continue;
+   702    const fnName = fnMatch[1];
+   703
+   704    const args: Record<string, string> = {};
+   705    for (const [, key, val] of trimmed.matchAll(/<parameter=([^\s>]+)>([\s\S]*?)<\/parameter>/g)) {
+   706      args[key] = val.trim();
+   707    }
+   708    calls.push({
+   709      id: `xml_${Math.random().toString(36).slice(2, 9)}`,
+   710      type: "function",
+   711      function: { name: fnName, arguments: JSON.stringify(args) },
+   712    });
+   713  }
+   714  return calls.length > 0 ? calls : null;
+   715}
+   716
+   717/**
+   718 * Non-streaming chat completion against any OpenAI-compatible endpoint.
+   719 * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
+   720 */
+   721export async function oacCompleteRaw(
+   722  messages: RawMessage[],
+   723  opts: OpenAICompatibleOptions,
+   724): Promise<RawGroqResponse> {
+   725  const {
+   726    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
+   727    temperature = 0.2,
+   728    maxTokens = opts.outputPhase ? getPhaseBudget(opts.outputPhase).maxOutputTokens : 4096,
+   729    timeoutMs = DEFAULT_TIMEOUT_MS,
+   730    apiKey,
+   731    tools,
+   732    baseUrl,
+   733    providerName,
+   734    extraHeaders = {},
+   735    signal,
+   736  } = opts;
+   737
+   738  const body: Record<string, unknown> = {
+   739    model,
+   740    messages,
+   741    temperature,
+   742    max_tokens: maxTokens,
+   743  };
+   744
+   745  const isGemini = providerName === "Gemini";
+   746  const hasTools = !isGemini && Array.isArray(tools) && tools.length > 0;
+   747  if (hasTools) {
+   748    body.tools = tools;
+   749    body.tool_choice = opts.toolChoice ?? "auto";
+   750  } else if (!isGemini && opts.responseFormat) {
+   751    body.response_format = opts.responseFormat;
+   752  }
+   753
+   754  const controller = new AbortController();
+   755  const timer = setTimeout(() => controller.abort(), timeoutMs);
+   756  const onAbort = () => controller.abort(signal?.reason);
+   757  if (signal?.aborted) onAbort();
+   758  else signal?.addEventListener("abort", onAbort, { once: true });
+   759  const cleanup = () => {
+   760    clearTimeout(timer);

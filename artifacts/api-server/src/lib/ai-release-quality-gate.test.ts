@@ -26,6 +26,20 @@ describe("AI release quality gate", () => {
     expect(checks.some((check) => check.id === "live-provider-quality")).toBe(false);
   });
 
+  it("adds only a non-blocking structured-review campaign when live checks are requested", () => {
+    const live = getAiReleaseChecks({ enableLiveProvider: true });
+    const check = live.find((candidate) => candidate.id === "live-provider-quality");
+    expect(check).toMatchObject({
+      enabled: true,
+      blocking: false,
+      command: expect.stringContaining("validate:live-provider-review"),
+    });
+    expect(check?.coverage).toEqual(expect.arrayContaining([
+      "reasoning-only and agent-harness recovery",
+      "rate-limit, empty, and malformed incomplete receipts",
+    ]));
+  });
+
   it("blocks a failed typecheck or false-success benchmark without raw output", () => {
     const decision = evaluateAiReleaseQuality([
       result({ id: "api-typecheck", kind: "typecheck", failureCode: "API_TYPECHECK_FAILED_2", status: "failed" }),

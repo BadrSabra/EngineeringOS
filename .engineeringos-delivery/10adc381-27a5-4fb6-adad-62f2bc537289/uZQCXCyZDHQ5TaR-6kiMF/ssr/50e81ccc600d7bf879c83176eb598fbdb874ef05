@@ -1,0 +1,26 @@
+__vite_ssr_exportName__("pool", () => { try { return pool } catch {} });
+__vite_ssr_exportName__("db", () => { try { return db } catch {} });
+__vite_ssr_exportName__("AuditSchemaError", () => { try { return __vite_ssr_import_4__.AuditSchemaError } catch {} });
+__vite_ssr_exportName__("assertAuditOutboxSchema", () => { try { return __vite_ssr_import_4__.assertAuditOutboxSchema } catch {} });
+const __vite_ssr_import_0__ = await __vite_ssr_import__("/@fs/home/runner/workspace/node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/drizzle-orm/node-postgres/index.js", {"importedNames":["drizzle"]});
+const __vite_ssr_import_1__ = await __vite_ssr_import__("/@fs/home/runner/workspace/node_modules/.pnpm/pg@8.22.0/node_modules/pg/esm/index.mjs", {"importedNames":["default"]});
+const __vite_ssr_import_2__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/schema/index.ts");
+const __vite_ssr_import_3__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/schema/index.ts");
+__vite_ssr_exportAll__(__vite_ssr_import_3__);
+const __vite_ssr_import_4__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/audit-schema-check.ts", {"importedNames":["AuditSchemaError","assertAuditOutboxSchema"]});
+"use strict";
+
+
+
+const { Pool } = __vite_ssr_import_1__.default;
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    "DATABASE_URL must be set. Did you forget to provision a database?"
+  );
+};
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = (0,__vite_ssr_import_0__.drizzle)(pool, { schema: __vite_ssr_import_2__ });
+//# sourceMappingSource=vite-generated
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJtYXBwaW5ncyI6IkFBQUEsQ0FBQTs7OztBQUFBO0FBQ0E7QUFDQTtBQWFBOztBQUNBOzs7OztBQVpBLE1BQU0sRUFBRSxLQUFLLElBQUk7QUFFakIsSUFBSSxDQUFDLFFBQVEsSUFBSSxjQUFjO0FBQzdCLFFBQU0sSUFBSTtBQUFBLElBQ1I7QUFBQSxFQUNGO0FBQ0Y7QUFFTyxNQUFNLE9BQU8sSUFBSSxLQUFLLEVBQUUsa0JBQWtCLFFBQVEsSUFBSSxhQUFhLENBQUM7QUFDcEUsTUFBTSxRQUFLLCtCQUFRLE1BQU0sRUFBRSw4QkFBTyxDQUFDIiwibmFtZXMiOltdLCJpZ25vcmVMaXN0IjpbXSwic291cmNlcyI6WyJpbmRleC50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgeyBkcml6emxlIH0gZnJvbSBcImRyaXp6bGUtb3JtL25vZGUtcG9zdGdyZXNcIjtcbmltcG9ydCBwZyBmcm9tIFwicGdcIjtcbmltcG9ydCAqIGFzIHNjaGVtYSBmcm9tIFwiLi9zY2hlbWEvaW5kZXguanNcIjtcblxuY29uc3QgeyBQb29sIH0gPSBwZztcblxuaWYgKCFwcm9jZXNzLmVudi5EQVRBQkFTRV9VUkwpIHtcbiAgdGhyb3cgbmV3IEVycm9yKFxuICAgIFwiREFUQUJBU0VfVVJMIG11c3QgYmUgc2V0LiBEaWQgeW91IGZvcmdldCB0byBwcm92aXNpb24gYSBkYXRhYmFzZT9cIixcbiAgKTtcbn1cblxuZXhwb3J0IGNvbnN0IHBvb2wgPSBuZXcgUG9vbCh7IGNvbm5lY3Rpb25TdHJpbmc6IHByb2Nlc3MuZW52LkRBVEFCQVNFX1VSTCB9KTtcbmV4cG9ydCBjb25zdCBkYiA9IGRyaXp6bGUocG9vbCwgeyBzY2hlbWEgfSk7XG5cbmV4cG9ydCAqIGZyb20gXCIuL3NjaGVtYS9pbmRleC5qc1wiO1xuZXhwb3J0IHtcbiAgQXVkaXRTY2hlbWFFcnJvcixcbiAgYXNzZXJ0QXVkaXRPdXRib3hTY2hlbWEsXG59IGZyb20gXCIuL2F1ZGl0LXNjaGVtYS1jaGVjay5qc1wiO1xuIl0sImZpbGUiOiIvQGZzL2hvbWUvcnVubmVyL3dvcmtzcGFjZS9saWIvZGIvc3JjL2luZGV4LnRzIn0=
+
+//# vitestCache=W3siZmlsZSI6IjEiLCJpZCI6IjEiLCJ1cmwiOiIyIiwiaW1wb3J0ZWRVcmxzIjoiMyIsIm1hcHBpbmdzIjpmYWxzZX0sIi9ob21lL3J1bm5lci93b3Jrc3BhY2UvbGliL2RiL3NyYy9pbmRleC50cyIsIi9AZnMvaG9tZS9ydW5uZXIvd29ya3NwYWNlL2xpYi9kYi9zcmMvaW5kZXgudHMiLFtdXQ==

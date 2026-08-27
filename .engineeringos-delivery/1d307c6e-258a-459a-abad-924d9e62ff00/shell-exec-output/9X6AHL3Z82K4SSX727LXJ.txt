@@ -1,0 +1,400 @@
+scripts/verify-benchmark-rollout.mjs:63:  if (metrics.complete !== true) throw new Error("live benchmark metrics are incomplete");
+scripts/verify-benchmark-rollout.mjs:116:    throw new Error("benchmark baseline is incomplete");
+lib/ai-orchestrator/src/openai-compatible-client.ts:302:  evidenceStatus: "complete" | "incomplete";
+lib/ai-orchestrator/src/openai-compatible-client.ts:315:      return { action: "wait", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:319:      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:327:        evidenceStatus: "incomplete",
+lib/ai-orchestrator/src/openai-compatible-client.ts:330:      return { action: "narrow-request", terminal: true, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:334:      return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:1072:    reader.releaseLock();
+lib/ai-orchestrator/package.json:14:    "test:structured-review-fallback-release": "vitest run src/__tests__/structured-review-fallback.release.test.ts",
+scripts/validate-truth-flow.ts:63:// ─── 2. Layer 1 — Structural validation ──────────────────────────────────────
+scripts/validate-truth-flow.ts:98:  console.error(`\n  Schema validation errors (${result.error.issues.length}):`);
+scripts/validate-truth-flow.ts:115:    Inspect the focused diff before re-running this blocking validation.
+lib/ai-orchestrator/src/agent-complete.ts:6: * selection, defaults, and validation share one source of truth.
+lib/ai-orchestrator/src/agent-complete.ts:47:   * agents use this to keep a provider outage bounded instead of walking the
+lib/ai-orchestrator/src/agent-complete.ts:101:      // Use the same decision engine as the main call path so the validation
+scripts/validate-github-workflows.test.mjs:20:      join(workflowsDirectory, "nested", "release.yaml"),
+scripts/validate-github-workflows.test.mjs:33:          /\.github\/workflows\/nested\/release\.yaml: YAML syntax error at line 5, column 1/,
+scripts/validate-github-workflows.test.mjs:91:    "release.yml",
+scripts/validate-github-workflows.test.mjs:114:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` must be a YAML mapping\./,
+scripts/validate-github-workflows.test.mjs:131:    "release.yml",
+scripts/validate-github-workflows.test.mjs:156:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` steps must be a YAML sequence\./,
+scripts/validate-github-workflows.test.mjs:173:    "release.yml",
+scripts/validate-github-workflows.test.mjs:197:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` must define either `runs-on` or `uses`\./,
+scripts/validate-github-workflows.test.mjs:277:    "release.yml",
+scripts/validate-github-workflows.test.mjs:301:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` `uses` must reference a reusable workflow/,
+scripts/validate-github-workflows.mjs:159:    console.error(`❌ GitHub Actions workflow validation failed: ${error.message}`);
+lib/ai-orchestrator/src/validation-result.ts:2: * Canonical, approval-gateable validation evidence.
+lib/ai-orchestrator/src/validation-result.ts:17:/** Safe, operator-facing reasons for a browser validation preflight block. */
+lib/ai-orchestrator/src/validation-result.ts:34:  /** Reference to the bounded command result carried by this validation record. */
+lib/ai-orchestrator/src/validation-result.ts:40:  /** Integrity identifiers for delivery validation, when validating a candidate. */
+lib/ai-orchestrator/src/validation-result.ts:73: * The only validation data safe to persist in chat history or expose to a
+scripts/validate-benchmark-baseline.ts:5: * This is intentionally separate from Truth Flow validation. The benchmark
+artifacts/api-server/src/types/express.d.ts:11: * them yet, so that session-scoped invalidation or org/team-scoped access
+lib/ai-orchestrator/src/tools/file-tools.ts:34:  "\n\n[... output truncated at 128 KB by the read tool; this is a display limit, not evidence that the file is incomplete or corrupted. Do not infer missing code from this marker. Use targeted search_code or replace_text for exact source-level evidence. ...]";
+lib/ai-orchestrator/src/tools/file-tools.ts:97:        "Read the first 128 KB of a source file. The result may be a bounded preview; a truncation marker is a tool display limit, not proof that the file is incomplete. Use search_code for targeted evidence and replace_text for focused edits.",
+lib/ai-orchestrator/src/tools/file-tools.ts:248:          validation_profile: {
+lib/ai-orchestrator/src/tools/file-tools.ts:252:              "Optional registered behavioral validation profile. Provide a profile only when the Repair Plan names a concrete matching test scenario. Never provide a shell command.",
+lib/ai-orchestrator/src/tools/file-tools.ts:280:          validation_profile: {
+lib/ai-orchestrator/src/tools/file-tools.ts:284:              "Optional registered behavioral validation profile. Provide a profile only when the Repair Plan names a concrete matching test scenario. Never provide a shell command.",
+lib/ai-orchestrator/src/tools/file-tools.ts:658:        validationProfile: args.validation_profile as PendingChange["validationProfile"],
+lib/ai-orchestrator/src/tools/file-tools.ts:725:        validationProfile: args.validation_profile as PendingChange["validationProfile"],
+lib/ai-orchestrator/src/tools/execution-tools.ts:8:} from "../validation-result.js";
+lib/ai-orchestrator/src/tools/execution-tools.ts:101:    scenario: "Registered validation was not executed.",
+lib/ai-orchestrator/src/tools/execution-tools.ts:111:      artifactRef: `validation-attempt:${evidenceId}`,
+lib/ai-orchestrator/src/tools/execution-tools.ts:137:    scenario: legacy.scenario ?? "Legacy validation runner result.",
+lib/ai-orchestrator/src/tools/execution-tools.ts:147:      artifactRef: `validation-result:${evidenceId}`,
+lib/ai-orchestrator/src/tools/execution-tools.ts:157:      name: "run_validation",
+lib/ai-orchestrator/src/tools/execution-tools.ts:159:        "Run one registered project validation against the server-approved implementation files. Choose only a profile that matches the current implementation plan. Do not invent command names, paths, or test arguments.",
+lib/ai-orchestrator/src/tools/execution-tools.ts:166:              "Registered validation profile name, for example 'workspace-typecheck' or 'ai-orchestrator-tests'.",
+lib/ai-orchestrator/src/tools/execution-tools.ts:177:      name: "run_browser_validation",
+lib/ai-orchestrator/src/tools/execution-tools.ts:179:        "Run the server-registered browser validation contract for the approved implementation plan. The server owns the preview origin, selectors, navigation, screenshots, revision, and resource limits.",
+lib/ai-orchestrator/src/tools/execution-tools.ts:183:          profile: { type: "string", description: "Server-registered browser validation profile name." },
+lib/ai-orchestrator/src/tools/execution-tools.ts:217:  if (name !== "run_browser_validation") throw new Error(`Unknown execution tool "${name}".`);
+lib/ai-orchestrator/src/tools/execution-tools.ts:222:      detail: "A registered browser validation profile is required.",
+lib/ai-orchestrator/src/tools/execution-tools.ts:228:      detail: "Browser validation is not enabled for this approved operation.",
+lib/ai-orchestrator/src/tools/execution-tools.ts:325:  if (name !== "run_validation") {
+lib/ai-orchestrator/src/tools/execution-tools.ts:341:    const result = unavailableValidation("", "A registered validation profile is required.");
+scripts/run-dashboard-journey.mjs:10:} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+scripts/run-dashboard-journey.mjs:18:    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+scripts/run-dashboard-journey.mjs:39:  "engineeringos-dashboard-release@example.com";
+scripts/run-dashboard-journey.mjs:61:    "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+scripts/run-dashboard-journey.mjs:70:    resolve(outputDir, "release-teardown.json"),
+scripts/run-dashboard-journey.mjs:77:let releaseLockCleanup;
+scripts/run-dashboard-journey.mjs:78:const releasePorts = [apiPort, dashboardPort];
+scripts/run-dashboard-journey.mjs:83:let campaignControlServer;
+scripts/run-dashboard-journey.mjs:132:  if (!apiService) throw new Error("API release service is not running.");
+scripts/run-dashboard-journey.mjs:136:    "API release service (restarted)",
+scripts/run-dashboard-journey.mjs:150:  campaignControlServer = createServer(async (request, response) => {
+scripts/run-dashboard-journey.mjs:170:    campaignControlServer.once("error", reject);
+scripts/run-dashboard-journey.mjs:171:    campaignControlServer.listen(controlPort, "127.0.0.1", resolve);
+scripts/run-dashboard-journey.mjs:254:  for (const port of releasePorts) await ensureReleasePortFree(port);
+scripts/run-dashboard-journey.mjs:257:function releaseServiceForPort(port) {
+scripts/run-dashboard-journey.mjs:258:  if (port === apiPort) return "API release service";
+scripts/run-dashboard-journey.mjs:259:  if (port === dashboardPort) return "Dashboard release service";
+scripts/run-dashboard-journey.mjs:291:  if (campaignControlServer) {
+scripts/run-dashboard-journey.mjs:292:    await new Promise((resolve) => campaignControlServer.close(resolve));
+scripts/run-dashboard-journey.mjs:293:    campaignControlServer = undefined;
+scripts/run-dashboard-journey.mjs:360:            `${label} (configured release port ${port}; surviving process IDs: ${pids.join(
+scripts/run-dashboard-journey.mjs:362:            )}; release process group: ${
+scripts/run-dashboard-journey.mjs:373:  for (const port of releasePorts) {
+scripts/run-dashboard-journey.mjs:384:        `(configured release port ${port})`,
+scripts/run-dashboard-journey.mjs:388:        `release process group: ${service?.child.pid ?? "unknown"}`,
+scripts/run-dashboard-journey.mjs:451:      `Release teardown evidence summary: validation run ${
+scripts/run-dashboard-journey.mjs:468:        `Unable to write release teardown artifact ${teardownArtifactPath}: ${
+scripts/run-dashboard-journey.mjs:504:    releaseLockCleanup = await acquireReleaseLock(lockPath);
+scripts/run-dashboard-journey.mjs:519:      "API release service",
+scripts/run-dashboard-journey.mjs:531:      "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH; configure Chromium before starting services.",
+scripts/run-dashboard-journey.mjs:536:    "API release build",
+scripts/run-dashboard-journey.mjs:541:  await waitForChild(apiBuild, "API release build");
+scripts/run-dashboard-journey.mjs:543:    "API release service",
+scripts/run-dashboard-journey.mjs:554:   * Start the dashboard separately from the Project workflow. The release
+scripts/run-dashboard-journey.mjs:558:    "Dashboard release service",
+scripts/run-dashboard-journey.mjs:710:        "keeps the newest resumable contract when same-session turns finish out of order|keeps a streamed forensic cancellation incomplete after recovery retains partial evidence",
+scripts/run-dashboard-journey.mjs:851:        "Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.",
+scripts/run-dashboard-journey.mjs:927:  if (releaseLockCleanup) await releaseLockCleanup();
+lib/ai-orchestrator/src/tool-policy.ts:37:    | "validation_profile_not_approved"
+lib/ai-orchestrator/src/tool-policy.ts:172:    if ((opts.toolName === "run_validation" || opts.toolName === "run_command" || opts.toolName === "run_browser_validation") &&
+lib/ai-orchestrator/src/tool-policy.ts:175:    return { allowed: false, reason: "validation_profile_not_approved" };
+scripts/release-port-cleanup.test.mjs:102:test("release port cleanup supports consecutive runs", async () => {
+scripts/release-port-cleanup.test.mjs:119:test("release journey teardown diagnostics identify a real surviving descendant", async () => {
+scripts/release-port-cleanup.test.mjs:127:      `Release services surviving teardown: API release service \\(configured release port ${apiPort}; surviving process IDs: \\d+; release process group: \\d+\\)`,
+scripts/release-port-cleanup.test.mjs:130:  assert.match(output, new RegExp(`configured release port ${apiPort}`));
+scripts/release-port-cleanup.test.mjs:132:  assert.match(output, /release process group: \d+/);
+scripts/release-port-cleanup.test.mjs:137:test("release journey teardown diagnostics keep both service labels and process-group details", async () => {
+scripts/release-port-cleanup.test.mjs:143:  assert.match(journey, /configured release port \$\{port\}/);
+scripts/release-port-cleanup.test.mjs:145:  assert.match(journey, /release process group/);
+scripts/release-port-cleanup.test.mjs:146:  assert.match(journey, /API release service/);
+scripts/release-port-cleanup.test.mjs:147:  assert.match(journey, /Dashboard release service/);
+scripts/release-configuration.test.ts:38:const releaseFailureScenarios: ReleaseFailureScenario[] = [
+scripts/release-configuration.test.ts:45:      "--filter @workspace/api-server run test:release-fixture-collisions",
+scripts/release-configuration.test.ts:46:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+scripts/release-configuration.test.ts:55:      "--filter @workspace/api-server run test:release-fixture-collisions",
+scripts/release-configuration.test.ts:56:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+scripts/release-configuration.test.ts:61:    name: "release fixture collision check",
+scripts/release-configuration.test.ts:62:    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+scripts/release-configuration.test.ts:63:    diagnostic: "release fixture collision check failed: duplicate fixture identity",
+scripts/release-configuration.test.ts:65:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+scripts/release-configuration.test.ts:70:    name: "release synthesis telemetry",
+scripts/release-configuration.test.ts:71:    command: "--filter @workspace/api-server run test:release-synthesis-telemetry",
+scripts/release-configuration.test.ts:72:    diagnostic: "release synthesis telemetry failed: expected audit event was absent",
+scripts/release-configuration.test.ts:93:      "run validate:release",
+scripts/release-configuration.test.ts:100:    diagnostic: "benchmark rollout tests failed: rollout fixture was incomplete",
+scripts/release-configuration.test.ts:103:      "run validate:release",
+scripts/release-configuration.test.ts:111:    laterCommands: ["run validate:release", "store prune"],
+scripts/release-configuration.test.ts:114:    name: "release validation",
+scripts/release-configuration.test.ts:115:    command: "run validate:release",
+scripts/release-configuration.test.ts:116:    diagnostic: "release validation failed: process recovery did not complete",
+scripts/release-configuration.test.ts:125:    resolve(tmpdir(), "release-step-failure-"),
+scripts/release-configuration.test.ts:141:if [ "$*" != "run validate:release" ]; then
+scripts/release-configuration.test.ts:151:    const result = spawnSync("pnpm", ["run", "validate:release"], {
+scripts/release-configuration.test.ts:268:test("keeps release recovery validation before deployment cleanup", async () => {
+scripts/release-configuration.test.ts:278:  const recoveryIndex = deploymentSteps.indexOf("pnpm run validate:release");
+scripts/release-configuration.test.ts:285:    "release recovery validation must run before pnpm store prune",
+scripts/release-configuration.test.ts:307:    "deployments must report the post-build validation command as their result",
+scripts/release-configuration.test.ts:312:    (step) => step === "pnpm run validate:release",
+scripts/release-configuration.test.ts:314:  assert.equal(recoveryStep, "pnpm run validate:release");
+scripts/release-configuration.test.ts:318:    "release gate failures must propagate instead of being masked",
+scripts/release-configuration.test.ts:329:    const result = spawnSync("pnpm", ["run", "validate:release:controlled"], {
+scripts/release-configuration.test.ts:343:      `controlled release validation must complete after recovery succeeds:\n${output}`,
+scripts/release-configuration.test.ts:347:      /Real process-recovery validation completed successfully\./,
+scripts/release-configuration.test.ts:353:test("runs deployment checks in order and prunes only after successful release validation", async () => {
+scripts/release-configuration.test.ts:371:      "run validate:release",
+scripts/release-configuration.test.ts:375:      fixture.trace.indexOf("run validate:release") <
+scripts/release-configuration.test.ts:377:      "pnpm store prune must start only after release validation succeeds",
+scripts/release-configuration.test.ts:397:    ["run", "validate:release"],
+scripts/release-configuration.test.ts:414:    /> workspace@[^ ]+ validate:release/,
+scripts/release-configuration.test.ts:415:    "deployment output must identify the release validation command",
+scripts/release-configuration.test.ts:424:test("stops release validation after an API typecheck diagnostic", async () => {
+scripts/release-configuration.test.ts:426:    resolve(tmpdir(), "release-typecheck-failure-"),
+scripts/release-configuration.test.ts:451:      ["run", "validate:release"],
+scripts/release-configuration.test.ts:469:      `release validation must fail when the API typecheck fails:\n${output}`,
+scripts/release-configuration.test.ts:474:      "the API compiler diagnostic must remain visible in release output",
+scripts/release-configuration.test.ts:479:      "the API typecheck must be the first release step",
+scripts/release-configuration.test.ts:491:for (const scenario of releaseFailureScenarios) {
+scripts/release-configuration.test.ts:492:  test(`stops release validation after a ${scenario.name} diagnostic`, async () => {
+scripts/release-configuration.test.ts:498:      `${scenario.name} failure must keep release validation non-zero`,
+scripts/release-configuration.test.ts:503:      `${scenario.name} diagnostic must remain visible in release output`,
+scripts/release-configuration.test.ts:508:      `${scenario.name} must start before release validation stops`,
+scripts/release-configuration.test.ts:550:test("keeps the local Project workflow and release validation separate", async () => {
+scripts/release-configuration.test.ts:559:  const releaseWorkflowStart = replitConfig.indexOf(
+scripts/release-configuration.test.ts:560:    'name = "release-process-recovery"',
+scripts/release-configuration.test.ts:563:  assert.ok(releaseWorkflowStart > projectWorkflowStart);
+scripts/release-configuration.test.ts:572:    /validate:release|release-process-recovery|dashboard-restart-smoke/,
+scripts/release-configuration.test.ts:575:  const releaseWorkflowCommands = commandsBetween(
+scripts/release-configuration.test.ts:577:    'name = "release-process-recovery"',
+scripts/release-configuration.test.ts:580:  assert.deepEqual(releaseWorkflowCommands, [
+scripts/release-configuration.test.ts:581:    'args = "APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"',
+scripts/release-configuration.test.ts:585:  const releaseTestCommand = packageJson.scripts?.["validate:release"];
+scripts/release-configuration.test.ts:587:    packageJson.scripts?.["validate:release:controlled"];
+scripts/release-configuration.test.ts:590:    releaseTestCommand,
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+scripts/release-configuration.test.ts:595:    "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+scripts/release-configuration.test.ts:597:  assert.notEqual(normalTestCommand, releaseTestCommand);
+scripts/release-configuration.test.ts:602:  const journeyStart = replitConfig.indexOf('name = "release-dashboard-journey"');
+scripts/release-configuration.test.ts:611:    /name = "release-dashboard-journey"/,
+scripts/release-configuration.test.ts:615:test("keeps release teardown evidence attached to the controlled journey", async () => {
+scripts/release-configuration.test.ts:617:  const releaseJobStart = workflow.indexOf("  release-validation:");
+scripts/release-configuration.test.ts:618:  assert.ok(releaseJobStart >= 0, "release-validation job must remain configured");
+scripts/release-configuration.test.ts:621:    .slice(releaseJobStart + 1)
+scripts/release-configuration.test.ts:624:    nextJobOffset >= 0 ? releaseJobStart + 1 + nextJobOffset : -1;
+scripts/release-configuration.test.ts:625:  const releaseJob = workflow.slice(
+scripts/release-configuration.test.ts:626:    releaseJobStart,
+scripts/release-configuration.test.ts:631:    releaseJob,
+scripts/release-configuration.test.ts:633:    "release validation must run the controlled dashboard journey",
+scripts/release-configuration.test.ts:636:    releaseJob,
+scripts/release-configuration.test.ts:637:    /DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+scripts/release-configuration.test.ts:638:    "release validation must configure the teardown report path",
+scripts/release-configuration.test.ts:641:    releaseJob,
+scripts/release-configuration.test.ts:642:    /name:\s*release-validation-\$\{\{\s*github\.run_id\s*\}\}-teardown/,
+scripts/release-configuration.test.ts:643:    "release teardown evidence must use a run-specific artifact name",
+scripts/release-configuration.test.ts:646:    releaseJob,
+scripts/release-configuration.test.ts:648:    "release teardown evidence must upload even after validation fails",
+scripts/release-configuration.test.ts:651:    releaseJob,
+scripts/release-configuration.test.ts:652:    /path:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+scripts/release-configuration.test.ts:653:    "release teardown upload must use the configured report path",
+lib/ai-orchestrator/src/tool-execution-engine.ts:63:import type { ValidationResult } from "./validation-result.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:112:      artifactRef: `validation-attempt:${evidenceId}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:292:    : name === "run_command" || name === "run_validation" || ANALYSIS_TOOL_NAMES.has(name)
+lib/ai-orchestrator/src/tool-execution-engine.ts:423:  /** Server-owned validation runner, enabled only for an approved Build handoff. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:424:  validationRunner?: ValidationRunner;
+lib/ai-orchestrator/src/tool-execution-engine.ts:436:  validationTargetPaths?: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:532:/** True when a read_file body carries a truncation marker (incomplete source). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:624:  incompleteBeforeEvidence?: boolean;
+lib/ai-orchestrator/src/tool-execution-engine.ts:743:        : name === "run_validation"
+lib/ai-orchestrator/src/tool-execution-engine.ts:747:            opts.validationTargetPaths ?? [],
+lib/ai-orchestrator/src/tool-execution-engine.ts:748:            opts.validationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1111:  /** Enables the server-owned validation tool for an approved Build handoff. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1114:  /** Server-owned callback used by run_validation. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1115:  validationRunner?: ValidationRunner;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1125:  validationTargetPaths?: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1127:   * Maximum number of fresh validation executions in one Build handoff.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1338:  // acquired. This is classified as incomplete-before-evidence - it is NOT a
+lib/ai-orchestrator/src/tool-execution-engine.ts:1410:      kind: "validation";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1604:    validationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1610:    validationTargetPaths = [],
+lib/ai-orchestrator/src/tool-execution-engine.ts:1675:  const validationAttempts = new Map<string, number>();
+lib/ai-orchestrator/src/tool-execution-engine.ts:1677:  const validationAttemptPatches = new Map<string, RepairPatchSnapshot>();
+lib/ai-orchestrator/src/tool-execution-engine.ts:1945:   * the same provider. User/validation errors (NON_200, AUTH_ERROR) are not
+lib/ai-orchestrator/src/tool-execution-engine.ts:2257:    sourceRetrieval.incompleteBeforeEvidence = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2455:    // Keep the complete messages in memory for provenance/evidence validation,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2494:      // not on user/validation errors like NON_200 or AUTH_ERROR.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3041:      const isValidationCall = tc.function.name === "run_validation";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3042:      const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3043:      const validationAttempt = isValidationCall
+lib/ai-orchestrator/src/tool-execution-engine.ts:3044:        ? (validationAttempts.get(validationProfile ?? "") ?? 0) + 1
+lib/ai-orchestrator/src/tool-execution-engine.ts:3047:        validationAttempts.set(validationProfile ?? "", validationAttempt!);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3049:      const validationFingerprint = isValidationCall
+lib/ai-orchestrator/src/tool-execution-engine.ts:3055:        ? `${toolCacheKey(tc.function.name, args)}::attempt:${validationAttempt}`
+lib/ai-orchestrator/src/tool-execution-engine.ts:3081:      if (isValidationCall && validationAttempt! > boundedMaxValidationAttempts) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3085:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3086:          attempt: validationAttempt,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3090:            `Validation attempt limit reached for "${validationProfile || "the selected profile"}". ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3091:            "Stop repairing and return BLOCKED; no further validation will run in this handoff.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3096:            kind: "validation",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3098:              validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3102:            attempt: validationAttempt!,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3105:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3121:        && validationAttempt! > 1
+lib/ai-orchestrator/src/tool-execution-engine.ts:3122:        && validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts:3123:        && failedValidationFingerprints.get(validationProfile ?? "") === validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts:3127:          "Make a bounded patch change or return BLOCKED; repeated validation without progress is incomplete.";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3132:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3133:          attempt: validationAttempt,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3141:            kind: "validation",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3142:            result: syntheticValidationResult(validationProfile ?? "", detail),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3144:            attempt: validationAttempt!,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3147:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3164:      // Build-mode validation is server-authorized execution evidence, not a
+lib/ai-orchestrator/src/tool-execution-engine.ts:3666:        // "incomplete" after the session is reloaded.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3833:            detail: validationProfile
+lib/ai-orchestrator/src/tool-execution-engine.ts:3834:              ? `Running registered validation profile "${validationProfile}".`
+lib/ai-orchestrator/src/tool-execution-engine.ts:3835:              : "Running registered validation.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3841:        const previousPatch = validationAttemptPatches.get(validationProfile ?? "");
+lib/ai-orchestrator/src/tool-execution-engine.ts:3842:        if (validationAttempt! > 1 && previousPatch) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3846:              `attempt ${validationAttempt!} vs ${validationAttempt! - 1}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3854:        validationAttemptPatches.set(validationProfile ?? "", currentPatch);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3863:        validationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3869:        validationTargetPaths,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3935:        let validation: ValidationResult | undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3946:            validation = parsed as ValidationResult;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3949:        if (!validation) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3951:          validation = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3952:            profile: validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3964:              artifactRef: `validation-attempt:${evidenceId}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3970:          validation.status === "passed"
+lib/ai-orchestrator/src/tool-execution-engine.ts:3972:            : validation.status === "failed" && validationAttempt! < boundedMaxValidationAttempts
+lib/ai-orchestrator/src/tool-execution-engine.ts:3977:            kind: "validation",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3978:            result: validation,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3980:            attempt: validationAttempt!,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3982:            status: validation.status,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3983:            profile: validation.profile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3984:            scenario: validation.scenario,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3985:            command: validation.command,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3986:            exitCode: validation.exitCode,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3987:            failedTests: validation.failedTests.map((failure) => failure.name || failure.message),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3988:            affectedFiles: validation.changedFiles,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3989:            failedTestDetails: validation.failedTests,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3990:            changedFiles: validation.changedFiles,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3991:            detail: validation.detail,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4004:          if (executionMode === "repair_plan" && validationFingerprint) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4005:            failedValidationFingerprints.set(validationProfile ?? "", validationFingerprint);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4007:          // A validation failure is new, actionable execution evidence. Do not
+lib/ai-orchestrator/src/tool-execution-engine.ts:4013:        } else if (executionMode === "repair_plan" && validation.status === "passed") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4014:          failedValidationFingerprints.delete(validationProfile ?? "");
+artifacts/api-server/src/services/task-service.ts:132:  // A plan with incomplete evidence or no supplied checks can be reviewed,
+artifacts/api-server/src/services/task-service.ts:147:      output: "Plan evidence or verification guidance is incomplete — human review is required",
+artifacts/api-server/src/services/task-service.ts:210:            ? "Task incomplete — rule pattern still present in codebase"
+artifacts/api-server/src/services/task-service.ts:218:          ? "Task incomplete — rule pattern still present in codebase"
+scripts/patch-generated-zod.ts:55:        `Zod post-processing was incomplete: expected ${matches} replacements, applied ${transformed - (content.split(OBJECT).length - 1)}.`,
+lib/ai-orchestrator/src/task-session-state.ts:81:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/task-session-state.ts:83:  validationAttempts: z.number().int().min(0).max(3).default(0),
+lib/ai-orchestrator/src/task-session-state.ts:87:    validationAttempts: z.number().int().min(0).max(3),
+lib/ai-orchestrator/src/task-session-state.ts:162: * executable Build nodes; free-form validation text is never executed.
+lib/ai-orchestrator/src/task-session-state.ts:181:    validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/task-session-state.ts:183:    validationAttempts: 0,
+lib/ai-orchestrator/src/task-session-state.ts:212:      validationProfile: phase.validationProfile,
+lib/ai-orchestrator/src/task-session-state.ts:214:      validationAttempts: 0,
+artifacts/api-server/src/services/task-service.test.ts:5:  it("keeps incomplete remediation evidence in review instead of marking it complete", async () => {
+lib/ai-orchestrator/src/task-execution-partial-report.ts:114:  const incomplete = results.find((result) => !result.complete);
+lib/ai-orchestrator/src/task-execution-partial-report.ts:115:  if (incomplete) {
+lib/ai-orchestrator/src/task-execution-partial-report.ts:116:    const item = incomplete.item.text;
+lib/ai-orchestrator/src/task-execution-partial-report.ts:121:        : `Run the first unproven validation item: ${item}`;
+lib/ai-orchestrator/src/task-execution-partial-report.ts:142:        ? "راجع التغييرات المقترحة ووافق عليها، ثم نفّذ validation profile المسجل."
+lib/ai-orchestrator/src/task-execution-partial-report.ts:143:        : "Review and approve the pending changes, then run the registered validation profile.")
+lib/ai-orchestrator/src/task-execution-partial-report.ts:165:      : "Resume from the first incomplete step using the recorded evidence; do not reread confirmed files."
+artifacts/api-server/src/config.test.ts:51:describe("validation budgets", () => {
+scripts/mission-correlation-report.test.mjs:36:    validation: success ? [{ status: "passed" }] : [],
+scripts/mission-correlation-report.test.mjs:97:test("formats a redacted release summary with evidence and validation counts", () => {
+scripts/mission-correlation-report.test.mjs:102:      counts: { evidence: 2, validation: 3 },
+scripts/mission-correlation-report.test.mjs:104:    "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=3.",
+scripts/mission-correlation-report.test.mjs:108:test("labels non-success release terminals without exposing report contents", () => {
+scripts/mission-correlation-report.test.mjs:113:      counts: { evidence: 0, validation: 0 },
+scripts/mission-correlation-report.test.mjs:117:    "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+scripts/mission-correlation-report.test.mjs:121:test("validates child-process release output and keeps the emitted summary redacted", async () => {
+scripts/mission-correlation-report.test.mjs:147:          ? "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=1."
+scripts/mission-correlation-report.test.mjs:148:          : "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+scripts/mission-correlation-report.test.mjs:162:test("rejects malformed validator stdout before release summary formatting", () => {
+scripts/mission-correlation-report.test.mjs:211:    validation: [{ status: "passed" }],
+scripts/mission-correlation-report.test.mjs:228:test("rejects a successful terminal without accepted evidence or validation", () => {
+scripts/mission-correlation-report.test.mjs:250:    /Evidence-backed success is incomplete: evidence=0, validation=0/,
+scripts/mission-correlation-report.test.mjs:254:    /Evidence-backed success is incomplete: evidence=1, validation=0/,
+scripts/mission-correlation-report.test.mjs:331:test("names the missing core surface instead of accepting an incomplete report", () => {
+scripts/mission-correlation-report.test.mjs:350:  for (const [surface, incompleteCapture] of [
+scripts/mission-correlation-report.test.mjs:365:      () => buildMissionCorrelationReport(incompleteCapture),
+scripts/mission-correlation-report.test.mjs:401:      validation: outcomeClass === "success" ? [{ status: "passed" }] : [],
+scripts/mission-correlation-report.test.mjs:427:test("strict live validation rejects success without evidence and validation", () => {
+scripts/mission-correlation-report.test.mjs:451:    /Evidence-backed success is incomplete: evidence=0, validation=0/,
+scripts/mission-correlation-report.test.mjs:455:test("strict live validation accepts completed evidence-backed missions", () => {
+scripts/mission-correlation-report.test.mjs:474:      validation: [{ status: "passed" }],
+scripts/mission-correlation-report.test.mjs:482:  assert.equal(report.agreement.validation, true);
+scripts/mission-correlation-report.test.mjs:485:test("strict live validation requires a matching candidate revision", () => {
+lib/ai-orchestrator/src/task-contracts.ts:362: * deliberately bounded contract check; source-grounded evidence validation
+lib/ai-orchestrator/src/task-contracts.ts:449:      // type would otherwise take no validation path and treat every response
+scripts/mission-correlation-report.mjs:73:  const validation = Number.isSafeInteger(counts.validation) && counts.validation >= 0
+scripts/mission-correlation-report.mjs:74:    ? counts.validation
+scripts/mission-correlation-report.mjs:81:    `terminal=${terminalState} evidence=${evidence} validation=${validation}.`
+scripts/mission-correlation-report.mjs:106:  const validation = Array.isArray(input.validation) ? input.validation : [];
+scripts/mission-correlation-report.mjs:149:    (!Number.isFinite(evidenceCount) || evidenceCount < 1 || validation.length < 1)
+scripts/mission-correlation-report.mjs:152:      `Evidence-backed success is incomplete: evidence=${evidenceCount}, ` +
+scripts/mission-correlation-report.mjs:153:      `validation=${validation.length}.`,
+scripts/mission-correlation-report.mjs:164:    if (success && validation.some((step) =>
+scripts/mission-correlation-report.mjs:168:      throw new Error("Correlation report contains validation from another project revision.");
+scripts/mission-correlation-report.mjs:189:      validation: validation.length,
+scripts/mission-correlation-report.mjs:196:      validation: validation.length > 0 || !success,
+lib/ai-orchestrator/src/task-checklist.ts:6: * action. Unknown requirements remain incomplete.
+lib/ai-orchestrator/src/task-checklist.ts:169:  const validationCalls = completedTools.filter((call) => VALIDATION_TOOL_RE.test(call.tool));
+lib/ai-orchestrator/src/task-checklist.ts:180:      if (validationCalls.length > 0) {
+lib/ai-orchestrator/src/task-checklist.ts:184:          evidence: [`validation tool completed (${validationCalls[0]!.tool})`],
+lib/ai-orchestrator/src/task-checklist.ts:191:        reason: "No completed validation/test tool event was observed.",
+lib/ai-orchestrator/src/task-checklist.ts:247:    return "YES only if a completed validation/test tool event is present in telemetry; otherwise NO";
+lib/ai-orchestrator/src/task-checklist.ts:288:  const incomplete = results.filter((result) => !result.complete);
+lib/ai-orchestrator/src/task-checklist.ts:299:  if (incomplete.length > 0) {
+lib/ai-orchestrator/src/task-checklist.ts:303:      ...incomplete.map((result) => `- ${result.item.text}`),
+scripts/dashboard-journey-contract.test.mjs:103:test("release API listener enforces approved and hostile-origin CORS", async () => {
+scripts/dashboard-journey-contract.test.mjs:149:      `${harness.baseUrl}/api/release-cors-contract`,
+scripts/dashboard-journey-contract.test.mjs:171:      `${harness.baseUrl}/api/release-cors-contract`,
+scripts/dashboard-journey-contract.test.mjs:189:test("release API listener protects upload and live-update requests", async () => {
+scripts/dashboard-journey-contract.test.mjs:214:      "release-contract.zip",
+scripts/dashboard-journey-contract.test.mjs:227:      "approved upload requests should reach archive validation without provider work",
+scripts/dashboard-journey-contract.test.mjs:235:      "release-contract.zip",
+scripts/dashboard-journey-contract.test.mjs:272:      "approved live-update requests should reach stream validation without provider work",
+scripts/dashboard-journey-contract.test.mjs:313:    "The release runner and browser journey must use the same live timeout default.",
+scripts/dashboard-journey-contract.test.mjs:331:test("the standard release journey remains provider-free", () => {
+scripts/dashboard-journey-contract.test.mjs:340:    "Live-only report validation must remain behind the opt-in flag.",
+scripts/dashboard-journey-contract.test.mjs:393:    /at least one accepted evidence item and one validation checkpoint/,
+scripts/dashboard-journey-contract.test.mjs:403:    /const validation = recentSteps\.filter/,
+scripts/dashboard-journey-contract.test.mjs:404:    "The live report capture must include validation checkpoints.",
+scripts/dashboard-journey-contract.test.mjs:412:    "Live browser campaigns must not run against an unspecified or production project.",
+scripts/dashboard-journey-contract.test.mjs:417:    "Live browser campaigns must identify their disposable project.",
+scripts/dashboard-journey-contract.test.mjs:425:    "The release runner must validate the report boundary before starting the browser journey.",
+scripts/dashboard-journey-contract.test.mjs:430:    "The release runner must invoke the provider-free report contract test.",
+scripts/dashboard-journey-contract.test.mjs:434:test("release teardown reports each service and any surviving listener", () => {
+scripts/dashboard-journey-contract.test.mjs:438:    "The release runner must report lifecycle results for every managed service.",
+scripts/dashboard-journey-contract.test.mjs:443:    "The release runner must explicitly report a clean teardown.",
+scripts/dashboard-journey-contract.test.mjs:448:    "The release runner must identify a service that remains on its release port.",
+scripts/dashboard-journey-contract.test.mjs:457:test("release teardown writes a structured CI artifact", () => {
+scripts/dashboard-journey-contract.test.mjs:460:    /release-teardown\.json/,
+scripts/dashboard-journey-contract.test.mjs:461:    "The release runner must write a stable teardown artifact.",
+scripts/dashboard-journey-contract.test.mjs:481:    "The teardown artifact must preserve the release process group.",
+scripts/dashboard-journey-contract.test.mjs:491:    "The release logs must surface the teardown artifact path.",
+scripts/dashboard-journey-contract.test.mjs:495:test("release diagnostics expose a run-scoped summary and artifact link", () => {
+scripts/dashboard-journey-contract.test.mjs:498:    /Release teardown evidence summary: validation run/,
+scripts/dashboard-journey-contract.test.mjs:499:    "The release runner must identify the validation run beside the retained artifact.",
+scripts/dashboard-journey-contract.test.mjs:504:    "The release runner must identify the services and descendant coverage.",
+scripts/dashboard-journey-contract.test.mjs:509:    /Summarize retained release diagnostics/,
+scripts/dashboard-journey-contract.test.mjs:510:    "CI must publish a human-readable release diagnostics summary.",
+scripts/dashboard-journey-contract.test.mjs:524:test("release diagnostics remain useful when teardown evidence is absent", () => {
+scripts/dashboard-journey-contract.test.mjs:537:    "The CI summary must identify the validation run even without evidence.",
+scripts/dashboard-journey-contract.test.mjs:554:    /DEFAULT_LIVE_PROMPT[\s\S]*accepted evidence item[\s\S]*validation checkpoint/,
+scripts/dashboard-journey-contract.test.mjs:559:    /successStates\.has\(terminalState\)[\s\S]*evidenceCount < 1[\s\S]*validation\.length < 1/,
+scripts/dashboard-journey-contract.test.mjs:560:    "A successful live terminal must not pass without evidence and validation.",
+scripts/dashboard-journey-contract.test.mjs:569:test("live campaign covers provider failures and candidate-bound delivery", () => {
+scripts/dashboard-journey-contract.test.mjs:572:    /provider-outage[\s\S]*malformed-output[\s\S]*delivery-success/,
+scripts/dashboard-journey-contract.test.mjs:573:    "The live campaign must define outage, malformed-output, and delivery-success scenarios.",
+scripts/dashboard-journey-contract.test.mjs:578:    "The outage scenario must identify OpenRouter exhaustion.",
+scripts/dashboard-journey-contract.test.mjs:592:test("release output reports redacted proof counts and non-success status", () => {
+scripts/dashboard-journey-contract.test.mjs:596:    "The release runner must format the validated redacted report.",
+scripts/dashboard-journey-contract.test.mjs:601:    "The release runner must print the validated summary.",
+scripts/dashboard-journey-contract.test.mjs:605:test("release journey passes the complete approved origin list to API and browser checks", () => {

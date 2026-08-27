@@ -29,6 +29,12 @@ export { mergeForensicRecoveryEnvelopes } from "./forensic-recovery.js";
 export type { ForensicRecoveryEnvelope } from "./forensic-recovery.js";
 export { agentComplete, validateProviderKey } from "./agent-complete.js";
 export type { AgentCompleteOpts, ProviderId } from "./agent-complete.js";
+export {
+  CODE_REVIEW_CAMPAIGN_SCENARIOS,
+  buildCodeReviewCampaignReceipt,
+  type CodeReviewCampaignReceipt,
+  type CodeReviewCampaignScenario,
+} from "./agents/code-reviewer.js";
 export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities, getStrategy } from "./provider-registry.js";
 export {
   probeProviderHealth,

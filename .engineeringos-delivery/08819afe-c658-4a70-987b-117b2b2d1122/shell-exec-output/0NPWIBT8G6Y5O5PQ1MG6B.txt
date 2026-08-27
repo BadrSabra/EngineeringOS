@@ -1,0 +1,189 @@
+    40rendering remain real browser behavior.
+    41
+    42## Bounded live-provider correlation run
+    43
+    44The live-provider path is opt-in and never runs as part of the normal smoke
+    45journey. It uses the isolated Clerk user, a disposable project already owned
+    46by that user, and the configured provider without printing keys or model
+    47responses:
+    48
+    49```sh
+    50DASHBOARD_E2E_LIVE_PROVIDER=1 \
+    51DASHBOARD_E2E_LIVE_CAMPAIGN=1 \
+    52DASHBOARD_E2E_LIVE_SCENARIO=delivery-success \
+    53DASHBOARD_E2E_LIVE_DISPOSABLE=1 \
+    54DASHBOARD_E2E_LIVE_PROJECT_ID=<disposable-project-id> \
+    55DASHBOARD_E2E_LIVE_REPORT_PATH=test-results/dashboard-journey/live-mission-correlation.json \
+    56RUN_CONTROLLED_RELEASE_VALIDATION=1 \
+    57pnpm run validate:dashboard-journey
+    58```
+    59
+    60The run is bounded by `DASHBOARD_E2E_LIVE_TIMEOUT_MS` (default 120 seconds)
+    61and the live browser test allows an additional five seconds for Playwright
+    62cleanup and report collection. The normal journey remains non-executing: the
+    63provider-backed path is skipped unless `DASHBOARD_E2E_LIVE_PROVIDER=1` is set.
+    64The fast `test:dashboard-journey-contract` and
+    65`test:mission-correlation-report` checks run before release validation. Together
+    66they verify the timeout relationship, provider opt-in guard, and the report
+    67boundary. The correlation report contract requires redacted identity
+    68(`operationId`, `projectId`, `sessionId`, and `workspaceRevision`), one
+    69supported terminal state, and execution, message, SSE, checkpoint, and
+    70dashboard surfaces. It explicitly classifies successful terminals separately
+    71from blocked, cancelled, failed, and unavailable terminals, so an incomplete
+    72report fails with the missing surface named before a live provider run.
+    73When enabled, it exports a redacted report keyed by the provider-backed `operationId` and
+    74the latest Git `workspaceRevision`. The report verifies persisted messages,
+    75SSE events, execution checkpoints, evidence, proposals, validation, and
+    76Mission Control state. `COMPLETED`-class states are success; provider
+    77failover, unavailable, failed, and cancelled terminals are retained as
+    78explicit non-success outcomes rather than being treated as passing runs.
+    79The live objective is an explicit, bounded forensic review of
+    80`scripts/mission-correlation-report.mjs`, requiring at least one accepted
+    81evidence item and one validation checkpoint. A successful `COMPLETED` report
+    82is rejected if either proof surface is empty; provider-unavailable, blocked,
+    83cancelled, failed, and otherwise incomplete outcomes remain non-success.
+    84For the disposable campaign, run the same command once per scenario:
+    85`provider-outage`, `malformed-output`, and `delivery-success`. The first
+    86records OpenRouter rate-limit/provider-exhaustion as a current non-success
+    87operation; the second records malformed live output as non-success; the third
+    88requires candidate-bound evidence before apply, commit, or push can count as
+    89delivery proof. Reports include operation ID, project revision, and candidate
+    90identity/revision, and explicitly label any retained result. A failed current
+    91operation cannot reuse an older or cached analysis as a fresh success.
+    92The release log also prints a redacted one-line result with the terminal,
+    93outcome class, accepted evidence count, and validation checkpoint count. It
+    94does not print prompts, source contents, provider credentials, or model
+    95responses; non-success terminals are labeled `outcome=non-success`.
+    96
+    97## Failure diagnostics
+    98
+    99The Playwright config retains traces and screenshots on failure under
+   100`test-results/dashboard-journey`; video is intentionally disabled because the
+   101managed runner does not download Playwright's optional ffmpeg helper. Check
+   102the dashboard and API workflow logs first, then confirm
+   103`BASE_PATH=/dashboard/`, the dashboard/API workflows are running, both health
+   104checks pass, `DASHBOARD_E2E_BASE_URL` includes the trailing `/dashboard/`, and
+   105the browser runner has injected `signInClerkUser`. A missing helper is an
+
+--- routes review test setup ---
+  2320    const sessionId = firstEvent.sessionId as string;
+  2321    const firstMessages = await db
+  2322      .select()
+  2323      .from(aiChatMessagesTable)
+  2324      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+  2325    expect(firstMessages).toHaveLength(2);
+  2326    expect(firstMessages.find((message) => message.role === "user")).toMatchObject({
+  2327      content: "Analyze the latest scan results and suggest the top 3 improvements.",
+  2328      outcome: "SUCCEEDED",
+  2329    });
+  2330    const firstFailure = firstMessages.find((message) => message.role === "assistant");
+  2331    expect(firstFailure).toMatchObject({
+  2332      content: "",
+  2333      outcome: "FAILED",
+  2334      errorCode: "model_output_invalid",
+  2335      errorMessage: "The AI returned an unexpected response format.",
+  2336    });
+  2337    expect(JSON.parse(firstFailure!.toolTrace!)).toEqual([{
+  2338      kind: "structured_task_failure",
+  2339      task: "analyze",
+  2340      failureKind: "PROVIDER_FORMAT",
+  2341      retryable: true,
+  2342    }]);
+  2343
+  2344    const retry = await request(app)
+  2345      .post(`/api/ai/projects/${projectId}/analyze/stream`)
+  2346      .send({ sessionId });
+  2347    expect(retry.status).toBe(200);
+  2348    const retryEvent = lastSseEvent(retry.text);
+  2349    expect(retryEvent.type).toBe("error");
+  2350    expect(retryEvent.sessionId).toBe(sessionId);
+  2351
+  2352    const retriedMessages = await db
+  2353      .select()
+  2354      .from(aiChatMessagesTable)
+  2355      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+  2356    expect(retriedMessages.filter((message) => message.role === "user")).toHaveLength(1);
+  2357    const failures = retriedMessages.filter((message) => message.role === "assistant");
+  2358    expect(failures).toHaveLength(2);
+  2359    expect(failures.every((message) => message.outcome === "FAILED")).toBe(true);
+  2360    expect(failures.every((message) => message.errorCode === "model_output_invalid")).toBe(true);
+  2361    expect(failures.every((message) => message.toolTrace?.includes("structured_task_failure"))).toBe(true);
+  2362  });
+  2363});
+  2364
+  2365// ─── POST /api/ai/projects/:projectId/review ──────────────────────────────────
+  2366
+  2367describe("POST /api/ai/projects/:projectId/review", () => {
+  2368  it("returns 200 with code review result", async () => {
+  2369    const projectId = await insertProject();
+  2370    projectIds.push(projectId);
+  2371
+  2372    const res = await request(app)
+  2373      .post(`/api/ai/projects/${projectId}/review`)
+  2374      .send({ fileContents: { "index.ts": "const x = 1;" } });
+  2375    expect(res.status).toBe(200);
+  2376    expect(res.body.verdict).toBe("approved");
+  2377    expect(typeof res.body.overallScore).toBe("number");
+  2378  });
+  2379
+  2380  it("creates an AiCodeReviewCompleted event", async () => {
+  2381    const projectId = await insertProject();
+  2382    projectIds.push(projectId);
+  2383
+  2384    await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+  2385
+  2386    const events = await db
+  2387      .select()
+  2388      .from(eventsTable)
+  2389      .where(eq(eventsTable.projectId, projectId));
+  2390    const ev = events.find((e) => e.type === "AiCodeReviewCompleted");
+  2391    expect(ev).toBeDefined();
+  2392    expect(ev?.severity).toBe("success"); // verdict === "approved"
+  2393  });
+  2394
+  2395  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
+  2396  it("returns 422 with model_output_invalid when reviewCode returns _parseError", async () => {
+  2397    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+  2398    vi.mocked(mockReviewCode).mockResolvedValueOnce({
+  2399      summary: "fallback",
+  2400      overallScore: 70,
+  2401      strengths: [],
+  2402      issues: [],
+  2403      refactoringOpportunities: [],
+  2404      securityConcerns: [],
+  2405      verdict: "needs_changes",
+  2406      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "missing field", raw: "bad output" },
+  2407    });
+  2408
+  2409    const projectId = await insertProject();
+  2410    projectIds.push(projectId);
+  2411
+  2412    const res = await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+  2413    expect(res.status).toBe(422);
+  2414    expect(res.body.error).toBe("model_output_invalid");
+  2415    expect(res.body.code).toBe("model_output_invalid");
+  2416    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+  2417    expect(typeof res.body.hint).toBe("string");
+  2418  });
+  2419
+  2420  it("streams the structured review lifecycle and result", async () => {
+  2421    const projectId = await insertProject();
+  2422    projectIds.push(projectId);
+  2423
+  2424    const res = await request(app)
+  2425      .post(`/api/ai/projects/${projectId}/review/stream`)
+  2426      .send({ fileContents: { "index.ts": "const x = 1;" } });
+  2427    expect(res.status).toBe(200);
+  2428    expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+  2429    expect(res.text).toContain('"type":"task_started"');
+  2430    expect(res.text).toContain('"stage":"building-context"');
+  2431    expect(res.text).toContain('"stage":"calling-model"');
+  2432    expect(res.text).toContain('"type":"task_done"');
+  2433    expect(res.text).toContain('"verdict":"approved"');
+  2434  });
+  2435});
+  2436
+  2437// ─── POST /api/ai/workflows/:workflowId/orchestrate ───────────────────────────
+  2438
+  2439describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
+  2440  it("returns 404 for an unknown workflow", async () => {

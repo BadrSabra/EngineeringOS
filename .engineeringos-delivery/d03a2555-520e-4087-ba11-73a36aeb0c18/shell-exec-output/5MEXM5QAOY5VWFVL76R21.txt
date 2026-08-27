@@ -1,0 +1,238 @@
+     1import { z } from "zod";
+     2
+     3export const CodeIssueTypeSchema = z.enum(["bug", "security", "performance", "style", "architecture"]);
+     4export const SeveritySchema = z.enum(["critical", "high", "medium", "low"]);
+     5
+     6// NOTE: These schemas intentionally omit .strict() so that extra fields
+     7// returned by OpenRouter / GPT-class models (e.g. "line", "impact", "code")
+     8// are silently stripped rather than causing SCHEMA_VALIDATION_FAILED → HTTP 422.
+     9//
+    10// Enum fields use .catch() so unrecognised values (e.g. "warning", "info", "minor")
+    11// fall back to the default rather than failing the entire parse.
+    12export const CodeIssueSchema = z.object({
+    13  type:        CodeIssueTypeSchema.catch("bug"),
+    14  severity:    SeveritySchema.catch("medium"),
+    15  file:        z.string().optional(),
+    16  title:       z.string().min(1),
+    17  description: z.string().min(1),
+    18  suggestion:  z.string().min(1),
+    19});
+    20
+    21export const CodeReviewResultSchema = z.object({
+    22  summary:                  z.string().min(1),
+    23  // coerce handles models that return "85" (string) instead of 85 (number)
+    24  overallScore:             z.coerce.number().min(0).max(100),
+    25  strengths:                z.array(z.string().min(1)).default([]),
+    26  // .catch([]) handles models that omit the field or return a non-array.
+    27  issues:                   z.array(CodeIssueSchema).catch([]),
+    28  refactoringOpportunities: z.array(z.string().min(1)).default([]),
+    29  securityConcerns:         z.array(z.string().min(1)).default([]),
+    30  verdict:                  z.enum(["approved", "needs_changes", "major_rework"]),
+    31});
+    32
+    33export type CodeIssue = z.infer<typeof CodeIssueSchema>;
+    34export type CodeReviewOutput = z.infer<typeof CodeReviewResultSchema>;
+     1/**
+     2 * Code Reviewer — reviews code quality based on project context and metrics,
+     3 * produces a structured quality report.
+     4 */
+     5import { createHash } from "node:crypto";
+     6import type { ProjectContext } from "../context-builder.js";
+     7import { buildCodeReviewSystemPrompt, buildCodeReviewUserPrompt } from "../prompts/review.prompt.js";
+     8import { CodeReviewResultSchema, type CodeReviewOutput, type CodeIssue } from "../schemas/code-review.schema.js";
+     9import type { AgentCompleteOpts, ProviderId } from "../agent-complete.js";
+    10import { GroqClientError } from "../errors.js";
+    11import { classifyOpenRouterFailure, type OpenRouterFailureAction } from "../openai-compatible-client.js";
+    12import type { Message } from "../groq-client.js";
+    13import { BaseAgent, type AgentRunResult } from "./base-agent.js";
+    14
+    15export type { CodeIssue, CodeReviewOutput };
+    16
+    17/**
+    18 * PR-E: Extended return type that carries an optional parse-failure marker.
+    19 * When the model output cannot be parsed, the route surfaces `_parseError`
+    20 * as HTTP 422 instead of a silent 200 with degraded fallback content.
+    21 */
+    22export type CodeReviewResult = AgentRunResult<CodeReviewOutput>;
+    23
+    24export const CODE_REVIEW_CAMPAIGN_SCENARIOS = [
+    25  "reasoning-only",
+    26  "agent-harness",
+    27  "rate-limit",
+    28  "empty",
+    29  "malformed",
+    30] as const;
+    31
+    32export type CodeReviewCampaignScenario = (typeof CODE_REVIEW_CAMPAIGN_SCENARIOS)[number];
+    33
+    34export type CodeReviewCampaignReceipt = {
+    35  kind: "code-review-provider-campaign-receipt";
+    36  version: 1;
+    37  scenario: CodeReviewCampaignScenario;
+    38  provider: ProviderId;
+    39  operationId: string;
+    40  projectId: string;
+    41  projectRevision: string;
+    42  outcomeClass: "fallback-success" | "terminal-incomplete";
+    43  terminalStatus: "COMPLETE" | "INCOMPLETE";
+    44  failureCode?: string;
+    45  recoveryAction: OpenRouterFailureAction | "retry-review";
+    46  attemptedModels: string[];
+    47  evidence: Array<{
+    48    file: string;
+    49    findingHash: string;
+    50  }>;
+    51};
+    52
+    53function fallbackCodeReview(): CodeReviewOutput {
+    54  return {
+    55    summary: "Code review completed",
+    56    overallScore: 70,
+    57    strengths: [],
+    58    issues: [],
+    59    refactoringOpportunities: [],
+    60    securityConcerns: [],
+    61    verdict: "needs_changes",
+    62  };
+    63}
+    64
+    65class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
+    66  protected readonly scope = "code-reviewer";
+    67  protected readonly schema = CodeReviewResultSchema;
+    68
+    69  constructor(private readonly fileContents?: Record<string, string>) {
+    70    super();
+    71  }
+    72
+    73  protected buildMessages(projectContext: ProjectContext): Message[] {
+    74    return [
+    75      { role: "system", content: buildCodeReviewSystemPrompt() },
+    76      { role: "user", content: buildCodeReviewUserPrompt(projectContext, this.fileContents) },
+    77    ];
+    78  }
+    79
+    80  protected buildCompleteOpts(): AgentCompleteOpts {
+    81    // A review should try a small number of currently usable JSON models and
+    82    // then fail visibly. Walking the full free catalog can turn one bad
+    83    // reasoning-only or rate-limited model into a very long request.
+    84    // Let transient model-level failures advance immediately; OpenRouter can
+    85    // rate-limit one upstream provider while other free candidates remain
+    86    // usable.
+    87    return { maxFallbackModels: 3, retryTransient: false };
+    88  }
+    89
+    90  protected fallbackOutput(): CodeReviewOutput {
+    91    return fallbackCodeReview();
+    92  }
+    93}
+    94
+    95export async function reviewCode(
+    96  projectContext: ProjectContext,
+    97  fileContents?: Record<string, string>,
+    98  opts?: AgentCompleteOpts,
+    99): Promise<CodeReviewResult> {
+   100  const result = await new CodeReviewAgent(fileContents).run(projectContext, opts);
+   101  const selectedPaths = Object.keys(fileContents ?? {}).slice(0, 5);
+   102  if (
+   103    !result._parseError &&
+   104    selectedPaths.length > 0 &&
+   105    !result.issues.some((issue) => typeof issue.file === "string" && selectedPaths.includes(issue.file))
+   106  ) {
+   107    // A syntactically valid approval without a cited selected-file finding is
+   108    // not trustworthy for file-gap analysis. Surface it as incomplete rather
+   109    // than letting an empty issues array look like a verified review.
+   110    return {
+   111      ...result,
+   112      _parseError: {
+   113        code: "SCHEMA_VALIDATION_FAILED",
+   114        message: "The review did not return a finding cited to a selected file.",
+   115        raw: JSON.stringify(result),
+   116      },
+   117    };
+   118  }
+   119  return result;
+   120}
+   121
+   122const SAFE_MODEL_PATTERN = /^[a-z0-9][a-z0-9._:/-]{0,199}$/i;
+   123const SAFE_IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
+   124
+   125function safeIdentifier(value: string): string {
+   126  const trimmed = value.trim();
+   127  return SAFE_IDENTIFIER_PATTERN.test(trimmed)
+   128    ? trimmed
+   129    : `redacted-${createHash("sha256").update(trimmed).digest("hex").slice(0, 16)}`;
+   130}
+   131
+   132function safeModels(models: readonly string[] | undefined): string[] {
+   133  return [...new Set((models ?? [])
+   134    .map((model) => model.trim())
+   135    .filter((model) => SAFE_MODEL_PATTERN.test(model))
+   136    .slice(0, 8))];
+   137}
+   138
+   139function findingHash(issue: CodeIssue): string {
+   140  return createHash("sha256")
+   141    .update(JSON.stringify({
+   142      file: issue.file,
+   143      type: issue.type,
+   144      severity: issue.severity,
+   145      title: issue.title,
+   146    }))
+   147    .digest("hex")
+   148    .slice(0, 16);
+   149}
+   150
+   151function recoveryActionFor(
+   152  code: string | undefined,
+   153): OpenRouterFailureAction | "retry-review" {
+   154  if (!code) return "retry-review";
+   155  const knownCode = code as Parameters<typeof classifyOpenRouterFailure>[0];
+   156  try {
+   157    return classifyOpenRouterFailure(knownCode).action;
+   158  } catch {
+   159    return "retry-review";
+   160  }
+   161}
+   162
+   163/**
+   164 * Build the only receipt format permitted for the credential-gated review
+   165 * campaign. Provider responses, parser raw text, prompts, and paths never
+   166 * cross this boundary.
+   167 */
+   168export function buildCodeReviewCampaignReceipt(params: {
+   169  scenario: CodeReviewCampaignScenario;
+   170  provider: ProviderId;
+   171  operationId: string;
+   172  projectId: string;
+   173  projectRevision: string;
+   174  selectedFile: string;
+   175  result?: CodeReviewResult;
+   176  error?: unknown;
+   177  attemptedModels?: readonly string[];
+   178}): CodeReviewCampaignReceipt {
+   179  const selectedFile = params.selectedFile.trim();
+   180  const citedIssue = params.result && !params.result._parseError
+   181    ? params.result.issues.find((issue) => issue.file === selectedFile)
+   182    : undefined;
+   183  const hasAcceptedFinding = Boolean(citedIssue);
+   184  const errorCode = params.result?._parseError?.code ??
+   185    (params.error instanceof GroqClientError ? params.error.code : undefined);
+   186
+   187  return {
+   188    kind: "code-review-provider-campaign-receipt",
+   189    version: 1,
+   190    scenario: params.scenario,
+   191    provider: params.provider,
+   192    operationId: safeIdentifier(params.operationId),
+   193    projectId: safeIdentifier(params.projectId),
+   194    projectRevision: safeIdentifier(params.projectRevision),
+   195    outcomeClass: hasAcceptedFinding ? "fallback-success" : "terminal-incomplete",
+   196    terminalStatus: hasAcceptedFinding ? "COMPLETE" : "INCOMPLETE",
+   197    ...(errorCode ? { failureCode: errorCode } : {}),
+   198    recoveryAction: recoveryActionFor(errorCode),
+   199    attemptedModels: safeModels(params.attemptedModels),
+   200    evidence: hasAcceptedFinding
+   201      ? [{ file: selectedFile, findingHash: findingHash(citedIssue!) }]
+   202      : [],
+   203  };
+   204}

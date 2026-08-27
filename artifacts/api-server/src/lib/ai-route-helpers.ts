@@ -569,7 +569,12 @@ export async function requireGroqApiKey(
 export function handleOrchestratorError(
   err: unknown,
   res: import("express").Response,
-  ctx?: { projectId?: string; operation?: string; provider?: ProviderId },
+  ctx?: {
+    projectId?: string;
+    operation?: string;
+    provider?: ProviderId;
+    incompleteReview?: { sessionId?: string; failureKind?: string };
+  },
 ): boolean {
   if (!(err instanceof GroqClientError)) return false;
 
@@ -606,6 +611,11 @@ export function handleOrchestratorError(
     code: err.code,
     provider: providerId,
     correlationId,
+    incomplete: true,
+    outcomeClass: "terminal-incomplete" as const,
+    terminalStatus: "INCOMPLETE" as const,
+    ...(ctx?.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
+    ...(ctx?.incompleteReview?.failureKind ? { failureKind: ctx.incompleteReview.failureKind } : {}),
     ...providerAvailabilityProjection(err, providerId, providerConsole, providerStatus),
   };
 

@@ -145,10 +145,14 @@ export function getAiReleaseChecks(options: {
   })).concat(enableLiveProvider ? [{
     id: "live-provider-quality",
     kind: "benchmark" as const,
-    command: "pnpm --filter @workspace/api-server run benchmark:witness",
+    command: "pnpm --filter @workspace/api-server run validate:live-provider-review",
     blocking: false,
     enabled: true,
-    coverage: ["optional live-provider observation"],
+    coverage: [
+      "optional live structured-review provider observation",
+      "reasoning-only and agent-harness recovery",
+      "rate-limit, empty, and malformed incomplete receipts",
+    ],
   }] : []);
 }
 

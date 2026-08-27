@@ -1,0 +1,300 @@
+lib/ai-orchestrator/src/errors.ts:16: * because there is no safe per-agent fallback for "we could not reach the
+lib/ai-orchestrator/src/errors.ts:36: *   EMPTY_RESPONSE    Response received but contained no content or tool calls.
+lib/ai-orchestrator/src/errors.ts:59:  | "EMPTY_RESPONSE"
+lib/ai-orchestrator/src/errors.ts:77:  /** Every provider-owned fallback model attempted before this error surfaced. */
+lib/ai-orchestrator/src/errors.ts:92:export function redactProviderErrorText(value: string): string {
+lib/ai-orchestrator/src/errors.ts:100:function redactProviderContext(context: ProviderErrorContext): ProviderErrorContext {
+lib/ai-orchestrator/src/errors.ts:103:    providerCode: context.providerCode ? redactProviderErrorText(context.providerCode) : context.providerCode,
+lib/ai-orchestrator/src/errors.ts:104:    providerMessage: context.providerMessage ? redactProviderErrorText(context.providerMessage) : context.providerMessage,
+lib/ai-orchestrator/src/errors.ts:105:    providerName: context.providerName ? redactProviderErrorText(context.providerName) : context.providerName,
+lib/ai-orchestrator/src/errors.ts:106:    providerModel: context.providerModel ? redactProviderErrorText(context.providerModel) : context.providerModel,
+lib/ai-orchestrator/src/errors.ts:107:    providerAttemptedModels: context.providerAttemptedModels?.map(redactProviderErrorText),
+lib/ai-orchestrator/src/errors.ts:135:    super(redactProviderErrorText(message), { cause: options?.cause });
+lib/ai-orchestrator/src/errors.ts:155:    return redactProviderContext({
+lib/ai-orchestrator/src/quality-engine.ts:305:      else reasons.push("task result looks like fallback text");
+lib/ai-orchestrator/src/quality-engine.ts:329:      else reasons.push("chat response looks like fallback text");
+lib/ai-orchestrator/src/quality-engine.ts:337:      else reasons.push("chat response looks like fallback text");
+lib/ai-orchestrator/src/deepseek-client.ts:33:  apiKey:     string;               // required — no server-side fallback for DeepSeek
+lib/ai-orchestrator/src/deepseek-client.ts:142:    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek stream has no body");
+lib/ai-orchestrator/src/deepseek-client.ts:185:    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek stream returned no content");
+lib/ai-orchestrator/src/deepseek-client.ts:273:    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned an empty response");
+lib/ai-orchestrator/src/deepseek-client.ts:281:    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned neither content nor tool calls");
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:17:  fallbackChain: string[];
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:63:  // useful work in reasoning_content and leave message.content empty.
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:101:    const fallbackChain = resolveFallbackChain({
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:109:    // normal free-tier routing retain the catalog-driven fallback chain.
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:121:        // use the already-resolved live fallback chain instead of making a
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:134:    if (fallbackChain.length === 0 && !liveModel) {
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:151:    const model = liveModel ?? fallbackChain[0]!;
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:152:    const powerModel = liveModel ?? fallbackChain[1] ?? fallbackChain[0]!;
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:158:      fallbackChain: liveModel ? [liveModel] : fallbackChain,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:170:      fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:186:      fallbackChain: decision.fallbackChain,
+lib/ai-orchestrator/src/openai-compatible-client.ts:15: * PR-003: 410 and 422 treated as MODEL_UNAVAILABLE (fallback-worthy).
+lib/ai-orchestrator/src/openai-compatible-client.ts:40:  /** Disable transient retry when the caller owns bounded model fallback. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:42:  /** Cap provider-owned fallback candidates for bounded callers. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:69:// PR-001: safe fallback — derived at module load from the static catalog so
+lib/ai-orchestrator/src/openai-compatible-client.ts:307: * Authentication/quota failures never consume a paid fallback, while an
+lib/ai-orchestrator/src/openai-compatible-client.ts:323:    case "EMPTY_RESPONSE":
+lib/ai-orchestrator/src/openai-compatible-client.ts:340: * unusable and the fallback engine should advance to the next candidate.
+lib/ai-orchestrator/src/openai-compatible-client.ts:342: * MODEL_UNAVAILABLE (temporarily offline — 422/410), and EMPTY_RESPONSE
+lib/ai-orchestrator/src/openai-compatible-client.ts:351:      err.code === "EMPTY_RESPONSE")
+lib/ai-orchestrator/src/openai-compatible-client.ts:389: * recoverable by trying another model in the fallback chain — for example,
+lib/ai-orchestrator/src/openai-compatible-client.ts:582:  // vs. permanent), but both are fallback-worthy.
+lib/ai-orchestrator/src/openai-compatible-client.ts:833:        reasoning_content?: string | null;
+lib/ai-orchestrator/src/openai-compatible-client.ts:867:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} returned an empty response`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:873:  const reasoningContent = msg?.reasoning_content ?? msg?.reasoning ?? null;
+lib/ai-orchestrator/src/openai-compatible-client.ts:897:      "EMPTY_RESPONSE",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1005:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream has no body`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1081:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream returned no content`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1097: *         fallback for brief free-tier blips.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1176: * Non-streaming completion via OpenRouter with automatic free-model fallback
+lib/ai-orchestrator/src/openai-compatible-client.ts:1179: * PR-003: MODEL_UNAVAILABLE (410/422) is now also fallback-worthy in addition
+lib/ai-orchestrator/src/openai-compatible-client.ts:1180: * to MODEL_NOT_FOUND (404/402/400). EMPTY_RESPONSE is also fallback-worthy
+lib/ai-orchestrator/src/openai-compatible-client.ts:1206:  // fallback chain from the live free-tier catalog at call time.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1245:        scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1263:      // Bounded Recovery also owns transient fallback: it disables the
+lib/ai-orchestrator/src/openai-compatible-client.ts:1267:      const fallbackOnTransient =
+lib/ai-orchestrator/src/openai-compatible-client.ts:1269:      if ((isModelUnavailableError(err) || fallbackOnTransient) && i < chain.length - 1) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1273:            scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1311:  throw new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted", {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1419:          scope: "openrouter-fallback",
+lib/ai-orchestrator/src/agent-complete.ts:70:  throw new GroqClientError("EMPTY_RESPONSE", `${provider.label} returned no content for this request`);
+lib/ai-orchestrator/src/agent-complete.ts:145:    // Transient error — allow the save; the next real request has provider fallback.
+lib/ai-orchestrator/src/agent-complete.ts:187:      // transport. This keeps the initial model and its bounded fallback
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:7:  drivingField: "preferred" | "strictHints" | "relaxedHints" | "fallback";
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:15:  source: "preferred" | "strict" | "relaxed" | "fallback";
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:58:    source: "fallback",
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:59:    rationale: { drivingField: "fallback", contextIntensity, graphMode },
+lib/ai-orchestrator/src/groq-client.ts:279:  if (!msg) throw new GroqClientError("EMPTY_RESPONSE", "Groq returned an empty response");
+lib/ai-orchestrator/src/groq-client.ts:293:    throw new GroqClientError("EMPTY_RESPONSE", "Groq returned neither content nor tool calls");
+lib/ai-orchestrator/src/groq-client.ts:449:    throw new GroqClientError("EMPTY_RESPONSE", "Groq returned an empty response");
+lib/ai-orchestrator/src/groq-client.ts:465:  // failures. AUTH_ERROR, NON_200, EMPTY_RESPONSE, and INVALID_CONFIG are
+lib/ai-orchestrator/src/groq-client.ts:562:      throw new GroqClientError("EMPTY_RESPONSE", "Groq stream returned no content");
+lib/ai-orchestrator/src/context-loader.ts:137: * warning and return the provided fallback rather than aborting the whole
+lib/ai-orchestrator/src/context-loader.ts:142:  fallback: T,
+lib/ai-orchestrator/src/context-loader.ts:158:    return fallback;
+lib/ai-orchestrator/src/forensic-recovery.ts:198: * deterministic fallback from turning an arbitrary read receipt into a
+lib/ai-orchestrator/src/context-builder.test.ts:297:      { id: "e2", name: "UserRepo", type: "repository", confidence: 0.4, sourceType: "regex-fallback", path: "user.ts" },
+lib/ai-orchestrator/src/forensic-output-guard.ts:78:  /** User-request language used by deterministic compound fallbacks. */
+lib/ai-orchestrator/src/forensic-output-guard.ts:282:    /return\s+fallback/.test(source) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:285:    reasons.push("the fallback path emits structured console telemetry and is not silent in the inspected source");
+lib/ai-orchestrator/src/forensic-output-guard.ts:329:  // fenced body so fallback snippets and FACT matching cannot cite the path
+lib/ai-orchestrator/src/forensic-output-guard.ts:391:  // The deterministic fallback map cites the completed tool result itself
+lib/ai-orchestrator/src/forensic-output-guard.ts:545:    // as a verified FACT. This also keeps the safe fallback contract-valid.
+lib/ai-orchestrator/src/forensic-output-guard.ts:677:      // makes this a deterministic read-proof reference for fallback maps.
+lib/ai-orchestrator/src/forensic-output-guard.ts:963:function fallbackEvidenceMap(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1011:      // the bounded fallback reference. If none exists, retain the first
+lib/ai-orchestrator/src/forensic-output-guard.ts:1084:export const buildForensicEvidenceMap = fallbackEvidenceMap;
+lib/ai-orchestrator/src/forensic-output-guard.ts:1172:  const evidenceMap = fallbackEvidenceMap(evidence, {
+lib/ai-orchestrator/src/forensic-output-guard.ts:1302:    /^\s*(?:Original response violations:|Current fallback status:)\s*$/im,
+lib/ai-orchestrator/src/forensic-output-guard.ts:1471:      fallbackEvidenceMap(evidence).join("\n"),
+lib/ai-orchestrator/src/forensic-output-guard.ts:1563:    ...fallbackEvidenceMap(evidence),
+lib/ai-orchestrator/src/forensic-output-guard.ts:1590:  const evidenceMap = fallbackEvidenceMap(evidence).join("\n");
+lib/ai-orchestrator/src/forensic-output-guard.ts:1660:  // fallback: rebuild the whole report deterministically from those bodies.
+artifacts/api-server/src/routes/ai.test.ts:1070:  // PR-E (updated): _parseError with a non-empty fallback response → 200, not 422.
+artifacts/api-server/src/routes/ai.test.ts:1072:  // compliance; the fallback extracts the response and the route should deliver it.
+artifacts/api-server/src/routes/ai.test.ts:1073:  it("returns 200 with fallback when chat has _parseError but non-empty response", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1076:      response: "fallback text",
+artifacts/api-server/src/routes/ai.test.ts:1079:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+artifacts/api-server/src/routes/ai.test.ts:1094:  it("returns 422 with model_output_invalid when chat returns _parseError with empty response", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1100:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+artifacts/api-server/src/routes/ai.test.ts:2187:    // is readable) — that fallback would let any project-authorized user pull in
+artifacts/api-server/src/routes/ai.test.ts:2247:  it("returns 422 with model_output_invalid when analyzeScan returns _parseError", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2250:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2251:      overallAssessment: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2253:      topPriority: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2254:      estimatedImpact: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2255:      _parseError: {
+artifacts/api-server/src/routes/ai.test.ts:2296:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2297:      overallAssessment: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2299:      topPriority: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2300:      estimatedImpact: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2301:      _parseError: {
+artifacts/api-server/src/routes/ai.test.ts:2396:  it("returns 422 with model_output_invalid when reviewCode returns _parseError", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2399:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2406:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "missing field", raw: "bad output" },
+artifacts/api-server/src/routes/ai.test.ts:2479:  it("returns 422 with model_output_invalid when orchestrateWorkflow returns _parseError", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2483:      reasoning: "fallback — model output could not be parsed",
+artifacts/api-server/src/routes/ai.test.ts:2484:      _parseError: {
+artifacts/api-server/src/routes/ai.test.ts:4053:  it("returns 422 with model_output_invalid when executeTask returns _parseError, and rolls back task status", async () => {
+artifacts/api-server/src/routes/ai.test.ts:4056:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4057:      result: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4061:      _parseError: {
+artifacts/api-server/src/routes/ai.test.ts:4192:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4193:      result: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4197:      _parseError: {
+artifacts/api-server/src/routes/ai.test.ts:4232:    // Clear every server-wide fallback, not only Groq: OpenRouter, DeepSeek,
+lib/ai-orchestrator/src/tool-execution-engine.ts:934: * return EMPTY_RESPONSE or spend its output budget on a malformed retry.
+lib/ai-orchestrator/src/tool-execution-engine.ts:996:  /** More capable fallback model used on transient errors from model. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1099:   * fallback share this deadline; neither may start a fresh full timeout.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1946:   * retried. EMPTY_RESPONSE gets one bounded same-model retry below because
+lib/ai-orchestrator/src/tool-execution-engine.ts:1988:        err.code !== "EMPTY_RESPONSE" ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:1998:          code: "EMPTY_RESPONSE_RETRY",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2071:        if (!(error instanceof GroqClientError) || error.code !== "EMPTY_RESPONSE") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2120:      const fallback = await callWithSynthesisBudget(callMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2125:        result: fallback,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2419:    // ── Model call (with transient-error fallback to powerModel) ────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:2422:    let fallbackReason: string | undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2501:        fallbackReason = err.code;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2516:          const fallbackResult = synthesisOnly
+lib/ai-orchestrator/src/tool-execution-engine.ts:2539:          result = fallbackResult;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2540:        } catch (fallbackErr) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2541:          if (fallbackErr instanceof GroqClientError) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2543:              `fallback provider failure code: ${fallbackErr.code}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2546:          // TIMEOUT after both primary and fallback: degrade gracefully when
+lib/ai-orchestrator/src/tool-execution-engine.ts:2550:            fallbackErr instanceof GroqClientError &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:2551:            fallbackErr.code === "TIMEOUT" &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:2563:                reason: "both primary and fallback timed out; returning partial from collected evidence",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2600:          throw fallbackErr;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2676:        // EMPTY_RESPONSE: degrade gracefully rather than killing the request.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2682:        if (err instanceof GroqClientError && err.code === "EMPTY_RESPONSE") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2683:          emitExecutionDiagnostic("EXECUTION_PROVIDER_FAILURE", ["provider failure code: EMPTY_RESPONSE"]);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2700:          // A provider can return EMPTY_RESPONSE on the turn immediately
+lib/ai-orchestrator/src/tool-execution-engine.ts:2754:    // OR-007: Emit per-call telemetry (model used, token usage, timing, fallback).
+lib/ai-orchestrator/src/tool-execution-engine.ts:2755:    const observedModel = result.model || (fallbackReason ? powerModel : model);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2760:      fallbackReason,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2769:        model: result.model || (fallbackReason ? powerModel : model),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2774:    // ── Track last text seen (for kind:"partial" fallback) ──────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:2966:    // collected instead of discarding it behind a generic fallback.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3948:        } catch { /* keep the bounded unavailable fallback below */ }
+lib/ai-orchestrator/src/evidence-integrity.ts:1399:  // must fail closed — never masked by a silent evidence-derived fallback.
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:1:import { GroqClientError, redactProviderErrorText, type GroqErrorCode } from "../errors.js";
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:93:  const attemptedModels = model ? [redactProviderErrorText(model).slice(0, 200)] : [];
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:109:      model: model ? redactProviderErrorText(model).slice(0, 200) : null,
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:132:    case "EMPTY_RESPONSE":
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:159:  if (code === "MODEL_NOT_FOUND" || code === "MODEL_UNAVAILABLE" || code === "PLAN_RESTRICTED" || code === "EMPTY_RESPONSE") {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:222:        ? redactProviderErrorText(response.model ?? options.model!).slice(0, 200)
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:229:      attemptedModels: response.model ?? options.model ? [redactProviderErrorText(response.model ?? options.model!).slice(0, 200)] : [],
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:285:        .map((model) => redactProviderErrorText(model).slice(0, 200));
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:8: * IDs are filtered out of the fallback chain as soon as they disappear.
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:85:    // the fallback chain is built.  Fire-and-forget — the resolver uses the
+lib/ai-orchestrator/src/provider-strategy.ts:26:   * provider to resolve a fresh live fallback chain instead of pinning a
+lib/ai-orchestrator/src/provider-strategy.ts:38:   * Cap the number of provider-owned fallback candidates for this call.
+lib/ai-orchestrator/src/provider-strategy.ts:80:   * When true, the strategy owns model fallback for a call. The agent must not
+lib/ai-orchestrator/src/provider-strategy.ts:81:   * layer a second fallback chain on top of it.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:9: * server-side env fallback (unlike Groq). A missing key throws
+lib/ai-orchestrator/src/provider-registry.ts:25:// The emergency fallback is derived from the current static free-tier catalog
+lib/ai-orchestrator/src/provider-registry.ts:155:      // Groq fallback lane into a hard provider failure.
+lib/ai-orchestrator/src/provider-registry.ts:260:  /** GroqErrorCode that triggered a model fallback, if any. */
+lib/ai-orchestrator/src/provider-registry.ts:261:  fallbackReason?: string;
+lib/ai-orchestrator/src/provider-metrics.ts:10: *   fallback_success_total     — times fallback to next provider succeeded
+lib/ai-orchestrator/src/provider-metrics.ts:26:  fallbackSuccesses: number;
+lib/ai-orchestrator/src/provider-metrics.ts:43:  fallbackSuccesses: number;
+lib/ai-orchestrator/src/provider-metrics.ts:60:      fallbackSuccesses:  0,
+lib/ai-orchestrator/src/provider-metrics.ts:91:  getOrCreate(provider).fallbackSuccesses += 1;
+lib/ai-orchestrator/src/provider-metrics.ts:126:      fallbackSuccesses:  c.fallbackSuccesses,
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:14:import { redactProviderErrorText } from "../errors.js";
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:230:  return redactProviderErrorText(value).slice(0, 200);
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:409:      ? raw.model === null ? null : redactProviderErrorText(raw.model).slice(0, 200)
+lib/ai-orchestrator/src/schemas/workflow.schema.ts:65: *  fallbackDecision(), which emits { action: "wait", ... } without blockers
+lib/ai-orchestrator/src/benchmark/free-only-policy.ts:26: * is no longer free instead of allowing a provider fallback to hide that fact.
+artifacts/api-server/src/routes/graph.test.ts:798:      confidence: 0.5, sourceType: "regex-fallback", evidenceCount: 0,
+artifacts/api-server/src/routes/graph.test.ts:826:    expect(res.body.layered.heuristic.sourceTypeBreakdown["regex-fallback"]).toBe(1);
+artifacts/api-server/src/routes/graph.test.ts:1074:    // regex-fallback edge (should be excluded)
+artifacts/api-server/src/routes/graph.test.ts:1078:      sourceType: "regex-fallback", createdAt: now,
+artifacts/api-server/src/routes/graph.test.ts:1165:    // regex-fallback edge A→C (should be excluded by sourceType filter)
+artifacts/api-server/src/routes/graph.test.ts:1169:      sourceType: "regex-fallback", createdAt: now,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:136:    `**Source discipline**: In the sources array, list only the specific entity names, metric labels (e.g. "Perf: 99.0"), or file paths you actually cited in the response. If you have no specific citations, use an empty array — never include a generic fallback string like "no project data available" as a source.`,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:46:  "provider-fallback": [
+lib/ai-orchestrator/src/schemas/context.schema.ts:12: * value (empty states use explicit fallback strings such as "No tasks yet").
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:68:      "provider-fallback",
+lib/ai-orchestrator/src/parsing.ts:8: * and — on any failure — returns a caller-supplied fallback instead of
+lib/ai-orchestrator/src/parsing.ts:142: * validated data. On extraction or schema failure, returns `fallback(raw)`
+lib/ai-orchestrator/src/parsing.ts:149:  fallback: (raw: string) => T,
+lib/ai-orchestrator/src/parsing.ts:153:    return { ok: false, data: fallback(raw), code: extracted.code, message: extracted.message, raw };
+lib/ai-orchestrator/src/parsing.ts:160:      data: fallback(raw),
+artifacts/api-server/src/routes/ai/analysis.ts:34:  redactUserFacingText,
+artifacts/api-server/src/routes/ai/analysis.ts:35:  redactUserFacingValue,
+artifacts/api-server/src/routes/ai/analysis.ts:128:      errorMessage: redactUserFacingText(params.errorMessage).slice(0, 500),
+artifacts/api-server/src/routes/ai/analysis.ts:192:    ...(provider ? { provider: redactUserFacingText(provider) } : {}),
+artifacts/api-server/src/routes/ai/analysis.ts:264:    code === "EMPTY_RESPONSE" ? "PROVIDER_FORMAT" :
+artifacts/api-server/src/routes/ai/analysis.ts:361:  // When the model output failed to parse, we still have the fallback data
+artifacts/api-server/src/routes/ai/analysis.ts:362:  // (generated by fallbackScanAnalysis). Serve it with a warning header so the
+artifacts/api-server/src/routes/ai/analysis.ts:365:  if (result._parseError) {
+artifacts/api-server/src/routes/ai/analysis.ts:369:      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+artifacts/api-server/src/routes/ai/analysis.ts:377:      parseCode: result._parseError.code,
+artifacts/api-server/src/routes/ai/analysis.ts:404:  return res.json({ ...redactUserFacingValue(result) as Record<string, unknown>, ...auditEnvelope(metadata) });
+artifacts/api-server/src/routes/ai/analysis.ts:473:  // When the model output failed to parse, we still have the fallback data.
+artifacts/api-server/src/routes/ai/analysis.ts:475:  if (result._parseError) {
+artifacts/api-server/src/routes/ai/analysis.ts:479:      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+artifacts/api-server/src/routes/ai/analysis.ts:487:      parseCode: result._parseError.code,
+artifacts/api-server/src/routes/ai/analysis.ts:514:  return res.json({ ...redactUserFacingValue(result) as Record<string, unknown>, ...auditEnvelope(metadata) });
+artifacts/api-server/src/routes/ai/analysis.ts:586:    if (result._parseError) {
+artifacts/api-server/src/routes/ai/analysis.ts:642:        ...redactUserFacingValue(result) as Record<string, unknown>,
+artifacts/api-server/src/routes/ai/analysis.ts:751:    if (result._parseError) {
+artifacts/api-server/src/routes/ai/analysis.ts:807:        ...redactUserFacingValue(result) as Record<string, unknown>,
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:8: *   resolveFallbackChain(opts)  → ordered list (primary + fallbacks)
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:9: *   buildFallbackChainFromId()  → fallback chain starting from a known model ID
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:15: * response are silently skipped — the fallback engine advances automatically.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:67:  /** Apply behavioral demotion only to the task execution fallback chain. */
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:82:  fallbackChain: string[];
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:112: * Resolve an ordered fallback chain for a capability + quality intent.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:148:  // expired refreshes must retain the static compatibility fallback.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:176:      action: "resolve_fallback_chain",
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:227:    fallbackChain: chain.slice(1).map((m) => m.id),
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:235: * Build an ordered fallback chain starting from an already-resolved model ID.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:245: * no fallback — the caller retries once then fails cleanly.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:280:  // an authoritative boundary, so retain the static peer fallback until a
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:193:  redactUserFacingText: redactText,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:194:  redactUserFacingValue: redactValue,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:243:        model: "actual-fallback-model",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2258:      prompt: "Which technology handles the provider fallback?",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2259:      response: "Technology answer: the fallback router selects the next provider.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2260:      source: "src/providers/fallback.ts",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2261:      citation: "provider fallback selection",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3389:      modelsUsed: ["actual-fallback-model"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3395:        model: "actual-fallback-model",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3537:        onDelta?.("Safe fallback report");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3555:          result: { response: "Safe fallback report", sources: [], pendingChanges: [] },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3573:    expect(message?.content).toBe("Safe fallback report");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4257:  it("retains a completed read when the primary fails and the text-only fallback is resumed", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4283:          "SSE failover fixture exhausted: expected only the initial fallback and one resumed read-only turn.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4360:        `All AI model fallbacks exhausted — no model was available (${sensitivePath}, ${internalId}).`,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4591:      new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted"),
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:46: * PLAN_RESTRICTED (402) — the fallback engine in model-resolver.ts advances
+artifacts/api-server/src/routes/ai/tasks.ts:309:  if (agentResult._parseError) {
+artifacts/api-server/src/routes/ai/tasks.ts:310:    const parseError = agentResult._parseError;
+artifacts/api-server/src/routes/ai/tasks.ts:328:      { err: agentResult._parseError, taskId, correlationId },
+artifacts/api-server/src/routes/ai/tasks.ts:632:      if (agentResult._parseError) {
+artifacts/api-server/src/routes/ai/tasks.ts:633:        const parseError = agentResult._parseError;
+artifacts/api-server/src/routes/ai/tasks.ts:652:          { err: agentResult._parseError, taskId, correlationId },
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:11: *     kept (or the static FREE_MODELS list is used as the fallback).
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:132:            code: "EMPTY_RESPONSE",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:217:          "They will be skipped during resolution and fallback will proceed automatically.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:118:    fallbackChain: ["repair-loop-fixture-model"],
+artifacts/api-server/src/routes/ai/workflows.ts:30:  redactUserFacingValue,
+artifacts/api-server/src/routes/ai/workflows.ts:202:  if (decision._parseError) {
+artifacts/api-server/src/routes/ai/workflows.ts:215:      parseCode: decision._parseError.code,
+artifacts/api-server/src/routes/ai/workflows.ts:222:  const safeDecision = redactUserFacingValue(decision);
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:136:      runId: "airlock-fallback",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:204:      runId: "airlock-model-lane-fallback",
+artifacts/api-server/src/routes/ai/providers.ts:177: *   requests, failures, fallbackSuccesses, invalidModels, latency percentiles,
+artifacts/api-server/src/routes/ai/providers.ts:204:      requests: 0, failures: 0, fallbackSuccesses: 0, invalidModels: 0,
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:87:    id: "ai-structured-review-fallback",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:89:    command: "pnpm --filter @workspace/ai-orchestrator run test:structured-review-fallback-release",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:92:      "structured-review reasoning-only fallback",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:93:      "agent-harness fallback",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:94:      "rate-limit fallback",
+artifacts/api-server/src/routes/ai/chat.ts:140:  redactUserFacingText,
+artifacts/api-server/src/routes/ai/chat.ts:141:  redactUserFacingValue,
+artifacts/api-server/src/routes/ai/chat.ts:208:  if (!trimmed.startsWith("{")) return redactUserFacingText(raw);
+artifacts/api-server/src/routes/ai/chat.ts:219:      return redactUserFacingText(inner || raw);
+artifacts/api-server/src/routes/ai/chat.ts:224:  return redactUserFacingText(raw);
+artifacts/api-server/src/routes/ai/chat.ts:250:    ? JSON.stringify(redactUserFacingValue(value))
+artifacts/api-server/src/routes/ai/chat.ts:267:    ? JSON.stringify(redactUserFacingValue(value))
+artifacts/api-server/src/routes/ai/chat.ts:283:  return value ? JSON.stringify(redactUserFacingValue(value)) : null;
+artifacts/api-server/src/routes/ai/chat.ts:374:      ...(typeof candidate.detail === "string" ? { detail: redactUserFacingText(candidate.detail).slice(0, 240) } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:537:  return redactUserFacingValue(normalized) as Record<string, unknown>;
+artifacts/api-server/src/routes/ai/chat.ts:667: * planner's existing guarded fallback produces an explicitly blocked plan.
+artifacts/api-server/src/routes/ai/chat.ts:887:      errorMessage: redactUserFacingText(params.errorMessage).slice(0, 500),
+artifacts/api-server/src/routes/ai/chat.ts:1438:        const publicValidation = redactUserFacingValue(toPublicValidationResult(step.result));
+artifacts/api-server/src/routes/ai/chat.ts:1638:  return redactUserFacingText(JSON.stringify(entries));
+artifacts/api-server/src/routes/ai/chat.ts:1649:      ? { ...step, result: redactUserFacingValue(toPublicValidationResult(step.result)) }
+artifacts/api-server/src/routes/ai/chat.ts:1655:  return redactUserFacingValue(scrubHistoricalValidationRecord(value));
+artifacts/api-server/src/routes/ai/chat.ts:1875:  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+artifacts/api-server/src/routes/ai/chat.ts:2045:    if (result._parseError) {
+artifacts/api-server/src/routes/ai/chat.ts:2051:          parseCode: result._parseError.code,
+artifacts/api-server/src/routes/ai/chat.ts:2055:        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+artifacts/api-server/src/routes/ai/chat.ts:2056:        "AI parse failure — using fallback response",
+artifacts/api-server/src/routes/ai/chat.ts:2171:          sources: JSON.stringify(redactUserFacingValue(result.sources)),

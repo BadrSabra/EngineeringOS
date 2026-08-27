@@ -66,6 +66,28 @@ type StructuredFailureKind =
   | "PROVIDER_FAILURE"
   | "TRANSPORT";
 
+function structuredFailureDetails(err: unknown): {
+  code: string;
+  failureKind: StructuredFailureKind;
+  message: string;
+  retryable: boolean;
+} {
+  const candidate = err as { code?: unknown };
+  const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
+  const failureKind =
+    code === "model_output_invalid" || code === "INVALID_MODEL_OUTPUT" || code === "EMPTY_RESPONSE" ? "PROVIDER_FORMAT" :
+    code === "RATE_LIMITED" ? "RATE_LIMIT" :
+    code === "INVALID_CONFIG" || code === "AUTH_ERROR" || code === "MODEL_NOT_FOUND" || code === "PLAN_RESTRICTED" ? "CONFIGURATION" :
+    code === "TIMEOUT" || code === "NETWORK_ERROR" || code === "NON_200" || code === "SERVER_ERROR" ? "PROVIDER_FAILURE" :
+    "PROVIDER_FAILURE";
+  const message =
+    failureKind === "RATE_LIMIT" ? "The AI provider is rate-limited. Please wait before retrying." :
+    failureKind === "CONFIGURATION" ? "The AI provider configuration needs attention before this can run." :
+    failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
+    "The AI provider could not complete this run.";
+  return { code, failureKind, message, retryable: failureKind !== "CONFIGURATION" };
+}
+
 async function persistStructuredFailure(params: {
   projectId: string;
   userId: string;
@@ -257,26 +279,13 @@ function emitTaskFailure(
   metadata: StructuredAuditMetadata,
   params: { projectId: string; userId: string; task: StructuredTask; sessionId?: string },
 ) {
-  const candidate = err as { code?: unknown; message?: unknown };
-  const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
-  const failureKind =
-    code === "model_output_invalid" || code === "INVALID_MODEL_OUTPUT" ? "PROVIDER_FORMAT" :
-    code === "EMPTY_RESPONSE" ? "PROVIDER_FORMAT" :
-    code === "RATE_LIMITED" ? "RATE_LIMIT" :
-    code === "INVALID_CONFIG" || code === "AUTH_ERROR" || code === "MODEL_NOT_FOUND" || code === "PLAN_RESTRICTED" ? "CONFIGURATION" :
-    code === "TIMEOUT" || code === "NETWORK_ERROR" || code === "NON_200" || code === "SERVER_ERROR" ? "PROVIDER_FAILURE" :
-    "PROVIDER_FAILURE";
-  const message =
-    failureKind === "RATE_LIMIT" ? "The AI provider is rate-limited. Please wait before retrying." :
-    failureKind === "CONFIGURATION" ? "The AI provider configuration needs attention before this can run." :
-    failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
-    "The AI provider could not complete this run.";
+  const { code, failureKind, message, retryable } = structuredFailureDetails(err);
   metadata.incomplete = true;
   metadata.operationalTrace.push({ stage: "failed", status: "failed" });
   void persistStructuredFailure({
     ...params,
     failureKind,
-    retryable: failureKind !== "CONFIGURATION",
+    retryable,
     errorCode: code,
     errorMessage: message,
   }).then((sessionId) => {
@@ -289,7 +298,7 @@ function emitTaskFailure(
         : failureKind === "CONFIGURATION"
           ? "Update the AI setup before starting a new task."
           : "You can retry this task without sending another prompt.",
-      retryable: failureKind !== "CONFIGURATION",
+      retryable,
       failureKind,
       outcome: "FAILED",
       sessionId,
@@ -302,7 +311,7 @@ function emitTaskFailure(
       code,
       message,
       hint: "You can retry this task without sending another prompt.",
-      retryable: failureKind !== "CONFIGURATION",
+      retryable,
       failureKind,
       outcome: "FAILED",
     });
@@ -354,7 +363,27 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
   } catch (err) {
     metadata.incomplete = true;
     recordTrace(metadata, "analyze", "failed", effectiveProvider);
-    if (handleOrchestratorError(err, res, { projectId, operation: "scan-analysis", provider: effectiveProvider })) return;
+    const details = structuredFailureDetails(err);
+    let sessionId: string | undefined;
+    try {
+      sessionId = await persistStructuredFailure({
+        projectId,
+        userId: req.userId,
+        task: "analyze",
+        failureKind: details.failureKind,
+        retryable: details.retryable,
+        errorCode: details.code,
+        errorMessage: details.message,
+      });
+    } catch (persistError) {
+      logger.error({ persistError, projectId, task: "analyze" }, "structured provider failure persistence failed");
+    }
+    if (handleOrchestratorError(err, res, {
+      projectId,
+      operation: "scan-analysis",
+      provider: effectiveProvider,
+      incompleteReview: { sessionId, failureKind: details.failureKind },
+    })) return;
     throw err;
   }
 
@@ -466,7 +495,27 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
   } catch (err) {
     metadata.incomplete = true;
     recordTrace(metadata, "review", "failed", effectiveProvider);
-    if (handleOrchestratorError(err, res, { projectId, operation: "code-review", provider: effectiveProvider })) return;
+    const details = structuredFailureDetails(err);
+    let sessionId: string | undefined;
+    try {
+      sessionId = await persistStructuredFailure({
+        projectId,
+        userId: req.userId,
+        task: "review",
+        failureKind: details.failureKind,
+        retryable: details.retryable,
+        errorCode: details.code,
+        errorMessage: details.message,
+      });
+    } catch (persistError) {
+      logger.error({ persistError, projectId, task: "review" }, "structured provider failure persistence failed");
+    }
+    if (handleOrchestratorError(err, res, {
+      projectId,
+      operation: "code-review",
+      provider: effectiveProvider,
+      incompleteReview: { sessionId, failureKind: details.failureKind },
+    })) return;
     throw err;
   }
 

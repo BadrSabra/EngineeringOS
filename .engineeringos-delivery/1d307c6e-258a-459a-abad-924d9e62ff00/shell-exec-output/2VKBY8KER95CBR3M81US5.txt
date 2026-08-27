@@ -1,0 +1,640 @@
+lib/ai-orchestrator/src/openai-compatible-client.ts:20:import { GroqClientError, type GroqErrorCode } from "./errors.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:461:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:477:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:483:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:491:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:516:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:533:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:539:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:548:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:563:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:571:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:587:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:594:  return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:799:      throw new GroqClientError("TIMEOUT", `${providerName} request timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:804:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:854:      throw new GroqClientError("TIMEOUT", `${providerName} response body timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:867:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} returned an empty response`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:896:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:987:      throw new GroqClientError("TIMEOUT", `${providerName} streaming request timed out`, { cause: err });
+lib/ai-orchestrator/src/openai-compatible-client.ts:989:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1005:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream has no body`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1060:      throw new GroqClientError("TIMEOUT", `${providerName} streaming response timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1065:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1081:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream returned no content`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1198:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1219:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1287:        throw new GroqClientError(err.code, err.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1301:    throw new GroqClientError(lastError.code, lastError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1311:  throw new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted", {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1344:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1381:          const terminalError = providerError ?? new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1386:          throw new GroqClientError(terminalError.code, terminalError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1408:          throw new GroqClientError(providerError.code, providerError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1431:    throw new GroqClientError(lastError.code, lastError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1436:  throw new GroqClientError("MODEL_NOT_FOUND", "No OpenRouter free model satisfies the stream capability", {
+lib/ai-orchestrator/src/agent-complete.ts:60:    throw new GroqClientError(
+lib/ai-orchestrator/src/agent-complete.ts:70:  throw new GroqClientError("EMPTY_RESPONSE", `${provider.label} returned no content for this request`);
+lib/ai-orchestrator/src/groq-client.ts:18:import { GroqClientError, type GroqErrorCode } from "./errors.js";
+lib/ai-orchestrator/src/groq-client.ts:205:      throw new GroqClientError("INVALID_CONFIG", "GROQ_API_KEY environment variable is not set");
+lib/ai-orchestrator/src/groq-client.ts:279:  if (!msg) throw new GroqClientError("EMPTY_RESPONSE", "Groq returned an empty response");
+lib/ai-orchestrator/src/groq-client.ts:293:    throw new GroqClientError("EMPTY_RESPONSE", "Groq returned neither content nor tool calls");
+lib/ai-orchestrator/src/groq-client.ts:333:    throw new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:380:  throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
+lib/ai-orchestrator/src/groq-client.ts:385:  if (aborted) return new GroqClientError("TIMEOUT", "Groq request timed out", { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:395:      return new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:410:      return new GroqClientError("AUTH_ERROR", `Groq API authentication failed (${status})`, { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:413:      return new GroqClientError("RATE_LIMITED", "Groq API rate limit exceeded", { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:416:      return new GroqClientError("SERVER_ERROR", `Groq API server error (${status})`, { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:418:    return new GroqClientError("NON_200", `Groq API responded with status ${status}`, { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:420:  return new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:449:    throw new GroqClientError("EMPTY_RESPONSE", "Groq returned an empty response");
+lib/ai-orchestrator/src/groq-client.ts:518:    throw new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:562:      throw new GroqClientError("EMPTY_RESPONSE", "Groq stream returned no content");
+lib/ai-orchestrator/src/groq-client.ts:592:    throw new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:631:  throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
+lib/ai-orchestrator/src/quality/retry-controller.ts:1:import { GroqClientError, type AgentErrorCode, type GroqErrorCode } from "../errors.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2082:    throw lastError ?? new GroqClientError("TIMEOUT", "synthesis attempt budget exhausted");
+lib/ai-orchestrator/src/errors.ts:44:export type GroqErrorCode =
+lib/ai-orchestrator/src/errors.ts:114:export class GroqClientError extends Error {
+lib/ai-orchestrator/src/deepseek-client.ts:59:    return new GroqClientError("AUTH_ERROR", `DeepSeek API authentication failed (${status}) — check your API key at platform.deepseek.com`);
+lib/ai-orchestrator/src/deepseek-client.ts:62:    return new GroqClientError("RATE_LIMITED", "DeepSeek API rate limit exceeded — wait a moment before retrying");
+lib/ai-orchestrator/src/deepseek-client.ts:65:    return new GroqClientError("SERVER_ERROR", `DeepSeek API server error (${status}): ${body.slice(0, 200)}`);
+lib/ai-orchestrator/src/deepseek-client.ts:67:  return new GroqClientError("NON_200", `DeepSeek API responded with status ${status}: ${body.slice(0, 200)}`);
+lib/ai-orchestrator/src/deepseek-client.ts:122:      throw new GroqClientError("TIMEOUT", "DeepSeek streaming request timed out", { cause: err });
+lib/ai-orchestrator/src/deepseek-client.ts:124:    throw new GroqClientError(
+lib/ai-orchestrator/src/deepseek-client.ts:142:    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek stream has no body");
+lib/ai-orchestrator/src/deepseek-client.ts:185:    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek stream returned no content");
+lib/ai-orchestrator/src/deepseek-client.ts:246:      throw new GroqClientError("TIMEOUT", "DeepSeek request timed out", { cause: err });
+lib/ai-orchestrator/src/deepseek-client.ts:248:    throw new GroqClientError(
+lib/ai-orchestrator/src/deepseek-client.ts:273:    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned an empty response");
+lib/ai-orchestrator/src/deepseek-client.ts:281:    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned neither content nor tool calls");
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:136:      throw new GroqClientError(
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:1:import { GroqClientError, redactProviderErrorText, type GroqErrorCode } from "../errors.js";
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:118:        throw new GroqClientError("QUOTA", `quota body ${secret}`, {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:49:      throw new GroqClientError(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:66:      throw new GroqClientError(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:153:      throw new GroqClientError(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:170:      throw new GroqClientError(
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:10: * `GroqClientError("INVALID_CONFIG", ...)` before the network request.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:27:      throw new GroqClientError(
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:37:      throw new GroqClientError(
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:32:      throw new GroqClientError(
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:43:      throw new GroqClientError(
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:222:      const timeout = new GroqClientError("TIMEOUT", "fixture provider timeout");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1093:        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1120:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "initial model timed out"))
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1153:      new GroqClientError("TIMEOUT", "provider timed out with internal details"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1185:      new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1215:        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1251:        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1282:      new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2699:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3886:            reject(new GroqClientError("TIMEOUT", "bounded synthesis timeout"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3936:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "fixture synthesis timeout"))
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3974:      new GroqClientError("TIMEOUT", "fixture synthesis timeout"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4019:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4068:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4111:    const timeoutErr = new GroqClientError("TIMEOUT", "Immediate timeout");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:700:    const err = new GroqClientError("MODEL_NOT_FOUND", "test", {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:765:    const err = new GroqClientError("MODEL_UNAVAILABLE", "test");
+     1/**
+     2 * Unified error model for the ai-orchestrator package.
+     3 *
+     4 * Two families:
+     5 *
+     6 * AgentErrorCode — non-fatal issues turning a model response into a typed
+     7 * result (parsing/validation). Agents never throw these; they log the code
+     8 * and fall back to a safe default so a single bad LLM response cannot crash
+     9 * a request. See `parsing.ts`.
+    10 *
+    11 *   EMPTY_MODEL_RESPONSE      Raw text from the model was empty.
+    12 *   MALFORMED_JSON            Raw text could not be parsed as JSON.
+    13 *   SCHEMA_VALIDATION_FAILED  Parsed JSON did not satisfy the Zod schema.
+    14 *
+    15 * GroqErrorCode — failures talking to the model provider. These DO throw,
+    16 * because there is no safe per-agent fallback for "we could not reach the
+    17 * model at all". Routes handle them as hard failures.
+    18 *
+    19 * Transport
+    20 *   TIMEOUT           AbortController fired before the model responded.
+    21 *   NETWORK_ERROR     Transport-level failure: DNS, ECONNRESET, no HTTP status.
+    22 *
+    23 * HTTP — classified from the numeric status code
+    24 *   AUTH_ERROR        401 or 403: API key missing, invalid, or lacks permission.
+    25 *   RATE_LIMITED      429: per-minute quota exhausted; retryable after back-off.
+    26 *   QUOTA             402/429-credits: billing quota / credits exhausted.
+    27 *   SERVER_ERROR      5xx: provider infrastructure failure; retryable.
+    28 *   NON_200           Any other non-200 status (e.g. 400 bad request).
+    29 *
+    30 * Model availability
+    31 *   MODEL_NOT_FOUND    404: model permanently discontinued.
+    32 *   PLAN_RESTRICTED    402: model requires paid tier / free-tier restriction.
+    33 *   MODEL_UNAVAILABLE  422/410: model temporarily offline or being retired.
+    34 *
+    35 * Response
+    36 *   EMPTY_RESPONSE    Response received but contained no content or tool calls.
+    37 *
+    38 * Configuration
+    39 *   INVALID_CONFIG    GROQ_API_KEY is absent or empty at startup.
+    40 */
+    41
+    42export type AgentErrorCode = "EMPTY_MODEL_RESPONSE" | "MALFORMED_JSON" | "SCHEMA_VALIDATION_FAILED";
+    43
+    44export type GroqErrorCode =
+    45  // transport
+    46  | "TIMEOUT"
+    47  | "NETWORK_ERROR"
+    48  // HTTP — split by semantics
+    49  | "AUTH_ERROR"
+    50  | "RATE_LIMITED"
+    51  | "QUOTA"             // billing quota / credits exhausted (PR-008)
+    52  | "SERVER_ERROR"
+    53  | "NON_200"
+    54  // model availability — distinct from each other (PR-004 / PR-008)
+    55  | "MODEL_NOT_FOUND"     // 404 — model permanently discontinued
+    56  | "PLAN_RESTRICTED"     // 402 — model requires paid plan / free-tier restriction
+    57  | "MODEL_UNAVAILABLE"   // 422/410 — model temporarily offline (PR-008)
+    58  // response
+    59  | "EMPTY_RESPONSE"
+    60  // configuration
+    61  | "INVALID_CONFIG";
+    62
+    63/** PR-007: structured fields carried alongside the error message. */
+    64export type ProviderErrorContext = {
+    65  /** Raw HTTP status code from the provider. */
+    66  providerStatus?: number;
+    67  /** Provider-specific error code extracted from the response body. */
+    68  providerCode?: string;
+    69  /** Provider-specific error message extracted from the response body. */
+    70  providerMessage?: string;
+    71  /** Provider name (e.g. "OpenRouter", "Groq"). */
+    72  providerName?: string;
+    73  /** Model slug that was attempted when the error occurred. */
+    74  providerModel?: string;
+    75  /** Bounded provider retry hint, in milliseconds, when supplied by HTTP. */
+    76  retryAfterMs?: number;
+    77  /** Every provider-owned fallback model attempted before this error surfaced. */
+    78  providerAttemptedModels?: string[];
+    79  /** Safe OpenRouter catalog diagnostics for model-resolution failures. */
+    80  catalogLoaded?: boolean;
+    81  catalogUsable?: boolean;
+    82  catalogStatus?: "never" | "success" | "failed" | "empty";
+    83  catalogError?: string;
+    84};
+    85
+    86/**
+    87 * Provider SDKs and HTTP clients sometimes include credentials in otherwise
+    88 * useful transport errors (for example, a URL query string or an echoed
+    89 * Authorization header). Keep the internal error available for server logs,
+    90 * but make every message/context serialization safe for user-facing output.
+    91 */
+    92export function redactProviderErrorText(value: string): string {
+    93  return value
+    94    .replace(/((?:authorization|x-api-key|api[_-]?key|access[_-]?token|token|key)\s*[=:]\s*)([^\s,;)"']+)/gi, "$1[redacted]")
+    95    .replace(/(Bearer\s+)([A-Za-z0-9._~+/=-]+)/gi, "$1[redacted]")
+    96    .replace(/\bsk-or-v1-[A-Za-z0-9_-]+\b/gi, "[redacted]")
+    97    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, "[redacted]");
+    98}
+    99
+   100function redactProviderContext(context: ProviderErrorContext): ProviderErrorContext {
+   101  return {
+   102    ...context,
+   103    providerCode: context.providerCode ? redactProviderErrorText(context.providerCode) : context.providerCode,
+   104    providerMessage: context.providerMessage ? redactProviderErrorText(context.providerMessage) : context.providerMessage,
+   105    providerName: context.providerName ? redactProviderErrorText(context.providerName) : context.providerName,
+   106    providerModel: context.providerModel ? redactProviderErrorText(context.providerModel) : context.providerModel,
+   107    providerAttemptedModels: context.providerAttemptedModels?.map(redactProviderErrorText),
+   108    catalogLoaded: context.catalogLoaded,
+   109    catalogUsable: context.catalogUsable,
+   110    catalogStatus: context.catalogStatus,
+   111  };
+   112}
+   113
+   114export class GroqClientError extends Error {
+   115  readonly code: GroqErrorCode;
+   116
+   117  // PR-007: structured provider context preserved all the way to the caller
+   118  readonly providerStatus?: number;
+   119  readonly providerCode?: string;
+   120  readonly providerMessage?: string;
+   121  readonly providerName?: string;
+   122  readonly providerModel?: string;
+   123  readonly retryAfterMs?: number;
+   124  readonly providerAttemptedModels?: string[];
+   125  readonly catalogLoaded?: boolean;
+   126  readonly catalogUsable?: boolean;
+   127  readonly catalogStatus?: ProviderErrorContext["catalogStatus"];
+   128  readonly catalogError?: string;
+   129
+   130  constructor(
+   131    code: GroqErrorCode,
+   132    message: string,
+   133    options?: { cause?: unknown; context?: ProviderErrorContext },
+   134  ) {
+   135    super(redactProviderErrorText(message), { cause: options?.cause });
+   136    this.name = "GroqClientError";
+   137    this.code = code;
+   138    if (options?.context) {
+   139      this.providerStatus  = options.context.providerStatus;
+   140      this.providerCode    = options.context.providerCode;
+   141      this.providerMessage = options.context.providerMessage;
+   142      this.providerName    = options.context.providerName;
+   143      this.providerModel   = options.context.providerModel;
+   144      this.retryAfterMs    = options.context.retryAfterMs;
+   145      this.providerAttemptedModels = options.context.providerAttemptedModels;
+   146      this.catalogLoaded = options.context.catalogLoaded;
+   147      this.catalogUsable = options.context.catalogUsable;
+   148      this.catalogStatus = options.context.catalogStatus;
+   149      this.catalogError = options.context.catalogError;
+   150    }
+   151  }
+   152
+   153  /** PR-007: serialise to a plain object suitable for SSE / JSON responses. */
+   154  toProviderContext(): ProviderErrorContext {
+   155    return redactProviderContext({
+   156      providerStatus:  this.providerStatus,
+   157      providerCode:    this.providerCode,
+   158      providerMessage: this.providerMessage,
+   159      providerName:    this.providerName,
+   160      providerModel:   this.providerModel,
+   161      retryAfterMs:    this.retryAfterMs,
+   162      providerAttemptedModels: this.providerAttemptedModels,
+   163      catalogLoaded: this.catalogLoaded,
+   164      catalogUsable: this.catalogUsable,
+   165      catalogStatus: this.catalogStatus,
+   166    });
+   167  }
+   168}
+55:export function redactUserFacingValue<T>(value: T): T {
+57:  if (Array.isArray(value)) return value.map((item) => redactUserFacingValue(item)) as T;
+60:      Object.entries(value).map(([key, item]) => [key, redactUserFacingValue(item)]),
+88:    const key = await resolveProviderKey(userId, provider);
+164:export async function resolveProviderKey(
+203:  return resolveProviderKey(userId, "groq");
+206:  return resolveProviderKey(userId, "deepseek");
+209:  return resolveProviderKey(userId, "openrouter");
+222:export async function resolveProvider(
+308:export async function runAgentWithFallback<T>(
+521:  const resolved = await resolveProvider(userId, options);
+569:export function handleOrchestratorError(
+     1/**
+     2 * Shared helpers for AI route handlers.
+     3 *
+     4 * Extracted from routes/ai.ts to keep each subroute module small and testable.
+     5 * Import from here rather than from the route file.
+     6 *
+     7 * Provider resolution uses PROVIDER_PRIORITY from the registry so the fallback
+     8 * chain is driven by a single array — no if/else sprawl when adding providers.
+     9 */
+    10import { randomUUID } from "crypto";
+    11import { db } from "@workspace/db";
+    12import { aiProviderCredentialsTable, eventsTable } from "@workspace/db";
+    13import { eq, and } from "drizzle-orm";
+    14import {
+    15  chat,
+    16  buildProjectContext,
+    17  GroqClientError,
+    18  PROVIDER_PRIORITY,
+    19  PROVIDER_REGISTRY,
+    20  sortProviderIdsByQuality,
+    21  isCircuitOpen,
+    22} from "@workspace/ai-orchestrator";
+    23import type {
+    24  ProviderId,
+    25  QualityProfile,
+    26  AgentStep,
+    27  ActiveTask,
+    28  ActiveTaskState,
+    29  ExecutionNode,
+    30  ProductionTraceLink,
+    31  ObjectiveContract,
+    32  TurnIntent,
+    33  ValidationRunner,
+    34} from "@workspace/ai-orchestrator";
+    35import { logger } from "./logger.js";
+    36import { decryptApiKey } from "./credentials-crypto.js";
+    37
+    38export type { ProviderId };
+    39
+    40/**
+    41 * Remove deployment details from values that cross an AI route's user-facing
+    42 * boundary. Keep the original provider output for server-side diagnostics,
+    43 * but never persist or stream it verbatim.
+    44 */
+    45export function redactUserFacingText(value: string): string {
+    46  return value
+    47    .replace(/\/(?:home\/runner(?:\/workspace)?|workspace|tmp|app|srv|var\/task|mnt\/data)\/[^\s`"'<>),;]+/g, "[runtime path]")
+    48    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]")
+    49    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]")
+    50    .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]")
+    51    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted token]");
+    52}
+    53
+    54/** Redact strings in user-facing JSON while preserving its shape. */
+    55export function redactUserFacingValue<T>(value: T): T {
+    56  if (typeof value === "string") return redactUserFacingText(value) as T;
+    57  if (Array.isArray(value)) return value.map((item) => redactUserFacingValue(item)) as T;
+    58  if (value && typeof value === "object") {
+    59    return Object.fromEntries(
+    60      Object.entries(value).map(([key, item]) => [key, redactUserFacingValue(item)]),
+    61    ) as T;
+    62  }
+    63  return value;
+    64}
+    65
+    66type ProviderSelectionOptions = {
+    67  /** When true, skip providers that cannot handle the request's tool payloads. */
+    68  requireTools?: boolean;
+    69  /** Optional quality profile used to bias provider selection. */
+    70  qualityProfile?: QualityProfile;
+    71};
+    72
+    73function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
+    74  const config = PROVIDER_REGISTRY[provider];
+    75  if (!config) return false;
+    76  if (options?.requireTools && !config.supportsTools) return false;
+    77  return true;
+    78}
+    79
+    80async function collectAvailableProviders(
+    81  userId: string,
+    82  options?: ProviderSelectionOptions,
+    83): Promise<Array<{ provider: ProviderId; apiKey: string }>> {
+    84  const available: Array<{ provider: ProviderId; apiKey: string }> = [];
+    85  const skipped: Array<{ provider: ProviderId; reason: string }> = [];
+    86
+    87  for (const provider of PROVIDER_PRIORITY) {
+    88    const key = await resolveProviderKey(userId, provider);
+    89    if (!key) {
+    90      skipped.push({ provider, reason: "no_api_key" });
+    91      continue;
+    92    }
+    93    if (!providerCanHandleRequest(provider, options)) {
+    94      const reason = options?.requireTools ? "no_tool_support" : "capability_mismatch";
+    95      logger.info(
+    96        { provider, requireTools: !!options?.requireTools, reason },
+    97        "Skipping provider that cannot satisfy the current request",
+    98      );
+    99      skipped.push({ provider, reason });
+   100      continue;
+   101    }
+   102    // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).
+   103    if (isCircuitOpen(provider)) {
+   104      logger.warn(
+   105        { provider, reason: "circuit_open" },
+   106        "Skipping provider — circuit is open due to consecutive failures",
+   107      );
+   108      skipped.push({ provider, reason: "circuit_open" });
+   109      continue;
+   110    }
+   111    available.push({ provider, apiKey: key });
+   112  }
+   113
+   114  if (options?.qualityProfile && available.length > 1) {
+   115    const orderedIds = sortProviderIdsByQuality(
+   116      available.map((candidate) => candidate.provider),
+   117      options.qualityProfile,
+   118      { requireTools: options.requireTools },
+   119    );
+   120    const byProvider = new Map(available.map((candidate) => [candidate.provider, candidate.apiKey]));
+   121    const reordered = orderedIds
+   122      .map((provider) => ({ provider, apiKey: byProvider.get(provider) }))
+   123      .filter((candidate): candidate is { provider: ProviderId; apiKey: string } => Boolean(candidate?.apiKey));
+   124
+   125    logger.info(
+   126      {
+   127        scope: "provider-selection",
+   128        action: "collect_available_providers",
+   129        qualityProfile: options.qualityProfile,
+   130        requireTools: !!options?.requireTools,
+   131        available: reordered.map((c) => c.provider),
+   132        skipped,
+   133        finalOrder: reordered.map((c) => c.provider),
+   134      },
+   135      "provider selection complete (quality-ordered)",
+   136    );
+   137    return reordered;
+   138  }
+   139
+   140  logger.info(
+   141    {
+   142      scope: "provider-selection",
+   143      action: "collect_available_providers",
+   144      qualityProfile: options?.qualityProfile ?? null,
+   145      requireTools: !!options?.requireTools,
+   146      available: available.map((c) => c.provider),
+   147      skipped,
+   148    },
+   149    "provider selection complete",
+   150  );
+   151  return available;
+   152}
+   153
+   154// ── Per-provider key resolution ───────────────────────────────────────────────
+   155
+   156/**
+   157 * Generic: resolve the saved API key for any provider.
+   158 *
+   159 * Resolution order:
+   160 *   1. User's own saved key (decrypted from DB).
+   161 *   2. Server-wide env fallback: OPENROUTER_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY.
+   162 *   3. undefined — caller MUST return 428 to the client.
+   163 */
+   164export async function resolveProviderKey(
+   165  userId: string,
+   166  provider: ProviderId,
+   167): Promise<string | undefined> {
+   168  const [row] = await db
+   169    .select()
+   170    .from(aiProviderCredentialsTable)
+   171    .where(
+   172      and(
+   173        eq(aiProviderCredentialsTable.ownerId, userId),
+   174        eq(aiProviderCredentialsTable.provider, provider),
+   175      ),
+   176    )
+   177    .limit(1);
+   178
+   179  if (row) {
+   180    try {
+   181      return decryptApiKey(row.encryptedApiKey);
+   182    } catch (err) {
+   183      const label = PROVIDER_REGISTRY[provider]?.label ?? provider;
+   184      logger.error(
+   185        { err, ownerId: userId, provider },
+   186        `Failed to decrypt stored ${label} API key — falling back to env`,
+   187      );
+   188    }
+   189  }
+   190
+   191  // Server-wide env fallback — supported for all providers via dedicated env vars.
+   192  const ENV_FALLBACK: Record<ProviderId, string | undefined> = {
+   193    openrouter: process.env.OPENROUTER_API_KEY,
+   194    gemini: process.env.GEMINI_API_KEY,
+   195    deepseek: process.env.DEEPSEEK_API_KEY,
+   196    groq: process.env.GROQ_API_KEY,
+   197  };
+   198  return ENV_FALLBACK[provider] || undefined;
+   199}
+   200
+   201// Backward-compat named wrappers (used by parity tests and older callers).
+   202export async function resolveGroqApiKey(userId: string): Promise<string | undefined> {
+   203  return resolveProviderKey(userId, "groq");
+   204}
+   205export async function resolveDeepSeekApiKey(userId: string): Promise<string | undefined> {
+   206  return resolveProviderKey(userId, "deepseek");
+   207}
+   208export async function resolveOpenRouterApiKey(userId: string): Promise<string | undefined> {
+   209  return resolveProviderKey(userId, "openrouter");
+   210}
+   211
+   212// ── Provider resolution (priority-ordered) ────────────────────────────────────
+   213
+   214/**
+   215 * Resolve which AI provider to use for a request.
+   216 *
+   217 * Iterates PROVIDER_PRIORITY ([openrouter, gemini, deepseek, groq]) and returns
+   218 * the first provider whose key is available. This is the single place that
+   219 * controls which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts
+   220 * to reorder.
+   221 */
+   222export async function resolveProvider(
+   223  userId: string,
+   224  options?: ProviderSelectionOptions,
+   225): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+   226  const available = await collectAvailableProviders(userId, options);
+   227  const selected = available[0];
+   228  logger.info(
+   229    {
+   230      scope: "provider-selection",
+   231      action: "resolve_provider",
+   232      selected: selected?.provider ?? null,
+   233      requireTools: !!options?.requireTools,
+   234      qualityProfile: options?.qualityProfile ?? null,
+   235    },
+   236    selected ? `resolved primary provider: ${selected.provider}` : "no provider available",
+   237  );
+   238  return selected;
+   239}
+   240
+   241/**
+   242 * Resolve a fallback AI provider when the primary is experiencing errors.
+   243 * Skips the current provider and returns the next available one in PROVIDER_PRIORITY order.
+   244 */
+   245export async function resolveFallbackProvider(
+   246  userId: string,
+   247  currentProvider: ProviderId,
+   248  options?: ProviderSelectionOptions,
+   249): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+   250  const available = (await collectAvailableProviders(userId, options)).filter((candidate) => candidate.provider !== currentProvider);
+   251  const selected = available[0];
+   252  logger.info(
+   253    {
+   254      scope: "provider-selection",
+   255      action: "resolve_fallback_provider",
+   256      skipping: currentProvider,
+   257      selected: selected?.provider ?? null,
+   258      requireTools: !!options?.requireTools,
+   259      qualityProfile: options?.qualityProfile ?? null,
+   260    },
+   261    selected ? `resolved fallback provider: ${selected.provider}` : "no fallback provider available",
+   262  );
+   263  return selected;
+   264}
+   265
+   266const TOOL_REQUEST_PATTERNS = [
+   267  /\b(analy[sz]e|inspect|review|debug|test|run|scan|read|list|search|find|open|show|trace|explain|compare|fix|patch|implement|modify|change)\b/i,
+   268  // Arabic: \b does not match non-ASCII word boundaries; use bare alternation
+   269  // so prefixed forms like بتحليل and وافحص are matched correctly.
+   270  /فحص|تحليل|راجع|اعرض|افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ابحث|استخرج|قارن|صلّح|عدّل|غيّر/i,
+   271];
+   272
+   273export function requestLooksToolBound(message: string): boolean {
+   274  return TOOL_REQUEST_PATTERNS.some((pattern) => pattern.test(message));
+   275}
+   276
+   277/**
+   278 * Error codes that should trigger a provider fallback rather than surfacing
+   279 * the error directly to the caller.
+   280 *
+   281 * PR-03: MODEL_UNAVAILABLE (410/422) and PLAN_RESTRICTED (402 free-tier) are
+   282 * now fallback-worthy — they mean the model is gone on THIS provider but
+   283 * another provider may succeed.  QUOTA is also included: if a provider's
+   284 * credits are exhausted we should try the next one.
+   285 */
+   286const FALLBACK_TRIGGER_CODES = new Set<string>([
+   287  "RATE_LIMITED",
+   288  "AUTH_ERROR",
+   289  "NETWORK_ERROR",
+   290  "TIMEOUT",
+   291  "NON_200",
+   292  "EMPTY_RESPONSE",
+   293  "SERVER_ERROR",
+   294  "MODEL_NOT_FOUND",
+   295  "MODEL_UNAVAILABLE",   // PR-03: 410/422 — model temporarily offline
+   296  "PLAN_RESTRICTED",     // PR-03/PR-04: 402 — free-tier restriction
+   297  "QUOTA",               // PR-03: credits/billing exhausted on this provider
+   298]);
+   299
+   300/**
+   301 * Run any single-shot agent function with automatic provider fallback.
+   302 *
+   303 * Accepts a `run` closure that receives `{ provider, apiKey }` and returns a
+   304 * result.  On any error code in FALLBACK_TRIGGER_CODES the next provider in
+   305 * PROVIDER_PRIORITY order is tried.  Use this for scan-analysis, code-review,
+   306 * task-execution — any route that calls an agent but doesn't use chat streaming.
+   307 */
+   308export async function runAgentWithFallback<T>(
+   309  userId: string,
+   310  initialProvider: { provider: ProviderId; apiKey: string },
+   311  run: (opts: { provider: ProviderId; apiKey: string; signal?: AbortSignal }) => Promise<T>,
+   312  options?: ProviderSelectionOptions & { signal?: AbortSignal },
+   313): Promise<{ result: T; effectiveProvider: ProviderId }> {
+   314  const orderedProviders = await collectAvailableProviders(userId, options);
+   315  if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
+   316    orderedProviders.unshift(initialProvider);
+   317  }
+   318
+   319  let lastErr: GroqClientError | undefined;
+   320
+   321  for (const providerEntry of orderedProviders) {
+   322    if (options?.signal?.aborted) {
+   323      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+   324    }
+   325    if (lastErr) {
+   326      logger.info(
+   327        { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
+   328        "primary provider error; retrying agent with fallback provider",
+   329      );
+   330    }
+   331    try {
+   332      const result = await run({ ...providerEntry, signal: options?.signal });
+   333      return { result, effectiveProvider: providerEntry.provider };
+   334    } catch (err) {
+   335      if (options?.signal?.aborted) {
+   336        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
+   337      }
+   338      if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
+   339        logger.warn(
+   340          { provider: providerEntry.provider, code: err.code, message: err.message },
+   341          "provider failed — trying next in chain",
+   342        );
+   343        lastErr = err;
+   344        continue;
+   345      }
+   346      throw err;
+   347    }
+   348  }
+   349
+   350  throw lastErr ?? new GroqClientError("EMPTY_RESPONSE", "No AI provider returned a response");
+   351}
+   352
+   353/**
+   354 * Call `chat()` with automatic provider fallback on recoverable errors.
+   355 *
+   356 * Iterates through ALL configured providers in PROVIDER_PRIORITY order until
+   357 * one succeeds.  Fallback is triggered for any error code in FALLBACK_TRIGGER_CODES.
+   358 * Both primary and fallback providers support streaming via `onDelta`.
+   359 */
+   360export async function chatWithFallback(

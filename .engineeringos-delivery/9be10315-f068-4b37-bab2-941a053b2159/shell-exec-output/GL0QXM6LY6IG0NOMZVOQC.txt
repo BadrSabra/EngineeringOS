@@ -1,0 +1,249 @@
+     1#!/usr/bin/env node
+     2
+     3import { execFileSync, spawn } from "node:child_process";
+     4import { createServer } from "node:http";
+     5import { mkdir, readFile, writeFile } from "node:fs/promises";
+     6import { resolve } from "node:path";
+     7import {
+     8  acquireReleaseLock,
+     9  lockPath,
+    10} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+    11import {
+    12  formatMissionCorrelationSummary,
+    13  parseMissionCorrelationReportOutput,
+    14} from "./mission-correlation-report.mjs";
+    15
+    16if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+    17  console.error(
+    18    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+    19  );
+    20  process.exit(2);
+    21}
+    22
+    23const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+    24const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23184);
+    25const dashboardBaseUrl =
+    26  process.env.DASHBOARD_E2E_BASE_URL ??
+    27  `http://127.0.0.1:${dashboardPort}/dashboard/`;
+    28const apiHealthUrl =
+    29  process.env.DASHBOARD_E2E_API_HEALTH_URL ??
+    30  `http://127.0.0.1:${apiPort}/api/healthz`;
+    31// Origin contract probes must reach the API listener directly. Sending them
+    32// through the dashboard dev proxy lets some browser environments terminate
+    33// OPTIONS locally with a bare 204, which hides the API's CORS response.
+    34const apiBaseUrl =
+    35  process.env.DASHBOARD_E2E_API_BASE_URL ??
+    36  `http://127.0.0.1:${apiPort}/`;
+    37const testEmail =
+    38  process.env.DASHBOARD_E2E_EMAIL ??
+    39  "engineeringos-dashboard-release@example.com";
+    40const timeoutMs = Number(
+    41  process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
+    42);
+    43const liveTimeoutMs = Number(
+    44  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+    45);
+    46const childTimeoutMs = Number(
+    47  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+    48);
+    49const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
+    50  .split(",")
+    51  .map((origin) => origin.trim())
+    52  .filter(Boolean);
+    53if (
+    54  approvedDashboardOrigins.length === 0 &&
+    55  process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1"
+    56) {
+    57  approvedDashboardOrigins.push(`http://127.0.0.1:${dashboardPort}`);
+    58}
+    59if (approvedDashboardOrigins.length === 0) {
+    60  throw new Error(
+    61    "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+    62  );
+    63}
+    64const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
+    65const outputDir = resolve(
+    66  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+    67);
+    68const teardownArtifactPath = resolve(
+    69  process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
+    70    resolve(outputDir, "release-teardown.json"),
+    71);
+    72const originDiagnosticsPath = resolve(
+    73  process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
+    74    resolve(outputDir, "origin-diagnostics.json"),
+    75);
+    76const services = [];
+    77let releaseLockCleanup;
+    78const releasePorts = [apiPort, dashboardPort];
+    79const controlPort = Number(
+    80  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
+   760                  ),
+   761                );
+   762                return;
+   763              }
+   764              if (code !== 0) {
+   765                reject(
+   766                  new Error(
+   767                    `Chat contract checks for ${testRun.file} failed with exit code ${code ?? 1}; browser startup was skipped.`,
+   768                  ),
+   769                );
+   770                return;
+   771              }
+   772              resolve();
+   773            });
+   774          }),
+   775      ),
+   776    Promise.resolve(),
+   777  );
+   778}
+   779
+   780function runLiveCorrelationReportCheck() {
+   781  return new Promise((resolveReport, reject) => {
+   782    const reportPath = resolve(
+   783      workspaceRoot,
+   784      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+   785        "test-results/dashboard-journey/live-mission-correlation.json",
+   786    );
+   787    const check = spawn(
+   788      "node",
+   789      ["scripts/mission-correlation-report.mjs", reportPath],
+   790      {
+   791        env: {
+   792          ...process.env,
+   793           MISSION_CORRELATION_REQUIRE_EVIDENCE: "1",
+   794          MISSION_CORRELATION_REQUIRE_CANDIDATE: "1",
+   795        },
+   796        stdio: ["ignore", "pipe", "inherit"],
+   797      },
+   798    );
+   799    let output = "";
+   800    check.stdout.on("data", (chunk) => {
+   801      output += chunk;
+   802    });
+   803    check.on("error", reject);
+   804    check.on("close", (code, signal) => {
+   805      if (signal)
+   806        reject(
+   807          new Error(`Live mission correlation check stopped by ${signal}.`),
+   808        );
+   809      else if (code !== 0)
+   810        reject(
+   811          new Error(
+   812            `Live mission correlation report failed with exit code ${code ?? 1}.`,
+   813          ),
+   814        );
+   815      else {
+   816        try {
+   817          const report = parseMissionCorrelationReportOutput(output);
+   818          console.log(formatMissionCorrelationSummary(report));
+   819           resolveReport(report);
+   820        } catch (error) {
+   821          reject(
+   822            new Error(
+   823              `Live mission correlation report produced invalid output: ${
+   824                error instanceof Error ? error.message : String(error)
+   825              }.`,
+   826            ),
+   827          );
+   828        }
+   829      }
+   830    });
+   831  });
+   832}
+   833
+   834try {
+   835  if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
+   836    await startReleaseServices();
+   837  } else {
+   838    await runDashboardJourneyContracts();
+   839    console.log(
+   840      "Dashboard journey timeout and provider-mode contracts passed.",
+   841    );
+   842    await runMissionCorrelationReportContracts();
+   843    console.log("Mission correlation report contracts passed.");
+   844    await runClerkHandoffContracts();
+   845    console.log("Dashboard Clerk handoff response contracts passed.");
+   846    if (process.env.DASHBOARD_E2E_SKIP_API_CONTRACTS !== "1") {
+   847      await runConcurrentChatContractChecks();
+   848      console.log("Concurrent chat continuation contracts passed.");
+   849    } else {
+   850      console.log(
+   851        "Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.",
+   852      );
+   853    }
+   854    await startReleaseServices();
+   855    const apiHealth = await (await fetch(apiHealthUrl)).json();
+   856    if (apiHealth?.status !== "ok") {
+   857      throw new Error(
+   858        `API health check did not report status=ok (${apiHealthUrl}).`,
+   859      );
+   860    }
+   861    console.log(`Dashboard workflow healthy at ${dashboardBaseUrl}`);
+   862    console.log(`API workflow healthy at ${apiHealthUrl}`);
+   863    console.log(`Using isolated Clerk journey user ${testEmail}`);
+   864    const journey = spawn(
+   865      "pnpm",
+   866      [
+   867        "--filter",
+   868        "@workspace/dashboard",
+   869        "exec",
+   870        "playwright",
+   871        "test",
+   872        "--config=e2e/playwright.config.ts",
+   873        ...(process.env.DASHBOARD_E2E_GREP
+   874          ? ["--grep", process.env.DASHBOARD_E2E_GREP]
+   875          : []),
+   876      ],
+   877      {
+   878        cwd: workspaceRoot,
+   879        env: {
+   880          ...process.env,
+   881          CI: "true",
+   882          DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
+   883          DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
+   884          DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
+   885          DASHBOARD_E2E_EMAIL: testEmail,
+   886          DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
+   887          DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,
+   888          DASHBOARD_E2E_EXECUTABLE_PATH:
+   889            process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
+   890          PLAYWRIGHT_OUTPUT_DIR: outputDir,
+   891          DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
+   892            workspaceRoot,
+   893            process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+   894              "test-results/dashboard-journey/live-mission-correlation.json",
+   895          ),
+   896          ...(Number.isFinite(liveTimeoutMs) && liveTimeoutMs > 0
+   897            ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
+   898            : {}),
+   899        },
+   900        stdio: "inherit",
+   901      },
+   902    );
+   903    const result = await new Promise((resolveResult, reject) => {
+   904      const timer = setTimeout(() => {
+   905        signalProcessGroup(journey, "SIGTERM");
+   906        setTimeout(() => signalProcessGroup(journey, "SIGKILL"), 5_000).unref();
+   907        reject(new Error(`Dashboard browser journey exceeded the ${childTimeoutMs}ms timeout.`));
+   908      }, childTimeoutMs);
+   909      journey.on("error", reject);
+   910      journey.on("exit", (code, signal) =>
+   911        (clearTimeout(timer), resolveResult(signal ? 1 : (code ?? 1))),
+   912      );
+   913    });
+   914    if (result !== 0) process.exitCode = result;
+   915    if (
+   916      result === 0 &&
+   917      process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+   918    ) {
+   919      await runLiveCorrelationReportCheck();
+   920    }
+   921  }
+   922} catch (error) {
+   923  console.error(redact(error instanceof Error ? error.message : String(error)));
+   924  process.exitCode = process.exitCode || 1;
+   925} finally {
+   926  await stopServices();
+   927  if (releaseLockCleanup) await releaseLockCleanup();
+   928}

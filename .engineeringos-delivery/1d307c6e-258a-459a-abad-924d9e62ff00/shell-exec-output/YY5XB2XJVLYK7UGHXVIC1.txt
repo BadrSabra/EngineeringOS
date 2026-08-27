@@ -1,0 +1,265 @@
+   250  return { emit, close };
+   251}
+   252
+   253function emitTaskFailure(
+   254  emit: (event: StructuredTaskEvent) => void,
+   255  close: () => void,
+   256  err: unknown,
+   257  metadata: StructuredAuditMetadata,
+   258  params: { projectId: string; userId: string; task: StructuredTask; sessionId?: string },
+   259) {
+   260  const candidate = err as { code?: unknown; message?: unknown };
+   261  const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
+   262  const failureKind =
+   263    code === "model_output_invalid" || code === "INVALID_MODEL_OUTPUT" ? "PROVIDER_FORMAT" :
+   264    code === "EMPTY_RESPONSE" ? "PROVIDER_FORMAT" :
+   265    code === "RATE_LIMITED" ? "RATE_LIMIT" :
+   266    code === "INVALID_CONFIG" || code === "AUTH_ERROR" || code === "MODEL_NOT_FOUND" || code === "PLAN_RESTRICTED" ? "CONFIGURATION" :
+   267    code === "TIMEOUT" || code === "NETWORK_ERROR" || code === "NON_200" || code === "SERVER_ERROR" ? "PROVIDER_FAILURE" :
+   268    "PROVIDER_FAILURE";
+   269  const message =
+   270    failureKind === "RATE_LIMIT" ? "The AI provider is rate-limited. Please wait before retrying." :
+   271    failureKind === "CONFIGURATION" ? "The AI provider configuration needs attention before this can run." :
+   272    failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
+   273    "The AI provider could not complete this run.";
+   274  metadata.incomplete = true;
+   275  metadata.operationalTrace.push({ stage: "failed", status: "failed" });
+   276  void persistStructuredFailure({
+   277    ...params,
+   278    failureKind,
+   279    retryable: failureKind !== "CONFIGURATION",
+   280    errorCode: code,
+   281    errorMessage: message,
+   282  }).then((sessionId) => {
+   283    emit({
+   284      type: "error",
+   285      code,
+   286      message,
+   287      hint: failureKind === "RATE_LIMIT"
+   288        ? "Wait a moment and retry the task."
+   289        : failureKind === "CONFIGURATION"
+   290          ? "Update the AI setup before starting a new task."
+   291          : "You can retry this task without sending another prompt.",
+   292      retryable: failureKind !== "CONFIGURATION",
+   293      failureKind,
+   294      outcome: "FAILED",
+   295      sessionId,
+   296    });
+   297    close();
+   298  }).catch((persistError) => {
+   299    logger.error({ persistError, projectId: params.projectId, task: params.task }, "structured task failure persistence failed");
+   300    emit({
+   301      type: "error",
+   302      code,
+   303      message,
+   304      hint: "You can retry this task without sending another prompt.",
+   305      retryable: failureKind !== "CONFIGURATION",
+   306      failureKind,
+   307      outcome: "FAILED",
+   308    });
+   309    close();
+   310  });
+   311}
+   312
+   313// ── POST /api/ai/projects/:projectId/analyze ─────────────────────────────────
+   314
+   315router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req, res) => {
+   316  const projectId = req.params.projectId as string;
+   317  const project = req.project;
+   318  if (!project) return res.status(500).json({ error: "Project context unavailable" });
+   319  const metadata = await createAuditMetadata(projectId, project);
+   320  recordTrace(metadata, "analyze", "started");
+   321
+   322  logger.info({ projectId }, "AI scan analysis requested");
+   323
+   324  const providerResolved = await requireProvider(req.userId, res, {
+   325    qualityProfile: "analysis",
+   326  });
+   327  if (!providerResolved) return;
+   328  const { provider, apiKey } = providerResolved;
+   329
+   330  const projectContext = await buildProjectContext(projectId, {
+   331    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+   332  });
+   333
+   334  const rlAnalyze = await checkProjectRateLimitDb(projectId);
+   335  if (!rlAnalyze.allowed) {
+   336    return res.status(429).json({
+   337      error: "The AI provider is temporarily rate-limited.",
+   338      code: "RATE_LIMITED",
+   339      hint: `Wait ${rlAnalyze.retryAfterSec}s, then retry the analysis.`,
+   340      retryable: true,
+   341      failureKind: "RATE_LIMIT",
+   342    });
+   343  }
+   344
+   345  let result: Awaited<ReturnType<typeof analyzeScan>>;
+   346  let effectiveProvider = provider;
+   347  try {
+   348    ({ result, effectiveProvider } = await runAgentWithFallback(
+   349      req.userId,
+   350      { provider, apiKey },
+   351      (opts) => analyzeScan(projectContext, opts),
+   352      { qualityProfile: "analysis" },
+   353    ));
+   354  } catch (err) {
+   355    metadata.incomplete = true;
+   356    recordTrace(metadata, "analyze", "failed", effectiveProvider);
+   357    if (handleOrchestratorError(err, res, { projectId, operation: "scan-analysis", provider: effectiveProvider })) return;
+   358    throw err;
+   359  }
+   360
+   361  // When the model output failed to parse, we still have the fallback data
+   362  // (generated by fallbackScanAnalysis). Serve it with a warning header so the
+   363  // UI can still display something useful rather than showing a hard error.
+   364  // Only a completely empty/unusable response (no summary at all) should 422.
+   365  if (result._parseError) {
+   366    metadata.incomplete = true;
+   367    recordTrace(metadata, "analyze", "incomplete", effectiveProvider);
+   368    logger.warn(
+   369      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+   370      "scan-analyst: parse error",
+   371    );
+   372    return res.status(422).json({
+   373      ...auditEnvelope(metadata),
+   374      error: "model_output_invalid",
+   375      code: "model_output_invalid",
+   376      hint: "The AI model returned an unexpected response — try again in a moment.",
+   377      parseCode: result._parseError.code,
+   378    });
+   379  }
+   380
+   381  invalidateContextCache(projectId);
+   382
+   383  await db.transaction(async (tx) => {
+   384    await tx.insert(auditLogsTable).values({
+   385      id: randomUUID(),
+   386      entityType: "project",
+   387      entityId: projectId,
+   388      action: "ai_analyzed",
+   389      projectId,
+   390      actor: req.userId,
+   612  switch (err.code) {
+   613    case "TIMEOUT":
+   614    case "NETWORK_ERROR":
+   615      res.status(503).json({ ...base, error: `${providerLabel} is unreachable — try again in a moment.` });
+   616      return true;
+   617    case "AUTH_ERROR":
+   618      res.status(401).json({
+   619        ...base,
+   620        error: `${providerLabel} API key is invalid or unauthorized.`,
+   621        hint: `Delete your current key and save a valid one from ${providerConsole}.`,
+   622      });
+   623      return true;
+   624    case "RATE_LIMITED":
+   625      if (err.retryAfterMs !== undefined) {
+   626        res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+   627      }
+   628      res.status(429).json({
+   629        ...base,
+   630        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+   631        retryAfterMs: err.retryAfterMs,
+   632        hint: `You've exceeded your ${providerLabel} API quota. Retry after the indicated delay or configure another provider at ${providerConsole}.`,
+   633      });
+   634      return true;
+   635    case "SERVER_ERROR":
+   636      res.status(502).json({
+   637        ...base,
+   638        error: `${providerLabel} server error — this is a temporary infrastructure issue.`,
+   639        hint: `Try again in a moment. If it persists, check ${providerStatus}.`,
+   640      });
+   641      return true;
+   642    case "MODEL_NOT_FOUND": {
+   643      const isOpenRouter = providerId === "openrouter";
+   644      res.status(422).json({
+   645        ...base,
+   646        error: `${providerLabel} model has been discontinued or removed.`,
+   647        hint: isOpenRouter
+   648          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+   649          : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+   650      });
+   651      return true;
+   652    }
+   653    // PR-04: plan-restricted models (402 — free-tier limitation)
+   654    case "PLAN_RESTRICTED": {
+   655      const isOpenRouter = providerId === "openrouter";
+   656      res.status(402).json({
+   657        ...base,
+   658        error: `${providerLabel} model requires a paid plan or credit balance.`,
+   659        hint: isOpenRouter
+   660          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+   661          : `${providerLabel} requires a paid plan for this model. Check your plan at ${providerConsole}.`,
+   662      });
+   663      return true;
+   664    }
+   665    // PR-04: model temporarily offline (410/422)
+   666    case "MODEL_UNAVAILABLE": {
+   667      res.status(503).json({
+   668        ...base,
+   669        error: `${providerLabel} model is temporarily unavailable.`,
+   670        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+   671      });
+   672      return true;
+   673    }
+   674    // PR-04: billing quota / credits exhausted
+   675    case "QUOTA": {
+   676      res.status(402).json({
+   677        ...base,
+   678        error: `${providerLabel} billing quota or credits are exhausted.`,
+   679        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+   680      });
+   681      return true;
+   682    }
+   683    case "NON_200":
+   684      res.status(502).json({
+   685        ...base,
+   686        error: `${providerLabel} returned an unexpected error.`,
+   687        hint: `Check your ${providerLabel} API key or try again.`,
+   688      });
+   689      return true;
+   690    case "EMPTY_RESPONSE":
+   691      res.status(502).json({
+   692        ...base,
+   693        error: `${providerLabel} returned an empty response.`,
+   694        hint: `This may be a transient ${providerLabel} issue — try again.`,
+   695      });
+   696      return true;
+   697    case "INVALID_CONFIG":
+   698      if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+   699        res.status(503).json({
+   700          ...base,
+   701          error: "No compatible free OpenRouter model is currently available.",
+   702          hint: err.catalogStatus === "failed" || err.catalogStatus === "empty"
+   703            ? "OpenRouter's model catalog could not be refreshed. Try again shortly."
+   704            : "OpenRouter currently has no free model matching this request. Try again later or configure another provider.",
+   705        });
+   706        return true;
+   707      }
+   708      if (providerId === "openrouter" && err.providerCode === "MODEL_CAPABILITY_MISMATCH") {
+   709        res.status(422).json({
+   710          ...base,
+   711          error: "The selected OpenRouter model no longer supports this request.",
+   712          hint: "The model catalog changed while this request was starting. Retry to select a current compatible model.",
+   713        });
+   714        return true;
+   715      }
+   716      if (providerId === "openrouter" && err.providerCode === "STALE_CONFIGURED_MODEL") {
+   717        res.status(422).json({
+   718          ...base,
+   719          error: "The configured OpenRouter model is no longer available.",
+   720          hint: "Select a current free model or clear the stale model override.",
+   721        });
+   722        return true;
+   723      }
+   724      res.status(422).json({
+   725        ...base,
+   726        error: "AI provider configuration is invalid.",
+   727        hint: `Re-save your ${providerLabel} API key.`,
+   728      });
+   729      return true;
+   730    default:
+   731      res.status(502).json({ ...base, error: `${providerLabel} provider error.`, hint: "Try again in a moment." });
+   732      return true;
+   733  }
+   734}
+   735

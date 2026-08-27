@@ -1,0 +1,179 @@
+    60  }
+    61
+    62  async run(input: TInput, opts?: AgentCompleteOpts): Promise<AgentRunResult<TOutput>> {
+    63    const messages = this.buildMessages(input);
+    64    const executionPlan = resolveExecutionDecision(this.scope, {
+    65      qualityProfile: opts?.qualityProfile ?? this.buildQualityProfile(input),
+    66    });
+    67    const qualityProfile = opts?.qualityProfile ?? this.buildQualityProfile(input) ?? executionPlan.qualityProfile;
+    68    const parseResponse = (raw: string) => parseAgentResponse(raw, this.schema, (fallbackRaw) => this.fallbackOutput(fallbackRaw));
+    69
+    70    opts?.onProgress?.("Calling AI model…");
+    71    const response = await this.complete(messages, {
+    72      ...this.buildCompleteOpts(input),
+    73      ...(opts ?? {}),
+    74      qualityProfile,
+    75      qualityHints: opts?.qualityHints ?? executionPlan.strictHints,
+    76    });
+    77
+    78    let parsed = parseResponse(response.content);
+    79    let parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
+    80    const initialAssessment = parsed.ok && qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
+    81    let attempt = 1;
+    82    let assessment = initialAssessment;
+    83    while (attempt < executionPlan.retryLimit) {
+    84      const retryDecision = decideRetry({
+    85        attempt,
+    86        limit: executionPlan.retryLimit,
+    87        parseError,
+    88        assessment,
+    89      });
+    90      if (!retryDecision.shouldRetry) break;
+    91      console.warn(
+    92        JSON.stringify({
+    93          scope: this.scope,
+    94          code: "MODEL_RETRY",
+    95          reason: retryDecision.reason,
+    96          qualityProfile,
+    97        }),
+    98      );
+    99
+   100      opts?.onProgress?.("Retrying — improving output quality…");
+   101      const retryResponse = await this.complete(messages, {
+   102        ...this.buildCompleteOpts(input),
+   103        ...(opts ?? {}),
+   104        qualityProfile,
+   105        qualityHints: executionPlan.relaxedHints,
+   106      });
+   107
+   108      parsed = parseResponse(retryResponse.content);
+   109      parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
+   110      assessment = parsed.ok && qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
+   111      attempt += 1;
+   112    }
+   113
+   114    if (!parsed.ok) {
+   115      console.warn(JSON.stringify({ scope: this.scope, code: parsed.code, message: parsed.message }));
+   116      return { ...parsed.data, _parseError: parseError };
+   117    }
+   118
+   119    assessment = qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
+   120    if (assessment && assessment.decision !== "accept") {
+   121      console.warn(
+   122        JSON.stringify({
+   123          scope: this.scope,
+   124          code: "QUALITY_REVIEW_LOW",
+   125          qualityProfile,
+   126          score: assessment.score,
+   127          threshold: assessment.threshold,
+   128          reasons: assessment.reasons,
+   129        }),
+   130      );
+   131    }
+   132
+   133    // parsed.data is TOutput, which satisfies AgentRunResult<TOutput> (= T & { _parseError? })
+   134    // because _parseError is optional. Cast is required because TypeScript cannot
+   135    // prove T satisfies T & { _parseError?: … } for an unconstrained generic.
+   136    return parsed.data as AgentRunResult<TOutput>;
+   137  }
+   138}
+     1/**
+     2 * Provider-agnostic completion helper for single-shot agents.
+     3 *
+     4 * This layer still delegates to the provider-specific transport clients, but
+     5 * the provider configuration itself now flows through the registry helpers so
+     6 * selection, defaults, and validation share one source of truth.
+     7 */
+     8import { complete, completeRaw } from "./groq-client.js";
+     9import { deepseekCompleteRaw } from "./deepseek-client.js";
+    10import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
+    11import { loadProvider } from "./provider-registry.js";
+    12import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
+    13import { GroqClientError } from "./errors.js";
+    14import type { Message } from "./groq-client.js";
+    15import type { ProviderConfig, ProviderId } from "./provider-registry.js";
+    16import type { ProviderCapabilityHints } from "./provider-capabilities.js";
+    17import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
+    18import { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
+    19import { resolveExecutionModel } from "./model-selection/model-resolver.js";
+    20import { refreshDynamicCatalog } from "./openrouter/dynamic-catalog.js";
+    21
+    22export type { ProviderId };
+    23
+    24export type AgentCompleteOpts = {
+    25  /** Caller-owned cancellation signal for the complete request and retries. */
+    26  signal?: AbortSignal;
+    27  /** Per-user API key. Required for DeepSeek and OpenRouter; falls back to GROQ_API_KEY env for Groq. */
+    28  apiKey?: string;
+    29  /** Which AI provider to use. Defaults to the quality-aware best available provider. */
+    30  provider?: ProviderId;
+    31  /**
+    32   * Optional quality profile used to bias provider selection toward the
+    33   * strongest available runtime for this task type.
+    34   */
+    35  qualityProfile?: QualityProfile;
+    36  /** Optional explicit capability hints override. */
+    37  qualityHints?: ProviderCapabilityHints;
+    38  /**
+    39   * Optional progress callback. Called at key execution milestones (model call,
+    40   * retry) so callers can stream status updates to the user in real-time.
+    41   * The callback may be async; errors are silently swallowed to keep the agent
+    42   * pipeline stable.
+    43   */
+    44  onProgress?: (msg: string) => void | Promise<void>;
+    45  /**
+    46   * Maximum number of OpenRouter models to try for this request. Structured
+    47   * agents use this to keep a provider outage bounded instead of walking the
+    48   * entire free catalog.
+    49   */
+    50  maxFallbackModels?: number;
+    51  /** For OpenRouter, advance to another model instead of retrying transient errors. */
+    52  retryTransient?: boolean;
+    53};
+    54
+    55function requireApiKey(provider: ProviderConfig, apiKey?: string): string {
+    56  if (provider.providerId === "groq") {
+    57    return apiKey ?? "";
+    58  }
+    59  if (!apiKey) {
+    60    throw new GroqClientError(
+    61      "INVALID_CONFIG",
+    62      `${provider.label} API key is required but was not provided`,
+    63    );
+    64  }
+    65  return apiKey;
+    66}
+    67
+    68function assertContent(provider: ProviderConfig, content: string | null | undefined): string {
+    69  if (content) return content;
+    70  throw new GroqClientError("EMPTY_RESPONSE", `${provider.label} returned no content for this request`);
+    71}
+    72
+    73function inferExecutionScope(
+    74  qualityProfile?: QualityProfile,
+    75  qualityHints?: ProviderCapabilityHints,
+    76): QualityProfile {
+    77  if (qualityProfile) return qualityProfile;
+    78  if (qualityHints?.requireTools) return "tool_chat";
+    79  if (
+    80    qualityHints?.requireThinking ||
+    81    qualityHints?.requireReasoning ||
+    82    (qualityHints?.minimumContext ?? 0) >= 16_000
+    83  ) {
+    84    return "analysis";
+    85  }
+    86  return "chat";
+    87}
+    88
+    89async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promise<void> {
+    90  const testMessages: Message[] = [{ role: "user", content: "hi" }];
+    91  const probePlan = resolveExecutionDecision(
+    92    provider.providerId === "openrouter" ? "task_execution" : "chat",
+    93  );
+    94  const probeModelDecision = resolveExecutionModel(provider.providerId, probePlan);
+    95
+    96  switch (provider.providerId) {
+    97    case "deepseek":
+    98      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
+    99      return;
+   100    case "openrouter":

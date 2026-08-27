@@ -1,22 +1,19 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-26T23:41:31.846Z",
-  "status": "blocked",
+  "generatedAt": "2026-08-27T02:13:41.261Z",
+  "status": "passed",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
   "summary": {
     "totalCases": 11,
-    "passedCases": 8,
-    "failedCases": 2,
+    "passedCases": 10,
+    "failedCases": 0,
     "skippedCases": 1,
-    "blockingFailures": 2,
+    "blockingFailures": 0,
     "informationalFailures": 0
   },
-  "blockers": [
-    "AI_CONTRACT_AND_JSON_FAILED_1",
-    "AI_SSE_AND_REDACTION_FAILED_1"
-  ],
+  "blockers": [],
   "checks": [
     {
       "id": "api-typecheck",
@@ -28,7 +25,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 26953
+      "durationMs": 29617
     },
     {
       "id": "dashboard-typecheck",
@@ -40,7 +37,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 5056
+      "durationMs": 7183
     },
     {
       "id": "openapi-client-parity",
@@ -53,7 +50,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 6571
+      "durationMs": 7617
     },
     {
       "id": "truth-flow-parity",
@@ -65,7 +62,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1269
+      "durationMs": 1684
     },
     {
       "id": "ai-contract-and-json",
@@ -79,9 +76,8 @@
         "false-success handling"
       ],
       "enabled": true,
-      "status": "failed",
-      "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
-      "durationMs": 14019
+      "status": "passed",
+      "durationMs": 75672
     },
     {
       "id": "ai-structured-review-fallback",
@@ -97,7 +93,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1434
+      "durationMs": 3414
     },
     {
       "id": "ai-sse-and-redaction",
@@ -111,9 +107,8 @@
         "resume"
       ],
       "enabled": true,
-      "status": "failed",
-      "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "durationMs": 19649
+      "status": "passed",
+      "durationMs": 22640
     },
     {
       "id": "ai-operational-safety",
@@ -129,7 +124,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 65176
+      "durationMs": 65461
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -144,7 +139,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 711
+      "durationMs": 882
     },
     {
       "id": "benchmark-baseline-regression",
@@ -158,7 +153,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 401
+      "durationMs": 370
     },
     {
       "id": "dashboard-preview-contract",

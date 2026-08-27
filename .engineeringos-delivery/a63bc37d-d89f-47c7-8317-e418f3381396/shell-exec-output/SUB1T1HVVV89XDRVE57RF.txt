@@ -1,0 +1,351 @@
+     1import { promises as fs } from "node:fs";
+     2import os from "node:os";
+     3import path from "node:path";
+     4import process from "node:process";
+     5import { execFile } from "node:child_process";
+     6import { promisify } from "node:util";
+     7import {
+     8  applyCodeAgentBenchmarkBaselineGate,
+     9  buildCodeAgentBenchmarkScorecard,
+    10  CODE_AGENT_BENCHMARK_VERSION,
+    11  codeAgentBenchmarkScorecardToMarkdown,
+    12  getCodeAgentBenchmarkCases,
+    13  getTargetedCodeAgentBenchmarkCases,
+    14  getCodeAgentBenchmarkTargetProfileCases,
+    15  getDynamicModelIds,
+    16  refreshDynamicCatalog,
+    17  selectFreeOnlyBenchmarkModels,
+    18  benchmarkShardLabel,
+    19  parseBenchmarkShardConfig,
+    20  selectBenchmarkShard,
+    21  FREE_MODELS,
+    22  type BenchmarkAirlockObservation,
+    23  type BenchmarkAirlockRun,
+    24  type CodeAgentBenchmarkBaseline,
+    25  type CodeAgentBenchmarkCase,
+    26  type CodeAgentBenchmarkObservation,
+    27  type ProviderHealthProbeResult,
+    28  type ProviderId,
+    29  type BenchmarkCampaignMode,
+    30  type CodeAgentBenchmarkTargetProfile,
+    31  buildBenchmarkParityReport,
+    32  benchmarkParityReportToMarkdown,
+    33} from "@workspace/ai-orchestrator";
+    34import { hashDeliveryWorkspace } from "./delivery-workspace.js";
+    35import {
+    36  defaultApiBenchmarkAllowedPaths,
+    37  defaultApiBenchmarkHistory,
+    38  defaultApiBenchmarkPrompt,
+    39  defaultApiBenchmarkTargetPaths,
+    40  runApiCodeAgentBenchmarkAirlock,
+    41  type ApiCodeAgentBenchmarkProvider,
+    42} from "./ai-code-agent-benchmark.js";
+    43
+    44const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
+    45  openrouter: "OPENROUTER_API_KEY",
+    46  gemini: "GEMINI_API_KEY",
+    47  deepseek: "DEEPSEEK_API_KEY",
+    48  groq: "GROQ_API_KEY",
+    49};
+    50const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", ".engineeringos-delivery", ".engineeringos-projects", "docs", "coverage", "dist", ".vite"]);
+    51const sourceRoot = path.resolve(process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."));
+    52const execFileAsync = promisify(execFile);
+    53const APPROVED_SOURCE_REVISION = "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a";
+    54async function resolveSourceRevision(root: string): Promise<string> {
+    55  const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "main"], { maxBuffer: 4096 });
+    56  const revision = stdout.trim();
+    57  if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(revision)) {
+    58    throw new Error("SOURCE_REVISION_INVALID: server-observed main revision is malformed.");
+    59  }
+    60  if (revision !== APPROVED_SOURCE_REVISION) {
+    61    throw new Error("SOURCE_REVISION_STALE: server-observed main revision is not the approved benchmark source.");
+    62  }
+    63  return revision;
+    64}
+    65const sourceRevision = await resolveSourceRevision(sourceRoot);
+    66const allCases = getCodeAgentBenchmarkCases();
+    67const benchmarkTargetPaths = [
+    68  ...new Set(allCases.flatMap((testCase) => defaultApiBenchmarkTargetPaths(testCase))),
+    69];
+    70const freeOnly = process.env.BENCHMARK_FREE_ONLY === "true";
+    71const liveCampaign = process.env.BENCHMARK_LIVE_CAMPAIGN === "1";
+    72const campaignModeSelection = process.env.BENCHMARK_MODE?.trim() || "live";
+    73if (campaignModeSelection !== "live") {
+    74  throw new Error("BENCHMARK_MODE must be live; deterministic release checks do not run this provider campaign.");
+    75}
+    76if (!liveCampaign) {
+    77  throw new Error(
+    78    "Live benchmark campaigns are measurement-only; set BENCHMARK_LIVE_CAMPAIGN=1 explicitly.",
+    79  );
+    80}
+    81if (!process.env.BENCHMARK_OUTPUT_DIR?.trim()) {
+    82  throw new Error(
+    83    "Live benchmark campaigns require BENCHMARK_OUTPUT_DIR so release artifacts cannot be overwritten.",
+    84  );
+    85}
+    86const campaignTimeoutMs = Number.parseInt(
+    87  process.env.BENCHMARK_CAMPAIGN_TIMEOUT_MS ?? "900000",
+    88  10,
+    89);
+    90if (!Number.isInteger(campaignTimeoutMs) || campaignTimeoutMs < 1) {
+    91  throw new Error("BENCHMARK_CAMPAIGN_TIMEOUT_MS must be a positive integer.");
+    92}
+    93const campaignMode = (process.env.BENCHMARK_CAMPAIGN_MODE?.trim() || "clean-witness") as BenchmarkCampaignMode;
+    94if (campaignMode !== "coverage" && campaignMode !== "clean-witness") {
+    95  throw new Error("BENCHMARK_CAMPAIGN_MODE must be coverage or clean-witness.");
+    96}
+    97const batchSizeRaw = process.env.BENCHMARK_BATCH_SIZE?.trim();
+    98const batchSize = batchSizeRaw ? Number.parseInt(batchSizeRaw, 10) : undefined;
+    99if (batchSize !== undefined && (!Number.isInteger(batchSize) || batchSize < 1)) {
+   100  throw new Error("BENCHMARK_BATCH_SIZE must be a positive integer.");
+   101}
+   102const recoveryOnly = process.env.BENCHMARK_RECOVERY_ONLY === "true";
+   103const targeted = process.env.BENCHMARK_TARGETED === "true";
+   104const targetProfileRaw = process.env.BENCHMARK_TARGET_PROFILE?.trim();
+   105const targetProfiles = new Set<CodeAgentBenchmarkTargetProfile>([
+   106  "repair-loop",
+   107  "scope-enforcement",
+   108  "provider-fallback",
+   109  "forensic-routing",
+   110]);
+   111if (targetProfileRaw && !targetProfiles.has(targetProfileRaw as CodeAgentBenchmarkTargetProfile)) {
+   112  throw new Error(
+   113    `Unknown BENCHMARK_TARGET_PROFILE: ${targetProfileRaw}. Expected ${[...targetProfiles].join(", ")}.`,
+   114  );
+   115}
+   116const targetProfile = targetProfileRaw as CodeAgentBenchmarkTargetProfile | undefined;
+   117const requestedCaseIds = (process.env.BENCHMARK_CASE_IDS ?? "")
+   118  .split(",")
+   119  .map((id) => id.trim())
+   120  .filter(Boolean);
+   121const shard = parseBenchmarkShardConfig(
+   122  process.env.BENCHMARK_SHARD_INDEX,
+   123  process.env.BENCHMARK_SHARD_COUNT,
+   124);
+   125const shardLabel = shard ? benchmarkShardLabel(shard) : undefined;
+   126const configuredOutputDir = process.env.BENCHMARK_OUTPUT_DIR?.trim();
+   127const outputDir = path.resolve(
+   128  configuredOutputDir
+   129    ? shard
+   130      ? path.join(configuredOutputDir, shardLabel!)
+   131      : configuredOutputDir
+   132    : path.join(
+   133        sourceRoot,
+   134        "lib/ai-orchestrator/benchmark-results",
+   135        shardLabel ?? "",
+   136      ),
+   137);
+   138if (campaignModeSelection === "live") {
+   139  const relativeOutput = path.relative(sourceRoot, outputDir);
+   140  if (relativeOutput === "" || (!relativeOutput.startsWith("..") && !path.isAbsolute(relativeOutput))) {
+   141    throw new Error(
+   142      "Live benchmark output must be outside the source workspace; use a disposable campaign directory such as /tmp/engineeringos-live-campaign.",
+   143    );
+   144  }
+   145}
+   146const runId = process.env.BENCHMARK_RUN_ID?.trim() ||
+   147  `airlock-${shardLabel ? `${shardLabel}-` : ""}${Date.now()}`;
+   148const generatedAt = new Date().toISOString();
+   149
+   150async function resetCaseTargets(_testCase: CodeAgentBenchmarkCase, rootPath: string): Promise<void> {
+   151  await Promise.all(benchmarkTargetPaths.map(async (relativePath) => {
+   152    const sourcePath = path.resolve(sourceRoot, relativePath);
+   153    const isolatedPath = path.resolve(rootPath, relativePath);
+   154    try {
+   155      await fs.mkdir(path.dirname(isolatedPath), { recursive: true });
+   156      await fs.copyFile(sourcePath, isolatedPath);
+   157    } catch {
+   158      await fs.rm(isolatedPath, { force: true });
+   159    }
+   160  }));
+   161}
+   162
+   163function isRecord(value: unknown): value is Record<string, unknown> {
+   164  return typeof value === "object" && value !== null;
+   165}
+   166
+   167async function writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
+   168  const temporaryPath = `${filePath}.tmp-${process.pid}`;
+   169  await fs.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+   170  await fs.rename(temporaryPath, filePath);
+   171}
+   172
+   173async function createIsolatedBenchmarkRoot(): Promise<{ rootPath: string; cleanup: () => Promise<void> }> {
+   174  const resolvedSource = await fs.realpath(sourceRoot);
+   175  await fs.access(path.join(resolvedSource, "package.json"));
+   176  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-airlock-"));
+   177  try {
+   178    await fs.cp(resolvedSource, rootPath, {
+   179      recursive: true,
+   180      dereference: false,
+   300      "totalCases",
+   301      "observedCases",
+   302      "firstAttemptRate",
+   303      "repairedWithinThreeRate",
+   304      "correctCompletionRate",
+   305      "usefulIncompleteRate",
+   306      "safelyBlockedRate",
+   307      "falseSuccessRate",
+   308      "scopeEscapeRate",
+   309      "conflictRate",
+   310      "averageFilesRead",
+   311      "averageToolCalls",
+   312      "averageRepairAttempts",
+   313      "averageRejectedChanges",
+   314      "providerUnavailableCount",
+   315    ];
+   316    if (
+   317      typeof metrics.complete !== "boolean" ||
+   318      !numericFields.every((field) => typeof metrics[field] === "number") ||
+   319      !["typecheckSuccessRate", "testSuccessRate", "averageLatencyMs"].every(
+   320        (field) => metrics[field] === null || typeof metrics[field] === "number",
+   321      ) ||
+   322      !isRecord(metrics.gradeCounts)
+   323    ) return undefined;
+   324    return value as unknown as CodeAgentBenchmarkBaseline;
+   325  } catch {
+   326    return undefined;
+   327  }
+   328}
+   329
+   330const cases = requestedCases();
+   331const initialResults = await readProgress(cases);
+   332console.log(JSON.stringify({
+   333  scope: "benchmark-campaign",
+   334  code: "PROGRESS_LEDGER_LOADED",
+   335  outputDir,
+   336  requestedCaseCount: cases.length,
+   337  persistedObservationCount: initialResults.length,
+   338  persistedRecoveryCount: initialResults.filter((entry) =>
+   339    entry.observation.providerUnavailable === true ||
+   340    entry.observation.grade === "U" ||
+   341    entry.observation.grade === "F",
+   342  ).length,
+   343}));
+   344const recoveryCaseIds = new Set(
+   345  initialResults
+   346    .filter((entry) =>
+   347      entry.observation.providerUnavailable === true ||
+   348      entry.observation.grade === "U" ||
+   349      entry.observation.grade === "F",
+   350    )
+   351    .map((entry) => entry.caseId),
+   352);
+   353const qualityObservedCaseIds = new Set(
+   354  initialResults
+   355    .filter((entry) => !recoveryCaseIds.has(entry.caseId))
+   356    .map((entry) => entry.caseId),
+   357);
+   358const pendingCases = cases.filter((testCase) => !qualityObservedCaseIds.has(testCase.id));
+   359const executionCases = recoveryOnly
+   360  ? cases.filter((testCase) => recoveryCaseIds.has(testCase.id))
+   361  : batchSize
+   362    ? pendingCases.slice(0, batchSize)
+   363    : cases;
+   364if (recoveryOnly && executionCases.length === 0) {
+   365  throw new Error("BENCHMARK_RECOVERY_ONLY requires persisted U/F observations in the progress ledger.");
+   366}
+   367const configuredProviders = (process.env.BENCHMARK_PROVIDERS ?? (freeOnly ? "openrouter" : "openrouter,gemini,deepseek,groq"))
+   368  .split(",")
+   369  .map((provider) => provider.trim())
+   370  .filter(Boolean) as ProviderId[];
+   371const invalidProviders = configuredProviders.filter((provider) => !(provider in PROVIDER_KEY_ENV));
+   372if (invalidProviders.length > 0) throw new Error(`Unsupported Airlock providers: ${invalidProviders.join(", ")}`);
+   373if (freeOnly && configuredProviders.some((provider) => provider !== "openrouter")) {
+   374  throw new Error("BENCHMARK_FREE_ONLY requires BENCHMARK_PROVIDERS=openrouter.");
+   375}
+   376
+   377let liveFreeModelIds: ReadonlySet<string> | undefined;
+   378if (freeOnly) {
+   379  await refreshDynamicCatalog(process.env.OPENROUTER_API_KEY);
+   380  liveFreeModelIds = getDynamicModelIds() ?? undefined;
+   381  if (!liveFreeModelIds) {
+   382    throw new Error("BENCHMARK_FREE_ONLY requires a live OpenRouter free-model catalog.");
+   383  }
+   384}
+   385
+   386const providers: ApiCodeAgentBenchmarkProvider[] = configuredProviders.flatMap((provider) => {
+   387  const providerKey = provider.toUpperCase();
+   388  const configuredModels = (process.env[`BENCHMARK_MODELS_${providerKey}`] ?? "")
+   389    .split(",")
+   390    .map((model) => model.trim())
+   391    .filter(Boolean);
+   392  const singleModel = process.env[`BENCHMARK_MODEL_${providerKey}`]?.trim();
+   393  const models = configuredModels.length > 0 ? configuredModels : [singleModel];
+   394  if (freeOnly && provider === "openrouter") {
+   395    const selection = selectFreeOnlyBenchmarkModels({
+   396      liveModelIds: liveFreeModelIds!,
+   397      requestedModels: configuredModels.length > 0 ? configuredModels : singleModel ? [singleModel] : undefined,
+   398      maxModels: Number.parseInt(process.env.BENCHMARK_FREE_MODEL_LIMIT ?? "4", 10),
+   399      catalog: FREE_MODELS,
+   400      requiredCapability: "tool_calling",
+   401    });
+   402    if (selection.rejectedModels.length > 0) {
+   403      throw new Error(`BENCHMARK_FREE_ONLY rejected non-free or unavailable models: ${selection.rejectedModels.join(", ")}`);
+   404    }
+   405    if (selection.models.length === 0) {
+   406      throw new Error("BENCHMARK_FREE_ONLY found no live free tool-calling models.");
+   407    }
+   408    return selection.models.map((model) => ({
+   409      provider,
+   410      apiKey: process.env[PROVIDER_KEY_ENV[provider]] ?? "",
+   411      model,
+   412    }));
+   413  }
+   414  return models.map((model) => ({
+   415    provider,
+   416    apiKey: process.env[PROVIDER_KEY_ENV[provider]] ?? "",
+   417    model,
+   418  }));
+   419});
+   420
+   421await fs.mkdir(outputDir, { recursive: true });
+   422if (shard) {
+   423  await writeJsonAtomically(path.join(outputDir, "code-agent-benchmark-airlock.shard.json"), {
+   424    kind: "code-agent-benchmark-airlock-shard",
+   425    version: 1,
+   426    shard,
+   427    caseIds: cases.map((testCase) => testCase.id),
+   428    freeOnly,
+   429  });
+   430}
+   431const isolated = await createIsolatedBenchmarkRoot();
+   432const campaignController = new AbortController();
+   433const campaignTimer = setTimeout(() => campaignController.abort(), campaignTimeoutMs);
+   434let providerHealth: readonly ProviderHealthProbeResult[] = [];
+   435let latestObservations = initialResults;
+   436function mergeObservations(
+   437  current: readonly BenchmarkAirlockObservation[],
+   438  next: readonly BenchmarkAirlockObservation[],
+   439): BenchmarkAirlockObservation[] {
+   440  const byCase = new Map(current.map((entry) => [entry.caseId, entry]));
+   441  for (const entry of next) byCase.set(entry.caseId, entry);
+   442  return [...byCase.values()];
+   443}
+   444try {
+   445  const candidateHash = await hashDeliveryWorkspace(isolated.rootPath);
+   446  if (initialResults.some((entry) => entry.observation.candidateHash !== candidateHash)) {
+   447    throw new Error(
+   448      "CANDIDATE_HASH_MISMATCH: persisted benchmark observations do not match the server-owned isolated candidate workspace hash.",
+   449    );
+   450  }
+   451  if (initialResults.some((entry) => entry.observation.sourceRevision !== sourceRevision)) {
+   452    throw new Error(
+   453      "SOURCE_REVISION_MISMATCH: persisted benchmark observations do not match the server-owned campaign source revision.",
+   454    );
+   455  }
+   456  const run = await runApiCodeAgentBenchmarkAirlock({
+   457    rootPath: isolated.rootPath,
+   458    projectContext: {
+   459      project: "EngineeringOS isolated Code Agent benchmark workspace",
+   460      recentTasks: "No benchmark task history is injected.",
+   461      latestMetrics: "No benchmark metrics are injected.",
+   462      graphSummary: "Use bounded source reads and approved paths.",
+   463      recentEvents: "No benchmark events are injected.",
+   464      workflows: "Validation is server-owned and runs in a temporary overlay.",
+   465      metricsVerified: false,
+   466    },
+   467    mode: freeOnly ? "free-only" : "live",
+   468    campaignMode,
+   469    recoveryOnly,
+   470    diagnosticOnly: Boolean(targetProfile || targeted || requestedCaseIds.length > 0 || shard),

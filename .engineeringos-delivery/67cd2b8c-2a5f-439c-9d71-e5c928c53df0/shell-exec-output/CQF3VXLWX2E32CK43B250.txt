@@ -1,0 +1,218 @@
+    84export function resolveExecutionModel(
+    85  providerId: ProviderId,
+    86  plan: ExecutionPlan,
+    87): ExecutionModelDecision {
+    88  const provider = loadProvider(providerId);
+    89  // Capability probes are deliberately a fast, tool-capable contract. They
+    90  // need exact source quoting, not a long reasoning trace or a large synthesis
+    91  // envelope. Keeping this exception in model resolution prevents a probe
+    92  // from inheriting task_execution's paid/reasoning-oriented tier merely
+    93  // because its read-only tool loop lives inside chat-agent.
+    94  const isCapabilityProbe = plan.qualityProfile === "capability_probe";
+    95  const wantPowerful = isCapabilityProbe ? false : wantsPowerfulModel(plan);
+    96  const capability = selectCapability(plan);
+    97
+    98  let decision: ExecutionModelDecision;
+    99
+   100  if (providerId === "openrouter") {
+   101    const fallbackChain = resolveFallbackChain({
+   102      capability,
+   103      quality: wantPowerful ? "powerful" : "fast",
+   104      requireTools: plan.strictHints.requireTools ?? false,
+   105    }).map((model) => model.id);
+   106
+   107    // Controlled live checks may opt into a known paid OpenRouter model. Keep
+   108    // this override environment-only so ordinary provider-free validation and
+   109    // normal free-tier routing retain the catalog-driven fallback chain.
+   110    const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+   111    let liveModel: string | undefined;
+   112    if (configuredModel) {
+   113      try {
+   114        liveModel = resolveFreeModelOverride(configuredModel, {
+   115          capability,
+   116          requireTools: plan.strictHints.requireTools ?? false,
+   117        });
+   118      } catch (error) {
+   119        // An environment-pinned model can become paid, retired, or lose the
+   120        // requested capability between deploys. Treat it as a stale hint and
+   121        // use the already-resolved live fallback chain instead of making a
+   122        // review fail before the provider is contacted.
+   123        console.warn(
+   124          JSON.stringify({
+   125            scope: "model-resolver",
+   126            action: "ignore_unusable_configured_model",
+   127            configuredModel,
+   128            capability,
+   129            reason: error instanceof Error ? error.message : "model is not currently usable",
+   130          }),
+   131        );
+   132      }
+   133    }
+   134    if (fallbackChain.length === 0 && !liveModel) {
+   135      const catalog = getDynamicCatalogStatus();
+   136      throw new GroqClientError(
+   137        "INVALID_CONFIG",
+   138        `No compatible free OpenRouter model is available for capability="${capability}"`,
+   139        {
+   140          context: {
+   141            providerName: "OpenRouter",
+   142            providerCode: "NO_COMPATIBLE_FREE_MODEL",
+   143            catalogLoaded: catalog.loaded,
+   144            catalogUsable: catalog.usable,
+   145            catalogStatus: catalog.lastRefreshStatus,
+   146            catalogError: catalog.lastRefreshError ?? undefined,
+   147          },
+   148        },
+   149      );
+   150    }
+   151    const model = liveModel ?? fallbackChain[0]!;
+   152    const powerModel = liveModel ?? fallbackChain[1] ?? fallbackChain[0]!;
+   153
+   154    decision = {
+   155      providerId,
+   156      model,
+   157      powerModel,
+   158      fallbackChain: liveModel ? [liveModel] : fallbackChain,
+   159      capability,
+   160      quality: wantPowerful ? "powerful" : "fast",
+   161      source: "openrouter-catalog",
+   162    };
+   163  } else {
+   164    const model = wantPowerful ? provider.defaultModels.powerful : provider.defaultModels.fast;
+   165
+   166    decision = {
+   167      providerId,
+   168      model,
+   169      powerModel: provider.defaultModels.powerful,
+   170      fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
+   171      capability,
+   172      quality: wantPowerful ? "powerful" : "fast",
+   173      source: "provider-registry",
+   174    };
+   175  }
+     1/**
+     2 * Provider Registry — single source of truth for AI provider metadata.
+     3 *
+     4 * The static registry remains the compatibility surface used by the rest of
+     5 * the workspace, while the helper functions below provide a path toward a
+     6 * more declarative capability-driven registry.
+     7 *
+     8 * `getStrategy(id)` maps a ProviderId to its ProviderStrategy implementation.
+     9 * Adding a new provider requires:
+    10 *   1. A new strategy file in `strategies/`.
+    11 *   2. An entry in STRATEGY_MAP below.
+    12 *   3. An entry in PROVIDER_REGISTRY and PROVIDER_PRIORITY.
+    13 *   Nothing else changes.
+    14 */
+    15
+    16import { DEFAULT_PROVIDER_CAPABILITIES, providerMatchesHints, scoreProviderCapabilities, type ProviderCapabilityHints, type ProviderCapabilitySummary } from "./provider-capabilities.js";
+    17import type { ProviderStrategy } from "./provider-strategy.js";
+    18import { groqStrategy } from "./strategies/groq.strategy.js";
+    19import { deepseekStrategy } from "./strategies/deepseek.strategy.js";
+    20import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
+    21import { geminiStrategy } from "./strategies/gemini.strategy.js";
+    22import { FREE_MODELS } from "./openrouter/model-catalog.js";
+    23import { recordBehavioralModelCall } from "./behavioral-scorecard.js";
+    24// RC-03: avoid hardcoding a dead OpenRouter model ID at module-load time.
+    25// The emergency fallback is derived from the current static free-tier catalog
+    26// so the registry never points at a model that the local codebase no longer
+    27// considers valid.
+    28const OR_EMERGENCY_FALLBACK =
+    29  FREE_MODELS.find((m) => m.quality === "fast")?.id ??
+    30  FREE_MODELS[0]?.id ??
+    31  "liquid/lfm-2.5-2.6b:free";
+    32
+    33export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
+    34
+    35export type ProviderConfig = {
+    36  providerId: ProviderId;
+    37  /** Human-readable label used in error messages and UI hints. */
+    38  label: string;
+    39  /** Console / dashboard URL shown in error hints (no https:// prefix). */
+    40  consoleUrl: string;
+    41  /** Status page URL shown in 5xx hints (no https:// prefix). */
+    42  statusUrl: string;
+    43  supportsStreaming: boolean;
+    44  supportsTools: boolean;
+    45  supportsJsonMode: boolean;
+    46  /** Default model slugs for fast (tool-loop) and powerful (single-shot) tasks. */
+    47  defaultModels: { fast: string; powerful: string };
+    48  /** Optional richer capability summary used by discovery helpers. */
+    49  capabilities?: Partial<ProviderCapabilitySummary>;
+    50};
+    51
+    52/**
+    53 * Fallback priority order: openrouter → gemini → deepseek → groq.
+    54 *
+    55 * resolveProvider() returns the first provider in this list whose key is
+    56 * available. resolveFallbackProvider() skips the current provider and returns
+    57 * the next one in this order.
+    58 *
+    59 * To change the ordering, edit this array — no if/else chains to update.
+    60 */
+    61export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter", "gemini", "deepseek", "groq"];
+    62
+    63export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
+    64  openrouter: {
+    65    providerId: "openrouter",
+    66    label: "OpenRouter",
+    67    consoleUrl: "openrouter.ai/keys",
+    68    statusUrl: "openrouter.ai",
+    69    supportsStreaming: true,
+    70    supportsTools: true,
+    71    supportsJsonMode: true,
+    72    defaultModels: {
+    73      // RC-03: these are emergency last-resort IDs only — the smallest, most
+    74      // reliably-free model in the static catalog.  Execution paths that
+    75      // actually use OpenRouter must call resolveFallbackChain() at call time
+    76      // (see agent-complete.ts RC-04 fix) so the live free-tier catalog is
+    77      // consulted rather than a baked-in string from module-load time.
+    78      fast: OR_EMERGENCY_FALLBACK,
+    79      powerful: OR_EMERGENCY_FALLBACK,
+    80    },
+    81    capabilities: {
+    82      supportsStreaming: true,
+    83      supportsTools: true,
+    84      supportsJsonMode: true,
+    85      supportsVision: false,
+    86      supportsReasoning: true,
+    87      supportsFunctionCalling: true,
+    88      supportsThinking: false,
+    89      maxContext: 128_000,
+    90      maxOutput: 32_000,
+    91      costTier: "low",
+    92    },
+    93  },
+    94  deepseek: {
+    95    providerId: "deepseek",
+    96    label: "DeepSeek",
+    97    consoleUrl: "platform.deepseek.com",
+    98    statusUrl: "platform.deepseek.com",
+    99    supportsStreaming: true,
+   100    supportsTools: true,
+   245  if (!strategy) throw new Error(`No ProviderStrategy registered for provider: ${id}`);
+   246  return strategy;
+   247}
+   248
+   249// ─── Provider telemetry (OR-007) ──────────────────────────────────────────────
+   250
+   251/**
+   252 * Structured record emitted after every model API call.
+   253 * Written to stdout as a JSON line so it can be ingested by any log processor.
+   254 */
+   255export type ProviderTelemetry = {
+   256  /** Provider that handled this request. */
+   257  provider: ProviderId;
+   258  /** Exact model slug used. */
+   259  model: string;
+   260  /** GroqErrorCode that triggered a model fallback, if any. */
+   261  fallbackReason?: string;
+   262  /** Total number of API attempts (1 = first try succeeded, 2 = one retry). */
+   263  attemptCount: number;
+   264  /** Prompt token count from usage metadata (0 when unavailable). */
+   265  promptTokens: number;
+   266  /** Completion token count from usage metadata (0 when unavailable). */
+   267  completionTokens: number;
+   268  /** Wall-clock time in ms from first attempt start to final response. */
+   269  durationMs: number;
+   270};

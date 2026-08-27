@@ -1,0 +1,190 @@
+     1/**
+     2 * Focused tests for chat-provider routing helpers.
+     3 */
+     4import { describe, expect, it } from "vitest";
+     5import {
+     6  GroqClientError,
+     7  type ProviderId,
+     8} from "@workspace/ai-orchestrator";
+     9import {
+    10  redactUserFacingText,
+    11  redactUserFacingValue,
+    12  providerAvailabilityProjection,
+    13  requestLooksToolBound,
+    14} from "./ai-route-helpers.js";
+    15
+    16describe("requestLooksToolBound", () => {
+    17  it("flags code-analysis style messages as tool-bound", () => {
+    18    expect(requestLooksToolBound("Please analyze the codebase and inspect the file tree")).toBe(true);
+    19    expect(requestLooksToolBound("قم بتحليل الكود وافحص الملفات")).toBe(true);
+    20  });
+    21
+    22  it("does not over-trigger on simple greetings", () => {
+    23    expect(requestLooksToolBound("hello there")).toBe(false);
+    24    expect(requestLooksToolBound("شكراً جزيلاً")).toBe(false);
+    25  });
+    26});
+    27
+    28describe("AI user-facing JSON redaction contract", () => {
+    29  it.each([
+    30    {
+    31      name: "analysis result",
+    32      fixture: {
+    33        summary: "See /workspace/projects/demo/src/index.ts",
+    34        sources: ["/tmp/provider-output.txt (request 123e4567-e89b-12d3-a456-426614174000)"],
+    35        trace: {
+    36          file: "/home/runner/workspace/artifacts/api-server/src/routes/ai/analysis.ts",
+    37          requestId: "123e4567-e89b-12d3-a456-426614174000",
+    38        },
+    39      },
+    40    },
+    41    {
+    42      name: "workflow decision",
+    43      fixture: {
+    44        reasoning: "Provider response referenced /var/task/run.log",
+    45        evidence: [{ source: "/mnt/data/evidence.json", id: "550e8400-e29b-41d4-a716-446655440000" }],
+    46      },
+    47    },
+    48    {
+    49      name: "provider error",
+    50      fixture: {
+    51        error: "Provider failed while reading /srv/app/config.json",
+    52        details: { requestId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8" },
+    53      },
+    54    },
+    55  ])("redacts paths and opaque IDs from $name fields", ({ fixture }) => {
+    56    const serialized = JSON.stringify(redactUserFacingValue(fixture));
+    57
+    58    expect(serialized).not.toContain("/workspace/");
+    59    expect(serialized).not.toContain("/tmp/");
+    60    expect(serialized).not.toContain("/home/runner/");
+    61    expect(serialized).not.toContain("/var/task/");
+    62    expect(serialized).not.toContain("/mnt/data/");
+    63    expect(serialized).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+    64    expect(serialized).toContain("[runtime path]");
+    65    expect(serialized).toContain("[internal id]");
+    66  });
+    67
+    68  it("redacts standalone provider error text without changing the contract shape", () => {
+    69    expect(redactUserFacingText("failed at /app/run.txt for 123e4567-e89b-12d3-a456-426614174000"))
+    70      .toBe("failed at [runtime path] for [internal id]");
+    71  });
+    72});
+    73
+    74describe("provider health failure contract", () => {
+    75  const provider = "openrouter" as ProviderId;
+    76  const consoleUrl = "https://openrouter.ai/keys";
+    77  const statusUrl = "https://status.openrouter.ai";
+    78  const cases = [
+    79    {
+    80      name: "missing credentials",
+    81      error: new GroqClientError("INVALID_CONFIG", "missing API key"),
+    82      expected: "provider_outage",
+    83    },
+    84    {
+    85      name: "authentication",
+    86      error: new GroqClientError("AUTH_ERROR", "Authorization: Bearer sk-or-v1-secret"),
+    87      expected: "authentication_failed",
+    88    },
+    89    {
+    90      name: "incompatible model",
+    91      error: new GroqClientError("MODEL_NOT_FOUND", "upstream model error: raw upstream detail"),
+    92      expected: "incompatible_model",
+    93    },
+    94    {
+    95      name: "stale catalog",
+    96      error: new GroqClientError("INVALID_CONFIG", "catalog refresh failed: /srv/catalog.ts", {
+    97        context: {
+    98          providerCode: "NO_COMPATIBLE_FREE_MODEL",
+    99          catalogStatus: "failed",
+   100          catalogError: "raw upstream catalog response sk-or-v1-secret",
+   101        },
+   102      }),
+   103      expected: "catalog_stale",
+   104    },
+   105    {
+   106      name: "quota",
+   107      error: new GroqClientError("QUOTA", "quota response contains raw upstream detail"),
+   108      expected: "quota_exhausted",
+   109    },
+   110    {
+   111      name: "rate limit",
+   112      error: new GroqClientError("RATE_LIMITED", "429 raw upstream response"),
+   113      expected: "rate_limited",
+   114    },
+   115    {
+   116      name: "circuit open",
+   117      error: new GroqClientError("MODEL_NOT_FOUND", "circuit detail raw upstream", {
+   118        context: { providerCode: "CIRCUIT_OPEN" },
+   119      }),
+   120      expected: "circuit_open",
+   121    },
+   122    {
+   123      name: "outage",
+   124      error: new GroqClientError("SERVER_ERROR", "provider outage raw upstream"),
+   125      expected: "provider_outage",
+   126    },
+   127  ] as const;
+   128
+   129  it.each(cases)("classifies $name with a safe operator action", ({ error, expected }) => {
+   130    const projection = providerAvailabilityProjection(error, provider, consoleUrl, statusUrl);
+   131    expect(projection.availabilityState).toBe(expected);
+   132    expect(projection.operatorAction).toMatch(/retry|configure|replace|select|choose|wait|credits/i);
+   133    expect(JSON.stringify(projection)).not.toContain("sk-or-v1-secret");
+   134    expect(JSON.stringify(projection)).not.toContain("raw upstream");
+   135    expect(JSON.stringify(projection)).not.toContain("/srv/catalog.ts");
+   136  });
+   137
+   138  it("keeps circuit-open and stale-catalog failures distinct from incompatible models", () => {
+   139    const stale = providerAvailabilityProjection(
+   140      new GroqClientError("INVALID_CONFIG", "stale", {
+   141        context: { providerCode: "NO_COMPATIBLE_FREE_MODEL", catalogStatus: "empty" },
+   142      }),
+   143      provider,
+   144      consoleUrl,
+   145      statusUrl,
+   146    );
+   147    const circuit = providerAvailabilityProjection(
+   148      new GroqClientError("MODEL_NOT_FOUND", "circuit", {
+   149        context: { providerCode: "CIRCUIT_OPEN" },
+   150      }),
+   151      provider,
+   152      consoleUrl,
+   153      statusUrl,
+   154    );
+   155    const incompatible = providerAvailabilityProjection(
+   156      new GroqClientError("MODEL_NOT_FOUND", "model"),
+   157      provider,
+   158      consoleUrl,
+   159      statusUrl,
+   160    );
+   161
+   162    expect(stale.availabilityState).toBe("catalog_stale");
+   163    expect(circuit.availabilityState).toBe("circuit_open");
+   164    expect(incompatible.availabilityState).toBe("incompatible_model");
+   165    expect(stale.catalogStatus).toBe("empty");
+   166  });
+   167
+   168  it("serializes only safe provider reference details", () => {
+   169    const error = new GroqClientError("INVALID_CONFIG", "raw /srv/provider.ts sk-or-v1-secret", {
+   170      context: {
+   171        providerCode: "NO_COMPATIBLE_FREE_MODEL",
+   172        providerMessage: "raw upstream message",
+   173        providerModel: "model-free",
+   174        catalogStatus: "failed",
+   175        catalogError: "raw catalog body",
+   176      },
+   177    });
+   178    const context = error.toProviderContext();
+   179    // The SSE route intentionally removes providerMessage before serializing
+   180    // this context; keep that user-facing boundary explicit in the fixture.
+   181    const publicContext = Object.fromEntries(
+   182      Object.entries(context).filter(([key]) => key !== "providerMessage"),
+   183    );
+   184    const serialized = JSON.stringify(publicContext);
+   185
+   186    expect(serialized).toContain("NO_COMPATIBLE_FREE_MODEL");
+   187    expect(serialized).toContain("failed");
+   188    expect(serialized).not.toContain("raw upstream message");
+   189    expect(serialized).not.toContain("raw catalog body");
+   190    expect(serialized).not.toContain("sk-or-v1-secret");

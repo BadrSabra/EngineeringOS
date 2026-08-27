@@ -1,0 +1,461 @@
+  1080  if (!hadContent) {
+  1081    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream returned no content`);
+  1082  }
+  1083}
+  1084
+  1085// ── Pre-built OpenRouter client functions ─────────────────────────────────────
+  1086
+  1087const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+  1088const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
+  1089
+  1090/**
+  1091 * Non-streaming completion via OpenRouter.
+  1092 *
+  1093 * OR-003: trims context to `OPENROUTER_MAX_MESSAGES` non-system turns and
+  1094 *         defaults `maxTokens` to `OPENROUTER_DEFAULT_MAX_TOKENS` (2 048).
+  1095 * OR-005: retries once (after 1.5 s back-off) on transient errors (429, 5xx,
+  1096 *         timeout, network) before propagating — avoids needless provider
+  1097 *         fallback for brief free-tier blips.
+  1098 */
+  1099export async function openrouterCompleteRaw(
+  1100  messages: RawMessage[],
+  1101  opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+  1102): Promise<RawGroqResponse> {
+  1103  const trimmed = trimMessagesForOpenRouter(messages);
+  1104  const fullOpts: OpenAICompatibleOptions = {
+  1105    maxTokens: OPENROUTER_DEFAULT_MAX_TOKENS,
+  1106    ...opts,
+  1107    baseUrl: OPENROUTER_BASE_URL,
+  1108    providerName: "OpenRouter",
+  1109    extraHeaders: OPENROUTER_EXTRA_HEADERS,
+  1110  };
+  1111
+  1112  try {
+  1113    return await oacCompleteRaw(trimmed, fullOpts);
+  1114  } catch (err) {
+  1115    // OpenRouter-compatible models do not all implement JSON mode consistently.
+  1116    // A 400 caused by response_format must not consume the whole Recovery chain:
+  1117    // retry the same model once with the prompt-only contract.
+  1118    if (
+  1119      fullOpts.responseFormat &&
+  1120      err instanceof GroqClientError &&
+  1121      (err.code === "NON_200" || err.code === "MODEL_UNAVAILABLE") &&
+  1122      err.providerStatus === 400
+  1123    ) {
+  1124      console.warn(
+  1125        JSON.stringify({
+  1126          scope: "openrouter-client",
+  1127          code: "JSON_MODE_UNSUPPORTED",
+  1128          model: fullOpts.model,
+  1129          action: "retry_without_response_format",
+  1130        }),
+  1131      );
+  1132      return oacCompleteRaw(trimmed, { ...fullOpts, responseFormat: undefined });
+  1133    }
+  1134    if (
+  1135      err instanceof GroqClientError &&
+  1136      err.code === "RATE_LIMITED" &&
+  1137      err.retryAfterMs !== undefined
+  1138    ) {
+  1139      throw err;
+  1140    }
+  1141    if (!isTransientError(err) || opts.retryTransient === false) throw err;
+  1142    console.warn(
+  1143      JSON.stringify({
+  1144        scope: "openrouter-client",
+  1145        code: "TRANSIENT_RETRY",
+  1146        errorCode: err.code,
+  1147        backoffMs: 1500,
+  1148      }),
+  1149    );
+  1150    await sleep(1500);
+  1151    return oacCompleteRaw(trimmed, fullOpts);
+  1152  }
+  1153}
+  1154
+  1155/**
+  1156 * Extended options for openrouterCompleteWithFallback.
+  1157 *
+  1158 * RC-04: when `model` is not provided, the resolver uses `quality` and
+  1159 * `capability` to pick the best currently-free model from the live catalog.
+  1160 * This avoids baking in a static model ID at call-site setup time (which would
+  1161 * be stale by the time the first catalog refresh completes).
+  1162 */
+  1163export type OpenRouterFallbackOptions = Omit<
+  1164  OpenAICompatibleOptions,
+  1165  "baseUrl" | "providerName" | "extraHeaders"
+  1166> & {
+  1167  /** RC-04: quality tier hint used when `model` is undefined. Defaults to "fast". */
+  1168  quality?: "fast" | "powerful";
+  1169  /** RC-04: capability hint used when `model` is undefined. Defaults to "chat". */
+  1170  capability?: ModelCapability;
+  1171  /** Execution-plan tool contract, including calls with tools supplied later. */
+  1172  requireTools?: boolean;
+  1173};
+  1174
+  1175/**
+  1176 * Non-streaming completion via OpenRouter with automatic free-model fallback
+  1177 * (STORY-03).
+  1178 *
+  1179 * PR-003: MODEL_UNAVAILABLE (410/422) is now also fallback-worthy in addition
+  1180 * to MODEL_NOT_FOUND (404/402/400). EMPTY_RESPONSE is also fallback-worthy
+  1181 * because a silent completion identifies an unusable model candidate, not the
+  1182 * whole OpenRouter provider.
+  1183 *
+  1184 * RC-04: when `model` is not provided, resolves the best available free model
+  1185 * from the live catalog at call time using the `quality` + `capability` hints.
+  1186 */
+  1187export async function openrouterCompleteWithFallback(
+  1188  messages: RawMessage[],
+  1189  opts: OpenRouterFallbackOptions,
+  1190): Promise<RawGroqResponse> {
+  1191  const initialModel = opts.model;
+  1192  const capability = opts.capability ?? "chat";
+  1193  const requireTools = opts.requireTools ?? !!(opts.tools?.length);
+  1194  const knownInitialModel = initialModel
+  1195    ? FREE_MODELS.some((candidate) => candidate.id === initialModel)
+  1196    : true;
+  1197  if (initialModel && !knownInitialModel) {
+  1198    throw new GroqClientError(
+  1199      "INVALID_CONFIG",
+  1200      `OpenRouter configured model is not a known free catalog model: ${initialModel}`,
+  1201      { context: { providerName: "OpenRouter", providerModel: initialModel, providerCode: "STALE_CONFIGURED_MODEL" } },
+  1202    );
+  1203  }
+  1204
+  1205  // RC-04 / PR-01: when no model is specified, use the resolver to build a full
+  1206  // fallback chain from the live free-tier catalog at call time.
+  1207  // `quality` and `capability` let callers express intent (e.g. "powerful" for
+  1208  // code-review) without hardcoding a specific model ID that may become stale.
+  1209  const resolvedChain = initialModel
+  1210    ? buildFallbackChainFromId(initialModel, opts.taskType, { capability, requireTools })
+  1211    : resolveFallbackChain({
+  1212        capability,
+  1213        quality:    opts.quality    ?? "fast",
+  1214        requireTools,
+  1215         taskType: opts.taskType,
+  1216      }).map((m) => m.id);
+  1217  if (initialModel && resolvedChain.length === 0) {
+  1218    const catalog = getDynamicCatalogStatus();
+  1219    throw new GroqClientError(
+  1220      "INVALID_CONFIG",
+  1221      `OpenRouter model ${initialModel} does not satisfy capability="${capability}" in the current catalog`,
+  1222      {
+  1223        context: {
+  1224          providerName: "OpenRouter",
+  1225          providerModel: initialModel,
+  1226          providerCode: "MODEL_CAPABILITY_MISMATCH",
+  1227          catalogLoaded: catalog.loaded,
+  1228          catalogUsable: catalog.usable,
+  1229          catalogStatus: catalog.lastRefreshStatus,
+  1230          catalogError: catalog.lastRefreshError ?? undefined,
+  1231        },
+  1232      },
+  1233    );
+  1234  }
+  1235  const maxFallbackModels =
+  1236    Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
+  1237      ? opts.maxFallbackModels
+  1238      : undefined;
+  1239  const chain = maxFallbackModels
+  1240    ? resolvedChain.slice(0, maxFallbackModels)
+  1241    : resolvedChain;
+  1242  if (maxFallbackModels && resolvedChain.length > chain.length) {
+  1243    console.info(
+  1244      JSON.stringify({
+  1245        scope: "openrouter-fallback",
+  1246        code: "FALLBACK_CHAIN_BOUNDED",
+  1247        requestedLength: resolvedChain.length,
+  1248        appliedLength: chain.length,
+  1249        maxFallbackModels,
+  1250      }),
+  1251    );
+  1252  }
+  1253  let lastError: GroqClientError | undefined;
+  1254  const attemptedModels: string[] = [];
+  1255
+  1256  for (let i = 0; i < chain.length; i++) {
+  1257    const model = chain[i] as string;
+  1258    attemptedModels.push(model);
+  1259    try {
+  1260      return await openrouterCompleteRaw(messages, { ...opts, model });
+  1261    } catch (err) {
+  1262      // PR-003: treat MODEL_UNAVAILABLE (422/410) the same as MODEL_NOT_FOUND.
+  1263      // Bounded Recovery also owns transient fallback: it disables the
+  1264      // per-model retry above and advances immediately to the next live
+  1265      // reasoning candidate instead of letting chat-agent replay a tool-loop
+  1266      // chain on top of this one.
+  1267      const fallbackOnTransient =
+  1268        opts.retryTransient === false && isTransientError(err);
+  1269      if ((isModelUnavailableError(err) || fallbackOnTransient) && i < chain.length - 1) {
+  1270        const nextModel = chain[i + 1] as string;
+  1271        console.warn(
+  1272          JSON.stringify({
+  1273            scope: "openrouter-fallback",
+  1274            code: "MODEL_FALLBACK",
+  1275            reason: err.code,
+  1276            failedModel: model,
+  1277            nextModel,
+  1278            providerStatus: err.providerStatus,
+  1279            attempt: i + 1,
+  1280            remaining: chain.length - i - 1,
+  1281          }),
+  1282        );
+  1283        lastError = err;
+  1284        continue;
+  1285      }
+  1286      if (err instanceof GroqClientError) {
+  1287        throw new GroqClientError(err.code, err.message, {
+  1288          cause: err,
+  1289          context: {
+  1290            ...err.toProviderContext(),
+  1291            providerModel: err.providerModel ?? model,
+  1292            providerAttemptedModels: [...attemptedModels],
+  1293          },
+  1294        });
+  1295      }
+  1296      throw err;
+  1297    }
+  1298  }
+  1299
+  1300  if (lastError) {
+  1301    throw new GroqClientError(lastError.code, lastError.message, {
+  1302      cause: lastError,
+  1303      context: {
+  1304        ...lastError.toProviderContext(),
+  1305        providerModel: lastError.providerModel ?? attemptedModels.at(-1),
+  1306        providerAttemptedModels: [...attemptedModels],
+  1307      },
+  1308    });
+  1309  }
+  1310  const catalog = getDynamicCatalogStatus();
+  1311  throw new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted", {
+  1312    context: {
+  1313      providerAttemptedModels: [...attemptedModels],
+  1314      catalogLoaded: catalog.loaded,
+  1315      catalogUsable: catalog.usable,
+  1316      catalogStatus: catalog.lastRefreshStatus,
+  1317      catalogError: catalog.lastRefreshError ?? undefined,
+  1318    },
+  1319  });
+  1320}
+  1321
+  1322/**
+  1323 * Streaming completion via OpenRouter.
+  1324 *
+  1325 * OR-003: same context trim and conservative maxTokens as `openrouterCompleteRaw`.
+  1326 * OR-005: retries the stream once on transient errors.
+  1327 */
+  1328export async function* openrouterCompleteStream(
+  1329  messages: RawMessage[],
+  1330  opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
+  1331): AsyncGenerator<string> {
+  1332  const trimmed = trimMessagesForOpenRouter(messages);
+  1333  const fullOpts: OpenAICompatibleStreamOptions = {
+  1334    maxTokens: OPENROUTER_DEFAULT_MAX_TOKENS,
+  1335    ...opts,
+  1336    baseUrl: OPENROUTER_BASE_URL,
+  1337    providerName: "OpenRouter",
+  1338    extraHeaders: OPENROUTER_EXTRA_HEADERS,
+  1339  };
+  1340
+     1/**
+     2 * Provider-agnostic completion helper for single-shot agents.
+     3 *
+     4 * This layer still delegates to the provider-specific transport clients, but
+     5 * the provider configuration itself now flows through the registry helpers so
+     6 * selection, defaults, and validation share one source of truth.
+     7 */
+     8import { complete, completeRaw } from "./groq-client.js";
+     9import { deepseekCompleteRaw } from "./deepseek-client.js";
+    10import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
+    11import { loadProvider } from "./provider-registry.js";
+    12import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
+    13import { GroqClientError } from "./errors.js";
+    14import type { Message } from "./groq-client.js";
+    15import type { ProviderConfig, ProviderId } from "./provider-registry.js";
+    16import type { ProviderCapabilityHints } from "./provider-capabilities.js";
+    17import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
+    18import { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
+    19import { resolveExecutionModel } from "./model-selection/model-resolver.js";
+    20import { refreshDynamicCatalog } from "./openrouter/dynamic-catalog.js";
+    21
+    22export type { ProviderId };
+    23
+    24export type AgentCompleteOpts = {
+    25  /** Caller-owned cancellation signal for the complete request and retries. */
+    26  signal?: AbortSignal;
+    27  /** Per-user API key. Required for DeepSeek and OpenRouter; falls back to GROQ_API_KEY env for Groq. */
+    28  apiKey?: string;
+    29  /** Which AI provider to use. Defaults to the quality-aware best available provider. */
+    30  provider?: ProviderId;
+    31  /**
+    32   * Optional quality profile used to bias provider selection toward the
+    33   * strongest available runtime for this task type.
+    34   */
+    35  qualityProfile?: QualityProfile;
+    36  /** Optional explicit capability hints override. */
+    37  qualityHints?: ProviderCapabilityHints;
+    38  /**
+    39   * Optional progress callback. Called at key execution milestones (model call,
+    40   * retry) so callers can stream status updates to the user in real-time.
+    41   * The callback may be async; errors are silently swallowed to keep the agent
+    42   * pipeline stable.
+    43   */
+    44  onProgress?: (msg: string) => void | Promise<void>;
+    45  /**
+    46   * Maximum number of OpenRouter models to try for this request. Structured
+    47   * agents use this to keep a provider outage bounded instead of walking the
+    48   * entire free catalog.
+    49   */
+    50  maxFallbackModels?: number;
+    51  /** For OpenRouter, advance to another model instead of retrying transient errors. */
+    52  retryTransient?: boolean;
+    53};
+    54
+    55function requireApiKey(provider: ProviderConfig, apiKey?: string): string {
+    56  if (provider.providerId === "groq") {
+    57    return apiKey ?? "";
+    58  }
+    59  if (!apiKey) {
+    60    throw new GroqClientError(
+    61      "INVALID_CONFIG",
+    62      `${provider.label} API key is required but was not provided`,
+    63    );
+    64  }
+    65  return apiKey;
+    66}
+    67
+    68function assertContent(provider: ProviderConfig, content: string | null | undefined): string {
+    69  if (content) return content;
+    70  throw new GroqClientError("EMPTY_RESPONSE", `${provider.label} returned no content for this request`);
+    71}
+    72
+    73function inferExecutionScope(
+    74  qualityProfile?: QualityProfile,
+    75  qualityHints?: ProviderCapabilityHints,
+    76): QualityProfile {
+    77  if (qualityProfile) return qualityProfile;
+    78  if (qualityHints?.requireTools) return "tool_chat";
+    79  if (
+    80    qualityHints?.requireThinking ||
+    81    qualityHints?.requireReasoning ||
+    82    (qualityHints?.minimumContext ?? 0) >= 16_000
+    83  ) {
+    84    return "analysis";
+    85  }
+    86  return "chat";
+    87}
+    88
+    89async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promise<void> {
+    90  const testMessages: Message[] = [{ role: "user", content: "hi" }];
+    91  const probePlan = resolveExecutionDecision(
+    92    provider.providerId === "openrouter" ? "task_execution" : "chat",
+    93  );
+    94  const probeModelDecision = resolveExecutionModel(provider.providerId, probePlan);
+    95
+    96  switch (provider.providerId) {
+    97    case "deepseek":
+    98      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
+    99      return;
+   100    case "openrouter":
+   101      // Use the same decision engine as the main call path so the validation
+   102      // probe exercises the same model-selection rules.
+   103      await openrouterCompleteWithFallback(testMessages, {
+   104        apiKey,
+   105        maxTokens: 1,
+   106        temperature: 0,
+   107        model: probeModelDecision.model,
+   108        capability: probeModelDecision.capability,
+   109        quality: probeModelDecision.quality,
+   110        requireTools: probePlan.strictHints.requireTools ?? false,
+   111      });
+   112      return;
+   113    case "gemini":
+   114      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
+   115      return;
+   116    default:
+   117      // groq — uses high-level client with 10s timeout for the probe
+   118      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000, model: probeModelDecision.model });
+   119      return;
+   120  }
+   121}
+   122
+   123/**
+   124 * Validates an API key by sending a minimal 1-token probe to the provider.
+   125 *
+   126 * Returns `{ valid: true }` on success.
+   127 * Returns `{ valid: false, reason }` only on AUTH_ERROR — the key is definitively
+   128 * rejected by the provider.
+   129 * On any transient error (NETWORK_ERROR, TIMEOUT, SERVER_ERROR, NON_200) returns
+   130 * `{ valid: true }` so a connectivity blip never prevents the user from saving a
+   131 * key that might be perfectly valid.
+   132 */
+   133export async function validateProviderKey(
+   134  provider: ProviderId,
+   135  apiKey: string,
+   136): Promise<{ valid: boolean; reason?: string }> {
+   137  const config = loadProvider(provider);
+   138  try {
+   139    await probeProviderKey(config, apiKey);
+   140    return { valid: true };
+   141  } catch (err) {
+   142    if (err instanceof GroqClientError && err.code === "AUTH_ERROR") {
+   143      return { valid: false, reason: err.message };
+   144    }
+   145    // Transient error — allow the save; the next real request has provider fallback.
+   146    return { valid: true };
+   147  }
+   148}
+   149
+   150/**
+   151 * Send a single-shot chat completion to the configured provider.
+   152 *
+   153 * Always returns `{ content: string }` — content is guaranteed non-empty.
+   154 * Throws `GroqClientError` on any provider error so callers handle the same
+   155 * error union regardless of which provider is active.
+   156 */
+   157export async function agentComplete(
+   158  messages: Message[],
+   159  opts: AgentCompleteOpts,
+   160): Promise<{ content: string }> {
+   161  const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile) : undefined);
+   162  const executionScope = inferExecutionScope(opts.qualityProfile, qualityHints);
+   163  const executionPlan = resolveExecutionDecision(executionScope, {
+   164    hasTools: !!qualityHints?.requireTools,
+   165    requireTools: !!qualityHints?.requireTools,
+   166    qualityProfile: opts.qualityProfile ?? executionScope,
+   167  });
+   168  const providerDecision = resolveExecutionProvider(executionPlan, opts.provider);
+   169  const providerId = providerDecision.providerId;
+   170  const provider = loadProvider(providerId);
+   171  const apiKey = requireApiKey(provider, opts.apiKey);
+   172
+   173  switch (provider.providerId) {
+   174    case "deepseek": {
+   175      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+   176      const result = await deepseekCompleteRaw(messages, {
+   177        model: modelDecision.model,
+   178        apiKey,
+   179        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+   180        signal: opts.signal,
+   181      });
+   182      return { content: assertContent(provider, result.content) };
+   183    }
+   184
+   185    case "openrouter": {
+   186      // Refresh before resolving the first model, not only inside the
+   187      // transport. This keeps the initial model and its bounded fallback
+   188      // chain aligned with the currently usable free catalog.
+   189      await refreshDynamicCatalog(apiKey);
+   190      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+   191      const result = await openrouterCompleteWithFallback(messages, {
+   192        model: modelDecision.model,
+   193        apiKey,
+   194        capability: modelDecision.capability,
+   195        quality: modelDecision.quality,
+   196        requireTools: qualityHints?.requireTools ?? false,
+   197        maxFallbackModels: opts.maxFallbackModels,
+   198        retryTransient: opts.retryTransient,
+   199        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+   200        signal: opts.signal,

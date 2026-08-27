@@ -1,0 +1,352 @@
+     1/**
+     2 * Shared helpers for AI route handlers.
+     3 *
+     4 * Extracted from routes/ai.ts to keep each subroute module small and testable.
+     5 * Import from here rather than from the route file.
+     6 *
+     7 * Provider resolution uses PROVIDER_PRIORITY from the registry so the fallback
+     8 * chain is driven by a single array — no if/else sprawl when adding providers.
+     9 */
+    10import { randomUUID } from "crypto";
+    11import { db } from "@workspace/db";
+    12import { aiProviderCredentialsTable, eventsTable } from "@workspace/db";
+    13import { eq, and } from "drizzle-orm";
+    14import {
+    15  chat,
+    16  buildProjectContext,
+    17  GroqClientError,
+    18  PROVIDER_PRIORITY,
+    19  PROVIDER_REGISTRY,
+    20  sortProviderIdsByQuality,
+    21  isCircuitOpen,
+    22} from "@workspace/ai-orchestrator";
+    23import type {
+    24  ProviderId,
+    25  QualityProfile,
+    26  AgentStep,
+    27  ActiveTask,
+    28  ActiveTaskState,
+    29  ExecutionNode,
+    30  ProductionTraceLink,
+    31  ObjectiveContract,
+    32  TurnIntent,
+    33  ValidationRunner,
+    34} from "@workspace/ai-orchestrator";
+    35import { logger } from "./logger.js";
+    36import { decryptApiKey } from "./credentials-crypto.js";
+    37
+    38export type { ProviderId };
+    39
+    40/**
+    41 * Remove deployment details from values that cross an AI route's user-facing
+    42 * boundary. Keep the original provider output for server-side diagnostics,
+    43 * but never persist or stream it verbatim.
+    44 */
+    45export function redactUserFacingText(value: string): string {
+    46  return value
+    47    .replace(/\/(?:home\/runner(?:\/workspace)?|workspace|tmp|app|srv|var\/task|mnt\/data)\/[^\s`"'<>),;]+/g, "[runtime path]")
+    48    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]")
+    49    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]")
+    50    .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]")
+    51    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted token]");
+    52}
+    53
+    54/** Redact strings in user-facing JSON while preserving its shape. */
+    55export function redactUserFacingValue<T>(value: T): T {
+    56  if (typeof value === "string") return redactUserFacingText(value) as T;
+    57  if (Array.isArray(value)) return value.map((item) => redactUserFacingValue(item)) as T;
+    58  if (value && typeof value === "object") {
+    59    return Object.fromEntries(
+    60      Object.entries(value).map(([key, item]) => [key, redactUserFacingValue(item)]),
+    61    ) as T;
+    62  }
+    63  return value;
+    64}
+    65
+    66type ProviderSelectionOptions = {
+    67  /** When true, skip providers that cannot handle the request's tool payloads. */
+    68  requireTools?: boolean;
+    69  /** Optional quality profile used to bias provider selection. */
+    70  qualityProfile?: QualityProfile;
+    71};
+    72
+    73function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
+    74  const config = PROVIDER_REGISTRY[provider];
+    75  if (!config) return false;
+    76  if (options?.requireTools && !config.supportsTools) return false;
+    77  return true;
+    78}
+    79
+    80async function collectAvailableProviders(
+    81  userId: string,
+    82  options?: ProviderSelectionOptions,
+    83): Promise<Array<{ provider: ProviderId; apiKey: string }>> {
+    84  const available: Array<{ provider: ProviderId; apiKey: string }> = [];
+    85  const skipped: Array<{ provider: ProviderId; reason: string }> = [];
+    86
+    87  for (const provider of PROVIDER_PRIORITY) {
+    88    const key = await resolveProviderKey(userId, provider);
+    89    if (!key) {
+    90      skipped.push({ provider, reason: "no_api_key" });
+    91      continue;
+    92    }
+    93    if (!providerCanHandleRequest(provider, options)) {
+    94      const reason = options?.requireTools ? "no_tool_support" : "capability_mismatch";
+    95      logger.info(
+    96        { provider, requireTools: !!options?.requireTools, reason },
+    97        "Skipping provider that cannot satisfy the current request",
+    98      );
+    99      skipped.push({ provider, reason });
+   100      continue;
+   101    }
+   102    // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).
+   103    if (isCircuitOpen(provider)) {
+   104      logger.warn(
+   105        { provider, reason: "circuit_open" },
+   106        "Skipping provider — circuit is open due to consecutive failures",
+   107      );
+   108      skipped.push({ provider, reason: "circuit_open" });
+   109      continue;
+   110    }
+   111    available.push({ provider, apiKey: key });
+   112  }
+   113
+   114  if (options?.qualityProfile && available.length > 1) {
+   115    const orderedIds = sortProviderIdsByQuality(
+   116      available.map((candidate) => candidate.provider),
+   117      options.qualityProfile,
+   118      { requireTools: options.requireTools },
+   119    );
+   120    const byProvider = new Map(available.map((candidate) => [candidate.provider, candidate.apiKey]));
+   470         commandProfiles: baseParams.commandProfiles,
+   471         commandRunner: baseParams.commandRunner,
+   472         commandContext: baseParams.commandContext,
+   473        allowAnalysisTools: baseParams.allowAnalysisTools,
+   474        analysisToolRunner: baseParams.analysisToolRunner,
+   475        analysisCorrelation: baseParams.analysisCorrelation,
+   476        validationTargetPaths: baseParams.validationTargetPaths,
+   477        executionPlanOverride: baseParams.executionPlanOverride,
+   478        buildHandoff: baseParams.buildHandoff,
+   479        onExecutionNodes: baseParams.onExecutionNodes,
+   480        signal: baseParams.signal,
+   481        turnIntent: baseParams.turnIntent,
+   482        retainedEvidence,
+   483      } as Parameters<typeof chat>[0]);
+   484      return { result, effectiveProvider: providerEntry.provider };
+   485    } catch (err) {
+   486      if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
+   487        logger.warn(
+   488          { provider: providerEntry.provider, code: err.code, message: err.message },
+   489          "provider failed — trying next in chain",
+   490        );
+   491        providerErrors.push({ provider: providerEntry.provider, code: err.code, message: err.message });
+   492        lastErr = err;
+   493        continue;
+   494      }
+   495      // Non-recoverable error — surface immediately.
+   496      throw err;
+   497    }
+   498  }
+   499
+   500  // GAP-C1: All providers exhausted — surface the full cascade so the caller
+   501  // (and the user) can see which providers were tried and why each failed,
+   502  // instead of only seeing the last provider's error code.
+   503  const cascade = providerErrors.map((e) => `${e.provider}: [${e.code}] ${e.message.slice(0, 120)}`).join(" | ");
+   504  const exhaustedMsg = cascade
+   505    ? `All providers failed — ${cascade}`
+   506    : "No AI provider returned a response";
+   507  throw lastErr
+   508    ? new GroqClientError(lastErr.code, exhaustedMsg)
+   509    : new GroqClientError("EMPTY_RESPONSE", exhaustedMsg);
+   510}
+   511
+   512/**
+   513 * Rejects the request with 428 if no provider key can be resolved.
+   514 * Returns { provider, apiKey } on success, null on failure (response already sent).
+   515 */
+   516export async function requireProvider(
+   517  userId: string,
+   518  res: import("express").Response,
+   519  options?: ProviderSelectionOptions,
+   520): Promise<{ provider: ProviderId; apiKey: string } | null> {
+   521  const resolved = await resolveProvider(userId, options);
+   522  if (!resolved) {
+   523    const hint = options?.requireTools
+   524      ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
+   525      : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
+   526    res.status(428).json({
+   527      error: "AI provider not configured",
+   528      hint,
+   529      availabilityState: "missing_credentials",
+   530      operatorAction: "Save an API key for at least one supported provider, then retry.",
+   531      correlationId: randomUUID(),
+   532    });
+   533    return null;
+   534  }
+   535  return resolved;
+   536}
+   537
+   538/**
+   539 * Rejects the request with 428 if no Groq API key can be resolved.
+   540 * Kept for backward-compatibility with non-chat routes that only support Groq.
+   541 */
+   542export async function requireGroqApiKey(
+   543  userId: string,
+   544  res: import("express").Response,
+   545): Promise<string | null> {
+   546  const key = await resolveGroqApiKey(userId);
+   547  if (!key) {
+   548    res.status(428).json({
+   549      error: "AI provider not configured",
+   550      hint: "Save a Groq API key via PUT /api/ai/providers/groq/key or ask your administrator to set GROQ_API_KEY on the server. OpenRouter and DeepSeek are also supported via OPENROUTER_API_KEY and DEEPSEEK_API_KEY.",
+   551      availabilityState: "missing_credentials",
+   552      operatorAction: "Save an API key for at least one supported provider, then retry.",
+   553      correlationId: randomUUID(),
+   554    });
+   555    return null;
+   556  }
+   557  return key;
+   558}
+   559
+   560// ── Error mapping ─────────────────────────────────────────────────────────────
+   561
+   562/**
+   563 * Maps GroqClientError codes to typed HTTP responses so callers receive a
+   564 * structured error body instead of a generic 500.
+   565 *
+   566 * @param ctx.provider  The provider that actually produced the error.
+   567 *                      Uses the registry to build provider-accurate labels and URLs.
+   568 */
+   569export function handleOrchestratorError(
+   570  err: unknown,
+   571  res: import("express").Response,
+   572  ctx?: { projectId?: string; operation?: string; provider?: ProviderId },
+   573): boolean {
+   574  if (!(err instanceof GroqClientError)) return false;
+   575
+   576  logger.error(
+   577    { err, projectId: ctx?.projectId, operation: ctx?.operation, provider: ctx?.provider },
+   578    "AI orchestrator request failed",
+   579  );
+   580
+   581  if (ctx?.projectId) {
+   582    void db
+   583      .insert(eventsTable)
+   584      .values({
+   585        id: randomUUID(),
+   586        type: "AiOrchestratorError",
+   587        projectId: ctx.projectId,
+   588        severity: "error",
+   589        // Provider details stay in the server log below. Events are exposed
+   590        // through the user-facing activity feed and must not contain raw
+
+--- error class ---
+    60  // configuration
+    61  | "INVALID_CONFIG";
+    62
+    63/** PR-007: structured fields carried alongside the error message. */
+    64export type ProviderErrorContext = {
+    65  /** Raw HTTP status code from the provider. */
+    66  providerStatus?: number;
+    67  /** Provider-specific error code extracted from the response body. */
+    68  providerCode?: string;
+    69  /** Provider-specific error message extracted from the response body. */
+    70  providerMessage?: string;
+    71  /** Provider name (e.g. "OpenRouter", "Groq"). */
+    72  providerName?: string;
+    73  /** Model slug that was attempted when the error occurred. */
+    74  providerModel?: string;
+    75  /** Bounded provider retry hint, in milliseconds, when supplied by HTTP. */
+    76  retryAfterMs?: number;
+    77  /** Every provider-owned fallback model attempted before this error surfaced. */
+    78  providerAttemptedModels?: string[];
+    79  /** Safe OpenRouter catalog diagnostics for model-resolution failures. */
+    80  catalogLoaded?: boolean;
+    81  catalogUsable?: boolean;
+    82  catalogStatus?: "never" | "success" | "failed" | "empty";
+    83  catalogError?: string;
+    84};
+    85
+    86/**
+    87 * Provider SDKs and HTTP clients sometimes include credentials in otherwise
+    88 * useful transport errors (for example, a URL query string or an echoed
+    89 * Authorization header). Keep the internal error available for server logs,
+    90 * but make every message/context serialization safe for user-facing output.
+    91 */
+    92export function redactProviderErrorText(value: string): string {
+    93  return value
+    94    .replace(/((?:authorization|x-api-key|api[_-]?key|access[_-]?token|token|key)\s*[=:]\s*)([^\s,;)"']+)/gi, "$1[redacted]")
+    95    .replace(/(Bearer\s+)([A-Za-z0-9._~+/=-]+)/gi, "$1[redacted]")
+    96    .replace(/\bsk-or-v1-[A-Za-z0-9_-]+\b/gi, "[redacted]")
+    97    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, "[redacted]");
+    98}
+    99
+   100function redactProviderContext(context: ProviderErrorContext): ProviderErrorContext {
+   101  return {
+   102    ...context,
+   103    providerCode: context.providerCode ? redactProviderErrorText(context.providerCode) : context.providerCode,
+   104    providerMessage: context.providerMessage ? redactProviderErrorText(context.providerMessage) : context.providerMessage,
+   105    providerName: context.providerName ? redactProviderErrorText(context.providerName) : context.providerName,
+   106    providerModel: context.providerModel ? redactProviderErrorText(context.providerModel) : context.providerModel,
+   107    providerAttemptedModels: context.providerAttemptedModels?.map(redactProviderErrorText),
+   108    catalogLoaded: context.catalogLoaded,
+   109    catalogUsable: context.catalogUsable,
+   110    catalogStatus: context.catalogStatus,
+   111  };
+   112}
+   113
+   114export class GroqClientError extends Error {
+   115  readonly code: GroqErrorCode;
+   116
+   117  // PR-007: structured provider context preserved all the way to the caller
+   118  readonly providerStatus?: number;
+   119  readonly providerCode?: string;
+   120  readonly providerMessage?: string;
+   121  readonly providerName?: string;
+   122  readonly providerModel?: string;
+   123  readonly retryAfterMs?: number;
+   124  readonly providerAttemptedModels?: string[];
+   125  readonly catalogLoaded?: boolean;
+   126  readonly catalogUsable?: boolean;
+   127  readonly catalogStatus?: ProviderErrorContext["catalogStatus"];
+   128  readonly catalogError?: string;
+   129
+   130  constructor(
+   131    code: GroqErrorCode,
+   132    message: string,
+   133    options?: { cause?: unknown; context?: ProviderErrorContext },
+   134  ) {
+   135    super(redactProviderErrorText(message), { cause: options?.cause });
+   136    this.name = "GroqClientError";
+   137    this.code = code;
+   138    if (options?.context) {
+   139      this.providerStatus  = options.context.providerStatus;
+   140      this.providerCode    = options.context.providerCode;
+   141      this.providerMessage = options.context.providerMessage;
+   142      this.providerName    = options.context.providerName;
+   143      this.providerModel   = options.context.providerModel;
+   144      this.retryAfterMs    = options.context.retryAfterMs;
+   145      this.providerAttemptedModels = options.context.providerAttemptedModels;
+   146      this.catalogLoaded = options.context.catalogLoaded;
+   147      this.catalogUsable = options.context.catalogUsable;
+   148      this.catalogStatus = options.context.catalogStatus;
+   149      this.catalogError = options.context.catalogError;
+   150    }
+   151  }
+   152
+   153  /** PR-007: serialise to a plain object suitable for SSE / JSON responses. */
+   154  toProviderContext(): ProviderErrorContext {
+   155    return redactProviderContext({
+   156      providerStatus:  this.providerStatus,
+   157      providerCode:    this.providerCode,
+   158      providerMessage: this.providerMessage,
+   159      providerName:    this.providerName,
+   160      providerModel:   this.providerModel,
+   161      retryAfterMs:    this.retryAfterMs,
+   162      providerAttemptedModels: this.providerAttemptedModels,
+   163      catalogLoaded: this.catalogLoaded,
+   164      catalogUsable: this.catalogUsable,
+   165      catalogStatus: this.catalogStatus,
+   166    });
+   167  }
+   168}
