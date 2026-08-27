@@ -18,6 +18,8 @@ const TEST_USER = {
 const EXECUTION_ID = "e2e-controlled-execution";
 const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
 const LIVE_TEST_TIMEOUT_MARGIN_MS = 5_000;
+const DEFAULT_READINESS_TIMEOUT_MS = 15_000;
+const TEST_MODES = new Set(["fixture", "live-provider"]);
 const HOSTILE_ORIGIN = "https://attacker.example";
 const ORIGIN_DIAGNOSTIC_HEADERS = [
   "access-control-allow-origin",
@@ -67,6 +69,45 @@ function liveTimeoutMs(): number {
   return Number.isFinite(configured) && configured > 0
     ? configured
     : DEFAULT_LIVE_TIMEOUT_MS;
+}
+
+function dashboardTestMode(): string {
+  return process.env.DASHBOARD_E2E_TEST_MODE ?? "fixture";
+}
+
+function readinessTimeoutMs(): number {
+  const configured = Number(process.env.DASHBOARD_E2E_READINESS_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_READINESS_TIMEOUT_MS;
+}
+
+async function writeReadinessReceipt(
+  outcome: "ready" | "blocked",
+  checks: Record<string, unknown>,
+  reason?: string,
+) {
+  const receiptPath = process.env.DASHBOARD_E2E_READINESS_ARTIFACT_PATH;
+  if (!receiptPath) return;
+  await mkdir(dirname(receiptPath), { recursive: true });
+  await writeFile(
+    receiptPath,
+    `${JSON.stringify(
+      {
+        outcome,
+        ...(reason ? { reason } : {}),
+        checks,
+        mode: dashboardTestMode(),
+        project:
+          dashboardTestMode() === "live-provider"
+            ? process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
+            : "e2e-project",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 }
 
 function approvedDashboardOrigins(): string[] {
@@ -725,6 +766,18 @@ async function installApiFixtures(
         ),
       );
     }
+    if (path === "/api/readiness") {
+      return route.fulfill(
+        jsonResponse({
+          status: "ready",
+          checks: {
+            api: { status: "ready" },
+            database: { status: "ready" },
+            schema: { status: "ready" },
+          },
+        }),
+      );
+    }
     if (hasConfiguredAiFixture && path === "/api/ai/active-provider") {
       return route.fulfill(
         jsonResponse({ provider: "openrouter", configured: true }),
@@ -1375,6 +1428,7 @@ async function programmaticSignIn(page: Page) {
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
     );
+    await completeReadinessHandshake(page);
     return;
   }
   const signInUrl = await helper({
@@ -1385,6 +1439,132 @@ async function programmaticSignIn(page: Page) {
   await page.goto(signInUrl);
   await expect(page).toHaveURL(
     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+  );
+  await completeReadinessHandshake(page);
+}
+
+async function completeReadinessHandshake(page: Page): Promise<void> {
+  const mode = dashboardTestMode();
+  if (!TEST_MODES.has(mode)) {
+    await writeReadinessReceipt("blocked", {
+      mode: { status: "blocked", reason: "unsupported_test_mode" },
+    });
+    throw new Error(`BLOCKED: unsupported dashboard test mode (${mode}).`);
+  }
+  if (mode === "live-provider") {
+    if (process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1") {
+      await writeReadinessReceipt("blocked", {
+        mode: { status: "ready" },
+        provider: { status: "blocked", reason: "live_provider_not_enabled" },
+      });
+      throw new Error(
+        "BLOCKED: live-provider mode requires DASHBOARD_E2E_LIVE_PROVIDER=1.",
+      );
+    }
+    if (process.env.DASHBOARD_E2E_LIVE_DISPOSABLE !== "1") {
+      await writeReadinessReceipt("blocked", {
+        mode: { status: "ready" },
+        provider: { status: "ready" },
+        disposableProject: {
+          status: "blocked",
+          reason: "disposable_project_required",
+        },
+      });
+      throw new Error(
+        "BLOCKED: live-provider mode requires an explicitly disposable project.",
+      );
+    }
+  }
+
+  const deadline = Date.now() + readinessTimeoutMs();
+  let lastStatus = "not attempted";
+  const checks: Record<string, unknown> = {
+    mode: { status: "ready" },
+    provider: {
+      status: mode === "live-provider" ? "ready" : "ready",
+      ...(mode === "fixture" ? { reason: "provider_free_fixture" } : {}),
+    },
+    disposableProject: {
+      status: mode === "live-provider" ? "ready" : "ready",
+      ...(mode === "fixture" ? { reason: "browser_fixture_project" } : {}),
+    },
+  };
+  while (Date.now() < deadline) {
+    try {
+      await expectDashboardReady(page);
+      const readiness = await page.evaluate(async (url) => {
+        const response = await fetch(url, { credentials: "include" });
+        return {
+          ok: response.ok,
+          body: (await response.json().catch(() => ({}))) as {
+            status?: string;
+            checks?: Record<string, { status?: string }>;
+          },
+        };
+      }, new URL("/api/readiness", page.url()).toString());
+      const readinessBody = readiness.body as {
+        status?: string;
+        checks?: Record<string, { status?: string }>;
+      };
+      checks.api = { status: readiness.ok ? "ready" : "blocked" };
+      checks.database = readinessBody.checks?.database ?? { status: "blocked" };
+      checks.schema = readinessBody.checks?.schema ?? { status: "blocked" };
+      if (
+        readiness.ok &&
+        readinessBody.status === "ready" &&
+        Object.values(readinessBody.checks ?? {}).every(
+          (check) => check.status === "ready",
+        )
+      ) {
+        const projectsResult = await page.evaluate(async (url) => {
+          const response = await fetch(url, { credentials: "include" });
+          return {
+            ok: response.ok,
+            body: (await response.json().catch(() => [])) as Array<{
+              id?: string;
+            }>,
+          };
+        }, new URL("/api/projects", page.url()).toString());
+        const projects = projectsResult.body;
+        const expectedProject =
+          mode === "live-provider"
+            ? process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
+            : undefined;
+        const fixtureProjectReady =
+          mode === "fixture"
+            ? projects.length > 0 && projects.every((project) => Boolean(project.id))
+            : projects.some((project) => project.id === expectedProject);
+        if (
+          projectsResult.ok &&
+          Array.isArray(projects) &&
+          fixtureProjectReady
+        ) {
+          checks.auth = { status: "ready" };
+          checks.fixtureProject = {
+            status: "ready",
+            project: expectedProject ?? projects[0]?.id,
+          };
+          await writeReadinessReceipt("ready", checks);
+          return;
+        }
+        lastStatus = "fixture project unavailable";
+      } else {
+        lastStatus =
+          readinessBody.checks &&
+          Object.entries(readinessBody.checks)
+            .filter(([, check]) => check.status !== "ready")
+            .map(([name]) => name)
+            .join(", ");
+        if (!lastStatus) lastStatus = "readiness blocked";
+      }
+    } catch {
+      lastStatus = "readiness request failed";
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  await writeReadinessReceipt("blocked", checks, lastStatus);
+  throw new Error(
+    `BLOCKED: dashboard readiness handshake did not complete (${lastStatus}).`,
   );
 }
 
@@ -2563,6 +2743,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const secondContext = await browser.newContext();
     const secondPage = await secondContext.newPage();
     try {
+      await installApiFixtures(secondPage);
       await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
       await Promise.all([
         page.goto(DASHBOARD_PATH),
@@ -4192,12 +4373,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   });
 
   test("renders a user-visible API failure state", async ({ page }) => {
+    await installApiFixtures(page);
+    await programmaticSignIn(page);
     await page.route("**/api/dashboard", (route) =>
       route.fulfill(
         jsonResponse({ error: "controlled dashboard outage" }, 503),
       ),
     );
-    await programmaticSignIn(page);
+    await page.reload();
     await expect(
       page.getByRole("heading", { name: "Failed to load dashboard" }),
     ).toBeVisible();

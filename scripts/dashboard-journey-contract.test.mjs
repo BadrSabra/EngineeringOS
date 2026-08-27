@@ -11,11 +11,13 @@ const journeyPath = resolve(
 );
 const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
 const workflowPath = resolve(root, ".github/workflows/ci.yml");
+const healthPath = resolve(root, "artifacts/api-server/src/routes/health.ts");
 
-const [journeySource, runnerSource, workflowSource] = await Promise.all([
+const [journeySource, runnerSource, workflowSource, healthSource] = await Promise.all([
   readFile(journeyPath, "utf8"),
   readFile(runnerPath, "utf8"),
   readFile(workflowPath, "utf8"),
+  readFile(healthPath, "utf8"),
 ]);
 
 function constant(source, name) {
@@ -632,6 +634,79 @@ test("release journey passes the complete approved origin list to API and browse
     journeySource,
     /HOSTILE_ORIGIN[\s\S]*status\(\)\)\.toBe\(403\)/,
     "The browser journey must reject hostile state-changing origins.",
+  );
+});
+
+test("release journey gates browser work on one bounded readiness handshake", () => {
+  assert.match(
+    runnerSource,
+    /async function performReleaseReadinessHandshake\(\)/,
+    "The release runner must define one readiness handshake.",
+  );
+  assert.match(
+    runnerSource,
+    /apiReadinessUrl/,
+    "The release runner must probe the API readiness endpoint.",
+  );
+  assert.match(
+    runnerSource,
+    /checks\.database[\s\S]*checks\.schema/,
+    "The release handshake must verify database and schema readiness.",
+  );
+  assert.match(
+    runnerSource,
+    /DASHBOARD_E2E_TEST_MODE/,
+    "The release handshake must carry an explicit test mode.",
+  );
+  assert.match(
+    runnerSource,
+    /BLOCKED readiness receipt/,
+    "Missing prerequisites must retain a clear blocked receipt.",
+  );
+  assert.match(
+    runnerSource,
+    /await performReleaseReadinessHandshake\(\)/g,
+    "The handshake must run before the browser journey and after API restart.",
+  );
+  assert.match(
+    journeySource,
+    /async function completeReadinessHandshake\(page: Page\)/,
+    "The browser must complete the authenticated half of the handshake.",
+  );
+  assert.match(
+    journeySource,
+    /await expectDashboardReady\(page\)/,
+    "The browser handshake must prove the authenticated dashboard is ready.",
+  );
+  assert.match(
+    journeySource,
+    /\/api\/projects/,
+    "The browser handshake must verify the isolated fixture project.",
+  );
+});
+
+test("API readiness separates liveness from schema readiness", () => {
+  assert.match(healthSource, /router\.get\("\/readiness"/);
+  assert.match(healthSource, /schema_incomplete/);
+  assert.match(healthSource, /database_unavailable/);
+  assert.match(healthSource, /status: "blocked"/);
+});
+
+test("API restart uses bounded listener and process-group teardown", () => {
+  assert.match(
+    runnerSource,
+    /waitForPortClosed\(apiPort, restartTimeoutMs\)/,
+    "Restart must wait for the old API listener with its own deadline.",
+  );
+  assert.match(
+    runnerSource,
+    /waitForProcessGroupClosed\(previousApiService, restartTimeoutMs\)/,
+    "Restart must wait for the old service process group to disappear.",
+  );
+  assert.match(
+    runnerSource,
+    /restarted API workflow", restartTimeoutMs/,
+    "Replacement startup must use a bounded restart deadline.",
   );
 });
 

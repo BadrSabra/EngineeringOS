@@ -28,6 +28,9 @@ const dashboardBaseUrl =
 const apiHealthUrl =
   process.env.DASHBOARD_E2E_API_HEALTH_URL ??
   `http://127.0.0.1:${apiPort}/api/healthz`;
+const apiReadinessUrl =
+  process.env.DASHBOARD_E2E_API_READINESS_URL ??
+  `http://127.0.0.1:${apiPort}/api/readiness`;
 // Origin contract probes must reach the API listener directly. Sending them
 // through the dashboard dev proxy lets some browser environments terminate
 // OPTIONS locally with a bare 204, which hides the API's CORS response.
@@ -40,6 +43,19 @@ const testEmail =
 const timeoutMs = Number(
   process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
 );
+const readinessTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_READINESS_TIMEOUT_MS ?? 15_000,
+);
+const restartTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_RESTART_TIMEOUT_MS ?? 30_000,
+);
+const dashboardTestMode =
+  process.env.DASHBOARD_E2E_TEST_MODE ??
+  (process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+    ? "live-provider"
+    : "fixture");
+const dashboardFixtureProjectId =
+  process.env.DASHBOARD_E2E_LIVE_PROJECT_ID ?? "e2e-project";
 const liveTimeoutMs = Number(
   process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
 );
@@ -92,8 +108,8 @@ function redact(value) {
   );
 }
 
-async function waitFor(url, label) {
-  const deadline = Date.now() + timeoutMs;
+async function waitFor(url, label, budgetMs = timeoutMs) {
+  const deadline = Date.now() + budgetMs;
   let lastError = "not attempted";
 
   while (Date.now() < deadline) {
@@ -114,6 +130,106 @@ async function waitFor(url, label) {
   throw new Error(`${label} did not become healthy: ${lastError} (${url})`);
 }
 
+async function writeBlockedReadinessReceipt(reason, checks = {}) {
+  const receiptPath = resolve(
+    process.env.DASHBOARD_E2E_READINESS_ARTIFACT_PATH ??
+      resolve(outputDir, "readiness.json"),
+  );
+  const receipt = {
+    outcome: "blocked",
+    reason: redact(String(reason)).replaceAll(workspaceRoot, "[PROJECT_ROOT]"),
+    checks,
+    mode: dashboardTestMode,
+    project: dashboardFixtureProjectId,
+  };
+  await mkdir(resolve(receiptPath, ".."), { recursive: true });
+  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  console.error(`BLOCKED readiness receipt: ${receiptPath}`);
+}
+
+async function performReleaseReadinessHandshake() {
+  const checks = {};
+  const modeReady =
+    dashboardTestMode === "fixture" || dashboardTestMode === "live-provider";
+  checks.mode = {
+    status: modeReady ? "ready" : "blocked",
+    ...(modeReady ? {} : { reason: "unsupported_test_mode" }),
+  };
+  if (dashboardTestMode === "live-provider") {
+    checks.provider = {
+      status:
+        process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1" ? "ready" : "blocked",
+      ...(process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+        ? {}
+        : { reason: "live_provider_not_enabled" }),
+    };
+    checks.disposableProject = {
+      status:
+        process.env.DASHBOARD_E2E_LIVE_DISPOSABLE === "1" &&
+        Boolean(process.env.DASHBOARD_E2E_LIVE_PROJECT_ID)
+          ? "ready"
+          : "blocked",
+      ...(process.env.DASHBOARD_E2E_LIVE_DISPOSABLE === "1" &&
+      process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
+        ? {}
+        : { reason: "disposable_project_required" }),
+    };
+  } else {
+    checks.provider = { status: "ready", reason: "provider_free_fixture" };
+    checks.disposableProject = {
+      status: "ready",
+      reason: "browser_fixture_project",
+    };
+  }
+  if (
+    !modeReady ||
+    Object.values(checks).some((check) => check.status !== "ready")
+  ) {
+    await writeBlockedReadinessReceipt(
+      "selected test mode is not allowed",
+      checks,
+    );
+    throw new Error(
+      "BLOCKED: release readiness handshake rejected the selected test mode.",
+    );
+  }
+
+  const deadline = Date.now() + readinessTimeoutMs;
+  let lastError = "not attempted";
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(apiReadinessUrl, {
+        signal: AbortSignal.timeout(Math.min(5_000, readinessTimeoutMs)),
+      });
+      const body = await response.json().catch(() => ({}));
+      checks.api = { status: response.ok ? "ready" : "blocked" };
+      checks.database = body?.checks?.database ?? { status: "blocked" };
+      checks.schema = body?.checks?.schema ?? { status: "blocked" };
+      if (
+        response.ok &&
+        body?.status === "ready" &&
+        checks.database.status === "ready" &&
+        checks.schema.status === "ready"
+      ) {
+        checks.auth = { status: "pending_browser_session" };
+        checks.fixtureProject = {
+          status: "pending_authenticated_browser_check",
+          project: dashboardFixtureProjectId,
+        };
+        return checks;
+      }
+      lastError = "api, database, or schema not ready";
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  await writeBlockedReadinessReceipt(lastError, checks);
+  throw new Error(
+    "BLOCKED: API/database/schema readiness handshake did not complete.",
+  );
+}
+
 function startService(label, command, args, env, port) {
   const child = spawn(command, args, {
     cwd: workspaceRoot,
@@ -130,8 +246,10 @@ function startService(label, command, args, env, port) {
 
 async function restartApiService() {
   if (!apiService) throw new Error("API release service is not running.");
+  const previousApiService = apiService;
   signalProcessGroup(apiService, "SIGTERM");
-  await waitForPortClosed(apiPort);
+  await waitForPortClosed(apiPort, restartTimeoutMs);
+  await waitForProcessGroupClosed(previousApiService, restartTimeoutMs);
   apiService = startService(
     "API release service (restarted)",
     "node",
@@ -143,7 +261,8 @@ async function restartApiService() {
     },
     apiPort,
   );
-  await waitFor(apiHealthUrl, "restarted API workflow");
+  await waitFor(apiHealthUrl, "restarted API workflow", restartTimeoutMs);
+  await performReleaseReadinessHandshake();
 }
 
 async function startCampaignControl() {
@@ -212,6 +331,23 @@ async function waitForPortClosed(port, timeoutMs = 5_000) {
   );
   error.remainingPids = remainingPids;
   throw error;
+}
+
+async function waitForProcessGroupClosed(child, timeoutMs = 5_000) {
+  if (!child.pid) return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(-child.pid, 0);
+    } catch (error) {
+      if (error?.code === "ESRCH") return;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(
+    `Release process group ${child.pid} did not exit within its bounded restart deadline.`,
+  );
 }
 
 async function waitForPortOpen(port, timeoutMs = 2_500) {
@@ -852,12 +988,7 @@ try {
       );
     }
     await startReleaseServices();
-    const apiHealth = await (await fetch(apiHealthUrl)).json();
-    if (apiHealth?.status !== "ok") {
-      throw new Error(
-        `API health check did not report status=ok (${apiHealthUrl}).`,
-      );
-    }
+    await performReleaseReadinessHandshake();
     console.log(`Dashboard workflow healthy at ${dashboardBaseUrl}`);
     console.log(`API workflow healthy at ${apiHealthUrl}`);
     console.log(`Using isolated Clerk journey user ${testEmail}`);
@@ -882,6 +1013,13 @@ try {
           DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
           DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
           DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
+          DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
+          DASHBOARD_E2E_READINESS_TIMEOUT_MS: String(readinessTimeoutMs),
+          DASHBOARD_E2E_READINESS_ARTIFACT_PATH: resolve(
+            outputDir,
+            "readiness.json",
+          ),
+          DASHBOARD_E2E_LIVE_PROJECT_ID: dashboardFixtureProjectId,
           DASHBOARD_E2E_EMAIL: testEmail,
           DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
           DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,

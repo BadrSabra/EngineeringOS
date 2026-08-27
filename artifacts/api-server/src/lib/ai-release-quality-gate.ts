@@ -2,6 +2,10 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+// The shared release runner is intentionally JavaScript because it is also
+// executed directly by the shell-based browser harness.
+// @ts-expect-error The JavaScript helper has no generated declaration file.
+import { acquireReleaseLock, lockPath } from "../../scripts/run-release-ai-stream.mjs";
 
 export const AI_RELEASE_QUALITY_GATE_VERSION = 1;
 
@@ -245,16 +249,24 @@ export async function writeAiReleaseQualityDecision(filePath: string, decision: 
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const workspaceRoot = path.resolve(process.cwd(), "../..");
-  const decision = await runAiReleaseQualityGate({
-    enablePreview: process.env.AI_RELEASE_ENABLE_PREVIEW === "true",
-    enableLiveProvider: process.env.AI_RELEASE_ENABLE_LIVE_PROVIDER === "true",
-    cwd: workspaceRoot,
-  });
-  const outputPath = path.resolve(
-    process.env.AI_RELEASE_QUALITY_REPORT_PATH ??
-      path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
-  );
-  await writeAiReleaseQualityDecision(outputPath, decision);
-  console.log(JSON.stringify({ ...decision, outputPath }, null, 2));
-  if (decision.status === "blocked") process.exitCode = 1;
+  let releaseLockCleanup: (() => Promise<void>) | undefined;
+  try {
+    if (process.env.DATABASE_URL) {
+      releaseLockCleanup = await acquireReleaseLock(lockPath);
+    }
+    const decision = await runAiReleaseQualityGate({
+      enablePreview: process.env.AI_RELEASE_ENABLE_PREVIEW === "true",
+      enableLiveProvider: process.env.AI_RELEASE_ENABLE_LIVE_PROVIDER === "true",
+      cwd: workspaceRoot,
+    });
+    const outputPath = path.resolve(
+      process.env.AI_RELEASE_QUALITY_REPORT_PATH ??
+        path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+    );
+    await writeAiReleaseQualityDecision(outputPath, decision);
+    console.log(JSON.stringify({ ...decision, outputPath }, null, 2));
+    if (decision.status === "blocked") process.exitCode = 1;
+  } finally {
+    await releaseLockCleanup?.();
+  }
 }

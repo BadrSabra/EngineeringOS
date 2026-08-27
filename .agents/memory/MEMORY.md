@@ -70,3 +70,4 @@
 - [OpenRouter catalog state](openrouter-catalog-state.md) — only a successful usable live snapshot is authoritative; failed or expired refreshes retain static compatibility candidates.
 - [Benchmark behavior gates](benchmark-behavior-gates.md) — release validation must execute every fixture oracle against an isolated passing candidate, not only check registration.
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
+- [Browser readiness fixture boundary](browser-readiness-fixture-boundary.md) — fixture mode validates a non-empty authenticated project response; live mode validates its explicit disposable project ID.
