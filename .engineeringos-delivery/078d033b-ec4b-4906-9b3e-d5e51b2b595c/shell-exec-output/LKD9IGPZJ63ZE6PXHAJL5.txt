@@ -1,0 +1,631 @@
+/**
+ * Smoke tests for ai.ts routes.
+ *
+ * All AI orchestrator calls are mocked — these tests verify the HTTP contract
+ * (request validation, 400/404/409 paths, correct response shape, DB side
+ * effects) without hitting the Groq API.
+ */
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import request from "supertest";
+import { eq } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { promises as fs } from "node:fs";
+import app from "../app.js";
+import {
+  db,
+  projectsTable,
+  tasksTable,
+  eventsTable,
+  workflowsTable,
+  workflowExecutionsTable,
+  aiChatSessionsTable,
+  aiChatMessagesTable,
+  aiChangeProposalsTable,
+  aiExecutionsTable,
+  aiApplyJournalTable,
+  taskLogsTable,
+  auditLogsTable,
+} from "@workspace/db";
+import { buildPatchHunks, hashPatchBase } from "@workspace/ai-orchestrator";
+import * as repairValidation from "../lib/ai-repair-validation.js";
+import {
+  canCreateProposal,
+  projectMissionCorrelationReportForExport,
+  serializeMissionCorrelationReport,
+} from "./ai/chat.js";
+import { scheduleAiTaskExecution } from "./ai/tasks.js";
+import { createAiExecution } from "../lib/ai-execution-state.js";
+import { createDeliveryWorkspace, deliveryWorkspaceExists } from "../lib/delivery-workspace.js";
+
+describe("verified repair proposal gate", () => {
+  const change = {
+    path: "lib/ai-orchestrator/src/unsafe.ts",
+    newContent: "export const safe = true;",
+    originalContent: null,
+    reason: "Replace the unsafe path.",
+    validationProfile: "ai-orchestrator-tests" as const,
+  };
+  const repairPlan = [{
+    findingId: "F-1",
+    files: [change.path],
+    steps: ["Replace the unsafe path."],
+    validationProfile: "ai-orchestrator-tests" as const,
+    verdictScope: "PRODUCTION" as const,
+    scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+  }];
+
+  function traceWithAcceptedClaims(acceptedClaimCount: number): never[] {
+    return [
+      {
+        kind: "forensic_status",
+        auditScope: "PRODUCTION",
+        productionReachability: "PROVEN",
+        sourceCoverage: "COMPLETE",
+        findingStatus: "PROVEN",
+        repairReadiness: "READY",
+      },
+      {
+        kind: "evidence_integrity",
+        consistent: true,
+        acceptedClaimCount,
+      },
+      {
+        kind: "decision_trace",
+        trace: { finalState: "VERIFIED" },
+      },
+    ] as never[];
+  }
+
+  it("rejects proposal creation until Finding claims are closed", () => {
+    expect(canCreateProposal([change] as never, repairPlan, true, traceWithAcceptedClaims(0))).toBe(false);
+    expect(canCreateProposal([change] as never, repairPlan, true, traceWithAcceptedClaims(1))).toBe(true);
+  });
+});
+
+describe("mission correlation report persistence contract", () => {
+  it("rejects malformed reports with a bounded actionable error", () => {
+    const malformed = {
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      counts: {},
+    };
+    expect(() => serializeMissionCorrelationReport(malformed)).toThrow(
+      "does not match the supported versioned contract",
+    );
+    try {
+      serializeMissionCorrelationReport(malformed);
+      throw new Error("expected malformed report to be rejected");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "mission_correlation_report_invalid" });
+    }
+  });
+
+  it("rejects unsupported report versions without exposing internal identifiers", () => {
+    let error: unknown;
+    try {
+      serializeMissionCorrelationReport({
+        kind: "mission-correlation-report",
+        version: 99,
+        redacted: true,
+        operationId: "internal-operation-id",
+        projectId: "internal-project-id",
+        sessionId: "internal-session-id",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "Mission correlation report does not match the supported versioned contract.",
+    );
+    expect((error as Error).message).not.toContain("internal-");
+  });
+
+  it("accepts a safe regeneration timestamp as optional provenance", () => {
+    const serialized = serializeMissionCorrelationReport({
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      operationId: "operation",
+      projectId: "project",
+      sessionId: "session",
+      workspaceRevision: "revision",
+      generatedAt: "2026-08-22T12:34:56.000Z",
+      terminalState: "COMPLETED",
+      outcomeClass: "success",
+      counts: {
+        messages: 1,
+        sseEvents: 0,
+        executionCheckpoints: 0,
+        evidence: 0,
+        proposals: 0,
+        validation: 0,
+        correlatedEvents: 0,
+      },
+      agreement: {
+        execution: false,
+        messages: true,
+        sse: true,
+        checkpoints: true,
+        dashboard: true,
+        evidence: true,
+        proposals: true,
+        validation: true,
+      },
+    });
+    expect(JSON.parse(serialized!)).toMatchObject({
+      generatedAt: "2026-08-22T12:34:56.000Z",
+    });
+  });
+
+  it("projects report exports with regeneration timing but no internal identifiers", () => {
+    const exported = projectMissionCorrelationReportForExport({
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      operationId: "123e4567-e89b-12d3-a456-426614174000",
+      projectId: "223e4567-e89b-12d3-a456-426614174001",
+      sessionId: "323e4567-e89b-12d3-a456-426614174002",
+      workspaceRevision: "revision",
+      generatedAt: new Date("2026-08-22T12:34:56.000Z"),
+      terminalState: "COMPLETED",
+      outcomeClass: "success",
+      counts: {
+        messages: 1,
+        sseEvents: 0,
+        executionCheckpoints: 0,
+        evidence: 0,
+        proposals: 0,
+        validation: 0,
+        correlatedEvents: 0,
+      },
+      agreement: {
+        execution: false,
+        messages: true,
+        sse: true,
+        checkpoints: true,
+        dashboard: true,
+        evidence: true,
+        proposals: true,
+        validation: true,
+      },
+    });
+
+    expect(exported).toMatchObject({
+      generatedAt: "2026-08-22T12:34:56.000Z",
+      operationId: "[internal id]",
+      projectId: "[internal id]",
+      sessionId: "[internal id]",
+    });
+    expect(JSON.stringify(exported)).not.toContain("123e4567-e89b-12d3-a456-426614174000");
+    expect(JSON.stringify(exported)).not.toContain("223e4567-e89b-12d3-a456-426614174001");
+    expect(JSON.stringify(exported)).not.toContain("323e4567-e89b-12d3-a456-426614174002");
+  });
+
+  it("leaves reports without regeneration provenance unchanged", () => {
+    const report = {
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      operationId: "123e4567-e89b-12d3-a456-426614174000",
+      projectId: "223e4567-e89b-12d3-a456-426614174001",
+      sessionId: "323e4567-e89b-12d3-a456-426614174002",
+      workspaceRevision: "revision",
+      terminalState: "COMPLETED",
+      outcomeClass: "success",
+      counts: {
+        messages: 1,
+        sseEvents: 0,
+        proposalId,
+        changes: [{ ...changes[0], newContent: "export const tampered = true;" }],
+      });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+  });
+
+  it("does not consume a proposal when behavioral verification blocks the write", async () => {
+    const projectId = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `apply-replay-${projectId.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(projectId);
+    const fileName = `apply-replay-${randomUUID().slice(0, 8)}.ts`;
+    const changes = [{
+      path: `lib/ai-orchestrator/${fileName}`,
+      absolutePath: `/tmp/lib/ai-orchestrator/${fileName}`,
+      newContent: "export const replay = true;",
+      originalContent: null,
+      reason: "Replay test proposal",
+      validationProfile: "ai-orchestrator-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(projectId, changes);
+    const body = { projectId, proposalId, changes };
+    try {
+      const first = await request(app).post("/api/ai/chat/apply-changes").send(body);
+      expect(first.status).toBe(207);
+      expect(first.body.results[0]).toMatchObject({
+        ok: false,
+        writeStatus: "not_written",
+        persistenceVerified: false,
+        behavioralVerification: { status: "unavailable" },
+      });
+      const second = await request(app).post("/api/ai/chat/apply-changes").send(body);
+      expect(second.status).toBe(207);
+      expect(second.body.results[0].behavioralVerification.status).toBe("unavailable");
+      const [proposal] = await db
+        .select({
+          status: aiChangeProposalsTable.status,
+          messageId: aiChangeProposalsTable.messageId,
+        })
+        .from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId))
+        .limit(1);
+      expect(proposal?.status).toBe("pending");
+    } finally {
+      await fs.rm(`/tmp/lib/ai-orchestrator/${fileName}`, { force: true });
+    }
+  });
+
+  it("creates a session and returns sessionId + message on first chat", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "What is the quality of this project?" });
+    expect(res.status).toBe(200);
+    expect(typeof res.body.sessionId).toBe("string");
+    expect(res.body.message).toBeDefined();
+    expect(res.body.message.role).toBe("assistant");
+    expect(res.body.message.content).toBe("AI response text");
+    expect(Array.isArray(res.body.sources)).toBe(true);
+  });
+
+  it("returns execution trace separately from the assistant report", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "What is the quality of this project?" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message.content).toBe("AI response text");
+    expect(res.body.message.content).not.toContain("read_file");
+    expect(res.body.message.toolTrace == null || typeof res.body.message.toolTrace === "string").toBe(true);
+    expect(res.body.toolTrace).toBe(res.body.message.toolTrace);
+  });
+
+  it("includes pendingChanges array in the response", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "What files need changes?" });
+    expect(res.status).toBe(200);
+    // Gap-4: pendingChanges must be present in the response (was missing from
+    // both the runtime response and the generated client contract before this fix).
+    expect(Array.isArray(res.body.pendingChanges)).toBe(true);
+  });
+
+  it("forwards behaviorEvidence with exact sourceSpans in the non-streaming response", async () => {
+    // Task #22 proved the SSE done event and GET /messages carry behaviorEvidence
+    // with sourceSpan line ranges. The non-streaming POST /api/ai/chat is a
+    // SEPARATE forward site (chat.ts res.json returns `result.behaviorEvidence`)
+    // used by programmatic clients — a refactor could drop the line anchors there
+    // without breaking the in-app SSE path, and only a non-streaming test catches
+    // it. Mirror the GET /messages assertion so the parsed array (inkl. spans)
+    // is locked in on this path too.
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "Grounded behavior answer",
+      sources: ["src/loop.ts"],
+      pendingChanges: [],
+      behaviorEvidence: [
+        {
+          source: "src/loop.ts",
+          excerpt: "if (maxIterations >= 20) return exhausted;",
+          sourceSpan: { startLine: 1396, endLine: 1426 },
+          supportsClaim: true,
+          relevance: 0.9,
+          directness: "DIRECT",
+          sourceType: "IMPLEMENTATION",
+          productionReachability: "NOT_PROVEN",
+          evidenceClass: "BEHAVIOR_PROVEN",
+        },
+      ],
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "What happens when maxIterations is reached?" });
+    expect(res.status).toBe(200);
+    // Top-level behaviorEvidence mirrors the orchestrated chat() result, parsed
+    // array (not a serialized string) so programmatic clients see the spans.
+    expect(Array.isArray(res.body.behaviorEvidence)).toBe(true);
+    expect(res.body.behaviorEvidence).toHaveLength(1);
+    expect(res.body.behaviorEvidence[0]).toMatchObject({
+      source: "src/loop.ts",
+      excerpt: "if (maxIterations >= 20) return exhausted;",
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN",
+      sourceSpan: { startLine: 1396, endLine: 1426 },
+    });
+
+    // The persisted assistant message must round-trip the same parsed array via
+    // GET /messages so a reloaded session keeps the source anchors too.
+    const { sessionId } = res.body;
+    const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+    expect(history.status).toBe(200);
+    const assistant = history.body.find((m: { role: string }) => m.role === "assistant");
+    expect(assistant).toBeDefined();
+    expect(Array.isArray(assistant.behaviorEvidence)).toBe(true);
+    expect(assistant.behaviorEvidence[0]).toMatchObject({
+      source: "src/loop.ts",
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN",
+      sourceSpan: { startLine: 1396, endLine: 1426 },
+    });
+  });
+
+  // Task #63 — Objective Completion Gate production reachability. The gate is
+  // implemented inside chat()/chatWithFallback; for it to actually fire on the
+  // real entry points, the request body must accept a validated `objective` and
+  // forward it into chat(). These endpoint tests pin that contract down.
+  it("accepts a request objective and threads it into chat() for the Objective Completion Gate", async () => {
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockClear();
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "AI response text",
+      sources: [],
+      pendingChanges: [],
+    });
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const objective = {
+      objectiveType: "PRODUCTION_REACHABILITY",
+      requiredClaims: [{ claimId: "unsafe-eval-present", text: "return eval(input)" }],
+      requiredEvidenceEdges: [],
+    };
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "Цель: доказать выполнимость", objective });
+
+    expect(res.status).toBe(200);
+    // The validated objective must reach the chat entry point, otherwise the
+    // gate never runs on a real /api/ai/chat request.
+    const chatCall = vi.mocked(mockChat).mock.calls.at(-1)?.[0] as
+      { objective?: typeof objective } | undefined;
+    expect(chatCall?.objective).toEqual(objective);
+  });
+
+  it("returns 400 when the objective body fails ObjectiveContractSchema validation", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    // requiredClaims is missing — must be rejected before chat() is touched.
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({
+        projectId,
+        message: "check",
+        objective: { objectiveType: "PRODUCTION_REACHABILITY" },
+      });
+    expect(res.status).toBe(400);
+  });
+
+  // PR-E (updated): _parseError with a non-empty fallback response → 200, not 422.
+  // DeepSeek (and other providers) may return valid text without strict JSON schema
+  // compliance; the fallback extracts the response and the route should deliver it.
+  it("returns 200 with fallback when chat has _parseError but non-empty response", async () => {
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "fallback text",
+      sources: ["project context"],
+      pendingChanges: [],
+      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "trigger parse failure" });
+    // Fallback produced a usable response — expect 200 with the message.
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBeDefined();
+  });
+
+  // PR-E: hard-fail (422) only when the model returned an empty/unusable response.
+  it("returns 422 with model_output_invalid when chat returns _parseError with empty response", async () => {
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "",
+      sources: [],
+      pendingChanges: [],
+      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "trigger hard parse failure" });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("model_output_invalid");
+    expect(res.body.code).toBe("model_output_invalid");
+    expect(typeof res.body.hint).toBe("string");
+    expect(res.body.raw).toBeUndefined();
+    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  it("reuses an existing session when sessionId is provided", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    // First message creates a session
+    const first = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "Hello" });
+    expect(first.status).toBe(200);
+    const { sessionId } = first.body;
+
+    // Second message reuses it
+    const second = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "Follow-up", sessionId });
+    expect(second.status).toBe(200);
+    expect(second.body.sessionId).toBe(sessionId);
+
+    // DB: session has messages from both turns
+    const messages = await db
+      .select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+    // 2 user + 2 assistant = 4 messages
+    expect(messages.length).toBe(4);
+  });
+
+  it("restores a JSON continuation but isolates later neutral chat from stale forensic state", async () => {
+    const { chat: mockChat, classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+    const forensicClassification = {
+      category: "deep_analysis",
+      contextProfile: "chat-deep",
+      historyDepth: 0,
+      allowPrefetch: false,
+      confidence: 1,
+      structuredOutputMode: true,
+      singleFileForensicMode: false,
+      orderedForensicRoots: [],
+      includeTestSources: false,
+      fixtureAuditMode: false,
+      implementationTaskMode: false,
+      implementationPlanMode: false,
+      taskType: "FULL_FORENSIC_AUDIT",
+      analysisMode: "FORENSIC",
+      outputContract: "FORENSIC_REPORT",
+      firstEvidence: {
+        allowedFirstAction: "EXPLORE",
+        primaryEvidenceTarget: null,
+        traversalPolicy: "BROAD",
+      },
+    } as ReturnType<typeof import("@workspace/ai-orchestrator").classifyRequest>;
+    vi.mocked(mockClassifyRequest)
+      .mockReturnValueOnce(forensicClassification)
+      .mockReturnValueOnce(forensicClassification);
+    vi.mocked(mockChat).mockClear();
+    const repairPlan = [{
+      findingId: "F-1",
+      files: ["src/unsafe.ts"],
+      steps: ["Replace the unsafe evaluation path."],
+      validationProfile: "ai-orchestrator-tests" as const,
+      verdictScope: "PRODUCTION" as const,
+      scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+    }];
+    vi.mocked(mockChat).mockResolvedValue({
+      response: "Audit response",
+      sources: [],
+      pendingChanges: [],
+      repairPlan,
+      behaviorEvidence: [{
+        source: "src/unsafe.ts",
+        sourceSpan: { startLine: 12, endLine: 16 },
+        excerpt: "safe replacement",
+        supportsClaim: true,
+        evidenceClass: "FINDING_PROVEN",
+        directness: "DIRECT",
+        sourceType: "IMPLEMENTATION",
+        productionReachability: "PROVEN",
+        relevance: 1,
+      }],
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const first = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "forensic audit" });
+    expect(first.status).toBe(200);
+    const { sessionId } = first.body;
+
+    const persistedAfterFirst = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId));
+    expect(JSON.parse(persistedAfterFirst[0]!.activeTaskState!)).toMatchObject({
+      taskType: "FULL_FORENSIC_AUDIT",
+      executionPlan: {
+        readiness: "READY",
+        phases: [{ findingId: "F-1", files: ["src/unsafe.ts"] }],
+        boundaries: {
+          projectId,
+          allowedWriteFiles: ["src/unsafe.ts"],
+          sourceRoots: ["src"],
+        },
+        claims: [{ claimId: "finding:F-1", findingId: "F-1", status: "PROVEN" }],
+      },
+    });
+
+    const second = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, sessionId, message: "أكمل" });
+    expect(second.status).toBe(200);
+
+    const continuationCall = vi.mocked(mockChat).mock.calls.at(-1)?.[0] as {
+      activeTaskState?: { taskType?: string; scope?: { projectId?: string } };
+    } | undefined;
+    expect(continuationCall?.activeTaskState).toMatchObject({
+      taskType: "FULL_FORENSIC_AUDIT",
+      scope: { projectId },
+    });
+
+    const neutral = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, sessionId, message: "Tell me a joke" });
+    expect(neutral.status).toBe(200);
+
+    const neutralCall = vi.mocked(mockChat).mock.calls.at(-1)?.[0] as {
+      activeTaskState?: unknown;
+      turnIntent?: {
+        kind?: string;
+        executionTaskType?: string;
+        requiresTools?: boolean;
+        requiresEvidence?: boolean;
+      };
+    } | undefined;
+    expect(neutralCall?.activeTaskState).toBeNull();
+    expect(neutralCall?.turnIntent).toMatchObject({
+      kind: "CHAT",
+      executionTaskType: "chat",
+      requiresTools: false,
+      requiresEvidence: false,
+    });
+  });
+
+  it("keeps the newer resumable contract when concurrent JSON turns finish out of order", async () => {
+    const { chat: mockChat, classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+    const forensicClassification = {
+      category: "deep_analysis",
+      contextProfile: "chat-deep",
+      historyDepth: 0,
+      allowPrefetch: false,
+      confidence: 1,
+      structuredOutputMode: true,

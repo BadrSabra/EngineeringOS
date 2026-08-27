@@ -413,6 +413,15 @@ async function insertProject(): Promise<string> {
   return id;
 }
 
+function lastSseEvent(text: string): Record<string, unknown> {
+  const dataLine = text
+    .split("\n")
+    .filter((line) => line.startsWith("data: "))
+    .at(-1);
+  expect(dataLine).toBeDefined();
+  return JSON.parse(dataLine!.slice("data: ".length)) as Record<string, unknown>;
+}
+
 async function insertChangeProposal(
   projectId: string,
   changes: Array<{
@@ -2279,6 +2288,77 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     expect(res.text).toContain('"stage":"calling-model"');
     expect(res.text).toContain('"type":"task_done"');
     expect(res.text).toContain('"summary":"Analysis complete"');
+  });
+
+  it("persists structured failures and preserves them when the session is retried", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockAnalyzeScan).mockResolvedValue({
+      summary: "fallback",
+      overallAssessment: "fallback",
+      insights: [],
+      topPriority: "fallback",
+      estimatedImpact: "fallback",
+      _parseError: {
+        code: "MALFORMED_JSON",
+        message: "JSON parse error from an internal parser",
+        raw: "not json",
+      },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const first = await request(app)
+      .post(`/api/ai/projects/${projectId}/analyze/stream`);
+    expect(first.status).toBe(200);
+    const firstEvent = lastSseEvent(first.text);
+    expect(firstEvent.type).toBe("error");
+    expect(firstEvent.code).toBe("model_output_invalid");
+    expect(firstEvent.outcome).toBe("FAILED");
+    expect(typeof firstEvent.sessionId).toBe("string");
+
+    const sessionId = firstEvent.sessionId as string;
+    const firstMessages = await db
+      .select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+    expect(firstMessages).toHaveLength(2);
+    expect(firstMessages.find((message) => message.role === "user")).toMatchObject({
+      content: "Analyze the latest scan results and suggest the top 3 improvements.",
+      outcome: "SUCCEEDED",
+    });
+    const firstFailure = firstMessages.find((message) => message.role === "assistant");
+    expect(firstFailure).toMatchObject({
+      content: "",
+      outcome: "FAILED",
+      errorCode: "model_output_invalid",
+      errorMessage: "The AI returned an unexpected response format.",
+    });
+    expect(JSON.parse(firstFailure!.toolTrace!)).toEqual([{
+      kind: "structured_task_failure",
+      task: "analyze",
+      failureKind: "PROVIDER_FORMAT",
+      retryable: true,
+    }]);
+
+    const retry = await request(app)
+      .post(`/api/ai/projects/${projectId}/analyze/stream`)
+      .send({ sessionId });
+    expect(retry.status).toBe(200);
+    const retryEvent = lastSseEvent(retry.text);
+    expect(retryEvent.type).toBe("error");
+    expect(retryEvent.sessionId).toBe(sessionId);
+
+    const retriedMessages = await db
+      .select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+    expect(retriedMessages.filter((message) => message.role === "user")).toHaveLength(1);
+    const failures = retriedMessages.filter((message) => message.role === "assistant");
+    expect(failures).toHaveLength(2);
+    expect(failures.every((message) => message.outcome === "FAILED")).toBe(true);
+    expect(failures.every((message) => message.errorCode === "model_output_invalid")).toBe(true);
+    expect(failures.every((message) => message.toolTrace?.includes("structured_task_failure"))).toBe(true);
   });
 });
 
