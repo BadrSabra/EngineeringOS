@@ -80,7 +80,8 @@ workspace (pnpm root)
 │   └── lib/db (reads schema types)
 ├── lib/knowledge-engine       — BFS impact/path/neighbourhood, centrality, clusters
 │   └── lib/db (direct dep — not just transitive)
-├── lib/ai-orchestrator        — Groq client, 5 AI agents, context builder, parsing
+ ├── lib/ai-orchestrator        — provider strategies, model selection, context
+ │                                loading/admission, agents, tools, evidence
 │   └── lib/db (for context-builder queries)
 ├── artifacts/api-server       — Express app, all routes, job queues
 │   ├── lib/db
@@ -169,20 +170,23 @@ See `.agents/memory/scanner-ast-extraction.md`.
 ### 4c. AI Chat
 
 ```
-Client POST /api/ai/chat  { projectId, message, sessionId? }
-  → requireAuth + loadProjectByIdForUser
-  → requireGroqApiKey (DB lookup → env fallback → 428 if missing)
+Client POST /api/ai/chat or /api/ai/chat/stream
+  → requireAuth + owner-scoped project/session resolution
+  → resolveTurnIntent/classification and select the required tool/evidence policy
+  → requireProvider (saved provider key or supported server fallback; 428 if none)
   → checkProjectRateLimit → 429 if exceeded
-  → buildProjectContext(projectId)  ← cached 30 s; invalidated on any context-table write
-  → chat({ message, history, projectContext, rootPath, apiKey })
-       GroqClient.complete() with tool definitions (read/list/search/write)
-       agentic loop (max 6 tool iterations)
-       parseAgentResponse → AgentParseResult
-       if !ok → return ChatResult with _parseError
-  → if result._parseError → 422 { error: "model_output_invalid", raw, parseCode }
-  → if GroqClientError → handleOrchestratorError → 429/401/502/503
-  → DB: upsert session, insert user+assistant messages
-  → 200 { response, sources, pendingChanges, sessionId }
+  → buildProjectContext(projectId)
+        context cache → requested sections in one REPEATABLE READ snapshot
+        → context serialization/admission under the selected execution budget
+  → chatWithFallback(...)
+        provider registry/capability filtering → bounded provider fallback
+        → tool policy + bounded tool loop when the request needs tools
+        → parsing, evidence, objective, and terminal-outcome gates
+  → sanitize provider-derived text and metadata at the user-facing boundary
+  → JSON route: persist session and user/assistant messages → 200 response
+  → stream route: create or reuse durable execution, persist checkpoints,
+        emit structured stage/step/completion/failure events, and support
+        reconnect/recovery without converting incomplete work into success
 ```
 
 See `.agents/memory/ai-orchestrator-layer.md`, `.agents/memory/ai-tool-calling.md`.
@@ -191,15 +195,14 @@ See `.agents/memory/ai-orchestrator-layer.md`, `.agents/memory/ai-tool-calling.m
 
 ```
 Client POST /api/ai/tasks/:taskId/execute
-  → requireGroqApiKey (before claim — if missing → 428, task never claimed)
+  → requireProvider (before claim — if missing → 428, task never claimed)
   → checkProjectRateLimit (before claim — if exceeded → 429, task never claimed)
   → atomic claim: UPDATE tasks SET status=running WHERE id=? AND status=?
        if 0 rows → 409 (concurrent claim)
   → executeTask({ ... })
-       GroqClient.complete()
-       parseAgentResponse → if !ok → return TaskAgentResult with _parseError
-  → if result._parseError → rollback claim → taskLog(error) → 422
-  → if GroqClientError → rollback claim → taskLog(error) → handleOrchestratorError
+        runAgentWithFallback() → provider strategy → parse/validate output
+  → parse/provider failure → rollback or terminalize the claim safely
+      → taskLog(error) → typed incomplete/error response
   → DB: update task status (completed|verifying), insert taskLog + event + audit
   → 202 { updated task }
 ```
@@ -214,7 +217,8 @@ Client POST /api/ai/workflows/:workflowId/orchestrate
   → parseWorkflowPhases (validate + catch duplicate names)
   → _orchestratingWorkflows.has(workflowId) → 409 if concurrent
   → orchestrateWorkflow({ phases, currentPhase, projectContext, apiKey })
-       decide() → Groq → parseAgentResponse → WorkflowDecisionResult (± _parseError)
+       decide() → provider strategy/fallback → parseAgentResponse
+         → WorkflowDecisionResult (± _parseError)
        metricsGate: block advance/complete if metrics unverified
        validateDecision: enforce linear ordering; downgrade illegal decisions to "wait"
   → if decision._parseError → 422
@@ -266,7 +270,10 @@ These entries capture non-obvious tradeoffs. The `.agents/memory/` files hold th
 | `orchestrateWorkflow` | `POST /api/ai/workflows/:id/orchestrate` | `WorkflowDecisionSchema` | `_parseError` → 422 |
 | `executeTask` | `POST /api/ai/tasks/:id/execute` | `TaskRecommendationSchema` | `_parseError` → rollback claim → 422 |
 
-All agents: GroqClientError codes → `handleOrchestratorError` → 429/401/502/503.
+All agents use provider strategies behind the registry. Normalized provider
+errors are classified by `GroqClientError` for compatibility and mapped by
+`handleOrchestratorError` to typed HTTP responses; recoverable failures are
+retried across compatible configured providers before they reach the route.
 
 ---
 
