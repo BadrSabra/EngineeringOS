@@ -1,0 +1,360 @@
+diff --git a/lib/ai-orchestrator/src/agents/chat-agent.ts b/lib/ai-orchestrator/src/agents/chat-agent.ts
+index a8111e6..0070e8d 100644
+--- a/lib/ai-orchestrator/src/agents/chat-agent.ts
++++ b/lib/ai-orchestrator/src/agents/chat-agent.ts
+@@ -490,6 +490,76 @@ const RECOVERY_READ_TOOL_NAMES = new Set([
+ const MAX_RECOVERY_TOOL_ROUNDS = 2;
+ /** Bound each recovery round-trip tool result so context stays bounded. */
+ const MAX_RECOVERY_TOOL_RESULT_CHARS = 16_000;
++/** Capability probes are short reports; recovery must not become a second audit. */
++const CAPABILITY_PROBE_RECOVERY_DEADLINE_MS = 30_000;
++const CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS = 15_000;
++
++/**
++ * Run one recovery provider call with both a server-owned deadline and an
++ * abortable per-attempt timer. A provider strategy may ignore its timeout
++ * option, so the race is still required; attaching a rejection handler keeps a
++ * late provider rejection from becoming an unhandled promise after the race
++ * has already returned a terminal result.
++ */
++async function awaitAbortableRecovery<T>(
++  operation: (signal: AbortSignal) => Promise<T>,
++  timeoutMs: number,
++  parentSignal?: AbortSignal,
++): Promise<T> {
++  if (timeoutMs <= 0) {
++    const error = new Error("capability probe recovery deadline exhausted");
++    Object.assign(error, { code: "TIMEOUT" });
++    throw error;
++  }
++  if (parentSignal?.aborted) {
++    const error = new Error("capability probe recovery cancelled");
++    Object.assign(error, { code: "CANCELLED" });
++    throw error;
++  }
++
++  const controller = new AbortController();
++  const abortFromParent = () => controller.abort();
++  parentSignal?.addEventListener("abort", abortFromParent, { once: true });
++  let timer: ReturnType<typeof setTimeout> | undefined;
++  const providerOperation = operation(controller.signal);
++  // The operation owns its own provider resources; observe late failures when
++  // the server-owned race has already selected a timeout/cancellation result.
++  void providerOperation.catch(() => undefined);
++  const timeout = new Promise<T>((_, reject) => {
++    timer = setTimeout(() => {
++      controller.abort();
++      const error = new Error("capability probe recovery timed out");
++      Object.assign(error, { code: "TIMEOUT" });
++      reject(error);
++    }, timeoutMs);
++    timer.unref?.();
++  });
++  const cancelled = parentSignal
++    ? new Promise<T>((_, reject) => {
++        if (parentSignal.aborted) {
++          const error = new Error("capability probe recovery cancelled");
++          Object.assign(error, { code: "CANCELLED" });
++          reject(error);
++          return;
++        }
++        parentSignal.addEventListener("abort", () => {
++          controller.abort();
++          const error = new Error("capability probe recovery cancelled");
++          Object.assign(error, { code: "CANCELLED" });
++          reject(error);
++        }, { once: true });
++      })
++    : null;
++  try {
++    return await Promise.race(
++      cancelled ? [providerOperation, timeout, cancelled] : [providerOperation, timeout],
++    );
++  } finally {
++    if (timer) clearTimeout(timer);
++    parentSignal?.removeEventListener("abort", abortFromParent);
++    controller.abort();
++  }
++}
+ 
+ /**
+  * Classify a terminal structured Recovery failure into a distinct error kind so
+@@ -726,6 +796,30 @@ function validateCapabilityProbeResponse(response: string): string[] {
+   return violations;
+ }
+ 
++/**
++ * Capability reports need a literal source fragment, but a negative result is
++ * still valid when the fragment is a declaration rather than a behavioral
++ * Finding. Keep this separate from the generic behavior-evidence validator,
++ * whose executable-flow requirement is intentionally stricter for defect
++ * claims.
++ */
++function hasCapabilityProbeSourceGrounding(
++  response: string,
++  fileContents: ReadonlyMap<string, string>,
++): boolean {
++  const quotedFragments = [...response.matchAll(/`([^`]+)`/g)]
++    .map((match) => match[1]?.trim() ?? "")
++    .filter((fragment) => fragment.length >= 8);
++  return [...fileContents].some(([source, body]) => {
++    const normalizedSource = source.replaceAll("\\", "/").replace(/^\.\/+/, "");
++    const sourceMentioned =
++      response.includes(source) ||
++      response.includes(normalizedSource) ||
++      response.includes(normalizedSource.split("/").pop() ?? normalizedSource);
++    return sourceMentioned && quotedFragments.some((fragment) => body.includes(fragment));
++  });
++}
++
+ /**
+  * Free-tier providers sometimes return the seven probe fields as a top-level
+  * JSON object instead of the ChatResponse envelope, or return the report as
+@@ -1546,25 +1640,38 @@ async function runCapabilityMicroProbes(opts: {
+   signal?: AbortSignal;
+   fileContents: ReadonlyMap<string, string>;
+   pendingChanges: readonly PendingChange[];
++  deadlineAt?: number;
+ }): Promise<{ response: string; sources: string[]; model?: string } | null> {
+   const lines = new Map<string, string>();
+   let lastModel: string | undefined;
+ 
+   for (const group of CAPABILITY_MICRO_PROBE_GROUPS) {
++    if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) break;
+     try {
+       const microProbePacket = buildCapabilityMicroProbeMessages(group, opts.fileContents);
+       const invoke = (retry: boolean) =>
+-        opts.strategy.call(
+-          microProbePacket.messages,
+-          {
+-            model: opts.model,
+-            maxTokens: retry ? 500 : 900,
+-            timeoutMs: retry ? 25_000 : 45_000,
+-            retryTransient: false,
+-            maxFallbackModels: opts.provider === "openrouter" ? 2 : 1,
+-            apiKey: opts.apiKey,
+-            ...(opts.signal ? { signal: opts.signal } : {}),
+-          },
++        awaitAbortableRecovery(
++          (recoverySignal) => opts.strategy.call(
++            microProbePacket.messages,
++            {
++              model: opts.model,
++              maxTokens: retry ? 500 : 900,
++              timeoutMs: Math.min(
++                retry ? 25_000 : 45_000,
++                opts.deadlineAt !== undefined
++                  ? Math.max(1, opts.deadlineAt - Date.now())
++                  : retry ? 25_000 : 45_000,
++              ),
++              retryTransient: false,
++              maxFallbackModels: 1,
++              apiKey: opts.apiKey,
++              signal: recoverySignal,
++            },
++          ),
++          opts.deadlineAt !== undefined
++            ? Math.max(1, opts.deadlineAt - Date.now())
++            : (retry ? 25_000 : 45_000),
++          opts.signal,
+         );
+       let result;
+       try {
+@@ -5430,6 +5537,20 @@ export async function chat(opts: {
+     requireDependencyProof: firstEvidence.traversalPolicy === "PRIMARY_FIRST",
+     onStep: relayAgentStep,
+   });
++  if (
++    capabilityProbeRequest &&
++    "sourceRetrieval" in loopResult &&
++    loopResult.sourceRetrieval?.synthesisTimedOut
++  ) {
++    relayAgentStep({
++      kind: "diagnostic",
++      code: "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT",
++      details: [
++        "initial capability-report synthesis exhausted its server-owned deadline",
++        "retained source evidence was handed to bounded recovery",
++      ],
++    });
++  }
+   // Cancellation is an incomplete forensic run even when some source reads
+   // already landed. Keep the evidence for the six-section report, but never
+   // allow a cancellation to reach a completed NO_FINDING fallback.
+@@ -6454,7 +6575,7 @@ export async function chat(opts: {
+   // ── End streaming path ────────────────────────────────────────────────────
+ 
+   let content = result.content ?? "";
+-  const providerReturnedEmptyEvidenceResponse =
++  let providerReturnedEmptyEvidenceResponse =
+     !content.trim() &&
+     !structuredOutputMode &&
+     isForensicOrEvidenceRun &&
+@@ -6625,6 +6746,8 @@ export async function chat(opts: {
+   // forensic fallback.
+   let recoveryAttemptsUsed = 0;
+   let recoveryFailureKind: RecoveryFailureKind | undefined;
++  let capabilityProbeRecoveryDeadlineAt: number | null = null;
++  let capabilityProbeClaimUnclosed = false;
+   /**
+    * EI-017/018: raw data from targeted reads issued during claim recovery.
+    * Accumulated as plain objects so the correct runId can be stamped on them
+@@ -8251,32 +8374,50 @@ export async function chat(opts: {
+   if (
+     capabilityProbeRequest &&
+     hasCompleteCapabilityProbeEvidence(forensicFileContents) &&
++    !cancelledForensicAudit() &&
+     (
+       validateCapabilityProbeResponse(responseBeforeBehaviorEvidence).length > 0 ||
+-      behaviorEvidenceValidation.evidence.length === 0
++      !hasCapabilityProbeSourceGrounding(responseBeforeBehaviorEvidence, forensicFileContents)
+     )
+   ) {
++    capabilityProbeRecoveryDeadlineAt =
++      Date.now() + CAPABILITY_PROBE_RECOVERY_DEADLINE_MS;
+     recoveryAttemptsUsed += 1;
+     const recoveryModel = result.model || model;
+     try {
+-      const recovery = await strategy.call(
+-        buildCapabilityProbeRecoveryMessages(
+-          forensicFileContents,
+-          responseBeforeBehaviorEvidence,
++      const recovery = await awaitAbortableRecovery(
++        (recoverySignal) => strategy.call(
++          buildCapabilityProbeRecoveryMessages(
++            forensicFileContents,
++            responseBeforeBehaviorEvidence,
++          ),
++          {
++            model: recoveryModel,
++            apiKey,
++            maxTokens: 3072,
++            timeoutMs: Math.min(
++              CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
++              Math.max(1, capabilityProbeRecoveryDeadlineAt! - Date.now()),
++            ),
++            retryTransient: false,
++            // The agent owns this one ordered correction attempt. Provider
++            // fallback would multiply the probe's run-level recovery budget.
++            maxFallbackModels: 1,
++            signal: recoverySignal,
++          },
+         ),
+-        {
+-          model: recoveryModel,
+-          apiKey,
+-          maxTokens: 3072,
+-          timeoutMs: 120_000,
+-          retryTransient: false,
+-          maxFallbackModels: providerId === "openrouter" ? 3 : 1,
+-          ...(providerId === "openrouter" && !capabilityProbeRequest
+-            ? { responseFormat: { type: "json_object" as const } }
+-            : {}),
+-          ...(signal ? { signal } : {}),
+-        },
++        Math.min(
++          CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
++          Math.max(1, capabilityProbeRecoveryDeadlineAt - Date.now()),
++        ),
++        signal,
+       );
++      relayAgentStep({
++        kind: "recovery_model_call",
++        model: recovery.model || recoveryModel,
++        provider: providerId,
++        attempt: recoveryAttemptsUsed,
++      });
+       const normalizedRecovery = normalizeCapabilityProbeRecoveryContent(
+         recovery.content ?? "",
+         forensicFileContents,
+@@ -8290,8 +8431,9 @@ export async function chat(opts: {
+         );
+         if (
+           validateCapabilityProbeResponse(recoveredResponse).length === 0 &&
+-          recoveredValidation.evidence.some((item) => item.supportsClaim)
++          hasCapabilityProbeSourceGrounding(recoveredResponse, forensicFileContents)
+         ) {
++          providerReturnedEmptyEvidenceResponse = false;
+           responseBeforeBehaviorEvidence = recoveredResponse;
+           behaviorEvidenceValidation = recoveredValidation;
+           content = recovery.content ?? content;
+@@ -8308,34 +8450,66 @@ export async function chat(opts: {
+             sourceCount: forensicFileContents.size,
+             model: recovery.model || recoveryModel,
+           }));
++          relayAgentStep({
++            kind: "diagnostic",
++            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
++            details: ["one bounded correction produced a source-grounded C1–C7 report"],
++          });
+         } else {
++          recoveryFailureKind = "EVIDENCE_FAILURE";
+           console.warn(JSON.stringify({
+             scope: "chat-agent",
+-            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
++            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED",
+             reason: "corrected response still lacked a verified executable excerpt",
+           }));
++          relayAgentStep({
++            kind: "diagnostic",
++            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
++            details: ["corrected C1–C7 report failed the strict source-evidence gate"],
++          });
+         }
+       } else {
++        recoveryFailureKind = "PARSE_FAILURE";
+         console.warn(JSON.stringify({
+           scope: "chat-agent",
+           code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED",
+         }));
++        relayAgentStep({
++          kind: "diagnostic",
++          code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
++          details: ["correction did not contain a usable C1–C7 report"],
++        });
+       }
+     } catch (error) {
++      const errorCode =
++        error instanceof GroqClientError
++          ? error.code
++          : typeof error === "object" && error !== null && "code" in error
++            ? String((error as { code?: unknown }).code ?? "unknown")
++            : "unknown";
++      recoveryFailureKind = errorCode === "TIMEOUT" ? "TIMEOUT" : "PROVIDER_FAILURE";
+       console.warn(JSON.stringify({
+         scope: "chat-agent",
+         code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
+         reason: error instanceof Error ? error.message : String(error),
+       }));
++      relayAgentStep({
++        kind: "diagnostic",
++        code: errorCode === "TIMEOUT"
++          ? "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT"
++          : "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
++        details: [`recovery provider outcome: ${errorCode}`],
++      });
+     }
+   }
+ 
+   if (
+     capabilityProbeRequest &&
+-    forensicFileContents.size > 0 &&
++    hasCompleteCapabilityProbeEvidence(forensicFileContents) &&
++    !cancelledForensicAudit() &&
+     (
+       validateCapabilityProbeResponse(responseBeforeBehaviorEvidence).length > 0 ||
+-      !behaviorEvidenceValidation.evidence.some((item) => item.supportsClaim)
++      !hasCapabilityProbeSourceGrounding(responseBeforeBehaviorEvidence, forensicFileContents)
+     )
+   ) {
+     recoveryAttemptsUsed += 1;
+@@ -8347,6 +8521,7 @@ export async function chat(opts: {
+       signal,
+       fileContents: forensicFileContents,
+       pendingChanges,
++      deadlineAt: capabilityProbeRecoveryDeadlineAt ?? undefined,
+     });
+     if (microProbeRecovery) {
+       const microValidation = validateBehaviorEvidence(
+@@ -8356,8 +8531,9 @@ export async function chat(opts: {
+       );

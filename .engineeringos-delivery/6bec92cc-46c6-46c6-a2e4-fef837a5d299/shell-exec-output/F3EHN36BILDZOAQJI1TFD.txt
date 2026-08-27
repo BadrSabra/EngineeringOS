@@ -1,0 +1,190 @@
+      : extractPriorRepairPlan(history)
+    : null;
+  const executionFilePaths = storedExecutionPlan?.boundaries.allowedWriteFiles?.length
+    ? [...new Set(storedExecutionPlan.boundaries.allowedWriteFiles)]
+    : priorRepairPlanMetadata !== null
+      ? [...new Set(priorRepairPlanMetadata.flatMap((phase) => phase.files))]
+      : priorRepairPlan
+        ? extractExecutionFilePaths(priorRepairPlan)
+        : [];
+  const repairPlanExecution =
+    (immediateIntent &&
+      isRepairPlanExecutionRequest(message) &&
+      (hasExplicitRepairPlanExecutionLanguage(message) || executionFilePaths.length > 0)) ||
+    (buildHandoff && storedExecutionPlan != null);
+  const responseLanguage = resolveResponseLanguage(message);
+  const executionDiagnosticDetails: string[] = [];
+  const recordExecutionDiagnostic = (
+    code: AgentDiagnosticCode,
+    details: string[],
+    emit = true,
+  ): void => {
+    const boundedDetails = details.slice(0, 2);
+    for (const detail of boundedDetails) {
+      if (!executionDiagnosticDetails.includes(detail)) executionDiagnosticDetails.push(detail);
+    }
+    if (emit) emitExecutionDiagnostic(onStep, repairPlanExecution, code, boundedDetails);
+  };
+  let executionNodeStates: ExecutionNode[] = (storedExecutionPlan?.nodes ?? []).map((node) => ({ ...node }));
+  const nodePath = (value: string): string =>
+    value.trim().replace(/^\.\/+/, "").replace(/\\/g, "/");
+  const nodeMatchesPaths = (node: ExecutionNode, paths: readonly string[]): boolean => {
+    const allowed = new Set(node.allowedFiles.map(nodePath));
+    return paths.some((file) => allowed.has(nodePath(file)));
+  };
+  const runnableNodeFor = (args: {
+    profile?: string;
+    paths?: readonly string[];
+  }): ExecutionNode | undefined => {
+    const running = executionNodeStates.find((node) => node.status === "running");
+    if (running && (!args.profile || running.validationProfile === args.profile) &&
+      (!args.paths || args.paths.length === 0 || nodeMatchesPaths(running, args.paths))) {
+      return running;
+    }
+  }
+  // AI-OBJ-007/010: determine whether the run is a production-reachability
+  // proof request. The production API unconditionally supplies a transport-layer
+  // trace (API route → chat()) via runtimeChatTraceLinks, so we must NOT use
+  // `productionTraceLinks.length > 0` as the sole criterion — that would
+  // classify every production request as a reachability run. Instead, require
+  // at least one link that targets application-level code, NOT the generic
+  // chat() orchestrator infrastructure.
+  //
+  // A link targets "infrastructure" when its `to` node is:
+  //   - the canonical orchestrator identifier "orchestrator:chat", OR
+  //   - at ORCHESTRATOR or PERSISTENCE_OUTPUT stage (model provider, output layer).
+  // Links from API_ROUTE → ORCHESTRATOR (chat function) are transport metadata,
+  // not proof of arbitrary code reachability.
+  const INFRASTRUCTURE_STAGES = new Set(["ORCHESTRATOR", "PERSISTENCE_OUTPUT"]);
+  // The user's explicit intent is authoritative: a prompt asking to prove
+  // production reachability activates the gate EVEN when the only supplied
+  // trace is the generic transport link (route → chat()). This is the fix for
+  // the real API path, which always sends just runtimeChatTraceLinks — without
+  // this, "Prove computeCentrality is reachable in production" would be
+  // misclassified as C_BEHAVIOR and a behavioral answer could pass silently.
+  const explicitReachabilityIntent = isProductionReachabilityRequest(message);
+  const hasApplicationReachabilityLink =
+    productionTraceLinks != null &&
+    productionTraceLinks.length > 0 &&
+    productionTraceLinks.some(
+      (link) =>
+        link.to.id !== "orchestrator:chat" &&
+        !INFRASTRUCTURE_STAGES.has(link.to.stage ?? ""),
+    );
+  const isProductionReachabilityRun = explicitReachabilityIntent || hasApplicationReachabilityLink;
+  const primaryClaimCategory: ClaimCategory = isProductionReachabilityRun
+    ? "C_PRODUCTION_REACHABILITY"
+    : "C_BEHAVIOR";
+  // Derive a compact reachability proof status from the ProductionReachabilityTrace.
+  // TraceStatus values are "PROVEN" | "NOT_PROVEN" | "OUT_OF_SCOPE" (no "PARTIAL").
+  //
+  // When the gate activated via explicit REQUEST INTENT but NO application-level
+  // (non-infrastructure) reachability link was supplied — i.e. only the generic
+  // transport link (route → chat()) — the transport link must never be treated
+  // as PROVEN. Clamp to NO_EDGES so a behavioral answer cannot ride the transport
+  // metadata to an ANSWER_COMPLETE verdict.
+  // A retained production read that contains a syntax-bound direct invocation
+  // is also an application-level proof. This is the AI-OBJ-014 path for
+  // single-file audits, where the caller can be proven without an externally
+  // supplied production trace.
+  const hasRetainedReadReachabilityProof = objectiveRetainedReadProvenEdges.length > 0;
+  const reachabilityProofStatus: "PROVEN" | "NOT_PROVEN" | "NO_EDGES" =
+    !hasApplicationReachabilityLink && !hasRetainedReadReachabilityProof
+      ? "NO_EDGES"
+      : productionReachability?.status === "PROVEN" || hasRetainedReadReachabilityProof
+        ? "PROVEN"
+        : productionReachability != null
+          ? "NOT_PROVEN"
+          : "NO_EDGES";
+  // Normalize a trace relation string to detect import/package membership
+  // regardless of casing or delimiter convention. The graph convention uses
+  // lowercase (`imports`, `package-member`) while the canonical schema uses
+  // uppercase (`IMPORT_ONLY`, `PACKAGE_MEMBER`). Both must be blocked.
+  function isImportOnlyRelation(relation: string): boolean {
+    const n = relation.toUpperCase().replace(/-/g, "_").replace(/\s+/g, "_");
+    return (
+      n === "IMPORT_ONLY" ||
+      n === "IMPORTS" ||
+      n === "IMPORT" ||
+      n === "PACKAGE_MEMBER" ||
+      n === "PACKAGE" ||
+      n === "UNKNOWN" ||
+      n === "USES" ||
+      n === "DEPENDS_ON"
+    );
+  }
+  // Import-only hops: ANY caller→target link uses a non-invocation relation
+  // (not all — a mixed chain containing even one import-only hop is unproven).
+  const hasImportOnlyHops =
+    isProductionReachabilityRun &&
+    productionTraceLinks != null &&
+    productionTraceLinks.some((link) => isImportOnlyRelation(link.relation));
+
+  // AI-OBJ-010: for production-reachability runs, construct a concrete claim
+  // model from the supplied trace links and evidence so the validator can
+  // perform real claim×evidence matching — not just metadata checks.
+  //
+  // Each non-import ProductionTraceLink becomes one ClaimRecord (the claim is
+  // that link.from invokes link.to). Each accepted behavior evidence item
+  // becomes one EvidenceRecord. validateClaim then runs the relevance gate
+  // (symbol-specific invocation check) to confirm the snippet actually
+  // references the target function.
+  let reachabilityClaimValidations: ClaimValidation[] = [];
+  if (isProductionReachabilityRun && productionTraceLinks && productionTraceLinks.length > 0) {
+    // When the external trace already shows PROVEN with no import-only hops
+    // (e.g. all links are runtimeObserved invocations), external validation is
+    // the proof — snippet-based claim validation is unnecessary and may produce
+    // false-negatives when behavior evidence doesn't cover the caller file.
+    // Only build and validate the claim model for runs where the trace is
+    // NOT externally proven (i.e., when snippet-based evidence must fill the gap).
+    const externallyProven = reachabilityProofStatus === "PROVEN" && !hasImportOnlyHops;
+    if (!externallyProven) {
+      // Build one claim per non-import-only link, validated against the content
+      // of the specific caller file (link.from.path) in `forensicFileContents`.
+      // `forensicFileContents` holds only files actually read via read_file tool
+      // calls in this run — so this proof requires a real source read.
+      //
+      // Binding evidence to the caller file (not all evidence) prevents a valid
+      // call to the target in an unrelated file from satisfying a fabricated
+      // caller→target claim.
+      const nonImportLinks = productionTraceLinks.filter(
+        (link) => !isImportOnlyRelation(link.relation),
+      );
+      reachabilityClaimValidations = nonImportLinks.map((link) => {
+        const callerPath = link.from.path;
+        const targetSymbol = link.to.name;
+
+        // Resolve the caller file's content from the forensic reads of this run.
+        let callerContent: string | undefined;
+        let resolvedCallerPath: string = callerPath ?? "";
+        if (callerPath) {
+          callerContent = forensicFileContents.get(callerPath);
+          if (callerContent === undefined) {
+            // Also try suffix-match for rootPath-prefixed paths stored in the map.
+            for (const [k, v] of forensicFileContents) {
+              if (k.endsWith("/" + callerPath) || k === callerPath) {
+                callerContent = v;
+                resolvedCallerPath = k;
+                break;
+              }
+            }
+          }
+        }
+
+        // If the caller file was never read, the claim cannot be proven.
+        if (!callerContent) {
+          const unreadClaim = createClaim({
+            text: `${link.from.name} invokes ${targetSymbol} — caller file not read`,
+            taskType: "PRODUCTION_REACHABILITY",
+            evidenceIds: [],
+            symbol: targetSymbol,
+            category: "C_PRODUCTION_REACHABILITY" as ClaimCategory,
+          });
+          return validateClaim(unreadClaim, [], { runId, snippets: new Map() });
+        }
+
+        // Build one evidence record from the actual caller file content.
+        const callerRec = createEvidenceRecord({
+          runId,
+          file: resolvedCallerPath,
+556:export type SourceRetrievalTelemetry = {

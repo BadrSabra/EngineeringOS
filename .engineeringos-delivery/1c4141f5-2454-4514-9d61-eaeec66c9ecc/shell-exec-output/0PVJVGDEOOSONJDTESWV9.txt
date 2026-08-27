@@ -1,0 +1,225 @@
+      streamRequests?: string[];
+      failFirstStream?: boolean;
+      failStreamAttempts?: number;
+    };
+    taskActions?: {
+      tasks: Array<Record<string, unknown>>;
+      requests: string[];
+      verificationRequests?: Array<Record<string, unknown>>;
+    };
+    recoveryTasks?: Array<Record<string, unknown>>;
+    recoveryWorkflows?: Array<Record<string, unknown>>;
+    recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
+  },
+) {
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
+    const arabicAi = overrides?.arabicAi;
+    const alternateAi = overrides?.alternateAi;
+    const disconnectAi = overrides?.disconnectAi;
+    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
+      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
+    );
+    const hasConfiguredAiFixture =
+      aiFixtures.length > 0 ||
+      Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
+
+    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
+      const projectId = url.searchParams.get("projectId");
+      const projectSessions = aiFixtures.filter(
+        (fixture) => !fixture.projectId || fixture.projectId === projectId,
+      );
+      return route.fulfill(
+        jsonResponse(
+          projectSessions.map((fixture) => ({
+            id: fixture.sessionId,
+            title: fixture.question,
+            updatedAt: "2026-01-01T00:02:00.000Z",
+          })),
+        ),
+      );
+    }
+    if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
+      let requestBody: Record<string, unknown> = {};
+      try {
+        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+      } catch {
+        // The normal provider-free fallback below handles malformed requests.
+      }
+      if (
+        requestBody.executionId === overrides.resumeFailure.fixture.executionId
+      ) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          body: overrides.resumeFailure.fixture.streamBody,
+        });
+      }
+    }
+    if (overrides?.interruptedResume && path.endsWith("/api/ai/chat/stream")) {
+      let requestBody: Record<string, unknown> = {};
+      try {
+        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+      } catch {
+        // The normal provider-free fallback below handles malformed requests.
+      }
+      const { fixture, resumedStreamBody } = overrides.interruptedResume;
+      if (requestBody.executionId === fixture.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          body: resumedStreamBody,
+        });
+      }
+      if (!requestBody.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          // Deliberately stop after the durable execution identity. The
+          // journey wraps this response in a browser-level stream error.
+          body: fixture.streamBody,
+        });
+      }
+    }
+    let requestedMessage: string | undefined;
+    try {
+      requestedMessage = (route.request().postDataJSON() as Record<string, unknown>)
+        .message as string | undefined;
+    } catch {
+      // The default provider-unavailable response handles malformed requests.
+    }
+    const streamFixture =
+      disconnectAi ??
+      aiFixtures.find(
+        (fixture) =>
+          typeof requestedMessage === "string" &&
+          (requestedMessage === fixture.question ||
+            requestedMessage.includes(fixture.question)),
+      ) ??
+      arabicAi;
+    if (streamFixture && path.endsWith("/api/ai/chat/stream"))
+      return route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        headers: { "Cache-Control": "no-cache" },
+        body: streamFixture.streamBody,
+      });
+    const messageFixture = aiFixtures.find((fixture) =>
+      path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
+    );
+    if (messageFixture)
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: `${messageFixture.sessionId}-user-message`,
+            sessionId: messageFixture.sessionId,
+            role: "user",
+            content: messageFixture.question,
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          messageFixture.message,
+        ]),
+      );
+    if (
+      overrides?.auditExport &&
+      path.endsWith("/api/ai/chat/e2e-audit-session/messages")
+    ) {
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: "e2e-audit-user-message",
+            sessionId: "e2e-audit-session",
+            role: "user",
+            content: "Completed audit execution",
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          {
+            id: "e2e-audit-assistant-message",
+            sessionId: "e2e-audit-session",
+            role: "assistant",
+            content: "Completed audit execution",
+            executionId: EXECUTION_ID,
+            outcome: overrides.auditExport.messageOutcome ?? "SUCCEEDED",
+            createdAt: "2026-01-01T00:02:00.000Z",
+          },
+        ]),
+      );
+    }
+
+    if (path === "/api/dashboard")
+      return route.fulfill(jsonResponse(dashboardFixture));
+    if (overrides?.taskActions) {
+      const verificationMatch = path.match(
+        /^\/api\/tasks\/([^/]+)\/verification$/,
+      );
+      if (verificationMatch && route.request().method() === "POST") {
+        const [, taskId] = verificationMatch;
+        const task = overrides.taskActions.tasks.find(
+          (candidate) => candidate.id === taskId,
+        );
+        if (!task) {
+          return route.fulfill(jsonResponse({ error: "Task not found" }, 404));
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = route.request().postDataJSON() as Record<string, unknown>;
+        } catch {
+          return route.fulfill(
+            jsonResponse({ error: "Invalid verification request" }, 400),
+          );
+        }
+        const plan = task.remediationPlan as
+          | {
+              verificationChecks?: Array<Record<string, unknown>>;
+              verificationSteps?: string[];
+            }
+          | undefined;
+        const checks =
+          plan?.verificationChecks ??
+          (plan?.verificationSteps ?? []).map((guidance, index) => ({
+            id: `rule-verification-${index + 1}`,
+            kind: "operator_attestation",
+import { defineConfig } from "@playwright/test";
+
+/**
+ * This suite is intentionally separate from Vitest. The release runner starts
+ * the dashboard and API workflows and performs their health checks before
+ * invoking Playwright.
+ */
+export default defineConfig({
+  testDir: ".",
+  testMatch: "**/*.journey.ts",
+  timeout: 45_000,
+  expect: { timeout: 10_000 },
+  fullyParallel: false,
+  workers: 1,
+  forbidOnly: Boolean(process.env.CI),
+    // Assertion/configuration failures are deterministic; retrying them hides
+    // the real release signal. Infrastructure retries are handled by the
+    // bounded release wrapper instead.
+    retries: 0,
+  reporter: process.env.CI ? "line" : "list",
+  use: {
+    launchOptions: {
+      ...(process.env.DASHBOARD_E2E_EXECUTABLE_PATH
+        ? { executablePath: process.env.DASHBOARD_E2E_EXECUTABLE_PATH }
+        : {}),
+      args: ["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
+    },
+    baseURL:
+      process.env.DASHBOARD_E2E_BASE_URL ?? "http://127.0.0.1:5173/dashboard/",
+    outputDir:
+      process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    // The managed release runner retains trace and screenshot artifacts. Do
+    // not require Playwright's separately downloaded ffmpeg video helper.
+    video: "off",
+    ignoreHTTPSErrors: true,
+  },
+});

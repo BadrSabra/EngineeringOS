@@ -1,0 +1,187 @@
+76:export const BUDGET_BY_SCOPE = {
+444:  allowedToolNames?: ReadonlySet<string>;
+511:export function classifyReadStatus(toolName: string, output: string): ReadStatus {
+512:  if (toolName === "read_file_range") {
+524:  if (toolName !== "read_file") return "READ_COMPLETE";
+703:        diagnosticCode: "TOOL_UNAVAILABLE",
+708:      toolName: name,
+713:      ...(opts.allowedToolNames ? { allowedTools: opts.allowedToolNames } : {}),
+719:        diagnosticCode: "TOOL_UNAVAILABLE",
+727:        diagnosticCode: "TOOL_UNAVAILABLE",
+784:                  ? "TOOL_UNAVAILABLE"
+1147:  allowedToolNames?: string[];
+1301:  | "FORENSIC_PARTIAL_SCOPE_FINDING"
+1318:  | "EXECUTION_SCOPE_VIOLATION"
+1322:  | "TOOL_UNAVAILABLE"
+1359:  | "JUSTIFIED_SCOPE_EXPANSION"
+1360:   | "UNJUSTIFIED_SCOPE_EXPANSION"
+1463:       * scope (e.g. REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION). Absent when allowed.
+1620:    allowedToolNames,
+1717:  const recordRead = (toolName: string, path: string | undefined, output: string): ReadStatus => {
+1719:    const status = classifyReadStatus(toolName, output);
+1877:    const requested = allowedToolNames ? new Set(allowedToolNames) : null;
+1965:    toolName: string,
+1972:      (toolName !== "read_file" && toolName !== "read_file_range") ||
+2189:    toolName: string,
+2192:    if (toolName !== "read_file" && toolName !== "read_file_range") return false;
+2207:    toolName: string,
+2211:    if (toolName !== "read_file" && toolName !== "read_file_range") return false;
+2213:    const status = classifyReadStatus(toolName, output);
+3250:        if (expansion?.kind === "JUSTIFIED_SCOPE_EXPANSION") {
+3254:              code: "JUSTIFIED_SCOPE_EXPANSION",
+3261:        } else if (expansion?.kind === "UNJUSTIFIED_SCOPE_EXPANSION") {
+3265:              code: "UNJUSTIFIED_SCOPE_EXPANSION",
+3275:              `UNJUSTIFIED_SCOPE_EXPANSION: \`${normalizeObjectivePath(requestedPath)}\` is outside the ` +
+3888:        allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
+3910:          "TOOL_UNAVAILABLE",
+                ...executionCounts(),
+                stopReason: "empty_response",
+                synthesisStarted,
+                diagnosticCodes: [],
+                sourceRetrieval,
+              });
+            } catch { /* ignore */ }
+            return {
+              kind: "partial",
+              result: {
+                content: "",
+                toolCalls: null,
+                model,
+                usage: { promptTokens: 0, completionTokens: 0 },
+              },
+              toolSources,
+              fileContents,
+              sourceRetrieval,
+              reason: "empty_response",
+            };
+          }
+          classifyZeroReadTerminal("empty_response", iter + 1);
+          try {
+            onStep?.({
+              kind: "done",
+              iterations: iter + 1,
+              maxIterations,
+              ...executionCounts(),
+              stopReason: "empty_response",
+              synthesisStarted,
+              diagnosticCodes: [],
+              sourceRetrieval,
+            });
+          } catch { /* ignore */ }
+          return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+        }
+
+        throw err;
+      }
+    }
+
+    // OR-007: Emit per-call telemetry (model used, token usage, timing, fallback).
+    const observedModel = result.model || (fallbackReason ? powerModel : model);
+    lastModelUsed = observedModel;
+    recordProviderTelemetry({
+      provider: provider as Parameters<typeof recordProviderTelemetry>[0]["provider"],
+      model: observedModel,
+      fallbackReason,
+      attemptCount,
+      promptTokens: result.usage?.promptTokens ?? 0,
+      completionTokens: result.usage?.completionTokens ?? 0,
+      durationMs: Date.now() - t0,
+    });
+    try {
+      onStep?.({
+        kind: "model_call",
+        model: result.model || (fallbackReason ? powerModel : model),
+        provider,
+      });
+    } catch { /* ignore */ }
+
+    // ── Track last text seen (for kind:"partial" fallback) ──────────────────
+    // Save any non-empty text content the model produced this iteration,
+    // even when it also requested tool calls.  If the hard limit is reached
+    // before the model emits a standalone text response, we return this instead
+    // of a generic error message.
+    if (result.content && result.content.trim().length > 0) {
+      lastTextSeen = result;
+    }
+
+    // Free-tier reasoning models can spend the entire output budget on a
+    // response that is marked "length".  Treating that text as the final
+    // answer leaks a truncated plan/report to the user (and often makes the
+    // JSON envelope impossible to parse).  Give the same model one bounded,
+    // no-tools completion pass with a larger output budget before accepting
+    // the partial text.
+    if (
+      result.finishReason === "length" &&
+      result.content?.trim() &&
+      (!result.toolCalls || result.toolCalls.length === 0)
+    ) {
+      const truncatedContent = result.content.trim();
+      const retryMaxTokens = iterMaxTokens === undefined ? undefined : iterMaxTokens * 2;
+      const retryMessages = compactModelMessages([
+        ...safeMessages,
+        { role: "assistant", content: truncatedContent },
+        {
+          role: "user",
+          content:
+            "The previous answer was cut off by the output limit. " +
+            "Return a complete final answer now, without commentary about the cutoff. " +
+            "Preserve the requested response format and do not call tools.",
+        },
+      ]);
+      try {
+        const retry = await strategy.call(retryMessages, {
+          model: result.model || model,
+          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+          timeoutMs: 60_000,
+          apiKey,
+          ...(opts.capability ? { capability: opts.capability } : {}),
+           ...(opts.signal ? { signal: opts.signal } : {}),
+          ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+        });
+        if (retry.content?.trim()) {
+          result = retry;
+          lastTextSeen = retry;
+          console.warn(
+            JSON.stringify({
+              scope: "tool-execution-engine",
+              code: "TRUNCATED_FINAL_RETRY_ACCEPTED",
+              provider,
+              model: retry.model || model,
+              previousLength: truncatedContent.length,
+              retryMaxTokens,
+              finishReason: retry.finishReason ?? null,
+            }),
+          );
+        }
+      } catch (err) {
+        console.warn(
+          JSON.stringify({
+            scope: "tool-execution-engine",
+            code: "TRUNCATED_FINAL_RETRY_FAILED",
+            provider,
+            model: result.model || model,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
+    }
+
+    // ── No tool calls → final response ──────────────────────────────────────
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      // Prefetch gives the model source bodies before the first loop call, but
+      // the provider client intentionally omits response_format whenever tools
+      // are attached. If the model immediately decides it has enough evidence,
+      // give it one explicit no-tools synthesis pass so JSON mode is actually
+      // applied. Only do this for the first prefetched response, and only when
+      // the response is not already a usable JSON envelope; this preserves the
+      // normal read→synthesize loop and avoids a redundant provider call.
+      const trimmedContent = result.content?.trim() ?? "";
+      let hasJsonEnvelope = false;
+      if (trimmedContent) {
+        try {
+          const candidate = JSON.parse(trimmedContent) as unknown;
+          hasJsonEnvelope =
+            typeof candidate === "object" &&
+            candidate !== null &&
+            typeof (candidate as { response?: unknown }).response === "string";
+        } catch {

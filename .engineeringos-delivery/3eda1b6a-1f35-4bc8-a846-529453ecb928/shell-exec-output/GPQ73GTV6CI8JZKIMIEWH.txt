@@ -1,0 +1,231 @@
+lib/ai-orchestrator/src/agents/chat-agent.ts:67:  validateBehaviorEvidence,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6025:      const streamingBehaviorGated = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:6134:        const streamingBehaviorValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:6279:      const nativeSseBehaviorValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:6391:        const nativeSseBehaviorValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8168:    ? validateBehaviorEvidence(message, responseBeforeBehaviorEvidence, forensicFileContents)
+lib/ai-orchestrator/src/agents/chat-agent.ts:8206:      const recoveredValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8286:        const recoveredValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8352:      const microValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/task-contracts.ts:963:export function validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:67:  validateBehaviorEvidence,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6025:      const streamingBehaviorGated = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:6134:        const streamingBehaviorValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:6279:      const nativeSseBehaviorValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:6391:        const nativeSseBehaviorValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8168:    ? validateBehaviorEvidence(message, responseBeforeBehaviorEvidence, forensicFileContents)
+lib/ai-orchestrator/src/agents/chat-agent.ts:8206:      const recoveredValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8286:        const recoveredValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8352:      const microValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:316:      const { validateBehaviorEvidence } = await import("../task-contracts.js");
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:317:      const correctionValidation = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:15:  validateBehaviorEvidence,
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:240:    const accepted = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:259:    const rejected = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:268:    const defaultOnly = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:295:    const result = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:319:    const result = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:351:    const result = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:382:    const result = validateBehaviorEvidence(
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:409:    const result = validateBehaviorEvidence(
+ */
+export function isRepeatedConversationQuestion(
+  history: ChatMessage[],
+  message: string,
+): boolean {
+  const current = normalizeRepeatedQuestion(message);
+  if (!current || /^(?:السؤال\s+التالي|next\s+question)$/iu.test(message.trim())) {
+    return false;
+  }
+
+  const priorUserMessages = history
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) =>
+      entry.role === "user" && normalizeRepeatedQuestion(entry.content) === current,
+    );
+  const prior = priorUserMessages.at(-1);
+  if (!prior) return false;
+
+  return history.slice(prior.index + 1).some((entry) => entry.role === "assistant");
+}
+
+function buildRepeatedQuestionGuard(
+  history: ChatMessage[],
+  message: string,
+): RawMessage | null {
+  if (!isRepeatedConversationQuestion(history, message)) return null;
+  return {
+    role: "system",
+    content:
+      "[REPEATED QUESTION GUARD]\n" +
+      "The current user question matches a question already answered in this conversation. " +
+      "Do not copy the previous answer verbatim or repeat its generic explanation. " +
+      "If the verified conclusion is unchanged, state that briefly and add a new distinction, caveat, " +
+      "or concrete implication. If the user is asking for a different angle, answer that angle directly. " +
+      "Ground any new claim in the available evidence.",
+  };
+}
+
+export function buildResumedEvidenceLedger(
+  state: ActiveTaskState | null | undefined,
+  resumed: boolean,
+): string {
+  if (!resumed || !state || state.evidence.readFiles.length === 0) return "";
+  const files = state.evidence.readFiles.map((file) => `  - ${file}`).join("\n");
+  return (
+    "\n\n**RESUMED TASK EVIDENCE LEDGER — ACTIVE:**\n" +
+    "The previous turn already acquired source evidence from these files:\n" +
+    `${files}\n` +
+    "- Do not repeat the same inventory or search just to rediscover these paths.\n" +
+    "- Continue with an uninspected target or a focused dependency read.\n" +
+    "- This ledger contains paths only; re-read a listed file only when an exact current excerpt is required for a new claim.\n" +
+    "- Repeating prior hypotheses, architecture summaries, or unsupported possibilities is not progress and must not be presented as a finding.\n" +
+    "- If no new completed source read closes a claim, return NOT PROVEN and state that no new evidence was obtained."
+  );
+}
+
+function buildStoredExecutionPlanContext(plan: ActiveTaskExecutionPlan): string {
+  return (
+    "Structured execution plan (authoritative; do not reconstruct it from report prose):\n" +
+    JSON.stringify(plan)
+  );
+}
+
+/**
+ * Return the most recent structured plan from assistant history. Invalid
+ * metadata is ignored so old/imported sessions safely use the Markdown
+ * compatibility path instead of becoming write targets.
+ */
+export function extractPriorRepairPlanMetadata(
+  history: ChatMessage[],
+): RepairPlanMetadata[] | null {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message?.role !== "assistant" || message.repairPlan === undefined) continue;
+    return message.repairPlan;
+  }
+  return null;
+}
+
+const MAX_RECOVERY_EVIDENCE_CHARS = 36_000;
+/** EI-017/018: max recovered targeted-evidence windows fed back to the model. */
+const MAX_RECOVERY_RECOVERED_EVIDENCE = 6;
+/** EI-017/018: per-window excerpt cap for recovered targeted evidence. */
+const MAX_RECOVERY_RECOVERED_EXCERPT_CHARS = 4_000;
+/**
+ * EI-018 correction-prompt budget for recovered targeted evidence. Kept far
+ * tighter than the full recovered windows (which live in the same user message):
+ * 2 findings × 2 files × ~300 chars ≈ 1,200 chars of new material in the prompt
+ * that must be literally re-read, preventing context bloat on the next attempt.
+ */
+const MAX_RECOVERED_CORRECTION_EXCERPTS = 4;
+const MAX_RECOVERED_CORRECTION_EXCERPT_CHARS = 300;
+const MAX_RECOVERY_SOURCE_CHARS = 4_500;
+const MAX_RECOVERY_CANDIDATE_CHARS = 8_000;
+const MAX_RECOVERY_OBJECTIVE_CHARS = 4_000;
+const MAX_BEHAVIOR_RECOVERY_CANDIDATES_PER_FILE = 3;
+const BEHAVIOR_RECOVERY_WINDOW_LINES = 9;
+
+type BehaviorRecoverySourceCandidate = {
+  file: string;
+  startLine: number;
+  endLine: number;
+  content: string;
+  truncated: boolean;
+};
+
+/**
+ * Build source-owned, executable windows for the one behavior citation repair
+ * pass. This is presentation only: the verifier still matches the model's
+ * quoted fragment against the complete retained body.
+ *
+ * A plain head/tail excerpt can hide the only relevant branch in a large file
+ * and can make later files disappear when the shared budget is exhausted.
+ * Rank windows by question-token overlap and executable markers, then reserve a
+ * bounded slice for every retained file before spending the remainder on the
+ * strongest windows.
+ */
+export function buildBehaviorRecoverySourceCandidates(
+  question: string,
+  fileContents: ReadonlyMap<string, string>,
+): BehaviorRecoverySourceCandidate[] {
+  const queryTokens = [...new Set(
+    question
+      .toLocaleLowerCase()
+      .match(/[a-z_$][\w$]*|[\u0600-\u06ff]{3,}/giu) ?? [],
+  )].filter((token) => token.length >= 3);
+  const flowLine = /\b(?:if|else|switch|case|for|while|return|throw|catch|await|call|invoke)\b/i;
+  const files = [...fileContents.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const candidates: BehaviorRecoverySourceCandidate[] = [];
+  let remainingBudget = MAX_RECOVERY_EVIDENCE_CHARS;
+
+  for (const [fileIndex, [file, content]] of files.entries()) {
+    const lines = content.split("\n");
+    if (lines.length === 0 || !content) continue;
+    const remainingFiles = Math.max(1, files.length - fileIndex);
+    const perFileBudget = Math.max(128, Math.floor(remainingBudget / remainingFiles));
+    const scoredStarts = lines.map((line, index) => {
+      const lower = line.toLocaleLowerCase();
+      const queryHits = queryTokens.reduce((count, token) => count + (lower.includes(token) ? 1 : 0), 0);
+      const score = queryHits * 4 + (flowLine.test(line) ? 3 : 0);
+      return { index, score };
+    }).filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+
+    const starts = (scoredStarts.length > 0
+      ? scoredStarts
+      : [{ index: 0, score: 0 }, { index: Math.max(0, lines.length - 1), score: 0 }])
+      .map((entry) => Math.max(0, entry.index - Math.floor(BEHAVIOR_RECOVERY_WINDOW_LINES / 2)));
+    const uniqueStarts: number[] = [];
+    for (const start of starts) {
+      if (uniqueStarts.some((existing) => Math.abs(existing - start) < 3)) continue;
+      uniqueStarts.push(start);
+      if (uniqueStarts.length >= MAX_BEHAVIOR_RECOVERY_CANDIDATES_PER_FILE) break;
+    }
+
+    let consumed = 0;
+    for (const start of uniqueStarts) {
+      const end = Math.min(lines.length, start + BEHAVIOR_RECOVERY_WINDOW_LINES);
+      const raw = lines.slice(start, end).join("\n");
+      const remaining = perFileBudget - consumed;
+      if (remaining < 128) break;
+      const candidateText = raw.length <= remaining ? raw : raw.slice(0, remaining);
+      const visibleLines = candidateText.split("\n");
+      const actualEnd = Math.min(end, start + visibleLines.length);
+      const truncated = candidateText.length < raw.length;
+      candidates.push({
+        file,
+        startLine: start + 1,
+        endLine: actualEnd,
+        content: candidateText,
+        truncated,
+      });
+      consumed += candidateText.length;
+      remainingBudget = Math.max(0, remainingBudget - candidateText.length);
+    }
+  }
+  return candidates;
+}
+/**
+ * Recovery tool wiring: recovery is a bounded verification pass, not an edit
+ * pass. Give the model ONLY read tools so it can re-read the actual source to
+ * ground a disputed claim, while keeping every write tool out of recovery.
+ */
+const RECOVERY_READ_TOOL_NAMES = new Set([
+  "read_file",
+  "read_file_range",
+  "search_code",
+  "list_directory",
+]);
+/** Cap on recovery tool-call rounds so a confused recovery model cannot loop. */
+const MAX_RECOVERY_TOOL_ROUNDS = 2;
+/** Bound each recovery round-trip tool result so context stays bounded. */
+const MAX_RECOVERY_TOOL_RESULT_CHARS = 16_000;
+
+/**
+ * Classify a terminal structured Recovery failure into a distinct error kind so
+ * analysts can tell WHY recovery failed instead of every case collapsing into a
+ * generic "NOT PROVEN" verdict.
+ *
+ * Mapping rules:
+ *  - parse failures     -> PARSE_FAILURE (the candidate was not a valid JSON envelope)

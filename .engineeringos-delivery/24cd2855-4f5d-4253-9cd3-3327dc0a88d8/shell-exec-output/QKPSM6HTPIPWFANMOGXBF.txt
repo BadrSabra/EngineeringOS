@@ -1,0 +1,989 @@
+    req: {
+      "id": 48,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 36
+[05:49:54.444] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "343cfc73-d7a4-4b31-abfe-757c0d5f8129"
+    rootPath: "/tmp/stream-test-8f023a93-2ff5-406e-ba5c-a93036393d9f"
+[05:49:54.449] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "343cfc73-d7a4-4b31-abfe-757c0d5f8129"
+    rootPath: "/tmp/stream-test-8f023a93-2ff5-406e-ba5c-a93036393d9f"
+[05:49:54.461] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "dff788b2-2ebb-409c-a079-ac139ba25d94"
+    projectId: "343cfc73-d7a4-4b31-abfe-757c0d5f8129"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "dff788b2-2ebb-409c-a079-ac139ba25d94",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 1
+    }
+[05:49:54.469] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "dff788b2-2ebb-409c-a079-ac139ba25d94"
+    projectId: "343cfc73-d7a4-4b31-abfe-757c0d5f8129"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "dff788b2-2ebb-409c-a079-ac139ba25d94",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 1
+    }
+[05:49:54.492] INFO (23188): request completed
+    req: {
+      "id": 50,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 58
+[05:49:54.511] INFO (23188): request completed
+    req: {
+      "id": 49,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 80
+[05:49:54.528] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "343cfc73-d7a4-4b31-abfe-757c0d5f8129"
+    rootPath: "/tmp/stream-test-8f023a93-2ff5-406e-ba5c-a93036393d9f"
+[05:49:54.546] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "dff788b2-2ebb-409c-a079-ac139ba25d94"
+    projectId: "343cfc73-d7a4-4b31-abfe-757c0d5f8129"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 6
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "dff788b2-2ebb-409c-a079-ac139ba25d94",
+      "historyMessageCount": 6,
+      "repairPlanCandidateCount": 3
+    }
+[05:49:54.571] INFO (23188): request completed
+    req: {
+      "id": 51,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 49
+[05:49:54.610] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "2228f506-8ca4-4294-addc-4795aeaaa88a"
+    rootPath: "/tmp/stream-test-67b4d4ab-787b-4516-9f53-5e3e4d39930c"
+[05:49:54.644] INFO (23188): request completed
+    req: {
+      "id": 52,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 43
+[05:49:54.655] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "2228f506-8ca4-4294-addc-4795aeaaa88a"
+    rootPath: "/tmp/stream-test-67b4d4ab-787b-4516-9f53-5e3e4d39930c"
+[05:49:54.702] INFO (23188): request completed
+    req: {
+      "id": 53,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 54
+[05:49:54.736] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "9c239df4-5429-46ea-b7d7-7fe23a9c616c"
+    rootPath: "/tmp/stream-test-e0544680-5e55-4805-a94a-baeedeb44858"
+[05:49:54.759] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "87f72030-cf59-434b-baab-d5f5004be127"
+    projectId: "9c239df4-5429-46ea-b7d7-7fe23a9c616c"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "PROJECT_QUERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "87f72030-cf59-434b-baab-d5f5004be127",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:54.784] INFO (23188): request completed
+    req: {
+      "id": 54,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 56
+[05:49:54.818] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "f1bbe04c-68fb-4322-a7e9-cb71916c1ba4"
+    rootPath: "/tmp/stream-test-5568ef6b-1efb-459a-a620-5fb260c76563"
+[05:49:54.832] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "dc0aea1f-686f-468c-b416-0eb29276534e"
+    projectId: "f1bbe04c-68fb-4322-a7e9-cb71916c1ba4"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "dc0aea1f-686f-468c-b416-0eb29276534e",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:54.859] INFO (23188): request completed
+    req: {
+      "id": 55,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 50
+[05:49:54.873] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "f1bbe04c-68fb-4322-a7e9-cb71916c1ba4"
+    rootPath: "/tmp/stream-test-5568ef6b-1efb-459a-a620-5fb260c76563"
+[05:49:54.873] INFO (23188): chat: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_chat_trace"
+    provider: "groq"
+    sessionId: null
+    projectId: "f1bbe04c-68fb-4322-a7e9-cb71916c1ba4"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": null,
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:54.883] INFO (23188): request completed
+    req: {
+      "id": 56,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 16
+[05:49:54.926] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "1d2e89b7-803a-4e30-903a-91cca04ba882"
+    rootPath: "/tmp/stream-test-1b04116d-7b5d-4fef-8c85-951ed3aa74ca"
+[05:49:54.942] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "815d1da2-9c6e-4ede-8e3d-195462f9eccb"
+    projectId: "1d2e89b7-803a-4e30-903a-91cca04ba882"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "PROJECT_QUERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "815d1da2-9c6e-4ede-8e3d-195462f9eccb",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:54.970] INFO (23188): request completed
+    req: {
+      "id": 57,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 58
+[05:49:55.008] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "375855fa-43ec-4a43-bb6c-d73a58a60d3b"
+    rootPath: "/tmp/stream-test-21a38f8c-316c-4114-bb1a-472669dbe955"
+[05:49:55.032] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "f72ef3e1-7961-4aaa-a9ea-c9d7603bf118"
+    projectId: "375855fa-43ec-4a43-bb6c-d73a58a60d3b"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "f72ef3e1-7961-4aaa-a9ea-c9d7603bf118",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.058] INFO (23188): request completed
+    req: {
+      "id": 58,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 55
+[05:49:55.088] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "630fc6b1-27a8-4fca-bfb1-9001ece94b05"
+    rootPath: "/tmp/stream-test-f9a1cbd2-a5ce-4432-8eb6-1d7490c0c793"
+[05:49:55.103] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "9b267840-e735-4ded-9701-ef2ac29d004a"
+    projectId: "630fc6b1-27a8-4fca-bfb1-9001ece94b05"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "9b267840-e735-4ded-9701-ef2ac29d004a",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.118] INFO (23188): request completed
+    req: {
+      "id": 60,
+      "method": "POST",
+      "url": "/api/ai/executions/edd868cb-f423-422f-aed0-10f381457481/cancel"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 10
+[05:49:55.120] WARN (23188): AI execution checkpoint rejected by lease/state gate
+    executionId: "edd868cb-f423-422f-aed0-10f381457481"
+    sequence: 4
+[05:49:55.120] WARN (23188): AI execution checkpoint rejected by lease/state gate
+    executionId: "edd868cb-f423-422f-aed0-10f381457481"
+    sequence: 5
+[05:49:55.122] WARN (23188): AI execution checkpoint rejected by lease/state gate
+    executionId: "edd868cb-f423-422f-aed0-10f381457481"
+    sequence: 6
+[05:49:55.128] WARN (23188): AI execution checkpoint rejected by lease/state gate
+    executionId: "edd868cb-f423-422f-aed0-10f381457481"
+    sequence: 7
+[05:49:55.133] INFO (23188): request completed
+    req: {
+      "id": 59,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 51
+[05:49:55.159] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "132ebed4-5ba2-4c29-a93b-70af6c5cfba1"
+    rootPath: "/tmp/stream-test-279edcd3-8182-4ed1-921a-7219460b4f10"
+[05:49:55.173] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "974c0d11-3e37-499f-a803-d16fdc196719"
+    projectId: "132ebed4-5ba2-4c29-a93b-70af6c5cfba1"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "974c0d11-3e37-499f-a803-d16fdc196719",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.186] INFO (23188): request completed
+    req: {
+      "id": 61,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 32
+[05:49:55.216] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "6789d449-ab5a-4177-860c-bfd88a035dc1"
+    rootPath: "/tmp/stream-test-9983842b-6942-4f26-88e9-97151956cf15"
+[05:49:55.228] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "6644b4c5-4dbd-4c40-a816-9f4fe5f39150"
+    projectId: "6789d449-ab5a-4177-860c-bfd88a035dc1"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "6644b4c5-4dbd-4c40-a816-9f4fe5f39150",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.245] INFO (23188): request completed
+    req: {
+      "id": 62,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 35
+[05:49:55.256] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "6789d449-ab5a-4177-860c-bfd88a035dc1"
+    rootPath: "/tmp/stream-test-9983842b-6942-4f26-88e9-97151956cf15"
+[05:49:55.265] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "6644b4c5-4dbd-4c40-a816-9f4fe5f39150"
+    projectId: "6789d449-ab5a-4177-860c-bfd88a035dc1"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "6644b4c5-4dbd-4c40-a816-9f4fe5f39150",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.276] INFO (23188): request completed
+    req: {
+      "id": 63,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 26
+[05:49:55.302] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "e1697f8b-f1af-48d3-9610-34c0e89b756c"
+    rootPath: "/tmp/stream-test-2b1492bc-751f-47e0-a36f-9f5c94b6a826"
+[05:49:55.315] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "1950bc46-d747-4de6-b012-6752b79b6d91"
+    projectId: "e1697f8b-f1af-48d3-9610-34c0e89b756c"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "1950bc46-d747-4de6-b012-6752b79b6d91",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.335] INFO (23188): request completed
+    req: {
+      "id": 64,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 36
+[05:49:55.359] INFO (23188): request completed
+    req: {
+      "id": 65,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 4
+[05:49:55.380] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "6f269021-ea71-4022-9731-30cc5c3e775a"
+    rootPath: "/tmp/stream-test-56a90018-c24c-445e-9b89-4fa4b87608cd"
+[05:49:55.381] INFO (23188): request completed
+    req: {
+      "id": 66,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 8
+[05:49:55.413] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "dce3034e-2581-43c0-9ed7-fa3aed949a80"
+    projectId: "68b8b8ca-9102-4eec-8f9a-8bd4983f9fac"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "dce3034e-2581-43c0-9ed7-fa3aed949a80",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.413] WARN (23188): SSE stream broke mid-flight — emitting stream_reset to client
+    scope: "chat-route"
+    action: "stream_reset"
+    provider: "groq"
+    streamedBytes: 42
+[05:49:55.434] INFO (23188): request completed
+    req: {
+      "id": 67,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 40
+[05:49:55.479] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "a1ca77db-3fde-4e14-88a6-1cde0331eb27"
+    projectId: "5b7b2ac1-17a9-4cd6-8be2-55946e145942"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "a1ca77db-3fde-4e14-88a6-1cde0331eb27",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.495] INFO (23188): request completed
+    req: {
+      "id": 68,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 36
+[05:49:55.521] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "a1ca77db-3fde-4e14-88a6-1cde0331eb27"
+    projectId: "5b7b2ac1-17a9-4cd6-8be2-55946e145942"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "a1ca77db-3fde-4e14-88a6-1cde0331eb27",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.540] INFO (23188): request completed
+    req: {
+      "id": 69,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 40
+[05:49:55.571] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "580386da-7a1d-437c-8483-6a326d2537a4"
+    rootPath: "/tmp/stream-test-b658921a-deeb-4cee-86b6-5c56dc30e4d5"
+[05:49:55.582] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "ef885bbe-061c-409c-b15d-3e4cca999956"
+    projectId: "580386da-7a1d-437c-8483-6a326d2537a4"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "ef885bbe-061c-409c-b15d-3e4cca999956",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.583] ERROR (23188): chat stream: all providers failed
+    code: "MODEL_NOT_FOUND"
+    message: "All AI model fallbacks exhausted — no model was available (/var/task/provider-runtime/chat.ts, 123e4567-e89b-12d3-a456-426614174000)."
+    provider: "groq"
+    providerStatus: 422
+    providerModel: "model-123e4567-e89b-12d3-a456-426614174000"
+[05:49:55.589] INFO (23188): request completed
+    req: {
+      "id": 70,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 26
+[05:49:55.623] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "3482ac5a-b4b5-4b6f-9c59-dc25735a16a0"
+    rootPath: "/tmp/stream-test-6e626216-2653-4f8d-ab13-73d1a33d7a2e"
+[05:49:55.640] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "df698c59-292a-4231-a9b8-6b983cd1cb64"
+    projectId: "3482ac5a-b4b5-4b6f-9c59-dc25735a16a0"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "PROJECT_QUERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "df698c59-292a-4231-a9b8-6b983cd1cb64",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.640] ERROR (23188): chat stream: all providers failed
+    code: "RATE_LIMITED"
+    message: "OpenRouter rate limited"
+    provider: "groq"
+    providerStatus: 429
+[05:49:55.648] INFO (23188): request completed
+    req: {
+      "id": 71,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 31
+[05:49:55.678] INFO (23188): request completed
+    req: {
+      "id": 72,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 2
+[05:49:55.682] INFO (23188): request completed
+    req: {
+      "id": 73,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 1
+[05:49:55.693] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "f67b9655-7f76-4118-951d-1b7051a10b8b"
+    rootPath: "/tmp/stream-test-4e1744d3-543e-4542-ae71-5b585a8a1699"
+[05:49:55.709] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "c671c8aa-f749-4b9d-9f96-b906e8a19f06"
+    projectId: "f67b9655-7f76-4118-951d-1b7051a10b8b"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "PROJECT_QUERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "c671c8aa-f749-4b9d-9f96-b906e8a19f06",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.735] INFO (23188): request completed
+    req: {
+      "id": 74,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 46
+[05:49:55.772] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "06ce7543-a422-4f9f-92cd-e380bf1fbf53"
+    projectId: "20a0caed-127f-434a-a31f-59c0ad04bd8f"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "PROJECT_QUERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "06ce7543-a422-4f9f-92cd-e380bf1fbf53",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.795] INFO (23188): request completed
+    req: {
+      "id": 75,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 42
+[05:49:55.847] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "a5980fad-d3ea-458a-898f-fcb4f5d35346"
+    rootPath: "/tmp/stream-test-1f61da68-1d47-4a5f-97a7-6ca86d9d5aaf"
+[05:49:55.860] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "531f28c9-eec1-4c6d-a1cd-6df8c85b6957"
+    projectId: "a5980fad-d3ea-458a-898f-fcb4f5d35346"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "531f28c9-eec1-4c6d-a1cd-6df8c85b6957",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.885] INFO (23188): request completed
+    req: {
+      "id": 76,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 67
+[05:49:55.917] INFO (23188): request completed
+    req: {
+      "id": 77,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 1
+[05:49:55.936] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "4f686c6f-9742-4c80-91fc-7d18e0cf193b"
+    rootPath: "/tmp/stream-test-73713cfe-3e38-4961-8425-b4913fdb2d17"
+[05:49:55.964] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "ea540871-c2a6-4f6a-ae49-ff65c16a3f50"
+    projectId: "4f686c6f-9742-4c80-91fc-7d18e0cf193b"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "ea540871-c2a6-4f6a-ae49-ff65c16a3f50",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:55.964] ERROR (23188): chat stream: all providers failed
+    code: "MODEL_NOT_FOUND"
+    message: "All OpenRouter free-tier fallback models exhausted"
+    provider: "groq"
+[05:49:55.972] INFO (23188): request completed
+    req: {
+      "id": 78,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 41
+[05:49:56.010] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "e86d97b2-dbb2-4535-adb1-619e6ccb7796"
+    rootPath: "/tmp/stream-test-7f726c3d-3a5d-459b-91f1-21024f643cad"
+[05:49:56.012] WARN (23188): project rootPath is inaccessible — file tools disabled
+    scope: "rootpath-validator"
+    code: "ROOTPATH_NOT_ACCESSIBLE"
+    projectId: "e86d97b2-dbb2-4535-adb1-619e6ccb7796"
+    rootPath: "/tmp/stream-test-7f726c3d-3a5d-459b-91f1-21024f643cad"
+[05:49:56.021] INFO (23188): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "a6b7bc76-d627-49d8-8b61-7f99680d24fd"
+    projectId: "e86d97b2-dbb2-4535-adb1-619e6ccb7796"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "a6b7bc76-d627-49d8-8b61-7f99680d24fd",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[05:49:56.025] INFO (23188): request completed
+    req: {
+      "id": 80,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 20
+[05:49:56.056] INFO (23188): request completed
+    req: {
+      "id": 79,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 53
+
+ Test Files  1 passed (1)
+      Tests  49 passed | 1 skipped (50)
+   Start at  05:49:40
+   Duration  15.25s (transform 3.97s, setup 0ms, import 5.90s, tests 9.21s, environment 0ms)
+
+
+ RUN  v4.1.10 /home/runner/workspace/lib/ai-orchestrator
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 108 skipped (109)
+   Start at  05:49:56
+   Duration  1.79s (transform 507ms, setup 0ms, import 308ms, tests 1.35s, environment 0ms)
+
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/api-server
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 49 skipped (50)
+   Start at  05:49:59
+   Duration  6.15s (transform 3.84s, setup 0ms, import 5.66s, tests 362ms, environment 0ms)
+
+Release synthesis telemetry validation completed successfully.
+
+> @workspace/api-server@0.0.0 test:process-recovery /home/runner/workspace/artifacts/api-server
+> node ./scripts/run-real-process-recovery.mjs
+
+SKIP: real process-recovery validation is opt-in. Set RUN_REAL_API_PROCESS_RECOVERY=1 to run it.

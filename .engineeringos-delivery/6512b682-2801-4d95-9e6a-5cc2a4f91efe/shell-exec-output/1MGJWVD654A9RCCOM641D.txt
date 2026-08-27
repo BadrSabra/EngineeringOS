@@ -1,0 +1,104 @@
+artifacts/dashboard/src/pages/AiChat.tsx:53:import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-probe';
+artifacts/dashboard/src/pages/AiChat.tsx:829:  synthesisTimedOut?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:830:  recoveryStarted?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:869:  diagnosticCodes?: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:1093:  synthesisTimedOut?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:1107:  const diagnosticCodes = new Set<string>();
+artifacts/dashboard/src/pages/AiChat.tsx:1112:    if (entry.kind === 'diagnostic' && entry.code) diagnosticCodes.add(entry.code);
+artifacts/dashboard/src/pages/AiChat.tsx:1116:    for (const code of entry.diagnosticCodes ?? []) diagnosticCodes.add(code);
+artifacts/dashboard/src/pages/AiChat.tsx:1140:    ...(typeof done.synthesisTimedOut === 'boolean' ? { synthesisTimedOut: done.synthesisTimedOut } : {}),
+artifacts/dashboard/src/pages/AiChat.tsx:1141:    recoveryStarted:
+artifacts/dashboard/src/pages/AiChat.tsx:1142:      done.recoveryStarted === true ||
+artifacts/dashboard/src/pages/AiChat.tsx:1144:    diagnosticCodes: [...diagnosticCodes],
+artifacts/dashboard/src/pages/AiChat.tsx:1173:    summary?.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:1251:    recoveryStarted: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:1255:  diagnosticCodes: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:1439:           recoveryStarted: executionSummary.recoveryStarted === true,
+artifacts/dashboard/src/pages/AiChat.tsx:1444:    diagnosticCodes: executionSummary?.diagnosticCodes ?? [],
+artifacts/dashboard/src/pages/AiChat.tsx:1706:  if (!finalReportIsNotProven && summary.diagnosticCodes.some((code) => code.includes('FORENSIC_DETERMINISTIC_FINDING'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1709:  if (!finalReportIsNotProven && summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1712:  if (summary.diagnosticCodes.some((code) => code.includes('SKIPPED_NO_EVIDENCE'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1715:  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_REJECTED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1718:  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_PARSE_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1721:  if (summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:1727:  if (summary.diagnosticCodes.some((code) => code.includes('EVIDENCE_ONLY_FALLBACK'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1735:  if (summary.diagnosticCodes.some((code) => code.includes('PARSE_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1741:  if (summary.diagnosticCodes.some((code) => code.includes('RECOVERY_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1747:  if (summary.diagnosticCodes.some((code) => code.includes('REJECTED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1769:  if (summary?.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:1775:  return summary?.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:1803:    evidence.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED')) ||
+artifacts/dashboard/src/pages/AiChat.tsx:1804:    evidence.diagnosticCodes.some((code) => code.includes('FORENSIC_DETERMINISTIC_FINDING'))
+artifacts/dashboard/src/pages/AiChat.tsx:1806:      : evidence.diagnosticCodes.some((code) => code.includes('FORENSIC_NO_FINDING'))
+artifacts/dashboard/src/pages/AiChat.tsx:1851:          {verdict === 'NOT PROVEN' && evidence.diagnosticCodes.some((code) => code.includes('SKIPPED_NO_EVIDENCE'))
+artifacts/dashboard/src/pages/AiChat.tsx:2271:                      : evidence.execution.recoveryStarted
+artifacts/dashboard/src/pages/AiChat.tsx:2287:              {evidence.execution.recoveryStarted && (
+artifacts/dashboard/src/pages/AiChat.tsx:2289:                  {evidence.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED'))
+artifacts/dashboard/src/pages/AiChat.tsx:2431:          evidence.diagnosticCodes.some((code) => code.includes('FORENSIC_DETERMINISTIC_FINDING')) ? (
+artifacts/dashboard/src/pages/AiChat.tsx:2446:          {evidence.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:2459:            {evidence.diagnosticCodes.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:2462:                {evidence.diagnosticCodes.join(' · ')}
+artifacts/dashboard/src/pages/AiChat.tsx:2488:    summary?.synthesisTimedOut !== undefined;
+artifacts/dashboard/src/pages/AiChat.tsx:2491:    (summary.stopReason === 'response' && summary.diagnosticCodes.length === 0 && !hasSynthesisTelemetry)
+artifacts/dashboard/src/pages/AiChat.tsx:2502:      {summary.diagnosticCodes.some((code) => code === 'EXECUTION_PROVIDER_FAILURE') ? (
+artifacts/dashboard/src/pages/AiChat.tsx:2505:      {String(summary.stopReason) === 'tool_failure' || summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:2510:      {summary.diagnosticCodes.some((code) => code === 'EXECUTION_NO_EDIT_TOOL') ? (
+artifacts/dashboard/src/pages/AiChat.tsx:2513:      {summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:2534:            {summary.synthesisTimedOut === true && <span className="font-semibold text-amber-200">timed out</span>}
+artifacts/dashboard/src/pages/AiChat.tsx:2535:            {summary.synthesisTimedOut === false && <span className="text-emerald-200">completed within budget</span>}
+artifacts/dashboard/src/pages/AiChat.tsx:2537:          {summary.synthesisTimedOut === true && operatorTraceId && (
+artifacts/dashboard/src/pages/AiChat.tsx:2544:      {summary.diagnosticCodes.length > 0
+artifacts/dashboard/src/pages/AiChat.tsx:2545:        ? `· ${summary.diagnosticCodes.join(', ')}`
+artifacts/dashboard/src/pages/AiChat.tsx:2586:    summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:4329:      executionSummary?.diagnosticCodes.some((code) => code.includes('FORENSIC_NO_FINDING')) &&
+artifacts/dashboard/src/pages/AiChat.tsx:4330:      !executionSummary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:5173:  { id: 'probe', label: 'Capability Probe', icon: Activity, prompt: CAPABILITY_PROBE_MESSAGE },
+artifacts/api-server/src/routes/ai/chat.ts:1276:  synthesisTimedOut?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:1277:  recoveryStarted?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:1304:  diagnosticCodes?: string[];
+artifacts/api-server/src/routes/ai/chat.ts:1392:  const diagnosticCodes = steps
+artifacts/api-server/src/routes/ai/chat.ts:1605:          synthesisTimedOut?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:1620:          ...(synthesisStep.synthesisTimedOut !== undefined ? { synthesisTimedOut: synthesisStep.synthesisTimedOut } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:1622:            ? { recoveryStarted: true }
+artifacts/api-server/src/routes/ai/chat.ts:1631:          diagnosticCodes,
+artifacts/api-server/src/routes/ai/chat.ts:3050:    const diagnosticCodes: string[] = [];
+artifacts/api-server/src/routes/ai/chat.ts:3065:           synthesisTimedOut?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:3066:          recoveryStarted?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:3067:          diagnosticCodes: string[];
+artifacts/api-server/src/routes/ai/chat.ts:3308:        if (executionSummary) executionSummary.recoveryStarted = true;
+artifacts/api-server/src/routes/ai/chat.ts:3318:          synthesisTimedOut?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:3332:           ...(synthesisStep.synthesisTimedOut !== undefined ? { synthesisTimedOut: synthesisStep.synthesisTimedOut } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:3335:            ? { recoveryStarted: true }
+artifacts/api-server/src/routes/ai/chat.ts:3344:          diagnosticCodes: [...diagnosticCodes],
+artifacts/api-server/src/routes/ai/chat.ts:3356:        if (!diagnosticCodes.includes(step.code)) {
+artifacts/api-server/src/routes/ai/chat.ts:3357:          diagnosticCodes.push(step.code);
+artifacts/api-server/src/routes/ai/chat.ts:3366:        if (executionSummary && !executionSummary.diagnosticCodes.includes(step.code)) {
+artifacts/api-server/src/routes/ai/chat.ts:3367:          executionSummary.diagnosticCodes.push(step.code);
+artifacts/api-server/src/routes/ai/chat.ts:4807:        || (entry as { diagnosticCodes?: unknown }).diagnosticCodes instanceof Array
+artifacts/api-server/src/routes/ai/chat.ts:4808:          && (entry as { diagnosticCodes: unknown[] }).diagnosticCodes.some((code) =>
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:219:        diagnosticCodes?: string[];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:253:        diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2056:        diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2713:        diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2888:        diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3020:        diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3376:      diagnosticCodes?: string[];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3390:      diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3412:      diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3443:      synthesisTimedOut: true,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3444:      diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3495:      synthesisTimedOut: true,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3503:        synthesisTimedOut: true,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3511:    expect(persisted.find((row) => row.toolTrace)?.toolTrace).toContain('"synthesisTimedOut":true');
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3552:          diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_REJECTED"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3589:        diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_REJECTED"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3666:          diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_REJECTED"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3747:    const recoveryStarted = new Promise<void>((resolve, reject) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3796:        await recoveryStarted;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3826:           synthesisTimedOut: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3827:           diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_FAILED"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3874:    expect(assistant?.toolTrace).toContain('"synthesisTimedOut":false');
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3900:        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3975:        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4100:          diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4132:      diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],

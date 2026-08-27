@@ -1,0 +1,61 @@
+COMMAND  PID   USER FD   TYPE DEVICE SIZE/OFF NODE NAME
+node    2885 runner 32u  IPv4  15843      0t0  TCP *:8080 (LISTEN)
+COMMAND  PID   USER FD   TYPE DEVICE SIZE/OFF NODE NAME
+node    4709 runner 25u  IPv4  25856      0t0  TCP *:23183 (LISTEN)
+    175      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    182      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+    185      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    256      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    290      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    340      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    361      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+    374      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/api-server run dev
+    387      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    394      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    542      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+    603      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/api-server run dev
+    706      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+    829      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+   1028      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+   1041      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/api-server run dev
+   1225     175 S+   sh -c vite dev
+   1238    1225 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/artifacts/mockup-sandbox/node_modules/.bin/../vite/bin/vite.js dev
+   1248     182 S+   sh -c node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0
+   1302     185 S+   sh -c vite dev
+   1320    1302 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/node_modules/.bin/../vite/bin/vite.js dev
+   1351     256 S+   sh -c vite dev
+   1352     290 S+   sh -c vite dev
+   1366    1352 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/node_modules/.bin/../vite/bin/vite.js dev
+   1367    1351 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/node_modules/.bin/../vite/bin/vite.js dev
+   1388     387 S+   sh -c vite dev
+   1395    1388 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/node_modules/.bin/../vite/bin/vite.js dev
+   1464     340 S+   sh -c vite dev
+   1469    1464 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/node_modules/.bin/../vite/bin/vite.js dev
+   1531     394 S+   sh -c vite dev
+   1538    1531 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/node_modules/.bin/../vite/bin/vite.js dev
+   1553     374 S+   sh -c export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start
+   1554    1553 Sl+  /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm run build
+   1750     361 S+   sh -c node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0
+   1762    1248 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/artifacts/dashboard/node_modules/.bin/../vite/bin/vite.js --config vite.config.ts --host 0.0.0.0
+   1786     542 S+   sh -c node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0
+   1835     603 S+   sh -c export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start
+   1884     706 S+   sh -c node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0
+   1996     829 S+   sh -c node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0
+   2009    1041 S+   sh -c export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start
+   2011    2009 Sl+  /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm run build
+   2028    1238 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2070    1028 S+   sh -c vite dev
+   2072    2070 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/node_modules/.bin/../vite/bin/vite.js dev
+   2100    1320 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2121    1367 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2146    1395 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2194    1469 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2202    1538 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2215    1366 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2455    2072 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2792    1835 Sl+  /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm run start
+   3219    3206 Sl   /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /home/runner/workspace/node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typingsInstaller.js --globalTypingsCacheLocation /home/runner/workspace/.cache/typescript/5.9 --typesMapLocation /home/runner/workspace/node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typesMap.json --validateDefaultNpmLocation
+   4675      30 Ssl+ /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+   4693    4675 S+   sh -c node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0
+   4709    4693 Sl+  /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/artifacts/dashboard/node_modules/.bin/../vite/bin/vite.js --config vite.config.ts --host 0.0.0.0
+   4725    4709 Sl+  /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping

@@ -1,0 +1,324 @@
+        }));
+      }
+    } catch (error) {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "BEHAVIOR_EVIDENCE_RECOVERY_FAILED",
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+  /**
+   * A free-tier model can finish the read loop and satisfy the C1–C7 shape
+   * while forgetting the exact quoted fragment required by the probe contract.
+   * Give that narrow case one same-provider correction pass over retained reads.
+   * No tools are attached, so this cannot expand scope or perform a write.
+   */
+  if (
+    capabilityProbeRequest &&
+    hasCompleteCapabilityProbeEvidence(forensicFileContents) &&
+    (
+      validateCapabilityProbeResponse(responseBeforeBehaviorEvidence).length > 0 ||
+      behaviorEvidenceValidation.evidence.length === 0
+    )
+  ) {
+    capabilityProbeRecoveryDeadlineAt =
+      Date.now() + CAPABILITY_PROBE_RECOVERY_DEADLINE_MS;
+    recoveryAttemptsUsed += 1;
+    const recoveryModel = result.model || model;
+    try {
+      const recovery = await awaitAbortableRecovery(
+        (recoverySignal) => strategy.call(
+          buildCapabilityProbeRecoveryMessages(
+            forensicFileContents,
+            responseBeforeBehaviorEvidence,
+          ),
+          {
+            model: recoveryModel,
+            apiKey,
+            maxTokens: 3072,
+            timeoutMs: Math.min(
+              CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
+              Math.max(1, capabilityProbeRecoveryDeadlineAt! - Date.now()),
+            ),
+            retryTransient: false,
+            // The agent owns this one ordered correction attempt. Provider
+            // fallback would multiply the probe's run-level recovery budget.
+            maxFallbackModels: 1,
+            signal: recoverySignal,
+          },
+        ),
+        Math.min(
+          CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
+          Math.max(1, capabilityProbeRecoveryDeadlineAt - Date.now()),
+        ),
+        signal,
+      );
+      relayAgentStep({
+        kind: "recovery_model_call",
+        model: recovery.model || recoveryModel,
+        provider: providerId,
+        attempt: recoveryAttemptsUsed,
+      });
+      const normalizedRecovery = normalizeCapabilityProbeRecoveryContent(
+        recovery.content ?? "",
+        forensicFileContents,
+      );
+      if (normalizedRecovery) {
+        const recoveredResponse = normalizedRecovery.response;
+        const recoveredValidation = validateBehaviorEvidence(
+          message,
+          recoveredResponse,
+          forensicFileContents,
+        );
+        if (
+          validateCapabilityProbeResponse(recoveredResponse).length === 0 &&
+          recoveredValidation.evidence.some((item) => item.supportsClaim)
+        ) {
+          responseBeforeBehaviorEvidence = recoveredResponse;
+          behaviorEvidenceValidation = recoveredValidation;
+          content = recovery.content ?? content;
+          parsed = {
+            ok: true,
+            data: {
+              response: recoveredResponse,
+              sources: normalizedRecovery.sources,
+            },
+          };
+          console.info(JSON.stringify({
+            scope: "chat-agent",
+            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
+            sourceCount: forensicFileContents.size,
+            model: recovery.model || recoveryModel,
+          }));
+          relayAgentStep({
+            kind: "diagnostic",
+            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
+            details: ["one bounded correction produced a source-grounded C1–C7 report"],
+          });
+        } else {
+          recoveryFailureKind = "EVIDENCE_FAILURE";
+          console.warn(JSON.stringify({
+            scope: "chat-agent",
+            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
+            reason: "corrected response still lacked a verified executable excerpt",
+          }));
+          relayAgentStep({
+            kind: "diagnostic",
+            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
+            details: ["corrected C1–C7 report failed the strict source-evidence gate"],
+          });
+        }
+      } else {
+        recoveryFailureKind = "PARSE_FAILURE";
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED",
+        }));
+        relayAgentStep({
+          kind: "diagnostic",
+          code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
+          details: ["correction did not contain a usable C1–C7 report"],
+        });
+      }
+    } catch (error) {
+      const errorCode =
+        error instanceof GroqClientError
+          ? error.code
+          : typeof error === "object" && error !== null && "code" in error
+            ? String((error as { code?: unknown }).code ?? "unknown")
+            : "unknown";
+      recoveryFailureKind = errorCode === "TIMEOUT" ? "TIMEOUT" : "PROVIDER_FAILURE";
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+      relayAgentStep({
+        kind: "diagnostic",
+        code: errorCode === "TIMEOUT"
+          ? "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT"
+          : "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
+        details: [`recovery provider outcome: ${errorCode}`],
+      });
+    }
+  }
+
+  if (
+    capabilityProbeRequest &&
+    forensicFileContents.size > 0 &&
+    (
+      validateCapabilityProbeResponse(responseBeforeBehaviorEvidence).length > 0 ||
+      !behaviorEvidenceValidation.evidence.some((item) => item.supportsClaim)
+    )
+  ) {
+    recoveryAttemptsUsed += 1;
+    const microProbeRecovery = await runCapabilityMicroProbes({
+      strategy,
+      provider: providerId,
+      model: result.model || model,
+      apiKey,
+      signal,
+      fileContents: forensicFileContents,
+      pendingChanges,
+      deadlineAt: capabilityProbeRecoveryDeadlineAt ?? undefined,
+    });
+    if (microProbeRecovery) {
+      const microValidation = validateBehaviorEvidence(
+        message,
+        microProbeRecovery.response,
+        forensicFileContents,
+      );
+      if (
+        validateCapabilityProbeResponse(microProbeRecovery.response).length === 0 &&
+        microValidation.evidence.some((item) => item.supportsClaim)
+      ) {
+        responseBeforeBehaviorEvidence = microProbeRecovery.response;
+        behaviorEvidenceValidation = microValidation;
+        content = microProbeRecovery.response;
+        parsed = {
+          ok: true,
+          data: {
+            response: microProbeRecovery.response,
+            sources: microProbeRecovery.sources,
+          },
+        };
+        console.info(JSON.stringify({
+          scope: "chat-agent",
+          code: "CAPABILITY_MICRO_PROBE_RECOVERED",
+          groupCount: CAPABILITY_MICRO_PROBE_GROUPS.length,
+          sourceCount: forensicFileContents.size,
+          model: microProbeRecovery.model || result.model || model,
+        }));
+        recoveryFailureKind = undefined;
+        relayAgentStep({
+          kind: "diagnostic",
+          code: "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
+          details: ["bounded capability-specific micro-probes produced a source-grounded report"],
+        });
+      } else {
+  // === "PRODUCTION_PROVEN" => buildScopedVerdictLabel returns "FINDING PROVEN"
+  // with a space, so the underscore form is normalized as well).
+  // Telemetry inconsistency (EI-027) still downgrades to NOT PROVEN below —
+  // the scoped label is applied only to the non-blocked candidate.
+  const FINDING_PROVEN_RE = /\bFINDING[_ ]PROVEN\b/g;
+  const scopedCandidateResponse =
+    runtimeLedger.scopedFindingStatus === "PRODUCTION_PROVEN" ||
+    runtimeLedger.scopedFindingStatus === "NOT_PROVEN"
+      ? responseBeforeBehaviorEvidence.replace(FINDING_PROVEN_RE, "FINDING PROVEN")
+      : responseBeforeBehaviorEvidence.replace(
+          FINDING_PROVEN_RE,
+          buildScopedVerdictLabel(runtimeLedger.scopedFindingStatus),
+        );
+  const insufficientAcceptedBehaviorEvidence =
+    shouldValidateBehaviorEvidence &&
+    behaviorAnswerRejected &&
+    runtimeLedger.evidenceFileCount > 0 &&
+    acceptedBehaviorEvidence.length === 0 &&
+    /(?:\bsource\b|`[^`]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|rb|sql|sh)`)/i.test(
+      responseBeforeBehaviorEvidence,
+    );
+  const capabilityProbeEvidenceIncomplete =
+    capabilityProbeRequest && !hasCompleteCapabilityProbeEvidence(forensicFileContents);
+  const finalResponse =
+    capabilityProbeEvidenceIncomplete
+      ? "ANALYSIS_INCOMPLETE — the capability probe did not retain complete source bodies for both named files; no C1–C7 result is proven."
+      : capabilityProbeClaimUnclosed
+      ? "ANALYSIS_INCOMPLETE — the capability probe retained both named source bodies, but strict evidence validation could not close every C1–C7 claim."
+      : providerReturnedEmptyEvidenceResponse
+      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+      : insufficientAcceptedBehaviorEvidence
+      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+      : behaviorAnswerRejected || anyRequiredClaimUnclosed || telemetryBlocksVerdict || objectiveBlocksVerdict
+      ? /[\u0600-\u06FF]/.test(message)
+        ? objectiveBlocksVerdict
+          ? "محظور — لم يُكتمل الهدف المصرَّح به؛ تبقّى ادعاءات مطلوبة أو حوافّ وصول مُثبتة غير مكتملة، فلا تُصدَر نتيجة قاطعة."
+          : telemetryBlocksVerdict
+            ? "غير مثبت — لم تُنتَج نتيجة قاطعة؛ التعارض أو النقص في تتبع القراءات يمنع قبول الادعاء."
+            : claimsUnclosedButEvidenceAvailable
+              ? "غير مثبت — تتوفر أدلة مصدرية، لكنها لا تُغلق كل الادعاءات المطلوبة بالإجابة (لم تُغلق جميع الادعاءات بمقتطفات مُثبتة)."
+              : "غير مثبت — لم تُنتَج نتيجة قاطعة؛ لا توجد أدلة مصدرية مُستشهد بها."
+        : objectiveBlocksVerdict
+          ? "BLOCKED — the declared objective was not completed: required claims or requirement reachability edges remain unproven, so no final answer is emitted."
+          : telemetryBlocksVerdict
+            ? "NOT PROVEN — the verdict could not be accepted: the run's telemetry did not reconcile with its cited evidence."
+            : claimsUnclosedButEvidenceAvailable
+              ? "NOT PROVEN — EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED: source evidence was retained, but the answer did not close every required claim with a grounded source excerpt. An evidence inventory alone is not a final answer."
+              : "NOT PROVEN — the verdict could not be accepted: the answer lacked a verifiable excerpt from a completed source read."
+        : scopedCandidateResponse;
+  if (isForensicOrEvidenceRun) {
+    relayForensicTerminal({
+      onStep,
+      loopResult,
+      fileContents: forensicFileContents,
+      claimsUnclosedButEvidenceAvailable,
+      report: finalResponse,
+      objectiveBlocked: Boolean(objectiveBlocksVerdict),
+    });
+  }
+  if (behaviorAnswerRejected) {
+    console.warn(
+      JSON.stringify({
+        scope: "chat-agent",
+        code: "BEHAVIOR_EVIDENCE_REJECTED",
+        violations: behaviorEvidenceValidation.violations.slice(0, 2),
+      }),
+    );
+  }
+  if (telemetryBlocksVerdict) {
+  attempt: number,
+): { code: "FORENSIC_STRUCTURED_RECOVERY_PARSE_FAILED"; details: string[] } | null {
+  if (parsed.ok) return null;
+  return {
+    code: "FORENSIC_STRUCTURED_RECOVERY_PARSE_FAILED",
+    details: [
+      `structured envelope parse failed on recovery attempt ${attempt}`,
+      `parse code: ${parsed.code ?? "UNKNOWN"}`,
+    ],
+  };
+}
+
+/**
+ * A user who explicitly asks to find/prove a behavioral defect is asking for
+ * semantic assessment, not a provenance receipt. An empty Recovery envelope
+ * without a source-grounded rationale is therefore incomplete and must not be
+ * surfaced as a valid NO_FINDING result.
+ */
+export function requiresBehavioralFindingAssessment(objective: string): boolean {
+  const normalizedObjective = objective
+    .normalize("NFKC")
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "");
+  const asksToAssess = /(?:find|identify|detect|prove|look\s+for|search\s+for|ابحث|اكتشف|حدد|تحقق\s+من\s+وجود|أثبت|اثبت)/i.test(
+    normalizedObjective,
+  );
+  const namesDefect = /(?:behavioral\s+defect|defect|bug|issue|flaw|failure|vulnerab(?:ility|le)|عيب(?:\s+سلوكي)?|خلل|مشكلة|ثغرة|فشل)/i.test(
+    normalizedObjective,
+  );
+  return asksToAssess && namesDefect;
+}
+
+/**
+ * A forensic report with no accepted behavioral evidence must not assert that
+ * the implementation or its verification system is confirmed/correct. This is
+ * separate from the Finding gate: a report can have no Finding and still make
+ * an unsupported positive final judgment.
+ */
+export function hasUnverifiedPositiveForensicClaim(
+  response: string,
+  acceptedEvidenceCount: number,
+): boolean {
+  if (acceptedEvidenceCount > 0) return false;
+  // A report that explicitly proves a Finding is not making the unsupported
+  // "the system is correct" claim this guard is intended to block. Its source
+  // evidence is validated by the Finding/evidence gates separately.
+  if (/\bFINDING\s+PROVEN\b|\bID:\s*F-\d+\b/i.test(response)) return false;
+  return /(?:\b(?:the\s+)?(?:system|implementation|verification(?:\s+system)?)\s+(?:is\s+)?confirmed\b|\bworks?\s+correctly\b|\boperates?\s+correctly\b|\bno\s+fixes?\s+(?:are\s+)?required\b|تم\s+تأكيد|يعمل\s+بشكل\s+صحيح|لا\s+توجد\s+إصلاحات\s+مطلوبة)/iu.test(
+    response,
+  );
+}
+
+/**
+ * Capability probes use an exact-file read boundary for safety, but their
+ * result is a BEHAVIOR_QUERY capability report, not a six-section forensic
+ * audit. Keep the read-only/scope manifest while preventing the forensic
+ * report contract from overriding the probe's C1–C7 output contract.

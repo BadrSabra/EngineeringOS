@@ -1,0 +1,223 @@
+          taskType: step.trace.taskType,
+          evidenceSelected: step.trace.evidenceSelected,
+          validator: step.trace.validator,
+          recoveryAttempt: step.trace.recoveryAttempt,
+          recoveryFailureKind: step.trace.recoveryFailureKind,
+          finalState: step.trace.finalState,
+          rejectionReason: step.trace.rejectionReason,
+          // Task #58: surface the verdict's proof scope live on the audit panel.
+          ...(step.trace.verdictScope ? { verdictScope: step.trace.verdictScope } : {}),
+          ...(step.trace.scopedFindingStatus
+            ? { scopedFindingStatus: step.trace.scopedFindingStatus }
+            : {}),
+        });
+        } else if (step.kind === "production_trace") {
+          sse({ type: "production_trace", ...step.trace });
+        } else if (step.kind === "cross_file_trace") {
+          sse({ type: "cross_file_trace", ...step.trace });
+      } else if (step.kind === "forensic_recovery_start") {
+        if (executionSummary) executionSummary.recoveryStarted = true;
+      } else if (step.kind === "iteration_start" && step.iter > 0) {
+        // Skip iter 0 to avoid noise before any tools are called.
+        sse({ type: "thinking", iter: step.iter, max: step.maxIterations });
+      } else if (step.kind === "done") {
+        const synthesisStep = step as typeof step & {
+          synthesisAttempts?: number;
+          synthesisMaxAttempts?: number;
+          synthesisTimeoutMs?: number;
+          synthesisElapsedMs?: number;
+          synthesisTimedOut?: boolean;
+        };
+        executionSummary = {
+          iterations: step.iterations,
+          maxIterations: step.maxIterations,
+          toolCalls: step.toolCalls,
+          prefetchToolCalls: step.prefetchToolCalls,
+          loopToolCalls: step.loopToolCalls,
+          stopReason: step.stopReason,
+          synthesisStarted: step.synthesisStarted,
+           ...(synthesisStep.synthesisAttempts !== undefined ? { synthesisAttempts: synthesisStep.synthesisAttempts } : {}),
+           ...(synthesisStep.synthesisMaxAttempts !== undefined ? { synthesisMaxAttempts: synthesisStep.synthesisMaxAttempts } : {}),
+           ...(synthesisStep.synthesisTimeoutMs !== undefined ? { synthesisTimeoutMs: synthesisStep.synthesisTimeoutMs } : {}),
+           ...(synthesisStep.synthesisElapsedMs !== undefined ? { synthesisElapsedMs: synthesisStep.synthesisElapsedMs } : {}),
+           ...(synthesisStep.synthesisTimedOut !== undefined ? { synthesisTimedOut: synthesisStep.synthesisTimedOut } : {}),
+          ...(step.sourceRetrieval ? { sourceRetrieval: step.sourceRetrieval } : {}),
+          ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
+            ? { recoveryStarted: true }
+            : {}),
+          modelsUsed: traceSteps
+            .filter((candidate): candidate is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+              candidate.kind === "model_call" || candidate.kind === "recovery_model_call",
+            )
+            .map((candidate) => candidate.model)
+            .filter((model, index, models) => models.indexOf(model) === index)
+            .slice(0, 12),
+          diagnosticCodes: [...diagnosticCodes],
+           ...(executionDiagnosticDetails.length > 0 && !activeExecutionAbortController.signal.aborted
+            ? { diagnosticDetails: [...executionDiagnosticDetails] }
+            : {}),
+        };
+      } else if (step.kind === "diagnostic") {
+        // Forensic recovery/provider details are server diagnostics, not user
+        // report content. Keep them in the internal trace for debugging, but
+        // do not stream them to a forensic audit client.
+        const visibleDiagnosticDetails = streamTurnIntent.requiresEvidence
+          ? undefined
+          : step.details;
+        if (!diagnosticCodes.includes(step.code)) {
+          diagnosticCodes.push(step.code);
+        }
+        if (step.details) {
+          for (const detail of step.details) {
+            if (!executionDiagnosticDetails.includes(detail)) {
+              executionDiagnosticDetails.push(detail);
+            }
+          }
+        }
+        if (executionSummary && !executionSummary.diagnosticCodes.includes(step.code)) {
+          executionSummary.diagnosticCodes.push(step.code);
+        }
+        if (executionSummary && step.details) {
+          executionSummary.diagnosticDetails = [...executionDiagnosticDetails];
+        }
+        sse({
+          type: "execution_diagnostic",
+          code: step.code,
+          ...(visibleDiagnosticDetails ? { details: visibleDiagnosticDetails } : {}),
+          ...(step.code === "EXECUTION_PHASE_TOOL_REJECTED" && step.phase
+            ? { phase: step.phase, tool: step.tool }
+            : {}),
+        });
+      }
+  'provider_timeout',
+  'tool_failure',
+  // Cancellation is a terminal audit state. Keep its persisted execution
+  // summary available after history reload so the incomplete report's
+  // recovery context is not replaced by a clean/no-finding fallback.
+  'cancelled',
+] as const;
+
+type DashboardExecutionSummary = AiStreamExecutionSummary & {
+  synthesisAttempts?: number;
+  synthesisMaxAttempts?: number;
+  synthesisTimeoutMs?: number;
+  synthesisElapsedMs?: number;
+  synthesisTimedOut?: boolean;
+};
+
+function parseExecutionSummary(trace: ToolTraceEntry[]): DashboardExecutionSummary | null {
+  const done = [...trace].reverse().find((entry) => entry.kind === 'done');
+  if (!done || !EXECUTION_STOP_REASONS.includes(done.stopReason as typeof EXECUTION_STOP_REASONS[number])) {
+    return null;
+  }
+
+  const recordedToolCalls = trace.filter((entry) => entry.kind === 'tool_call').length;
+  const recordedPrefetchToolCalls = trace.filter(
+    (entry) => entry.kind === 'tool_call' && entry.prefetched === true,
+  ).length;
+  const recordedLoopToolCalls = recordedToolCalls - recordedPrefetchToolCalls;
+  const diagnosticCodes = new Set<string>();
+  const diagnosticDetails = new Set<string>();
+  const modelsUsed = new Set<string>();
+  const recoveryModelsUsed = new Set<string>();
+  for (const entry of trace) {
+    if (entry.kind === 'diagnostic' && entry.code) diagnosticCodes.add(entry.code);
+    if (entry.kind === 'diagnostic') {
+      for (const detail of entry.details ?? []) diagnosticDetails.add(detail);
+    }
+    for (const code of entry.diagnosticCodes ?? []) diagnosticCodes.add(code);
+    for (const detail of entry.diagnosticDetails ?? []) diagnosticDetails.add(detail);
+    if (entry.kind === 'model_call' && entry.model) modelsUsed.add(entry.model);
+    if (entry.kind === 'recovery_model_call' && entry.model) recoveryModelsUsed.add(entry.model);
+  }
+
+  return {
+    iterations: typeof done.iterations === 'number' ? done.iterations : 0,
+    maxIterations: typeof done.maxIterations === 'number' ? done.maxIterations : 0,
+    toolCalls: typeof done.toolCalls === 'number' ? done.toolCalls : recordedToolCalls,
+    prefetchToolCalls:
+      typeof done.prefetchToolCalls === 'number'
+        ? done.prefetchToolCalls
+        : recordedPrefetchToolCalls,
+    loopToolCalls:
+      typeof done.loopToolCalls === 'number'
+        ? done.loopToolCalls
+        : recordedLoopToolCalls,
+    stopReason: done.stopReason as AiStreamExecutionSummary['stopReason'],
+    synthesisStarted: done.synthesisStarted === true,
+    ...(typeof done.synthesisAttempts === 'number' ? { synthesisAttempts: done.synthesisAttempts } : {}),
+    ...(typeof done.synthesisMaxAttempts === 'number' ? { synthesisMaxAttempts: done.synthesisMaxAttempts } : {}),
+    ...(typeof done.synthesisTimeoutMs === 'number' ? { synthesisTimeoutMs: done.synthesisTimeoutMs } : {}),
+    ...(typeof done.synthesisElapsedMs === 'number' ? { synthesisElapsedMs: done.synthesisElapsedMs } : {}),
+    ...(typeof done.synthesisTimedOut === 'boolean' ? { synthesisTimedOut: done.synthesisTimedOut } : {}),
+    recoveryStarted:
+      done.recoveryStarted === true ||
+      trace.some((entry) => entry.kind === 'forensic_recovery_start'),
+    diagnosticCodes: [...diagnosticCodes],
+    // Cancellation diagnostics are internal recovery/provider details. The
+    // cancelled report and its terminal state survive history reload, but
+    // provider errors must not become visible just because the persisted
+    // summary is now restored.
+    ...(diagnosticDetails.size > 0 && done.stopReason !== 'cancelled'
+      ? { diagnosticDetails: [...diagnosticDetails] }
+      : {}),
+    ...(modelsUsed.size > 0 ? { modelsUsed: [...modelsUsed].slice(0, 12) } : {}),
+    ...(recoveryModelsUsed.size > 0
+      ? { recoveryModelsUsed: [...recoveryModelsUsed].slice(0, 2) }
+      : {}),
+  };
+}
+
+function isForensicFallbackMessage(content: string): boolean {
+  return (
+                </div>
+                <div>
+                  <div className="font-semibold text-foreground">
+                    {evidence.execution.iterations}/{evidence.execution.maxIterations}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">iterations used</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-foreground">
+                    {evidence.execution.synthesisStarted
+                      ? 'attempted'
+                      : evidence.execution.recoveryStarted
+                        ? 'not entered'
+                        : 'not started'}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">report synthesis</div>
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <div className="font-semibold break-words text-foreground">
+                    {formatStopReason(
+                      evidence.execution.stopReason,
+                      evidence.execution.synthesisStarted,
+                    )}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">stop reason</div>
+                </div>
+              </div>
+              {evidence.execution.recoveryStarted && (
+                <div className="mt-2 border-t border-border/40 pt-2 text-[10px] text-amber-200">
+                  {evidence.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED'))
+                    ? 'Structured forensic Recovery was accepted and rebuilt deterministically from the verified evidence.'
+                    : 'Forensic Recovery started after the tool-loop response but did not produce an accepted six-section report; the preserved-evidence fallback remains active.'}
+                </div>
+              )}
+              {evidence.execution.modelsUsed.length > 0 && (
+                <div className="mt-2 border-t border-border/40 pt-2">
+                  <div className="text-[10px] text-muted-foreground">Models used</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {evidence.execution.modelsUsed.map((model) => (
+                      <code key={model} className="rounded border border-border/50 bg-background/30 px-1.5 py-0.5 text-[10px] text-foreground/80">
+                        {fmtModelId(model)}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {evidence.execution.recoveryModelsUsed.length > 0 && (
+                <div className="mt-2 border-t border-border/40 pt-2">
+                  <div className="text-[10px] text-muted-foreground">
+                    Recovery models (max 2)
+                  </div>

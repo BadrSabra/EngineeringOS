@@ -1,0 +1,313 @@
+            status: "passed" as const,
+            detail: "node validation passed",
+            validationAttempts: validationAttemptsConsumed,
+          };
+        }
+
+        return {
+          status: "failed" as const,
+          detail:
+            failedValidation?.result.detail ??
+            (childLoop.kind === "partial"
+              ? "node tool loop ended before validation completed"
+              : "node did not produce a passing validation result"),
+          validationAttempts: validationAttemptsConsumed,
+        };
+      },
+    });
+
+    for (const [file, content] of nodeFileContents) {
+      forensicFileContents.set(file, content);
+    }
+    const coordinatedSources = [...new Set([...prefetchSources, ...nodeToolSources])];
+    const coordinatedResponse = finalizeTaskResponse(
+      buildRepairPlanExecutionResponse(
+        getExecutionPendingChanges(),
+        /[\u0600-\u06FF]/.test(message),
+        coordinatedPlan.status !== "passed",
+        undefined,
+        undefined,
+        executionDiagnosticDetails,
+      ),
+    );
+    const coordinatedFinalized = finalizeObjectiveAndStream({
+      objective,
+      fileContents: forensicFileContents,
+      message,
+      response: coordinatedResponse,
+      provenEdges: objectiveRuntimeProvenEdges,
+      relayAgentStep,
+      streamCallback,
+    });
+    const coordinatedTaskResult = buildTaskResult({
+      forensicTaskType,
+      finalResponse: coordinatedFinalized.gatedResponse,
+      mergedSources: coordinatedSources,
+      semanticBehaviorAnswer: undefined,
+      structuredRepairPlan: undefined,
+      acceptedBehaviorEvidence: [],
+    });
+    return {
+      response: coordinatedFinalized.gatedResponse,
+      sources: coordinatedSources,
+      pendingChanges: getExecutionPendingChanges(),
+      ...(coordinatedTaskResult ? { taskResult: coordinatedTaskResult } : {}),
+    };
+  }
+
+  // ── Agentic tool loop ─────────────────────────────────────────────────────
+  // Delegates iteration budget, per-call budget, cache keying, tool dispatch,
+  // and model fallback to the self-contained ToolExecutionEngine.
+  const loopResult = await executeToolLoop({
+    messages,
+    strategy,
+    model,
+    powerModel,
+    provider: providerId,
+    apiKey,
+    capability: modelDecision.capability,
+    tools,
+    rootPath: rootPath ?? "",
+    pendingChanges,
+    initialFileContents: prefetchFileContents,
+    retainedFileContents: retainedEvidence,
+    cache: toolCallCache,
+    toolChoice:
+      immediateIntent && priorRepairPlan && executionFilePaths.length > 0
+        ? "required"
+        : undefined,
+    maxIterations: budget.maxIterations,
+    taskType: executionPlan.taskProfile.taskType,
+    requiresEvidence: turnIntent.requiresEvidence,
+    deterministicTaskExecution,
+    maxToolCalls: structuredOutputMode
+      ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)
+      : budget.maxToolCalls,
+    toolCallsDisabledAfter: structuredOutputMode
+      ? Math.max(0, budget.maxIterations - STRUCTURED_OUTPUT_SYNTHESIS_TURNS)
+      : undefined,
+    // The tool loop may reach its synthesis window after prefetch has already
+    // supplied the source bodies. Request a JSON envelope only for that
+    // no-tools synthesis call; the OpenAI-compatible client deliberately
+    // ignores response_format while tools are attached.
+    responseFormat: structuredOutputMode ? { type: "json_object" } : undefined,
+    completeReads: structuredOutputMode,
+    executionMode: repairPlanExecution
+      ? "repair_plan"
+      : structuredOutputMode
+        ? "forensic"
+        : undefined,
+    executionTargetPaths: repairPlanExecution ? executionFilePaths : undefined,
+    // A forensic request can be classified as single-file-shaped before a
+    // usable file path is actually extracted (for example, when the user names
+    // a directory such as `lib/knowledge-engine/`). An empty allow-list would
+    // block every read, including already-prefetched evidence, and leave the
+    // model looping on READ_PATH_POLICY_BLOCKED. Apply the isolated manifest
+    // only when it contains at least one concrete file.
+    allowedToolNames:
+      singleFileForensicMode && singleFilePaths.length > 0 ? ["read_file"] : undefined,
+    allowedReadPaths:
+      singleFileForensicMode && singleFilePaths.length > 0 ? singleFilePaths : undefined,
+    objectiveScopePolicy: objective?.scopePolicy,
+    firstEvidenceTargetPath: firstEvidenceTargetPath ?? undefined,
+    orderedForensicRoots: orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,
+    allowTestSources: includeTestSources,
+    allowExecutionTools: allowValidationTools,
+    validationRunner,
+    validationRunner,
+    browserValidationRunner,
+    browserValidationContext,
+    approvedValidationProfiles,
+    commandProfiles,
+    commandRunner,
+    commandContext,
+    analysisToolRunner,
+    validationTargetPaths,
+    signal,
+    // Dependency-First traversal (FEG-005/006): once the explicit primary
+    // evidence target has been read, any further read of a new dependency file
+    // must carry proof of why it is required. Enable the gate whenever traversal
+    // is PRIMARY_FIRST so post-first-read traversal cannot fan out into
+    // unjustified read chains.
+    requireDependencyProof: firstEvidence.traversalPolicy === "PRIMARY_FIRST",
+    onStep: relayAgentStep,
+  });
+  // Cancellation is an incomplete forensic run even when some source reads
+  // already landed. Keep the evidence for the six-section report, but never
+  // allow a cancellation to reach a completed NO_FINDING fallback.
+  const cancelledForensicAudit = (): boolean =>
+    signal?.aborted === true || loopResult.kind === "cancelled";
+
+  // Merge prefetch sources with the engine's ground-truth sources.
+  // Prefetch sources are prepended since they were resolved first.
+  const toolSources = [...prefetchSources, ...loopResult.toolSources];
+  // Keep both prefetch and in-loop read bodies available to the forensic gate.
+  // The loop may read files that were not part of the initial plan.
+  //
+  // Normalize every body to its RAW source-aligned form at this single merge
+  // choke point. Prefetch and tool-loop reads both pass through
+  // executeFileTool("read_file"), which wraps the body with a 2-line
+  // `File: <path>\n```\n` header — leaving that wrapper in place shifts every
+  // computeSourceSpan line by +2 off the true source file. stripReadFileWrapper
+  // removes it when present and leaves already-raw bodies (single-file pre-read)
+  // untouched, so spans match the analyst-facing source lines in every path.
+  // forensicFileContents is declared at the top of chat() so every terminal
+  // finalization path can route its candidate through the Objective Gate.
+  // Populate it here from prefetch + tool-loop reads.
+  for (const [filePath, content] of prefetchFileContents) {
+    forensicFileContents.set(filePath, stripReadFileWrapper(content));
+  }
+  for (const [filePath, content] of loopResult.fileContents ?? []) {
+    forensicFileContents.set(filePath, stripReadFileWrapper(content));
+  }
+
+  // A provider fallback can be text-only after the primary provider completed
+  // a read. Do not let that provider turn retained evidence into a generic
+  // no-access answer or imply that it proved a fresh behavioral conclusion.
+  if (retainedEvidence && retainedEvidence.size > 0 && !modelHasTools && turnIntent.requiresEvidence) {
+    const retainedResponse = buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents);
+    onDelta?.(retainedResponse);
+    return {
+      response: retainedResponse,
+      sources: [...forensicFileContents.keys()],
+      pendingChanges: getExecutionPendingChanges(),
+      resolvedModel:
+        loopResult.kind === "response" || loopResult.kind === "partial"
+          ? loopResult.result.model
+            ? { id: loopResult.result.model, provider: providerId, free: providerId === "openrouter" }
+            : undefined
+          : undefined,
+    };
+  }
+
+  // ── Explicit file-scope forensic coverage ──────────────────────────────────
+  // For file-scoped mode, ordered-root coverage is not relevant; instead we
+  // compute a file-scoped ForensicSourceCoverage that is COMPLETE only when
+  // every explicitly named target file was fully read (no truncation markers).
+  // This keeps file-scope coverage separate from whole-project reachability
+  // and ensures the forensic gate is fail-closed on truncation or read failure.
+  if (singleFileForensicMode && singleFilePaths.length > 0) {
+    const scopedRoots = singleFilePaths.map((targetPath) => {
+      const readContent = forensicFileContents.get(targetPath);
+      const wasRead = readContent !== undefined;
+      const isTruncated =
+        wasRead &&
+        (/\[(?:prefetch|read) output truncated\b/i.test(readContent) ||
+          /\[\.\.\.\s*(?:output truncated|forensic read exceeded)/i.test(readContent) ||
+          /\bdisplay limit\b.*\b(?:truncat|omitt)/i.test(readContent));
+          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+          timeoutMs: 60_000,
+          apiKey,
+          ...(opts.capability ? { capability: opts.capability } : {}),
+           ...(opts.signal ? { signal: opts.signal } : {}),
+          ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+        });
+        if (retry.content?.trim()) {
+          result = retry;
+          lastTextSeen = retry;
+          console.warn(
+            JSON.stringify({
+              scope: "tool-execution-engine",
+              code: "TRUNCATED_FINAL_RETRY_ACCEPTED",
+              provider,
+              model: retry.model || model,
+              previousLength: truncatedContent.length,
+              retryMaxTokens,
+              finishReason: retry.finishReason ?? null,
+            }),
+          );
+        }
+      } catch (err) {
+        console.warn(
+          JSON.stringify({
+            scope: "tool-execution-engine",
+            code: "TRUNCATED_FINAL_RETRY_FAILED",
+            provider,
+            model: result.model || model,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
+    }
+
+    // ── No tool calls → final response ──────────────────────────────────────
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      // Prefetch gives the model source bodies before the first loop call, but
+      // the provider client intentionally omits response_format whenever tools
+      // are attached. If the model immediately decides it has enough evidence,
+      // give it one explicit no-tools synthesis pass so JSON mode is actually
+      // applied. Only do this for the first prefetched response, and only when
+      // the response is not already a usable JSON envelope; this preserves the
+      // normal read→synthesize loop and avoids a redundant provider call.
+      const trimmedContent = result.content?.trim() ?? "";
+      let hasJsonEnvelope = false;
+      if (trimmedContent) {
+        try {
+          const candidate = JSON.parse(trimmedContent) as unknown;
+          hasJsonEnvelope =
+            typeof candidate === "object" &&
+            candidate !== null &&
+            typeof (candidate as { response?: unknown }).response === "string";
+        } catch {
+          hasJsonEnvelope = false;
+        }
+      }
+      if (
+        executionMode === "forensic" &&
+        opts.responseFormat &&
+        opts.initialFileContents &&
+        opts.initialFileContents.size > 0 &&
+        iter === 0 &&
+        !prefetchedSynthesisAttempted &&
+        !hasJsonEnvelope
+      ) {
+        prefetchedSynthesisAttempted = true;
+        synthesisStarted = true;
+        try {
+          onStep?.({ kind: "synthesis_start", iter, maxIterations });
+        } catch { /* ignore */ }
+
+        const synthesisMessages: RawMessage[] = compactModelMessages([
+          ...messages,
+          {
+            role: "assistant",
+            content: result.content ?? "",
+          },
+          {
+            role: "user",
+            content:
+              "The completed source reads are already available above. " +
+              "Now produce the final forensic report as the requested JSON object. " +
+              "Do not call tools and do not add facts.",
+          },
+        ]);
+        try {
+          const synthesisStartedAt = Date.now();
+          const synthesisCall = await callSynthesisWithFallback(synthesisMessages, {
+            model: result.model || model,
+            ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
+            timeoutMs: 60_000,
+            apiKey,
+            responseFormat: opts.responseFormat,
+          });
+          const synthesisResult = synthesisCall.result;
+          recordProviderTelemetry({
+            provider: provider as Parameters<typeof recordProviderTelemetry>[0]["provider"],
+            model: synthesisResult.model || result.model || model,
+            attemptCount: synthesisCall.attemptCount,
+            promptTokens: synthesisResult.usage?.promptTokens ?? 0,
+            completionTokens: synthesisResult.usage?.completionTokens ?? 0,
+            durationMs: Date.now() - synthesisStartedAt,
+          });
+          try {
+            onStep?.({
+              kind: "model_call",
+              model: synthesisResult.model || result.model || model,
+              provider,
+            });
+          } catch { /* ignore */ }
+          // A provider may ignore the no-tools request and still emit a
+          // tool_calls payload. Never feed those calls back into the normal
+          // execution branch: this pass exists only to format the already
+          // collected evidence. Keep the original response and let the
+          // forensic contract/recovery path handle it instead.

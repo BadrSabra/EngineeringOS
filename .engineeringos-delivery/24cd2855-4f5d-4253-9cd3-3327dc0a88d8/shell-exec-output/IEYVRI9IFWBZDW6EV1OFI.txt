@@ -1,0 +1,470 @@
+import React from 'react';
+import {
+  getGetHealthQueryKey,
+  useGetDashboard,
+  useGetHealth,
+} from '@workspace/api-client-react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  FolderGit2,
+  Database,
+  TrendingUp,
+} from 'lucide-react';
+import { Link } from 'wouter';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import { useMonotonicData } from '@/lib/freshness';
+
+function formatHealthTimestamp(value: Date | string | null | undefined): string {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString();
+}
+
+export default function Dashboard() {
+  const dashboardQuery = useGetDashboard();
+  const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
+  const dashboard = useMonotonicData(rawDashboard, rawDashboard?.freshnessRevision);
+  const { data: health, refetch: refetchHealth } = useGetHealth({
+    query: {
+      queryKey: getGetHealthQueryKey(),
+      refetchInterval: 30_000,
+      retry: 1,
+    },
+  });
+  const retention = health?.aiDiagnosticsRetention;
+
+  const totalFinished =
+    (dashboard?.completedTaskCount ?? 0) + (dashboard?.failedTaskCount ?? 0);
+  const successRate =
+    totalFinished > 0
+      ? Math.round(((dashboard?.completedTaskCount ?? 0) / totalFinished) * 100)
+      : null;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-8 w-64 bg-secondary rounded"></div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-32 bg-card border border-border rounded-xl"></div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 h-96 bg-card border border-border rounded-xl"></div>
+          <div className="h-96 bg-card border border-border rounded-xl"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !dashboard) {
+    return (
+      <RequestError
+        title="Failed to load dashboard"
+        message="Could not connect to the EngineeringOS API."
+        retryLabel="Retry Connection"
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">System Overview</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Real-time status of all autonomous engineering operations.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <RefreshButton
+            onRefresh={async () => { await refetch(); await refetchHealth(); }}
+            isRefreshing={isRefetching}
+            lastUpdated={dataUpdatedAt}
+            label="Refresh status"
+          />
+          <span className="flex items-center gap-2 text-xs font-mono font-medium text-emerald-500 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            SYSTEM ONLINE
+          </span>
+        </div>
+      </div>
+
+      {/* Retention health is deliberately limited to content-free sweep metadata. */}
+      <section
+        aria-label="AI diagnostics retention health"
+        className={`rounded-xl border p-4 shadow-sm ${
+          retention?.status === 'failed'
+            ? 'border-destructive/30 bg-destructive/5'
+            : retention?.status === 'success'
+              ? 'border-emerald-500/20 bg-emerald-500/5'
+              : 'border-border bg-card'
+        }`}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div
+              className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+                retention?.status === 'failed'
+                  ? 'bg-destructive/10 text-destructive'
+                  : retention?.status === 'success'
+                    ? 'bg-emerald-500/10 text-emerald-500'
+                    : 'bg-secondary text-muted-foreground'
+              }`}
+            >
+              {retention?.status === 'failed' ? (
+                <AlertTriangle className="h-4 w-4" />
+              ) : (
+                <Database className="h-4 w-4" />
+              )}
+            </div>
+            <div>
+lib/api-client-react/src/generated/api.ts:4638:export function useGetDashboard<TData = Awaited<ReturnType<typeof getDashboard>>, TError = ErrorType<unknown>>(
+artifacts/dashboard/src/pages/Dashboard.tsx:4:  useGetDashboard,
+artifacts/dashboard/src/pages/Dashboard.tsx:27:  const dashboardQuery = useGetDashboard();
+    );
+  }
+  return origins.map((origin) => {
+    const parsed = new URL(origin);
+    if (
+      parsed.origin !== origin ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error(
+        `Dashboard journey origin must be a bare origin: ${origin}`,
+      );
+    }
+    return parsed.origin;
+  });
+}
+
+const dashboardFixture = {
+  freshnessRevision: "2026-01-01T00:00:00.000Z",
+  projectCount: 1,
+  activeTaskCount: 0,
+  completedTaskCount: 2,
+  failedTaskCount: 0,
+  taskStatusBreakdown: { pending: 0, running: 0 },
+  projectScores: [
+    {
+      projectId: "e2e-project",
+      projectName: "Smoke Project",
+      score: 92,
+      trend: "stable",
+    },
+  ],
+  recentEvents: [
+    {
+      id: "e2e-event",
+      type: "SmokeCheck",
+      severity: "success",
+      message: "Dashboard API fixture ready",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    },
+  ],
+  topRules: [],
+};
+
+const executionFixture = {
+  id: EXECUTION_ID,
+  projectId: "e2e-project",
+  operationId: "e2e-operation",
+  status: "completed",
+  flightState: "COMPLETED",
+  evidenceVerdict: "PROVEN",
+  proofRequired: false,
+  resumable: false,
+  checkpointVersion: 1,
+  projectRevision: "e2e-revision-42",
+  checkpoint: {
+    stage: "complete",
+    detail: "Controlled browser fixture completed.",
+  },
+  objective: { objective: "Verify the dashboard browser journey" },
+  startedAt: "2026-01-01T00:00:00.000Z",
+  completedAt: "2026-01-01T00:01:00.000Z",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:01:00.000Z",
+};
+
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  headers?: Record<string, string>,
+) {
+  return {
+    status,
+    contentType: "application/json",
+    ...(headers ? { headers } : {}),
+    body: JSON.stringify(body),
+  };
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflow = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+    viewport: window.innerWidth,
+  }));
+  expect(overflow.document).toBeLessThanOrEqual(overflow.viewport + 1);
+  expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
+}
+
+async function expectDashboardReady(page: Page) {
+  await expect(
+    page.getByRole("heading", { name: "System Overview" }),
+  ).toBeVisible();
+  await expect(page.getByText("SYSTEM ONLINE", { exact: true })).toBeVisible();
+}
+
+async function restartApiForCampaign(page: Page) {
+  const controlUrl = process.env.DASHBOARD_E2E_CONTROL_URL;
+  if (!controlUrl) throw new Error("Dashboard campaign control URL is missing.");
+  const response = await page.request.post(`${controlUrl}/restart-api`, {
+  sessionId: string;
+  executionId?: string;
+  projectId?: string;
+  streamBody: string;
+  message: Record<string, unknown>;
+};
+
+async function installApiFixtures(
+  page: Page,
+  overrides?: {
+    arabicAi?: ArabicAiFixture;
+    alternateAi?: ArabicAiFixture;
+    disconnectAi?: ArabicAiFixture;
+    resumeFailure?: {
+      fixture: ArabicAiFixture;
+      execution: Record<string, unknown>;
+    };
+    interruptedResume?: {
+      fixture: ArabicAiFixture;
+      execution: Record<string, unknown>;
+      recoveredToken: string;
+      resumedStreamBody: string;
+    };
+    deliveryRecovery?: {
+      operations: Array<Record<string, unknown>>;
+      requests: string[];
+      actionRequests?: string[];
+      recoveryAction?: {
+        proposalId: string;
+        action: "resume-validation" | "discard";
+        response: Record<string, unknown>;
+        status?: number;
+        nextOperations?: Array<Record<string, unknown>>;
+      };
+    };
+    projects?: Array<Record<string, unknown>>;
+    events?: Array<Record<string, unknown>>;
+    archiveUpload?: {
+      uploadId: string;
+      originalName: string;
+    };
+    auditExport?: {
+      body: Record<string, unknown>;
+      filename: string;
+      requests: string[];
+      execution?: Record<string, unknown>;
+      messageOutcome?: string;
+      failFirstPreview?: boolean;
+    };
+    liveTask?: {
+      id: string;
+      title: string;
+      projectId: string;
+      log: Record<string, unknown>;
+      initialLogs?: Array<Record<string, unknown>>;
+      streamRequests?: string[];
+      failFirstStream?: boolean;
+      failStreamAttempts?: number;
+    };
+    taskActions?: {
+      tasks: Array<Record<string, unknown>>;
+      requests: string[];
+      verificationRequests?: Array<Record<string, unknown>>;
+    };
+    recoveryTasks?: Array<Record<string, unknown>>;
+    recoveryWorkflows?: Array<Record<string, unknown>>;
+    recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
+  },
+) {
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
+    const arabicAi = overrides?.arabicAi;
+    const alternateAi = overrides?.alternateAi;
+    const disconnectAi = overrides?.disconnectAi;
+    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
+      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
+    );
+    const hasConfiguredAiFixture =
+      aiFixtures.length > 0 ||
+      Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
+
+    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
+      const projectId = url.searchParams.get("projectId");
+      const projectSessions = aiFixtures.filter(
+        (fixture) => !fixture.projectId || fixture.projectId === projectId,
+      );
+      return route.fulfill(
+        jsonResponse(
+          projectSessions.map((fixture) => ({
+            id: fixture.sessionId,
+            title: fixture.question,
+            updatedAt: "2026-01-01T00:02:00.000Z",
+          })),
+        ),
+      );
+    }
+    if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
+      let requestBody: Record<string, unknown> = {};
+      try {
+        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+      } catch {
+        // The normal provider-free fallback below handles malformed requests.
+      }
+      if (
+        requestBody.executionId === overrides.resumeFailure.fixture.executionId
+      ) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          body: overrides.resumeFailure.fixture.streamBody,
+        });
+      }
+    }
+    if (overrides?.interruptedResume && path.endsWith("/api/ai/chat/stream")) {
+      let requestBody: Record<string, unknown> = {};
+      try {
+        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+      } catch {
+        // The normal provider-free fallback below handles malformed requests.
+      }
+      const { fixture, resumedStreamBody } = overrides.interruptedResume;
+      if (requestBody.executionId === fixture.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          body: resumedStreamBody,
+        });
+      }
+      if (!requestBody.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          // Deliberately stop after the durable execution identity. The
+          // journey wraps this response in a browser-level stream error.
+          body: fixture.streamBody,
+        });
+      }
+    }
+    let requestedMessage: string | undefined;
+    try {
+      requestedMessage = (route.request().postDataJSON() as Record<string, unknown>)
+        .message as string | undefined;
+    } catch {
+      // The default provider-unavailable response handles malformed requests.
+    }
+    const streamFixture =
+      disconnectAi ??
+      aiFixtures.find(
+        (fixture) =>
+          typeof requestedMessage === "string" &&
+          (requestedMessage === fixture.question ||
+            requestedMessage.includes(fixture.question)),
+      ) ??
+      arabicAi;
+    if (streamFixture && path.endsWith("/api/ai/chat/stream"))
+      return route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        headers: { "Cache-Control": "no-cache" },
+        body: streamFixture.streamBody,
+      });
+    const messageFixture = aiFixtures.find((fixture) =>
+      path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
+    );
+    if (messageFixture)
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: `${messageFixture.sessionId}-user-message`,
+            sessionId: messageFixture.sessionId,
+            role: "user",
+            content: messageFixture.question,
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          messageFixture.message,
+        ]),
+      );
+    if (
+      overrides?.auditExport &&
+      path.endsWith("/api/ai/chat/e2e-audit-session/messages")
+    ) {
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: "e2e-audit-user-message",
+            sessionId: "e2e-audit-session",
+            role: "user",
+            content: "Completed audit execution",
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          {
+            id: "e2e-audit-assistant-message",
+            sessionId: "e2e-audit-session",
+            role: "assistant",
+            content: "Completed audit execution",
+            executionId: EXECUTION_ID,
+            outcome: overrides.auditExport.messageOutcome ?? "SUCCEEDED",
+            createdAt: "2026-01-01T00:02:00.000Z",
+          },
+        ]),
+      );
+    }
+
+    if (path === "/api/dashboard")
+      return route.fulfill(jsonResponse(dashboardFixture));
+    if (overrides?.taskActions) {
+      const verificationMatch = path.match(
+        /^\/api\/tasks\/([^/]+)\/verification$/,
+      );
+      if (verificationMatch && route.request().method() === "POST") {
+        const [, taskId] = verificationMatch;
+        const task = overrides.taskActions.tasks.find(
+          (candidate) => candidate.id === taskId,
+        );
+        if (!task) {
+          return route.fulfill(jsonResponse({ error: "Task not found" }, 404));
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = route.request().postDataJSON() as Record<string, unknown>;
+        } catch {
+          return route.fulfill(
+            jsonResponse({ error: "Invalid verification request" }, 400),
+          );
+        }
+        const plan = task.remediationPlan as
+          | {
+              verificationChecks?: Array<Record<string, unknown>>;
+              verificationSteps?: string[];
+            }
+          | undefined;
+        const checks =
+          plan?.verificationChecks ??
+          (plan?.verificationSteps ?? []).map((guidance, index) => ({
+            id: `rule-verification-${index + 1}`,
+            kind: "operator_attestation",

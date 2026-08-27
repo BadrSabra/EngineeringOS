@@ -2576,7 +2576,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       // hung request cannot make this campaign pass indefinitely.
       const currentDashboardFixture = {
         ...dashboardFixture,
-        freshnessRevision: "2026-01-01T00:03:00.000Z",
+        // The release runner starts against real development data, whose
+        // server-owned revision may be newer than the static fixture below.
+        // Keep this synthetic "current" response ahead of that watermark so
+        // the test exercises stale-response rejection rather than fixture
+        // rejection.
+        freshnessRevision: "2099-01-01T00:03:00.000Z",
         projectScores: [{ ...dashboardFixture.projectScores[0], projectName: "Concurrent Project", score: 97 }],
         activeTaskCount: 1,
         taskStatusBreakdown: { pending: 0, running: 1 },

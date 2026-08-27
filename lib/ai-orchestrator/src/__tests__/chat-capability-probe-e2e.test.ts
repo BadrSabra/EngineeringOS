@@ -30,6 +30,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
+import { GroqClientError } from "../errors.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
 
@@ -100,6 +101,10 @@ async function mockChatProviders(fakeStrategy: unknown): Promise<void> {
   vi.resetModules();
   vi.doUnmock("../tools/file-tools.js");
   vi.doUnmock("../tools/git-tools.js");
+  vi.doMock("../errors.js", async () => {
+    const actual = await vi.importActual<Record<string, unknown>>("../errors.js");
+    return { ...actual, GroqClientError };
+  });
   vi.doMock("../provider-registry.js", async () => {
     const actual = await vi.importActual<Record<string, unknown>>("../provider-registry.js");
     return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
@@ -325,6 +330,207 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       expect(result.response).not.toMatch(/Executive Verdict|Evidence Map|Repair Plan|Final Judgment/i);
       expect(steps.some((step) => step.kind === "tool_call" && step.tool === "write_file")).toBe(false);
       expect(steps.some((step) => step.kind === "tool_call" && step.tool === "replace_text")).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers from a synthesis timeout using the retained two-file evidence", async () => {
+    const rootPath = await makeProbeRoot();
+    let callCount = 0;
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => {
+        callCount += 1;
+        if (callCount === 1) {
+          throw new GroqClientError("TIMEOUT", "simulated synthesis timeout");
+        }
+        return {
+          content: GROUNDED_NEGATIVE_ANSWER,
+          toolCalls: [],
+          model: opts.model ?? "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(callCount).toBe(2);
+      expect(result.response).toContain("C1");
+      expect(result.response).toContain("NO FINDING");
+      expect(result.response).toContain(
+        "export function isPromptProsePath(value: string): boolean {",
+      );
+      expect(steps.some(
+        (step) =>
+          step.kind === "diagnostic" &&
+          step.code === "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
+      )).toBe(true);
+      expect(steps.some(
+        (step) =>
+          (step.kind === "tool_call" || step.kind === "tool_result") &&
+          (step.tool === "write_file" || step.tool === "replace_text"),
+      )).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the two-file read boundary is incomplete", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-partial-"));
+    const fullPath = path.join(rootPath, FILE_A);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, CONTENT_A, "utf8");
+    let callCount = 0;
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => {
+        callCount += 1;
+        return {
+          content: GROUNDED_NEGATIVE_ANSWER,
+          toolCalls: [],
+          model: opts.model ?? "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(callCount).toBe(1);
+      expect(result.response).toMatch(/^ANALYSIS_INCOMPLETE/i);
+      expect(steps.some(
+        (step) =>
+          step.kind === "diagnostic" &&
+          step.code === "CAPABILITY_PROBE_RECOVERY_SKIPPED_INCOMPLETE",
+      )).toBe(true);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an exhausted correction path claim-unclosed instead of promoting an inventory", async () => {
+    const rootPath = await makeProbeRoot();
+    const ungroundedAnswer = JSON.stringify({
+      response:
+        "C1: PASS — isPromptProsePath exists.\n" +
+        "C2: PASS — read_file was used.\n" +
+        "C3: PASS — the function was checked.\n" +
+        "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is absent.\n" +
+        "C5: PASS — no write was used.\n" +
+        "C6: PASS — no eval or Function call was found.\n" +
+        "C7: PASS — run() is absent.\n" +
+        "Overall score: 7/7.",
+      sources: [FILE_A, FILE_B],
+    });
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
+        content: ungroundedAnswer,
+        toolCalls: [],
+        model: opts.model ?? "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      // One correction plus the bounded group probes (including their
+      // requirement retries) is still finite and provider-fallback-free.
+      expect(fakeStrategy.call.mock.calls.length).toBeLessThanOrEqual(7);
+      expect(result.response).toMatch(/^ANALYSIS_INCOMPLETE/i);
+      expect(steps.some(
+        (step) =>
+          step.kind === "diagnostic" &&
+          step.code === "CAPABILITY_PROBE_CLAIM_UNCLOSED",
+      )).toBe(true);
+      expect(steps.some(
+        (step) =>
+          (step.kind === "tool_call" || step.kind === "tool_result") &&
+          (step.tool === "write_file" || step.tool === "replace_text"),
+      )).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not start capability recovery after cancellation", async () => {
+    const rootPath = await makeProbeRoot();
+    const controller = new AbortController();
+    controller.abort();
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        signal: controller.signal,
+      });
+
+      expect(fakeStrategy.call).not.toHaveBeenCalled();
+      expect(result.response).toMatch(/^ANALYSIS_INCOMPLETE/i);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

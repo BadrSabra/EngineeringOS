@@ -1,0 +1,211 @@
+ * Discriminated union of observable events emitted during executeToolLoop.
+ * Callers supply an onStep callback to receive these in real time — useful
+ * for streaming live tool-call progress to the UI without polling.
+ */
+export type AgentStep =
+  | {
+      kind: "plan_activity";
+      stage: "understand" | "scope" | "plan" | "execute" | "validate";
+      status: "active" | "done" | "info";
+      stepTitle?: string;
+      action?: "inspect" | "create" | "modify" | "delete" | "test" | "configure";
+      files?: string[];
+      resultSummary?: string;
+      nextStepTitle?: string;
+      approvalRequired?: boolean;
+      approvalReason?: string;
+    }
+  | { kind: "iteration_start"; iter: number; maxIterations: number }
+  | { kind: "model_call";      model: string; provider: string }
+  | { kind: "recovery_model_call"; model: string; provider: string; attempt: number }
+  | {
+      kind: "tool_call";
+      tool: string;
+      args: Record<string, string>;
+      cached: boolean;
+      /** True when the read happened during forensic prefetch, before the loop. */
+      prefetched?: boolean;
+      /**
+       * The agent's immediate reasoning for why it called this tool: the model's
+       * text output that immediately preceded the tool call in this iteration.
+       * Present only on fresh (non-cached) calls for read and write tools.
+       * Absent for cached cache-hit replays (no new model decision was made).
+       * Truncated to 500 characters so the persisted trace stays bounded.
+       */
+      reasoning?: string;
+    }
+  | {
+      kind: "tool_result";
+      tool: string;
+      source?: string;
+      cached: boolean;
+      outputLength: number;
+       resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+       diagnosticCode?: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+      /** Server-owned command status, when the tool is run_command. */
+      commandStatus?: "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
+      /** Bounded, content-free summary safe for activity timelines. */
+      resultSummary?: string;
+      /** True when the read happened during forensic prefetch, before the loop. */
+      prefetched?: boolean;
+    }
+  | {
+      kind: "validation";
+      result: ValidationResult;
+      repairState: RepairLoopState;
+      attempt: number;
+      maxAttempts: number;
+      /** @deprecated Read `result`; retained only for old trace consumers. */
+      status?: ValidationResult["status"];
+      /** @deprecated Read `result`; retained only for old trace consumers. */
+      profile?: string;
+      /** @deprecated Read `result`; retained only for old trace consumers. */
+      scenario?: string;
+      /** @deprecated Read `result`; retained only for old trace consumers. */
+      command?: string;
+      /** @deprecated Read `result`; retained only for old trace consumers. */
+      exitCode?: number | null;
+      /** @deprecated Read `result`; retained only for old trace consumers. */
+      failedTests?: string[];
+      /** @deprecated Read `result.changedFiles`; retained for old trace consumers. */
+      affectedFiles?: string[];
+      /** @deprecated Read `result.failedTests`; retained for old trace consumers. */
+      failedTestDetails?: ValidationResult["failedTests"];
+      /** @deprecated Read `result.changedFiles`; retained for old trace consumers. */
+      changedFiles?: string[];
+      /** @deprecated Read `result`; retained only for old trace consumers. */
+      detail?: string;
+    }
+  | {
+      kind: "repair_state";
+      state: RepairLoopState;
+      detail?: string;
+    }
+  | { kind: "soft_limit";      iter: number }
+  | { kind: "synthesis_start"; iter: number; maxIterations: number }
+  | { kind: "forensic_recovery_start"; attempt: number }
+  | {
+      kind: "forensic_status";
+      /** Structured audit scope: FIXTURE_LOCAL when all impl evidence is from test/spec paths. */
+      auditScope: "PRODUCTION" | "FIXTURE_LOCAL";
+      /** Whether the Finding was proven from production (non-fixture) source paths. */
+      productionReachability: "PROVEN" | "NOT_PROVEN";
+      sourceCoverage: "COMPLETE" | "PARTIAL" | "NONE";
+      behavioralAssessment: "COMPLETE" | "INCOMPLETE" | "NOT_STARTED";
+      findingStatus: "PROVEN" | "NO_FINDING" | "NOT_PROVEN";
+      repairReadiness: "READY" | "BLOCKED";
+      /**
+       * EI-036: reason from scopedRepairGate when repair is blocked by proof
+       * scope (e.g. REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION). Absent when allowed.
+       */
+      repairBlockReason?: RepairBlockReason;
+      implementationFiles: number;
+      contextFiles: number;
+      generatedFiles: number;
+      /** Explicit file manifest retained in request order for scoped audits. */
+      requestedFiles?: string[];
+      rootCoverage?: ForensicRootCoverage[];
+      reason?: string;
+      /**
+       * True when the proven Finding is supported only by evidence from
+       * fixture/test/spec paths — not from production source files.
+       * Mirrors auditScope === "FIXTURE_LOCAL"; kept for backward compatibility.
+       */
+      isFixtureLocal?: boolean;
+    }
+  | { kind: "audit_state"; state: AuditState }
+  | { kind: "forensic_terminal"; terminalKind: ForensicTerminalKind }
+  | { kind: "verification"; trace: VerificationTrace }
+  | {
+      kind: "evidence_integrity";
+      code: "TELEMETRY_CONSISTENT" | "TELEMETRY_INCONSISTENT";
+      consistent: boolean;
+      violations: string[];
+      readAttempts: number;
+      uniqueFilesRead: number;
+      evidenceFileCount: number;
+      acceptedEvidenceCount: number;
+      acceptedEvidenceFiles?: string[];
+      completedReadFiles?: string[];
+      retainedBodyFiles?: string[];
+      acceptedClaimCount?: number;
+      evidenceSourceCoverage?: CanonicalSourceCoverage;
+      scopeExpansions?: ScopeExpansion[];
+      unjustifiedReads?: string[];
+      /** AI-OBJ-011: objective completion telemetry, when an objective was declared. */
+      objectiveType?: string;
+      requiredClaims?: string[];
+      completedClaims?: string[];
+      missingClaims?: string[];
+      requiredEdges?: string[];
+      provenEdges?: string[];
+      failedEdges?: string[];
+      recoveryTriggered?: boolean;
+      recoveryTarget?: string;
+      completionGateResult?: string;
+      finalAnswerType?: "PRODUCTION_REACHABILITY_ANSWER" | "BEHAVIORAL_ANSWER" | "NO_ANSWER";
+    }
+  | { kind: "decision_trace"; trace: ForensicDecisionTrace }
+  | { kind: "production_trace"; trace: ProductionReachabilityTrace }
+  | { kind: "cross_file_trace"; trace: import("./semantic-trace.js").CrossFileSemanticTrace }
+  | {
+      kind: "forensic_packet";
+      root: string;
+      packetIndex: number;
+      packetCount: number;
+      fileCount: number;
+      implementationFiles: number;
+      contextFiles: number;
+      generatedFiles: number;
+      status: "STARTED" | "ACCEPTED" | "REJECTED" | "FAILED";
+      reason?: string;
+    }
+  | {
+      kind: "diagnostic";
+      code: AgentDiagnosticCode;
+      /** Bounded contract metadata; never contains model/source content. */
+      details?: string[];
+      /** Server-owned context for phase-policy rejections only. */
+      phase?: ExecutionPhase;
+      tool?: string;
+    }
+  | { kind: "execution_guard"; code: "REPEATED_TOOL_CALL"; tool: string; message: string }
+  | {
+      kind: "done";
+      iterations: number;
+      maxIterations: number;
+      /**
+       * Total logical tool-call events emitted in the execution trace.
+       * Includes forensic prefetch calls and cached loop calls.
+       */
+      toolCalls: number;
+      /** Tool-call events emitted before the agent loop (forensic prefetch). */
+      prefetchToolCalls: number;
+      /** Tool-call events emitted by the agent loop, including cache hits. */
+      loopToolCalls: number;
+      stopReason:
+        | "response"
+        | "iteration_budget"
+        | "soft_limit"
+        | "repeated_tool_call"
+        | "empty_response"
+         | "provider_timeout"
+         | "tool_failure"
+        | "cancelled";
+      synthesisStarted: boolean;
+      /** Bounded final-synthesis telemetry for operator diagnostics. */
+      synthesisAttempts?: number;
+      synthesisMaxAttempts?: number;
+      synthesisTimeoutMs?: number;
+      synthesisElapsedMs?: number;
+      synthesisTimedOut?: boolean;
+      diagnosticCodes: AgentDiagnosticCode[];
+      /** Source-retrieval read classification and telemetry (SR-008). */
+      sourceRetrieval?: SourceRetrievalTelemetry;
+    };
+
+/**
+ * Run the full agentic tool loop until the model stops requesting tools or
+ * a budget is hit.
+ *
+ * The loop:

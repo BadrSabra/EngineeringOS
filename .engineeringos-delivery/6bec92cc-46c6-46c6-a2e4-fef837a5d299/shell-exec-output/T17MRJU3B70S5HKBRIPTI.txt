@@ -1,0 +1,191 @@
+  ).length;
+  const recordedLoopToolCalls = recordedToolCalls - recordedPrefetchToolCalls;
+  const diagnosticCodes = new Set<string>();
+  const diagnosticDetails = new Set<string>();
+  const modelsUsed = new Set<string>();
+  const recoveryModelsUsed = new Set<string>();
+  for (const entry of trace) {
+    if (entry.kind === 'diagnostic' && entry.code) diagnosticCodes.add(entry.code);
+    if (entry.kind === 'diagnostic') {
+      for (const detail of entry.details ?? []) diagnosticDetails.add(detail);
+    }
+    for (const code of entry.diagnosticCodes ?? []) diagnosticCodes.add(code);
+    for (const detail of entry.diagnosticDetails ?? []) diagnosticDetails.add(detail);
+    if (entry.kind === 'model_call' && entry.model) modelsUsed.add(entry.model);
+    if (entry.kind === 'recovery_model_call' && entry.model) recoveryModelsUsed.add(entry.model);
+  }
+  const capabilityProbeRecoveryStarted = [...diagnosticCodes].some(
+    (code) =>
+      code === 'CAPABILITY_PROBE_EVIDENCE_RECOVERED' ||
+      code.startsWith('CAPABILITY_PROBE_EVIDENCE_RECOVERY_'),
+  );
+
+  return {
+    iterations: typeof done.iterations === 'number' ? done.iterations : 0,
+    maxIterations: typeof done.maxIterations === 'number' ? done.maxIterations : 0,
+    toolCalls: typeof done.toolCalls === 'number' ? done.toolCalls : recordedToolCalls,
+    prefetchToolCalls:
+      typeof done.prefetchToolCalls === 'number'
+        ? done.prefetchToolCalls
+        : recordedPrefetchToolCalls,
+    loopToolCalls:
+      typeof done.loopToolCalls === 'number'
+        ? done.loopToolCalls
+        : recordedLoopToolCalls,
+    stopReason: done.stopReason as AiStreamExecutionSummary['stopReason'],
+    synthesisStarted: done.synthesisStarted === true,
+    ...(typeof done.synthesisAttempts === 'number' ? { synthesisAttempts: done.synthesisAttempts } : {}),
+    ...(typeof done.synthesisMaxAttempts === 'number' ? { synthesisMaxAttempts: done.synthesisMaxAttempts } : {}),
+    ...(typeof done.synthesisTimeoutMs === 'number' ? { synthesisTimeoutMs: done.synthesisTimeoutMs } : {}),
+    ...(typeof done.synthesisElapsedMs === 'number' ? { synthesisElapsedMs: done.synthesisElapsedMs } : {}),
+    ...(typeof done.synthesisTimedOut === 'boolean' ? { synthesisTimedOut: done.synthesisTimedOut } : {}),
+    recoveryStarted:
+      done.recoveryStarted === true ||
+      trace.some((entry) => entry.kind === 'forensic_recovery_start') ||
+      capabilityProbeRecoveryStarted,
+    diagnosticCodes: [...diagnosticCodes],
+    // Cancellation diagnostics are internal recovery/provider details. The
+    // cancelled report and its terminal state survive history reload, but
+    // provider errors must not become visible just because the persisted
+    // summary is now restored.
+    ...(diagnosticDetails.size > 0 && done.stopReason !== 'cancelled'
+    'no directly verifiable deterministic defect pattern was found',
+    'a source-grounded no_finding basis was emitted',
+    'primary-evidence-target=',
+    'first_evidence recovery failed',
+    'run ended with zero source reads',
+    'telemetry:',
+    'status:',
+  ];
+  return details.find((d) => {
+    const lower = d.toLowerCase();
+    return (
+      d.length >= 10 &&
+      !OPERATIONAL_PATTERNS.some((p) => lower.includes(p))
+    );
+  });
+}
+
+function forensicRejectionReason(
+  summary: ForensicEvidenceSummary,
+  finalVerdict: FinalForensicVerdict | null = null,
+): string {
+  const finalReportIsNotProven = finalVerdict === 'NOT PROVEN';
+  if (!finalReportIsNotProven && summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERED'))) {
+    return 'The capability probe Recovery response was accepted after validating all C1–C7 labels and an exact executable excerpt against the declared source reads.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED'))) {
+    return 'The capability probe Recovery response could not be parsed into a source-grounded C1–C7 report, so the result stayed fail-closed.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED'))) {
+    return 'The bounded capability probe Recovery attempt failed, so the result stayed fail-closed instead of accepting unsupported claims.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED'))) {
+    return 'The capability probe Recovery response was rejected because it did not satisfy the exact-source C1–C7 evidence gate.';
+  }
+  if (!finalReportIsNotProven && summary.diagnosticCodes.some((code) => code.includes('FORENSIC_DETERMINISTIC_FINDING'))) {
+    return 'A high-confidence executable pattern was verified from the completed source read, and the Finding passed the forensic contract and evidence gate.';
+  }
+  if (!finalReportIsNotProven && summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED'))) {
+    return 'The structured Recovery envelope was accepted and rebuilt into the six-section forensic report.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('SKIPPED_NO_EVIDENCE'))) {
+    return 'Recovery was skipped because no completed source read was available to support a trustworthy report.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_REJECTED'))) {
+    return 'Recovery returned a structured envelope, but its Finding evidence or phase linkage failed validation. The candidate was rejected and the next bounded candidate was tried.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_PARSE_FAILED'))) {
+    return 'Recovery returned a response that was not a valid structured Findings envelope. The next bounded candidate was tried without weakening the evidence gate.';
+  }
+  if (summary.diagnosticCodes.some((code) =>
+    code.includes('FORENSIC_NO_FINDING') ||
+    code.includes('STRUCTURED_RECOVERY_NO_FINDING'),
+  )) {
+    return 'No defect was directly proven from the completed source reads. This is a valid forensic outcome, so no repair phase is executable.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('EVIDENCE_ONLY_FALLBACK'))) {
+    const providerFailure = summary.diagnosticDetails.find((detail) =>
+      detail.toLowerCase().includes('provider failure codes:'),
+    );
+    return providerFailure
+      ? `Recovery could not obtain a provider response (${providerFailure.replace(/^.*provider failure codes:\s*/i, '')}). The completed source reads were preserved safely, but Findings and repair phases remain blocked.`
+      : 'All bounded recovery attempts failed after the completed source reads were preserved. The Evidence Map was rebuilt safely, but Findings and repair phases remain blocked.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('PARSE_FAILED'))) {
+    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+    return violation
+      ? `The recovery response could not be parsed into the required six-section forensic report: ${violation}.`
+      : 'The recovery response could not be parsed into the required six-section forensic report.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('RECOVERY_FAILED'))) {
+    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+    return violation
+      ? `The bounded recovery attempt failed: ${violation}.`
+      : 'The bounded recovery attempt failed, so the report stayed fail-closed instead of accepting unsupported findings.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('REJECTED'))) {
+    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+    return violation
+      ? `The model response was rejected: ${violation}.`
+      : 'The model response was rejected because it did not satisfy the required six-section evidence contract.';
+  }
+  const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+  return violation
+    ? `The forensic response did not satisfy the evidence contract: ${violation}.`
+    : 'The final forensic response did not provide enough validated evidence for an executable repair phase.';
+}
+                </div>
+                <div>
+                  <div className="font-semibold text-foreground">
+                    {evidence.execution.iterations}/{evidence.execution.maxIterations}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">iterations used</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-foreground">
+                    {evidence.execution.synthesisStarted
+                      ? 'attempted'
+                      : evidence.execution.recoveryStarted
+                        ? 'not entered'
+                        : 'not started'}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">report synthesis</div>
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <div className="font-semibold break-words text-foreground">
+                    {formatStopReason(
+                      evidence.execution.stopReason,
+                      evidence.execution.synthesisStarted,
+                    )}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">stop reason</div>
+                </div>
+        };
+      } else if (step.kind === "diagnostic") {
+        // Forensic recovery/provider details are server diagnostics, not user
+        // report content. Keep them in the internal trace for debugging, but
+        // do not stream them to a forensic audit client.
+        const visibleDiagnosticDetails = streamTurnIntent.requiresEvidence
+          ? undefined
+          : step.details;
+        if (!diagnosticCodes.includes(step.code)) {
+          diagnosticCodes.push(step.code);
+        }
+        if (step.details) {
+          for (const detail of step.details) {
+            if (!executionDiagnosticDetails.includes(detail)) {
+              executionDiagnosticDetails.push(detail);
+            }
+          }
+        }
+        if (executionSummary && !executionSummary.diagnosticCodes.includes(step.code)) {
+          executionSummary.diagnosticCodes.push(step.code);
+        }
+        if (
+          executionSummary &&
+          (
+            step.code === "CAPABILITY_PROBE_EVIDENCE_RECOVERED" ||
+            step.code.startsWith("CAPABILITY_PROBE_EVIDENCE_RECOVERY_")
+          )
+        ) {

@@ -357,7 +357,7 @@ test("the standard release journey remains provider-free", () => {
 test("dashboard convergence carries a server revision and asserts rendered freshness", () => {
   assert.match(
     journeySource,
-    /freshnessRevision:\s*"2026-01-01T00:03:00\.000Z"/,
+    /freshnessRevision:\s*"2099-01-01T00:03:00\.000Z"/,
     "The browser fixture must model a newer server-owned dashboard revision.",
   );
   assert.match(

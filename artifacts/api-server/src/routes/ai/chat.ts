@@ -3366,6 +3366,15 @@ router.post("/ai/chat/stream", async (req, res) => {
         if (executionSummary && !executionSummary.diagnosticCodes.includes(step.code)) {
           executionSummary.diagnosticCodes.push(step.code);
         }
+        if (
+          executionSummary &&
+          (
+            step.code === "CAPABILITY_PROBE_EVIDENCE_RECOVERED" ||
+            step.code.startsWith("CAPABILITY_PROBE_EVIDENCE_RECOVERY_")
+          )
+        ) {
+          executionSummary.recoveryStarted = true;
+        }
         if (executionSummary && step.details) {
           executionSummary.diagnosticDetails = [...executionDiagnosticDetails];
         }

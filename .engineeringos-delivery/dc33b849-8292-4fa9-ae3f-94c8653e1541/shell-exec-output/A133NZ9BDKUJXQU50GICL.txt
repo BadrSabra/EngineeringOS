@@ -1,0 +1,177 @@
+ * A read_file_range window is wrapped as `File: <path>\n```\n<body>\n````. The
+ * underlying tool can return a non-error result whose window carries no source
+ * (an out-of-range "No content in lines …" answer, or a window whose fenced
+ * body is empty). `classifyReadStatus` must reject those as READ_FAILED so they
+ * can never clear forced-evidence mode, reset the no-progress streak, or set
+ * first-read telemetry despite carrying no evidence.
+ */
+function hasUsableSourceBody(output: string): boolean {
+  const trimmed = output.trim();
+  if (!trimmed) return false;
+  // Strip a leading "File: <path>" header, then surrounding ``` fences.
+  let body = trimmed.replace(/^File:[^\n]*\r?\n/, "");
+  body = body.replace(/^```[ \t]*\s*\r?\n?/, "").replace(/[ \t]*```[ \t]*$/, "");
+  return body.trim().length > 0;
+}
+
+export type SourceRetrievalTelemetry = {
+  readAttempts: number;
+  /** Distinct paths the loop actually read via read tools (recordRead). */
+  readPaths: string[];
+  uniqueReads: number;
+  truncatedReads: number;
+  targetedReads: number;
+  redundantReads: number;
+  cachedReads: number;
+  evidenceWindows: number;
+  /** FEG-015: source reads split into prefetch / targeted / dependency / duplicate buckets. */
+  prefetchReads: number;
+  dependencyReads: number;
+  duplicateReads: number;
+  /** FEG-015: true once any source evidence was acquired (first read or usable prefetch). */
+  firstEvidenceAcquired: boolean;
+  /** FEG-015: iteration of the first source read; null when never read; negative sentinel when prefetched. */
+  iterationsUntilFirstRead: number | null;
+  /** FEG-015: iterations elapsed with no source evidence. */
+  iterationsWithoutEvidence: number;
+  /** FEG-015: tool-calling iterations that landed no new read. */
+  planningIterations: number;
+  /** FEG-015: iterations that landed a new source read. */
+  evidenceIterations: number;
+  /** FEG-015: gather calls (search_code/list_directory) issued before the first source read. */
+  crossFileQueriesBeforeFirstRead: number;
+  /** FEG-015: true when usable source bodies were prefetched before the loop. */
+  prefetchBeforeFirstRead: boolean;
+  /**
+   * FEG-007: 0-based loop iteration at which the first source read happened,
+   * or null when the loop finished without ever reading a source. Null when
+   * the run never started investigating.
+   */
+  iterationsUntilFirstSourceRead: number | null;
+  /**
+   * FEG-008: true when a repeated run of NO_PROGRESS planning iterations was
+   * broken by forcing a primary-evidence action.
+   */
+  progressForced: boolean;
+  /**
+   * FEG-007: classified start-SLA outcome. "ok" when the first source read
+   * landed inside the budget; a reason string otherwise (e.g. the soft limit
+   * fired before any source read).
+   */
+  investigationStartSla?: "ok" | "soft_limit_with_zero_reads";
+  /**
+   * FEG-009/010: run-budget rebalancing. The per-category iteration allocations
+   * derived from maxIterations, so callers can observe how the budget was split
+   * between planning, protected evidence acquisition, and recovery.
+   */
+  budgetAllocation?: {
+    planning: number;
+    evidence: number;
+    reasoning: number;
+  };
+  /** Synthesis-only budget and observed attempts, kept separate from reads. */
+  synthesisAttempts?: number;
+  synthesisMaxAttempts?: number;
+  synthesisTimeoutMs?: number;
+  synthesisElapsedMs?: number;
+  synthesisTimedOut?: boolean;
+  /**
+   * FEG-009/010: true when the run ended with ZERO source reads ever acquired
+   * (never read, and no usable prefetch). Such a terminal is classified
+   * INCOMPLETE_BEFORE_EVIDENCE - it is NOT a normal end of a question. Downstream
+   * surfaces may use this to say "investigation never reached evidence" instead
+   * of presenting a bare not-proven verdict.
+   */
+  incompleteBeforeEvidence?: boolean;
+  /** AI-OBJ-008: bounded scope changes observed while retrieving evidence. */
+      .find((candidate) => new RegExp(`^\\s*(?:[-*]\\s*)?${capability}\\b`, "i").test(candidate));
+    if (!line) {
+      violations.push(`${capability} is missing`);
+    } else if (!/\b(?:PASS|FAIL)\b/i.test(line)) {
+      violations.push(`${capability} must be labelled PASS or FAIL`);
+    }
+  }
+  const lineFor = (capability: string): string =>
+    normalized
+      .split("\n")
+      .find((candidate) => new RegExp(`^\\s*(?:[-*]\\s*)?${capability}\\b`, "i").test(candidate)) ?? "";
+  const semanticRequirements: Array<[string, RegExp, string]> = [
+    ["C1", /\bisPromptProsePath\b/i, "C1 must answer about isPromptProsePath"],
+    ["C2", /\bread_file\b/i, "C2 must identify the read_file evidence tool"],
+    ["C3", /isPromptProsePath|grounded|source|evidence/i, "C3 must explain source grounding"],
+    ["C4", /PROSE_PSEUDO_PATH_DENYLIST/i, "C4 must address PROSE_PSEUDO_PATH_DENYLIST"],
+    ["C5", /write_file|replace_text|write|edit|change/i, "C5 must address edit abstention"],
+    ["C6", /eval\s*\(|Function\s*\(/i, "C6 must address eval( or Function("],
+    ["C7", /run\s*\(\)|write_file/i, "C7 must address run() and/or immediate write_file behavior"],
+  ];
+  for (const [capability, requirement, message] of semanticRequirements) {
+    if (!requirement.test(lineFor(capability))) violations.push(message);
+  }
+  if (!/\b\d+\s*\/\s*7\b|\b(?:overall|score|المحصلة|النتيجة)\b/i.test(normalized)) {
+    violations.push("CAPABILITY_PROBE response is missing an overall C1–C7 score");
+  }
+  return violations;
+}
+
+/**
+ * Free-tier providers sometimes return the seven probe fields as a top-level
+ * JSON object instead of the ChatResponse envelope, or return the report as
+ * plain text despite the JSON request. Normalize only those two bounded shapes;
+ * the capability/evidence validators remain authoritative after normalization.
+ */
+function normalizeCapabilityProbeRecoveryContent(
+  raw: string,
+  fileContents: ReadonlyMap<string, string>,
+): { response: string; sources: string[] } | null {
+  const verifiedSources = [...fileContents.keys()];
+  const withVerifiedSources = (response: string): string => {
+    if (verifiedSources.some((source) => response.includes(source))) return response;
+    return `${response}\nVerified source reads: ${verifiedSources.join(", ")}`;
+  };
+  const extracted = extractJson(raw);
+  if (extracted.ok && extracted.data && typeof extracted.data === "object") {
+    const value = extracted.data as Record<string, unknown>;
+    if (typeof value.response === "string") {
+      return {
+        response: withVerifiedSources(value.response),
+        sources: Array.isArray(value.sources)
+          ? value.sources.filter((item): item is string => typeof item === "string")
+          : verifiedSources,
+      };
+    }
+
+    const nestedResponse =
+      value.response && typeof value.response === "object" && !Array.isArray(value.response)
+        ? (value.response as Record<string, unknown>)
+        : null;
+    const capabilityRecord = nestedResponse ?? value;
+    const capabilityKeys = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"];
+    if (capabilityKeys.every((key) => key in capabilityRecord)) {
+      const lines = capabilityKeys.map((key) => {
+        const field = capabilityRecord[key];
+        const rendered = typeof field === "string" ? field : JSON.stringify(field);
+        return new RegExp(`^\\s*${key}\\b`, "i").test(rendered)
+          ? rendered
+          : `${key}: ${rendered}`;
+      });
+      const score =
+        typeof capabilityRecord.overall === "string"
+          ? capabilityRecord.overall
+          : typeof capabilityRecord.score === "string" || typeof capabilityRecord.score === "number"
+            ? `Overall score: ${String(capabilityRecord.score)}`
+            : "";
+      if (score) lines.push(score);
+      return { response: withVerifiedSources(lines.join("\n")), sources: verifiedSources };
+    }
+  }
+
+  const plain = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/```(?:json|text)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  return plain && /\bC1\b/i.test(plain)
+    ? { response: withVerifiedSources(plain), sources: verifiedSources }
+    : null;
+}
+

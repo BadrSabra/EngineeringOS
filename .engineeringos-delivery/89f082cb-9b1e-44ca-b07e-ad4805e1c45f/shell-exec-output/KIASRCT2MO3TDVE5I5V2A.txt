@@ -1,0 +1,103 @@
+
+ RUN  v4.1.10 /home/runner/workspace/lib/ai-orchestrator
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-VweHgC","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-MZSGsS","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"chat-agent","code":"TASK_OUTPUT_CONTRACT_REJECTED","taskType":"BEHAVIOR_QUERY","violations":["C3 must explain source grounding","C6 must address eval( or Function("]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"chat-agent","code":"CAPABILITY_PROBE_EVIDENCE_RECOVERED","sourceCount":2,"model":"initial-model"}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-lea0Tn","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"openrouter","model":"initial-model","iter":0,"errorCode":"TIMEOUT","reason":"simulated synthesis timeout"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"openrouter","model":"initial-model","iter":0,"reason":"provider timed out; returning partial from collected evidence"}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"chat-agent","code":"EMPTY_PROVIDER_EVIDENCE_REPORT","sourceCount":2}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"chat-agent","code":"TASK_OUTPUT_CONTRACT_REJECTED","taskType":"BEHAVIOR_QUERY","violations":["CAPABILITY_PROBE response contains a forensic report section","C1 is missing"]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"chat-agent","code":"CAPABILITY_PROBE_EVIDENCE_RECOVERED","sourceCount":2,"model":"initial-model"}
+
+···x
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+AssertionError: expected 'ANALYSIS_INCOMPLETE — the AI provider…' to contain 'C1'
+
+- Expected
++ Received
+
+- C1
++ ANALYSIS_INCOMPLETE — the AI provider returned no final text after the available reads.
++
++ ### Completed reads
++ - lib/ai-orchestrator/src/prompts/profile-classifier.ts
++ - lib/ai-orchestrator/src/tools/file-tools.ts
++
++ ### Evidence status
++ The sources above were read, but no executable excerpt was accepted to close the behavioral claim.
++ No behavioral verdict was proven; this is not a final judgment.
++
++ ### Next step
++ Retry or narrow the question to one function or path; confirmed reads do not need to be repeated.
+
+ ❯ src/__tests__/chat-capability-probe-e2e.test.ts:376:31
+    374|
+    375|       expect(callCount).toBe(2);
+    376|       expect(result.response).toContain("C1");
+       |                               ^
+    377|       expect(result.response).toContain("NO FINDING");
+    378|       expect(result.response).toContain(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  04:06:57
+   Duration  2.38s (transform 1.10s, setup 0ms, import 277ms, tests 1.88s, environment 0ms)
+
+/home/runner/workspace/lib/ai-orchestrator:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/__tests__/chat-capability-probe-e2e.test.ts --reporter=dot

@@ -1,0 +1,313 @@
+  const claimsUnclosedButEvidenceAvailable =
+    requiredClaimGate.claimsUnclosedButEvidenceAvailable;
+  // EI-010/011/012: reconcile the run ledger at the final-answer seam BEFORE the
+  // response is selected, so an inconsistent telemetry can FAIL CLOSED on the
+  // user-facing verdict. (This used to run after finalResponse was picked, so it
+  // could only append to rejection reasons — a PROVEN/PASS answer still escaped
+  // alongside TELEMETRY_INCONSISTENT.)
+  const runId = `run-${createHash("sha1")
+    .update(`${message}|${model}|${recoveryAttemptsUsed}`)
+    .digest("hex")
+    .slice(0, 8)}`;
+  // EI-018: stamp the correct runId on all targeted reads accumulated during recovery,
+  // then pass them to the ledger so they appear in targetedReads / recoveryAttempts.
+  const recoveredEvidenceRecords: EvidenceRecord[] = recoveredReadData.map((datum) =>
+    tagRecoveredEvidence(
+      createEvidenceRecord({
+        runId,
+        file: datum.file,
+        content: datum.content,
+        readType: "TARGETED",
+        phase: "EVIDENCE_CREATED",
+        sourceType: "IMPLEMENTATION",
+        symbol: datum.symbol,
+        // EI-018: preserve the file-local window coordinates as provenance so
+        // the ledger records the actual lines read, not lines 1..N of the excerpt.
+        sourceSpan: { startLine: datum.startLine, endLine: datum.endLine },
+      }),
+      datum.recoveryAttemptId,
+    ),
+  );
+  const runtimeLedger = buildRuntimeLedger({
+    runId,
+    taskId: executionPlan?.taskProfile?.taskType,
+    fileContents: forensicFileContents,
+    acceptedFiles: acceptedBehaviorEvidence.map((item) => item.source),
+    sourceRetrieval:
+      "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined,
+    // EI-011: prefetch completed reads participate explicitly in the reconciled
+    // telemetry. Prefetch bodies are genuine completed reads the loop account
+    // (recordRead) never sees, so fold their distinct count in — otherwise a
+    // well-formed prefetch-only run would report 0 completed reads and trip a
+    // false INCONSISTENT, masking real telemetry loss behind the old fallback.
+    // Dedupe: if the loop also re-read a prefetched path, its read is already
+    // counted in sourceRetrieval.uniqueReads/readPaths, so only fold the prefetch
+    // paths the loop did not touch this run.
+    prefetchReads: [...prefetchFileContents.keys()].filter(
+      (p) => !("sourceRetrieval" in loopResult && loopResult.sourceRetrieval?.readPaths?.includes(p)),
+    ).length,
+    prefetchPaths: [...prefetchFileContents.keys()],
+    sourceCoverage: forensicSourceCoverage
+      ? {
+          status: forensicSourceCoverage.complete
+            ? "COMPLETE"
+            : forensicSourceCoverage.roots.length > 0
+              ? "PARTIAL"
+              : "NONE",
+          ...(forensicSourceCoverage.requestedFiles
+            ? { requestedFiles: [...forensicSourceCoverage.requestedFiles] }
+            : {}),
+          roots: [...forensicSourceCoverage.roots],
+          ...(forensicSourceCoverage.reason ? { reason: forensicSourceCoverage.reason } : {}),
+        }
+      : undefined,
+    recoveryAttempts: recoveryAttemptsUsed,
+    finalResult: buildBehaviorFindingStatus({
+      behaviorSupported: !behaviorAnswerRejected || acceptedBehaviorEvidence.length > 0,
+      behaviorRequested: shouldValidateBehaviorEvidence,
+      findingProven: false,
+    }),
+    additionalRecoveryRecords: recoveredEvidenceRecords,
+  });
+  if (
+    structuredOutputMode &&
+    hasUnverifiedPositiveForensicClaim(
+      responseBeforeBehaviorEvidence,
+      runtimeLedger.acceptedEvidenceCount,
+    )
+  ) {
+    console.warn(
+      JSON.stringify({
+        scope: "chat-agent",
+        code: "FORENSIC_POSITIVE_CLAIM_WITHOUT_EVIDENCE",
+        acceptedEvidenceCount: runtimeLedger.acceptedEvidenceCount,
+      }),
+    );
+    responseBeforeBehaviorEvidence = buildTaskValidationFallback(
+      "FULL_FORENSIC_AUDIT",
+      /[\u0600-\u06FF]/.test(message),
+    );
+    relayAgentStep({
+      kind: "diagnostic",
+        // NOT from bare imports. Edge claims close from runtime-observed links
+        // WITH evidence. This is what lets a genuinely completed objective
+        // reach PROVEN instead of being a blanket denial.
+        closedClaimIds: [
+          ...closeObjectiveClaimsFromEvidence({
+            objective,
+            response: responseBeforeBehaviorEvidence,
+            evidence: behaviorEvidenceValidation.evidence,
+            fileContents: forensicFileContents,
+          })
+            .filter((c) => c.status === "CLOSED")
+            .map((c) => c.claimId.replace(/^edge:/, "").replace(/^objective:/, "")),
+          ...closeObjectiveClaimsFromEdges({
+            objective,
+            provenEdges: objectiveProvenEdges,
+          })
+            .filter((c) => c.status === "CLOSED")
+            .map((c) => c.claimId.replace(/^edge:/, "").replace(/^objective:/, "")),
+        ],
+      })
+    : null;
+  const objectiveBlocksVerdict =
+    objective !== undefined && objectiveGate !== null ? objectiveGate.blocked : false;
+  const objectiveRejectionReason =
+    objectiveBlocksVerdict && objective !== undefined && objectiveGate
+      ? `objective:${objective.objectiveType}:${objectiveGate.status}:${(
+          objectiveGate.missingEdges[0] ?? objectiveGate.missingClaims[0] ?? "INCOMPLETE"
+        ).slice(0, 60)}`
+      : undefined;
+  if (objectiveBlocksVerdict && objective !== undefined && objectiveGate) {
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "OBJECTIVE_BLOCKED",
+      details: [
+        `status:${objectiveGate.status}`,
+        ...objectiveGate.missingEdges.slice(0, 3).map((e) => `missing-edge:${e}`),
+        ...objectiveGate.missingClaims.slice(0, 3).map((c) => `missing-claim:${c}`),
+      ],
+    });
+  } else if (objective !== undefined && objectiveGate) {
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "OBJECTIVE_DECOMPOSED",
+      details: [`status:${objectiveGate.status}`],
+    });
+  }
+  // AI-OBJ-011: fold the objective completion telemetry onto the ledger so
+  // validateTelemetry (below) fail-closes when it is inconsistent with the gate
+  // verdict, the evidence, or the final answer type.
+  const telemetryLedger = attachObjectiveTelemetry(runtimeLedger, objectiveGate, objective, {
+    triggered: recoveryAttemptsUsed > 0,
+    target:
+      recoveryAttemptsUsed > 0 && objective !== undefined
+        ? objective.requiredClaims?.[0]?.claimId
+        : undefined,
+  });
+  const telemetryReconciliation = validateTelemetry(telemetryLedger);
+  // Task #46: persist the verdict's proof scope onto the structured Repair Plan
+  // so a follow-up execution command (and a later audit) reconciles against the
+  // SAME scope under which this verdict was issued, via the persisted
+  // repairPlanMetadata. Every phase the repair authorises shares the run scope.
+  if (
+    structuredRepairPlan &&
+    structuredRepairPlan.length > 0 &&
+    runtimeLedger.scopedFindingStatus
+  ) {
+    structuredRepairPlan = structuredRepairPlan.map((phase) => ({
+      ...phase,
+      verdictScope: runtimeLedger.verdictScope,
+      scopedFindingStatus: runtimeLedger.scopedFindingStatus,
+    }));
+  }
+  // EI-012: fail closed — irreconcilable telemetry blocks the verdict even when a
+  // model answer alone would have read as PROVEN/PASS.
+  const telemetryBlocksVerdict = !telemetryReconciliation.consistent;
+  const telemetryRejectionReason = telemetryBlocksVerdict
+    ? `telemetry:${telemetryReconciliation.violations[0] ?? "TELEMETRY_INCONSISTENT"}`
+    : undefined;
+  // EI-029/030: when the run's evidence scope is not plain production, replace
+  // every bare "FINDING PROVEN" / "FINDING_PROVEN" occurrence in the accepted
+  // response with the appropriate scoped label (e.g. "FIXTURE-LOCAL FINDING
+  // PROVEN — PRODUCTION REACHABILITY NOT PROVEN"). This prevents fixture-only
+  // runs from asserting production proof through the report text.
+  //
+  // The pattern covers both space-separated ("FINDING PROVEN", emitted by the
+  // forensic text formatter) and underscore-separated ("FINDING_PROVEN",
+  // Maximum number of recovery cycles the agent is permitted per run.
+  // Mirrored from the retry limit used in the recovery loop; controls
+  // whether "recovery available" is a viable verdict for AI-OBJ-010.
+  const FINAL_ANSWER_MAX_RECOVERY = 1;
+  // AI-OBJ-010: run the final answer validator. For reachability runs, pass
+  // the concrete claim validations we derived above; for other runs, use the
+  // ledger's (possibly empty) validation records.
+  const finalAnswerValidation = validateFinalAnswer({
+    primaryClaimClosed:
+      !anyRequiredClaimUnclosed && !behaviorAnswerRejected && !telemetryBlocksVerdict,
+    validations: isProductionReachabilityRun
+      ? reachabilityClaimValidations
+      : runtimeLedger.validations,
+    claims: runtimeLedger.claims,
+    primaryClaimCategory,
+    primaryClaimEvidence: acceptedBehaviorEvidence.map((e) => ({
+      snippet: (e.excerpt ?? "").slice(0, 512),
+      file: e.source,
+      strength: "DIRECT" as const,
+    })),
+    reachabilityProofStatus,
+    hasImportOnlyHops,
+    recoveryAvailable: recoveryAttemptsUsed < FINAL_ANSWER_MAX_RECOVERY,
+  });
+  // AI-OBJ-010: for reachability runs the gate result is authoritative — a
+  // failed verdict blocks the response (not just telemetry). For standard
+  // behavior runs the existing behavior-evidence and telemetry gates are the
+  // authority.
+  const finalAnswerViolations =
+    isProductionReachabilityRun && finalAnswerValidation.verdict !== "ANSWER_COMPLETE"
+      ? finalAnswerValidation.violations.slice(0, 2)
+      : [];
+  if (isProductionReachabilityRun && finalAnswerValidation.verdict !== "ANSWER_COMPLETE") {
+    console.warn(
+      JSON.stringify({
+        scope: "chat-agent",
+        code: "FINAL_ANSWER_GATE_FAILED",
+        verdict: finalAnswerValidation.verdict,
+        violations: finalAnswerValidation.violations.slice(0, 2),
+      }),
+    );
+  }
+  // For reachability runs, replace the candidate response when the final-answer
+  // gate fails. This ensures a behavioral or import-only answer cannot silently
+  // reach the user as a production-reachability proof.
+  const reachabilityGateBlocked =
+    isProductionReachabilityRun && finalAnswerValidation.verdict !== "ANSWER_COMPLETE";
+  const gateFinalResponse = reachabilityGateBlocked
+    ? `NOT PROVEN — production reachability could not be verified. ` +
+      `Verdict: ${finalAnswerValidation.verdict}. ` +
+      `${finalAnswerValidation.violations.slice(0, 2).join(" | ")}`
+    : finalResponse;
+  // AI-OBJ-012: compute the objective verdict kind for the decision trace.
+  const objectiveVerdict: ObjectiveVerdictKind = classifyObjectiveVerdict({
+    primaryClaimClosed: !anyRequiredClaimUnclosed && !behaviorAnswerRejected && !telemetryBlocksVerdict,
+    allClaimsProven: finalAnswerValidation.verdict === "ANSWER_COMPLETE",
+    anyClaimProven: runtimeLedger.validations.some((v) => v.result === "PROVEN"),
+    evidenceCollected: runtimeLedger.evidenceFileCount > 0 || acceptedBehaviorEvidence.length > 0,
+    recoveryAvailable: recoveryAttemptsUsed < FINAL_ANSWER_MAX_RECOVERY,
+  });
+  const verificationRejectionReasons = [
+    ...(parseError ? [`parse:${parseError.code}`] : []),
+    ...(behaviorAnswerRejected ? behaviorEvidenceValidation.violations : []),
+    ...(anyRequiredClaimUnclosed
+      ? (requiredClaimClosure?.unclosedRequiredClaims ?? []).map(
+          (c) => `claim:${c.claimId}:${c.reason ?? "UNCLOSED"}`,
+        )
+      : []),
+    ...(telemetryRejectionReason ? [telemetryRejectionReason] : []),
+    ...(objectiveRejectionReason ? [objectiveRejectionReason] : []),
+    ...finalAnswerViolations,
+  ].slice(0, 6);
+  relayAgentStep({
+    kind: "evidence_integrity",
+    code: telemetryReconciliation.consistent
+      ? "TELEMETRY_CONSISTENT"
+      : "TELEMETRY_INCONSISTENT",
+    consistent: telemetryReconciliation.consistent,
+    violations: telemetryReconciliation.consistent ? [] : telemetryReconciliation.violations.slice(0, 4),
+    readAttempts: runtimeLedger.readAttempts,
+    uniqueFilesRead: runtimeLedger.uniqueFilesRead,
+    evidenceFileCount: runtimeLedger.evidenceFileCount,
+    acceptedEvidenceCount: runtimeLedger.acceptedEvidenceCount,
+    completedReadFiles: runtimeLedger.completedReadFiles,
+    retainedBodyFiles: runtimeLedger.retainedBodyFiles,
+    acceptedEvidenceFiles: runtimeLedger.acceptedEvidenceFiles,
+    // A normal behavior answer does not create a forensic ClaimRecord, but
+    // each accepted behavior excerpt closes the answer's behavioral claim.
+    // Keep this count visible in the shared trace without converting it into
+    // a FINDING_PROVEN claim.
+    acceptedClaimCount: Math.max(
+      runtimeLedger.acceptedClaimCount ?? 0,
+      acceptedBehaviorEvidence.length,
+    ),
+    evidenceSourceCoverage: runtimeLedger.sourceCoverage,
+    scopeExpansions: runtimeLedger.scopeExpansions,
+    unjustifiedReads: runtimeLedger.unjustifiedReads,
+  });
+  relayAgentStep({
+    kind: "verification",
+    trace: {
+      stage: "VERIFIED_RESPONSE",
+      responseLength: finalResponse.length,
+      sourceCount: mergedSources.length,
+      evidenceCount: behaviorEvidenceValidation.evidence.length,
+      acceptedEvidenceCount: acceptedBehaviorEvidence.length,
+      rejectionReasons: verificationRejectionReasons,
+    },
+  });
+  relayAgentStep({
+    kind: "decision_trace",
+    trace: {
+      taskType: forensicTaskType,
+      allowedFiles: (
+        singleFilePaths.length > 0 ? singleFilePaths : orderedForensicRoots
+      ).slice(0, 8),
+      filesRead: [...forensicFileContents.keys()].slice(0, 48),
+      evidenceSelected: acceptedBehaviorEvidence.length,
+      claim: outputContract,
+      validator: taskRoute.validator,
+      rejectionReason: verificationRejectionReasons,
+      recoveryAttempt: recoveryAttemptsUsed,
+      ...(recoveryFailureKind ? { recoveryFailureKind } : {}),
+      finalState: verificationRejectionReasons.length > 0
+        ? recoveryAttemptsUsed > 0
+          ? recoveryFailureKind
+            ? "FAILED"
+            : "RECOVERY_REQUIRED"
+          : "NOT_PROVEN"
+        : "VERIFIED",
+      // Task #46: persist the verdict's proof scope from the FINAL runtime
+      // ledger so a later audit over the same project — and the execution
+      // handoff — reconcile against the SAME scope the verdict was issued
+      // under, instead of recomputing a fresh default.
+      ...(runtimeLedger.scopedFindingStatus ? { scopedFindingStatus: runtimeLedger.scopedFindingStatus } : {}),
+      ...(runtimeLedger.verdictScope ? { verdictScope: runtimeLedger.verdictScope } : {}),

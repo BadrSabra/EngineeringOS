@@ -1286,6 +1286,13 @@ export type ToolLoopResult =
 
 /** Bounded diagnostics that may be persisted in the execution trace. */
 export type AgentDiagnosticCode =
+  | "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT"
+  | "CAPABILITY_PROBE_EVIDENCE_RECOVERED"
+  | "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED"
+  | "CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED"
+  | "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED"
+  | "CAPABILITY_PROBE_CLAIM_UNCLOSED"
+  | "CAPABILITY_PROBE_RECOVERY_SKIPPED_INCOMPLETE"
   | "FORENSIC_CONTRACT_RECOVERY_REJECTED"
   | "FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED"
   | "FORENSIC_CONTRACT_RECOVERY_FAILED"
@@ -2875,6 +2882,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       ) {
         prefetchedSynthesisAttempted = true;
         synthesisStarted = true;
+        synthesisDeadlineAt = Date.now() + boundedSynthesisTimeoutMs;
         try {
           onStep?.({ kind: "synthesis_start", iter, maxIterations });
         } catch { /* ignore */ }
@@ -2950,6 +2958,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           ...executionCounts(),
           stopReason: "response",
           synthesisStarted,
+            synthesisAttempts,
+            synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+            synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+            ...(sourceRetrieval.synthesisElapsedMs !== undefined
+              ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+              : {}),
+            ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
           diagnosticCodes: [],
           sourceRetrieval,
         });

@@ -1,0 +1,442 @@
+          message,
+          nativeSseResponse,
+          nativeSseBehaviorValidation.evidence,
+          nativeSseAcceptedFiles.length > 0 ? mergedSources : [],
+        );
+      }
+      // FEG-011/012 + AI-OBJ-005: mirror the non-streaming rejection trace so the
+      // audit panel sees the same `claim:` and `objective:` reasons on the
+      // native-SSE path too.
+      const nativeSseRejectionReasons = [
+        ...nativeSseRequiredClaimGate.unclosedRequiredClaims.map(
+          (c) => `claim:${c.claimId}:${c.reason ?? "UNCLOSED"}`,
+        ),
+        ...(nativeSseObjectiveGate.rejectionReason ? [nativeSseObjectiveGate.rejectionReason] : []),
+      ];
+      if (
+        (nativeSseRequiredClaimGate.anyRequiredClaimUnclosed &&
+          nativeSseRequiredClaimGate.claimsUnclosedButEvidenceAvailable) ||
+        Boolean(nativeSseObjectiveGate.rejectionReason)
+      ) {
+        relayAgentStep({
+          kind: "verification",
+          trace: {
+            stage: "VERIFIED_RESPONSE",
+            responseLength: nativeSseResponse.length,
+            sourceCount: mergedSources.length,
+            evidenceCount: nativeSseBehaviorValidation.evidence.length,
+            acceptedEvidenceCount: nativeSseAcceptedFiles.length,
+            rejectionReasons: nativeSseRejectionReasons,
+          },
+        });
+      }
+      const nativeSseTaskResult = buildTaskResult({
+        forensicTaskType,
+        finalResponse: nativeSseResponse,
+        mergedSources,
+        semanticBehaviorAnswer: nativeSseSemanticBehaviorAnswer,
+        structuredRepairPlan:
+          repairPlanExecution && priorRepairPlanMetadata
+            ? priorRepairPlanMetadata
+            : undefined,
+        acceptedBehaviorEvidence: [],
+      });
+      return {
+        response: nativeSseResponse,
+        sources: mergedSources,
+        pendingChanges: getExecutionPendingChanges(),
+        resolvedModel: resolvedModelInfo,
+        ...(objective ? { objective } : {}),
+        ...(repairPlanExecution && priorRepairPlanMetadata
+          ? { repairPlan: priorRepairPlanMetadata }
+          : {}),
+        ...(nativeSseTaskResult ? { taskResult: nativeSseTaskResult } : {}),
+      };
+    }
+    // Streaming failed — fall through to non-streaming path below.
+  }
+  // ── End streaming path ────────────────────────────────────────────────────
+
+  let content = result.content ?? "";
+  const providerReturnedEmptyEvidenceResponse =
+    !content.trim() &&
+    !structuredOutputMode &&
+    isForensicOrEvidenceRun &&
+    forensicFileContents.size > 0;
+  let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
+  // Preserve the verified phase metadata across the execution handoff. The
+  // route uses the returned plan to bind validation profiles and create the
+  // approval proposal; execution must not turn an approved plan into an
+  // unscoped pending-change list.
+  let structuredRepairPlan: RepairPlanMetadata[] | undefined =
+    repairPlanExecution && priorRepairPlanMetadata
+      ? priorRepairPlanMetadata
+      : undefined;
+
+  // A provider can satisfy the forensic section contract while ignoring the
+  // JSON envelope. Preserve that complete Markdown report before attempting a
+  // JSON correction. It still goes through the normal evidence/contract gate
+  // below; this is only an envelope recovery, not an evidence bypass.
+  const rawInitialForensicReport = structuredOutputMode
+    ? extractRawForensicReport(content)
+    : null;
+  if (!parsed.ok && rawInitialForensicReport) {
+    const initialMarkdownContract = applyForensicOutputContract(
+      rawInitialForensicReport,
+      collectForensicEvidence(
+            failureKind: lastRecoveryFailure?.kind ?? "empty",
+            parseCode: lastRecoveryFailure?.kind === "parse"
+              ? lastRecoveryFailure.parseCode
+              : lastRecoveryFailure?.kind === "provider"
+                ? lastRecoveryFailure.code
+                : undefined,
+          }));
+        }
+      } catch (err) {
+        // A provider recovery failure must not hide the fact that complete
+        // source reads were retained. Re-run the deterministic contract gate
+        // over the fallback so an Evidence Map-only rebuild becomes the final
+        // response, then expose that safe state separately from the provider
+        // error. Findings and repair phases remain blocked.
+        const semanticAssessmentFallback =
+          behavioralAssessmentRequired && forensicEvidence.fileContents.size > 0
+            ? applyForensicOutputContract("", forensicEvidence).response
+            : null;
+        const incompleteRecoveryReport = buildStructuredForensicReport(
+          EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+          forensicEvidence,
+          {
+            emptyVerdict: "ANALYSIS_INCOMPLETE",
+            language: responseLanguage,
+          },
+        );
+        const incompleteScopeFallback =
+          forensicEvidence.sourceCoverage?.complete === false
+            ? initialContract.response
+            : incompleteRecoveryReport;
+        const deterministicBehavioralEnvelope = behavioralAssessmentRequired
+          ? detectDeterministicBehavioralFindings(forensicEvidence, {
+              allowTestSources: includeTestSources,
+              language: responseLanguage,
+            })
+          : null;
+        const deterministicNoFindingEnvelope =
+          behavioralAssessmentRequired && !deterministicBehavioralEnvelope
+            ? buildSourceGroundedNoFindingEnvelope(forensicEvidence)
+            : null;
+        const deterministicBehavioralResult = deterministicBehavioralEnvelope
+          ? validateStructuredForensicRecovery(
+              deterministicBehavioralEnvelope,
+              forensicEvidence,
+              { responseLanguage },
+            )
+          : null;
+        const deterministicBehavioralReport =
+          deterministicBehavioralResult?.accepted
+            ? deterministicBehavioralResult.report
+            : null;
+        const deterministicNoFindingReport = deterministicNoFindingEnvelope
+          ? buildStructuredForensicReport(
+              deterministicNoFindingEnvelope,
+              forensicEvidence,
+              { emptyVerdict: "NO_VERIFIED_FINDING", language: responseLanguage },
+            )
+          : null;
+        if (deterministicBehavioralResult?.accepted && deterministicBehavioralEnvelope) {
+          const executable = buildExecutableRepairPlan(
+            deterministicBehavioralEnvelope,
+            forensicEvidence,
+          );
+          if (executable.plans.length > 0) structuredRepairPlan = executable.plans;
+        }
+        const evidenceOnlyFallback = applyForensicOutputContract(
+          deterministicBehavioralReport ??
+            deterministicNoFindingReport ??
+            semanticAssessmentFallback ??
+            incompleteScopeFallback,
+          forensicEvidence,
+        );
+        useForensicFallback(evidenceOnlyFallback.response);
+        if (deterministicBehavioralReport) {
+          onStep?.({
+            kind: "diagnostic",
+            code: "FORENSIC_DETERMINISTIC_FINDING",
+            details: [
+              "provider Recovery failed, but a high-confidence executable pattern was verified deterministically",
+              "the deterministic Finding passed the forensic contract and evidence gates",
+            ],
+          });
+        } else if (deterministicNoFindingReport) {
+          onStep?.({
+            kind: "diagnostic",
+            code: "FORENSIC_DETERMINISTIC_NO_FINDING",
+            details: [
+              "provider Recovery failed after complete implementation reads",
+              "no directly verifiable deterministic defect pattern was found",
+              "a source-grounded NO_FINDING basis was emitted; this does not prove the implementation is correct",
+              `provider failure codes: ${recoveryProviderFailureCodes.length > 0
+                ? recoveryProviderFailureCodes.join(", ")
+                : "UNKNOWN"}`,
+            ],
+          });
+        }
+        const preservedEvidence =
+          forensicEvidence.fileContents.size > 0 &&
+          evidenceOnlyFallback.response.includes("No verified forensic verdict was produced");
+        if (preservedEvidence) {
+          onStep?.({
+            kind: "diagnostic",
+            code: "FORENSIC_EVIDENCE_ONLY_FALLBACK",
+            details: [
+              "completed source reads preserved",
+              "Evidence Map rebuilt deterministically",
+              "provider recovery failed after bounded attempts",
+              `provider failure codes: ${recoveryProviderFailureCodes.length > 0
+                ? recoveryProviderFailureCodes.join(", ")
+                : "UNKNOWN"}`,
+            ],
+          });
+        } else {
+          onStep?.({ kind: "diagnostic", code: "FORENSIC_CONTRACT_RECOVERY_FAILED" });
+        }
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "FORENSIC_CONTRACT_RECOVERY_FAILED",
+          errorCode: err instanceof Error && "code" in err
+            ? String((err as { code?: unknown }).code ?? "unknown")
+            : "unknown",
+        }));
+      }
+    }
+  }
+
+  if (structuredOutputMode && cancelledForensicAudit()) {
+    const cancelledEvidence = collectForensicEvidence(
+      messages,
+      toolSources,
+      forensicFileContents,
+      includeTestSources,
+      forensicScope,
+      forensicSourceCoverage,
+      requireCompleteReadEvidence,
+      queryPlan?.compoundParts,
+      responseLanguage,
+    );
+    const cancelledReport = buildStructuredForensicReport(
+      EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+      cancelledEvidence,
+      { emptyVerdict: "ANALYSIS_INCOMPLETE", language: responseLanguage, cancelled: true },
+    );
+    structuredRepairPlan = undefined;
+    parsed = {
+      ok: true,
+      data: {
+        ...parsed.data,
+        response: cancelledReport,
+        sources: [...cancelledEvidence.fileContents.keys()],
+      },
+    };
+    content = JSON.stringify(parsed.data);
+  }
+
+  // PR-E: capture parse failure after all correction retries so the route can
+  // surface it as 422 instead of silently returning degraded fallback content.
+  let parseError: { code: AgentErrorCode; message: string; raw: string } | undefined;
+  if (!parsed.ok) {
+    recordBehavioralFailure(result.model || model, "malformed_json");
+    recordExecutionDiagnostic("EXECUTION_RESPONSE_FORMAT_INVALID", [
+      `response format code: ${parsed.code}`,
+    ]);
+    parseError = { code: parsed.code, message: parsed.message, raw: parsed.raw };
+  }
+
+  // Merge ground-truth tool sources with model-reported sources.
+  // Tool sources are prepended (they are factual); model sources follow and
+  // are deduplicated so the model's entity/metric references are preserved
+  // without repeating paths that are already in toolSources.
+  // BUG-2 fix: sanitize model-reported sources before merging — removes
+  // generic labels like "project name", "language", "branch", etc.
+  const cleanModelSources = sanitizeSources(parsed.data.sources);
+  relayAgentStep({
+    kind: "verification",
+    trace: {
+      stage: "MODEL_RESPONSE",
+      responseLength: parsed.data.response.length,
+      sourceCount: cleanModelSources.length,
+      evidenceCount: 0,
+      acceptedEvidenceCount: 0,
+      rejectionReasons: parseError ? [`parse:${parseError.code}`] : [],
+    },
+  });
+  if (structuredOutputMode) {
+    emitForensicStatus(
+      onStep,
+      forensicFileContents,
+      undefined,
+      parsed.data.response,
+      behavioralAssessmentRequested,
+      fixtureAuditMode,
+      /\bNOT PROVEN\b/i.test(parsed.data.response)
+        ? "semantic assessment or provider Recovery remained incomplete"
+        : undefined,
+      forensicSourceCoverage,
+      // Pass model-reported sources so fixture-locality is derived from the
+      // Finding's evidence files, not the full read set.  This prevents an
+      // incidental production-file read from masking a fixture-only verdict.
+      cleanModelSources.length > 0 ? cleanModelSources : undefined,
+    );
+  }
+  const scopedToolSources = scopeForensicSources(toolSources, forensicScope);
+  const mergedSources =
+    scopedToolSources.length > 0
+      ? [...scopedToolSources, ...cleanModelSources.filter((s) => !scopedToolSources.includes(s))]
+      : cleanModelSources;
+
+  const providerResponseCandidate =
+    parseError?.code === "EMPTY_MODEL_RESPONSE" &&
+    isForensicOrEvidenceRun &&
+    forensicFileContents.size > 0
+      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+      : parsed.data.response;
+  let responseBeforeBehaviorEvidence = validateResponseForTask(
+    finalizeTaskResponse(
+      repairPlanExecution
+        ? buildRepairPlanExecutionResponse(
+            getExecutionPendingChanges(),
+            /[\u0600-\u06FF]/.test(message),
+            false,
+            undefined,
+            undefined,
+            executionDiagnosticDetails,
+          )
+        : cancelledForensicAudit()
+          ? parsed.data.response
+          : gateForensicResponse(
+              providerResponseCandidate,
+              structuredOutputMode,
+              messages,
+              toolSources,
+              forensicFileContents,
+              includeTestSources,
+              forensicScope,
+              forensicSourceCoverage,
+            ),
+    ),
+  );
+  const shouldValidateBehaviorEvidence =
+    explicitBehaviorQueryRequested &&
+    (Boolean(rootPath) || toolSources.length > 0 || forensicFileContents.size > 0);
+  let behaviorEvidenceValidation = shouldValidateBehaviorEvidence
+    ? validateBehaviorEvidence(message, responseBeforeBehaviorEvidence, forensicFileContents)
+    : { valid: true, violations: [], evidence: [] };
+  /**
+   * Normal behavior questions need one bounded citation correction when the
+   * provider answered without an exact executable excerpt. This is deliberately
+   * a single no-tool pass: it can improve evidence conversion, but cannot
+   * broaden the already completed read scope or turn a missing answer into a
+   * positive verdict.
+   */
+  if (
+    shouldValidateBehaviorEvidence &&
+    !capabilityProbeRequest &&
+    forensicFileContents.size > 0 &&
+    !behaviorEvidenceValidation.evidence.some((item) => item.supportsClaim) &&
+    responseBeforeBehaviorEvidence.trim().length > 0
+  ) {
+    recoveryAttemptsUsed += 1;
+    const recoveryModel = result.model || model;
+    try {
+      const recovery = await strategy.call(
+        buildBehaviorEvidenceRecoveryMessages(
+          message,
+          forensicFileContents,
+          responseBeforeBehaviorEvidence,
+        ),
+        {
+          model: recoveryModel,
+          apiKey,
+          maxTokens: 1024,
+          timeoutMs: 45_000,
+          retryTransient: false,
+          maxFallbackModels: 1,
+          ...(signal ? { signal } : {}),
+        },
+      );
+      const recoveredResponse = validateResponseForTask(
+        normalizeRecoveryAssistantText(recovery.content ?? ""),
+      );
+      const recoveredValidation = validateBehaviorEvidence(
+        message,
+        recoveredResponse,
+        forensicFileContents,
+      );
+      if (recoveredValidation.evidence.some((item) => item.supportsClaim)) {
+        responseBeforeBehaviorEvidence = recoveredResponse;
+        behaviorEvidenceValidation = recoveredValidation;
+        content = recovery.content ?? content;
+        parsed = {
+          ok: true,
+          data: {
+            response: recoveredResponse,
+            // Recovery is trusted only for its response text; source
+            // provenance remains the server-owned completed-read manifest.
+            sources: [],
+          },
+        };
+        console.info(JSON.stringify({
+          scope: "chat-agent",
+          code: "BEHAVIOR_EVIDENCE_RECOVERED",
+          sourceCount: forensicFileContents.size,
+          model: recovery.model || recoveryModel,
+        }));
+      } else {
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "BEHAVIOR_EVIDENCE_RECOVERY_REJECTED",
+          reason: "corrected response still lacked a verified executable excerpt",
+        }));
+      }
+    } catch (error) {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "BEHAVIOR_EVIDENCE_RECOVERY_FAILED",
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+  /**
+   * A free-tier model can finish the read loop and satisfy the C1–C7 shape
+   * while forgetting the exact quoted fragment required by the probe contract.
+   * Give that narrow case one same-provider correction pass over retained reads.
+   * No tools are attached, so this cannot expand scope or perform a write.
+   */
+  if (
+    capabilityProbeRequest &&
+    hasCompleteCapabilityProbeEvidence(forensicFileContents) &&
+    (
+      validateCapabilityProbeResponse(responseBeforeBehaviorEvidence).length > 0 ||
+      behaviorEvidenceValidation.evidence.length === 0
+    )
+  ) {
+    capabilityProbeRecoveryDeadlineAt =
+      Date.now() + CAPABILITY_PROBE_RECOVERY_DEADLINE_MS;
+    recoveryAttemptsUsed += 1;
+    const recoveryModel = result.model || model;
+    try {
+      const recovery = await awaitAbortableRecovery(
+        (recoverySignal) => strategy.call(
+          buildCapabilityProbeRecoveryMessages(
+            forensicFileContents,
+            responseBeforeBehaviorEvidence,
+          ),
+          {
+            model: recoveryModel,
+            apiKey,
+            maxTokens: 3072,
+            timeoutMs: Math.min(
+              CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
+              Math.max(1, capabilityProbeRecoveryDeadlineAt! - Date.now()),
+            ),
+            retryTransient: false,
+            // The agent owns this one ordered correction attempt. Provider
+            // fallback would multiply the probe's run-level recovery budget.

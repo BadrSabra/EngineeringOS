@@ -1,0 +1,466 @@
+nt":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces a first evidence read when cumulative PLANNING consumption hits its allocation with zero reads (FEG-009)
+{"scope":"tool-execution-engine","code":"SEARCH_NOVELTY_BUDGET_UPDATE","budgetLimit":8,"searchBudgetRemaining":8,"searchResultNew":true,"distinctResultCount":4}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces a first evidence read when cumulative PLANNING consumption hits its allocation with zero reads (FEG-009)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces a first evidence read when cumulative PLANNING consumption hits its allocation with zero reads (FEG-009)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces a first evidence read when cumulative PLANNING consumption hits its allocation with zero reads (FEG-009)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces a first evidence read when cumulative PLANNING consumption hits its allocation with zero reads (FEG-009)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"tool-execution-engine","code":"SEARCH_NOVELTY_BUDGET_UPDATE","budgetLimit":8,"searchBudgetRemaining":8,"searchResultNew":true,"distinctResultCount":1}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"tool-execution-engine","code":"SEARCH_NOVELTY_BUDGET_UPDATE","budgetLimit":8,"searchBudgetRemaining":8,"searchResultNew":true,"distinctResultCount":2}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"tool-execution-engine","code":"SEARCH_NOVELTY_BUDGET_UPDATE","budgetLimit":8,"searchBudgetRemaining":8,"searchResultNew":true,"distinctResultCount":3}
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":3,"softLimitIter":3,"maxIterations":5}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"tool-execution-engine","code":"SEARCH_NOVELTY_BUDGET_UPDATE","budgetLimit":8,"searchBudgetRemaining":8,"searchResultNew":true,"distinctResultCount":4}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)
+{"scope":"tool-execution-engine","code":"SEARCH_NOVELTY_BUDGET_UPDATE","budgetLimit":8,"searchBudgetRemaining":8,"searchResultNew":true,"distinctResultCount":5}
+{"scope":"tool-execution-engine","code":"TOOL_LOOP_EXHAUSTED","iterations":5,"hasPartialText":false}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces primary evidence after two NO_PROGRESS iterations and REJECTS continued planning at dispatch (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces primary evidence after two NO_PROGRESS iterations and REJECTS continued planning at dispatch (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces primary evidence after two NO_PROGRESS iterations and REJECTS continued planning at dispatch (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces primary evidence after two NO_PROGRESS iterations and REJECTS continued planning at dispatch (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > forces primary evidence after two NO_PROGRESS iterations and REJECTS continued planning at dispatch (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let repeated cached reads of the same path count as evidence (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let repeated cached reads of the same path count as evidence (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let repeated cached reads of the same path count as evidence (FEG-008)
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":1}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let repeated cached reads of the same path count as evidence (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let repeated cached reads of the same path count as evidence (FEG-008)
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":2}
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_ESCALATION","tool":"read_file","duplicateCount":2,"nextTurn":"tool_hidden"}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let repeated cached reads of the same path count as evidence (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let repeated cached reads of the same path count as evidence (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does NOT gate a read when dependency proof is not required (no-op path)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does NOT gate a read when dependency proof is not required (no-op path)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does NOT gate a read when dependency proof is not required (no-op path)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does NOT gate the very FIRST source read even when dependency proof is required (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does NOT gate the very FIRST source read even when dependency proof is required (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS an unproven read of a NEW dependency file after the first read and reports READ_BLOCKED_NO_DEPENDENCY_PROOF (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS an unproven read of a NEW dependency file after the first read and reports READ_BLOCKED_NO_DEPENDENCY_PROOF (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS an unproven read of a NEW dependency file after the first read and reports READ_BLOCKED_NO_DEPENDENCY_PROOF (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > ALLOWS a subsequent read whose dependency proof is grounded in acquired evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > ALLOWS a subsequent read whose dependency proof is grounded in acquired evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > ALLOWS a subsequent read whose dependency proof is grounded in acquired evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose from_file was never successfully read (fabricated provenance) (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose from_file was never successfully read (fabricated provenance) (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose from_file was never successfully read (fabricated provenance) (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose reference does not occur in the from_file's retained evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose reference does not occur in the from_file's retained evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose reference does not occur in the from_file's retained evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > applies the grounded proof gate to read_file_range dependency reads (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > applies the grounded proof gate to read_file_range dependency reads (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > applies the grounded proof gate to read_file_range dependency reads (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > applies the grounded proof gate to read_file_range dependency reads (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > grounds from_file through a normalized-path alias of an actually-read file (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > grounds from_file through a normalized-path alias of an actually-read file (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > grounds from_file through a normalized-path alias of an actually-read file (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":3}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":3}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":7,"softLimitIter":7,"maxIterations":10}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > counts a valid non-target read as FIRST source read, independent of the forced-target (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > counts a valid non-target read as FIRST source read, independent of the forced-target (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":7,"softLimitIter":7,"maxIterations":10}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > enforces a real bounded synthesis timeout and preserves operator telemetry
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":0,"softLimitIter":0,"maxIterations":1}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > enforces a real bounded synthesis timeout and preserves operator telemetry
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"test","model":"fast","iter":0,"errorCode":"TIMEOUT","reason":"bounded synthesis timeout"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"test","model":"fast","iter":0,"reason":"provider timed out; returning partial from collected evidence"}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":0,"softLimitIter":0,"maxIterations":1}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"tool-execution-engine","code":"MODEL_FALLBACK","from":"fast","to":"powerful","provider":"test","iter":0,"errorCode":"TIMEOUT","reason":"fixture synthesis timeout"}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"provider-telemetry","provider":"test","model":"test-model","fallbackReason":"TIMEOUT","attemptCount":2,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > does not retry synthesis after the shared deadline is exhausted
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":0,"softLimitIter":0,"maxIterations":1}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > does not retry synthesis after the shared deadline is exhausted
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"test","model":"fast","iter":0,"errorCode":"TIMEOUT","reason":"fixture synthesis timeout"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"test","model":"fast","iter":0,"reason":"provider timed out; returning partial from collected evidence"}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when primary model times out after a tool call (totalToolCalls > 0)
+{"scope":"provider-telemetry","provider":"openrouter","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when primary model times out after a tool call (totalToolCalls > 0)
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"openrouter","model":"same-model","iter":1,"errorCode":"TIMEOUT","reason":"Provider request timed out"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"openrouter","model":"same-model","iter":1,"reason":"provider timed out; returning partial from collected evidence"}
+
+stdout | src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"provider-telemetry","provider":"openrouter","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"tool-execution-engine","code":"MODEL_FALLBACK","from":"fast-model","to":"power-model","provider":"openrouter","iter":1,"errorCode":"TIMEOUT","reason":"Provider request timed out"}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"openrouter","iter":1,"reason":"both primary and fallback timed out; returning partial from collected evidence"}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > propagates TIMEOUT as an error when no tool calls or evidence exist yet
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"openrouter","model":"same-model","iter":0,"errorCode":"TIMEOUT","reason":"Immediate timeout"}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > drops a tool message whose id is absent from the preceding assistant turn
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > drops a tool message that references an id from a NON-adjacent (earlier) assistant turn
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+stderr | src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > resets the valid-id set after a user message (tool results after user are always orphans)
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+················································································
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-eqoTBr","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-qxkIFV","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"chat-agent","code":"TASK_OUTPUT_CONTRACT_REJECTED","taskType":"BEHAVIOR_QUERY","violations":["C3 must explain source grounding","C6 must address eval( or Function("]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers one valid probe response when the first answer omits an exact source excerpt
+{"scope":"chat-agent","code":"CAPABILITY_PROBE_EVIDENCE_RECOVERED","sourceCount":2,"model":"initial-model"}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-oQLtyR","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"openrouter","model":"initial-model","iter":0,"errorCode":"TIMEOUT","reason":"simulated synthesis timeout"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"openrouter","model":"initial-model","iter":0,"reason":"provider timed out; returning partial from collected evidence"}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"chat-agent","code":"EMPTY_PROVIDER_EVIDENCE_REPORT","sourceCount":2}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"chat-agent","code":"TASK_OUTPUT_CONTRACT_REJECTED","taskType":"BEHAVIOR_QUERY","violations":["CAPABILITY_PROBE response contains a forensic report section","C1 is missing"]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > recovers from a synthesis timeout using the retained two-file evidence
+{"scope":"chat-agent","code":"CAPABILITY_PROBE_EVIDENCE_RECOVERED","sourceCount":2,"model":"initial-model"}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > fails closed when the two-file read boundary is incomplete
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > fails closed when the two-file read boundary is incomplete
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-partial-LjTJ5d","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > fails closed when the two-file read boundary is incomplete
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-uXUkxh","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"chat-agent","code":"TASK_OUTPUT_CONTRACT_REJECTED","taskType":"BEHAVIOR_QUERY","violations":["C3 must explain source grounding","C6 must address eval( or Function("]}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"chat-agent","code":"CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED","reason":"corrected response still lacked a verified executable excerpt"}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"chat-agent","code":"CAPABILITY_MICRO_PROBE_RESULT","group":"grounding","returnedLabels":["C1","C3"],"contentLength":414,"executableMarker":false,"quotedFragmentCount":0,"verifiedQuoteCount":0,"selectedEvidenceIds":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"chat-agent","code":"CAPABILITY_MICRO_PROBE_RESULT","group":"scope-boundary","returnedLabels":["C4"],"contentLength":414,"executableMarker":false,"quotedFragmentCount":0,"verifiedQuoteCount":0,"selectedEvidenceIds":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"chat-agent","code":"CAPABILITY_MICRO_PROBE_RESULT","group":"anti-hallucination","returnedLabels":["C7"],"contentLength":414,"executableMarker":false,"quotedFragmentCount":0,"verifiedQuoteCount":0,"selectedEvidenceIds":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"chat-agent","code":"CAPABILITY_MICRO_PROBE_RESULT","group":"negative-behavior","returnedLabels":["C6"],"contentLength":414,"executableMarker":false,"quotedFragmentCount":0,"verifiedQuoteCount":0,"selectedEvidenceIds":[]}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > keeps an exhausted correction path claim-unclosed instead of promoting an inventory
+{"scope":"chat-agent","code":"CAPABILITY_MICRO_PROBE_REJECTED","reason":"micro-probe aggregate lacked a verified executable excerpt or a complete C1-C7 contract"}
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_REJECTED","violations":["behavior response does not cite a relevant control-flow excerpt with a verifiable source span from a completed source read"]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > does not start capability recovery after cancellation
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > does not start capability recovery after cancellation
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-capability-probe-4Cc8KU","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/ai-orchestrator/src/prompts/profile-classifier.ts","lib/ai-orchestrator/src/tools/file-tools.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":180,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stderr | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > does not start capability recovery after cancellation
+{"scope":"chat-agent","code":"TASK_OUTPUT_CONTRACT_REJECTED","taskType":"BEHAVIOR_QUERY","violations":["CAPABILITY_PROBE response contains a forensic report section","C1 is missing"]}
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_REJECTED","violations":["behavior response does not cite a relevant control-flow excerpt with a verifiable source span from a completed source read"]}
+
+stdout | src/__tests__/chat-capability-probe-e2e.test.ts > capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates > does not start capability recovery after cancellation
+{"scope":"chat-agent","code":"EMPTY_PROVIDER_EVIDENCE_REPORT","sourceCount":2}
+
+····································
+
+ Test Files  2 passed (2)
+      Tests  116 passed (116)
+   Start at  04:43:11
+   Duration  3.57s (transform 2.27s, setup 0ms, import 811ms, tests 5.48s, environment 0ms)
+

@@ -1,0 +1,286 @@
+    finalizeTaskResponse(
+      repairPlanExecution
+        ? buildRepairPlanExecutionResponse(
+            getExecutionPendingChanges(),
+            /[\u0600-\u06FF]/.test(message),
+            false,
+            undefined,
+            undefined,
+            executionDiagnosticDetails,
+          )
+        : cancelledForensicAudit()
+          ? parsed.data.response
+          : gateForensicResponse(
+              providerResponseCandidate,
+              structuredOutputMode,
+              messages,
+              toolSources,
+              forensicFileContents,
+              includeTestSources,
+              forensicScope,
+              forensicSourceCoverage,
+            ),
+    ),
+  );
+  const shouldValidateBehaviorEvidence =
+    explicitBehaviorQueryRequested &&
+    (Boolean(rootPath) || toolSources.length > 0 || forensicFileContents.size > 0);
+  let behaviorEvidenceValidation = shouldValidateBehaviorEvidence
+    ? validateBehaviorEvidence(message, responseBeforeBehaviorEvidence, forensicFileContents)
+    : { valid: true, violations: [], evidence: [] };
+  /**
+   * Normal behavior questions need one bounded citation correction when the
+   * provider answered without an exact executable excerpt. This is deliberately
+   * a single no-tool pass: it can improve evidence conversion, but cannot
+   * broaden the already completed read scope or turn a missing answer into a
+   * positive verdict.
+   */
+  if (
+    shouldValidateBehaviorEvidence &&
+    !capabilityProbeRequest &&
+    forensicFileContents.size > 0 &&
+    !behaviorEvidenceValidation.evidence.some((item) => item.supportsClaim) &&
+    responseBeforeBehaviorEvidence.trim().length > 0
+  ) {
+    recoveryAttemptsUsed += 1;
+    const recoveryModel = result.model || model;
+    try {
+      const recovery = await strategy.call(
+        buildBehaviorEvidenceRecoveryMessages(
+          message,
+          forensicFileContents,
+          responseBeforeBehaviorEvidence,
+        ),
+        {
+          model: recoveryModel,
+          apiKey,
+          maxTokens: 1024,
+          timeoutMs: 45_000,
+          retryTransient: false,
+          maxFallbackModels: 1,
+          ...(signal ? { signal } : {}),
+        },
+      );
+      const recoveredResponse = validateResponseForTask(
+        normalizeRecoveryAssistantText(recovery.content ?? ""),
+      );
+      const recoveredValidation = validateBehaviorEvidence(
+        message,
+        recoveredResponse,
+        forensicFileContents,
+      );
+      if (recoveredValidation.evidence.some((item) => item.supportsClaim)) {
+        responseBeforeBehaviorEvidence = recoveredResponse;
+        behaviorEvidenceValidation = recoveredValidation;
+        content = recovery.content ?? content;
+        parsed = {
+          ok: true,
+          data: {
+            response: recoveredResponse,
+            // Recovery is trusted only for its response text; source
+            // provenance remains the server-owned completed-read manifest.
+            sources: [],
+          },
+        };
+        console.info(JSON.stringify({
+          scope: "chat-agent",
+          code: "BEHAVIOR_EVIDENCE_RECOVERED",
+          sourceCount: forensicFileContents.size,
+          model: recovery.model || recoveryModel,
+        }));
+      } else {
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "BEHAVIOR_EVIDENCE_RECOVERY_REJECTED",
+          reason: "corrected response still lacked a verified executable excerpt",
+        }));
+      }
+    } catch (error) {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "BEHAVIOR_EVIDENCE_RECOVERY_FAILED",
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+  /**
+   * A free-tier model can finish the read loop and satisfy the C1–C7 shape
+   * while forgetting the exact quoted fragment required by the probe contract.
+   * Give that narrow case one same-provider correction pass over retained reads.
+   * No tools are attached, so this cannot expand scope or perform a write.
+   */
+  if (
+    capabilityProbeRequest &&
+    hasCompleteCapabilityProbeEvidence(forensicFileContents) &&
+    (
+      validateCapabilityProbeResponse(responseBeforeBehaviorEvidence).length > 0 ||
+      behaviorEvidenceValidation.evidence.length === 0
+    )
+  ) {
+    recoveryAttemptsUsed += 1;
+    const recoveryModel = result.model || model;
+    try {
+      const recovery = await strategy.call(
+        buildCapabilityProbeRecoveryMessages(
+          forensicFileContents,
+          responseBeforeBehaviorEvidence,
+        ),
+        {
+          model: recoveryModel,
+          apiKey,
+          maxTokens: 3072,
+          timeoutMs: 120_000,
+          retryTransient: false,
+          maxFallbackModels: providerId === "openrouter" ? 3 : 1,
+          ...(providerId === "openrouter" && !capabilityProbeRequest
+            ? { responseFormat: { type: "json_object" as const } }
+            : {}),
+          ...(signal ? { signal } : {}),
+        },
+      );
+      const normalizedRecovery = normalizeCapabilityProbeRecoveryContent(
+        recovery.content ?? "",
+        forensicFileContents,
+      );
+      if (normalizedRecovery) {
+        const recoveredResponse = normalizedRecovery.response;
+        const recoveredValidation = validateBehaviorEvidence(
+          message,
+          recoveredResponse,
+          forensicFileContents,
+        );
+        if (
+          validateCapabilityProbeResponse(recoveredResponse).length === 0 &&
+          recoveredValidation.evidence.some((item) => item.supportsClaim)
+        ) {
+          responseBeforeBehaviorEvidence = recoveredResponse;
+          behaviorEvidenceValidation = recoveredValidation;
+          content = recovery.content ?? content;
+          parsed = {
+            ok: true,
+            data: {
+              response: recoveredResponse,
+              sources: normalizedRecovery.sources,
+            },
+          };
+          console.info(JSON.stringify({
+            scope: "chat-agent",
+            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
+            sourceCount: forensicFileContents.size,
+            model: recovery.model || recoveryModel,
+          }));
+        } else {
+          console.warn(JSON.stringify({
+            scope: "chat-agent",
+            code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
+            reason: "corrected response still lacked a verified executable excerpt",
+          }));
+        }
+      } else {
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED",
+        }));
+      }
+    } catch (error) {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+
+  if (
+    capabilityProbeRequest &&
+    forensicFileContents.size > 0 &&
+    (
+      validateCapabilityProbeResponse(responseBeforeBehaviorEvidence).length > 0 ||
+      !behaviorEvidenceValidation.evidence.some((item) => item.supportsClaim)
+    )
+  ) {
+    recoveryAttemptsUsed += 1;
+    const microProbeRecovery = await runCapabilityMicroProbes({
+      strategy,
+      provider: providerId,
+      model: result.model || model,
+      apiKey,
+      signal,
+      fileContents: forensicFileContents,
+      pendingChanges,
+    });
+    if (microProbeRecovery) {
+      const microValidation = validateBehaviorEvidence(
+        message,
+        microProbeRecovery.response,
+        forensicFileContents,
+      );
+      if (
+        validateCapabilityProbeResponse(microProbeRecovery.response).length === 0 &&
+        microValidation.evidence.some((item) => item.supportsClaim)
+      ) {
+        responseBeforeBehaviorEvidence = microProbeRecovery.response;
+        behaviorEvidenceValidation = microValidation;
+        content = microProbeRecovery.response;
+        parsed = {
+          ok: true,
+          data: {
+            response: microProbeRecovery.response,
+            sources: microProbeRecovery.sources,
+          },
+        };
+        console.info(JSON.stringify({
+          scope: "chat-agent",
+          code: "CAPABILITY_MICRO_PROBE_RECOVERED",
+          groupCount: CAPABILITY_MICRO_PROBE_GROUPS.length,
+          sourceCount: forensicFileContents.size,
+          model: microProbeRecovery.model || result.model || model,
+        }));
+      } else {
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "CAPABILITY_MICRO_PROBE_REJECTED",
+          reason: "micro-probe aggregate lacked a verified executable excerpt or a complete C1-C7 contract",
+        }));
+      }
+    }
+  }
+  // AI-009: a behavioral question (e.g. "does this function validate the
+  // input?") can have a correct, grounded answer without ever proving a defect
+  // Finding. The evidence gate was written for defect-prove mode, so it treated
+  // "evidence exists but does not reach BEHAVIOR_PROVEN" as a failure and
+  // mislabeled valid answers as NOT PROVEN. Reject only when the answer has
+  // ZERO supporting source evidence; a grounded answer is returned as-is even
+  // when it carries no Finding.
+  const behaviorAnswerRejected = shouldRejectBehaviorAnswerForMissingEvidence(
+    shouldValidateBehaviorEvidence,
+    behaviorEvidenceValidation.evidence,
+  );
+  const acceptedBehaviorEvidence = behaviorEvidenceValidation.evidence.filter(
+    (item) => item.supportsClaim,
+  );
+  // FEG-011/012: an evidence inventory is NOT an answer. Track the question's
+  // Required Claims (Claim → Evidence → Status), derived from the question
+  // itself (primary assertion + one per explicit source it names), and refuse
+  // to finalize while ANY required claim — primary OR source-scoped — is
+  // UNCLOSED. Such a run is reported as EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED,
+  // not surfaced as a completed verdict on its inventory alone.
+  // FEG-011/012 shared gate: also applied identically on the direct-stream and
+  // native-SSE paths so an evidence inventory is never a completed answer on any
+  // of the three final return paths.
+  const requiredClaimGate = applyRequiredClaimClosureGate({
+    message,
+    evidence: behaviorEvidenceValidation.evidence,
+    fileContents: forensicFileContents,
+    // The probe has seven independently labelled capability claims. The
+    // generic behavior-question closure parser would collapse the whole
+    // questionnaire into one synthetic primary claim and incorrectly reject a
+    // valid multi-claim response. Probe-specific shape + source-evidence gates
+    // remain active instead.
+    shouldValidate: shouldValidateBehaviorEvidence && !capabilityProbeRequest,
+    response: responseBeforeBehaviorEvidence,
+    relayAgentStep,
+  });
+  const requiredClaimClosure = requiredClaimGate.requiredClaimClosure;
+  const anyRequiredClaimUnclosed = requiredClaimGate.anyRequiredClaimUnclosed;
+  const claimsUnclosedButEvidenceAvailable =

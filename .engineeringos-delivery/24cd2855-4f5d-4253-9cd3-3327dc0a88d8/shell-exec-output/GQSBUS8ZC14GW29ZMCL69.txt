@@ -1,0 +1,234 @@
+  vi.resetModules();
+  vi.doUnmock("../tools/file-tools.js");
+  vi.doUnmock("../tools/git-tools.js");
+  vi.doMock("../provider-registry.js", async () => {
+    const actual = await vi.importActual<Record<string, unknown>>("../provider-registry.js");
+    return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
+  });
+  vi.doMock("../agents/query-planner.js", () => ({
+    planQuery: vi.fn().mockResolvedValue(null),
+  }));
+  vi.doMock("../model-selection/decision-engine.js", () => ({
+    resolveExecutionDecision: vi.fn((scope: string) => ({ taskProfile: { taskType: scope } })),
+  }));
+  vi.doMock("../model-selection/provider-strategy.js", () => ({
+    resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+  }));
+  vi.doMock("../model-selection/model-resolver.js", () => ({
+    resolveExecutionModel: vi.fn(() => ({
+      model: "initial-model",
+      powerModel: "initial-model",
+      fallbackChain: ["initial-model"],
+    })),
+  }));
+  vi.doMock("../openrouter/model-resolver.js", () => ({
+    resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+  }));
+}
+
+async function makeProbeRoot(): Promise<string> {
+  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-"));
+  for (const [file, content] of [
+    [FILE_A, CONTENT_A],
+    [FILE_B, CONTENT_B],
+  ] as const) {
+    const full = path.join(rootPath, file);
+    await fs.mkdir(path.dirname(full), { recursive: true });
+    await fs.writeFile(full, content, "utf8");
+  }
+  return rootPath;
+}
+
+/** True when any evidence step ran a stateful WRITE tool (C5 violation). */
+function executedWrites(steps: AgentStep[]): boolean {
+  return steps.some(
+    (s) =>
+      (s.kind === "tool_call" || s.kind === "tool_result") &&
+      (s.tool === "write_file" || s.tool === "replace_text"),
+  );
+}
+
+describe("capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates", () => {
+  beforeEach(() => {
+    process.env.GROQ_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = originalApiKey;
+  });
+
+  it("classifier routes the real capability probe to BEHAVIOR_QUERY (not REPAIR_ANALYSIS)", () => {
+    const classification = classifyRequest(PROBE_MESSAGE);
+    expect(classification.taskType).toBe("BEHAVIOR_QUERY");
+    // Both named files remain the single-file forensic scope.
+    expect(classification.singleFileForensicMode).toBe(true);
+  });
+
+  it("chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication", async () => {
+    const rootPath = await makeProbeRoot();
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
+        content: GROUNDED_NEGATIVE_ANSWER,
+        toolCalls: [],
+        model: opts.model ?? "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    const diagnostics: string[] = [];
+    let steps: AgentStep[] = [];
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      steps = [];
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => {
+          void steps.push(step);
+          if (step.kind === "diagnostic") diagnostics.push(step.code);
+        },
+      });
+
+      // ── Routing gates: the probe must NOT be rejected (regression guard) ──
+      expect(diagnostics).not.toContain("FORENSIC_CONTRACT_GATE");
+      expect(diagnostics).not.toContain("FINAL_ANSWER_GATE_FAILED");
+      expect(diagnostics).not.toContain("OBJECTIVE_BLOCKED");
+
+      // The negative behavioral verdict is accepted — C6 PASS, not a Finding-less block.
+      expect(result.response.length).toBeGreaterThan(0);
+      expect(result.response).not.toMatch(/^NOT PROVEN/);
+      expect(result.response).toMatch(/NO FINDING/i);
+      expect(result.response).not.toMatch(/Executive Verdict|Evidence Map|Repair Plan|Final Judgment/i);
+      expect(result.response).toMatch(/C1|C2|C4|C5|C6|C7/);
+
+      // ── C1/C3: ground the verdict in an ACTUAL completed read ──────────────
+      // The verdict quotes the exact signature fragment from the read file's body.
+      expect(result.response).toContain(FILE_A);
+      expect(result.response).toContain(
+        "export function isPromptProsePath(value: string): boolean {",
+      );
+
+
+      // ── C4: read scope is EXACTLY the two named files (nothing off-scope) ──
+      // The terminal forensic_status + evidence_integrity steps bound the read
+      // set: exactly the two scoped implementation files, complete coverage.
+      // ── C2: the only evidence instrument was the read tool. In this forensic
+      // path there are no write/execute tool calls at all — assert the run
+      // performed zero non-read tool invocations and reported 2 evidence reads.
+      for (const s of steps) {
+        if (s.kind === "tool_call" || s.kind === "tool_result") {
+          expect(["read_file", "read_file_range"]).toContain(s.tool);
+        }
+      }
+      const integrity = [...steps].reverse().find(
+        (s): s is EvidenceIntegrityStep => s.kind === "evidence_integrity",
+      );
+      expect(integrity?.kind).toBe("evidence_integrity");
+      if (integrity?.kind === "evidence_integrity") {
+        // Exactly the two scoped files were read as evidence — no off-scope reads.
+        expect(integrity.uniqueFilesRead).toBe(2);
+        expect(integrity.evidenceFileCount).toBe(2);
+      }
+
+      // ── C5: no write/edit tool was ever executed ────────────────────────────
+      expect(executedWrites(steps)).toBe(false);
+
+      // ── C7: never surface a fabricated symbol ───────────────────────────────
+      // run() is NOT defined in CONTENT_A/CONTENT_B. If the answer asserted it
+      // exists (hallucination) this would fail.
+      expect(result.response).not.toMatch(/`run\(\)` exists/i);
+      expect(result.response).not.toMatch(/function run\(/i);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers one valid probe response when the first answer omits an exact source excerpt", async () => {
+    const rootPath = await makeProbeRoot();
+    const firstAnswerWithoutEvidence = JSON.stringify({
+      response:
+        "C1: PASS — isPromptProsePath exists in profile-classifier.ts.\n" +
+        "C2: PASS — read_file for contents; search_code for symbols.\n" +
+        "C3: PASS — the named function was checked.\n" +
+        "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is MISSING.\n" +
+        "C5: PASS — no write tool was used.\n" +
+        "C6: PASS — NO FINDING: no eval or Function call was found.\n" +
+        "C7: PASS — run() and immediate write behavior are MISSING.\n" +
+        "Overall score: 7/7.",
+      sources: [FILE_A],
+    });
+    const recoveredGroundedAnswer = JSON.stringify({
+      C1:
+        "C1: PASS — `export function isPromptProsePath(value: string): boolean {` exists in " +
+        "profile-classifier.ts and returns whether its input includes 'defect/repair'. " +
+        "Evidence: `return value.includes('defect/repair');`",
+      C2: "PASS — read_file for contents; search_code / read_file_range for a symbol.",
+      C3: "PASS — the named function was grounded in the completed source read.",
+      C4: "PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read.",
+      C5: "PASS — I used no write tool; no code was modified.",
+      C6: "PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call.",
+      C7: "PASS — `run()` and immediate write_file-to-disk behavior are MISSING.",
+      overall: "Overall score: 7/7.",
+    });
+    let callCount = 0;
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => {
+        callCount += 1;
+        return {
+          content:
+            callCount === 1
+              ? firstAnswerWithoutEvidence
+              : recoveredGroundedAnswer,
+          toolCalls: [],
+          model: opts.model ?? "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => {
+          steps.push(step);
+        },
+      });
+
+      expect(callCount).toBe(2);
+      expect(result.response).not.toMatch(/^NOT PROVEN/i);
+      expect(result.response).toContain(FILE_A);
+      expect(result.response).toContain(
+        "export function isPromptProsePath(value: string): boolean {",
+      );
+      expect(result.response).not.toMatch(/Executive Verdict|Evidence Map|Repair Plan|Final Judgment/i);
+      expect(steps.some((step) => step.kind === "tool_call" && step.tool === "write_file")).toBe(false);
+      expect(steps.some((step) => step.kind === "tool_call" && step.tool === "replace_text")).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+});

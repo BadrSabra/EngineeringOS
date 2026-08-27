@@ -1,0 +1,292 @@
+85:  prefetchFileList,
+86:  prefetchForensicRoots,
+88:} from "./speculative-prefetch.js";
+1812: * Keep prefetch bodies as first-class forensic evidence. Prefetch seeds the
+1871:        prefetched: true,
+1878:        prefetched: true,
+1948:        /\[(?:prefetch|read) output truncated\b/i.test(content) ||
+2600: * from exactly ONE bounded file read — never a repo/graph scan or broad prefetch.
+3431:  // deep_analysis and derives context profile, history depth, and prefetch flag.
+3778:  // loop from prefetch + loop reads, and from the direct single-file pre-read.
+4096:   * Deduplication cache shared between speculative-prefetch and the tool loop.
+4097:   * Seeded here with prefetch results so the engine never re-reads them.
+4101:  /** Ground-truth sources from speculative-prefetch (merged with engine sources later). */
+4102:  const prefetchSources: string[] = [];
+4103:  /** Ground-truth read bodies from speculative/plan prefetch. */
+4104:  const prefetchFileContents = new Map<string, string>(retainedEvidence ?? []);
+4109:  for (const [filePath, content] of prefetchFileContents) {
+4110:    if (!prefetchSources.includes(filePath)) prefetchSources.push(filePath);
+4115:  // dependency discovery, or broad prefetch, eagerly read the explicit primary
+4184:          prefetchFileContents.set(relPath, content);
+4185:          prefetchSources.push(relPath);
+4206:  // target was read directly, before any graph/prefetch work. Emit the direct
+4207:  // read as a prefetched tool_call/tool_result pair (like the broad prefetch
+4214:      prefetchFileContents,
+4242:    MAX_FORENSIC_DISCOVERY_FILES - prefetchFileContents.size;
+4248:            prefetchFileContents.size,
+4251:  const prefetchExcludeFiles = (): Set<string> =>
+4252:    new Set(prefetchFileContents.keys());
+4289:      prefetch: false,
+4330:  // planner or speculative prefetch can broaden the request. The guidance
+4344:        prefetchFiles: graphGuidance.prefetchFiles,
+4420:            "- Query planner and memory prefetch: disabled\n" +
+4430:               "- Memory prefetch and query planner are disabled\n" +
+4447:    const discovery = await prefetchForensicRoots({
+4453:      excludeFiles: prefetchExcludeFiles(),
+4480:    const accepted = recordPrefetchEvidence(discovery.cacheEntries, prefetchFileContents);
+4481:    prefetchSources.push(...accepted);
+4484:      prefetchFileContents,
+4493:  // speculative and memory-seeded prefetch paths for this request.
+4503:    const graphPrefetch = await prefetchFileList({
+4504:      files: graphGuidance.prefetchFiles,
+4510:      excludeFiles: prefetchExcludeFiles(),
+4523:      const accepted = recordPrefetchEvidence(graphPrefetch.cacheEntries, prefetchFileContents);
+4524:      prefetchSources.push(...accepted);
+4527:        prefetchFileContents,
+4549:    const prefetch = await speculativePrefetch({
+4557:      excludeFiles: prefetchExcludeFiles(),
+4560:    if (prefetch.injectedMessages.length > 0) {
+4562:      messages.push(...prefetch.injectedMessages);
+4565:      for (const entry of prefetch.cacheEntries) {
+4568:      const accepted = recordPrefetchEvidence(prefetch.cacheEntries, prefetchFileContents);
+4569:      prefetchSources.push(...accepted);
+4572:        prefetchFileContents,
+4579:  // ── Memory-seeded prefetch ────────────────────────────────────────────────
+4604:      const memPrefetch = await prefetchFileList({
+4611:        excludeFiles: prefetchExcludeFiles(),
+4623:        const accepted = recordPrefetchEvidence(memPrefetch.cacheEntries, prefetchFileContents);
+4624:        prefetchSources.push(...accepted);
+4627:          prefetchFileContents,
+4673:        targetFiles: graphGuidance.prefetchFiles,
+4681:      const planPrefetch = await prefetchFileList({
+4688:        excludeFiles: prefetchExcludeFiles(),
+4697:        const accepted = recordPrefetchEvidence(planPrefetch.cacheEntries, prefetchFileContents);
+4698:        prefetchSources.push(...accepted);
+4701:          prefetchFileContents,
+4710:    const executionPrefetch = await prefetchFileList({
+4716:      excludeFiles: prefetchExcludeFiles(),
+4729:      const accepted = recordPrefetchEvidence(executionPrefetch.cacheEntries, prefetchFileContents);
+4730:      prefetchSources.push(...accepted);
+4733:        prefetchFileContents,
+4850:        ...prefetchSources,
+5002:          [...prefetchFileContents.entries()]
+5321:    const coordinatedSources = [...new Set([...prefetchSources, ...nodeToolSources])];
+5371:    initialFileContents: prefetchFileContents,
+5383:      ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)
+5388:    // The tool loop may reach its synthesis window after prefetch has already
+5403:    // block every read, including already-prefetched evidence, and leave the
+5439:  // Merge prefetch sources with the engine's ground-truth sources.
+5441:  const toolSources = [...prefetchSources, ...loopResult.toolSources];
+5442:  // Keep both prefetch and in-loop read bodies available to the forensic gate.
+5454:  // Populate it here from prefetch + tool-loop reads.
+5455:  for (const [filePath, content] of prefetchFileContents) {
+5493:        (/\[(?:prefetch|read) output truncated\b/i.test(readContent) ||
+5839:    prefetchPaths: string[];
+5864:      // EI-011: fold in the prefetch completed reads the loop telemetry never
+5867:      prefetchReads: input.prefetchPaths.filter(
+5870:         prefetchPaths: input.prefetchPaths,
+6039:        prefetchPaths: [...prefetchFileContents.keys()],
+6295:        prefetchPaths: [...prefetchFileContents.keys()],
+6657:    // a repo/graph scan or broad prefetch. If the focused read lands, the run
+8462:    // EI-011: prefetch completed reads participate explicitly in the reconciled
+8465:    // well-formed prefetch-only run would report 0 completed reads and trip a
+8467:    // Dedupe: if the loop also re-read a prefetched path, its read is already
+8468:    // counted in sourceRetrieval.uniqueReads/readPaths, so only fold the prefetch
+8470:    prefetchReads: [...prefetchFileContents.keys()].filter(
+8473:    prefetchPaths: [...prefetchFileContents.keys()],
+      excludeFiles: prefetchExcludeFiles(),
+      includeTestSources,
+    }).catch(() => ({
+      injectedMessages: [] as typeof messages,
+      sources: [] as string[],
+      cacheEntries: [] as Array<{ key: string; content: string }>,
+    }));
+
+    if (graphPrefetch.injectedMessages.length > 0) {
+      messages.push(...graphPrefetch.injectedMessages);
+      for (const entry of graphPrefetch.cacheEntries) {
+        toolCallCache.set(entry.key, entry.content);
+      }
+      const accepted = recordPrefetchEvidence(graphPrefetch.cacheEntries, prefetchFileContents);
+      prefetchSources.push(...accepted);
+      recordPrefetchTrace(
+        accepted,
+        prefetchFileContents,
+        structuredOutputMode || taskChecklist.length > 0 || (toolExecutionRequested && !repairPlanExecution),
+        relayAgentStep,
+      );
+    }
+  }
+
+  // ── Speculative pre-fetch ─────────────────────────────────────────────────
+  // Pre-read files explicitly mentioned in the query (e.g. "what's wrong with
+  // auth.ts?") and inject as synthetic tool exchange messages so the model gets
+  // the content in its first iteration without spending a real tool call.
+  // Skipped for lite turns (allowPrefetch=false) and when the profile is lite.
+  if (
+    turnIntent.requiresTools &&
+    !singleFileForensicMode &&
+    orderedForensicRoots.length === 0 &&
+    rootPath &&
+    tools != null &&
+    allowPrefetch &&
+    !graphGuidance &&
+    !repairPlanExecution
+  ) {
+    const prefetch = await speculativePrefetch({
+      message,
+      rootPath,
+      pendingChanges,
+      toolCacheKeyFn: toolCacheKey,
+      profileDepth: contextProfile,
+      complete: structuredOutputMode,
+      maxFiles: remainingForensicPrefetchSlots(),
+      excludeFiles: prefetchExcludeFiles(),
+    });
+
+    if (prefetch.injectedMessages.length > 0) {
+      // Inject synthetic reads right after the initial user message
+      messages.push(...prefetch.injectedMessages);
+      // Accumulate ground-truth sources from pre-fetched files
+      // Seed dedup cache so the engine never re-reads these files
+      for (const entry of prefetch.cacheEntries) {
+        toolCallCache.set(entry.key, entry.content);
+      }
+      const accepted = recordPrefetchEvidence(prefetch.cacheEntries, prefetchFileContents);
+      prefetchSources.push(...accepted);
+      recordPrefetchTrace(
+        accepted,
+        prefetchFileContents,
+        structuredOutputMode || taskChecklist.length > 0 || (toolExecutionRequested && !repairPlanExecution),
+        relayAgentStep,
+      );
+    }
+  }
+
+  // ── Memory-seeded prefetch ────────────────────────────────────────────────
+  // Parse file paths recorded in prior session memories and pre-load them so
+  // the model starts with cached content on the first iteration instead of
+  // spending real tool calls re-reading files it already analysed.
+  //
+  // File paths are embedded in projectContext.sessionMemories as bullet lines
+  // of the form "  • <path>" by session-memory.ts#formatMemoriesForPrompt.
+  if (
+    !singleFileForensicMode &&
+    orderedForensicRoots.length === 0 &&
+    rootPath &&
+    tools != null &&
+    projectContext.sessionMemories &&
+    forensicTaskType !== "BEHAVIOR_QUERY" &&
+    !suppressHistoricalSessionMemory &&
+    !graphGuidance &&
+    !repairPlanExecution
+  ) {
+    const memoryPaths: string[] = [];
+    const bulletRe = /•\s+([\w\-./@]+\.[a-zA-Z]{2,8})/g;
+    let bm: RegExpExecArray | null;
+    while ((bm = bulletRe.exec(projectContext.sessionMemories)) !== null) {
+      if (bm[1]) memoryPaths.push(bm[1]);
+    }
+    if (memoryPaths.length > 0) {
+      const memPrefetch = await prefetchFileList({
+        files: memoryPaths,
+        rootPath,
+        pendingChanges,
+        toolCacheKeyFn: toolCacheKey,
+        complete: structuredOutputMode,
+        maxFiles: remainingForensicPrefetchSlots(),
+        excludeFiles: prefetchExcludeFiles(),
+        includeTestSources,
+      }).catch(() => ({
+        injectedMessages: [] as typeof messages,
+        sources: [] as string[],
+        cacheEntries: [] as Array<{ key: string; content: string }>,
+      }));
+      if (memPrefetch.injectedMessages.length > 0) {
+        messages.push(...memPrefetch.injectedMessages);
+        for (const entry of memPrefetch.cacheEntries) {
+          toolCallCache.set(entry.key, entry.content);
+        }
+        const accepted = recordPrefetchEvidence(memPrefetch.cacheEntries, prefetchFileContents);
+        prefetchSources.push(...accepted);
+        recordPrefetchTrace(
+          accepted,
+          prefetchFileContents,
+          structuredOutputMode || taskChecklist.length > 0 || (toolExecutionRequested && !repairPlanExecution),
+          relayAgentStep,
+        );
+      }
+    }
+  }
+
+  // ── Query planner ─────────────────────────────────────────────────────────
+  // A single fast-model call (≤ 5 s) that estimates the query's scope, which
+  // files are most relevant, and how many iterations the tool loop will need.
+  // This eliminates random exploration: the engine starts with the right files
+  // pre-loaded and a budget matched to the actual complexity of the task.
+  //
+  // Research basis: arXiv:2511.02424 ReAcTree + arXiv:2504.16563 Global
+  // Planning reduce tool calls by 40-65 % vs. pure ReAct.
+  //
+  // Failures (timeout, parse error, model error) silently return null so the
+  // tool loop continues with base defaults — planning never blocks the request.
+  let queryPlan: QueryPlan | null = null;
+  // A short execution follow-up has already been planned. Do not spend an
+  // additional model call re-planning "نفّذ الخطة"; use the concrete paths from
+  // the recovered plan and start the execution loop immediately.
+  if (
+    turnIntent.requiresTools &&
+    !singleFileForensicMode &&
+    orderedForensicRoots.length === 0 &&
+    tools != null &&
+    rootPath &&
+    !(immediateIntent && priorRepairPlan)
+  ) {
+    queryPlan = await planQuery({
+      message,
+      projectContext,
+      model: explicitModelOverride || modelDecision.model,
+      strategy,
+      apiKey: apiKey ?? undefined,
+      projectId,
+    }).catch(() => null);
+
+    // The generic planner still supplies scope and iteration estimates, but
+    // explicit file mentions remain constrained to the deterministic graph
+    // guidance produced above.
+    if (graphGuidance && queryPlan) {
+      queryPlan = {
+        ...queryPlan,
+        targetFiles: graphGuidance.prefetchFiles,
+      };
+    }
+
+    // Pre-seed the cache with files identified by the planner.
+    // These are read in parallel before the tool loop starts, so the model
+    // gets their content on the very first iteration — no tool call needed.
+    if (!graphGuidance && queryPlan?.targetFiles.length) {
+      const planPrefetch = await prefetchFileList({
+        files: queryPlan.targetFiles,
+        rootPath,
+        pendingChanges,
+        toolCacheKeyFn: toolCacheKey,
+        complete: structuredOutputMode,
+        maxFiles: remainingForensicPrefetchSlots(),
+        excludeFiles: prefetchExcludeFiles(),
+        includeTestSources,
+      }).catch(() => ({ injectedMessages: [] as typeof messages, sources: [] as string[], cacheEntries: [] as Array<{ key: string; content: string }> }));
+
+      if (planPrefetch.injectedMessages.length > 0) {
+        messages.push(...planPrefetch.injectedMessages);
+        for (const entry of planPrefetch.cacheEntries) {
+          toolCallCache.set(entry.key, entry.content);
+        }
+        const accepted = recordPrefetchEvidence(planPrefetch.cacheEntries, prefetchFileContents);
+        prefetchSources.push(...accepted);
+        recordPrefetchTrace(
+          accepted,
+          prefetchFileContents,
+          structuredOutputMode || taskChecklist.length > 0 || (toolExecutionRequested && !repairPlanExecution),
+          relayAgentStep,
+        );
+      }

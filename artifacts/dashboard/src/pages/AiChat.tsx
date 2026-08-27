@@ -1118,6 +1118,11 @@ function parseExecutionSummary(trace: ToolTraceEntry[]): DashboardExecutionSumma
     if (entry.kind === 'model_call' && entry.model) modelsUsed.add(entry.model);
     if (entry.kind === 'recovery_model_call' && entry.model) recoveryModelsUsed.add(entry.model);
   }
+  const capabilityProbeRecoveryStarted = [...diagnosticCodes].some(
+    (code) =>
+      code === 'CAPABILITY_PROBE_EVIDENCE_RECOVERED' ||
+      code.startsWith('CAPABILITY_PROBE_EVIDENCE_RECOVERY_'),
+  );
 
   return {
     iterations: typeof done.iterations === 'number' ? done.iterations : 0,
@@ -1140,7 +1145,8 @@ function parseExecutionSummary(trace: ToolTraceEntry[]): DashboardExecutionSumma
     ...(typeof done.synthesisTimedOut === 'boolean' ? { synthesisTimedOut: done.synthesisTimedOut } : {}),
     recoveryStarted:
       done.recoveryStarted === true ||
-      trace.some((entry) => entry.kind === 'forensic_recovery_start'),
+      trace.some((entry) => entry.kind === 'forensic_recovery_start') ||
+      capabilityProbeRecoveryStarted,
     diagnosticCodes: [...diagnosticCodes],
     // Cancellation diagnostics are internal recovery/provider details. The
     // cancelled report and its terminal state survive history reload, but
@@ -1703,6 +1709,18 @@ function forensicRejectionReason(
   finalVerdict: FinalForensicVerdict | null = null,
 ): string {
   const finalReportIsNotProven = finalVerdict === 'NOT PROVEN';
+  if (!finalReportIsNotProven && summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERED'))) {
+    return 'The capability probe Recovery response was accepted after validating all C1–C7 labels and an exact executable excerpt against the declared source reads.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED'))) {
+    return 'The capability probe Recovery response could not be parsed into a source-grounded C1–C7 report, so the result stayed fail-closed.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED'))) {
+    return 'The bounded capability probe Recovery attempt failed, so the result stayed fail-closed instead of accepting unsupported claims.';
+  }
+  if (summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED'))) {
+    return 'The capability probe Recovery response was rejected because it did not satisfy the exact-source C1–C7 evidence gate.';
+  }
   if (!finalReportIsNotProven && summary.diagnosticCodes.some((code) => code.includes('FORENSIC_DETERMINISTIC_FINDING'))) {
     return 'A high-confidence executable pattern was verified from the completed source read, and the Finding passed the forensic contract and evidence gate.';
   }
@@ -1776,6 +1794,8 @@ function isForensicRejection(
     code.includes('RECOVERY_REJECTED') ||
     code.includes('RECOVERY_FAILED') ||
     code.includes('PARSE_FAILED') ||
+    code.includes('CAPABILITY_PROBE_CLAIM_UNCLOSED') ||
+    code.includes('CAPABILITY_PROBE_RECOVERY_SKIPPED_INCOMPLETE') ||
     code.includes('FORENSIC_NO_FINDING') ||
     code.includes('STRUCTURED_RECOVERY_NO_FINDING') ||
     code.includes('SKIPPED_NO_EVIDENCE'),
@@ -2286,8 +2306,12 @@ function ForensicEvidenceCard({
               </div>
               {evidence.execution.recoveryStarted && (
                 <div className="mt-2 border-t border-border/40 pt-2 text-[10px] text-amber-200">
-                  {evidence.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED'))
+                  {evidence.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERED'))
+                    ? 'Capability probe Recovery was accepted after validating the complete declared evidence and exact source grounding.'
+                    : evidence.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED'))
                     ? 'Structured forensic Recovery was accepted and rebuilt deterministically from the verified evidence.'
+                    : evidence.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_'))
+                      ? 'Capability probe Recovery was bounded but did not produce an accepted source-grounded C1–C7 report; the preserved-evidence fallback remains active.'
                     : 'Forensic Recovery started after the tool-loop response but did not produce an accepted six-section report; the preserved-evidence fallback remains active.'}
                 </div>
               )}

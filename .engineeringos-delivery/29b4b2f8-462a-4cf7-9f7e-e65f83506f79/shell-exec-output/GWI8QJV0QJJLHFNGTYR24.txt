@@ -1,0 +1,237 @@
+          outcome,
+        }) => ({
+          id,
+          sessionId: messageSession,
+          role,
+          executionId: messageExecution,
+          outcome,
+        }),
+      ),
+      sseEvents: sseEvents.map(
+        ({
+          type,
+          executionId: eventExecution,
+          sessionId: eventSession,
+          outcome,
+          code,
+        }) => ({
+          type,
+          executionId: eventExecution,
+          sessionId: eventSession,
+          outcome,
+          code,
+        }),
+      ),
+      checkpoints: [
+        {
+          sequence: checkpoint.sequence,
+          stage: checkpoint.stage,
+          updatedAt: checkpoint.updatedAt,
+        },
+      ],
+      evidenceCount,
+      proposals: proposal
+        ? [
+            {
+              id: proposal.id,
+              revision: proposal.revision,
+              status: proposal.status,
+            },
+          ]
+        : [],
+      validation: validation.map((step) => ({
+        status: step.validation?.status ?? step.status,
+        profile: step.validation?.profile ?? step.validationProfile,
+      })),
+      events: events.map(({ type, severity, correlationId }) => ({
+        type,
+        severity,
+        correlationId,
+      })),
+      dashboard: missionControl,
+      dashboardState: {
+        projectCount: dashboardState.projectCount,
+        activeTaskCount: dashboardState.activeTaskCount,
+      },
+    };
+    const outputPath =
+      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+      "test-results/dashboard-journey/live-mission-correlation.json";
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(
+      outputPath,
+      `${JSON.stringify(capture, null, 2)}\n`,
+      "utf8",
+    );
+  });
+
+  test("signs in and traverses the authenticated operational shell", async ({
+    page,
+  }) => {
+    await installApiFixtures(page);
+    await programmaticSignIn(page);
+    for (const origin of approvedDashboardOrigins()) {
+      await expectOriginCanUseApi(page, origin);
+    }
+    await expectHostileOriginRejected(page);
+
+    await expect(
+      page.getByRole("heading", { name: "System Overview" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("SYSTEM ONLINE", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Smoke Project", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Dashboard API fixture ready", { exact: true }),
+    ).toBeVisible();
+    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+    await expect(
+      page.getByText("Smoke Project", { exact: true }),
+    ).toBeVisible();
+
+    await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
+    await expect(
+      page.getByRole("heading", { name: "Event Stream" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Dashboard API fixture ready", { exact: true }),
+    ).toBeVisible();
+
+    await openNavigation(page, "AI Assistant", `${DASHBOARD_PATH}ai`);
+    await expect(page).not.toHaveURL(/sign-in/);
+    await expect(
+              kind: check.kind ?? "operator_attestation",
+              guidance: check.guidance,
+              passed,
+              ...(evidence ? { evidence } : {}),
+              actor: "e2e-operator",
+              recordedAt: `2026-01-01T00:0${
+                (priorResult.history ?? []).length + 2
+              }:00.000Z`,
+            },
+          ],
+        };
+        if (task.remediationPlan && completed) {
+          task.remediationPlan = {
+            ...(task.remediationPlan as Record<string, unknown>),
+            status: "verified",
+          };
+        }
+        task.updatedAt = "2026-01-01T00:04:00.000Z";
+        if (completed) task.completedAt = task.updatedAt;
+        return route.fulfill(jsonResponse(task));
+      }
+
+      const actionMatch = path.match(/^\/api\/tasks\/([^/]+)\/(execute|retry)$/);
+      if (actionMatch && route.request().method() === "POST") {
+        const [, taskId, action] = actionMatch;
+        const task = overrides.taskActions.tasks.find(
+          (candidate) => candidate.id === taskId,
+        );
+        if (!task) {
+          return route.fulfill(jsonResponse({ error: "Task not found" }, 404));
+        }
+
+        overrides.taskActions.requests.push(`${action}:${taskId}`);
+        if (action === "execute") {
+          task.status = "running";
+          task.updatedAt = "2026-01-01T00:02:00.000Z";
+        } else {
+          task.status = "queued";
+          task.retryCount = Number(task.retryCount ?? 0) + 1;
+          task.updatedAt = "2026-01-01T00:02:00.000Z";
+        }
+        return route.fulfill(jsonResponse(task, 202));
+      }
+    }
+    if (path === "/api/tasks") {
+      return route.fulfill(
+        jsonResponse(
+          overrides?.taskActions?.tasks ??
+            overrides?.recoveryTasks ??
+            (overrides?.liveTask
+              ? [
+#!/usr/bin/env node
+
+import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  acquireReleaseLock,
+  lockPath,
+} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+import {
+  formatMissionCorrelationSummary,
+  parseMissionCorrelationReportOutput,
+} from "./mission-correlation-report.mjs";
+
+if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+  console.error(
+    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+  );
+  process.exit(2);
+}
+
+const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23184);
+const dashboardBaseUrl =
+  process.env.DASHBOARD_E2E_BASE_URL ??
+  `http://127.0.0.1:${dashboardPort}/dashboard/`;
+const apiHealthUrl =
+  process.env.DASHBOARD_E2E_API_HEALTH_URL ??
+  `http://127.0.0.1:${apiPort}/api/healthz`;
+// Origin contract probes must reach the API listener directly. Sending them
+// through the dashboard dev proxy lets some browser environments terminate
+// OPTIONS locally with a bare 204, which hides the API's CORS response.
+const apiBaseUrl =
+  process.env.DASHBOARD_E2E_API_BASE_URL ??
+  `http://127.0.0.1:${apiPort}/`;
+const testEmail =
+  process.env.DASHBOARD_E2E_EMAIL ??
+  "engineeringos-dashboard-release@example.com";
+const timeoutMs = Number(
+  process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
+);
+const liveTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+);
+const childTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+);
+const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+if (
+  approvedDashboardOrigins.length === 0 &&
+  process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1"
+) {
+  approvedDashboardOrigins.push(`http://127.0.0.1:${dashboardPort}`);
+}
+if (approvedDashboardOrigins.length === 0) {
+  throw new Error(
+    "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+  );
+}
+const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
+const outputDir = resolve(
+  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+);
+const teardownArtifactPath = resolve(
+  process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
+    resolve(outputDir, "release-teardown.json"),
+);
+const originDiagnosticsPath = resolve(
+  process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
+    resolve(outputDir, "origin-diagnostics.json"),
+);
+const services = [];
+let releaseLockCleanup;
+const releasePorts = [apiPort, dashboardPort];
+const controlPort = Number(
+  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
