@@ -55,10 +55,10 @@ can produce a verified Finding.
 ┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌──────────────────┐
 │    DB    │  │   Scanner    │  │Knowledge │  │  AI Orchestrator  │
 │ (lib/db) │  │ (lib/scanner)│  │  Engine  │  │(lib/ai-orchestr..)│
-│ Drizzle  │  │ walk·rule·   │  │(lib/know.│  │ groq-client       │
-│ Postgres │  │ graph·metrics│  │-engine)  │  │ chat·scan·review  │
+│ Drizzle  │  │ walk·rule·   │  │(lib/know.│  │ provider registry │
+│ Postgres │  │ graph·metrics│  │-engine)  │  │ context/admission │
 └──────────┘  └──────────────┘  │ BFS·     │  │ task·workflow     │
-                                │ centrality│  │ agents            │
+                                 │ centrality│  │ evidence·durable  │
                                 └──────────┘  └──────────────────┘
 ```
 
@@ -345,7 +345,7 @@ queue state.
 | `events` | Append-only event log (all operations emit here) |
 | `audit_logs` | Structured before/after audit trail |
 | `ai_chat_sessions` + `ai_chat_messages` | AI conversation history |
-| `ai_provider_credentials` | Encrypted Groq API keys |
+| `ai_provider_credentials` | Encrypted per-provider API keys |
 | `task_logs` | Per-task execution logs (correlationId links to events) |
 | `plugin_events` | Events emitted by the plugin runtime |
 
@@ -372,7 +372,26 @@ All PRs A–I and forensic audit PRs 1–5 are closed.
 | Audit PR-4 | Doc/code reconciliation — rate limit corrected to 20 req/min; context cache corrected to 30 s | ✅ Closed |
 | Audit PR-5 | Generated-artifact drift guard — dedicated `contract-drift` CI job runs codegen:check + typecheck on every PR touching `lib/api-spec/openapi.yaml`; full validate job unchanged | ✅ Closed |
 
-### PR-I: SSE streaming for AI chat
+### Current streaming and durable execution
+
+The current streaming contract is broader than the original chat-only SSE
+delivery:
+
+- Chat, scan analysis, and code review each expose structured stage/progress
+  events, terminal completion, and terminal failure or incomplete outcomes.
+- Chat streaming creates or resumes an `ai_executions` record keyed by the
+  request's durable identity and idempotency binding. Checkpoints retain
+  bounded progress, evidence/proof metadata, and failure state.
+- Recovery and reconnect use persisted execution state and a server-owned
+  resume token. A provider response, client reconnect, or worker lease cannot
+  override cancellation, failed evidence, or an incomplete terminal state.
+- Provider-derived response text, paths, IDs, and diagnostics are redacted
+  before persistence or stream emission; raw diagnostics remain server-side.
+
+### Historical PR-I: original SSE delivery
+
+The following records the original chat-stream delivery and is retained as
+compatibility history. The current behavior is defined by the section above.
 
 `POST /api/ai/chat/stream` emits `text/event-stream` events:
 
@@ -383,7 +402,7 @@ All PRs A–I and forensic audit PRs 1–5 are closed.
 | `error` | `{ type, code, message, hint?, raw?, parseCode? }` | On any failure |
 
 - The original `POST /api/ai/chat` (JSON response) remains available as a non-streaming fallback.
-- SSE is consumed via the handwritten `useAiChatStream` hook in `@workspace/api-client-react/src/use-ai-chat-stream.ts` — Orval cannot generate SSE hooks.
+- SSE is consumed via handwritten stream hooks — Orval cannot generate SSE hooks.
 - DB writes (session + messages) happen on the success path before the `done` event; the client does not need to poll for the saved message.
 - The `AiChat.tsx` dashboard page uses `useAiChatStream` and shows real server-side stage labels instead of a client-side timer that rotated through fake messages.
 
