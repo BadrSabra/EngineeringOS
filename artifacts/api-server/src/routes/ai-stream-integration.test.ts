@@ -37,6 +37,7 @@ import {
   aiSessionMemoriesTable,
   eventsTable,
   scanJobsTable,
+  discoverySessionsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger.js";
 import { encryptApiKey } from "../lib/credentials-crypto.js";
@@ -358,6 +359,7 @@ async function insertApprovedPlan(
 
 const projectIds: string[] = [];
 const rootPaths: string[] = [];
+const discoverySessionIds: string[] = [];
 
 function processIsAlive(pid: number): boolean {
   try {
@@ -383,6 +385,12 @@ afterEach(async () => {
   vi.mocked(requireProvider).mockReset();
   vi.mocked(requireProvider).mockImplementation(defaultRequireProvider!);
   const recoveryFixtures = recoveryTeardownFixtures.splice(0);
+  for (const discoveryId of discoverySessionIds.splice(0)) {
+    await db
+      .delete(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, discoveryId))
+      .catch(() => undefined);
+  }
   for (const pid of projectIds.splice(0)) {
     await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, pid)).catch(() => undefined);
     await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, pid)).catch(() => undefined);
@@ -1726,15 +1734,23 @@ describe("Implementation Plan Build handoff", () => {
 
 describe("Plan-to-push agent cycle", () => {
   it("proves Plan -> Approve -> Build -> Diff -> Apply -> Commit -> Push", async () => {
-    const rootPath = await fs.mkdtemp("/tmp/agent-cycle-project-");
+    await fs.mkdir("/home/runner/workspace/.test-roots", { recursive: true });
+    const rootPath = await fs.mkdtemp(
+      "/home/runner/workspace/.test-roots/agent-cycle-project-",
+    );
     const remotePath = await fs.mkdtemp("/tmp/agent-cycle-remote-");
     const wrapperDir = await fs.mkdtemp("/tmp/agent-cycle-git-bin-");
     rootPaths.push(rootPath, remotePath, wrapperDir);
 
     const realGit = (await execFileAsync("which", ["git"])).stdout.trim();
     await execFileAsync(realGit, ["-C", rootPath, "init", "-q", "-b", "main"]);
+    await fs.writeFile(
+      path.join(rootPath, "package.json"),
+      JSON.stringify({ name: "agent-cycle-fixture", version: "1.0.0" }) + "\n",
+      "utf8",
+    );
     await fs.writeFile(path.join(rootPath, "README.md"), "agent-cycle fixture\n", "utf8");
-    await execFileAsync(realGit, ["-C", rootPath, "add", "README.md"]);
+    await execFileAsync(realGit, ["-C", rootPath, "add", "."]);
     await execFileAsync(realGit, [
       "-C", rootPath,
       "-c", "user.name=Fixture",
@@ -1744,8 +1760,68 @@ describe("Plan-to-push agent cycle", () => {
     await execFileAsync(realGit, ["init", "--bare", "-q", remotePath]);
 
     const remoteUrl = "https://example.test/engineeringos-agent-cycle.git";
-    const projectId = await insertProject(rootPath, remoteUrl);
+    const discovery = await request(app)
+      .post("/api/projects/discover")
+      .send({
+        sourceType: "LOCAL_FOLDER",
+        sourceConfig: { path: rootPath },
+      });
+    expect(discovery.status).toBe(202);
+    const discoveryId = discovery.body.id as string;
+    discoverySessionIds.push(discoveryId);
+
+    let discoveryStatus: { status?: string; error?: string } | undefined;
+    const discoveryDeadline = Date.now() + 30_000;
+    while (Date.now() < discoveryDeadline) {
+      const statusResponse = await request(app).get(
+        `/api/projects/discover/${discoveryId}`,
+      );
+      expect(statusResponse.status).toBe(200);
+      discoveryStatus = statusResponse.body;
+      if (
+        discoveryStatus?.status === "ready" ||
+        discoveryStatus?.status === "error"
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(discoveryStatus?.status, discoveryStatus?.error).toBe("ready");
+
+    const imported = await request(app)
+      .post("/api/projects/import")
+      .send({ discoveryId });
+    expect(imported.status).toBe(201);
+    const projectId = imported.body.id as string;
     projectIds.push(projectId);
+    await db
+      .update(projectsTable)
+      .set({ gitRemoteUrl: remoteUrl, gitDefaultBranch: "main" })
+      .where(eq(projectsTable.id, projectId));
+
+    const scanStart = await request(app).post(
+      `/api/projects/${projectId}/scan`,
+    );
+    expect(scanStart.status).toBe(202);
+    const scanJobId = scanStart.body.id as string;
+    let scanStatus: { status?: string; error?: string } | undefined;
+    const scanDeadline = Date.now() + 30_000;
+    while (Date.now() < scanDeadline) {
+      const statusResponse = await request(app).get(
+        `/api/projects/${projectId}/scan-jobs/${scanJobId}`,
+      );
+      expect(statusResponse.status).toBe(200);
+      scanStatus = statusResponse.body;
+      if (
+        scanStatus?.status === "completed" ||
+        scanStatus?.status === "failed"
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(scanStatus?.status, scanStatus?.error).toBe("completed");
+
     const plan = await insertApprovedPlan(projectId, "PENDING_APPROVAL");
 
     const approval = await request(app)
