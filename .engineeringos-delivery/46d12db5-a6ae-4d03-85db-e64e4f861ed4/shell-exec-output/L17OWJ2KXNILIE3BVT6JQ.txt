@@ -1,0 +1,75 @@
+   disabled and no credentials were added for this update.
+2. The deterministic benchmark contract and release decision pass, but its
+   approved baseline intentionally remains `qualityEligible: false` and
+   `rolloutAllowed: false`; that artifact is not live quality evidence.
+3. The controlled campaign proved Clerk authentication, origin enforcement,
+   authenticated shell navigation, audit preview/download, and the isolated
+   Git route's approved Apply → commit → push behavior. It did not complete the
+   full discovery → provider-backed work → promotion → Git journey: discovery's
+   real Git fixture is rejected by the credential-free GitHub URL policy, and
+   the full browser campaign hit readiness/fixture failures before delivery.
+   Preview validation and live-provider delivery remain explicitly blocked.
+4. Provider-free contract, SSE/redaction, operational-safety, and deterministic
+   benchmark checks now pass. This supersedes the earlier targeted failures for
+   those gates, but does not prove every broad API suite or a live provider.
+
+## 3. User-visible capability map
+
+| Capability | Implementation path and persisted boundary | Status | Evidence/confidence |
+|---|---|---|---|
+| Authenticated console and project-scoped navigation | Clerk setup in `replit.md`; `artifacts/dashboard/src/App.tsx` protects project, AI, Flight Deck, Mission Control, task, workflow, Git-related views; API uses auth/project-access middleware | **Verified by automated test** | Dashboard auth/page and client-contract checks pass; authenticated browser journey remains skipped |
+| Project discovery/import | `artifacts/api-server/src/routes/discovery.ts`: source listing, discovery start/session/summary, import; durable materialization and owner-scoped cleanup; `DiscoverProjectWizard.tsx` calls generated discovery/import/scan hooks | **Partial** | Discovery route tests exist; selected run failed a durable Git fixture with HTTP 400 rather than expected 202 |
+| Ordinary AI chat | `POST /api/ai/chat` and `/stream` in `routes/ai/chat.ts`; context is built, request intent/classification selects route/profile, messages/session state persist in `aiChatSessionsTable`/`aiChatMessagesTable` | **Verified by automated test; live blocked** | AI JSON/SSE, redaction, resume, and false-success release contracts pass; provider checks are disabled |
+| Source-aware tool use | `chat-agent.ts` + `tool-execution-engine.ts`; read/list/search tools, cache, source provenance, tool authorization, bounded iterations/calls, soft synthesis limit | **Verified by automated test** | Deterministic benchmark and AI contract gates pass; no live-provider tool journey |
+| Broad/hierarchical analysis | `hierarchical-executor.ts` schedules bounded waves, isolates write scopes, preserves partial sub-results, performs tool-free synthesis, and validates compound coverage | **Verified by code** | Explicit out-of-scope items remain: recursive nesting and per-subquery SSE |
+| Structured scan analysis | `POST /api/ai/projects/:projectId/analyze` and `/stream`; context, provider fallback, parse/error envelope, audit log and completion event persistence | **Partial / live blocked** | Provider-free contracts and provider diagnostics are covered; live execution and authenticated E2E remain unproven |
+| Structured code review | `POST /api/ai/projects/:projectId/review` and `/stream`; validates relative file keys and 50 KB aggregate input, persists audit/event result | **Partial / blocked** | Same provider limitation; input safety is code-backed |
+| AI task execution | `POST /api/ai/tasks/:taskId/execute`; task ownership/status/rate-limit checks delegate to `executeTaskLifecycle`, with task logs/events and durable job helpers | **Partial / blocked** | `tasks.test.ts` covers scheduling/HTTP behavior; real provider execution was not run |
+| Workflow orchestration | `POST /api/ai/workflows/:workflowId/orchestrate`; regular workflow API supports start/stop/advance/fail/retry/rollback and execution history | **Partial / blocked** | Workflow route tests passed within selected run; AI orchestration still needs provider and E2E confirmation |
+| Execution history and Flight Deck | `GET /api/ai/executions/history`, detail, audit export; `FlightDeck.tsx` renders operation/checkpoint/evidence/validation state | **Verified by code** | `ai-execution-state.test.ts` and dashboard Flight Deck tests exist; no real browser/API journey |
+| Mission Control/correlation | Mission Control page consumes execution history; chat route can regenerate a redacted correlation report solely from retained durable evidence | **Verified by automated test** | Dashboard Mission Control/correlation tests passed (part of 101 dashboard tests) |
+| Cancellation and recovery | Chat route exposes cancel/recovery/resume-capability; `ai-execution-state.ts` owns leases, resume-token hashing, checkpoint recovery, restart reconciliation, cancellation terminalization | **Verified by automated test** | Latest AI SSE and operational-safety release checks pass; browser reload/restart evidence is still absent |
+| Implementation planning | `implementation-planner.ts` requires verified filesystem manifest/source excerpts, validates provider paths, and returns `PENDING_APPROVAL`/`NOT_AUTHORIZED` fallback when grounding is absent | **Verified by code** | No provider-backed plan generation was run |
+| Proposed changes and approval | Chat route stores `aiChangeProposalsTable`; write tools queue `pendingChanges`; plan decision and proposal approve/delete routes are present; dashboard shows approval state | **Partial** | Approval boundary is code-backed; complete browser approval journey was not run |
+
+### Controlled authenticated journey evidence (2026-08-26)
+
+The following checks were run against the current workspace without a
+production deployment or broad provider campaign:
+
+- **Passed:** Clerk handoff contract (8 tests), release CORS contract (17
+  checks), and the authenticated browser shell's sign-in/navigation path.
+- **Passed:** redacted execution-audit preview/download and reload coverage in
+  the browser fixture suite.
+- **Passed:** `src/routes/git.test.ts` (4 tests), including scoped Apply →
+  commit → push, rejection of a mismatched operation, and matching local and
+  remote commit identity.
+- **Blocked:** the real Git discovery fixture in
+  `src/routes/discovery.test.ts` uses a localhost smart-HTTP repository, while
+  the production adapter intentionally accepts only credential-free HTTPS
+  `github.com` URLs. The route returned the expected `400` policy response
+  instead of starting a discovery session.
+- **Incomplete:** the full Playwright campaign reached the running Clerk
+  services but timed out in later fixture-backed AI/citation tests and exposed a
+  restart/readiness failure before any live delivery receipt could be retained.
+- **Not run by design:** `DASHBOARD_E2E_LIVE_PROVIDER=1` and
+  `DASHBOARD_E2E_LIVE_CAMPAIGN=1`; no provider-backed project, production
+  deployment, or broad campaign was used.
+
+Therefore this is authenticated operational evidence plus isolated Git route
+evidence, not a complete end-to-end discovery-to-push receipt. The missing
+receipt must remain an explicit release blocker.
+
+## 6. Safety and durability inventory
+
+| Orchestrator typecheck | `pnpm --filter @workspace/ai-orchestrator run typecheck` | Installed workspace dependencies | **PASS** (the chained command proceeded to tests) |
+| Orchestrator required scenario gate | `pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios` | Deterministic runtime-oracle fixture | **PASS** after runtime-oracle coverage was restored; no live provider involved |
+| API typecheck | `pnpm --filter @workspace/api-server run typecheck` | Workspace declaration rebuild | **PASS** |
+| Dashboard AI/operations components | `pnpm --filter @workspace/dashboard exec vitest run src/pages/AiChat.authenticated.test.tsx src/pages/MissionControl.test.tsx src/pages/FlightDeck.test.tsx src/lib/mission-correlation-report.test.ts src/lib/validation-sse-contract.test.ts` | jsdom/component fixtures | **PASS**: 5 files, 101 tests |
+| API AI/discovery/Git/workflow/task subset | `pnpm --filter @workspace/api-server exec vitest run ...` (selected route and delivery files) | Mocked providers, fixture DB/workspaces | **PARTIAL**: 8 files passed, 3 files failed; 290 passed, 5 failed, 1 skipped |
+| API subset failure detail | Same command | See retained test output | Historical failures remain part of the audit record; they are not the latest release-gate result. The latest targeted AI contract/SSE/operational-safety checks pass. Discovery async-contract and live Git smoke are still unproven. |
+| Truth-flow baseline | `pnpm run truth:baseline:check && pnpm run truth:validate` | Checked-in schema authority and attached matrix | **PASS** for both |
+| Deterministic benchmark baseline | `pnpm run benchmark:baseline:check` and `pnpm run verify:benchmark-rollout` | Checked-in baseline and server-owned candidate/source lineage | **PASS structurally and for regression comparison** (34 cases; comparator returned `rolloutAllowed: true`); the approved deterministic artifact still has `qualityEligible: false`, `rolloutAllowed: false` as intentional safety markers |
+| Dashboard client contract | `pnpm run validate:dashboard-client-contract` | OpenAPI/codegen/dashboard declarations | **PASS**: OpenAPI 90 paths/114 operations/156 schemas; generated files and dashboard typecheck aligned |
+| Latest AI release quality decision | `pnpm run validate:ai-release` | Provider-free release contract suite; preview/live checks opt-in | **PASS**: 9 checks passed, 0 blocking failures; preview check skipped, live provider disabled |
+

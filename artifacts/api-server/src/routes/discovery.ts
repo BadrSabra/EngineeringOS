@@ -63,7 +63,7 @@ function isUniqueViolation(err: unknown, constraintName: string): boolean {
 
 // ─── Cleanup old sessions (>24h) ──────────────────────────────────────────────
 
-async function cleanupOldSessions(): Promise<void> {
+export async function cleanupOldSessions(): Promise<void> {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const staleSessions = await db
     .select({

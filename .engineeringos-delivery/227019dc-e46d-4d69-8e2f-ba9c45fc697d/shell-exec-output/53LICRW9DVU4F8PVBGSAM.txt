@@ -1,0 +1,240 @@
+artifacts/api-server/src/routes/discovery.test.ts:5:import { setGitCloneExecutorForTests } from "../lib/discovery-adapters.js";
+artifacts/api-server/src/routes/discovery.test.ts:8:  discoverySessionsTable,
+artifacts/api-server/src/routes/discovery.test.ts:70:  const dir = `${TEST_ROOTS_BASE}/discovery-${randomUUID()}`;
+artifacts/api-server/src/routes/discovery.test.ts:88:  await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/routes/discovery.test.ts:115:    await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:120:// ─── GET /discovery/sources ───────────────────────────────────────────────────
+artifacts/api-server/src/routes/discovery.test.ts:122:describe("GET /discovery/sources — source capability listing", () => {
+artifacts/api-server/src/routes/discovery.test.ts:124:    const res = await request(app).get("/api/discovery/sources");
+artifacts/api-server/src/routes/discovery.test.ts:131:    const res = await request(app).get("/api/discovery/sources");
+artifacts/api-server/src/routes/discovery.test.ts:143:  it("marks LOCAL_FOLDER and GIT_REPOSITORY as available", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:144:    const res = await request(app).get("/api/discovery/sources");
+artifacts/api-server/src/routes/discovery.test.ts:147:    expect((byType["GIT_REPOSITORY"] as { available: boolean }).available).toBe(true);
+artifacts/api-server/src/routes/discovery.test.ts:151:    const res = await request(app).get("/api/discovery/sources");
+artifacts/api-server/src/routes/discovery.test.ts:157:    const res = await request(app).get("/api/discovery/sources");
+artifacts/api-server/src/routes/discovery.test.ts:168:    const res = await request(app).get("/api/discovery/sources");
+artifacts/api-server/src/routes/discovery.test.ts:176:      "GIT_REPOSITORY",
+artifacts/api-server/src/routes/discovery.test.ts:182:    const res = await request(app).get("/api/discovery/sources");
+artifacts/api-server/src/routes/discovery.test.ts:196:        .delete(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:197:        .where(eq(discoverySessionsTable.id, id))
+artifacts/api-server/src/routes/discovery.test.ts:239:        .select({ id: discoverySessionsTable.id })
+artifacts/api-server/src/routes/discovery.test.ts:240:        .from(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:241:        .where(eq(discoverySessionsTable.rootPath, forgedPath));
+artifacts/api-server/src/routes/discovery.test.ts:249:  it("rejects GIT_REPOSITORY missing the url field", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:252:      .send({ sourceType: "GIT_REPOSITORY", sourceConfig: {} });
+artifacts/api-server/src/routes/discovery.test.ts:257:  it("rejects a non-GitHub URL before attempting Git discovery", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:261:        sourceType: "GIT_REPOSITORY",
+artifacts/api-server/src/routes/discovery.test.ts:304:    // Path passes validation; discovery will fail in the background (path doesn't exist)
+artifacts/api-server/src/routes/discovery.test.ts:392:      .update(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:394:      .where(eq(discoverySessionsTable.id, id));
+artifacts/api-server/src/routes/discovery.test.ts:404:      .update(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:406:      .where(eq(discoverySessionsTable.id, id));
+artifacts/api-server/src/routes/discovery.test.ts:428:      .update(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:430:      .where(eq(discoverySessionsTable.id, id));
+artifacts/api-server/src/routes/discovery.test.ts:444:    const discoveryId = await insertReadySession(fakeResult());
+artifacts/api-server/src/routes/discovery.test.ts:447:      request(app).post("/api/projects/import").send({ discoveryId }),
+artifacts/api-server/src/routes/discovery.test.ts:448:      request(app).post("/api/projects/import").send({ discoveryId }),
+artifacts/api-server/src/routes/discovery.test.ts:466:      .from(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:467:      .where(eq(discoverySessionsTable.id, discoveryId))
+artifacts/api-server/src/routes/discovery.test.ts:474:    const discoveryId = await insertReadySession(
+artifacts/api-server/src/routes/discovery.test.ts:478:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:481:    expect(res.body.hint).toMatch(/re-run discovery/i);
+artifacts/api-server/src/routes/discovery.test.ts:486:      .from(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:487:      .where(eq(discoverySessionsTable.id, discoveryId))
+artifacts/api-server/src/routes/discovery.test.ts:497:      const discoveryId = await insertReadySession(fakeResult(), forged);
+artifacts/api-server/src/routes/discovery.test.ts:498:      const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:505:        .from(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:506:        .where(eq(discoverySessionsTable.id, discoveryId))
+artifacts/api-server/src/routes/discovery.test.ts:514:  it("allows a GIT_REPOSITORY session whose managed clone directory still exists", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:519:      await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/routes/discovery.test.ts:524:        sourceType: "GIT_REPOSITORY",
+artifacts/api-server/src/routes/discovery.test.ts:534:      const res = await request(app).post("/api/projects/import").send({ discoveryId: id });
+artifacts/api-server/src/routes/discovery.test.ts:543:  it("returns 422 root_not_found when the session root directory was deleted after discovery", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:544:    const discoveryId = await insertReadySession(
+artifacts/api-server/src/routes/discovery.test.ts:548:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:554:    const discoveryId = await insertReadySession(fakeResult());
+artifacts/api-server/src/routes/discovery.test.ts:556:      .update(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:558:      .where(eq(discoverySessionsTable.id, discoveryId));
+artifacts/api-server/src/routes/discovery.test.ts:560:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:566:    const discoveryId = await insertReadySession(fakeResult());
+artifacts/api-server/src/routes/discovery.test.ts:568:      .update(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:570:      .where(eq(discoverySessionsTable.id, discoveryId));
+artifacts/api-server/src/routes/discovery.test.ts:572:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:577:  it("returns 404 for an unknown discovery session", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:580:      .send({ discoveryId: randomUUID() });
+artifacts/api-server/src/routes/discovery.test.ts:592:    const discoveryId = await insertReadySession(fakeResult({ ruleViolations: violations }));
+artifacts/api-server/src/routes/discovery.test.ts:594:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:605:  it("imported project has the detected name from discovery result", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:606:    const discoveryId = await insertReadySession(fakeResult({ detectedName: "cool-service" }));
+artifacts/api-server/src/routes/discovery.test.ts:608:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:615:    const discoveryId = await insertReadySession(fakeResult({ detectedName: "auto-detected" }));
+artifacts/api-server/src/routes/discovery.test.ts:619:      .send({ discoveryId, overrides: { name: "custom-name" } });
+artifacts/api-server/src/routes/discovery.test.ts:647:      await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, sid)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:656:    const discoveryId = await insertReadySession(fakeResult({ qualityScore: 72 }));
+artifacts/api-server/src/routes/discovery.test.ts:657:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:667:    const discoveryId = await insertReadySession(fakeResult({ detectedName: "event-test" }));
+artifacts/api-server/src/routes/discovery.test.ts:668:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:685:    const discoveryId = await insertReadySession(fakeResult({ detectedApis }));
+artifacts/api-server/src/routes/discovery.test.ts:686:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:701:    const discoveryId = await insertReadySession(fakeResult({ detectedApis }));
+artifacts/api-server/src/routes/discovery.test.ts:702:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:714:      expect(e.sourceType).toBe("discovery-import");
+artifacts/api-server/src/routes/discovery.test.ts:724:      expect(prov.sourceType).toBe("discovery-import");
+artifacts/api-server/src/routes/discovery.test.ts:732:    const discoveryId = await insertReadySession(fakeResult({ detectedApis: [] }));
+artifacts/api-server/src/routes/discovery.test.ts:733:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:750:    const discoveryId = await insertReadySession(fakeResult({ ruleViolations: violations }));
+artifacts/api-server/src/routes/discovery.test.ts:751:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:768:    const discoveryId = await insertReadySession(fakeResult());
+artifacts/api-server/src/routes/discovery.test.ts:771:      request(app).post("/api/projects/import").send({ discoveryId }),
+artifacts/api-server/src/routes/discovery.test.ts:772:      request(app).post("/api/projects/import").send({ discoveryId }),
+artifacts/api-server/src/routes/discovery.test.ts:782:      .from(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:783:      .where(eq(discoverySessionsTable.id, discoveryId))
+artifacts/api-server/src/routes/discovery.test.ts:803:    const discoveryId = await insertReadySession(fakeResult({ detectedName: "audit-fail-test" }));
+artifacts/api-server/src/routes/discovery.test.ts:804:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:813:      .from(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:814:      .where(eq(discoverySessionsTable.id, discoveryId))
+artifacts/api-server/src/routes/discovery.test.ts:824:    const discoveryId = await insertReadySession(fakeResult());
+artifacts/api-server/src/routes/discovery.test.ts:825:    const first = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:829:    const second = await request(app).post("/api/projects/import").send({ discoveryId });
+artifacts/api-server/src/routes/discovery.test.ts:847:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/routes/discovery.test.ts:863:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/routes/discovery.test.ts:877:    const resA = await request(app).post("/api/projects/import").send({ discoveryId: sidA });
+artifacts/api-server/src/routes/discovery.test.ts:882:    const resB = await request(app).post("/api/projects/import").send({ discoveryId: sidB });
+artifacts/api-server/src/routes/discovery.test.ts:889:      .from(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:890:      .where(eq(discoverySessionsTable.id, sidB))
+artifacts/api-server/src/routes/discovery.test.ts:897:describe("Git discovery → durable import", () => {
+artifacts/api-server/src/routes/discovery.test.ts:939:        sourceType: "GIT_REPOSITORY",
+artifacts/api-server/src/routes/discovery.test.ts:943:    const discoveryId = start.body.id as string;
+artifacts/api-server/src/routes/discovery.test.ts:944:    sessionId = discoveryId;
+artifacts/api-server/src/routes/discovery.test.ts:949:      const statusResponse = await request(app).get(`/api/projects/discover/${discoveryId}`);
+artifacts/api-server/src/routes/discovery.test.ts:957:      .select({ rootPath: discoverySessionsTable.rootPath })
+artifacts/api-server/src/routes/discovery.test.ts:958:      .from(discoverySessionsTable)
+artifacts/api-server/src/routes/discovery.test.ts:959:      .where(eq(discoverySessionsTable.id, discoveryId))
+artifacts/api-server/src/routes/discovery.test.ts:968:      .send({ discoveryId });
+.local/tasks/task-45.md:7:Make repository discovery demonstrably reliable in the controlled release path. The current implementation intentionally restricts credential-free Git discovery to approved HTTPS GitHub URLs, but the existing release fixture is rejected before it can prove the asynchronous discovery, durable materialization, import, and cleanup lifecycle.
+.local/tasks/task-45.md:11:- A controlled discovery fixture reaches the documented `202 → ready → import` lifecycle without weakening the production URL policy.
+.local/tasks/task-45.md:14:- The discovery test suite passes in isolation and the release run retains a redacted receipt identifying the session and terminal state.
+.local/tasks/task-45.md:19:- Redesigning the discovery wizard or changing project ownership semantics.
+.local/tasks/task-45.md:24:1. **Align the fixture with policy** — Replace the incompatible local smart-HTTP assumption with an approved disposable remote or a clearly bounded adapter seam that exercises the same production contract; keep policy rejection as a separate negative case.
+.local/tasks/task-45.md:27:4. **Validate the release evidence** — Run the focused discovery tests and the relevant contract checks, retain only sanitized lifecycle metadata, and confirm no approved baseline or provider-free release artifact was changed.
+.local/tasks/task-45.md:31:- `artifacts/api-server/src/routes/discovery.ts`
+.local/tasks/task-45.md:32:- `artifacts/api-server/src/routes/discovery.test.ts`
+.local/tasks/task-45.md:33:- `artifacts/api-server/src/lib/discovery-adapters.ts`
+artifacts/api-server/src/lib/job-recovery.test.ts:15:  discoverySessionsTable,
+artifacts/api-server/src/lib/job-recovery.test.ts:65:      await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, id));
+artifacts/api-server/src/lib/job-recovery.test.ts:118:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/lib/job-recovery.test.ts:121:      rootPath: `/tmp/discovery-${sessionId}`,
+artifacts/api-server/src/lib/job-recovery.test.ts:133:      .from(discoverySessionsTable)
+artifacts/api-server/src/lib/job-recovery.test.ts:134:      .where(eq(discoverySessionsTable.id, sessionId));
+artifacts/api-server/src/lib/job-recovery.test.ts:165:  it("a pending discovery session is re-enqueued on recovery", async () => {
+artifacts/api-server/src/lib/job-recovery.test.ts:170:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/lib/job-recovery.test.ts:173:      rootPath: `/tmp/discovery-${sessionId}`,
+artifacts/api-server/src/lib/job-reconciliation.ts:2: * Startup reconciliation for scan/discovery/AI-task jobs.
+artifacts/api-server/src/lib/job-reconciliation.ts:4: * Scan and discovery jobs are tracked in-process (see job-queue.ts): the
+artifacts/api-server/src/lib/job-reconciliation.ts:17: *   discovery_sessions "pending"    → re-enqueue via heavyJobQueue (never
+artifacts/api-server/src/lib/job-reconciliation.ts:19: *   discovery_sessions "discovering" → mark error (was in-flight when process
+artifacts/api-server/src/lib/job-reconciliation.ts:27: * including resetting the project status. For re-enqueued pending discovery
+artifacts/api-server/src/lib/job-reconciliation.ts:52:  discoverySessionsTable,
+artifacts/api-server/src/lib/job-reconciliation.ts:64:import { runDiscovery } from "./discovery-runner.js";
+artifacts/api-server/src/lib/job-reconciliation.ts:349: * Handles discovery_sessions left in non-terminal states:
+artifacts/api-server/src/lib/job-reconciliation.ts:358:    lt(discoverySessionsTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:359:    isNull(discoverySessionsTable.leaseUntil),
+artifacts/api-server/src/lib/job-reconciliation.ts:363:  // These sessions were actively running the discovery pipeline. Their
+artifacts/api-server/src/lib/job-reconciliation.ts:366:    .select({ id: discoverySessionsTable.id })
+artifacts/api-server/src/lib/job-reconciliation.ts:367:    .from(discoverySessionsTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:368:    .where(and(eq(discoverySessionsTable.status, "discovering"), abandonedDiscovery));
+artifacts/api-server/src/lib/job-reconciliation.ts:372:      .update(discoverySessionsTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:382:        .where(and(eq(discoverySessionsTable.id, session.id), eq(discoverySessionsTable.status, "discovering"), abandonedDiscovery))
+artifacts/api-server/src/lib/job-reconciliation.ts:383:        .returning({ id: discoverySessionsTable.id });
+artifacts/api-server/src/lib/job-reconciliation.ts:385:        logger.debug({ sessionId: session.id }, "discovery recovery lost ownership race");
+artifacts/api-server/src/lib/job-reconciliation.ts:394:      "marked interrupted discovery sessions as error (process restart)",
+artifacts/api-server/src/lib/job-reconciliation.ts:406:    .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
+artifacts/api-server/src/lib/job-reconciliation.ts:407:    .from(discoverySessionsTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:408:    .where(eq(discoverySessionsTable.status, "pending"));
+artifacts/api-server/src/lib/job-reconciliation.ts:423:          "discovery runner threw past its own error handling on re-queue",
+artifacts/api-server/src/lib/job-reconciliation.ts:433:      "re-enqueued pending discovery sessions (process restart)",
+artifacts/api-server/src/lib/job-reconciliation.ts:562:      .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
+artifacts/api-server/src/lib/job-reconciliation.ts:563:      .from(discoverySessionsTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:565:        eq(discoverySessionsTable.status, "discovering"),
+artifacts/api-server/src/lib/job-reconciliation.ts:566:        lt(discoverySessionsTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:569:      const [updated] = await db.update(discoverySessionsTable).set({
+artifacts/api-server/src/lib/job-reconciliation.ts:571:        error: "Discovery worker lease expired; restart discovery to retry.",
+artifacts/api-server/src/lib/job-reconciliation.ts:577:        eq(discoverySessionsTable.id, session.id),
+artifacts/api-server/src/lib/job-reconciliation.ts:578:        eq(discoverySessionsTable.status, "discovering"),
+artifacts/api-server/src/lib/job-reconciliation.ts:579:        lt(discoverySessionsTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:580:      )).returning({ id: discoverySessionsTable.id });
+artifacts/api-server/src/lib/job-reconciliation.ts:587:      }, "discovery session lease expired — marked as error");
+artifacts/api-server/src/lib/job-reconciliation.ts:732:        .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
+artifacts/api-server/src/lib/job-reconciliation.ts:733:        .from(discoverySessionsTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:734:        .where(eq(discoverySessionsTable.status, "pending")),
+artifacts/api-server/src/lib/job-reconciliation.ts:755:              "discovery runner threw past its own error handling in durable dispatch",
+artifacts/api-server/src/lib/job-reconciliation.ts:769:          discoveryCount: pendingDiscoveries.length,
+artifacts/api-server/src/lib/job-reconciliation.ts:806:      db.select({ value: count() }).from(discoverySessionsTable).where(eq(discoverySessionsTable.status, "pending")),
+artifacts/api-server/src/lib/job-reconciliation.ts:808:      db.select({ value: count() }).from(discoverySessionsTable).where(and(eq(discoverySessionsTable.status, "discovering"), lt(discoverySessionsTable.leaseUntil, now))),
+artifacts/api-server/src/lib/job-reconciliation.ts:1042:  discoverySessions: number;
+artifacts/api-server/src/lib/job-reconciliation.ts:1049:    const [scanJobs, discoverySessions, aiTasks, aiExecutions, deliveries, expiredUploads] = await Promise.all([
+artifacts/api-server/src/lib/job-reconciliation.ts:1063:    return { scanJobs, discoverySessions, aiTasks, aiExecutions, deliveries, expiredUploads };
+artifacts/api-server/src/lib/job-reconciliation.ts:1066:    return { scanJobs: 0, discoverySessions: 0, aiTasks: 0, aiExecutions: 0, deliveries: 0, expiredUploads: 0 };
+artifacts/api-server/src/lib/scan-runner.ts:253:  // and a legacy /tmp/eos-git-* clone is gone after discovery cleanup. The
+artifacts/api-server/src/lib/scan-runner.ts:263:  // No allowManagedTempRoot here: the scan runner cannot verify discovery
+artifacts/api-server/src/lib/scan-runner.ts:267:  // through discovery, which materializes to a durable workspace root.
+artifacts/api-server/src/lib/job-reconciliation.test.ts:4:import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-reconciliation.test.ts:18:// during reconciliation tests. Without this mock, re-enqueued scan/discovery
+artifacts/api-server/src/lib/job-reconciliation.test.ts:74:      if (id) await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, id));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:236:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:240:      rootPath: "/tmp/reconcile-discovery-test",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:250:    expect(result.discoverySessions).toBeGreaterThanOrEqual(1);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:254:      .from(discoverySessionsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:255:      .where(eq(discoverySessionsTable.id, sessionId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:264:  it("re-enqueues pending discovery sessions without marking them errored", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:266:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:270:      rootPath: "/tmp/reconcile-pending-discovery",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:280:    expect(result.discoverySessions).toBeGreaterThanOrEqual(1);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:286:      .from(discoverySessionsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:287:      .where(eq(discoverySessionsTable.id, sessionId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:299:  it("bounds abandoned discovery and AI-task workers by expiring their leases", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:302:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:306:      rootPath: "/tmp/reconcile-expired-discovery",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:332:    const [session] = await db.select().from(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:391:  it("leaves ready/imported discovery sessions untouched", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:393:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:397:      rootPath: "/tmp/reconcile-discovery-ready",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:411:      .from(discoverySessionsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:412:      .where(eq(discoverySessionsTable.id, sessionId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:686:        await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, id));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:704:    await db.insert(discoverySessionsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:708:      rootPath: `/tmp/reconcile-discovery-${sessionId}`,
+artifacts/api-server/src/lib/remediation-plan.test.ts:47:        type: "discovery",
+artifacts/api-server/src/lib/job-queue.ts:4: * Scan and discovery jobs used to be pure fire-and-forget (`void
+artifacts/api-server/src/lib/job-queue.ts:6: * running at once. A burst of scan/discovery requests could pile up enough
+artifacts/api-server/src/lib/job-queue.ts:18: * deduplication. All DB-backed jobs (scan, discovery, AI tasks) should use
+artifacts/api-server/src/lib/job-queue.ts:147:   * Use this for all DB-backed jobs (scan, discovery, AI tasks) where the
+artifacts/api-server/src/lib/job-queue.ts:230:// Scan and discovery jobs are both heavy, CPU/FS-bound pipelines that
+artifacts/api-server/src/lib/discovery-runner.ts:2: * Background discovery pipeline runner.
+artifacts/api-server/src/lib/discovery-runner.ts:4: * Extracted from routes/discovery.ts so the same function can be called
+artifacts/api-server/src/lib/discovery-runner.ts:19:  discoverySessionsTable,
+artifacts/api-server/src/lib/discovery-runner.ts:73:    .update(discoverySessionsTable)
+artifacts/api-server/src/lib/discovery-runner.ts:75:    .where(eq(discoverySessionsTable.id, id));
+artifacts/api-server/src/lib/discovery-runner.ts:316:// ─── Background discovery pipeline ────────────────────────────────────────────
+artifacts/api-server/src/lib/discovery-runner.ts:319: * Run the full discovery pipeline for a session.
+artifacts/api-server/src/lib/discovery-runner.ts:339:    logger.error({ lockErr, sessionId }, "discovery-runner: advisory lock acquisition failed; proceeding without lock");
+artifacts/api-server/src/lib/discovery-runner.ts:346:      "discovery-runner: advisory lock busy — another instance is already running this session; skipping",
+artifacts/api-server/src/lib/discovery-runner.ts:359:      "discovery-runner: could not claim session — not in pending state; skipping",
+artifacts/api-server/src/lib/discovery-runner.ts:363:        logger.warn({ releaseErr, sessionId }, "discovery-runner: failed to release advisory lock after claim miss");
+artifacts/api-server/src/lib/discovery-runner.ts:372:      logger.warn({ hbErr, sessionId }, "discovery-runner: heartbeat failed");
+artifacts/api-server/src/lib/discovery-runner.ts:504:            type: "discovery",
+artifacts/api-server/src/lib/discovery-runner.ts:554:      sourceProvenance: "discovery",
+artifacts/api-server/src/lib/discovery-runner.ts:588:        logger.warn({ releaseErr, sessionId }, "discovery-runner: failed to release advisory lock");
+artifacts/api-server/src/lib/job-lease.ts:25:import { scanJobsTable, discoverySessionsTable, tasksTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-lease.ts:41: * How long a discovery-session worker's lease stays valid between
+artifacts/api-server/src/lib/job-lease.ts:49:/** How often a discovery-session worker should heartbeat (ms). */
+artifacts/api-server/src/lib/job-lease.ts:165: * Atomically transition a discovery_session from pending → discovering,
+artifacts/api-server/src/lib/job-lease.ts:176:    .update(discoverySessionsTable)
+artifacts/api-server/src/lib/job-lease.ts:185:        eq(discoverySessionsTable.id, sessionId),
+artifacts/api-server/src/lib/job-lease.ts:186:        eq(discoverySessionsTable.status, "pending"),
+artifacts/api-server/src/lib/job-lease.ts:189:    .returning({ id: discoverySessionsTable.id });
+artifacts/api-server/src/lib/job-lease.ts:194: * Extend a discovery session's lease. Silently no-ops if the workerId
+artifacts/api-server/src/lib/job-lease.ts:205:    .update(discoverySessionsTable)
+artifacts/api-server/src/lib/job-lease.ts:209:        eq(discoverySessionsTable.id, sessionId),
+artifacts/api-server/src/lib/job-lease.ts:210:        eq(discoverySessionsTable.workerId, workerId),
+artifacts/api-server/src/lib/job-lease.ts:216: * Release the lease fields for a discovery session after completion or

@@ -1,0 +1,90 @@
+artifacts/api-server/src/services/workflow-service.ts:34:export function checkAdvanceCondition(
+.local/skills/video-js/references/first-build.md:74:`scene-selectors.md` owns the final workflow restart, log check, and `presentArtifact` call. Once that file's steps complete, the first build is done -- do NOT restart the workflow again and do NOT call `presentArtifact` a second time.
+.local/skills/video-js/references/scene-selectors.md:519:4. Call `presentArtifact`.
+artifacts/api-server/src/lib/operational-readiness-gate.ts:68:function check(
+artifacts/api-server/src/lib/db-rate-limiter.ts:36:export async function checkProjectRateLimitDb(
+artifacts/api-server/src/lib/archive-safety.ts:41:function checkLimits(entryCount: number, expandedBytes: number, entryBytes: number): number {
+artifacts/api-server/src/lib/ai-execution-state.ts:980:export async function checkpointAiExecution(params: {
+artifacts/api-server/src/lib/ai-analysis-tools.ts:24:function check(signal?: AbortSignal): void {
+.local/skills/expo/SKILL.md:23:Immediately before writing UI, inspect the current Artifacts state or call `listArtifacts()` filtered to `kind: "design-system"`. Do not rely on whether a design system existed at the start of the turn; one may have been created earlier in this turn.
+.local/skills/follow-up-tasks/SKILL.md:42:Before marking your task as complete, propose up to 3 follow-up tasks by calling `proposeFollowUpTasks` -- NOT `bulkCreateProjectTasks` or `createProjectTask`. The `proposeFollowUpTasks` callback automatically links follow-ups to your current task as the parent -- required for correct task hierarchy. Submit them all in a single call with clear titles, descriptions, and a `category` (required). Keep only the highest-impact follow-ups. Each description should include relevant file paths and enough context for another agent to pick up the work independently.
+.local/skills/follow-up-tasks/SKILL.md:52:If your current task already has downstream tasks depending on it (listed in your task assignment), skip calling `proposeFollowUpTasks` entirely -- those tasks already cover the planned next steps.
+.local/skills/follow-up-tasks/SKILL.md:54:`proposeFollowUpTasks` is **one-shot per assigned project task** -- not per turn, not per subfeature, not per `markTaskComplete` cycle. The system rejects duplicate calls. If you're marking complete again after more work on the same assigned task, review your previously proposed follow-ups; if any are now stale, call `markFollowUpTaskObsolete` to retract them.
+.local/skills/follow-up-tasks/SKILL.md:60:- Call `proposeFollowUpTasks` only on turns where the system reminder explicitly offers it. If it is not offered, or nothing genuinely useful qualifies, do not call it.
+.local/skills/follow-up-tasks/SKILL.md:67:const { proposed: followUps } = await proposeFollowUpTasks({
+.local/skills/data-visualization/SKILL.md:116:- **Schema exploration uses `executeSql` with a `LIMIT`** -- never full table scans
+.local/skills/data-visualization/SKILL.md:120:The `executeSql` tool (used inside the `codeExecution` sandbox for ad hoc data queries)
+.local/skills/data-visualization/references/report-workflow.md:25:await presentArtifact({artifactId: result.artifactId});
+.local/skills/data-visualization/references/report-workflow.md:29:**CRITICAL RULES:** Same as dashboard -- `presentArtifact` then IMMEDIATELY `screenshot`. No text output, no confirmation questions between them.
+.local/skills/data-visualization/references/explorer-workflow.md:43:await presentArtifact({artifactId: result.artifactId});
+.local/skills/data-visualization/references/explorer-workflow.md:47:**CRITICAL RULES:** Same as dashboard -- `presentArtifact` then IMMEDIATELY `screenshot`. No text output, no confirmation questions between them.
+.local/skills/database/SKILL.md:10:Every project comes with a PostgreSQL database already provisioned. There is no create-database step and no `createDatabase()` callback — the database always exists. Use `checkDatabase()` only to confirm it is reachable, then go straight to `executeSql()`.
+.local/skills/database/SKILL.md:89:### executeSql()
+.local/skills/database/SKILL.md:97:  - **Single-statement only.** When `params` is provided (including `params: []`), `sqlQuery` MUST be a single SQL statement. Semicolon-delimited multi-statement scripts (`BEGIN; ...; COMMIT;`, migration batches, etc.) are rejected on the parameterized path. Send them as a single `executeSql` call WITHOUT `params` -- separate calls do NOT share a transaction or session, so splitting would silently lose atomicity. Validate any interpolated values against a strict allowlist before embedding them.
+.local/skills/database/SKILL.md:120:const result = await executeSql({ sqlQuery: `SELECT * FROM users WHERE id = ${userId}` });
+.local/skills/database/SKILL.md:123:const result = await executeSql({
+.local/skills/database/SKILL.md:133:await executeSql({
+.local/skills/database/SKILL.md:141:await executeSql({ sqlQuery: "SELECT * FROM $1 WHERE id = $2", params: [tableName, userId] });
+.local/skills/database/SKILL.md:146:await executeSql({
+.local/skills/database/SKILL.md:154:1. **For independent statements that don't need shared transaction or session state**, you can split them into separate `executeSql` calls each with its own `params` (e.g., a sequence of unrelated INSERTs into different tables). Note that separate `executeSql` calls do NOT share a connection, transaction, or session -- temp tables, `SET LOCAL` GUCs, and `BEGIN`/`COMMIT` will not carry across calls.
+.local/skills/database/SKILL.md:155:2. **For scripts that DO need transactional atomicity or session state** (most multi-statement writes, migrations, scripts that depend on temp tables), send the whole script as a single `executeSql` call without `params`. Validate any interpolated values against a strict allowlist (e.g. integers only, identifier whitelist) before embedding them in the SQL string. Treat any interpolated value as a potential injection vector -- never interpolate free-form user text.
+.local/skills/database/SKILL.md:163:const result = await executeSql({
+.local/skills/database/SKILL.md:172:const result1b = await executeSql({ sqlQuery: "SELECT * FROM users LIMIT 5" });
+.local/skills/database/SKILL.md:175:const result2 = await executeSql({
+.local/skills/database/SKILL.md:186:const result3 = await executeSql({
+.local/skills/database/SKILL.md:192:const result3b = await executeSql({
+.local/skills/database/SKILL.md:198:const result3c = await executeSql({
+.local/skills/database/SKILL.md:204:const result4 = await executeSql({
+.local/skills/database/SKILL.md:216:const result5 = await executeSql({
+.local/skills/database/SKILL.md:227:// SET LOCAL, etc.) MUST run as a single executeSql call WITHOUT `params`
+.local/skills/database/SKILL.md:233:const result = await executeSql({
+.local/skills/database/SKILL.md:255:**Treat `executeSql` as an expensive debugging/exploration tool when `target` is a warehouse.**
+.local/skills/database/SKILL.md:257:### Use `executeSql` against a warehouse ONLY for these cases
+.local/skills/database/SKILL.md:266:### Do NOT use `executeSql` against a warehouse for these cases
+.local/skills/database/SKILL.md:290:Hand off to the `data-visualization` skill. Use `executeSql` only for the initial
+.local/skills/database/SKILL.md:292:API server with DB-backed caching -- not in repeated `executeSql` calls from the agent
+.local/skills/database/SKILL.md:299:3. **ALWAYS use parameterized queries with user input on the `replit_database` single-statement path**: When `target` is `replit_database` (the default) and `sqlQuery` is a single statement, you MUST use the `params` argument with `$1`, `$2`, etc. placeholders for any user-provided literal value. NEVER use string interpolation, template literals, or concatenation for values in that case. For dynamic identifiers (table/column names) or SQL keywords (sort directions, operators), validate against a strict allowlist before interpolating since `params` cannot bind those. For warehouse targets and multi-statement transactional scripts where `params` is not supported, send the whole script as a single `executeSql` call and validate any interpolated values against a strict allowlist; only split into separate calls when the statements are truly independent and don't share transaction or session state.
+.local/skills/database/SKILL.md:324:await executeSql({
+.local/skills/database/SKILL.md:335:await executeSql({
+.local/skills/database/SKILL.md:341:const result = await executeSql({ sqlQuery: "SELECT * FROM users" });
+.local/skills/database/references/database-migrations-on-publish.md:37:- Use `executeSql({ environment: "production" })` for DDL. Production access is read-only and DDL calls will fail; the right answer is the Publish flow, not finding a way around the read-only guard.
+.local/skills/data-visualization/references/dashboard-workflow.md:11:await presentArtifact({artifactId: result.artifactId});
+.local/skills/data-visualization/references/dashboard-workflow.md:19:- Your NEXT action after `presentArtifact` MUST be calling `screenshot`. No text output, no confirmation questions, no pauses.
+.local/skills/artifacts/SKILL.md:144:### listArtifacts()
+.local/skills/artifacts/SKILL.md:161:const { artifacts } = await listArtifacts();
+.local/skills/artifacts/SKILL.md:196:### presentArtifact({ artifactId, shapeIds? })
+.local/skills/artifacts/SKILL.md:202:- `artifactId` (str, required): The stable artifact ID returned by `createArtifact()` or `listArtifacts()`.
+.local/skills/artifacts/SKILL.md:215:await presentArtifact({ artifactId: result.artifactId });
+.local/skills/artifacts/SKILL.md:220:The TypeScript runtime currently registers `createArtifact`, `listArtifacts`, `verifyAndReplaceArtifactToml`, and `presentArtifact` from this skill.
+.local/skills/artifacts/SKILL.md:222:## Delivering the Result -- `presentArtifact` + `SuggestUserAction`
+.local/skills/artifacts/SKILL.md:227:await presentArtifact({ artifactId: result.artifactId });
+.local/skills/artifacts/SKILL.md:235:await presentArtifact({ artifactId: result.artifactId });
+.local/skills/artifacts/SKILL.md:253:For an artifact you just created, read the exact names from the `workflows` map that `createArtifact()` returned (e.g. `result.workflows.web`) instead of guessing the service name. For an artifact you did not create this turn, form the exact name from the service name in its `artifact.toml` or from workflow log output (`listArtifacts()` returns the `artifactId` but not service or workflow names). Managed artifact workflows inject their configured `PORT`, `BASE_PATH`, and routing metadata; do not copy those values into a manually configured workflow or start artifact dev commands directly.
+.local/skills/artifacts/SKILL.md:309:await presentArtifact({ artifactId: result.artifactId });
+.local/skills/artifacts/SKILL.md:328:await presentArtifact({ artifactId: result.artifactId });
+.local/skills/data-visualization/references/common-data-sources.md:74:const tables = await executeSql({ sqlQuery: `SELECT table_schema, table_name FROM INFORMATION_SCHEMA.TABLES`, target: "bigquery" });
+.local/skills/canvas/SKILL.md:526:4. **CRITICAL -- Present the result.** After your final canvas action, bind the mockup sandbox artifact ID from `listArtifacts()`, then call `presentArtifact({ artifactId: mockupArtifact.artifactId, shapeIds: [...] })` with the IDs of all shapes you created or modified. This is how the user finds your work -- without it, they cannot navigate to the shapes. Do NOT skip this step. Do NOT ask the user if they want to focus -- just present.
+.local/skills/canvas/SKILL.md:540:3. **Always call `presentArtifact` after canvas work.** After creating or modifying shapes, pass all affected shape IDs to `presentArtifact`. Never skip this. Never ask the user if they want to see the shapes. Do NOT call `focusCanvasShapes` as a separate step (except for the narrow first-build mockup exception above).
+.local/skills/pnpm-workspace/SKILL.md:144:If you are creating or updating an artifact, follow the `artifacts` skill for the artifact lifecycle (`createArtifact`, `verifyAndReplaceArtifactToml`, `presentArtifact`, and, for deployable artifacts that are ready to publish, `SuggestUserAction({ action: "deploy", message: "The artifact is ready to publish." })`) instead of redefining it here.
+.local/skills/query-integration-data/SKILL.md:359:any warehouse query (via `executeSql` or `executeSql({target: "bigquery"})`) follow
+.local/skills/query-integration-data/SKILL.md:389:**Step 1: Schema Discovery** -- Run a single `executeSql` call to get the full table list.
+.local/skills/query-integration-data/SKILL.md:393:const tables = await executeSql({ sqlQuery: `SELECT table_schema, table_name, row_count FROM \`project.region-us\`.INFORMATION_SCHEMA.TABLES WHERE table_schema NOT IN ('INFORMATION_SCHEMA') ORDER BY table_schema, table_name`, target: "bigquery" });
+.local/skills/query-integration-data/SKILL.md:396:const tables = await executeSql({ sqlQuery: `SELECT TABLE_SCHEMA, TABLE_NAME, ROW_COUNT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA') ORDER BY TABLE_SCHEMA, TABLE_NAME`, target: "snowflake" });
+.local/skills/query-integration-data/SKILL.md:399:const tables = await executeSql({ sqlQuery: `SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema') ORDER BY table_schema, table_name`, target: "databricks" });
+.local/skills/query-integration-data/SKILL.md:416:Connection: Use executeSql({ sqlQuery: "...", target: "bigquery" }) -- always pass target.
+.local/skills/mockup-sandbox/SKILL.md:145:**Empty-canvas exception.** If `getCanvasState` shows the canvas is empty -- `focusedShapes`, `blurryShapes`, **and** `peripheralClusters` all empty (the `summary` count alone misses off-screen content) -- follow the placement with one `focusCanvasShapes` call on the placeholder IDs in the same execution. Otherwise default rule (`presentArtifact` only). For 3+ placeholders, layer on `align`/`distribute` per the "Variant grid layout" paragraph above; for 1-2 placeholders skip them -- `align` requires 2+ shapes and `distribute` requires 3+, so an unconditional batch fails before any placeholder is shown.
+.local/skills/mockup-sandbox/SKILL.md:162:**Clean up the layout before presenting.** Before the final `presentArtifact` call (Step 5), align and distribute any row or column of 3+ iframes you placed. This produces a pixel-perfect layout that hand-computed coordinates usually miss by a few units, and it's what the user first sees when they focus on your work. For a 2-shape pair (e.g. before/after), align the shared edge but set the gap on create -- `distribute` rejects 2 shapes.
+.local/skills/mockup-sandbox/SKILL.md:172:**CRITICAL -- Always present after canvas work.** After all mockups are embedded, you MUST call `presentArtifact` with the shape IDs. This is how the user navigates to your work -- without it, they cannot find the shapes you placed. Never skip this step. Never ask the user if they want to see the shapes -- just present.
+.local/skills/mockup-sandbox/SKILL.md:176:const { artifacts } = await listArtifacts();
+.local/skills/mockup-sandbox/SKILL.md:178:await presentArtifact({ artifactId: mockupArtifact.artifactId, shapeIds: ["shape-id-1", "shape-id-2"] });
+.local/skills/mockup-sandbox/SKILL.md:494:    -- presentArtifact with shapeIds
+.local/skills/mockup-sandbox/SKILL.md:532:5. After all subagents complete: restart workflow, call `presentArtifact` with all shape IDs.
+.local/skills/mockup-sandbox/SKILL.md:587:5. After all subagents complete: restart workflow, call `presentArtifact` with all shape IDs.
+.local/skills/design-system-creation/SKILL.md:1204:themed template once with `presentArtifact({ artifactId })` and ask a single
+.local/skills/design-system-creation/SKILL.md:1211:`presentArtifact({ artifactId })` so the rendered pilot (its Overview) opens, then
+.local/skills/design-system-creation/SKILL.md:1251:Then present the completed system with `presentArtifact({ artifactId })` so the
+.local/skills/project-tasks/SKILL.md:130:### markTaskComplete(...)
+.local/skills/project-tasks/SKILL.md:132:When an assigned project task is done, call `markTaskComplete({...})` as the final callback in CodeExecution. Do not call it while creating or editing task plans.
+.local/skills/project-tasks/SKILL.md:145:**Returns:** `{ kind: "markTaskComplete", outcome, text }`. If `outcome` is not `"completed"`, read `text`, address the issue, and call `markTaskComplete` again when ready.
+.local/skills/project-tasks/SKILL.md:150:await markTaskComplete({
+.local/skills/project-tasks/SKILL.md:155:await markTaskComplete({

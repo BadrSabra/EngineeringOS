@@ -1,0 +1,284 @@
+1:import { afterEach, describe, expect, it } from "vitest";
+2:import request from "supertest";
+3:import { eq } from "drizzle-orm";
+4:import app from "../app.js";
+5:import {
+6-  db,
+7-  discoverySessionsTable,
+8-  projectsTable,
+9-  metricsTable,
+10-  eventsTable,
+11-  tasksTable,
+12-} from "@workspace/db";
+13:import { randomUUID } from "crypto";
+14:import type { DiscoveryResultData } from "@workspace/db";
+15-
+16-let sessionId: string | null = null;
+17-let projectId: string | null = null;
+18-
+19-function fakeResult(overrides: Partial<DiscoveryResultData> = {}): DiscoveryResultData {
+--
+62-  });
+63-  sessionId = id;
+64-  return id;
+65-}
+66-
+67:async function cleanupSessionAndProject(): Promise<void> {
+68-  if (projectId) {
+69-    await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId));
+70-    await db.delete(metricsTable).where(eq(metricsTable.projectId, projectId));
+71-    await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+72-    await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+--
+76-    await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId));
+77-    sessionId = null;
+78-  }
+79-}
+80-
+81:describe("POST /api/projects/import — atomic claim", () => {
+82:  afterEach(cleanupSessionAndProject);
+83-
+84:  it("imports a ready session exactly once and rejects a concurrent second import", async () => {
+85-    const discoveryId = await insertReadySession(fakeResult());
+86-
+87-    const [first, second] = await Promise.all([
+88:      request(app).post("/api/projects/import").send({ discoveryId }),
+89:      request(app).post("/api/projects/import").send({ discoveryId }),
+90-    ]);
+91-
+92-    const statuses = [first.status, second.status].sort();
+93-    expect(statuses).toEqual([201, 409]);
+94-
+95-    const winner = first.status === 201 ? first : second;
+96-    projectId = winner.body.id;
+97-
+98-    // DB-level proof: exactly one project row exists for this discovery
+99:    // session's imported id, and the session was claimed exactly once.
+100-    const projectRows = await db
+101-      .select()
+102-      .from(projectsTable)
+103-      .where(eq(projectsTable.id, winner.body.id));
+104-    expect(projectRows).toHaveLength(1);
+--
+106-    const session = await db
+107-      .select()
+108-      .from(discoverySessionsTable)
+109-      .where(eq(discoverySessionsTable.id, discoveryId))
+110-      .limit(1);
+111:    expect(session[0]?.status).toBe("imported");
+112:    expect(session[0]?.importedProjectId).toBe(winner.body.id);
+113-  });
+114-
+115:  it("returns 409 when importing a session that is not in ready state", async () => {
+116-    const discoveryId = await insertReadySession(fakeResult());
+117-    await db
+118-      .update(discoverySessionsTable)
+119-      .set({ status: "discovering" })
+120-      .where(eq(discoverySessionsTable.id, discoveryId));
+121-
+122:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+123-    expect(res.status).toBe(409);
+124-  });
+125-
+126-  it("returns 404 for an unknown discovery session", async () => {
+127-    const res = await request(app)
+128:      .post("/api/projects/import")
+129-      .send({ discoveryId: randomUUID() });
+130-    expect(res.status).toBe(404);
+131-  });
+132-
+133:  it("creates tasks capped at 20 from rule violations on import", async () => {
+134-    const violations = Array.from({ length: 30 }, (_, i) => ({
+135-      code: `RULE_${i}`,
+136-      title: `Violation ${i}`,
+137-      severity: "medium",
+138-      count: 1,
+139-    }));
+140-    const discoveryId = await insertReadySession(fakeResult({ ruleViolations: violations }));
+141-
+142:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+143-    expect(res.status).toBe(201);
+144-    projectId = res.body.id;
+145-
+146-    const tasks = await db.select().from(tasksTable).where(eq(tasksTable.projectId, res.body.id));
+147-    expect(tasks.length).toBe(20);
+
+    // Session A
+    const sidA = randomUUID();
+    await db.insert(discoverySessionsTable).values({
+      id: sidA,
+      ownerId: "test-user",
+      status: "ready",
+      rootPath: sharedRoot,
+      sourceType: "LOCAL_FOLDER",
+      progress: 100,
+      steps: [],
+      result: fakeResult(),
+      startedAt: new Date(),
+      completedAt: new Date(),
+    });
+    createdSessionIds.push(sidA);
+
+    // Session B — different session, same rootPath
+    const sidB = randomUUID();
+    await db.insert(discoverySessionsTable).values({
+      id: sidB,
+      ownerId: "test-user",
+      status: "ready",
+      rootPath: sharedRoot,
+      sourceType: "LOCAL_FOLDER",
+      progress: 100,
+      steps: [],
+      result: fakeResult(),
+      startedAt: new Date(),
+      completedAt: new Date(),
+    });
+    createdSessionIds.push(sidB);
+
+    const resA = await request(app).post("/api/projects/import").send({ discoveryId: sidA });
+    expect(resA.status).toBe(201);
+    createdProjectIds.push(resA.body.id);
+
+    // Importing B must fail — same rootPath already has a project.
+    const resB = await request(app).post("/api/projects/import").send({ discoveryId: sidB });
+    expect(resB.status).toBe(409);
+    expect(resB.body.error).toMatch(/root path already exists/i);
+
+    // Session B must not have been claimed (still "ready").
+    const sessionB = await db
+      .select()
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, sidB))
+      .limit(1);
+    expect(sessionB[0]?.status).toBe("ready");
+    expect(sessionB[0]?.importedProjectId).toBeNull();
+  });
+});
+
+describe("Git discovery → durable import", () => {
+  let fixtureRoot: string | undefined;
+  let server: Server | undefined;
+
+  afterEach(async () => {
+    if (server) {
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      server = undefined;
+    }
+    if (fixtureRoot) {
+      await rm(fixtureRoot, { recursive: true, force: true });
+      fixtureRoot = undefined;
+    }
+    await cleanupSessionAndProject();
+  });
+
+  it("materializes the clone before temp cleanup and removes it with the project", async () => {
+    fixtureRoot = `/home/runner/workspace/.test-roots/git-e2e-${randomUUID()}`;
+    const worktree = join(fixtureRoot, "worktree");
+    const bareRepo = join(fixtureRoot, "repo.git");
+    await mkdir(worktree, { recursive: true });
+    await execFileAsync("git", ["init", "-q", worktree]);
+    await execFileAsync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", worktree, "config", "user.name", "EngineeringOS Test"]);
+    await writeFile(join(worktree, "package.json"), "{}\n");
+    await writeFile(join(worktree, "README.md"), "git durable fixture\n");
+    await execFileAsync("git", ["-C", worktree, "add", "."]);
+    await execFileAsync("git", ["-C", worktree, "commit", "-q", "-m", "fixture"]);
+    await execFileAsync("git", ["clone", "--bare", "-q", worktree, bareRepo]);
+    await execFileAsync("git", ["--git-dir", bareRepo, "update-server-info"]);
+
+    // Serve the bare repository through Git's real smart-HTTP CGI backend.
+    // The production adapter uses a shallow clone, which dumb HTTP cannot
+    // serve ("dumb http transport does not support shallow capabilities").
+    server = createServer(async (req, res) => {
+      const parsed = new URL(req.url ?? "/", "http://127.0.0.1");
+      const child = spawn("git", ["http-backend"], {
+        env: {
+          ...process.env,
+          GIT_PROJECT_ROOT: fixtureRoot!,
+          GIT_HTTP_EXPORT_ALL: "1",
+          PATH_INFO: parsed.pathname,
+          QUERY_STRING: parsed.searchParams.toString(),
+          REQUEST_METHOD: req.method ?? "GET",
+          CONTENT_TYPE: req.headers["content-type"] ?? "",
+          CONTENT_LENGTH: req.headers["content-length"] ?? "",
+          REMOTE_ADDR: "127.0.0.1",
+          SERVER_NAME: "127.0.0.1",
+          SERVER_PORT: String((server!.address() as { port: number }).port),
+          SERVER_PROTOCOL: "HTTP/1.1",
+        },
+      });
+      const output: Buffer[] = [];
+      child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
+      child.stderr.resume();
+      child.on("close", () => {
+        const payload = Buffer.concat(output);
+        const separator = Buffer.from("\r\n\r\n");
+        const headerEnd = payload.indexOf(separator);
+        if (headerEnd < 0) {
+          res.statusCode = 502;
+          res.end("Invalid git backend response");
+          return;
+        }
+        const headerLines = payload.subarray(0, headerEnd).toString("utf8").split("\r\n");
+        let status = 200;
+        for (const line of headerLines) {
+          const separatorIndex = line.indexOf(":");
+          if (separatorIndex < 0) continue;
+          const name = line.slice(0, separatorIndex);
+          const value = line.slice(separatorIndex + 1).trim();
+          if (name.toLowerCase() === "status") {
+            status = Number.parseInt(value, 10) || 200;
+          } else {
+            res.setHeader(name, value);
+          }
+        }
+        res.statusCode = status;
+        res.end(payload.subarray(headerEnd + separator.length));
+      });
+      req.pipe(child.stdin);
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Git fixture server did not bind a port");
+
+    const start = await request(app)
+      .post("/api/projects/discover")
+      .send({
+        sourceType: "GIT_REPOSITORY",
+        sourceConfig: { url: `http://127.0.0.1:${address.port}/repo.git` },
+      });
+    expect(start.status).toBe(202);
+    const discoveryId = start.body.id as string;
+    sessionId = discoveryId;
+
+    let session: { status: string; rootPath: string } | undefined;
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const statusResponse = await request(app).get(`/api/projects/discover/${discoveryId}`);
+      session = statusResponse.body;
+      if (session?.status === "ready" || session?.status === "error") break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    expect(session?.status).toBe("ready");
+    const [storedSession] = await db
+      .select({ rootPath: discoverySessionsTable.rootPath })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, discoveryId))
+      .limit(1);
+    expect(storedSession?.rootPath.startsWith(`${MANAGED_PROJECT_ROOTS_DIR}/`)).toBe(true);
+    await expect(access(storedSession!.rootPath)).resolves.toBeUndefined();
+
+    const imported = await request(app)
+      .post("/api/projects/import")
+      .send({ discoveryId });
+    expect(imported.status).toBe(201);
+    projectId = imported.body.id;
+    expect(imported.body.rootPath).toBe(storedSession!.rootPath);
+    expect(imported.body.rootPath).toContain(MANAGED_PROJECT_ROOTS_DIR);
+
+    const deleted = await request(app).delete(`/api/projects/${projectId}`);
+    expect(deleted.status).toBe(204);
+    await expect(access(storedSession!.rootPath)).rejects.toThrow();
+  });
+});

@@ -1,0 +1,469 @@
+import { randomUUID } from "crypto";
+import { mkdirSync, rmSync } from "node:fs";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { execFile } from "node:child_process";
+import { dirname, join } from "node:path";
+import type { DiscoveryResultData } from "@workspace/db";
+import { MANAGED_PROJECT_ROOTS_DIR } from "../lib/project-materialization.js";
+import { EOS_GIT_TEMP_PREFIX } from "../lib/path-validation.js";
+
+const execFileAsync = promisify(execFile);
+const OTHER_USER = "someone-else";
+
+// The production app supplies the authenticated identity before mounting the
+// route tree. This small route-level app lets the ownership tests exercise the
+// same handlers with a foreign identity without weakening the test auth bypass
+// used by the rest of the suite.
+const foreignOwnerApp = express();
+foreignOwnerApp.use(express.json());
+foreignOwnerApp.use((req, _res, next) => {
+  req.userId = OTHER_USER;
+  next();
+});
+foreignOwnerApp.use(discoveryRouter);
+
+// ─── Shared fixtures ──────────────────────────────────────────────────────────
+
+let sessionId: string | null = null;
+let projectId: string | null = null;
+
+function fakeResult(overrides: Partial<DiscoveryResultData> = {}): DiscoveryResultData {
+  return {
+    detectedName: "test-project",
+    detectedLanguage: "typescript",
+    detectedLanguages: ["typescript"],
+    detectedFramework: null,
+    detectedRuntime: "Node.js",
+    detectedPackageManager: "pnpm",
+    detectedArchitecture: "Monolith",
+    detectedDb: null,
+    detectedOrm: null,
+describe("GET /projects/discover/:id — session polling", () => {
+  afterEach(cleanupSessionAndProject);
+
+  it("returns 404 with a deterministic error message for an unknown session", async () => {
+    const res = await request(app).get(`/api/projects/discover/${randomUUID()}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("Discovery session not found");
+  });
+
+  it("returns 200 with session data for a known session", async () => {
+    const id = await insertReadySession(fakeResult());
+    const res = await request(app).get(`/api/projects/discover/${id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(id);
+    expect(res.body.status).toBe("ready");
+    expect(res.body.progress).toBe(100);
+  });
+
+  it("response includes all required session fields", async () => {
+    const id = await insertReadySession(fakeResult());
+    const res = await request(app).get(`/api/projects/discover/${id}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("id");
+    expect(res.body).toHaveProperty("status");
+    expect(res.body).toHaveProperty("progress");
+    expect(res.body).toHaveProperty("currentStep");
+    expect(res.body).toHaveProperty("steps");
+    expect(res.body).toHaveProperty("startedAt");
+    expect(res.body).toHaveProperty("completedAt");
+    expect(res.body).toHaveProperty("error");
+    expect(res.body).toHaveProperty("importedProjectId");
+    expect(typeof res.body.startedAt).toBe("string");
+  });
+
+  it("does not expose polling, summary, or import to a foreign owner", async () => {
+    const discoveryId = await insertReadySession(fakeResult());
+
+    const polling = await request(foreignOwnerApp).get(`/projects/discover/${discoveryId}`);
+    const summary = await request(foreignOwnerApp).get(`/projects/discover/${discoveryId}/summary`);
+    const imported = await request(foreignOwnerApp)
+      .post("/projects/import")
+      .send({ discoveryId });
+
+    for (const response of [polling, summary, imported]) {
+      expect(response.status).toBe(403);
+      expect(response.body.reason).toBe("permission_denied");
+    }
+  });
+});
+
+describe("Discovery cleanup ownership and races", () => {
+  it("retires stale unimported sessions and removes their managed root", async () => {
+    const discoveryId = randomUUID();
+    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `stale-${discoveryId}`);
+    await mkdir(rootPath, { recursive: true });
+    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
+    await db.insert(discoverySessionsTable).values({
+      id: discoveryId,
+      ownerId: "test-user",
+      status: "ready",
+      rootPath,
+      sourceType: "LOCAL_FOLDER",
+      steps: [],
+      result: fakeResult(),
+      startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+    });
+    sessionId = discoveryId;
+
+    await cleanupOldSessions();
+
+    const rows = await db
+      .select({ id: discoverySessionsTable.id })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, discoveryId));
+    expect(rows).toHaveLength(0);
+    await expect(access(rootPath)).rejects.toThrow();
+  });
+
+  it("removes an imported stale session without removing the imported project root", async () => {
+    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `imported-${randomUUID()}`);
+    await mkdir(rootPath, { recursive: true });
+    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
+    const discoveryId = await insertReadySession(fakeResult(), rootPath);
+
+    const imported = await request(app)
+      .post("/api/projects/import")
+      .send({ discoveryId });
+    expect(imported.status).toBe(201);
+    projectId = imported.body.id;
+
+    await db
+      .update(discoverySessionsTable)
+      .set({ startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) })
+      .where(eq(discoverySessionsTable.id, discoveryId));
+    await cleanupOldSessions();
+
+    const sessionRows = await db
+      .select({ id: discoverySessionsTable.id })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, discoveryId));
+    expect(sessionRows).toHaveLength(0);
+    await expect(access(rootPath)).resolves.toBeUndefined();
+    const projectRows = await db
+      .select({ id: projectsTable.id })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId!));
+    expect(projectRows).toHaveLength(1);
+
+    await removeManagedProjectRoot(rootPath);
+  });
+
+  it("does not create an imported project when cleanup wins the ready-session race", async () => {
+    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `race-${randomUUID()}`);
+    await mkdir(rootPath, { recursive: true });
+    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
+    const discoveryId = await insertReadySession(fakeResult(), rootPath);
+    await db
+      .update(discoverySessionsTable)
+      .set({ startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) })
+      .where(eq(discoverySessionsTable.id, discoveryId));
+
+    const [cleanupResult, importResult] = await Promise.all([
+      cleanupOldSessions(),
+      request(app).post("/api/projects/import").send({ discoveryId }),
+    ]);
+    await cleanupResult;
+    expect([201, 404, 409]).toContain(importResult.status);
+
+    if (importResult.status === 201) {
+      projectId = importResult.body.id;
+      await expect(access(rootPath)).resolves.toBeUndefined();
+    } else {
+      const projectRows = await db
+        .select({ id: projectsTable.id })
+        .from(projectsTable)
+        .where(eq(projectsTable.rootPath, rootPath));
+      expect(projectRows).toHaveLength(0);
+      await expect(access(rootPath)).rejects.toThrow();
+    }
+  });
+});
+
+// ─── GET /projects/discover/:id/summary ───────────────────────────────────────
+
+describe("GET /projects/discover/:id/summary", () => {
+  afterEach(cleanupSessionAndProject);
+
+  it("returns 404 for an unknown session", async () => {
+    const res = await request(app).get(`/api/projects/discover/${randomUUID()}/summary`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("Discovery session not found");
+  });
+
+  it("returns 409 with 'Discovery not yet complete' when session is still discovering", async () => {
+    const id = await insertReadySession(fakeResult());
+    await db
+      .update(discoverySessionsTable)
+      .set({ status: "discovering" })
+      .where(eq(discoverySessionsTable.id, id));
+
+    const res = await request(app).get(`/api/projects/discover/${id}/summary`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("Discovery not yet complete");
+  });
+
+  it("returns 409 with 'Discovery not yet complete' when session is in error state", async () => {
+    const id = await insertReadySession(fakeResult());
+    await db
+      .update(discoverySessionsTable)
+      .set({ status: "error" })
+      .where(eq(discoverySessionsTable.id, id));
+
+    const res = await request(app).get(`/api/projects/discover/${id}/summary`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("Discovery not yet complete");
+  });
+
+  it("returns 200 with full result data for a ready session", async () => {
+    const result = fakeResult({ detectedName: "my-project", qualityScore: 85 });
+    const id = await insertReadySession(result);
+
+
+    const res = await request(app).get(`/api/projects/discover/${id}/summary`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(id);
+    expect(res.body.detectedName).toBe("my-project");
+    expect(res.body.qualityScore).toBe(85);
+    expect(res.body.detectedLanguage).toBe("typescript");
+  });
+
+  it("returns 200 for an already-imported session", async () => {
+    const id = await insertReadySession(fakeResult({ detectedName: "imported-project" }));
+    await db
+      .update(discoverySessionsTable)
+      .set({ status: "imported" })
+      .where(eq(discoverySessionsTable.id, id));
+
+    const res = await request(app).get(`/api/projects/discover/${id}/summary`);
+    expect(res.status).toBe(200);
+    expect(res.body.detectedName).toBe("imported-project");
+  });
+});
+
+// ─── POST /projects/import — atomic claim ─────────────────────────────────────
+
+describe("POST /projects/import — atomic claim", () => {
+  afterEach(cleanupSessionAndProject);
+
+  it("imports a ready session exactly once and rejects a concurrent second import", async () => {
+    const discoveryId = await insertReadySession(fakeResult());
+
+    const [first, second] = await Promise.all([
+      request(app).post("/api/projects/import").send({ discoveryId }),
+      request(app).post("/api/projects/import").send({ discoveryId }),
+    ]);
+
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    const winner = first.status === 201 ? first : second;
+    projectId = winner.body.id;
+
+    // DB-level proof: exactly one project row, session claimed exactly once
+    const projectRows = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, winner.body.id));
+    expect(projectRows).toHaveLength(1);
+
+    const session = await db
+      .select()
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, discoveryId))
+      .limit(1);
+    expect(session[0]?.status).toBe("imported");
+    expect(session[0]?.importedProjectId).toBe(winner.body.id);
+  });
+
+  it("returns 409 root_unavailable when the session root is a dead temporary git clone", async () => {
+    const discoveryId = await insertReadySession(
+      fakeResult(),
+      `/tmp/eos-git-${randomUUID()}`,
+    );
+    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("root_unavailable");
+    expect(res.body.hint).toMatch(/re-run discovery/i);
+
+    // Session must NOT be claimed or rebound to another root.
+    const session = await db
+      .select()
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, discoveryId))
+      .limit(1);
+    expect(session[0]?.status).toBe("ready");
+    expect(session[0]?.rootPath).toMatch(/^\/tmp\/eos-git-/);
+  });
+
+  it("rejects a LOCAL_FOLDER session whose root forges the managed /tmp/eos-git prefix, even when the directory exists", async () => {
+    const forged = `/tmp/eos-git-forged-${randomUUID()}`;
+    mkdirSync(forged, { recursive: true });
+    try {
+      const discoveryId = await insertReadySession(fakeResult(), forged);
+      const res = await request(app).post("/api/projects/import").send({ discoveryId });
+      expect(res.status).toBe(422);
+      expect(res.body.reason).toBe("root_unsafe");
+
+      // Session must not be claimed.
+      const session = await db
+        .select()
+        .from(discoverySessionsTable)
+        .where(eq(discoverySessionsTable.id, discoveryId))
+        .limit(1);
+      expect(session[0]?.status).toBe("ready");
+    } finally {
+      rmSync(forged, { recursive: true, force: true });
+    }
+  });
+
+  it("allows a GIT_REPOSITORY session whose managed clone directory still exists", async () => {
+    const cloneDir = `/tmp/eos-git-${randomUUID()}`;
+    mkdirSync(cloneDir, { recursive: true });
+    try {
+      const id = randomUUID();
+      await db.insert(discoverySessionsTable).values({
+        id,
+        ownerId: "test-user",
+        status: "ready",
+        rootPath: cloneDir,
+        sourceType: "GIT_REPOSITORY",
+        progress: 100,
+        currentStep: null,
+        steps: [],
+        result: fakeResult(),
+        startedAt: new Date(),
+        completedAt: new Date(),
+      });
+      sessionId = id;
+
+      const res = await request(app).post("/api/projects/import").send({ discoveryId: id });
+      expect(res.status).toBe(201);
+      expect(res.body.rootPath).toBe(cloneDir);
+      projectId = res.body.id;
+    } finally {
+      rmSync(cloneDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns 422 root_not_found when the session root directory was deleted after discovery", async () => {
+    const discoveryId = await insertReadySession(
+      fakeResult(),
+      `/home/runner/workspace/.test-roots/deleted-${randomUUID()}`,
+| P1 | Recovery transport and refresh behavior need a green cancellation/reconnect/restart journey. | Existing-but-unreliable behavior | Interrupted work may look lost or remain incomplete after reconnect | High for user trust and idempotency | After API cancellation/order fixes |
+| P1 | Discovery durable Git fixture must match its documented async contract. | **Closed for controlled API acceptance** | The focused release check proves the documented 202 → ready → import contract with an approved URL and test-only clone seam; browser and provider-backed journeys remain separate | Medium | Preserve the URL policy and receipt allowlist |
+| P2 | Browser UX should make the critical path and blocked reasons more explicit. | Incomplete UX | Users may not know whether to approve, rerun validation, rebase, or start over | Medium, mostly usability | After P0/P1 correctness |
+| P3 | Broaden general-Agent conveniences: richer recursive investigation, per-subtask streaming, more automatic environment setup. | Optional parity expansion | Improves speed and breadth, not correctness of the specialized product | Low relative to release blockers; may weaken boundedness | Only after production-ready specialized gates |
+
+## 4. Closed work and remaining roadmap
+
+The following items are closed at their available evidence level, not promoted
+to production readiness:
+
+| Closed item | Evidence boundary |
+|---|---|
+| Runtime-oracle/benchmark blocker | `validate:benchmark-scenarios`, deterministic benchmark, and release regression checks pass. The comparator may return `rolloutAllowed: true` for a clean regression comparison, while the approved baseline still has `qualityEligible: false` and `rolloutAllowed: false`; this does not authorize live-quality rollout. |
+| Source-bound release identity | Release evidence carries server-observed source revision with the candidate hash; governance and comparison rules were not changed. |
+| Provider recovery diagnostics | Provider-free API/SSE/dashboard checks cover classified failure states and safe next actions; no live provider quality claim follows. |
+| Validation timeout hardening | Bounded validation and AI operational-safety checks pass; no live promotion or Git push receipt exists. |
+
+The remaining roadmap is intentionally narrower than the earlier version:
+
+Each item has a bounded outcome. These are recommendations only; this task does
+not implement them.
+
+### Immediate fixes (P0)
+
+#### R1 — Keep the provider-free release gate truthful *(closed; regression owner)*
+
+- **Affected surfaces:** `package.json` release scripts; orchestrator benchmark
+  fixtures and OpenRouter contract tests; existing Task 12 benchmark work.
+- **Acceptance:** the required runtime-oracle scenario passes with the expected
+  verdict; the latest AI release decision has 9 passed checks and 0 blocking
+  failures; rollout remains blocked when baseline quality or lineage evidence
+  is incomplete.
+- **Non-goals:** no new benchmark scenario set, no live provider requirement,
+  and no redefining Task 12’s scope.
+- **Dependency/risk:** first gate; high release risk if skipped.
+
+#### R2 — Bound and diagnose isolated validation *(closed for provider-free gate)*
+
+- **Affected surfaces:** `ai-repair-validation.ts`, registered command
+  profiles, release validation fixtures.
+- **Acceptance:** each validation attempt has a finite process/overall deadline,
+  retains a redacted receipt, and ends as passed, failed, blocked, or unavailable
+  rather than timing out the test harness; the two currently timing-out
+  scenarios pass or produce an explicit audited block.
+- **Non-goals:** no model-supplied commands, no weakening candidate/revision
+  binding, and no bypass of validation for apply.
+- **Dependency/risk:** required before promotion/apply E2E; high safety risk.
+
+#### R3 — Repair terminal ordering and stream cancellation *(closed for targeted gate)*
+
+- **Affected surfaces:** `ai-execution-state.ts`, chat route SSE lifecycle,
+  task execution state persistence, cancellation/reconnect fixtures.
+- **Acceptance:** out-of-order writes cannot overwrite newer task state;
+  cancellation preserves collected evidence and terminalizes as incomplete;
+  a browser/client reconnect receives the durable terminal state exactly once.
+- **Non-goals:** no optimistic “success” after disconnect and no deletion of
+  retained evidence.
+- **Dependency/risk:** after R2’s bounded process behavior; high durability risk.
+
+### Hardening (P1)
+
+#### R4 — Run the controlled critical-path acceptance campaign
+
+- **Affected surfaces:** API routes, dashboard `AiChat`, `FlightDeck`,
+  `MissionControl`, discovery and Git routes.
+- **Acceptance:** in a disposable authenticated project, capture pass/fail
+  receipts for discovery → chat SSE → analyze/review → task/workflow terminal
+  state → plan approval → isolated validation → apply → rebase conflict/retry
+  → cancellation/restart reload → audit export → scoped commit/push.
+- **Non-goals:** no production deployment, no broad live campaign, and no claim
+  that a single passing fixture proves all providers.
+- **Dependency/risk:** requires a controlled provider and browser runtime;
+  highest evidence value after R1–R3.
+
+#### R5 — Ship catalog/provider diagnostics
+
+- **Affected surfaces:** `dynamic-catalog.ts`, OpenRouter resolver/strategy,
+  API error projection, Mission Control/AiChat diagnostics.
+- **Acceptance:** distinguish missing key, authentication, no compatible free
+  model, stale/expired catalog, rate limit, quota, circuit-open, and provider
+  outage; show a safe operator action and retain a correlation identifier.
+- **Non-goals:** do not treat a failed refresh as proof that the provider has no
+  models; do not expose keys or raw provider diagnostics to users; do not
+  duplicate the existing fallback/circuit-breaker implementation.
+- **Dependency/risk:** builds on the existing OpenRouter stabilization; medium
+  reliability and UX risk.
+
+#### R6 — Align discovery fixture and async contract
+
+- **Affected surfaces:** discovery route/client contract and its durable Git
+  fixture.
+- **Acceptance:** the documented source-start response (202 where applicable)
+  and subsequent session/summary/import states agree in the focused release
+  check; it also retains sanitized lifecycle metadata and covers URL rejection,
+  owner boundaries, durable-root cleanup, missing roots, concurrent cleanup,
+  and repeated import.
+- **Non-goals:** no new repository providers or import UX redesign.
+- **Dependency/risk:** independent of provider AI; medium onboarding impact.
+
+### UX improvements (P2)
+
+#### R7 — Make next safe action explicit
+
+- **Affected surfaces:** `AiChat.tsx`, `MissionControl.tsx`, `FlightDeck.tsx`.
+- **Acceptance:** every blocked, conflicted, cancelled, unavailable, and
+  retained-with-gaps state displays one safe next action (refresh, re-scan,
+  re-approve, resume validation, rebase, discard, or manual review), with the
+  operation/revision context.
+- **Non-goals:** no automatic apply, silent retry, or removal of evidence
+  warnings.
+- **Dependency/risk:** after terminal states and receipts are reliable; medium
+  usability impact.
+
+### Optional Replit-like expansions (P3)
+
+#### R8 — Add bounded breadth conveniences

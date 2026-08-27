@@ -1,0 +1,228 @@
+artifacts/api-server/src/routes/discovery.ts
+4:  discoverySessionsTable,
+30:} from "../lib/discovery-adapters.js";
+34:import { runDiscovery, STEPS } from "../lib/discovery-runner.js";
+62:// ─── (Detection helpers and runDiscovery pipeline are in lib/discovery-runner.ts) ─
+64:// ─── Cleanup old sessions (>24h) ──────────────────────────────────────────────
+66:async function cleanupOldSessions(): Promise<void> {
+68:  const staleSessions = await db
+70:      id: discoverySessionsTable.id,
+71:      rootPath: discoverySessionsTable.rootPath,
+73:    .from(discoverySessionsTable)
+76:        lt(discoverySessionsTable.startedAt, cutoff),
+77:        isNull(discoverySessionsTable.importedProjectId),
+86:  for (const session of staleSessions) {
+88:      .delete(discoverySessionsTable)
+91:          eq(discoverySessionsTable.id, session.id),
+92:          lt(discoverySessionsTable.startedAt, cutoff),
+93:          isNull(discoverySessionsTable.importedProjectId),
+96:      .returning({ rootPath: discoverySessionsTable.rootPath });
+102:          "Could not remove expired discovery durable root",
+111:    .delete(discoverySessionsTable)
+114:        lt(discoverySessionsTable.startedAt, cutoff),
+115:        isNotNull(discoverySessionsTable.importedProjectId),
+183:// GET /discovery/sources
+184:router.get("/discovery/sources", (_req, res) => {
+194:  // first-class resource (WORKSPACE_PROJECT) can enforce ownership before
+195:  // ever touching that resource's rootPath — see discovery-adapters.ts.
+207:  // into an app-owned durable root keyed by this discovery session. The
+234:        "Failed to materialize discovery source into a durable project root",
+254:  // Cleanup stale sessions opportunistically
+255:  cleanupOldSessions().catch(() => undefined);
+263:    await db.insert(discoverySessionsTable).values({
+265:      ownerId: req.userId,
+288:    .from(discoverySessionsTable)
+289:    .where(eq(discoverySessionsTable.id, id))
+293:  // job-queue.ts) so a burst of discovery + scan requests together still
+297:  // git clone dirs would accumulate in /tmp on every successful discovery.
+299:  // reconciliation pass or stale-pending sweep cannot enqueue the same session
+300:  // twice. The discovery runner transitions status on its own, so a duplicate
+306:      logger.error({ err, sessionId: id }, "Unhandled discovery error");
+316: * Loads a discovery session and enforces ownership, writing the appropriate
+317: * error response (404/403) on failure. Same not-found-vs-forbidden
+319: * all, 403 when it exists but belongs to a different user. Every route that
+325:  discoveryId: string,
+328:): Promise<typeof discoverySessionsTable.$inferSelect | undefined> {
+331:    .from(discoverySessionsTable)
+332:    .where(eq(discoverySessionsTable.id, discoveryId))
+339:  if (session.ownerId !== userId) {
+340:    res.status(403).json({ error: "You do not have access to this discovery session", reason: "permission_denied" });
+346:// GET /projects/discover/:discoveryId
+347:router.get("/projects/discover/:discoveryId", async (req, res) => {
+348:  const { discoveryId } = GetDiscoverySessionParams.parse(req.params);
+349:  const session = await loadOwnedSession(discoveryId, req.userId, res);
+354:// GET /projects/discover/:discoveryId/summary
+355:router.get("/projects/discover/:discoveryId/summary", async (req, res) => {
+356:  const { discoveryId } = GetDiscoverySummaryParams.parse(req.params);
+357:  const session = await loadOwnedSession(discoveryId, req.userId, res);
+364:  return res.json({ id: discoveryId, ...result });
+378:  // state. Ownership is checked before status so a non-owner never learns
+379:  // anything about a session's progress (a 403 either way, not a 409 that
+381:  const session = await loadOwnedSession(body.discoveryId, req.userId, res);
+394:  // session path is only a claim from discovery time — the directory may
+396:  // discovery pipeline finishes). Dead roots are rejected explicitly; they
+409:      hint: "Re-run discovery on the source and import again.",
+424:  // discovery_sessions.imported_project_id -> projects.id is always
+435:          ownerId: req.userId,
+457:        .update(discoverySessionsTable)
+458:        .set({ status: "imported", importedProjectId: projectId })
+461:            eq(discoverySessionsTable.id, body.discoveryId),
+462:            eq(discoverySessionsTable.status, "ready"),
+465:        .returning({ id: discoverySessionsTable.id });
+492:      // can always tell these rows came from discovery, not from a full AST scan.
+499:          sourceType: "discovery-import",
+502:            sourceType: "discovery-import",
+505:            evidence: [{ file: "discovery-session", kind: "heuristic" as const }],
+524:          // Do not persist a stale discovery rule ID: tasks.rule_id is a
+525:          // foreign key, so an unavailable rule must become an unlinked plan.
+539:            type: "discovery",
+540:            correlationId: result.sourceCorrelationId ?? body.discoveryId,
+567:          correlationId: remediationPlan.source.correlationId ?? body.discoveryId,
+579:        message: `Project "${projectName}" imported via autonomous discovery (confidence: ${result.confidenceScore}%)`,
+594:    // root). Two concurrent imports of the *same* discovery session race to
+610:    logger.error({ txErr, discoveryId: body.discoveryId }, message);
+619:    entityType: "discovery_session",
+620:    entityId: body.discoveryId,
+625:    stateAfter: { status: "imported", importedProjectId: projectId },
+628:    logger.warn({ auditErr, discoveryId: body.discoveryId }, "recordAudit failed after import — audit entry missing but import succeeded"),
+645:  importedProjectId: string | null;
+656:    importedProjectId: session.importedProjectId ?? null,
+
+artifacts/api-server/src/routes/discovery.test.ts
+5:import { setGitCloneExecutorForTests } from "../lib/discovery-adapters.js";
+8:  discoverySessionsTable,
+70:  const dir = `${TEST_ROOTS_BASE}/discovery-${randomUUID()}`;
+88:  await db.insert(discoverySessionsTable).values({
+90:    ownerId: "test-user",
+115:    await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId)).catch(() => undefined);
+120:// ─── GET /discovery/sources ───────────────────────────────────────────────────
+122:describe("GET /discovery/sources — source capability listing", () => {
+124:    const res = await request(app).get("/api/discovery/sources");
+131:    const res = await request(app).get("/api/discovery/sources");
+144:    const res = await request(app).get("/api/discovery/sources");
+151:    const res = await request(app).get("/api/discovery/sources");
+157:    const res = await request(app).get("/api/discovery/sources");
+168:    const res = await request(app).get("/api/discovery/sources");
+182:    const res = await request(app).get("/api/discovery/sources");
+196:        .delete(discoverySessionsTable)
+197:        .where(eq(discoverySessionsTable.id, id))
+239:        .select({ id: discoverySessionsTable.id })
+240:        .from(discoverySessionsTable)
+241:        .where(eq(discoverySessionsTable.rootPath, forgedPath));
+257:  it("rejects a non-GitHub URL before attempting Git discovery", async () => {
+304:    // Path passes validation; discovery will fail in the background (path doesn't exist)
+336:    expect(res.body).toHaveProperty("importedProjectId");
+373:    expect(res.body).toHaveProperty("importedProjectId");
+392:      .update(discoverySessionsTable)
+394:      .where(eq(discoverySessionsTable.id, id));
+404:      .update(discoverySessionsTable)
+406:      .where(eq(discoverySessionsTable.id, id));
+428:      .update(discoverySessionsTable)
+430:      .where(eq(discoverySessionsTable.id, id));
+444:    const discoveryId = await insertReadySession(fakeResult());
+447:      request(app).post("/api/projects/import").send({ discoveryId }),
+448:      request(app).post("/api/projects/import").send({ discoveryId }),
+466:      .from(discoverySessionsTable)
+467:      .where(eq(discoverySessionsTable.id, discoveryId))
+470:    expect(session[0]?.importedProjectId).toBe(winner.body.id);
+474:    const discoveryId = await insertReadySession(
+478:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+481:    expect(res.body.hint).toMatch(/re-run discovery/i);
+486:      .from(discoverySessionsTable)
+487:      .where(eq(discoverySessionsTable.id, discoveryId))
+497:      const discoveryId = await insertReadySession(fakeResult(), forged);
+498:      const res = await request(app).post("/api/projects/import").send({ discoveryId });
+505:        .from(discoverySessionsTable)
+506:        .where(eq(discoverySessionsTable.id, discoveryId))
+519:      await db.insert(discoverySessionsTable).values({
+521:        ownerId: "test-user",
+534:      const res = await request(app).post("/api/projects/import").send({ discoveryId: id });
+543:  it("returns 422 root_not_found when the session root directory was deleted after discovery", async () => {
+544:    const discoveryId = await insertReadySession(
+548:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+554:    const discoveryId = await insertReadySession(fakeResult());
+556:      .update(discoverySessionsTable)
+558:      .where(eq(discoverySessionsTable.id, discoveryId));
+560:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+566:    const discoveryId = await insertReadySession(fakeResult());
+568:      .update(discoverySessionsTable)
+570:      .where(eq(discoverySessionsTable.id, discoveryId));
+572:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+577:  it("returns 404 for an unknown discovery session", async () => {
+580:      .send({ discoveryId: randomUUID() });
+592:    const discoveryId = await insertReadySession(fakeResult({ ruleViolations: violations }));
+594:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+605:  it("imported project has the detected name from discovery result", async () => {
+606:    const discoveryId = await insertReadySession(fakeResult({ detectedName: "cool-service" }));
+608:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+615:    const discoveryId = await insertReadySession(fakeResult({ detectedName: "auto-detected" }));
+619:      .send({ discoveryId, overrides: { name: "custom-name" } });
+647:      await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, sid)).catch(() => undefined);
+656:    const discoveryId = await insertReadySession(fakeResult({ qualityScore: 72 }));
+657:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+667:    const discoveryId = await insertReadySession(fakeResult({ detectedName: "event-test" }));
+668:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+685:    const discoveryId = await insertReadySession(fakeResult({ detectedApis }));
+686:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+701:    const discoveryId = await insertReadySession(fakeResult({ detectedApis }));
+702:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+714:      expect(e.sourceType).toBe("discovery-import");
+724:      expect(prov.sourceType).toBe("discovery-import");
+732:    const discoveryId = await insertReadySession(fakeResult({ detectedApis: [] }));
+733:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+750:    const discoveryId = await insertReadySession(fakeResult({ ruleViolations: violations }));
+751:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+768:    const discoveryId = await insertReadySession(fakeResult());
+771:      request(app).post("/api/projects/import").send({ discoveryId }),
+772:      request(app).post("/api/projects/import").send({ discoveryId }),
+782:      .from(discoverySessionsTable)
+783:      .where(eq(discoverySessionsTable.id, discoveryId))
+786:    expect(session[0]?.importedProjectId).toBe(projectId);
+803:    const discoveryId = await insertReadySession(fakeResult({ detectedName: "audit-fail-test" }));
+804:    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+813:      .from(discoverySessionsTable)
+814:      .where(eq(discoverySessionsTable.id, discoveryId))
+824:    const discoveryId = await insertReadySession(fakeResult());
+825:    const first = await request(app).post("/api/projects/import").send({ discoveryId });
+829:    const second = await request(app).post("/api/projects/import").send({ discoveryId });
+847:    await db.insert(discoverySessionsTable).values({
+849:      ownerId: "test-user",
+863:    await db.insert(discoverySessionsTable).values({
+865:      ownerId: "test-user",
+877:    const resA = await request(app).post("/api/projects/import").send({ discoveryId: sidA });
+882:    const resB = await request(app).post("/api/projects/import").send({ discoveryId: sidB });
+889:      .from(discoverySessionsTable)
+890:      .where(eq(discoverySessionsTable.id, sidB))
+893:    expect(sessionB[0]?.importedProjectId).toBeNull();
+897:describe("Git discovery → durable import", () => {
+943:    const discoveryId = start.body.id as string;
+944:    sessionId = discoveryId;
+949:      const statusResponse = await request(app).get(`/api/projects/discover/${discoveryId}`);
+957:      .select({ rootPath: discoverySessionsTable.rootPath })
+958:      .from(discoverySessionsTable)
+959:      .where(eq(discoverySessionsTable.id, discoveryId))
+968:      .send({ discoveryId });
+
+scripts/dashboard-journey-contract.test.mjs
+158:      403,
+178:    assert.equal(hostileMutation.status, 403);
+209:    // upload flow without creating a durable upload or invoking discovery.
+247:      403,
+289:      403,
+633:    /HOSTILE_ORIGIN[\s\S]*status\(\)\)\.toBe\(403\)/,
+
+scripts/verify-benchmark-rollout.test.mjs
+66:  it("rejects a stale flight-deck-v1 live scorecard", async () => {
+
+scripts/validate-github-workflows.mjs
+55:        "`<owner>/<repo>/.github/workflows/<file>.yml@<ref>` " +
+
+scripts/mission-correlation-report.test.mjs
+123:  const forbidden = [
+133:        prompt: forbidden[0],
+134:        source: forbidden[1],
+135:        response: forbidden[3],
+150:      for (const value of forbidden) {
+
+scripts/dashboard-contract-trigger.test.mjs
+169:    "The workflow trigger expression is stale; regenerate it from " +

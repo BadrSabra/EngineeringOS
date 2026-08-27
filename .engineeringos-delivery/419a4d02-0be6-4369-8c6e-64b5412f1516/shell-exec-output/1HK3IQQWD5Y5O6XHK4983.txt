@@ -1,0 +1,651 @@
+
+> @workspace/api-server@0.0.0 test:discovery-release /home/runner/workspace/artifacts/api-server
+> DISCOVERY_RELEASE_RECEIPT_PATH=../../test-results/discovery/release-receipt.json vitest run src/routes/discovery.test.ts
+
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/api-server
+
+[13:28:04.621] INFO (7304): request completed
+    req: {
+      "id": 1,
+      "method": "GET",
+      "url": "/api/discovery/sources"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[13:28:04.632] INFO (7304): request completed
+    req: {
+      "id": 2,
+      "method": "GET",
+      "url": "/api/discovery/sources"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[13:28:04.637] INFO (7304): request completed
+    req: {
+      "id": 3,
+      "method": "GET",
+      "url": "/api/discovery/sources"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[13:28:04.643] INFO (7304): request completed
+    req: {
+      "id": 4,
+      "method": "GET",
+      "url": "/api/discovery/sources"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[13:28:04.651] INFO (7304): request completed
+    req: {
+      "id": 5,
+      "method": "GET",
+      "url": "/api/discovery/sources"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 0
+[13:28:04.657] INFO (7304): request completed
+    req: {
+      "id": 6,
+      "method": "GET",
+      "url": "/api/discovery/sources"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[13:28:04.663] INFO (7304): request completed
+    req: {
+      "id": 7,
+      "method": "GET",
+      "url": "/api/discovery/sources"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[13:28:04.685] INFO (7304): request completed
+    req: {
+      "id": 8,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 16
+[13:28:04.694] INFO (7304): request completed
+    req: {
+      "id": 9,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 1
+[13:28:04.700] INFO (7304): request completed
+    req: {
+      "id": 10,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 1
+[13:28:04.705] INFO (7304): request completed
+    req: {
+      "id": 11,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 1
+[13:28:04.752] INFO (7304): request completed
+    req: {
+      "id": 12,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 1
+[13:28:04.757] INFO (7304): request completed
+    req: {
+      "id": 13,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 1
+[13:28:04.762] INFO (7304): request completed
+    req: {
+      "id": 14,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 1
+[13:28:04.770] INFO (7304): request completed
+    req: {
+      "id": 15,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 5
+[13:28:04.774] INFO (7304): request errored
+    req: {
+      "id": 16,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 501
+    }
+    responseTime: 1
+    err: {
+      "type": "Error",
+      "message": "failed with status code 501",
+      "stack":
+          Error: failed with status code 501
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[13:28:04.779] INFO (7304): request errored
+    req: {
+      "id": 17,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 501
+    }
+    responseTime: 1
+    err: {
+      "type": "Error",
+      "message": "failed with status code 501",
+      "stack":
+          Error: failed with status code 501
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[13:28:05.229] INFO (7304): request completed
+    req: {
+      "id": 18,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 445
+[13:28:05.255] WARN (7304): discovery-runner: could not claim session — not in pending state; skipping
+    sessionId: "68f3e52f-b5e7-4d01-91fe-13902dd9d1f9"
+[13:28:05.268] INFO (7304): request completed
+    req: {
+      "id": 19,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 24
+[13:28:05.275] WARN (7304): discovery-runner: could not claim session — not in pending state; skipping
+    sessionId: "655d254d-7525-41d9-863f-906f64fb796a"
+[13:28:05.279] INFO (7304): request completed
+    req: {
+      "id": 20,
+      "method": "GET",
+      "url": "/api/projects/discover/3a43275e-a05e-4ff9-98aa-dc30ea2d8359"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 2
+[13:28:05.289] INFO (7304): request completed
+    req: {
+      "id": 21,
+      "method": "GET",
+      "url": "/api/projects/discover/5d7b82f2-f7f5-4294-a355-0d85811a868d"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[13:28:05.302] INFO (7304): request completed
+    req: {
+      "id": 22,
+      "method": "GET",
+      "url": "/api/projects/discover/1d242caa-a521-4b89-91f4-95075c834495"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[13:28:05.588] INFO (7304): request completed
+    req: {
+      "id": 23,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 93
+[13:28:05.762] INFO (7304): request completed
+    req: {
+      "id": 24,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 8
+[13:28:05.774] INFO (7304): request completed
+    req: {
+      "id": 25,
+      "method": "GET",
+      "url": "/api/projects/discover/d3a11b81-0b81-47d3-85bd-60ae5b250372/summary"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 3
+[13:28:05.786] INFO (7304): request completed
+    req: {
+      "id": 26,
+      "method": "GET",
+      "url": "/api/projects/discover/a09072c6-b09e-43b2-881a-ab0327f777f1/summary"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 2
+[13:28:05.807] INFO (7304): request completed
+    req: {
+      "id": 27,
+      "method": "GET",
+      "url": "/api/projects/discover/17ba04e1-a81a-4ddf-a670-1f8a40f47f75/summary"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 1
+[13:28:05.820] INFO (7304): request completed
+    req: {
+      "id": 28,
+      "method": "GET",
+      "url": "/api/projects/discover/655dcd0b-51ed-4b6f-84e2-ab7effe09fa9/summary"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[13:28:05.838] INFO (7304): request completed
+    req: {
+      "id": 29,
+      "method": "GET",
+      "url": "/api/projects/discover/1f3cc1ae-e2e6-4959-8841-87e4248c04ca/summary"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[13:28:05.873] INFO (7304): request completed
+    req: {
+      "id": 30,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 23
+[13:28:05.876] INFO (7304): request completed
+    req: {
+      "id": 31,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 22
+[13:28:05.906] INFO (7304): request completed
+    req: {
+      "id": 32,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 2
+[13:28:05.923] INFO (7304): request completed
+    req: {
+      "id": 33,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 4
+[13:28:05.961] INFO (7304): request completed
+    req: {
+      "id": 34,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[13:28:05.995] INFO (7304): request completed
+    req: {
+      "id": 35,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 2
+[13:28:06.012] INFO (7304): request completed
+    req: {
+      "id": 36,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 2
+[13:28:06.026] INFO (7304): request completed
+    req: {
+      "id": 37,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 2
+[13:28:06.034] INFO (7304): request completed
+    req: {
+      "id": 38,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 2
+[13:28:06.086] INFO (7304): request completed
+    req: {
+      "id": 39,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 44
+[13:28:06.143] INFO (7304): request completed
+    req: {
+      "id": 40,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[13:28:06.178] INFO (7304): request completed
+    req: {
+      "id": 41,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[13:28:06.215] INFO (7304): request completed
+    req: {
+      "id": 42,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[13:28:06.249] INFO (7304): request completed
+    req: {
+      "id": 43,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 11
+[13:28:06.390] INFO (7304): request completed
+    req: {
+      "id": 44,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 109
+[13:28:06.529] INFO (7304): request completed
+    req: {
+      "id": 45,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[13:28:06.572] INFO (7304): request completed
+    req: {
+      "id": 46,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 11
+[13:28:06.693] INFO (7304): request completed
+    req: {
+      "id": 47,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 14
+[13:28:06.737] INFO (7304): request completed
+    req: {
+      "id": 48,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 10
+[13:28:06.738] INFO (7304): request completed
+    req: {
+      "id": 49,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 10
+[13:28:06.786] WARN (7304): recordAudit failed after import — audit entry missing but import succeeded
+    auditErr: {}
+    discoveryId: "f08dadea-f391-4870-b365-d7be3d08945f"
+[13:28:06.786] INFO (7304): request completed
+    req: {
+      "id": 50,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 10
+[13:28:06.822] INFO (7304): request completed
+    req: {
+      "id": 51,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 12
+[13:28:06.827] INFO (7304): request completed
+    req: {
+      "id": 52,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 1
+[13:28:06.873] INFO (7304): request completed
+    req: {
+      "id": 53,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 10
+[13:28:06.881] INFO (7304): request completed
+    req: {
+      "id": 54,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 4
+[13:28:07.382] INFO (7304): request completed
+    req: {
+      "id": 55,
+      "method": "POST",
+      "url": "/api/projects/discover"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 77
+[13:28:07.387] INFO (7304): request completed
+    req: {
+      "id": 56,
+      "method": "GET",
+      "url": "/api/projects/discover/adf96d1c-157d-4ee8-af1b-2fff52870a34"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[13:28:07.495] INFO (7304): request completed
+    req: {
+      "id": 57,
+      "method": "GET",
+      "url": "/api/projects/discover/adf96d1c-157d-4ee8-af1b-2fff52870a34"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+
+ Test Files  1 passed (1)
+      Tests  53 passed (53)
+   Start at  13:27:56
+   Duration  11.32s (transform 4.76s, setup 0ms, import 8.07s, tests 3.07s, environment 0ms)
+
+[13:28:07.601] INFO (7304): request completed
+    req: {
+      "id": 58,
+      "method": "GET",
+      "url": "/api/projects/discover/adf96d1c-157d-4ee8-af1b-2fff52870a34"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[13:28:07.619] INFO (7304): request completed
+    req: {
+      "id": 59,
+      "method": "POST",
+      "url": "/api/projects/import"
+    }
+    res: {
+      "statusCode": 201
+    }
+    responseTime: 13
+[13:28:07.647] INFO (7304): Removed managed durable project root after project deletion
+    projectId: "f169bec1-12d3-4dcb-bf15-fe47716844eb"
+    rootPath: "/home/runner/workspace/.engineeringos-projects/adf96d1c-157d-4ee8-af1b-2fff52870a34"
+[13:28:07.647] INFO (7304): request completed
+    req: {
+      "id": 60,
+      "method": "DELETE",
+      "url": "/api/projects/f169bec1-12d3-4dcb-bf15-fe47716844eb"
+    }
+    res: {
+      "statusCode": 204
+    }
+    responseTime: 23

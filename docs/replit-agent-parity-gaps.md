@@ -66,7 +66,7 @@ baseline retains `qualityEligible: false` and `rolloutAllowed: false`
 
 | Observable outcome | Current EngineeringOS behavior and evidence | Assessment | Failure mode / user experience |
 |---|---|---|---|
-| Project understanding | Discovery/import has durable, owner-scoped materialization and the dashboard wizard; source discovery, scan, and import are separate stages ([discovery route](../artifacts/api-server/src/routes/discovery.ts), [baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Partial** | The controlled Git discovery fixture is rejected by the production GitHub-only URL policy before the async session starts. This remains an onboarding evidence gap, not evidence that discovery is absent. |
+| Project understanding | Discovery/import has durable, owner-scoped materialization and the dashboard wizard; source discovery, scan, and import are separate stages ([discovery route](../artifacts/api-server/src/routes/discovery.ts), [baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Controlled API path verified; browser path open** | The approved GitHub URL fixture now proves the asynchronous session, durable materialization, import, cleanup, owner boundaries, and retry/idempotency behavior. This is not a production/provider or full browser claim. |
 | Grounded ordinary chat | Chat and SSE routes build context, classify intent, persist history, and expose read/list/search tools. `chat-agent.ts` records actual tool sources, caches repeated calls, and bounds iterations/calls ([chat agent](../lib/ai-orchestrator/src/agents/chat-agent.ts#L4-L40)). | **Specialized stronger, provider/browser partial** | Provider-free JSON/SSE, redaction, and false-success contracts pass. A configured-provider chat journey and authenticated browser proof are still absent. |
 | Broad multi-file analysis | Hierarchical execution gives subtasks bounded loops, disjoint write scopes, preserved partial results, and a no-tools synthesis pass ([hierarchical executor](../lib/ai-orchestrator/src/agents/hierarchical-executor.ts#L4-L22)). | **Specialized stronger** | Broad analysis is deliberately bounded and evidence-checked. Recursive nesting and per-subquery SSE are explicitly out of scope ([same source](../lib/ai-orchestrator/src/agents/hierarchical-executor.ts#L19-L22)); long or highly interactive investigations may feel less fluid than a general Agent. |
 | Structured scan/review | Analyze and review each have JSON and stream endpoints, context construction, fallback, parse/error handling, audit/event persistence ([analysis routes](../artifacts/api-server/src/routes/ai/analysis.ts#L174-L583)). | **Partial** | Provider prerequisite blocks live execution; no authenticated E2E result proves the full stream-to-history experience. |
@@ -98,7 +98,7 @@ the source provides X but the acceptance evidence is incomplete.
 | P1 | No authenticated provider-configured browser/API journey has completed the critical path. | Test/observability gap | Operators cannot trust the console’s end-to-end UX | High: code-backed safety may not survive integration | Requires controlled provider, Clerk browser state, and isolated project |
 | P1 | Provider/catalog diagnostics need a clear operator-facing failure state and acceptance contract. | **Closed for provider-free classification; live availability remains a risk** | Missing key, authentication, catalog, and recovery actions are represented safely; live provider behavior is not proven | Medium; prevents unsafe retries and misclassification | Preserve existing catalog implementation; validate with controlled provider |
 | P1 | Recovery transport and refresh behavior need a green cancellation/reconnect/restart journey. | Existing-but-unreliable behavior | Interrupted work may look lost or remain incomplete after reconnect | High for user trust and idempotency | After API cancellation/order fixes |
-| P1 | Discovery durable Git fixture must match its documented async contract. | Test/fixture defect | New users can fail before importing a project | Medium | Before discovery smoke gate |
+| P1 | Discovery durable Git fixture must match its documented async contract. | **Closed for controlled API acceptance** | The focused release check proves the documented 202 → ready → import contract with an approved URL and test-only clone seam; browser and provider-backed journeys remain separate | Medium | Preserve the URL policy and receipt allowlist |
 | P2 | Browser UX should make the critical path and blocked reasons more explicit. | Incomplete UX | Users may not know whether to approve, rerun validation, rebase, or start over | Medium, mostly usability | After P0/P1 correctness |
 | P3 | Broaden general-Agent conveniences: richer recursive investigation, per-subtask streaming, more automatic environment setup. | Optional parity expansion | Improves speed and breadth, not correctness of the specialized product | Low relative to release blockers; may weaken boundedness | Only after production-ready specialized gates |
 
@@ -189,8 +189,10 @@ not implement them.
 - **Affected surfaces:** discovery route/client contract and its durable Git
   fixture.
 - **Acceptance:** the documented source-start response (202 where applicable)
-  and subsequent session/summary/import states agree in route tests and one
-  controlled smoke run; failures identify the source/session state.
+  and subsequent session/summary/import states agree in the focused release
+  check; it also retains sanitized lifecycle metadata and covers URL rejection,
+  owner boundaries, durable-root cleanup, missing roots, concurrent cleanup,
+  and repeated import.
 - **Non-goals:** no new repository providers or import UX redesign.
 - **Dependency/risk:** independent of provider AI; medium onboarding impact.
 

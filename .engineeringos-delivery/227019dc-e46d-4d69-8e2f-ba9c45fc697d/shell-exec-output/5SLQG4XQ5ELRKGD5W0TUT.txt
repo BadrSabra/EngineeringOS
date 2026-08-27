@@ -1,0 +1,260 @@
+artifacts/api-server/src/lib/upload-store.test.ts:39:    ownerId: "owner_id",
+artifacts/api-server/src/lib/upload-store.test.ts:109:      ownerId: "user-1",
+artifacts/api-server/src/lib/upload-store.test.ts:119:    expect(result?.ownerId).toBe("user-1");
+artifacts/api-server/src/lib/upload-store.test.ts:128:      ownerId: "user-1",
+artifacts/api-server/src/lib/upload-store.test.ts:146:      ownerId: "user-1",
+artifacts/api-server/src/lib/upload-store.test.ts:164:      ownerId: "owner-1",
+artifacts/api-server/src/lib/upload-store.test.ts:185:        ownerId: "user-1",
+artifacts/api-server/src/lib/remediation-plan.test.ts:25:        type: "scan",
+artifacts/api-server/src/lib/remediation-plan.test.ts:26:        correlationId: "scan-1",
+artifacts/api-server/src/lib/remediation-plan.test.ts:37:    expect(plan.status).toBe("ready");
+artifacts/api-server/src/lib/job-recovery.test.ts:14:  scanJobsTable,
+artifacts/api-server/src/lib/job-recovery.test.ts:17:import { reconcileStuckJobs } from "./job-reconciliation.js";
+artifacts/api-server/src/lib/job-recovery.test.ts:36:async function insertProject(status: "active" | "scanning" = "active"): Promise<string> {
+artifacts/api-server/src/lib/job-recovery.test.ts:41:    ownerId: "recovery-test-user",
+artifacts/api-server/src/lib/job-recovery.test.ts:61:      await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
+artifacts/api-server/src/lib/job-recovery.test.ts:69:  it("a running scan job with an expired lease is re-queued for retry and lease cleared", async () => {
+artifacts/api-server/src/lib/job-recovery.test.ts:70:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-recovery.test.ts:74:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-recovery.test.ts:87:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-recovery.test.ts:93:  it("a queued scan job is re-enqueued on recovery — never lost", async () => {
+artifacts/api-server/src/lib/job-recovery.test.ts:95:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-recovery.test.ts:99:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-recovery.test.ts:120:      ownerId: "recovery-test-user",
+artifacts/api-server/src/lib/job-recovery.test.ts:139:  it("a running scan job with an active lease is left for its healthy worker", async () => {
+artifacts/api-server/src/lib/job-recovery.test.ts:140:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-recovery.test.ts:144:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-recovery.test.ts:157:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-recovery.test.ts:159:    // it is performing its own startup reconciliation.
+artifacts/api-server/src/lib/job-recovery.test.ts:172:      ownerId: "recovery-test-user",
+artifacts/api-server/src/lib/job-idempotency.test.ts:11:import { db, projectsTable, scanJobsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-idempotency.test.ts:21:    ownerId: "idempotency-test-user",
+artifacts/api-server/src/lib/job-idempotency.test.ts:40:      await db.delete(scanJobsTable).where(eq(scanJobsTable.id, id));
+artifacts/api-server/src/lib/job-idempotency.test.ts:52:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-idempotency.test.ts:73:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-idempotency.test.ts:88:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-idempotency.test.ts:103:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-idempotency.test.ts:119:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/discovery-adapters.test.ts:15:  cleanupResolveResult,
+artifacts/api-server/src/lib/discovery-adapters.test.ts:112:  it("returns the path unchanged when it already starts with /", async () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:128:  it("does not set tempDir (LOCAL_FOLDER needs no cleanup)", async () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:143:    expect(adapter.validate({ url: "https://github.com/owner/repo" })).toBeNull();
+artifacts/api-server/src/lib/discovery-adapters.test.ts:162:    const err = adapter.validate({ url: "ssh://git@github.com/owner/repo.git" });
+artifacts/api-server/src/lib/discovery-adapters.test.ts:170:    const err = adapter.validate({ url: "git@github.com:owner/repo.git" });
+artifacts/api-server/src/lib/discovery-adapters.test.ts:185:    const err = adapter.validate({ url: "git://github.com/owner/repo.git" });
+artifacts/api-server/src/lib/discovery-adapters.test.ts:233:      { url: "ssh://git@github.com/owner/repo.git" },
+artifacts/api-server/src/lib/discovery-adapters.test.ts:279:// ─── WORKSPACE_PROJECT adapter — ownership scoping ────────────────────────────
+artifacts/api-server/src/lib/discovery-adapters.test.ts:281:describe("WORKSPACE_PROJECT adapter — ownership scoping", () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:285:  it("returns 403 permission_denied when the source project is owned by a different user", async () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:291:      ownerId: OTHER_USER,
+artifacts/api-server/src/lib/discovery-adapters.test.ts:304:        expect(result.reason).toBe("permission_denied");
+artifacts/api-server/src/lib/discovery-adapters.test.ts:318:      ownerId: TEST_USER,
+artifacts/api-server/src/lib/discovery-adapters.test.ts:366:      ownerId: OTHER_USER,
+artifacts/api-server/src/lib/discovery-adapters.test.ts:431:// ─── cleanupResolveResult ─────────────────────────────────────────────────────
+artifacts/api-server/src/lib/discovery-adapters.test.ts:433:describe("cleanupResolveResult", () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:436:    await cleanupResolveResult({ error: "bad", status: 400, reason: "resolution_failed" });
+artifacts/api-server/src/lib/discovery-adapters.test.ts:440:    await cleanupResolveResult({ rootPath: "/home/runner/workspace/foo" });
+artifacts/api-server/src/lib/discovery-adapters.test.ts:444:    await cleanupResolveResult({
+scripts/dashboard-journey-contract.test.mjs:317:    "The live journey needs positive Playwright cleanup/reporting headroom.",
+scripts/dashboard-journey-contract.test.mjs:485:    /cleanupOutcome:/,
+scripts/dashboard-journey-contract.test.mjs:486:    "The teardown artifact must preserve cleanup outcome.",
+artifacts/api-server/src/lib/audit.test.ts:24:    "scanned", "ai_executed", "ai_analyzed", "ai_reviewed", "ai_orchestrated",
+scripts/run-dashboard-journey.mjs:372:  const cleanupFailures = new Map();
+scripts/run-dashboard-journey.mjs:394:      cleanupFailures.set(port, {
+scripts/run-dashboard-journey.mjs:407:      const failure = port ? cleanupFailures.get(port) : undefined;
+scripts/run-dashboard-journey.mjs:413:        cleanupOutcome: failure
+scripts/release-configuration.test.ts:80:    diagnostic: "process recovery failed: child server did not become ready",
+scripts/release-configuration.test.ts:268:test("keeps release recovery validation before deployment cleanup", async () => {
+scripts/release-configuration.test.ts:279:  const cleanupIndex = deploymentSteps.indexOf("pnpm store prune");
+scripts/release-configuration.test.ts:282:  assert.notEqual(cleanupIndex, -1);
+scripts/release-configuration.test.ts:284:    recoveryIndex < cleanupIndex,
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+scripts/verify-setup.sh:87:echo "All checks passed. EngineeringOS is ready."
+scripts/verify-benchmark-rollout.test.mjs:66:  it("rejects a stale flight-deck-v1 live scorecard", async () => {
+scripts/validate-truth-flow.ts:24: *   RUNTIME   — live graph/scan output (informs future baseline updates; not validated here)
+artifacts/api-server/src/lib/task-execution-retention.test.ts:27:    const now = new Date("2026-08-23T00:00:00.000Z");
+artifacts/api-server/src/lib/task-execution-retention.test.ts:54:    const now = new Date("2026-08-23T01:00:00.000Z");
+artifacts/api-server/src/lib/task-execution-retention.test.ts:78:    const oldTimestamp = new Date("2026-01-01T00:00:00.000Z");
+artifacts/api-server/src/lib/task-execution-retention.test.ts:79:    const now = new Date("2026-08-23T00:00:00.000Z");
+artifacts/api-server/src/lib/task-execution-retention.test.ts:83:      ownerId: "retention-concurrency-test-user",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:196:    const oldTimestamp = new Date("2026-01-01T00:00:00.000Z");
+artifacts/api-server/src/lib/task-execution-retention.test.ts:197:    const now = new Date("2026-08-23T00:00:00.000Z");
+artifacts/api-server/src/lib/task-execution-retention.test.ts:201:      ownerId: "retention-receipt-concurrency-test-user",
+scripts/validate-github-workflows.mjs:55:        "`<owner>/<repo>/.github/workflows/<file>.yml@<ref>` " +
+scripts/trigger-scan.mts:2: * SCAN-01 + SCAN-02 + SCAN-03: Manual scan trigger that delegates to the
+scripts/trigger-scan.mts:3: * production `runScanJob` path instead of re-implementing scan logic.
+scripts/trigger-scan.mts:14: *   pnpm tsx --conditions workspace scripts/trigger-scan.mts
+scripts/trigger-scan.mts:17:import { projectsTable, scanJobsTable } from "@workspace/db";
+scripts/trigger-scan.mts:18:import { runScanJob } from "../artifacts/api-server/src/lib/scan-runner.js";
+scripts/trigger-scan.mts:49:  // ── 2. Create a scan job row (same pre-condition as the production queue) ─
+scripts/trigger-scan.mts:51:  await db.insert(scanJobsTable).values({
+scripts/trigger-scan.mts:58:  console.log(`Created scan job: ${jobId}`);
+scripts/trigger-scan.mts:68:    .from(scanJobsTable)
+scripts/trigger-scan.mts:69:    .where(eq(scanJobsTable.id, jobId))
+artifacts/api-server/src/lib/task-execution-service.test.ts:21:      revision: "2026-08-23T00:00:00.000Z",
+artifacts/api-server/src/lib/operation-evidence.test.ts:22:      createdAt: new Date("2026-08-24T10:00:00Z"),
+artifacts/api-server/src/lib/operation-evidence.test.ts:23:      startedAt: new Date("2026-08-24T10:00:01Z"),
+artifacts/api-server/src/lib/operation-evidence.test.ts:24:      completedAt: new Date("2026-08-24T10:00:05Z"),
+artifacts/api-server/src/lib/operation-evidence.test.ts:31:      timestamp: new Date("2026-08-24T10:00:04Z"),
+artifacts/api-server/src/lib/operation-evidence.test.ts:101:        timestamp: new Date("2026-08-24T10:00:04Z"),
+artifacts/api-server/src/lib/project-root.test.ts:47:    if (!res.ok) expect(res.reason).toBe("root_not_found");
+artifacts/api-server/src/lib/project-root.test.ts:50:  it("rejects a nonexistent path with root_not_found", async () => {
+artifacts/api-server/src/lib/project-root.test.ts:54:      expect(res.reason).toBe("root_not_found");
+artifacts/api-server/src/lib/project-root.test.ts:59:  it("rejects a dead eos-git temp clone with root_unavailable and 409", async () => {
+artifacts/api-server/src/lib/project-root.test.ts:63:      expect(res.reason).toBe("root_unavailable");
+artifacts/api-server/src/lib/github-connector.test.ts:21:      owner: "acme",
+artifacts/api-server/src/lib/github-connector.test.ts:73:        remote: { owner: "acme", repo: "flight-deck" },
+artifacts/api-server/src/lib/github-connector.test.ts:117:        remote: { owner: "acme", repo: "flight-deck" },
+scripts/release-port-cleanup.test.mjs:9:const cleanupScript = resolve(
+scripts/release-port-cleanup.test.mjs:48:    const child = spawn(process.execPath, [cleanupScript], {
+scripts/release-port-cleanup.test.mjs:55:        reject(new Error(`Port cleanup exited with ${signal ?? code}.`));
+scripts/release-port-cleanup.test.mjs:102:test("release port cleanup supports consecutive runs", async () => {
+scripts/release-port-cleanup.test.mjs:115:    "a second cleanup run must remain successful after the listener is gone",
+scripts/dashboard-contract-trigger.test.mjs:169:    "The workflow trigger expression is stale; regenerate it from " +
+artifacts/api-server/src/lib/job-reconciliation.test.ts:4:import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-reconciliation.test.ts:12:} from "./job-reconciliation.js";
+artifacts/api-server/src/lib/job-reconciliation.test.ts:18:// during reconciliation tests. Without this mock, re-enqueued scan/discovery
+artifacts/api-server/src/lib/job-reconciliation.test.ts:24:    has: vi.fn().mockReturnValue(false),           // default: job not already in queue
+artifacts/api-server/src/lib/job-reconciliation.test.ts:39:async function insertProject(status: "active" | "scanning"): Promise<string> {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:44:    ownerId: "test-user",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:68:        await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:80:  it("marks running scan jobs as failed and resets the project to active", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:81:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:86:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:99:    expect(result.scanJobs).toBeGreaterThanOrEqual(1);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:103:      .from(scanJobsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:104:      .where(eq(scanJobsTable.id, runningJobId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:118:  it("only one concurrent reconciler owns an interrupted scan transition", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:119:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:122:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:134:    const [job] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:136:    // The conditional recovery write prevents two reconciliation passes from
+artifacts/api-server/src/lib/job-reconciliation.test.ts:141:  it("does not recover a scan still leased by another healthy worker", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:142:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:145:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:157:    const [job] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:164:  it("re-enqueues queued scan jobs without marking them failed", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:165:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:169:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:177:    expect(result.scanJobs).toBeGreaterThanOrEqual(1);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:183:      .from(scanJobsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:184:      .where(eq(scanJobsTable.id, queuedJobId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:189:    // The project should still be "scanning" (job is going to run).
+artifacts/api-server/src/lib/job-reconciliation.test.ts:195:    expect(project[0]?.status).toBe("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:197:    // PR-D1: reconciliation must use enqueueWithId (not the plain enqueue).
+artifacts/api-server/src/lib/job-reconciliation.test.ts:206:  it("does not touch scan jobs that already finished", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:212:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:225:      .from(scanJobsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:226:      .where(eq(scanJobsTable.id, completedJobId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:238:      ownerId: "test-user",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:268:      ownerId: "test-user",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:292:    // PR-D1: reconciliation must use enqueueWithId for deduplication.
+artifacts/api-server/src/lib/job-reconciliation.test.ts:304:      ownerId: "test-user",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:342:  // running scan job is reconciled (running → failed path only; re-enqueued
+artifacts/api-server/src/lib/job-reconciliation.test.ts:343:  // jobs are not invalidated at reconciliation time — they will invalidate
+artifacts/api-server/src/lib/job-reconciliation.test.ts:345:  it("calls invalidateContextCache for each project whose running scan job was failed", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:348:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:352:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:375:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:391:  it("leaves ready/imported discovery sessions untouched", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:395:      ownerId: "test-user",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:396:      status: "ready",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:397:      rootPath: "/tmp/reconcile-discovery-ready",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:414:    expect(session[0]?.status).toBe("ready");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:497:    // Cache must be busted so the AI context doesn't serve stale state
+artifacts/api-server/src/lib/job-reconciliation.test.ts:558:        await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:564:  it("re-enqueues scan jobs stuck in queued state beyond the timeout", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:565:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:568:    // Create a job whose createdAt is well before the stale-pending cutoff.
+artifacts/api-server/src/lib/job-reconciliation.test.ts:569:    const staleJobId = randomUUID();
+artifacts/api-server/src/lib/job-reconciliation.test.ts:570:    const staleTime = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 5 * 60 * 1000);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:571:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:572:      id: staleJobId,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:575:      createdAt: staleTime,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:578:    // Default mock: has() returns false — job is NOT already in the in-memory queue
+artifacts/api-server/src/lib/job-reconciliation.test.ts:586:      staleJobId,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:592:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:597:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:613:  it("skips jobs already present in the in-memory queue (enqueueWithId returns false)", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:614:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:618:    const staleTime = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 60_000);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:619:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:623:      createdAt: staleTime,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:626:    // Simulate enqueueWithId returning false (job already in memory queue)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:630:    // Returns 0 because enqueueWithId signalled the job was already tracked
+artifacts/api-server/src/lib/job-reconciliation.test.ts:634:  it("does not touch scan jobs in non-queued states", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:639:    const staleTime = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 60_000);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:642:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:646:      createdAt: staleTime,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:647:      startedAt: staleTime,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:651:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:655:      createdAt: staleTime,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:656:      startedAt: staleTime,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:665:  it("returns 0 and does not throw when there are no stale jobs", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:679:        await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:691:  it("dispatches fresh queued scans and pending discoveries from durable rows", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:692:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:695:    const scanId = randomUUID();
+artifacts/api-server/src/lib/job-reconciliation.test.ts:696:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:697:      id: scanId,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:706:      ownerId: "test-user",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:717:      scanId,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:726:  it("does not count rows already tracked by the local queue", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:727:    const projectId = await insertProject("scanning");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:730:    const scanId = randomUUID();
+artifacts/api-server/src/lib/job-reconciliation.test.ts:731:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:732:      id: scanId,
+scripts/check-codegen-drift.ts:51:  // parse-check-spec already printed the error; just exit.
+artifacts/api-server/src/lib/job-concurrency.test.ts:11:import { db, projectsTable, scanJobsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-concurrency.test.ts:26:    ownerId: "concurrency-test-user",
+artifacts/api-server/src/lib/job-concurrency.test.ts:42:  await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-concurrency.test.ts:59:      await db.delete(scanJobsTable).where(eq(scanJobsTable.id, id));
+artifacts/api-server/src/lib/job-concurrency.test.ts:77:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-concurrency.test.ts:97:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-concurrency.test.ts:102:  it("expired-lease job can be re-claimed after reconciliation resets it to queued", async () => {
+artifacts/api-server/src/lib/job-concurrency.test.ts:109:    await db.insert(scanJobsTable).values({
+artifacts/api-server/src/lib/job-concurrency.test.ts:120:    // Simulate reconciliation resetting the job to queued and clearing lease
+artifacts/api-server/src/lib/job-concurrency.test.ts:122:      .update(scanJobsTable)
+artifacts/api-server/src/lib/job-concurrency.test.ts:124:      .where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-concurrency.test.ts:131:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/job-concurrency.test.ts:147:    // A stale worker may still reach its error path, but the terminal write
+artifacts/api-server/src/lib/job-concurrency.test.ts:152:    const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+artifacts/api-server/src/lib/delivery-workspace.test.ts:39:  it("rejects unsafe cleanup and impossible lifecycle jumps", async () => {
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:34:      innerText: async () => "Dashboard ready",
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:77:  it("rejects stale revisions and external navigation", async () => {
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:83:    const stale = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:87:    expect(stale.status).toBe("failed");
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:88:    expect(stale.summary).toContain("stale");
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:108:        { type: "assert_visible", selector: "[data-testid=ready]" },
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:115:    expect(success.summary).toBe("Dashboard ready");
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:132:    const stale = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:141:    expect(stale.status).toBe("failed");
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:142:    expect(stale.summary).toContain("stale");
+artifacts/api-server/src/lib/discovery-runner.test.ts:18:import type { ScannedFile } from "@workspace/scanner";
+artifacts/api-server/src/lib/discovery-runner.test.ts:47:        "lib/scanner/src/python-ast-script.ts",
+artifacts/api-server/src/lib/discovery-runner.test.ts:106:        "lib/scanner/src/python-ast-script.ts",
+artifacts/api-server/src/lib/ai-execution-state.test.ts:8:  const now = new Date("2026-01-01T00:00:00.000Z");
+artifacts/api-server/src/lib/ai-execution-state.test.ts:134:    const ready = transitionAutonomousOperation(
+artifacts/api-server/src/lib/ai-execution-state.test.ts:138:    expect(() => transitionAutonomousOperation(ready, "delivering")).not.toThrow();
+artifacts/api-server/src/lib/ai-execution-state.test.ts:161:  it("blocks completion when acceptance evidence is missing or bound to stale bytes", () => {
+artifacts/api-server/src/lib/ai-execution-state.test.ts:178:      workspaceRevision: "revision-stale",
+artifacts/api-server/src/lib/ai-execution-state.test.ts:188:      candidateIdentity: "candidate-stale",
+artifacts/api-server/src/routes/discovery.test.ts:64: * ready-session fixtures need a directory that actually exists under the
+artifacts/api-server/src/routes/discovery.test.ts:82:/** Insert a pre-completed session in "ready" state, bypassing the pipeline. */
+artifacts/api-server/src/routes/discovery.test.ts:90:    ownerId: "test-user",
+artifacts/api-server/src/routes/discovery.test.ts:91:    status: "ready",
+artifacts/api-server/src/routes/discovery.test.ts:105:async function cleanupSessionAndProject(): Promise<void> {
+artifacts/api-server/src/routes/discovery.test.ts:303:  it("creates a session and returns 202 for a valid LOCAL_FOLDER path", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:312:    expect(res.status).toBe(202);
+artifacts/api-server/src/routes/discovery.test.ts:327:    expect(res.status).toBe(202);
+artifacts/api-server/src/routes/discovery.test.ts:336:    expect(res.body).toHaveProperty("importedProjectId");
+artifacts/api-server/src/routes/discovery.test.ts:344:  afterEach(cleanupSessionAndProject);
+artifacts/api-server/src/routes/discovery.test.ts:357:    expect(res.body.status).toBe("ready");
+artifacts/api-server/src/routes/discovery.test.ts:373:    expect(res.body).toHaveProperty("importedProjectId");
+artifacts/api-server/src/routes/discovery.test.ts:381:  afterEach(cleanupSessionAndProject);
+artifacts/api-server/src/routes/discovery.test.ts:413:  it("returns 200 with full result data for a ready session", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:425:  it("returns 200 for an already-imported session", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:441:  afterEach(cleanupSessionAndProject);
+artifacts/api-server/src/routes/discovery.test.ts:443:  it("imports a ready session exactly once and rejects a concurrent second import", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:470:    expect(session[0]?.importedProjectId).toBe(winner.body.id);
+artifacts/api-server/src/routes/discovery.test.ts:473:  it("returns 409 root_unavailable when the session root is a dead temporary git clone", async () => {

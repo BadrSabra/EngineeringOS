@@ -1,0 +1,260 @@
+.replit:97:args = "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"
+scripts/dashboard-journey-contract.test.mjs:29:    /DASHBOARD_E2E_LIVE_TIMEOUT_MS\s*\?\?\s*([0-9_]+)/,
+scripts/dashboard-journey-contract.test.mjs:334:    /test\.skip\(\s*process\.env\.DASHBOARD_E2E_LIVE_PROVIDER !== "1"/,
+scripts/dashboard-journey-contract.test.mjs:339:    /process\.env\.DASHBOARD_E2E_LIVE_PROVIDER === "1"/,
+scripts/dashboard-journey-contract.test.mjs:352:    /DASHBOARD_E2E_LIVE_PROVIDER\s*:/,
+scripts/dashboard-journey-contract.test.mjs:411:    /DASHBOARD_E2E_LIVE_DISPOSABLE !== "1"/,
+scripts/dashboard-journey-contract.test.mjs:416:    /DASHBOARD_E2E_LIVE_PROJECT_ID/,
+scripts/dashboard-journey-contract.test.mjs:460:    /release-teardown\.json/,
+scripts/dashboard-journey-contract.test.mjs:618:    /DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins\.join\(","\)/,
+scripts/dashboard-journey-contract.test.mjs:641:    /DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH/,
+scripts/dashboard-journey-contract.test.mjs:658:    /DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath/,
+scripts/generate-truth-flow.ts:13:import { existsSync, readFileSync, writeFileSync } from "fs";
+scripts/generate-truth-flow.ts:28:  writeFileSync(MATRIX_PATH, generated, "utf-8");
+scripts/run-dashboard-journey.mjs:5:import { mkdir, readFile, writeFile } from "node:fs/promises";
+scripts/run-dashboard-journey.mjs:23:const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+scripts/run-dashboard-journey.mjs:24:const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23184);
+scripts/run-dashboard-journey.mjs:26:  process.env.DASHBOARD_E2E_BASE_URL ??
+scripts/run-dashboard-journey.mjs:29:  process.env.DASHBOARD_E2E_API_HEALTH_URL ??
+scripts/run-dashboard-journey.mjs:35:  process.env.DASHBOARD_E2E_API_BASE_URL ??
+scripts/run-dashboard-journey.mjs:38:  process.env.DASHBOARD_E2E_EMAIL ??
+scripts/run-dashboard-journey.mjs:41:  process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
+scripts/run-dashboard-journey.mjs:44:  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+scripts/run-dashboard-journey.mjs:47:  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+scripts/run-dashboard-journey.mjs:55:  process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1"
+scripts/run-dashboard-journey.mjs:66:  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+scripts/run-dashboard-journey.mjs:69:  process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
+scripts/run-dashboard-journey.mjs:70:    resolve(outputDir, "release-teardown.json"),
+scripts/run-dashboard-journey.mjs:73:  process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
+scripts/run-dashboard-journey.mjs:80:  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
+scripts/run-dashboard-journey.mjs:444:    await writeFile(
+scripts/run-dashboard-journey.mjs:507:  await writeFile(originDiagnosticsPath, '{"diagnostics":[]}\n', "utf8");
+scripts/run-dashboard-journey.mjs:508:  if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
+scripts/run-dashboard-journey.mjs:528:  const chromium = process.env.DASHBOARD_E2E_EXECUTABLE_PATH;
+scripts/run-dashboard-journey.mjs:531:      "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH; configure Chromium before starting services.",
+scripts/run-dashboard-journey.mjs:731:                process.env.DASHBOARD_E2E_CONTRACT_TIMEOUT_MS ?? "120000",
+scripts/run-dashboard-journey.mjs:784:      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+scripts/run-dashboard-journey.mjs:785:        "test-results/dashboard-journey/live-mission-correlation.json",
+scripts/run-dashboard-journey.mjs:835:  if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
+scripts/run-dashboard-journey.mjs:846:    if (process.env.DASHBOARD_E2E_SKIP_API_CONTRACTS !== "1") {
+scripts/run-dashboard-journey.mjs:873:        ...(process.env.DASHBOARD_E2E_GREP
+scripts/run-dashboard-journey.mjs:874:          ? ["--grep", process.env.DASHBOARD_E2E_GREP]
+scripts/run-dashboard-journey.mjs:882:          DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
+scripts/run-dashboard-journey.mjs:883:          DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
+scripts/run-dashboard-journey.mjs:884:          DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
+scripts/run-dashboard-journey.mjs:885:          DASHBOARD_E2E_EMAIL: testEmail,
+scripts/run-dashboard-journey.mjs:886:          DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
+scripts/run-dashboard-journey.mjs:887:          DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,
+scripts/run-dashboard-journey.mjs:888:          DASHBOARD_E2E_EXECUTABLE_PATH:
+scripts/run-dashboard-journey.mjs:889:            process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
+scripts/run-dashboard-journey.mjs:891:          DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
+scripts/run-dashboard-journey.mjs:893:            process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+scripts/run-dashboard-journey.mjs:894:              "test-results/dashboard-journey/live-mission-correlation.json",
+scripts/run-dashboard-journey.mjs:897:            ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
+scripts/run-dashboard-journey.mjs:917:      process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+scripts/release-configuration.test.ts:3:import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/release-configuration.test.ts:133:  await writeFile(
+scripts/release-configuration.test.ts:183:  await writeFile(
+scripts/release-configuration.test.ts:236:  await writeFile(
+scripts/release-configuration.test.ts:434:  await writeFile(
+scripts/release-configuration.test.ts:607:    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+scripts/release-configuration.test.ts:637:    /DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+scripts/release-configuration.test.ts:652:    /path:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+scripts/verify-benchmark-rollout.test.mjs:2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/verify-benchmark-rollout.test.mjs:29:      writeFile(livePath, JSON.stringify(live)),
+scripts/verify-benchmark-rollout.test.mjs:30:      writeFile(baselinePath, JSON.stringify(baseline)),
+scripts/release-port-cleanup.test.mjs:72:          DASHBOARD_E2E_TEARDOWN_FIXTURE: "1",
+scripts/release-port-cleanup.test.mjs:73:          DASHBOARD_E2E_API_PORT: String(apiPort),
+scripts/release-port-cleanup.test.mjs:74:          DASHBOARD_E2E_PORT: String(dashboardPort),
+scripts/validate-github-workflows.test.mjs:2:import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+scripts/validate-github-workflows.test.mjs:15:    await writeFile(
+scripts/validate-github-workflows.test.mjs:19:    await writeFile(
+scripts/validate-github-workflows.test.mjs:49:    await writeFile(
+scripts/validate-github-workflows.test.mjs:53:    await writeFile(
+scripts/validate-github-workflows.test.mjs:98:    await writeFile(
+scripts/validate-github-workflows.test.mjs:138:    await writeFile(
+scripts/validate-github-workflows.test.mjs:180:    await writeFile(
+scripts/validate-github-workflows.test.mjs:227:    await writeFile(
+scripts/validate-github-workflows.test.mjs:239:    await writeFile(
+scripts/validate-github-workflows.test.mjs:284:    await writeFile(
+scripts/validate-github-workflows.test.mjs:321:    await writeFile(
+scripts/patch-generated-zod.ts:12:import { readFileSync, writeFileSync } from "fs";
+scripts/patch-generated-zod.ts:61:  writeFileSync(path, patched);
+scripts/patch-generated-zod.test.ts:2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/patch-generated-zod.test.ts:17:    await writeFile(filePath, content, "utf8");
+scripts/mission-correlation-report.test.mjs:4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+scripts/mission-correlation-report.test.mjs:138:      await writeFile(capturePath, `${JSON.stringify(capture)}\n`, "utf8");
+artifacts/api-server/src/lib/browser-preview-verification.ts:410:          await fs.writeFile(screenshotPath, bytes);
+artifacts/api-server/src/lib/task-execution-service.ts:97:function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionReceipt {
+artifacts/api-server/src/lib/task-execution-service.ts:99:    ...receiptValue,
+artifacts/api-server/src/lib/task-execution-service.ts:100:    stages: receiptValue.stages.slice(0, RECEIPT_MAX_STAGES).map((stage) => safeText(stage, 80)),
+artifacts/api-server/src/lib/task-execution-service.ts:101:    evidenceRefs: receiptValue.evidenceRefs.slice(0, 8).map((ref) => safeText(ref, 120)),
+artifacts/api-server/src/lib/task-execution-service.ts:102:    ...(receiptValue.summary ? { summary: safeText(receiptValue.summary, 2_000) } : {}),
+artifacts/api-server/src/lib/task-execution-service.ts:103:    ...(receiptValue.steps ? { steps: receiptValue.steps.slice(0, RECEIPT_MAX_STEPS).map((step) => safeText(step)) } : {}),
+artifacts/api-server/src/lib/task-execution-service.ts:104:    terminalReason: safeText(receiptValue.terminalReason, 240),
+artifacts/api-server/src/lib/task-execution-service.ts:434:        metadata: { receipt: taskReceipt, executionId, trigger: params.trigger }, correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:477:          evidenceReason: finalStatus === "completed" ? "Structured task receipt verified." : "Human review remains required.",
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:6: * persists only the redacted campaign receipt.
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:98:    await fs.writeFile(path.join(rootPath, selectedFile), fixtureContents, "utf8");
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:136:    const receipt = buildCodeReviewCampaignReceipt({
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:152:    await fs.writeFile(path.resolve(campaignOutputPath), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:153:    // Only the bounded receipt summary is allowed on stdout. The wrapper also
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:156:      kind: receipt.kind,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:157:      scenario: receipt.scenario,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:158:      outcomeClass: receipt.outcomeClass,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:159:      terminalStatus: receipt.terminalStatus,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:160:      failureCode: receipt.failureCode ?? null,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:161:      evidenceCount: receipt.evidence.length,
+artifacts/api-server/src/lib/archive-safety.ts:1:import { mkdir, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/archive-safety.ts:96:    await writeFile(destination, data, { flag: "wx" });
+artifacts/api-server/src/lib/archive-safety.test.ts:3:import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/archive-safety.test.ts:35:    await writeFile(path, entry.content ?? "");
+artifacts/api-server/src/lib/delivery-workspace.ts:2:import { cp, mkdir, readFile, rm, writeFile, readdir, lstat, rename } from "node:fs/promises";
+artifacts/api-server/src/lib/delivery-workspace.ts:16:  await writeFile(temp, content, { encoding: "utf8", mode: 0o600 });
+artifacts/api-server/src/lib/delivery-workspace.ts:201:    await writeFile(path.join(workspaceRoot, MARKER), `${input.operationId}\n`, { flag: "wx", mode: 0o600 });
+artifacts/api-server/src/lib/delivery-workspace.ts:209:      await writeFile(target, change.newContent, "utf8");
+artifacts/api-server/src/lib/approve-code-agent-baseline.ts:65:  await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:154:      "rate-limit, empty, and malformed incomplete receipts",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:242:  await fs.writeFile(temporaryPath, `${JSON.stringify(decision, null, 2)}\n`, "utf8");
+artifacts/api-server/src/routes/discovery.test.ts:17:import { access, mkdir, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/src/routes/discovery.test.ts:920:    await writeFile(join(worktree, "package.json"), "{}\n");
+artifacts/api-server/src/routes/discovery.test.ts:921:    await writeFile(join(worktree, "README.md"), "git durable fixture\n");
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:39:      "rate-limit, empty, and malformed incomplete receipts",
+artifacts/api-server/src/lib/ai-execution-state.ts:137: * server-side and receipt-oriented: a provider response or a completed worker
+artifacts/api-server/src/lib/discovery-adapters.test.ts:454:    const { mkdir, writeFile, rm } = await import("node:fs/promises");
+artifacts/api-server/src/lib/discovery-adapters.test.ts:456:    await writeFile(`${sourcePath}/package.json`, "{}\n");
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:169:  await fs.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:562:  await fs.writeFile(
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:590:  await fs.writeFile(
+artifacts/api-server/src/routes/ai.test.ts:506:    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+artifacts/api-server/src/routes/ai.test.ts:2120:    await fs.writeFile(`${root}/src/loop.ts`, contents.join("\n").concat("\n"), "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3181:    await fs.writeFile(absolutePath, original, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3233:    await fs.writeFile(dangerousPath, original, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3292:    await fs.writeFile(absolutePath, "export const current = true;\n", "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3340:    await fs.writeFile(absolutePath, original, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3354:      await fs.writeFile(absolutePath, "export const userEdit = true;\n", "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3392:    await fs.writeFile(stalePath, staleOriginal, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3393:    await fs.writeFile(validPath, validOriginal, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3422:      await fs.writeFile(stalePath, "export const user_edit = true;\n", "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3465:    await fs.writeFile(absolutePath, current, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3543:    await fs.writeFile(absolutePath, original, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3610:    await fs.writeFile(absolutePath, original, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3657:    await fs.writeFile(absolutePath, original, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3701:    await fs.writeFile(absolutePath, original, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3751:    await fs.writeFile(absolutePath, original, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3816:      await fs.writeFile(absolutePath, drifted, "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3913:      await fs.writeFile(absolutePath, "export const value = 9;\n", "utf-8");
+artifacts/api-server/src/lib/benchmark-release-gate.ts:201:  await fs.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+artifacts/api-server/src/lib/ai-repair-validation.ts:191:      await fs.writeFile(target, change.newContent, "utf8");
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:97:    await fs.writeFile(path.join(rootPath, relativePath), originalContent, "utf8");
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:123:    await fs.writeFile(
+artifacts/api-server/src/lib/operation-evidence.ts:19:  receipts: 80,
+artifacts/api-server/src/lib/operation-evidence.ts:67:    receipts: number;
+artifacts/api-server/src/lib/operation-evidence.ts:69:  receipts: OperationReceipt[];
+artifacts/api-server/src/lib/operation-evidence.ts:103:function receiptKind(value: string): OperationReceipt["kind"] {
+artifacts/api-server/src/lib/operation-evidence.ts:136:  const receipts: OperationReceipt[] = [];
+artifacts/api-server/src/lib/operation-evidence.ts:138:    receipts.push({
+artifacts/api-server/src/lib/operation-evidence.ts:151:    const kind = receiptKind(event.type);
+artifacts/api-server/src/lib/operation-evidence.ts:161:    pushReceipt(receiptKind(entry.stage), entry.stage, entry.createdAt, Number(record(entry.payload).attempt ?? 0), record(entry.payload).reason);
+artifacts/api-server/src/lib/operation-evidence.ts:171:  if (execution.status === "completed" && receipts.every((receipt) => receipt.kind !== "validation")) {
+artifacts/api-server/src/lib/operation-evidence.ts:172:    addGap(gaps, { kind: "missing", source: "event", detail: "A completed execution has no retained validation receipt." });
+artifacts/api-server/src/lib/operation-evidence.ts:212:      receipts: Math.min(receipts.length, OPERATION_EVIDENCE_LIMITS.receipts),
+artifacts/api-server/src/lib/operation-evidence.ts:214:    receipts: receipts.slice(0, OPERATION_EVIDENCE_LIMITS.receipts),
+artifacts/api-server/src/lib/operation-evidence.test.ts:43:  it("correlates bounded receipts and reports a complete history", () => {
+artifacts/api-server/src/lib/operation-evidence.test.ts:51:      counts: { checkpoints: 1, events: 1, receipts: 3 },
+artifacts/api-server/src/lib/operation-evidence.test.ts:53:    expect(projection.receipts.map((receipt) => receipt.kind)).toEqual(["process", "validation", "process"]);
+artifacts/api-server/src/lib/task-execution-service.test.ts:16:describe("AI task execution receipts", () => {
+artifacts/api-server/src/lib/task-execution-service.test.ts:17:  it("keeps a bounded, safe structured success receipt", () => {
+artifacts/api-server/src/lib/task-execution-service.test.ts:18:    const receipt = buildAiTaskExecutionReceipt({
+artifacts/api-server/src/lib/task-execution-service.test.ts:30:    expect(JSON.stringify(receipt).length).toBeLessThanOrEqual(8_000);
+artifacts/api-server/src/lib/task-execution-service.test.ts:31:    expect(receipt.terminalStatus).toBe("SUCCEEDED");
+artifacts/api-server/src/lib/task-execution-service.test.ts:32:    expect(receipt.attempts).toBe(2);
+artifacts/api-server/src/lib/task-execution-service.test.ts:33:    expect(receipt.provider).toBe("openrouter");
+artifacts/api-server/src/lib/task-execution-service.test.ts:34:    expect(receipt.model).toBeTruthy();
+artifacts/api-server/src/lib/task-execution-service.test.ts:35:    expect(receipt.summary).not.toContain("/home/runner");
+artifacts/api-server/src/lib/task-execution-service.test.ts:36:    expect(receipt.summary).not.toContain("super-secret");
+artifacts/api-server/src/lib/task-execution-service.test.ts:37:    expect(receipt.steps).toHaveLength(24);
+artifacts/api-server/src/lib/task-execution-service.test.ts:38:    expect(JSON.stringify(receipt)).not.toContain("hunter2");
+artifacts/api-server/src/lib/task-execution-service.test.ts:42:    const receipt = buildAiTaskExecutionReceipt({
+artifacts/api-server/src/lib/task-execution-service.test.ts:56:    expect(receipt.terminalStatus).toBe("BLOCKED");
+artifacts/api-server/src/lib/task-execution-service.test.ts:57:    expect(receipt.terminalReason).toBe("human_review_required");
+artifacts/api-server/src/lib/task-execution-service.test.ts:58:    expect(receipt.durationMs).toBe(86_400_000);
+artifacts/api-server/src/lib/task-execution-service.test.ts:59:    expect(receipt.evidenceRefs).toEqual([]);
+artifacts/api-server/src/routes/projects.test.ts:16:import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+artifacts/api-server/src/routes/projects.test.ts:48:  writeFileSync(join(dir, "package.json"), "{}");
+artifacts/api-server/src/routes/projects.test.ts:785:    writeFileSync(join(forgedRoot, "package.json"), "{}");
+artifacts/api-server/src/lib/task-execution-retention.ts:7: * - Keep terminal AI execution receipts for 90 days.
+artifacts/api-server/src/lib/task-execution-retention.ts:25:  receiptRowsScanned: number;
+artifacts/api-server/src/lib/task-execution-retention.ts:26:  receiptRowsRemoved: number;
+artifacts/api-server/src/lib/task-execution-retention.ts:35:  receiptRowsScanned: 0,
+artifacts/api-server/src/lib/task-execution-retention.ts:36:  receiptRowsRemoved: 0,
+artifacts/api-server/src/lib/task-execution-retention.ts:53:  let receiptRowsScanned = 0;
+artifacts/api-server/src/lib/task-execution-retention.ts:54:  let receiptRowsRemoved = 0;
+artifacts/api-server/src/lib/task-execution-retention.ts:60:  health.receiptRowsScanned = 0;
+artifacts/api-server/src/lib/task-execution-retention.ts:61:  health.receiptRowsRemoved = 0;
+artifacts/api-server/src/lib/task-execution-retention.ts:65:    const receiptCutoff = new Date(now.getTime() - AI_EXECUTION_RECEIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+artifacts/api-server/src/lib/task-execution-retention.ts:101:    // Terminal receipts are safe to remove only when no newer active/resumable
+artifacts/api-server/src/lib/task-execution-retention.ts:103:    const receipts = await pool.query<{ id: string }>(
+artifacts/api-server/src/lib/task-execution-retention.ts:116:      [receiptCutoff, TASK_HISTORY_RETENTION_BATCH_SIZE],
+artifacts/api-server/src/lib/task-execution-retention.ts:118:    receiptRowsScanned = receipts.rowCount ?? receipts.rows.length;
+artifacts/api-server/src/lib/task-execution-retention.ts:119:    if (receipts.rows.length > 0) {
+artifacts/api-server/src/lib/task-execution-retention.ts:130:        [receipts.rows.map((row) => row.id)],
+artifacts/api-server/src/lib/task-execution-retention.ts:132:      receiptRowsRemoved = removed.rowCount ?? 0;
+artifacts/api-server/src/lib/task-execution-retention.ts:139:    health.receiptRowsScanned = receiptRowsScanned;
+artifacts/api-server/src/lib/task-execution-retention.ts:140:    health.receiptRowsRemoved = receiptRowsRemoved;
+artifacts/api-server/src/lib/task-execution-retention.ts:141:    if (taskLogRowsRemoved > 0 || receiptRowsRemoved > 0) {
+artifacts/api-server/src/lib/task-execution-retention.ts:146:        receiptRowsScanned,
+artifacts/api-server/src/lib/task-execution-retention.ts:147:        receiptRowsRemoved,
+artifacts/api-server/src/lib/task-execution-retention.ts:154:    health.receiptRowsScanned = receiptRowsScanned;
+artifacts/api-server/src/lib/task-execution-retention.ts:155:    health.receiptRowsRemoved = receiptRowsRemoved;
+artifacts/api-server/src/lib/task-execution-retention.test.ts:46:      receiptRowsScanned: 1,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:47:      receiptRowsRemoved: 1,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:64:      receiptRowsScanned: 0,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:65:      receiptRowsRemoved: 0,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:181:        receiptRowsScanned: 0,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:182:        receiptRowsRemoved: 0,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:190:  it("retains a receipt when its execution becomes resumable after selection", async () => {
+artifacts/api-server/src/lib/task-execution-retention.test.ts:201:      ownerId: "retention-receipt-concurrency-test-user",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:202:      name: `retention-receipt-concurrency-${projectId.slice(0, 8)}`,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:203:      rootPath: `/tmp/retention-receipt-concurrency-${projectId}`,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:213:        title: "task whose receipt is needed for retry",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:232:        userId: "retention-receipt-concurrency-test-user",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:234:        resumeTokenHash: "retention-receipt-concurrency-test-racing-hash",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:246:        userId: "retention-receipt-concurrency-test-user",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:248:        resumeTokenHash: "retention-receipt-concurrency-test-eligible-hash",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:291:        receiptRowsScanned: 2,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:292:        receiptRowsRemoved: 1,
+artifacts/api-server/src/lib/startup-migrations.ts:64:    await fs.writeFile(ENCRYPTION_KEY_FILE, newKey, { mode: 0o600 });
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:232:  await fs.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:298:  await fs.writeFile(
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:303:  await fs.writeFile(
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:460:  await fs.writeFile(
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:465:  await fs.writeFile(
+artifacts/api-server/src/lib/project-root.test.ts:2:import { mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+artifacts/api-server/src/lib/project-root.test.ts:18:  writeFileSync(`${markerDir}/package.json`, "{}");
+artifacts/api-server/src/lib/project-root.test.ts:20:  writeFileSync(fileEntry, "not a directory");
+artifacts/api-server/src/lib/project-root.test.ts:72:    writeFileSync(`${forged}/package.json`, "{}");
+artifacts/api-server/src/lib/project-materialization.ts:1:import { cp, lstat, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/project-materialization.ts:56:    await writeFile(
+artifacts/api-server/src/lib/project-materialization.test.ts:2:import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/project-materialization.test.ts:17:  await writeFile(join(sourceRoot, "package.json"), "{}\n");
+artifacts/api-server/src/lib/project-materialization.test.ts:18:  await writeFile(join(sourceRoot, "README.md"), "durable fixture\n");
+artifacts/api-server/src/lib/github-connector.test.ts:4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/github-connector.test.ts:32:      await writeFile(path.join(rootPath, "README.md"), "before\n");
+artifacts/api-server/src/lib/github-connector.test.ts:39:      await writeFile(path.join(rootPath, "README.md"), "after\n");
+artifacts/api-server/src/lib/github-connector.test.ts:102:      await writeFile(path.join(rootPath, "README.md"), "fixture\n");
+artifacts/api-server/src/lib/github-connector.test.ts:108:      await writeFile(path.join(rootPath, "README.md"), "fixture update\n");
+artifacts/api-server/src/routes/git.test.ts:4:import { chmod, mkdtemp, writeFile, rm } from "node:fs/promises";
+artifacts/api-server/src/routes/git.test.ts:36:  await writeFile(path.join(rootPath, "README.md"), "fixture\n");
+artifacts/api-server/src/routes/git.test.ts:132:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:148:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:149:    await writeFile(path.join(fixture.rootPath, "unrelated.ts"), "export const unrelated = true;\n");
+artifacts/api-server/src/routes/git.test.ts:164:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:165:    await writeFile(path.join(fixture.rootPath, "unrelated.ts"), "export const unrelated = true;\n");
+artifacts/api-server/src/routes/git.test.ts:190:    await writeFile(wrapperPath, `#!${process.execPath}
+artifacts/api-server/src/routes/git.test.ts:259:      await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/lib/delivery-workspace.test.ts:2:import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/delivery-workspace.test.ts:19:    await writeFile(join(fixture, "app.ts"), "export const value = 1;\n");
+artifacts/api-server/src/lib/delivery-workspace.test.ts:51:      await writeFile(join(fixture, "a.ts"), "new\n");
+artifacts/api-server/src/lib/delivery-workspace.test.ts:52:      await writeFile(join(fixture, "b.ts"), "old\n");
+artifacts/api-server/src/lib/delivery-workspace.test.ts:72:      await writeFile(join(fixture, "a.ts"), "user edit\n");

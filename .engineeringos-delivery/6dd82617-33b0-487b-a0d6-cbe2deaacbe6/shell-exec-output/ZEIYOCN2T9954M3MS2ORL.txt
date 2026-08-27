@@ -1,0 +1,251 @@
+diff --git a/artifacts/api-server/src/routes/discovery.test.ts b/artifacts/api-server/src/routes/discovery.test.ts
+index e2ea87cc..9f85be46 100644
+--- a/artifacts/api-server/src/routes/discovery.test.ts
++++ b/artifacts/api-server/src/routes/discovery.test.ts
+@@ -1,7 +1,9 @@
+ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+ import request from "supertest";
++import express from "express";
+ import { eq } from "drizzle-orm";
+ import app from "../app.js";
++import discoveryRouter, { cleanupOldSessions } from "./discovery.js";
+ import { setGitCloneExecutorForTests } from "../lib/discovery-adapters.js";
+ import {
+   db,
+@@ -17,12 +19,28 @@ import { mkdirSync, rmSync } from "node:fs";
+ import { access, mkdir, rm, writeFile } from "node:fs/promises";
+ import { promisify } from "node:util";
+ import { execFile } from "node:child_process";
+-import { join } from "node:path";
++import { dirname, join } from "node:path";
+ import type { DiscoveryResultData } from "@workspace/db";
+-import { MANAGED_PROJECT_ROOTS_DIR } from "../lib/project-materialization.js";
++import {
++  MANAGED_PROJECT_ROOTS_DIR,
++  removeManagedProjectRoot,
++} from "../lib/project-materialization.js";
+ import { EOS_GIT_TEMP_PREFIX } from "../lib/path-validation.js";
+ 
+ const execFileAsync = promisify(execFile);
++const OTHER_USER = "someone-else";
++
++// The production app supplies the authenticated identity before mounting the
++// route tree. This small route-level app lets the ownership tests exercise the
++// same handlers with a foreign identity without weakening the test auth bypass
++// used by the rest of the suite.
++const foreignOwnerApp = express();
++foreignOwnerApp.use(express.json());
++foreignOwnerApp.use((req, _res, next) => {
++  req.userId = OTHER_USER;
++  next();
++});
++foreignOwnerApp.use(discoveryRouter);
+ 
+ // ─── Shared fixtures ──────────────────────────────────────────────────────────
+ 
+@@ -117,6 +135,37 @@ async function cleanupSessionAndProject(): Promise<void> {
+   }
+ }
+ 
++async function writeDiscoveryReleaseReceipt(input: {
++  sessionId: string;
++  discoveryState: "ready";
++  importStatus: number;
++  projectStatus: "active";
++  durableRootMaterialized: boolean;
++  temporaryCloneCleaned: boolean;
++}): Promise<void> {
++  const receiptPath = process.env.DISCOVERY_RELEASE_RECEIPT_PATH;
++  if (!receiptPath) return;
++  await mkdir(dirname(receiptPath), { recursive: true });
++  await writeFile(
++    receiptPath,
++    `${JSON.stringify(
++      {
++        kind: "discovery-lifecycle",
++        sessionId: input.sessionId,
++        sourceType: "GIT_REPOSITORY",
++        discoveryState: input.discoveryState,
++        importStatus: input.importStatus,
++        projectStatus: input.projectStatus,
++        durableRootMaterialized: input.durableRootMaterialized,
++        temporaryCloneCleaned: input.temporaryCloneCleaned,
++      },
++      null,
++      2,
++    )}\n`,
++    "utf8",
++  );
++}
++
+ // ─── GET /discovery/sources ───────────────────────────────────────────────────
+ 
+ describe("GET /discovery/sources — source capability listing", () => {
+@@ -373,6 +422,118 @@ describe("GET /projects/discover/:id — session polling", () => {
+     expect(res.body).toHaveProperty("importedProjectId");
+     expect(typeof res.body.startedAt).toBe("string");
+   });
++
++  it("does not expose polling, summary, or import to a foreign owner", async () => {
++    const discoveryId = await insertReadySession(fakeResult());
++
++    const polling = await request(foreignOwnerApp).get(`/projects/discover/${discoveryId}`);
++    const summary = await request(foreignOwnerApp).get(`/projects/discover/${discoveryId}/summary`);
++    const imported = await request(foreignOwnerApp)
++      .post("/projects/import")
++      .send({ discoveryId });
++
++    for (const response of [polling, summary, imported]) {
++      expect(response.status).toBe(403);
++      expect(response.body.reason).toBe("permission_denied");
++    }
++  });
++});
++
++describe("Discovery cleanup ownership and races", () => {
++  afterEach(cleanupSessionAndProject);
++
++  it("retires stale unimported sessions and removes their managed root", async () => {
++    const discoveryId = randomUUID();
++    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `stale-${discoveryId}`);
++    await mkdir(rootPath, { recursive: true });
++    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
++    await db.insert(discoverySessionsTable).values({
++      id: discoveryId,
++      ownerId: "test-user",
++      status: "ready",
++      rootPath,
++      sourceType: "LOCAL_FOLDER",
++      steps: [],
++      result: fakeResult(),
++      startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
++    });
++    sessionId = discoveryId;
++
++    await cleanupOldSessions();
++
++    const rows = await db
++      .select({ id: discoverySessionsTable.id })
++      .from(discoverySessionsTable)
++      .where(eq(discoverySessionsTable.id, discoveryId));
++    expect(rows).toHaveLength(0);
++    await expect(access(rootPath)).rejects.toThrow();
++  });
++
++  it("removes an imported stale session without removing the imported project root", async () => {
++    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `imported-${randomUUID()}`);
++    await mkdir(rootPath, { recursive: true });
++    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
++    const discoveryId = await insertReadySession(fakeResult(), rootPath);
++
++    const imported = await request(app)
++      .post("/api/projects/import")
++      .send({ discoveryId });
++    expect(imported.status).toBe(201);
++    projectId = imported.body.id;
++
++    await db
++      .update(discoverySessionsTable)
++      .set({ startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) })
++      .where(eq(discoverySessionsTable.id, discoveryId));
++    await cleanupOldSessions();
++
++    const sessionRows = await db
++      .select({ id: discoverySessionsTable.id })
++      .from(discoverySessionsTable)
++      .where(eq(discoverySessionsTable.id, discoveryId));
++    expect(sessionRows).toHaveLength(0);
++    await expect(access(rootPath)).resolves.toBeUndefined();
++    const projectRows = await db
++      .select({ id: projectsTable.id })
++      .from(projectsTable)
++      .where(eq(projectsTable.id, projectId!));
++    expect(projectRows).toHaveLength(1);
++
++    await removeManagedProjectRoot(rootPath);
++  });
++
++  it("does not create an imported project when cleanup wins the ready-session race", async () => {
++    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `race-${randomUUID()}`);
++    await mkdir(rootPath, { recursive: true });
++    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
++    const discoveryId = await insertReadySession(fakeResult(), rootPath);
++    await db
++      .update(discoverySessionsTable)
++      .set({ startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) })
++      .where(eq(discoverySessionsTable.id, discoveryId));
++
++    const [cleanupResult, importResult] = await Promise.all([
++      cleanupOldSessions(),
++      request(app).post("/api/projects/import").send({ discoveryId }),
++    ]);
++    await cleanupResult;
++    expect([201, 404, 409]).toContain(importResult.status);
++
++    if (importResult.status === 201) {
++      projectId = importResult.body.id;
++      await expect(access(rootPath)).resolves.toBeUndefined();
++      const deleted = await request(app).delete(`/api/projects/${projectId}`);
++      expect(deleted.status).toBe(204);
++      projectId = null;
++    } else {
++      const projectRows = await db
++        .select({ id: projectsTable.id })
++        .from(projectsTable)
++        .where(eq(projectsTable.rootPath, rootPath));
++      expect(projectRows).toHaveLength(0);
++      await expect(access(rootPath)).rejects.toThrow();
++    }
++  });
+ });
+ 
+ // ─── GET /projects/discover/:id/summary ───────────────────────────────────────
+@@ -971,6 +1132,21 @@ describe("Git discovery → durable import", () => {
+     expect(imported.body.rootPath).toBe(storedSession!.rootPath);
+     expect(imported.body.rootPath).toContain(MANAGED_PROJECT_ROOTS_DIR);
+ 
++    const importedSession = await db
++      .select({ status: discoverySessionsTable.status })
++      .from(discoverySessionsTable)
++      .where(eq(discoverySessionsTable.id, discoveryId))
++      .limit(1);
++    expect(importedSession[0]?.status).toBe("imported");
++    await writeDiscoveryReleaseReceipt({
++      sessionId: discoveryId,
++      discoveryState: "ready",
++      importStatus: imported.status,
++      projectStatus: "active",
++      durableRootMaterialized: true,
++      temporaryCloneCleaned: true,
++    });
++
+     const deleted = await request(app).delete(`/api/projects/${projectId}`);
+     expect(deleted.status).toBe(204);
+     await expect(access(storedSession!.rootPath)).rejects.toThrow();
+import { mkdirSync, rmSync } from "node:fs";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { execFile } from "node:child_process";
+import { dirname, join } from "node:path";
+import type { DiscoveryResultData } from "@workspace/db";
+import {
+  MANAGED_PROJECT_ROOTS_DIR,
+  removeManagedProjectRoot,
+} from "../lib/project-materialization.js";
+import { EOS_GIT_TEMP_PREFIX } from "../lib/path-validation.js";
+
+const execFileAsync = promisify(execFile);
+const OTHER_USER = "someone-else";
+
+// The production app supplies the authenticated identity before mounting the
+// route tree. This small route-level app lets the ownership tests exercise the
+// same handlers with a foreign identity without weakening the test auth bypass
+// used by the rest of the suite.
+const foreignOwnerApp = express();
+foreignOwnerApp.use(express.json());
+foreignOwnerApp.use((req, _res, next) => {
+  req.userId = OTHER_USER;
+  next();
+});
+foreignOwnerApp.use(discoveryRouter);
+

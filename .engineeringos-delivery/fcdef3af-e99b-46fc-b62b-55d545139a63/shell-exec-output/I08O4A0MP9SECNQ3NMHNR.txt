@@ -1,0 +1,85 @@
+artifacts/dashboard/src/pages/AiChat.tsx:850:    discoveredFiles: number;
+artifacts/dashboard/src/pages/AiChat.tsx:899:      discoveredFiles: number;
+artifacts/dashboard/src/pages/AiChat.tsx:1286:      discoveredFiles: number;
+artifacts/dashboard/src/pages/AiChat.tsx:2218:                          {coverage.readFiles}/{coverage.discoveredFiles} read
+artifacts/dashboard/src/pages/AiChat.tsx:4202:              This plan has no verified file scope. Retry the plan after the relevant source files are discovered; no Build Mode or write access is available.
+artifacts/dashboard/src/pages/AiChat.tsx:5048:/** Format a scan analysis result as a markdown chat message. */
+artifacts/dashboard/src/pages/AiChat.tsx:5109:  return task === 'analyze' ? 'scan analysis' : 'code review';
+artifacts/dashboard/src/pages/AiChat.tsx:5190:  { id: 'analyze', label: 'Analyze Scan', icon: Search, prompt: 'Analyze the latest scan results and suggest the top 3 improvements.' },
+artifacts/dashboard/src/pages/AiChat.tsx:7651:    const title = task === 'analyze' ? 'Analyzing scan…' : 'Reviewing code…';
+artifacts/dashboard/src/pages/AiChat.tsx:7652:    const startLabel = task === 'analyze' ? 'Starting scan analysis' : 'Starting code review';
+artifacts/dashboard/src/pages/Tasks.tsx:751:                : 'Tasks are created automatically when a project scan detects issues.'}
+artifacts/dashboard/src/pages/Tasks.test.tsx:167:          source: { type: 'scan', correlationId: null, revision: null, completeness: 'COMPLETE' },
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:60:  status: 'discovering' | 'ready' | 'imported' | 'error';
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:134:    description: 'Clone a remote repo and scan it',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:149:    description: 'Re-scan a registered project',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:156:    description: 'Upload and scan a .zip file',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:165:    description: 'Mount and scan a remote path',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:247:  not_found: 'The discovery session could not be found.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:248:  permission_denied: 'You do not have access to this discovery session.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:364:  const [discoveryId, setDiscoveryId] = useState<string | null>(null);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:372:  const [scanTriggered, setScanTriggered] = useState(false);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:375:  const importProject = useImportProject();
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:376:  const scanProject = useScanProject();
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:379:  // Polling via react-query (enabled only when discoveryId set and not done)
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:380:  const { data: sessionData } = useGetDiscoverySession(discoveryId ?? '', {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:382:      queryKey: getGetDiscoverySessionQueryKey(discoveryId ?? ''),
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:383:      enabled: !!discoveryId && step === 2,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:387:        return s.status === 'discovering' ? 800 : false;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:392:  const { data: summaryData, error: summaryError } = useGetDiscoverySummary(discoveryId ?? '', {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:394:      queryKey: getGetDiscoverySummaryQueryKey(discoveryId ?? ''),
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:395:      enabled: !!discoveryId && (session?.status === 'ready' || sessionData?.status === 'ready'),
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:461:      setStartError(extractApiError(err, 'Failed to start discovery. Check your configuration and try again.'));
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:466:    if (!discoveryId || !report) return;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:469:      const project = await importProject.mutateAsync({
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:470:        data: { discoveryId, overrides: Object.keys(overrides).length > 0 ? overrides : undefined },
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:831:                <div className="font-medium mb-0.5">Failed to load discovery report</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1031:            disabled={importProject.isPending}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1034:            {importProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1072:      {importedProjectId && !scanTriggered && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1077:              await scanProject.mutateAsync({ projectId: importedProjectId });
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1079:            disabled={scanProject.isPending}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1082:            {scanProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1087:      {scanTriggered && !scanProject.isPending && !scanProject.isError && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1092:      {scanProject.isError && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1094:          <AlertTriangle className="w-3.5 h-3.5" /> {extractApiError(scanProject.error, 'Scan could not be started.')}
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1447:      discoveredFiles: 1,
+artifacts/dashboard/src/pages/Metrics.tsx:107:          <p className="text-xs mt-1 opacity-70">Trigger a scan to generate the first snapshot.</p>
+artifacts/dashboard/src/pages/Landing.tsx:6:  { icon: GitMerge, label: 'Workflow orchestration across scan, review, and release' },
+artifacts/dashboard/src/pages/Projects.tsx:157:                        : project.status === 'scanning'
+artifacts/dashboard/src/pages/Projects.test.tsx:24:    <div data-testid="discover-wizard">
+artifacts/dashboard/src/pages/Projects.test.tsx:34:  { id: "2", name: "beta-worker", status: "scanning", language: "Python", qualityScore: null, lastScanAt: null },
+artifacts/dashboard/src/pages/Projects.test.tsx:83:  it("opens discover wizard when Discover Project button is clicked", () => {
+artifacts/dashboard/src/pages/Projects.test.tsx:85:    fireEvent.click(screen.getByRole("button", { name: /discover project/i }));
+artifacts/dashboard/src/pages/Projects.test.tsx:86:    expect(screen.getByTestId("discover-wizard")).toBeInTheDocument();
+artifacts/dashboard/src/pages/Projects.test.tsx:89:  it("closes discover wizard when onClose is called", () => {
+artifacts/dashboard/src/pages/Projects.test.tsx:91:    fireEvent.click(screen.getByRole("button", { name: /discover project/i }));
+artifacts/dashboard/src/pages/Projects.test.tsx:92:    expect(screen.getByTestId("discover-wizard")).toBeInTheDocument();
+artifacts/dashboard/src/pages/Projects.test.tsx:94:    expect(screen.queryByTestId("discover-wizard")).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/ProjectDetail.tsx:58:      // Scans now run as background jobs (see scan-runner.ts): the project
+artifacts/dashboard/src/pages/ProjectDetail.tsx:59:      // stays "scanning" until the job finishes, so poll while it's active
+artifacts/dashboard/src/pages/ProjectDetail.tsx:61:      refetchInterval: (query) => (query.state.data?.status === 'scanning' ? 1500 : false),
+artifacts/dashboard/src/pages/ProjectDetail.tsx:94:  const scanProject = useScanProject();
+artifacts/dashboard/src/pages/ProjectDetail.tsx:98:    scanProject.mutate(
+artifacts/dashboard/src/pages/ProjectDetail.tsx:102:          // The scan runs as a background job; optimistically flip to
+artifacts/dashboard/src/pages/ProjectDetail.tsx:103:          // "scanning" so the poll (refetchInterval above) kicks in right
+artifacts/dashboard/src/pages/ProjectDetail.tsx:106:            old ? { ...old, status: 'scanning' } : old,
+artifacts/dashboard/src/pages/ProjectDetail.tsx:131:  const hasCurrentScan = Boolean(project.lastScanAt) && project.status !== 'scanning';
+artifacts/dashboard/src/pages/ProjectDetail.tsx:151:          project.status === 'scanning'
+artifacts/dashboard/src/pages/ProjectDetail.tsx:159:        {project.status === 'scanning'
+artifacts/dashboard/src/pages/ProjectDetail.tsx:160:          ? 'A scan is in progress. Scores and graph data below remain from the last completed scan until the server reports the new result.'
+artifacts/dashboard/src/pages/ProjectDetail.tsx:162:            ? `Analysis reflects the completed scan from ${new Date(project.lastScanAt!).toLocaleString()}.`
+artifacts/dashboard/src/pages/ProjectDetail.tsx:163:            : 'No completed scan is recorded for this project. Scores and graph data are not verified for the current source.'}
+artifacts/dashboard/src/pages/ProjectDetail.tsx:177:                  : project.status === 'scanning'
+artifacts/dashboard/src/pages/ProjectDetail.tsx:185:              {project.status === 'scanning' && <Activity className="w-3 h-3 animate-pulse" />}
+artifacts/dashboard/src/pages/ProjectDetail.tsx:220:            disabled={scanProject.isPending || project.status === 'scanning'}
+artifacts/dashboard/src/pages/ProjectDetail.tsx:223:            {project.status === 'scanning' ? (
+artifacts/dashboard/src/pages/ProjectDetail.tsx:258:              { label: 'Last scan',   value: project.lastScanAt ? new Date(project.lastScanAt).toLocaleString() : 'Never' },
+artifacts/dashboard/src/pages/ProjectDetail.tsx:357:          No verified knowledge graph is available for this project yet. Run a scan to extract dependencies.
+artifacts/dashboard/src/pages/Events.test.tsx:19:    message: "Alpha scan completed",
+artifacts/dashboard/src/pages/Events.test.tsx:55:    expect(screen.getByText("Alpha scan completed")).toBeInTheDocument();
+artifacts/dashboard/src/pages/Dashboard.tsx:158:              <span className="font-mono font-medium">{retention.chatRowsScanned} scanned / {retention.chatRowsPruned} pruned</span>
+artifacts/dashboard/src/pages/Dashboard.tsx:160:              <span className="font-mono font-medium">{retention.executionRowsScanned} scanned / {retention.executionRowsPruned} pruned</span>
+artifacts/dashboard/src/pages/Graph.tsx:311:          <p className="mt-1 text-xs text-muted-foreground">Import a project and run a scan before exploring its dependencies.</p>
+artifacts/dashboard/src/pages/Graph.tsx:322:            This graph view is stale and may not reflect the latest completed scan. Refresh before using it for current dependency decisions.
+artifacts/dashboard/src/pages/Graph.tsx:418:              <p className="text-xs opacity-70">Run a scan and refresh after it completes to extract the knowledge graph.</p>

@@ -1,0 +1,263 @@
+./lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json
+./lib/ai-orchestrator/benchmark-results/code-agent-benchmark-release-decision.json
+./test-results/dashboard-journey/release-teardown.json
+scripts/dashboard-journey-contract.test.mjs:638:test("origin failures preserve only sanitized phase and CORS diagnostics", () => {
+.local/tasks/task-45.md:14:- The discovery test suite passes in isolation and the release run retains a redacted receipt identifying the session and terminal state.
+.local/tasks/task-45.md:27:4. **Validate the release evidence** — Run the focused discovery tests and the relevant contract checks, retain only sanitized lifecycle metadata, and confirm no approved baseline or provider-free release artifact was changed.
+.local/tasks/prove-controlled-agent-journey.md:26:3. **Verify AI execution surfaces** — Exercise ordinary chat with a retained source read, structured analyze/review streams, task execution, and workflow orchestration; assert persistence, typed failures, provider fallback behavior, and terminal states.
+.local/tasks/restore-browser-recovery.md:10:- API restart coordination waits for the old listener to disappear, starts the replacement within a bounded deadline, and preserves sanitized diagnostics on failure.
+.local/tasks/restore-browser-recovery.md:23:2. **Harden process coordination** — Make the release runner own child-process cleanup, wait for listeners to close before restart, apply one overall deadline plus bounded child deadlines, and preserve actionable sanitized diagnostics.
+.local/tasks/restore-browser-recovery.md:24:3. **Exercise durable browser recovery** — Extend the authenticated journey to verify stream stages, saved terminal state after reload, reconnect behavior, cancellation as incomplete, restart reconciliation, and safe operator messaging.
+.local/tasks/restore-discovery-acceptance.md:12:- The discovery test suite passes in isolation and the release run retains a redacted receipt identifying the session and terminal state.
+.local/tasks/restore-discovery-acceptance.md:25:4. **Validate the release evidence** — Run the focused discovery tests and the relevant contract checks, retain only sanitized lifecycle metadata, and confirm no approved baseline or provider-free release artifact was changed.
+artifacts/api-server/src/types/express.d.ts:10: * `sessionId` and `orgId` are carried through now even though nothing reads
+artifacts/api-server/src/types/express.d.ts:17:  sessionId: string | null;
+scripts/mission-correlation-report.test.mjs:21:    sessionId: "session",
+scripts/mission-correlation-report.test.mjs:28:      sessionId: "session",
+scripts/mission-correlation-report.test.mjs:75:    sessionId: "session",
+scripts/mission-correlation-report.test.mjs:82:      sessionId: "session",
+scripts/mission-correlation-report.test.mjs:195:    sessionId: "session",
+scripts/mission-correlation-report.test.mjs:201:      sessionId: "session",
+scripts/mission-correlation-report.test.mjs:231:    sessionId: "session",
+scripts/mission-correlation-report.test.mjs:238:      sessionId: "session",
+scripts/mission-correlation-report.test.mjs:261:    sessionId: "session",
+scripts/mission-correlation-report.test.mjs:268:      sessionId: "session",
+scripts/mission-correlation-report.test.mjs:289:    ["sessionId", { sessionId: "" }],
+scripts/mission-correlation-report.test.mjs:298:          sessionId: "session",
+scripts/mission-correlation-report.test.mjs:305:            sessionId: "session",
+scripts/mission-correlation-report.test.mjs:322:        sessionId: "session",
+scripts/mission-correlation-report.test.mjs:327:    /Unknown mission terminal state: UNKNOWN/,
+scripts/mission-correlation-report.test.mjs:334:    sessionId: "session",
+scripts/mission-correlation-report.test.mjs:341:      sessionId: "session",
+scripts/mission-correlation-report.test.mjs:387:      sessionId: "session",
+scripts/mission-correlation-report.test.mjs:394:        sessionId: "session",
+scripts/mission-correlation-report.test.mjs:418:        "sessionId",
+scripts/mission-correlation-report.test.mjs:433:          sessionId: "session",
+scripts/mission-correlation-report.test.mjs:440:            sessionId: "session",
+scripts/mission-correlation-report.test.mjs:459:      sessionId: "session",
+scripts/mission-correlation-report.test.mjs:466:        sessionId: "session",
+artifacts/api-server/src/routes/discovery.ts:233:        { err, sessionId: id, sourceType: body.sourceType },
+artifacts/api-server/src/routes/discovery.ts:306:      logger.error({ err, sessionId: id }, "Unhandled discovery error");
+scripts/mission-correlation-report.mjs:93:  const sessionId = requireValue(input.sessionId ?? execution.sessionId, "sessionId");
+scripts/mission-correlation-report.mjs:99:    throw new Error(`Unknown mission terminal state: ${terminalState}.`);
+scripts/mission-correlation-report.mjs:115:  same(execution.sessionId, sessionId, "execution.sessionId");
+scripts/mission-correlation-report.mjs:177:    sessionId,
+artifacts/api-server/src/routes/discovery.test.ts:29:let sessionId: string | null = null;
+artifacts/api-server/src/routes/discovery.test.ts:101:  sessionId = id;
+artifacts/api-server/src/routes/discovery.test.ts:114:  if (sessionId) {
+artifacts/api-server/src/routes/discovery.test.ts:115:    await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:116:    sessionId = null;
+artifacts/api-server/src/routes/discovery.test.ts:532:      sessionId = id;
+artifacts/api-server/src/routes/discovery.test.ts:944:    sessionId = discoveryId;
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:102:| Audit, events, and retention / partial capability | `audit.ts` → outbox; `startup-migrations.ts` → retention; route journals/events | Durable audit retries and bounded redacted retention exist. Retention intentionally removes old operational traces, so an old audit is not a complete transcript. | medium | Bind receipts/evidence to operation/revision and export explicit completeness/retention status. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:212:| Audit and operation history | Transactional audit writes, redacted bounded receipts, correlation IDs, and durable outbox recovery are in source. | Merged baseline; Task #48 owns browser coverage for redacted audit preview/download. | Task #48 adds coverage/presentation proof, not a new audit store or outbox. |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:240:| P2-2 | dashboard AI/Flight Deck state | local authority → reconciled server projection | Prevents ghost pending/terminal UI | Browser reload/tab race; SSE EOF/abort; stale pointer | UI converges to server terminal state after reload and reconnect |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:276:The release/browser workflow must remain opt-in for real providers and deployment. Screenshots, fixture names, and generated API contracts are not acceptance evidence by themselves. Each accepted result must include operation ID, revision, candidate/changeset hash, profile revision, terminal state, and retained evidence completeness. Live-provider, browser-in-deployment, and remote-push success remain **Cannot Verify From Current Source** until such an artifact is intentionally produced.
+docs/code-agent-benchmark-campaign.md:185:still require isolated workspaces and redacted receipts. These lanes are
+artifacts/api-server/src/routes/ai.test.ts:113:        sessionId: "internal-session-id",
+artifacts/api-server/src/routes/ai.test.ts:133:      sessionId: "session",
+artifacts/api-server/src/routes/ai.test.ts:170:      sessionId: "323e4567-e89b-12d3-a456-426614174002",
+artifacts/api-server/src/routes/ai.test.ts:200:      sessionId: "[internal id]",
+artifacts/api-server/src/routes/ai.test.ts:214:      sessionId: "323e4567-e89b-12d3-a456-426614174002",
+artifacts/api-server/src/routes/ai.test.ts:243:      sessionId: "[internal id]",
+artifacts/api-server/src/routes/ai.test.ts:444:  const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:449:    id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:457:    sessionId,
+artifacts/api-server/src/routes/ai.test.ts:465:    sessionId,
+artifacts/api-server/src/routes/ai.test.ts:561:  const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:565:    id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:573:    sessionId,
+artifacts/api-server/src/routes/ai.test.ts:634:          aiChatMessagesTable.sessionId,
+artifacts/api-server/src/routes/ai.test.ts:651:        .where(eq(aiChatMessagesTable.sessionId, s.id))
+artifacts/api-server/src/routes/ai.test.ts:824:        sessionId: aiChangeProposalsTable.sessionId,
+artifacts/api-server/src/routes/ai.test.ts:832:      .get(`/api/ai/chat/${proposal.sessionId}/pending-proposal`);
+artifacts/api-server/src/routes/ai.test.ts:917:  it("creates a session and returns sessionId + message on first chat", async () => {
+artifacts/api-server/src/routes/ai.test.ts:925:    expect(typeof res.body.sessionId).toBe("string");
+artifacts/api-server/src/routes/ai.test.ts:1009:    const { sessionId } = res.body;
+artifacts/api-server/src/routes/ai.test.ts:1010:    const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:1117:  it("reuses an existing session when sessionId is provided", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1126:    const { sessionId } = first.body;
+artifacts/api-server/src/routes/ai.test.ts:1131:      .send({ projectId, message: "Follow-up", sessionId });
+artifacts/api-server/src/routes/ai.test.ts:1133:    expect(second.body.sessionId).toBe(sessionId);
+artifacts/api-server/src/routes/ai.test.ts:1139:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+artifacts/api-server/src/routes/ai.test.ts:1205:    const { sessionId } = first.body;
+artifacts/api-server/src/routes/ai.test.ts:1210:      .where(eq(aiChatSessionsTable.id, sessionId));
+artifacts/api-server/src/routes/ai.test.ts:1227:      .send({ projectId, sessionId, message: "أكمل" });
+artifacts/api-server/src/routes/ai.test.ts:1240:      .send({ projectId, sessionId, message: "Tell me a joke" });
+artifacts/api-server/src/routes/ai.test.ts:1320:    const { sessionId } = first.body;
+artifacts/api-server/src/routes/ai.test.ts:1321:    expect(sessionId).toBeTruthy();
+artifacts/api-server/src/routes/ai.test.ts:1352:      .send({ projectId, sessionId, message: "continue older work" });
+artifacts/api-server/src/routes/ai.test.ts:1355:      .send({ projectId, sessionId, message: "continue newer work" });
+artifacts/api-server/src/routes/ai.test.ts:1372:      .where(eq(aiChatSessionsTable.id, sessionId));
+artifacts/api-server/src/routes/ai.test.ts:1386:      .send({ projectId, sessionId, message: "continue" });
+artifacts/api-server/src/routes/ai.test.ts:1414:  it("rejects an unknown sessionId instead of silently creating a new session", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1423:      .send({ projectId, sessionId: randomUUID(), message: "Hello" });
+artifacts/api-server/src/routes/ai.test.ts:1692:        sessionId: incompleteSessionId,
+artifacts/api-server/src/routes/ai.test.ts:1699:        sessionId: noFindingSessionId,
+artifacts/api-server/src/routes/ai.test.ts:1706:        sessionId: findingProvenSessionId,
+artifacts/api-server/src/routes/ai.test.ts:1713:        sessionId: notProvenSessionId,
+artifacts/api-server/src/routes/ai.test.ts:1734:    const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:1739:      id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1748:        sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1755:        sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1766:      expect.objectContaining({ id: sessionId, forensicStatus: "NO_FINDING" }),
+artifacts/api-server/src/routes/ai.test.ts:1773:    const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:1777:      id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1786:        sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1793:        sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1804:      expect.objectContaining({ id: sessionId, forensicStatus: "FINDING_PROVEN" }),
+artifacts/api-server/src/routes/ai.test.ts:1809:// ─── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+artifacts/api-server/src/routes/ai.test.ts:1811:describe("GET /api/ai/chat/:sessionId/messages", () => {
+artifacts/api-server/src/routes/ai.test.ts:1825:    const { sessionId } = chatRes.body;
+artifacts/api-server/src/routes/ai.test.ts:1827:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:1842:    const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:1845:      id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1853:      sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1868:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:1891:    const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:1894:      id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1902:      sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1920:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:1939:    const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:1942:      id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1950:      sessionId,
+artifacts/api-server/src/routes/ai.test.ts:1961:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:1973:    const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:1981:      sessionId,
+artifacts/api-server/src/routes/ai.test.ts:2006:      id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:2014:      sessionId,
+artifacts/api-server/src/routes/ai.test.ts:2021:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:2026:      sessionId: "[internal id]",
+artifacts/api-server/src/routes/ai.test.ts:2033:    const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:2036:      id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:2045:        sessionId,
+artifacts/api-server/src/routes/ai.test.ts:2052:        sessionId,
+artifacts/api-server/src/routes/ai.test.ts:2060:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:2076:    const sessionId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:2079:      id: sessionId,
+artifacts/api-server/src/routes/ai.test.ts:2087:      sessionId,
+artifacts/api-server/src/routes/ai.test.ts:2093:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai.test.ts:2318:    expect(typeof firstEvent.sessionId).toBe("string");
+artifacts/api-server/src/routes/ai.test.ts:2320:    const sessionId = firstEvent.sessionId as string;
+artifacts/api-server/src/routes/ai.test.ts:2324:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+artifacts/api-server/src/routes/ai.test.ts:2346:      .send({ sessionId });
+artifacts/api-server/src/routes/ai.test.ts:2350:    expect(retryEvent.sessionId).toBe(sessionId);
+artifacts/api-server/src/routes/ai.test.ts:2355:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+artifacts/api-server/src/routes/git.test.ts:41:  const sessionId = randomUUID();
+artifacts/api-server/src/routes/git.test.ts:56:    id: sessionId,
+artifacts/api-server/src/routes/git.test.ts:64:    sessionId,
+artifacts/api-server/src/routes/git.test.ts:72:    sessionId,
+artifacts/api-server/src/routes/git.test.ts:107:    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, projectId)).catch(() => undefined);
+artifacts/api-server/src/routes/git.test.ts:110:      await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, session.id)).catch(() => undefined);
+docs/architecture.md:388:  override cancellation, failed evidence, or an incomplete terminal state.
+docs/architecture.md:404:| `done` | `{ type, sessionId, message, sources, pendingChanges }` | On success, after DB writes |
+artifacts/api-server/src/routes/workflows.ts:274:  // execution's terminal state, and the stop event are one transition.
+docs/ai-orchestrator-executive-table.md:34:| `artifacts/api-server/src/routes/ai.ts` | HTTP Route Layer — النقطة الوحيدة التي تربط HTTP بطبقة الـ orchestrator. تدير: auth، ownership، session، DB operations، audit، error handling. | (1) تحقق الـ input يدوي (`if (!projectId)`) في معظم endpoints — لا Zod على مستوى الـ route body، مما يعني أن `req.body` هو `any`. (2) لا rate limiting per-user أو per-project — مستخدم واحد يمكنه إرسال طلبات LLM غير محدودة. (3) `apply-changes` يكتب للـ disk بدون فحص امتداد أو محتوى — ملف `.env` أو `package.json` يمكن استبداله. (4) لا حد لحجم `req.body` مُعرَّف في هذا الـ router — يعتمد على الـ global Express limit. (5) `auditLogsTable` يُسجَّل فقط في `apply-changes` و `execute` — باقي العمليات (analyze, review, orchestrate) بدون audit trail. (6) تسجيل الجلسة محمي من الـ race (دُفع بعد Groq) لكن طلبان متزامنان بدون `sessionId` ينشئان جلستين منفصلتين لنفس المحادثة. تحقق: إضافة Zod parsing لكل route body، إضافة rate limiter، توسيع audit logging، allowlist امتدادات `apply-changes`. |
+docs/completion-plan.md:305:| `GET /api/ai/chat/:sessionId/messages` | رسائل session |
+docs/PR_BACKLOG.md:192:- `artifacts/api-server/src/routes/ai.ts` — convert `POST /api/ai/chat` from a single JSON response to an SSE stream; emit events: `{ type: "stage", stage: "building-context" }`, `{ type: "stage", stage: "calling-model" }`, `{ type: "token", content: "…" }`, `{ type: "done", sessionId, sources, pendingChanges }`
+artifacts/api-server/src/routes/ai/chat.ts:7: * GET  /api/ai/chat/:sessionId/messages
+artifacts/api-server/src/routes/ai/chat.ts:386:  sessionId: string;
+artifacts/api-server/src/routes/ai/chat.ts:488:    sessionId: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:837:  sessionId: string;
+artifacts/api-server/src/routes/ai/chat.ts:858:            eq(aiChatMessagesTable.sessionId, params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:867:        sessionId: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:878:      sessionId: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:893:      .where(eq(aiChatSessionsTable.id, params.sessionId));
+artifacts/api-server/src/routes/ai/chat.ts:1793:    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+artifacts/api-server/src/routes/ai/chat.ts:1809:  const { projectId, message, sessionId, linkedTaskId, objective } = chatBody.data;
+artifacts/api-server/src/routes/ai/chat.ts:1817:  if (!sessionId && isImmediateExecutionRequest(message)) {
+artifacts/api-server/src/routes/ai/chat.ts:1832:  if (sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:1836:      .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:1936:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:1974:      sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:1987:        sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:2079:    const sessionIdToUse = existingSession?.id ?? randomUUID();
+artifacts/api-server/src/routes/ai/chat.ts:2123:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+artifacts/api-server/src/routes/ai/chat.ts:2130:            id: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2155:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2166:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2187:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2210:        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+artifacts/api-server/src/routes/ai/chat.ts:2215:      sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2224:      sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2264:    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+artifacts/api-server/src/routes/ai/chat.ts:2295:    sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:2319:  if (!sessionId && isImmediateExecutionRequest(message)) {
+artifacts/api-server/src/routes/ai/chat.ts:2325:  if (effectiveExecutionId && !sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2352:    if (!sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2373:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:2384:    if (planRow.session.id !== sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2474:  if (sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2478:      .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:2604:    const sessionIdToUse = existingSession?.id ?? randomUUID();
+artifacts/api-server/src/routes/ai/chat.ts:2614:          id: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2636:        sessionId: createdSession.id,
+artifacts/api-server/src/routes/ai/chat.ts:2650:      sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2690:        storedRequest.sessionId === executionRequest.sessionId &&
+artifacts/api-server/src/routes/ai/chat.ts:2778:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2989:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:3022:      sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:3035:        sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:3641:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:3653:          { persistError, sessionId: sessionIdToUse },
+artifacts/api-server/src/routes/ai/chat.ts:3880:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:3891:      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+artifacts/api-server/src/routes/ai/chat.ts:3905:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:3916:        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+artifacts/api-server/src/routes/ai/chat.ts:4008:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+artifacts/api-server/src/routes/ai/chat.ts:4015:            id: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4044:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4057:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4080:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4126:        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+artifacts/api-server/src/routes/ai/chat.ts:4247:      sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4273:      sessionId: assistantMsg.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4287:      sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4397:      sessionId: execution.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4486:    sessionId: execution.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4669:      sessionId: execution.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4790:      sessionId: aiChatMessagesTable.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4797:    .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
+artifacts/api-server/src/routes/ai/chat.ts:4802:    if (message.role === "assistant" && !latestAssistantBySession.has(message.sessionId)) {
+artifacts/api-server/src/routes/ai/chat.ts:4803:      latestAssistantBySession.set(message.sessionId, message);
+artifacts/api-server/src/routes/ai/chat.ts:4840:// ── POST /api/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate
+artifacts/api-server/src/routes/ai/chat.ts:4844:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4848:  const { sessionId, messageId } = req.params;
+artifacts/api-server/src/routes/ai/chat.ts:4852:    .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4869:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4895:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4911:        eq(aiExecutionsTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4919:    .where(eq(aiChangeProposalsTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4935:      sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4955:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4965:// ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts:4967:router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4968:  const { sessionId } = req.params;
+artifacts/api-server/src/routes/ai/chat.ts:4973:    .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4986:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5046:      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:5267:router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5271:    .where(eq(aiChatSessionsTable.id, req.params.sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5281:      eq(aiChangeProposalsTable.sessionId, req.params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:5388:      sessionId: proposal.sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:59:   | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string })
+artifacts/api-server/src/routes/ai/analysis.ts:95:  sessionId?: string;
+artifacts/api-server/src/routes/ai/analysis.ts:102:  let sessionId = params.sessionId;
+artifacts/api-server/src/routes/ai/analysis.ts:103:  const existingSession = sessionId
+artifacts/api-server/src/routes/ai/analysis.ts:108:        eq(aiChatSessionsTable.id, sessionId),
+artifacts/api-server/src/routes/ai/analysis.ts:113:  if (!existingSession) sessionId = randomUUID();
+artifacts/api-server/src/routes/ai/analysis.ts:128:        id: sessionId!,
+artifacts/api-server/src/routes/ai/analysis.ts:136:        sessionId: sessionId!,
+artifacts/api-server/src/routes/ai/analysis.ts:145:      sessionId: sessionId!,
+artifacts/api-server/src/routes/ai/analysis.ts:156:      .where(eq(aiChatSessionsTable.id, sessionId!));
+artifacts/api-server/src/routes/ai/analysis.ts:158:  return sessionId!;
+artifacts/api-server/src/routes/ai/analysis.ts:168:    sessionId?: string;
+artifacts/api-server/src/routes/ai/analysis.ts:174:  const sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:189:    sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:280:  params: { projectId: string; userId: string; task: StructuredTask; sessionId?: string },
+artifacts/api-server/src/routes/ai/analysis.ts:291:  }).then((sessionId) => {
+artifacts/api-server/src/routes/ai/analysis.ts:304:      sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:367:    let sessionId: string | undefined;
+artifacts/api-server/src/routes/ai/analysis.ts:369:      sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:385:      incompleteReview: { sessionId, failureKind: details.failureKind },
+artifacts/api-server/src/routes/ai/analysis.ts:499:    let sessionId: string | undefined;

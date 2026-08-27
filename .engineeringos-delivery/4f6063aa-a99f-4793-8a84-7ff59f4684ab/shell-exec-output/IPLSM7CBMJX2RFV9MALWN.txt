@@ -1,0 +1,72 @@
+diff --git a/docs/actual-capability-baseline-v1.md b/docs/actual-capability-baseline-v1.md
+index 725c064e..bb3f2319 100644
+--- a/docs/actual-capability-baseline-v1.md
++++ b/docs/actual-capability-baseline-v1.md
+@@ -75,8 +75,8 @@ operationally proven as a complete Agent replacement:
+    authenticated shell navigation, audit preview/download, and the isolated
+    Git route's approved Apply → commit → push behavior. It did not complete the
+    full discovery → provider-backed work → promotion → Git journey: discovery's
+-   real Git fixture is rejected by the credential-free GitHub URL policy, and
+-   the full browser campaign hit readiness/fixture failures before delivery.
++   controlled Git fixture now reaches durable ready/import, while the full
++   browser campaign still has readiness/fixture failures before delivery.
+    Preview validation and live-provider delivery remain explicitly blocked.
+ 4. Provider-free contract, SSE/redaction, operational-safety, and deterministic
+    benchmark checks now pass. This supersedes the earlier targeted failures for
+@@ -87,7 +87,7 @@ operationally proven as a complete Agent replacement:
+ | Capability | Implementation path and persisted boundary | Status | Evidence/confidence |
+ |---|---|---|---|
+ | Authenticated console and project-scoped navigation | Clerk setup in `replit.md`; `artifacts/dashboard/src/App.tsx` protects project, AI, Flight Deck, Mission Control, task, workflow, Git-related views; API uses auth/project-access middleware | **Verified by automated test** | Dashboard auth/page and client-contract checks pass; authenticated browser journey remains skipped |
+-| Project discovery/import | `artifacts/api-server/src/routes/discovery.ts`: source listing, discovery start/session/summary, import; durable materialization and owner-scoped cleanup; `DiscoverProjectWizard.tsx` calls generated discovery/import/scan hooks | **Partial** | Discovery route tests exist; selected run failed a durable Git fixture with HTTP 400 rather than expected 202 |
++| Project discovery/import | `artifacts/api-server/src/routes/discovery.ts`: source listing, discovery start/session/summary, import; durable materialization and owner-scoped cleanup; `DiscoverProjectWizard.tsx` calls generated discovery/import/scan hooks | **Verified by controlled API test; browser journey still open** | Focused discovery release check proves approved GitHub URL → 202 → ready → durable import, temp-clone cleanup, owner rejection, stale cleanup, and idempotent import; no production/provider claim |
+ | Ordinary AI chat | `POST /api/ai/chat` and `/stream` in `routes/ai/chat.ts`; context is built, request intent/classification selects route/profile, messages/session state persist in `aiChatSessionsTable`/`aiChatMessagesTable` | **Verified by automated test; live blocked** | AI JSON/SSE, redaction, resume, and false-success release contracts pass; provider checks are disabled |
+ | Source-aware tool use | `chat-agent.ts` + `tool-execution-engine.ts`; read/list/search tools, cache, source provenance, tool authorization, bounded iterations/calls, soft synthesis limit | **Verified by automated test** | Deterministic benchmark and AI contract gates pass; no live-provider tool journey |
+ | Broad/hierarchical analysis | `hierarchical-executor.ts` schedules bounded waves, isolates write scopes, preserves partial sub-results, performs tool-free synthesis, and validates compound coverage | **Verified by code** | Explicit out-of-scope items remain: recursive nesting and per-subquery SSE |
+@@ -159,7 +159,7 @@ The source backs the major gates:
+ 
+ The entire sequence is **partial operationally** because the authenticated
+ browser campaign did not reach a complete delivery terminal state. The isolated
+-Git route proof passed, while real Git discovery and live-provider promotion
++Git route proof passed, while live-provider promotion
+ remain blocked by their explicit prerequisites and fixture boundaries.
+ 
+ ### Controlled authenticated journey evidence (2026-08-26)
+@@ -174,11 +174,11 @@ production deployment or broad provider campaign:
+ - **Passed:** `src/routes/git.test.ts` (4 tests), including scoped Apply →
+   commit → push, rejection of a mismatched operation, and matching local and
+   remote commit identity.
+-- **Blocked:** the real Git discovery fixture in
+-  `src/routes/discovery.test.ts` uses a localhost smart-HTTP repository, while
+-  the production adapter intentionally accepts only credential-free HTTPS
+-  `github.com` URLs. The route returned the expected `400` policy response
+-  instead of starting a discovery session.
++- **Controlled discovery:** the Git fixture uses the approved
++  `https://github.com/octocat/Hello-World.git` contract and an explicit
++  test-only clone executor backed by a disposable local bare repository.
++  Production URL validation still runs before the seam, and the focused
++  release check retains only sanitized session/terminal metadata.
+ - **Incomplete:** the full Playwright campaign reached the running Clerk
+   services but timed out in later fixture-backed AI/citation tests and exposed a
+   restart/readiness failure before any live delivery receipt could be retained.
+@@ -187,8 +187,8 @@ production deployment or broad provider campaign:
+   deployment, or broad campaign was used.
+ 
+ Therefore this is authenticated operational evidence plus isolated Git route
+-evidence, not a complete end-to-end discovery-to-push receipt. The missing
+-receipt must remain an explicit release blocker.
++evidence, not a complete end-to-end discovery-to-push receipt. The remaining
++provider-backed and browser delivery gaps remain explicit.
+ 
+ ## 6. Safety and durability inventory
+ 
+@@ -217,8 +217,8 @@ requires a live provider key unless noted.
+ | Orchestrator required scenario gate | `pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios` | Deterministic runtime-oracle fixture | **PASS** after runtime-oracle coverage was restored; no live provider involved |
+ | API typecheck | `pnpm --filter @workspace/api-server run typecheck` | Workspace declaration rebuild | **PASS** |
+ | Dashboard AI/operations components | `pnpm --filter @workspace/dashboard exec vitest run src/pages/AiChat.authenticated.test.tsx src/pages/MissionControl.test.tsx src/pages/FlightDeck.test.tsx src/lib/mission-correlation-report.test.ts src/lib/validation-sse-contract.test.ts` | jsdom/component fixtures | **PASS**: 5 files, 101 tests |
+-| API AI/discovery/Git/workflow/task subset | `pnpm --filter @workspace/api-server exec vitest run ...` (selected route and delivery files) | Mocked providers, fixture DB/workspaces | **PARTIAL**: 8 files passed, 3 files failed; 290 passed, 5 failed, 1 skipped |
+-| API subset failure detail | Same command | See retained test output | Historical failures remain part of the audit record; they are not the latest release-gate result. The latest targeted AI contract/SSE/operational-safety checks pass. Discovery async-contract and live Git smoke are still unproven. |
++| API AI/discovery/Git/workflow/task subset | `pnpm --filter @workspace/api-server run test:discovery-release` plus selected release checks | Mocked providers, disposable fixture DB/workspaces | **PASS for controlled discovery**; provider-backed browser and broad-suite claims remain separate |
++| Discovery release receipt | `test-results/discovery/release-receipt.json` (ignored generated output) | Focused controlled discovery check | **PASS** with allowlisted session ID and terminal states only; no repository credentials, raw provider diagnostics, or filesystem paths |
+ | Truth-flow baseline | `pnpm run truth:baseline:check && pnpm run truth:validate` | Checked-in schema authority and attached matrix | **PASS** for both |
+ | Deterministic benchmark baseline | `pnpm run benchmark:baseline:check` and `pnpm run verify:benchmark-rollout` | Checked-in baseline and server-owned candidate/source lineage | **PASS structurally and for regression comparison** (34 cases; comparator returned `rolloutAllowed: true`); the approved deterministic artifact still has `qualityEligible: false`, `rolloutAllowed: false` as intentional safety markers |
+ | Dashboard client contract | `pnpm run validate:dashboard-client-contract` | OpenAPI/codegen/dashboard declarations | **PASS**: OpenAPI 90 paths/114 operations/156 schemas; generated files and dashboard typecheck aligned |

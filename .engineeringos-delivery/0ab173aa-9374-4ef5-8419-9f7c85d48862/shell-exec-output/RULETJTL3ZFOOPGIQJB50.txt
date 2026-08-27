@@ -1,0 +1,180 @@
+413-        "12822511-d497-4c89-857e-40986f03fdf8",
+414-        "Remediate RULE_0: Violation 0",
+415-        "1 occurrence(s) detected for RULE_0. Review the bounded evidence before execution.",
+416-        "pending",
+417-        "p2",
+418-        "[]",
+419-        "remediation",
+420:        "Remediate this verified rule violation using only the supplied evidence.\nRule: RULE_0 — Violation 0\nSeverity: medium\nOccurrences: 1\nAffected files: none recorded\nRecommended fix: Not supplied; do not invent a fix.\nEvidence:\n- Evidence is unavailable; do not infer affected files or code.\nRequired verification:\nNo verification steps were supplied; request human review before claiming completion.\nSource: discovery; revision not available.\nDo not report success unless the required verification passes explicitly. If evidence or fix guidance is missing, stop and request human review.",
+421-        "{\"version\":1,\"ruleId\":null,\"ruleCode\":\"RULE_0\",\"ruleTitle\":\"Violation 0\",\"severity\":\"medium\",\"occurrenceCount\":1,\"evidence\":[],\"relatedFiles\":[],\"fixDescription\":null,\"verificationSteps\":[],\"verificationChecks\":[],\"source\":{\"type\":\"discovery\",\"correlationId\":\"f2711c3b-0678-4968-98a1-f7258ab7a2df\",\"revision\":null,\"completeness\":\"COMPLETE\"},\"status\":\"needs_review\"}",
+422-        "2026-08-27T13:05:48.368Z",
+423-        "2026-08-27T13:05:48.368Z",
+424-        "f2711c3b-0678-4968-98a1-f7258ab7a2df"
+425-      ],
+426-      "cause": {
+427-        "length": 135,
+428-        "name": "error",
+429:        "severity": "ERROR",
+430-        "code": "42703",
+431-        "position": "235",
+432-        "file": "parse_target.c",
+433-        "line": "1071",
+434-        "routine": "checkInsertTargets"
+435-      }
+436-    }
+437-    discoveryId: "f2711c3b-0678-4968-98a1-f7258ab7a2df"
+438-[13:05:48.375] INFO (153): request errored
+439-    req: {
+440-      "id": 37,
+441-      "method": "POST",
+442-      "url": "/api/projects/import"
+443-    }
+444-    res: {
+445:      "statusCode": 500
+446-    }
+447-    responseTime: 9
+448-    err: {
+449-      "type": "Error",
+450:      "message": "failed with status code 500",
+451-      "stack":
+452:          Error: failed with status code 500
+453-              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+454-              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+455-              at ServerResponse.emit (node:events:536:35)
+456-              at onFinish (node:_http_outgoing:1031:10)
+457-              at callback (node:internal/streams/writable:766:21)
+458-              at afterWrite (node:internal/streams/writable:710:5)
+459-              at afterWriteTick (node:internal/streams/writable:696:10)
+460-              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+--
+524-      "id": 44,
+525-      "method": "POST",
+526-      "url": "/api/projects/import"
+527-    }
+528-    res: {
+529-      "statusCode": 201
+530-    }
+531-    responseTime: 12
+532:[13:05:48.717] ERROR (153): Failed query: insert into "tasks" ("id", "project_id", "rule_id", "workflow_id", "title", "description", "status", "priority", "related_files", "depends_on", "retry_count", "max_retries", "phase", "prompt", "agent_response", "verification_result", "remediation_plan", "created_at", "updated_at", "completed_at", "correlation_id", "worker_id", "lease_until", "last_heartbeat_at", "idempotency_key") values ($1, $2, default, default, $3, $4, $5, $6, $7, default, default, default, $8, $9, default, default, $10, $11, $12, default, $13, default, default, default, default)
+533:params: 185156e7-71ea-4ac4-8fef-0c8bbdb81eb0,03b240fe-27d2-4400-b644-abe876e8876e,Remediate A: Crit,1 occurrence(s) detected for A. Review the bounded evidence before execution.,pending,p0,[],remediation,Remediate this verified rule violation using only the supplied evidence.
+534-Rule: A — Crit
+535-Severity: critical
+536-Occurrences: 1
+537-Affected files: none recorded
+538-Recommended fix: Not supplied; do not invent a fix.
+539-Evidence:
+540-- Evidence is unavailable; do not infer affected files or code.
+541-Required verification:
+--
+548-        "185156e7-71ea-4ac4-8fef-0c8bbdb81eb0",
+549-        "03b240fe-27d2-4400-b644-abe876e8876e",
+550-        "Remediate A: Crit",
+551-        "1 occurrence(s) detected for A. Review the bounded evidence before execution.",
+552-        "pending",
+553-        "p0",
+554-        "[]",
+555-        "remediation",
+556:        "Remediate this verified rule violation using only the supplied evidence.\nRule: A — Crit\nSeverity: critical\nOccurrences: 1\nAffected files: none recorded\nRecommended fix: Not supplied; do not invent a fix.\nEvidence:\n- Evidence is unavailable; do not infer affected files or code.\nRequired verification:\nNo verification steps were supplied; request human review before claiming completion.\nSource: discovery; revision not available.\nDo not report success unless the required verification passes explicitly. If evidence or fix guidance is missing, stop and request human review.",
+557-        "{\"version\":1,\"ruleId\":null,\"ruleCode\":\"A\",\"ruleTitle\":\"Crit\",\"severity\":\"critical\",\"occurrenceCount\":1,\"evidence\":[],\"relatedFiles\":[],\"fixDescription\":null,\"verificationSteps\":[],\"verificationChecks\":[],\"source\":{\"type\":\"discovery\",\"correlationId\":\"c1dd18d2-a4e7-4b6a-b372-6d06728b685e\",\"revision\":null,\"completeness\":\"COMPLETE\"},\"status\":\"needs_review\"}",
+558-        "2026-08-27T13:05:48.712Z",
+559-        "2026-08-27T13:05:48.712Z",
+560-        "c1dd18d2-a4e7-4b6a-b372-6d06728b685e"
+561-      ],
+562-      "cause": {
+563-        "length": 135,
+564-        "name": "error",
+565:        "severity": "ERROR",
+566-        "code": "42703",
+567-        "position": "235",
+568-        "file": "parse_target.c",
+569-        "line": "1071",
+570-        "routine": "checkInsertTargets"
+571-      }
+572-    }
+573-    discoveryId: "c1dd18d2-a4e7-4b6a-b372-6d06728b685e"
+574-[13:05:48.717] INFO (153): request errored
+575-    req: {
+576-      "id": 45,
+577-      "method": "POST",
+578-      "url": "/api/projects/import"
+579-    }
+580-    res: {
+581:      "statusCode": 500
+582-    }
+583-    responseTime: 7
+584-    err: {
+585-      "type": "Error",
+586:      "message": "failed with status code 500",
+587-      "stack":
+588:          Error: failed with status code 500
+589-              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+590-              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+591-              at ServerResponse.emit (node:events:536:35)
+592-              at onFinish (node:_http_outgoing:1031:10)
+593-              at callback (node:internal/streams/writable:766:21)
+594-              at afterWrite (node:internal/streams/writable:710:5)
+595-              at afterWriteTick (node:internal/streams/writable:696:10)
+596-              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+--
+703-      "id": 56,
+704-      "method": "POST",
+705-      "url": "/api/projects/import"
+706-    }
+707-    res: {
+708-      "statusCode": 201
+709-    }
+710-    responseTime: 11
+711:[13:05:49.500] INFO (153): Removed managed durable project root after project deletion
+712-    projectId: "d5ac0b55-4f42-4534-933f-a917128fd5de"
+713-    rootPath: "/home/runner/workspace/.engineeringos-projects/c6c06892-4ef2-4dc0-aa0c-76104564d3fb"
+714:[13:05:49.500] INFO (153): request completed
+715-    req: {
+716-      "id": 57,
+717-      "method": "DELETE",
+718-      "url": "/api/projects/d5ac0b55-4f42-4534-933f-a917128fd5de"
+719-    }
+720-    res: {
+721-      "statusCode": 204
+722-    }
+723-    responseTime: 27
+724- ❯ src/routes/discovery.test.ts (49 tests | 2 failed) 2793ms
+725:     × creates tasks capped at 20 from rule violations on import 24ms
+726:     × maps rule violation severity to task priority: critical→p0, high→p1, other→p2 19ms
+727-
+728-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+729-
+730: FAIL  src/routes/discovery.test.ts > POST /projects/import — atomic claim > creates tasks capped at 20 from rule violations on import
+731:AssertionError: expected 500 to be 201 // Object.is equality
+732-
+733-- Expected
+734-+ Received
+735-
+736-- 201
+737:+ 500
+738-
+739- ❯ src/routes/discovery.test.ts:595:24
+740-    593|
+741-    594|     const res = await request(app).post("/api/projects/import").send({…
+742-    595|     expect(res.status).toBe(201);
+743-       |                        ^
+744-    596|     projectId = res.body.id;
+745-    597|
+746-
+747-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+748-
+749: FAIL  src/routes/discovery.test.ts > POST /projects/import — transaction integrity > maps rule violation severity to task priority: critical→p0, high→p1, other→p2
+750:AssertionError: expected 500 to be 201 // Object.is equality
+751-
+752-- Expected
+753-+ Received
+754-
+755-- 201
+756:+ 500
+757-
+758- ❯ src/routes/discovery.test.ts:752:24
+759-    750|     const discoveryId = await insertReadySession(fakeResult({ ruleViol…
+760-    751|     const res = await request(app).post("/api/projects/import").send({…
+761-    752|     expect(res.status).toBe(201);
+762-       |                        ^
+763-    753|     projectId = res.body.id;
+764-    754|
