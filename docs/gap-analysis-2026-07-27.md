@@ -5,6 +5,13 @@
 
 ---
 
+> ⚠️ **Historical snapshot — not the current gap baseline.**
+> This analysis predates the current provider registry/fallback behavior,
+> structured streaming, durable execution state, and several dashboard
+> integrations. Keep the findings as historical context only; re-check each
+> cited route and acceptance criterion against `docs/architecture.md` and the
+> current source before treating it as open work.
+
 ## Summary
 
 The project is architecturally sound. No route has a missing implementation, no spec path lacks a handler, and no test suite is outright broken. The gaps below are **functional incompletions**, not structural failures — they are the difference between "it compiles and runs" and "every visible surface works end-to-end."

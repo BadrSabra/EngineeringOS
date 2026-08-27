@@ -1,12 +1,22 @@
 # AI Orchestrator — Request Lifecycle Gap Analysis
 
 **Method**: Execution-trace, not file-by-file. Each finding is tied to an actual code path.  
-**Date**: 2026-07-18  
+**Date**: 2026-07-18 (historical snapshot)  
 **Scope**: 9 lifecycle stages from HTTP entry point to dashboard state refresh.
 
 ---
 
-## Gap Matrix
+> ⚠️ **Historical snapshot — not the current implementation baseline.**
+> This matrix records the state observed on 2026-07-18. Several listed gaps were
+> subsequently addressed. Use `docs/architecture.md`, `docs/actual-capability-baseline-v1.md`,
+> and the source files named below for current behavior.
+>
+> In particular, the current implementation uses a repeatable-read context
+> snapshot, provider-registry fallback, durable streamed execution, server-owned
+> evidence gates, and explicit incomplete/failure outcomes. Do not interpret
+> historical rows below as open bugs without re-checking the code.
+
+## Gap Matrix (historical)
 
 | # | Trace | File | Function / Line | Current State | Gap | Severity |
 |---|-------|------|-----------------|---------------|-----|----------|

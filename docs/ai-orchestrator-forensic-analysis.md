@@ -1,14 +1,48 @@
 # AI Orchestrator — Forensic Reverse Engineering Report
 
 > **المصدر:** تحليل مباشر للكود من `lib/ai-orchestrator/src/` و `artifacts/api-server/src/routes/ai.ts`
-> **التاريخ:** 2026-07-18
+> **التاريخ:** 2026-07-18 — لقطة تاريخية
 > **المنهج:** Forensic Reverse Engineering — قراءة كل ملف، استخراج كل علاقة، تتبع كل مسار
+
+---
+
+> ⚠️ **تنبيه الحالة الحالية:** هذا التقرير يحفظ تحليلًا تاريخيًا ولا يمثل
+> وحده الحالة الحالية. منذ تاريخ التقرير أضيفت طبقة سجل مزودي الخدمة
+> (`provider-registry`) مع fallback وcircuit handling، وأصبح تحميل السياق
+> داخل `REPEATABLE READ` مع cache قصير العمر، كما أضيفت مسارات streaming
+> والتنفيذ القابل للاستئناف وبوابات الأدلة المملوكة للخادم.
+>
+> عند توثيق نتيجة مراجعة أمنية، اتبع القواعد الحالية في
+> `lib/ai-orchestrator/src/forensic-recovery.ts` و
+> `lib/ai-orchestrator/src/forensic-output-guard.ts`:
+> `NO_VERIFIED_FINDING` لا يصدر إلا بعد قراءات مكتملة، أما القراءة الصفرية
+> أو الجزئية أو فشل المزود/الاستعادة أو الإلغاء فينتج
+> `ANALYSIS_INCOMPLETE`. الأدلة المقتبسة يجب أن تكون retained ومطابقة للمصدر
+> الحالي؛ ولا تكفي رواية النموذج وحدها لإثبات Finding.
+
+## Current implementation anchors
+
+| Area | Current behavior | Source of truth |
+|---|---|---|
+| Provider selection | Priority/capability-aware selection and fallback across OpenRouter, Gemini, DeepSeek, and Groq; unavailable or incompatible providers are skipped. | `lib/ai-orchestrator/src/provider-registry.ts`, `artifacts/api-server/src/lib/ai-route-helpers.ts` |
+| Context consistency | Requested context sections load in one repeatable-read transaction; non-critical section failures degrade to bounded empty values. | `lib/ai-orchestrator/src/context-loader.ts` |
+| Chat and structured streaming | Chat, scan analysis, and code review expose streaming routes with structured stage, completion, and failure events. | `artifacts/api-server/src/routes/ai/chat.ts`, `artifacts/api-server/src/routes/ai/analysis.ts` |
+| Evidence acceptance | Cited files must be retained, complete, source-matching, and bound to the active scope/revision; partial coverage blocks a proven Finding. | `lib/ai-orchestrator/src/forensic-output-guard.ts`, `lib/ai-orchestrator/src/forensic-evidence-packets.ts` |
+| Incomplete analysis | Empty completed scope can render `NO_VERIFIED_FINDING`; zero/partial reads, cancellation, provider exhaustion, or failed recovery render `ANALYSIS_INCOMPLETE`. | `lib/ai-orchestrator/src/forensic-recovery.ts`, `lib/ai-orchestrator/src/task-execution-partial-report.ts` |
+| Durable execution | Streamed executions persist identity, checkpoints, failure state, and resumable outcomes; reconnects must not turn incomplete work into success. | `artifacts/api-server/src/routes/ai/chat.ts`, `artifacts/dashboard/src/pages/AiChat.tsx` |
+
+The detailed sections below remain useful for historical reasoning, but their
+old line numbers, provider-specific descriptions, cache durations, and
+“missing event” conclusions must not be used as current facts.
 
 ---
 
 ## المستوى الأول — Architecture Graph
 
-The `lib/ai-orchestrator/src/` directory implements a multi-agent orchestration layer designed for autonomous project analysis and guided chat. It uses a clean separation between LLM gateway (`groq-client.ts`), stateful context building (`context-builder.ts`), and specialized agents.
+The `lib/ai-orchestrator/src/` directory implements a multi-agent orchestration
+layer designed for autonomous project analysis and guided chat. The current
+implementation separates provider strategies and fallback selection from
+context loading, agent execution, evidence validation, and durable route state.
 
 ### 1. Architecture Overview
 - **Entry Points:** `chat` (chat-agent.ts), `executeTask` (task-agent.ts), `analyzeScan` (scan-analyst.ts), `reviewCode` (code-reviewer.ts), and `orchestrateWorkflow` (workflow-orchestrator.ts).
@@ -22,10 +56,14 @@ The `lib/ai-orchestrator/src/` directory implements a multi-agent orchestration 
 - **Zod Schemas:** Defined in every `.schema.ts` file (e.g., `ChatResponseSchema`, `WorkflowDecisionSchema`, `CodeReviewResultSchema`).
 
 ### 3. External Interactions
-- **Database (Drizzle):** `context-builder.ts` performs parallel reads from `projectsTable`, `tasksTable`, `metricsTable`, `graphEntitiesTable`, `eventsTable`, `workflowsTable`, `scanJobsTable`, and `graphRelationshipsTable`.
+- **Database (Drizzle):** `context-loader.ts` loads requested context sections
+  inside one repeatable-read transaction, with bounded degradation for
+  non-critical section failures.
 - **File System:** `file-tools.ts` uses `node:fs` for `readFile`, `stat`, `readdir`, and `realpath`. It uses `execFile` for `grep`.
 - **Git:** `git-tools.ts` uses `child_process.execFile` for `git status`, `git diff`, and `git log`.
-- **Cache:** `context-builder.ts` implements a 30-second TTL `Map` cache for project context. `chat-agent.ts` uses a `Map` to deduplicate tool calls within a single request.
+- **Cache:** the current context cache is short-lived and invalidated on
+  relevant writes. `chat-agent.ts` uses request-local state to deduplicate
+  tool calls.
 
 ### 4. Implementation Details
 - **Entry Points:** `index.ts` (L1-28) exports all primary functions.
@@ -300,10 +338,14 @@ Request Lifecycle Tracing for AI Routes in `artifacts/api-server/src/routes/ai.t
 - **HTTP status:** `artifacts/api-server/src/routes/ai.ts` maps `GroqErrorCode` to: 401 (`AUTH_ERROR`), 429 (`RATE_LIMITED`), 504 (`TIMEOUT`), 503 (`SERVER_ERROR`), 500 (others).
 - **Client Message:** Sanitized descriptions (e.g., "The AI model is currently overloaded") instead of raw SDK stack traces.
 
-### 4. Model Selection & Fallbacks
+### 4. Model Selection & Fallbacks (historical description)
 - **`MODEL_POWERFUL` (llama-3.3-70b-versatile):** Default for complex reasoning (Workflow, Task, Review).
 - **`MODEL_FAST` (llama-3.1-8b-instant):** Used for quick chat responses or high-throughput tasks.
-- **Fallback:** No cross-provider fallback; if Groq fails, it retries 3x with exponential backoff (retryable errors only).
+- **Historical note:** The original report described Groq-only behavior. The
+  current route layer resolves a provider from the registry and uses
+  `runAgentWithFallback`/`chatWithFallback` to try compatible providers for
+  recoverable failures such as rate limits, timeouts, empty responses, quota,
+  and provider availability errors.
 
 ### 5. Tool Dispatch System
 - **Registration:** Tools defined in `file-tools.ts` and `git-tools.ts` as `ToolDefinition` (Zod-backed).

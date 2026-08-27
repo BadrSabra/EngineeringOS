@@ -264,11 +264,19 @@ api-server 68 — 152 tests) both pass clean.
 
 All changes: full project typecheck passes clean.
 
-## Phase 10 — طبقة الذكاء الاصطناعي / AI Orchestration Layer ✅ (2026-07-13)
+## Phase 10 — طبقة الذكاء الاصطناعي / AI Orchestration Layer ✅ (2026-07-13; historical phase log)
+
+> ⚠️ This section records the initial delivery of the AI layer. The current
+> implementation has since added a provider registry/fallback chain, durable
+> execution and reconnect support, structured streaming, and forensic evidence
+> gates. For current behavior, use `docs/architecture.md` and
+> `docs/actual-capability-baseline-v1.md`.
 
 ### ما تم بناؤه
 
-**حزمة جديدة: `lib/ai-orchestrator/`** — مكتبة وكلاء ذكاء اصطناعي تعمل بـ Groq (LLaMA 3.3-70b وLLaMA 3.1-8b)، مستقلة عن api-server وقابلة للاستخدام من أي حزمة أخرى.
+**حزمة `lib/ai-orchestrator/`** — مكتبة وكلاء ذكاء اصطناعي مستقلة عن
+`api-server`، تعمل عبر سجل مزودي الخدمة واستراتيجيات متوافقة للـ Groq و
+OpenRouter وGemini وDeepSeek، مع اختيار capability-aware وfallback محدود.
 
 **5 وكلاء متخصصون:**
 - `chat-agent.ts` — محادثة تفاعلية مع سياق المشروع الكامل (graph + metrics + tasks + events)؛ يُرجع JSON مع مصادر البيانات.
@@ -277,13 +285,15 @@ All changes: full project typecheck passes clean.
 - `code-reviewer.ts` — مراجعة شاملة تُنتج `CodeReviewOutput` مع verdict (approved/needs_changes/major_rework).
 - `workflow-orchestrator.ts` — يقرر الخطوة التالية لأي workflow (advance/wait/fail/complete) بناءً على حالة الـ phases والسياق.
 
-**`context-builder.ts`** — يجمع سياق المشروع من DB (projects, tasks, metrics, graph_entities, events) في طلبات متوازية ويُعيده كسلاسل نصية جاهزة لـ system prompt.
+**تحميل السياق** — يجمع الأقسام المطلوبة من DB داخل لقطة
+`REPEATABLE READ`، مع cache قصير العمر وبيانات metadata عن freshness/degradation،
+ثم يحولها إلى سياق مخصص للوكلاء.
 
 **جداول DB جديدة (تم push إلى Postgres):**
 - `ai_chat_sessions` — جلسات المحادثة مرتبطة بالمشروع.
 - `ai_chat_messages` — رسائل بأدوار (user/assistant/system) مع حقل `sources` (JSON string).
 
-**7 نقاط API جديدة تحت `/api/ai/*`:**
+**نقاط API تحت `/api/ai/*`:**
 | Endpoint | الوظيفة |
 |---|---|
 | `POST /api/ai/chat` | إرسال رسالة، إنشاء/استئناف session، رد AI مع sources |
@@ -291,8 +301,11 @@ All changes: full project typecheck passes clean.
 | `GET /api/ai/chat/:sessionId/messages` | رسائل session |
 | `POST /api/ai/projects/:projectId/analyze` | تحليل scan بالذكاء الاصطناعي |
 | `POST /api/ai/projects/:projectId/review` | مراجعة الكود |
+| `POST /api/ai/projects/:projectId/analyze/stream` | بث مراحل ونتيجة تحليل scan |
+| `POST /api/ai/projects/:projectId/review/stream` | بث مراحل ونتيجة مراجعة الكود |
 | `POST /api/ai/workflows/:workflowId/orchestrate` | قرار orchestration |
 | `POST /api/ai/tasks/:taskId/execute` | تنفيذ مهمة عبر AI agent |
+| `POST /api/ai/chat/stream` | بث محادثة مع حالة التنفيذ وإمكانية الاستئناف |
 
 **OpenAPI spec:** أُضيفت جميع النقاط والـ schemas (`AiChatRequest`, `AiChatOutput`, `AiChatSession`, `AiChatMessage`, `AiScanAnalysis`, `AiScanInsight`, `AiCodeReview`, `AiCodeIssue`, `AiOrchestrationDecision`, `AiReviewRequest`, `AiOrchestrateRequest`). جرى `pnpm run codegen` بنجاح وتجاوز typecheck.
 
@@ -302,10 +315,18 @@ All changes: full project typecheck passes clean.
 - `customFetch` غير مُصدَّر من `@workspace/api-client-react` — استخدم `fetch` مباشرة في صفحات dashboard تستدعي endpoints غير مولَّدة.
 - Orval قاعدة: inline request-body schemas تتعارض مع zod-type exports — استخدم `$ref` لأي body غير فارغ (موثَّق في orval-openapi-codegen.md).
 
-### مؤجّل (لم يُنفَّذ بعد)
-- Auto-trigger AI عند وصول مهمة لـ `verifying` وعندها `prompt` (الآن: endpoint منفصل فقط).
-- SSE/streaming للـ chat responses.
-- أزرار "AI Analyze" و"AI Review" مدمجة في صفحات Projects وTasks.
+### حالة البنود التي كانت مؤجّلة في النسخة الأصلية
+- **Auto-trigger عند `verifying` مع وجود `prompt`: منفّذ حاليًا** في
+  `artifacts/api-server/src/routes/tasks.ts`، مع اختبارات مسار PATCH والتنفيذ.
+- **SSE/streaming: منفّذ حاليًا** للمحادثة ولتحليل scan ومراجعة الكود، مع
+  أحداث مراحل، فشل منظم، وحالة تنفيذ قابلة للاستئناف.
+- **أزرار Analyze/Review داخل صفحات Projects وTasks: ما زالت غير مكتملة**
+  ما لم يثبت مسار واجهة مباشر يستدعي endpoints المتخصصة؛ صفحة `AiChat`
+  الحالية هي سطح الاستخدام الأساسي.
+- **Forensic security reviews:** النتائج الفارغة أو غير المكتملة لا تُصنّف
+  كـ `NO_FINDING` تلقائيًا؛ القراءات الصفرية/الجزئية وفشل المزود أو Recovery
+  تُصنّف `ANALYSIS_INCOMPLETE`، بينما `NO_VERIFIED_FINDING` يتطلب نطاقًا
+  مكتمل القراءة.
 
 ## Phase 9 — Final documentation & handoff (ongoing)
 

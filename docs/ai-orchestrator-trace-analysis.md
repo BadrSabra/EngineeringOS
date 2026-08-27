@@ -1,8 +1,29 @@
 # AI Orchestrator — Trace-by-Trace Analysis
 
-> Generated: 2026-07-18  
+> Generated: 2026-07-18 — historical snapshot  
 > Methodology: full runtime trace across Prompt → Context → Model → Parse → Events → Context-refresh for every agent path.  
-> Status: all divergences closed unless explicitly marked "accepted / deferred".
+> Status: historical trace; current behavior is defined by the source anchors
+> below and `docs/architecture.md`.
+
+---
+
+> ⚠️ **Current-state correction (2026-08-27):** This trace predates the current
+> provider registry, durable streaming/reconnect behavior, evidence gates, and
+> incomplete-analysis classification. It must not be read as proof that all
+> divergences are closed.
+>
+> Current rules:
+> - `buildProjectContext` uses the current context loader's repeatable-read
+>  snapshot and short-lived cache.
+> - `/api/ai/chat/stream`, `/analyze/stream`, and `/review/stream` emit
+>  structured progress and terminal failure/incomplete states.
+> - Provider selection can fall back across configured compatible providers;
+>  exhausted fallback is a persisted failure/incomplete outcome.
+> - A security Finding is accepted only through server-owned evidence and
+>  validation gates. Partial, stale, missing, or unattributed evidence cannot
+>  produce a verified result.
+> - Reconnect and resume preserve the durable execution identity and cannot
+>  convert an incomplete run into success.
 
 ---
 
@@ -152,8 +173,12 @@ projectId → [30s TTL cache hit?] → db.transaction (7 queries)
 ### 6-B Task priority sort ✅ (G-01 fixed)
 DB sorts `priority ASC, updatedAt DESC` then `LIMIT 10`. In-memory re-sort kept as safety net for unknown priority strings.
 
-### 6-C Metrics consistency (G-12 — partially mitigated)
-`Promise.all` over 7 queries runs without a transaction. A scan completing between the `scan_jobs` query and the `metrics` query could produce a snapshot where `scanJob.status = "completed"` but `latestMetric` is from the previous scan. The `⚠ WARNING:` marker in `latestMetrics` covers the case where the metric pre-dates the scan (keyed on whether the *scan job* is verified), partially mitigating this. Full REPEATABLE READ isolation deferred — sequential queries inside a transaction would add measurable latency to every chat request.
+### 6-C Metrics consistency (G-12 — current implementation)
+The current context loader executes the requested reads inside one
+`REPEATABLE READ` transaction. This gives the context a single database
+snapshot while retaining `Promise.all` within that transaction. Per-section
+metadata still records missing/degraded reads, and scan completeness remains
+explicit in the context manifest.
 
 ### 6-D Event formatting — **FIXED (D-05)**
 **Before:** Events were formatted as `- [SEVERITY] YYYY-MM-DD HH:mm TYPE: Message`, dropping `taskId`, `workflowId`, and `correlationId`. The AI could see that "TaskCompleted" fired but not which task.  
