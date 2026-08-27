@@ -3,6 +3,10 @@
 > ⚠️ **Historical phase log — not a current truth baseline.**
 > This document records the sequencing decisions made during the original build-out phases.
 > For the current system architecture, package layout, and execution flows, see **`docs/architecture.md`**.
+> For the current AI capability and evidence posture, see
+> **`docs/actual-capability-baseline-v1.md`** and
+> **`docs/runtime-coverage-matrix.md`**. The phase entries below retain their
+> original observations and are not an authoritative list of current gaps.
 > For open work items, see `attached_assets/PR_BACKLOG_1784476473246.md`.
 
 Source of truth for sequencing further work on EngineeringOS. Companion to `docs/fact-record.md`.
@@ -328,7 +332,7 @@ OpenRouter وGemini وDeepSeek، مع اختيار capability-aware وfallback �
   تُصنّف `ANALYSIS_INCOMPLETE`، بينما `NO_VERIFIED_FINDING` يتطلب نطاقًا
   مكتمل القراءة.
 
-## Phase 9 — Final documentation & handoff (ongoing)
+## Historical handoff log
 
 - Keep `docs/fact-record.md` and this plan current after each phase; update `replit.md` pointers.
 - **2026-07-11:** `docs/fact-record.md` updated — added 17 previously undocumented entries (lib/db package files, scripts/, 3 new lib/api-zod generated types, orval-openapi-codegen memory note, 5 new attached_assets). Architecture layer map and inter-package dependency map added as new sections. This plan updated to reflect the 9-track execution roadmap.

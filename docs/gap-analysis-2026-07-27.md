@@ -11,6 +11,11 @@
 > integrations. Keep the findings as historical context only; re-check each
 > cited route and acceptance criterion against `docs/architecture.md` and the
 > current source before treating it as open work.
+>
+> The current capability status is recorded in
+> `docs/actual-capability-baseline-v1.md`; provider-free regression scope is
+> recorded in `docs/runtime-coverage-matrix.md`. This report preserves the
+> original gap IDs, severity, and remediation suggestions for traceability.
 
 ## Summary
 
