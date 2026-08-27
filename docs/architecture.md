@@ -1,6 +1,6 @@
 # EngineeringOS — Architecture Reference
 
-> **This is the current truth baseline** (last verified 2026-07-20, post all PRs A–I + forensic audit PRs 1–5).
+> **This is the current truth baseline** (last verified 2026-08-27).
 > `docs/completion-plan.md` and `docs/fact-record.md` are historical phase logs — see those
 > files' banners for context.
 
@@ -21,6 +21,8 @@ The current analysis surfaces are:
 - `POST /api/ai/projects/:projectId/review` and `/review/stream`
 - `POST /api/ai/tasks/:taskId/execute`
 - `POST /api/ai/workflows/:workflowId/orchestrate`
+- `GET/POST /api/ai/executions/*` for history, recovery, resume capability,
+  cancellation, and redacted audit export
 
 Context loading uses a repeatable-read database snapshot with a short-lived
 cache. Streamed executions persist identity, checkpoints, evidence/proof
