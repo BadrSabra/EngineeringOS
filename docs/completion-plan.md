@@ -483,7 +483,12 @@ inconsistencies, and the scan runner architecture. All 10 PRs landed in a single
 | Import-409 message variants | 1 (ambiguous) | 2 (deterministic) |
 | `resolveSource` architecture | 75-line switch in route | Registry in isolated module |
 
-### Remaining open items (unchanged from Phase 11)
+### Historical backlog snapshot (not current open items)
+
+The bullets below preserve the backlog as it was recorded at that historical
+phase. Later work addressed some of these items, including streaming and
+provider fallback; verify current status against `docs/architecture.md` and
+the current source before reopening any item.
 
 - ~~**P0**: Authorization model — no `ownerId`/`teamId` on projects; any Clerk user sees all data.~~ **[مُغلق ✅ 2026-07-14]** — `ownerId` مُضاف إلى projects schema؛ `requireProjectAccess`/`requireProjectWriteAccess`/`loadProjectByIdForUser` مُطبَّقة على كل routes؛ 219/219 اختبار يمر.
 - **P1**: AI auto-trigger on `verifying` state with `prompt` field.

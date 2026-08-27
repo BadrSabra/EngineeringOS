@@ -116,13 +116,13 @@ workspace (pnpm root)
 
 ### Credential encryption
 
-- User-supplied Groq API keys are encrypted at rest in the `ai_provider_credentials` table.
+- User-supplied provider API keys are encrypted at rest in the `ai_provider_credentials` table.
 - The encryption key is derived from `SESSION_SECRET` (env secret, never committed).
 - Keys are never logged; decryption errors are logged without the ciphertext.
 
 ### Rate limiting
 
-- Per-project LLM rate limit (configurable, default 20 req/min) enforced in `ai.ts` before any Groq call.
+- Per-project LLM rate limit (configurable, default 20 req/min) is enforced before any provider call.
 - Rate limit check occurs **before** the atomic task claim so a task is never left stuck in `running` on a rate-limit rejection.
 
 ---
@@ -271,9 +271,10 @@ These entries capture non-obvious tradeoffs. The `.agents/memory/` files hold th
 | `executeTask` | `POST /api/ai/tasks/:id/execute` | `TaskRecommendationSchema` | `_parseError` → rollback claim → 422 |
 
 All agents use provider strategies behind the registry. Normalized provider
-errors are classified by `GroqClientError` for compatibility and mapped by
-`handleOrchestratorError` to typed HTTP responses; recoverable failures are
-retried across compatible configured providers before they reach the route.
+errors are mapped by `handleOrchestratorError` to typed HTTP responses;
+recoverable failures are retried across compatible configured providers before
+they reach the route. The legacy `GroqClientError` name remains an internal
+compatibility detail, not a provider requirement.
 
 ---
 
@@ -387,6 +388,8 @@ delivery:
   override cancellation, failed evidence, or an incomplete terminal state.
 - Provider-derived response text, paths, IDs, and diagnostics are redacted
   before persistence or stream emission; raw diagnostics remain server-side.
+- AI-generated remediation text is narrative guidance only. It cannot satisfy
+  server-owned verification, acceptance, scope, revision, or evidence gates.
 
 ### Historical PR-I: original SSE delivery
 
@@ -399,7 +402,7 @@ compatibility history. The current behavior is defined by the section above.
 |---|---|---|
 | `stage` | `{ type, stage: "building-context" \| "calling-model" }` | Before each phase |
 | `done` | `{ type, sessionId, message, sources, pendingChanges }` | On success, after DB writes |
-| `error` | `{ type, code, message, hint?, raw?, parseCode? }` | On any failure |
+| `error` | `{ type, code, message, hint?, parseCode? }` | On any failure; provider diagnostics are redacted |
 
 - The original `POST /api/ai/chat` (JSON response) remains available as a non-streaming fallback.
 - SSE is consumed via handwritten stream hooks — Orval cannot generate SSE hooks.
@@ -418,10 +421,11 @@ compatibility history. The current behavior is defined by the section above.
 
 ## 11. Autonomous readiness baseline
 
-The current readiness decision is documented in
-`docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md` under
-**Recalibrated Autonomous Readiness Gate**. The gate is deliberately narrower
-than a product-parity assessment:
+The current readiness decision and observed capability status are documented in
+`docs/actual-capability-baseline-v1.md`; the executable gate is described
+below. Historical forensic reports may provide rationale, but are not current
+status references. The gate is deliberately narrower than a product-parity
+assessment:
 
 - verified completion requires objective/acceptance binding, approved scope,
   matching project and candidate revision/hash, passed required nodes,
