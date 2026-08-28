@@ -2743,7 +2743,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const secondContext = await browser.newContext();
     const secondPage = await secondContext.newPage();
     try {
-      await installApiFixtures(secondPage);
+      await Promise.all([installApiFixtures(page), installApiFixtures(secondPage)]);
       await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
       await Promise.all([
         page.goto(DASHBOARD_PATH),

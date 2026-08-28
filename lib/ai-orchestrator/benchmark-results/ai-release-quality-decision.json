@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-28T02:31:15.428Z",
+  "generatedAt": "2026-08-28T03:57:09.685Z",
   "status": "passed",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -25,7 +25,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 25918
+      "durationMs": 24319
     },
     {
       "id": "dashboard-typecheck",
@@ -37,7 +37,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 3894
+      "durationMs": 19845
     },
     {
       "id": "openapi-client-parity",
@@ -50,7 +50,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 5800
+      "durationMs": 10293
     },
     {
       "id": "truth-flow-parity",
@@ -62,7 +62,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1304
+      "durationMs": 1323
     },
     {
       "id": "ai-contract-and-json",
@@ -77,7 +77,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 35547
+      "durationMs": 38998
     },
     {
       "id": "ai-structured-review-fallback",
@@ -93,7 +93,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1438
+      "durationMs": 1402
     },
     {
       "id": "ai-sse-and-redaction",
@@ -108,7 +108,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 25395
+      "durationMs": 18370
     },
     {
       "id": "ai-operational-safety",
@@ -124,7 +124,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 58575
+      "durationMs": 60489
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -139,21 +139,20 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 721
+      "durationMs": 657
     },
     {
       "id": "benchmark-baseline-regression",
       "kind": "benchmark",
-      "command": "pnpm run verify:benchmark-rollout",
+      "command": "pnpm run benchmark:baseline:check",
       "blocking": true,
       "coverage": [
-        "baseline comparison",
-        "regression threshold",
-        "scope escape"
+        "deterministic 34-case contract baseline",
+        "provider-free benchmark authority"
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 354
+      "durationMs": 956
     },
     {
       "id": "dashboard-preview-contract",

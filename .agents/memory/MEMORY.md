@@ -11,6 +11,7 @@
 - [Arabic fixture guards](arabic-fixture-guards.md) — Arabic response fixtures must be checked at construction time so English-only regressions name the fixture before scenario assertions.
 - [Forensic fixture language](forensic-fixture-language.md) — deterministic forensic prompts and natural-language reports must use the same language.
 - [Preview port cleanup](preview-port-cleanup.md) — this environment provides lsof, not fuser; port cleanup must wait for listeners to disappear before startup.
+- [Validation workflow accumulation](validation-workflow-accumulation.md) — stale generated validation workflows can exhaust process slots and collide on artifact ports; stop them before recovery work.
 - [Forensic empty verdicts](forensic-empty-verdicts.md) — complete reads with no accepted Finding use NO_VERIFIED_FINDING; missing or partial reads use ANALYSIS_INCOMPLETE.
 - [Forensic Recovery deadline](forensic-recovery-deadline.md) — Recovery needs per-attempt and run-level bounds; provider fallback must not multiply audit latency.
 - [Forensic Recovery formatting](forensic-recovery-formatting.md) — tolerate harmless heading styles only; contract, coverage, Finding, and repair gates remain strict.
