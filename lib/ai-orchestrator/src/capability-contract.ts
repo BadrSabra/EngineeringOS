@@ -21,6 +21,124 @@ export type RecipeVersion = z.infer<typeof RecipeVersionSchema>;
 export const CapabilityRiskSchema = z.enum(["low", "medium", "high", "critical"]);
 export type CapabilityRisk = z.infer<typeof CapabilityRiskSchema>;
 
+/**
+ * Catalog metadata is deliberately a small, descriptive projection. It is
+ * not an execution recipe: command names, argv, cwd, environment, profiles,
+ * and process limits are not representable here.
+ */
+const CATALOG_RESERVED_INPUT_NAMES = new Set([
+  "args",
+  "argv",
+  "command",
+  "commandline",
+  "commandtext",
+  "cwd",
+  "env",
+  "environment",
+  "executable",
+  "executablepath",
+  "profile",
+  "shell",
+  "shellcommand",
+  "workdir",
+  "workingdir",
+  "workingdirectory",
+]);
+
+export const CapabilityScopeKindSchema = z.enum([
+  "none",
+  "project",
+  "paths",
+  "file",
+  "workspace",
+]);
+export type CapabilityScopeKind = z.infer<typeof CapabilityScopeKindSchema>;
+
+export const CapabilityCostSchema = z.enum(["low", "medium", "high"]);
+export type CapabilityCost = z.infer<typeof CapabilityCostSchema>;
+
+export const CapabilityInputFieldSchema = z
+  .object({
+    name: z.string().min(1).max(64).regex(/^[A-Za-z][A-Za-z0-9_-]*$/),
+    type: z.enum(["string", "number", "boolean", "object", "array"]),
+    required: z.boolean(),
+    description: z.string().min(1).max(180),
+  })
+  .strict()
+  .superRefine((field, ctx) => {
+    if (CATALOG_RESERVED_INPUT_NAMES.has(field.name.replace(/[_-]/g, "").toLowerCase())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["name"],
+        message: "catalog input fields cannot contain server-owned execution controls",
+      });
+    }
+  });
+export type CapabilityInputField = z.infer<typeof CapabilityInputFieldSchema>;
+
+export const CapabilityInputShapeSchema = z
+  .object({
+    type: z.literal("object"),
+    fields: z.array(CapabilityInputFieldSchema).max(24),
+  })
+  .strict();
+export type CapabilityInputShape = z.infer<typeof CapabilityInputShapeSchema>;
+
+export const CapabilityCatalogMetadataSchema = z
+  .object({
+    purpose: z.string().min(1).max(240),
+    inputShape: CapabilityInputShapeSchema,
+    defaultScope: CapabilityScopeKindSchema,
+    supportedScopes: z.array(CapabilityScopeKindSchema).min(1).max(5),
+    estimatedCost: CapabilityCostSchema,
+    mutatesProject: z.boolean(),
+    keywords: z.array(z.string().min(1).max(40)).max(16),
+    allowedPhases: z.array(z.string().min(1).max(40)).max(8),
+    /** Empty means all projects; values are never emitted in catalog output. */
+    projectIds: z.array(z.string().min(1).max(160)).max(64),
+    requiresAuthorization: z.boolean(),
+    expectedEvidence: z.array(z.string().min(1).max(160)).max(5),
+  })
+  .strict()
+  .superRefine((metadata, ctx) => {
+    if (new Set(metadata.supportedScopes).size !== metadata.supportedScopes.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["supportedScopes"],
+        message: "supported scopes must be unique",
+      });
+    }
+    if (!metadata.supportedScopes.includes(metadata.defaultScope)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["defaultScope"],
+        message: "the default scope must be supported",
+      });
+    }
+    if (new Set(metadata.allowedPhases).size !== metadata.allowedPhases.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["allowedPhases"],
+        message: "allowed phases must be unique",
+      });
+    }
+    if (new Set(metadata.projectIds).size !== metadata.projectIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["projectIds"],
+        message: "project IDs must be unique",
+      });
+    }
+    if (new Set(metadata.inputShape.fields.map((field) => field.name)).size !== metadata.inputShape.fields.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["inputShape", "fields"],
+        message: "input field names must be unique",
+      });
+    }
+  });
+export type CapabilityCatalogMetadata = z.infer<typeof CapabilityCatalogMetadataSchema>;
+
 export const CapabilityPolicySchema = z
   .object({
     risk: CapabilityRiskSchema,
@@ -60,6 +178,7 @@ export const CapabilityDescriptorSchema = z
     id: CapabilityIdSchema,
     supportedRecipeVersions: z.array(RecipeVersionSchema).min(1).max(32),
     policy: CapabilityPolicySchema,
+    catalog: CapabilityCatalogMetadataSchema.optional(),
   })
   .strict()
   .superRefine((descriptor, ctx) => {
@@ -254,6 +373,20 @@ function validateRegistration(adapter: CapabilityAdapter | null | undefined): Ca
 }
 
 function cloneRegistration(adapter: CapabilityAdapter): CapabilityAdapter {
+  const catalog = adapter.catalog
+    ? Object.freeze({
+        ...adapter.catalog,
+        inputShape: Object.freeze({
+          ...adapter.catalog.inputShape,
+          fields: Object.freeze(adapter.catalog.inputShape.fields.map((field) => Object.freeze({ ...field }))),
+        }),
+        supportedScopes: Object.freeze([...adapter.catalog.supportedScopes]),
+        keywords: Object.freeze([...adapter.catalog.keywords]),
+        allowedPhases: Object.freeze([...adapter.catalog.allowedPhases]),
+        projectIds: Object.freeze([...adapter.catalog.projectIds]),
+        expectedEvidence: Object.freeze([...adapter.catalog.expectedEvidence]),
+      })
+    : undefined;
   return Object.freeze({
     ...adapter,
     supportedRecipeVersions: Object.freeze([...adapter.supportedRecipeVersions]),
@@ -262,6 +395,7 @@ function cloneRegistration(adapter: CapabilityAdapter): CapabilityAdapter {
       allowedOperations: Object.freeze([...adapter.policy.allowedOperations]),
       approvedCommandProfiles: Object.freeze([...adapter.policy.approvedCommandProfiles]),
     }),
+    ...(catalog ? { catalog } : {}),
   }) as unknown as CapabilityAdapter;
 }
 

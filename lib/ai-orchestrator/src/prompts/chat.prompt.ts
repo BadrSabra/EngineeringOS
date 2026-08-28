@@ -262,6 +262,7 @@ function buildTaskContractSection(outputContract: OutputContract): string | null
 export function buildChatSystemPrompt({
   context,
   hasTools = false,
+  capabilityCatalog,
   streamingMode = false,
   focusHint,
   profile = "chat-normal",
@@ -276,6 +277,8 @@ export function buildChatSystemPrompt({
 }: {
   context: ProjectContext;
   hasTools?: boolean;
+  /** Server-owned planning projection; never treated as an executable tool. */
+  capabilityCatalog?: string;
   streamingMode?: boolean;
   focusHint?: string;
   profile?: "chat-lite" | "chat-normal" | "chat-deep" | "chat";
@@ -360,6 +363,9 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     // files unless you need updated content; use the paths as starting hints.
     !suppressSessionMemory && context.sessionMemories
       ? promptSection("Prior session memory (from previous chats)", context.sessionMemories)
+      : null,
+    capabilityCatalog
+      ? promptSection("Registered capabilities for planning", capabilityCatalog)
       : null,
     // Few-shot behavioral anchor — injected only in structured-output mode.
     // Must appear AFTER context and BEFORE rules so the model sees the

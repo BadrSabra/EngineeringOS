@@ -78,6 +78,12 @@ import {
 } from "./implementation-planner.js";
 import type { ImplementationPlan } from "../schemas/implementation-plan.schema.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
+import {
+  buildCapabilityCatalog,
+  formatCapabilityCatalogPrompt,
+  type CapabilityCatalogRequest,
+} from "../capability-catalog.js";
+import { CapabilityRegistry } from "../capability-contract.js";
 import type { AnalysisToolRunner } from "../tools/analysis-tools.js";
 import type { StrategyCallOptions } from "../provider-strategy.js";
 import {
@@ -3495,6 +3501,12 @@ export async function chat(opts: {
    * provider. This map is request-scoped and contains read bodies only.
    */
   retainedEvidence?: Map<string, string>;
+   /**
+    * Optional server-owned capability registry. Its catalog is injected into
+    * planning context only; it does not add an execution tool.
+    */
+   capabilityRegistry?: CapabilityRegistry;
+   capabilityCatalogRequest?: CapabilityCatalogRequest;
 }): Promise<ChatResult> {
   const {
     message,
@@ -3531,6 +3543,8 @@ export async function chat(opts: {
     objective,
     turnIntent: suppliedTurnIntent,
     retainedEvidence,
+    capabilityRegistry,
+    capabilityCatalogRequest,
   } = opts;
 
   // ── Profile classification ────────────────────────────────────────────────
@@ -3632,6 +3646,12 @@ export async function chat(opts: {
     firstEvidence,
   } = classification;
   const forensicTaskType = turnIntent.forensicTaskType;
+  const capabilityCatalogPrompt = capabilityRegistry
+    ? formatCapabilityCatalogPrompt(buildCapabilityCatalog(capabilityRegistry, {
+        ...capabilityCatalogRequest,
+        ...(projectId && !capabilityCatalogRequest?.projectId ? { projectId } : {}),
+      }))
+    : undefined;
   const analysisMode = turnIntent.analysisMode;
   const outputContract = turnIntent.outputContract;
   // A fixture capability audit is itself an evidence-grounded behavioral
@@ -4518,6 +4538,7 @@ export async function chat(opts: {
          fixtureAuditMode,
         suppressSessionMemory: suppressHistoricalSessionMemory,
         immediateExecution,
+         capabilityCatalog: capabilityCatalogPrompt,
       }) + implementationResumeInstruction +
         (singleFileForensicMode
         ? "\n\n**Effective forensic test manifest — ACTIVE:**\n" +
@@ -6318,7 +6339,7 @@ export async function chat(opts: {
     // Replace system message with streaming-mode plain-markdown variant.
     const streamMessages = messages.map((m, i) =>
       i === 0 && m.role === "system"
-          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: contextProfile, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: suppressHistoricalSessionMemory }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: contextProfile, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: suppressHistoricalSessionMemory, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
         : m,
     );
 
