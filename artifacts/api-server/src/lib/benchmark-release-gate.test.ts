@@ -209,4 +209,110 @@ describe("benchmark release gate", () => {
     expect(mismatched.blockers).toContain("clean-witness benchmark artifact contains a stale source revision");
     expect(mismatched.blockers).toContain("targeted and clean-witness benchmarks use different source revisions");
   });
+
+  it("blocks a clean witness with mixed per-case provenance", () => {
+    const cleanWitness = run({
+      observations: [{
+        caseId: "single-file-001",
+        provider: "openrouter",
+        model: "model",
+        providerAttempts: 1,
+        observation: {
+          caseId: "single-file-001",
+          candidateHash: "b".repeat(64),
+          sourceRevision: "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a",
+          grade: "A",
+          correct: true,
+          completedFirstAttempt: true,
+          repairedWithinThreeAttempts: false,
+          usefulButIncomplete: false,
+          safelyBlocked: false,
+          falseSuccess: false,
+          scopeEscape: false,
+          conflict: false,
+          typecheckPassed: true,
+          testsPassed: null,
+          filesRead: 1,
+          toolCalls: 1,
+          repairAttempts: 0,
+          rejectedChanges: 0,
+        },
+      }],
+    });
+    const decision = evaluateBenchmarkReleaseGate({
+      targetedRun: run({
+        runId: "targeted-run",
+        startedAt: "2026-08-19T01:00:00.000Z",
+        completedAt: "2026-08-19T01:20:00.000Z",
+        targetCaseCount: 4,
+        diagnosticOnly: true,
+        targeted: true,
+        partial: true,
+        baselineEligibility: "not-eligible",
+        targetProfile: "repair-loop",
+        scorecard: scorecard({ rolloutAllowed: false }),
+      }),
+      cleanWitnessRun: cleanWitness,
+      baseline: baseline(),
+    });
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.blockers).toContain(
+      "clean-witness benchmark per-case observations do not share the server-owned candidate hash",
+    );
+  });
+
+  it("blocks a clean witness that still has recovery work", () => {
+    const decision = evaluateBenchmarkReleaseGate({
+      targetedRun: run({
+        runId: "targeted-run",
+        startedAt: "2026-08-19T01:00:00.000Z",
+        completedAt: "2026-08-19T01:20:00.000Z",
+        targetCaseCount: 4,
+        diagnosticOnly: true,
+        targeted: true,
+        partial: true,
+        baselineEligibility: "not-eligible",
+        targetProfile: "repair-loop",
+        scorecard: scorecard({ rolloutAllowed: false }),
+      }),
+      cleanWitnessRun: run({ recoveryCaseIds: ["single-file-001"] }),
+      baseline: baseline(),
+    });
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.blockers).toContain("clean witness must be a fresh complete 34-case run");
+  });
+
+  it("blocks a clean witness compared against a different baseline", () => {
+    const decision = evaluateBenchmarkReleaseGate({
+      targetedRun: run({
+        runId: "targeted-run",
+        startedAt: "2026-08-19T01:00:00.000Z",
+        completedAt: "2026-08-19T01:20:00.000Z",
+        targetCaseCount: 4,
+        diagnosticOnly: true,
+        targeted: true,
+        partial: true,
+        baselineEligibility: "not-eligible",
+        targetProfile: "repair-loop",
+        scorecard: scorecard({ rolloutAllowed: false }),
+      }),
+      cleanWitnessRun: run({
+        scorecard: scorecard({
+          baselineComparison: {
+            status: "passed",
+            baselineId: "different-baseline",
+            blockers: [],
+          },
+        }),
+      }),
+      baseline: baseline(),
+    });
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.blockers).toContain(
+      "clean witness compared against a different approved baseline",
+    );
+  });
 });

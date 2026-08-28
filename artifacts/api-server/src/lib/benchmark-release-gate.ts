@@ -52,6 +52,47 @@ function hasZeroUnsafeOutcomes(run: BenchmarkAirlockRun): boolean {
     metrics.scopeEscapeRate === 0;
 }
 
+function checkObservationProvenance(
+  run: BenchmarkAirlockRun,
+  label: string,
+  blockers: string[],
+): void {
+  // Older summary-only fixtures do not carry per-case receipts. When receipts
+  // are present, however, the release decision must not trust an envelope hash
+  // or revision that disagrees with the evidence it summarizes.
+  if (run.observations.length === 0) return;
+
+  const candidateHash = run.scorecard.candidateHash;
+  const sourceRevision = run.sourceRevision;
+  const missingCandidateHash = run.observations.some(
+    (entry) => !entry.observation.candidateHash,
+  );
+  const mixedCandidateHash = candidateHash !== undefined &&
+    run.observations.some(
+      (entry) => entry.observation.candidateHash !== candidateHash,
+    );
+  if (missingCandidateHash || mixedCandidateHash) {
+    addBlocker(
+      blockers,
+      `${label} per-case observations do not share the server-owned candidate hash`,
+    );
+  }
+
+  const missingSourceRevision = run.observations.some(
+    (entry) => !entry.observation.sourceRevision,
+  );
+  const mixedSourceRevision = sourceRevision !== undefined &&
+    run.observations.some(
+      (entry) => entry.observation.sourceRevision !== sourceRevision,
+    );
+  if (missingSourceRevision || mixedSourceRevision) {
+    addBlocker(
+      blockers,
+      `${label} per-case observations do not share the server-owned source revision`,
+    );
+  }
+}
+
 function isBefore(left: string, right: string): boolean {
   const leftTime = Date.parse(left);
   const rightTime = Date.parse(right);
@@ -87,6 +128,8 @@ export function evaluateBenchmarkReleaseGate(args: {
     cleanWitnessRun.sourceRevision &&
     cleanWitnessRun.scorecard.sourceRevision !== cleanWitnessRun.sourceRevision
   ) addBlocker(blockers, "clean-witness benchmark source revision does not match its scorecard");
+  checkObservationProvenance(targetedRun, "targeted benchmark", blockers);
+  checkObservationProvenance(cleanWitnessRun, "clean-witness benchmark", blockers);
   if (revisions.every(([, revision]) => revision) && revisions[0][1] !== revisions[1][1]) {
     addBlocker(blockers, "targeted and clean-witness benchmarks use different source revisions");
   }
@@ -118,6 +161,7 @@ export function evaluateBenchmarkReleaseGate(args: {
     cleanWitnessRun.recoveryOnly ||
     cleanWitnessRun.diagnosticOnly ||
     cleanWitnessRun.shard !== undefined ||
+    cleanWitnessRun.recoveryCaseIds.length > 0 ||
     cleanWitnessRun.targetCaseCount !== CODE_AGENT_BENCHMARK_CASE_COUNT
   ) {
     addBlocker(blockers, "clean witness must be a fresh complete 34-case run");
@@ -127,6 +171,12 @@ export function evaluateBenchmarkReleaseGate(args: {
   }
   if (cleanWitnessRun.scorecard.baselineComparison?.status !== "passed") {
     addBlocker(blockers, "clean witness did not pass comparison against the approved baseline");
+  }
+  if (
+    cleanWitnessRun.scorecard.baselineComparison?.baselineId &&
+    cleanWitnessRun.scorecard.baselineComparison.baselineId !== baseline.baselineId
+  ) {
+    addBlocker(blockers, "clean witness compared against a different approved baseline");
   }
   if (cleanWitnessRun.scorecard.rolloutAllowed !== true) {
     addBlocker(blockers, "clean witness rollout gate is not open");

@@ -36,6 +36,19 @@ grading rules agree. It is not proof of live agent quality, rollout readiness,
 or provider performance. Live benchmark baselines require their own approved
 comparison and remain subject to the release quality gate.
 
+The current provider-free authority is the deterministic artifact set under
+`lib/ai-orchestrator/benchmark-results/code-agent-deterministic/`. The checked-in
+`code-agent-benchmark-baseline.json`, `code-agent-benchmark-live.json`, and
+`code-agent-benchmark-release-decision.json` files are retained historical
+compatibility artifacts from earlier live-review work; they are not substitutes
+for a newly generated clean-witness decision. A clean-witness release decision
+must be recomputed from its targeted run, complete 34-case clean witness, and
+approved baseline, with matching per-case source revision and candidate hash.
+The protected AI release decision consumes `benchmark:baseline:check` for its
+benchmark lane, so ordinary release validation remains provider-free. The
+separate live-provider lane is opt-in and non-blocking until the benchmark
+release gate produces an eligible clean-witness decision.
+
 ## Live-quality review record
 
 The 2026-08-26 disposable OpenRouter campaign is retained at

@@ -124,9 +124,9 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
   {
     id: "benchmark-baseline-regression",
     kind: "benchmark",
-    command: "pnpm run verify:benchmark-rollout",
+    command: "pnpm run benchmark:baseline:check",
     blocking: true,
-    coverage: ["baseline comparison", "regression threshold", "scope escape"],
+    coverage: ["deterministic 34-case contract baseline", "provider-free benchmark authority"],
   },
   {
     id: "dashboard-preview-contract",
