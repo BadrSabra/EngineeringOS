@@ -1,0 +1,35 @@
+__vite_ssr_exportName__("pool", () => { try { return pool } catch {} });
+__vite_ssr_exportName__("db", () => { try { return db } catch {} });
+__vite_ssr_exportName__("AuditSchemaError", () => { try { return __vite_ssr_import_4__.AuditSchemaError } catch {} });
+__vite_ssr_exportName__("assertAuditOutboxSchema", () => { try { return __vite_ssr_import_4__.assertAuditOutboxSchema } catch {} });
+__vite_ssr_exportName__("APPLICATION_SCHEMA_CONTRACT", () => { try { return __vite_ssr_import_5__.APPLICATION_SCHEMA_CONTRACT } catch {} });
+__vite_ssr_exportName__("ApplicationSchemaError", () => { try { return __vite_ssr_import_5__.ApplicationSchemaError } catch {} });
+__vite_ssr_exportName__("applicationSchemaDeliveryCommand", () => { try { return __vite_ssr_import_5__.applicationSchemaDeliveryCommand } catch {} });
+__vite_ssr_exportName__("assertApplicationSchema", () => { try { return __vite_ssr_import_5__.assertApplicationSchema } catch {} });
+__vite_ssr_exportName__("assertApplicationSchemaWithClient", () => { try { return __vite_ssr_import_5__.assertApplicationSchemaWithClient } catch {} });
+__vite_ssr_exportName__("findApplicationSchemaIssues", () => { try { return __vite_ssr_import_5__.findApplicationSchemaIssues } catch {} });
+__vite_ssr_exportName__("formatApplicationSchemaIssues", () => { try { return __vite_ssr_import_5__.formatApplicationSchemaIssues } catch {} });
+__vite_ssr_exportName__("readApplicationSchemaSnapshot", () => { try { return __vite_ssr_import_5__.readApplicationSchemaSnapshot } catch {} });
+const __vite_ssr_import_0__ = await __vite_ssr_import__("/@fs/home/runner/workspace/node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/drizzle-orm/node-postgres/index.js", {"importedNames":["drizzle"]});
+const __vite_ssr_import_1__ = await __vite_ssr_import__("/@fs/home/runner/workspace/node_modules/.pnpm/pg@8.22.0/node_modules/pg/esm/index.mjs", {"importedNames":["default"]});
+const __vite_ssr_import_2__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/schema/index.ts");
+const __vite_ssr_import_3__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/schema/index.ts");
+__vite_ssr_exportAll__(__vite_ssr_import_3__);
+const __vite_ssr_import_4__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/audit-schema-check.ts", {"importedNames":["AuditSchemaError","assertAuditOutboxSchema"]});
+const __vite_ssr_import_5__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/application-schema-check.ts", {"importedNames":["APPLICATION_SCHEMA_CONTRACT","ApplicationSchemaError","applicationSchemaDeliveryCommand","assertApplicationSchema","assertApplicationSchemaWithClient","findApplicationSchemaIssues","formatApplicationSchemaIssues","readApplicationSchemaSnapshot"]});
+"use strict";
+
+
+
+const { Pool } = __vite_ssr_import_1__.default;
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    "DATABASE_URL must be set. Did you forget to provision a database?"
+  );
+};
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = (0,__vite_ssr_import_0__.drizzle)(pool, { schema: __vite_ssr_import_2__ });
+//# sourceMappingSource=vite-generated
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJtYXBwaW5ncyI6IkFBQUEsQ0FBQTs7Ozs7Ozs7Ozs7O0FBQUE7QUFDQTtBQUNBO0FBYUE7O0FBQ0E7QUFJQTs7Ozs7QUFoQkEsTUFBTSxFQUFFLEtBQUssSUFBSTtBQUVqQixJQUFJLENBQUMsUUFBUSxJQUFJLGNBQWM7QUFDN0IsUUFBTSxJQUFJO0FBQUEsSUFDUjtBQUFBLEVBQ0Y7QUFDRjtBQUVPLE1BQU0sT0FBTyxJQUFJLEtBQUssRUFBRSxrQkFBa0IsUUFBUSxJQUFJLGFBQWEsQ0FBQztBQUNwRSxNQUFNLFFBQUssK0JBQVEsTUFBTSxFQUFFLDhCQUFPLENBQUMiLCJuYW1lcyI6W10sImlnbm9yZUxpc3QiOltdLCJzb3VyY2VzIjpbImluZGV4LnRzIl0sInNvdXJjZXNDb250ZW50IjpbImltcG9ydCB7IGRyaXp6bGUgfSBmcm9tIFwiZHJpenpsZS1vcm0vbm9kZS1wb3N0Z3Jlc1wiO1xuaW1wb3J0IHBnIGZyb20gXCJwZ1wiO1xuaW1wb3J0ICogYXMgc2NoZW1hIGZyb20gXCIuL3NjaGVtYS9pbmRleC5qc1wiO1xuXG5jb25zdCB7IFBvb2wgfSA9IHBnO1xuXG5pZiAoIXByb2Nlc3MuZW52LkRBVEFCQVNFX1VSTCkge1xuICB0aHJvdyBuZXcgRXJyb3IoXG4gICAgXCJEQVRBQkFTRV9VUkwgbXVzdCBiZSBzZXQuIERpZCB5b3UgZm9yZ2V0IHRvIHByb3Zpc2lvbiBhIGRhdGFiYXNlP1wiLFxuICApO1xufVxuXG5leHBvcnQgY29uc3QgcG9vbCA9IG5ldyBQb29sKHsgY29ubmVjdGlvblN0cmluZzogcHJvY2Vzcy5lbnYuREFUQUJBU0VfVVJMIH0pO1xuZXhwb3J0IGNvbnN0IGRiID0gZHJpenpsZShwb29sLCB7IHNjaGVtYSB9KTtcblxuZXhwb3J0ICogZnJvbSBcIi4vc2NoZW1hL2luZGV4LmpzXCI7XG5leHBvcnQge1xuICBBdWRpdFNjaGVtYUVycm9yLFxuICBhc3NlcnRBdWRpdE91dGJveFNjaGVtYSxcbn0gZnJvbSBcIi4vYXVkaXQtc2NoZW1hLWNoZWNrLmpzXCI7XG5leHBvcnQge1xuICBBUFBMSUNBVElPTl9TQ0hFTUFfQ09OVFJBQ1QsXG4gIEFwcGxpY2F0aW9uU2NoZW1hRXJyb3IsXG4gIGFwcGxpY2F0aW9uU2NoZW1hRGVsaXZlcnlDb21tYW5kLFxuICBhc3NlcnRBcHBsaWNhdGlvblNjaGVtYSxcbiAgYXNzZXJ0QXBwbGljYXRpb25TY2hlbWFXaXRoQ2xpZW50LFxuICBmaW5kQXBwbGljYXRpb25TY2hlbWFJc3N1ZXMsXG4gIGZvcm1hdEFwcGxpY2F0aW9uU2NoZW1hSXNzdWVzLFxuICByZWFkQXBwbGljYXRpb25TY2hlbWFTbmFwc2hvdCxcbn0gZnJvbSBcIi4vYXBwbGljYXRpb24tc2NoZW1hLWNoZWNrLmpzXCI7XG5leHBvcnQgdHlwZSB7XG4gIEFwcGxpY2F0aW9uU2NoZW1hSXNzdWUsXG4gIEFwcGxpY2F0aW9uU2NoZW1hU25hcHNob3QsXG59IGZyb20gXCIuL2FwcGxpY2F0aW9uLXNjaGVtYS1jaGVjay5qc1wiO1xuIl0sImZpbGUiOiIvQGZzL2hvbWUvcnVubmVyL3dvcmtzcGFjZS9saWIvZGIvc3JjL2luZGV4LnRzIn0=
+
+//# vitestCache=W3siZmlsZSI6IjEiLCJpZCI6IjEiLCJ1cmwiOiIyIiwiaW1wb3J0ZWRVcmxzIjoiMyIsIm1hcHBpbmdzIjpmYWxzZX0sIi9ob21lL3J1bm5lci93b3Jrc3BhY2UvbGliL2RiL3NyYy9pbmRleC50cyIsIi9AZnMvaG9tZS9ydW5uZXIvd29ya3NwYWNlL2xpYi9kYi9zcmMvaW5kZXgudHMiLFtdXQ==

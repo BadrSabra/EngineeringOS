@@ -157,8 +157,8 @@ jobs:
       - name: Type-check all packages
         run: pnpm run typecheck
 
-      - name: Provision test database schema
-        run: pnpm --filter @workspace/db run push
+      - name: Apply and verify test database schema
+        run: pnpm run db:schema:apply
 
       - name: Run tests
         run: pnpm run test
@@ -217,8 +217,8 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Provision test database schema
-        run: pnpm --filter @workspace/db run push
+      - name: Apply and verify release database schema
+        run: pnpm run db:schema:apply
 
       - name: Run controlled release validation
         timeout-minutes: 20

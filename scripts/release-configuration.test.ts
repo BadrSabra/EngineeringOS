@@ -84,9 +84,9 @@ const releaseFailureScenarios: ReleaseFailureScenario[] = [
 
 const deploymentFailureScenarios: DeploymentFailureScenario[] = [
   {
-    name: "audit schema check",
-    command: "run db:schema:check",
-    diagnostic: "audit schema check failed: expected audit_events table was missing",
+    name: "application schema delivery",
+    command: "run db:schema:apply",
+    diagnostic: "application schema delivery failed: task contract was incomplete",
     laterCommands: [
       "run test:benchmark-rollout",
       "run verify:benchmark-rollout",
@@ -365,7 +365,7 @@ test("runs deployment checks in order and prunes only after successful release v
     );
     assert.deepEqual(fixture.trace.trim().split("\n"), [
       "run deployment:post-build",
-      "run db:schema:check",
+      "run db:schema:apply",
       "run test:benchmark-rollout",
       "run verify:benchmark-rollout",
       "run validate:release",
@@ -588,7 +588,7 @@ test("keeps the local Project workflow and release validation separate", async (
   assert.equal(normalTestCommand, "pnpm -r --if-present run test");
   assert.equal(
     releaseTestCommand,
-    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
   );
   assert.equal(
     controlledReleaseTestCommand,

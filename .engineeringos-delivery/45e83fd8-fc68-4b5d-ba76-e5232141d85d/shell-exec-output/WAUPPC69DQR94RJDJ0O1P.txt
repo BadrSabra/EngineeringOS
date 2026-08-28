@@ -1,0 +1,239 @@
+--- task/log references ---
+package.json:9:    "db:schema:check": "pnpm --filter @workspace/db run check-audit-schema",
+package.json:24:    "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+lib/db/src/schema/workflows.ts:9:} from "drizzle-orm/pg-core";
+lib/db/src/schema/workflows.ts:16: * status value requires an explicit schema change (enum alteration + push).
+.github/workflows/ci.yml:160:      - name: Provision test database schema
+.github/workflows/ci.yml:220:      - name: Provision test database schema
+scripts/verify-setup.sh:66:# 6. DB schema pushed (projects table exists)
+scripts/verify-setup.sh:68:  TABLE_COUNT=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='projects';" 2>/dev/null || echo "0")
+scripts/verify-setup.sh:70:    check "DB schema pushed (projects table)" "ok"
+scripts/verify-setup.sh:72:    check "DB schema pushed (projects table)" "missing — run: pnpm --filter @workspace/db run push"
+scripts/verify-setup.sh:75:  check "DB schema pushed (projects table)" "ok (skipped — psql not in PATH or DATABASE_URL unset)"
+lib/db/src/schema/uploads.ts:17:import { pgTable, text, timestamp, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/tasks.ts:9:} from "drizzle-orm/pg-core";
+lib/db/src/schema/tasks.ts:115:  remediationPlan: jsonb("remediation_plan").$type<RemediationPlan>(),
+lib/db/src/schema/task_logs.ts:1:import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/task_logs.ts:11:export const taskLogsTable = pgTable("task_logs", {
+lib/db/src/schema/task_logs.ts:24:  index("idx_task_logs_task_id").on(t.taskId),
+lib/db/src/schema/task_logs.ts:26:  index("idx_task_logs_task_id_timestamp").on(t.taskId, t.timestamp),
+lib/db/src/schema/task_logs.ts:28:  index("idx_task_logs_correlation_id").on(t.correlationId),
+artifacts/api-server/src/services/task-service.ts:20:import { eq } from "drizzle-orm";
+scripts/verify-benchmark-rollout.test.mjs:73:      match(error.stderr, /approved flight-deck-v2 schema/);
+lib/db/src/schema/scan_jobs.ts:10:import { pgTable, text, timestamp, jsonb, integer, pgEnum, index } from "drizzle-orm/pg-core";
+scripts/verify-benchmark-rollout.mjs:54:    throw new Error("live benchmark scorecard is not the approved flight-deck-v2 schema");
+scripts/verify-benchmark-rollout.mjs:106:    throw new Error("benchmark baseline is not the approved flight-deck-v2 schema");
+lib/db/src/schema/rules.ts:10:} from "drizzle-orm/pg-core";
+lib/db/src/schema/rate_limits.ts:16:import { pgTable, text, integer, bigint, timestamp, primaryKey } from "drizzle-orm/pg-core";
+lib/db/src/schema/projects.ts:1:import { pgTable, text, timestamp, real, pgEnum, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/plugins.ts:1:import { pgTable, text, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
+lib/db/src/schema/pending_audit_logs.ts:7:import { pgTable, integer, jsonb, timestamp, index, text } from "drizzle-orm/pg-core";
+artifacts/api-server/src/scripts/seed-provenance.ts:28:import { eq, and } from "drizzle-orm";
+scripts/validate-truth-flow.ts:8: * Validation is two-layered (mirrors the schema hierarchy):
+scripts/validate-truth-flow.ts:17: *             A drift here means someone updated the JSON without updating the schema
+scripts/validate-truth-flow.ts:21: *   BASELINE  — EXPECTED_CURRENT_TRUTH_FLOW_MATRIX in truth-flow-matrix.schema.ts
+scripts/validate-truth-flow.ts:48:  "lib/api-zod/src/truth-flow-matrix.schema.ts → EXPECTED_CURRENT_TRUTH_FLOW_MATRIX";
+scripts/validate-truth-flow.ts:111:    The schema baseline is authoritative: update EXPECTED_CURRENT_TRUTH_FLOW_MATRIX
+artifacts/api-server/src/lib/upload-store.ts:37:import { and, eq, lt } from "drizzle-orm";
+lib/db/src/schema/metrics.ts:9:} from "drizzle-orm/pg-core";
+lib/db/src/schema/index.ts:8:export * from "./task_logs.js";
+lib/db/src/schema/graph.ts:12:} from "drizzle-orm/pg-core";
+lib/db/src/schema/graph.ts:13:import { sql } from "drizzle-orm";
+lib/db/src/schema/graph.ts:31: * explicit schema change — preventing silent category drift.
+artifacts/api-server/src/routes/workflows.ts:13:import { eq, desc, and, isNull } from "drizzle-orm";
+lib/db/src/schema/events.ts:1:import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/discovery.ts:1:import { pgTable, text, timestamp, integer, jsonb, pgEnum, index, check } from "drizzle-orm/pg-core";
+lib/db/src/schema/discovery.ts:2:import { sql } from "drizzle-orm";
+lib/db/src/schema/browser_validation_profiles.ts:1:import { pgTable, text, timestamp, integer, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
+scripts/validate-benchmark-baseline.ts:80:  fail("The deterministic scorecard schema/version does not match the current benchmark suite.");
+artifacts/api-server/src/lib/task-execution-service.ts:2:import { and, eq, inArray } from "drizzle-orm";
+artifacts/api-server/src/routes/workflows.test.ts:3:import { eq } from "drizzle-orm";
+lib/db/src/schema/audit_logs.ts:9:import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/audit_logs.ts:76:   *  corresponding events/task_logs/metrics rows for the same operation. */
+lib/db/src/schema/ai_provider_credentials.ts:1:import { pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+scripts/trigger-scan.mts:19:import { eq, desc } from "drizzle-orm";
+lib/db/src/schema/ai_executions.ts:1:import { pgEnum, pgTable, text, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+artifacts/api-server/src/lib/task-execution-retention.ts:70:       FROM task_logs l
+artifacts/api-server/src/lib/task-execution-retention.ts:86:        `DELETE FROM task_logs l
+lib/db/src/schema/ai_chats.ts:1:import { pgTable, text, timestamp, pgEnum, index, real } from "drizzle-orm/pg-core";
+scripts/run-dashboard-journey.mjs:207:      checks.schema = body?.checks?.schema ?? { status: "blocked" };
+scripts/run-dashboard-journey.mjs:212:        checks.schema.status === "ready"
+scripts/run-dashboard-journey.mjs:221:      lastError = "api, database, or schema not ready";
+scripts/run-dashboard-journey.mjs:229:    "BLOCKED: API/database/schema readiness handshake did not complete.",
+lib/db/src/schema/ai_change_proposals.ts:1:import { pgEnum, pgTable, text, timestamp, integer, boolean, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/ai_apply_journal.ts:1:import { pgTable, text, timestamp, integer, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+artifacts/api-server/src/routes/tasks.ts:23:import { eq, and, desc, gt, asc, inArray, or, isNull } from "drizzle-orm";
+lib/db/src/index.ts:1:import { drizzle } from "drizzle-orm/node-postgres";
+lib/db/src/index.ts:3:import * as schema from "./schema/index.js";
+lib/db/src/index.ts:14:export const db = drizzle(pool, { schema });
+lib/db/src/index.ts:16:export * from "./schema/index.js";
+lib/db/src/index.ts:19:  assertAuditOutboxSchema,
+lib/db/src/index.ts:20:} from "./audit-schema-check.js";
+lib/db/src/check-audit-schema.ts:1:import { AuditSchemaError, assertAuditOutboxSchema } from "./audit-schema-check.js";
+lib/db/src/check-audit-schema.ts:5:  await assertAuditOutboxSchema();
+lib/db/src/check-audit-schema.ts:7:    "Audit outbox schema is ready: public.pending_audit_logs has all required columns and index.",
+lib/db/src/check-audit-schema.ts:11:    console.error(`Audit outbox schema check failed: ${error.message}`);
+lib/db/src/check-audit-schema.ts:14:      "Audit outbox schema check could not connect to PostgreSQL. Verify DATABASE_URL and database availability.",
+lib/db/src/audit-schema-check.ts:28: * Verify the durable audit outbox schema before it is used.
+lib/db/src/audit-schema-check.ts:33:export async function assertAuditOutboxSchemaWithClient(
+lib/db/src/audit-schema-check.ts:39:         FROM information_schema.tables
+lib/db/src/audit-schema-check.ts:40:         WHERE table_schema = 'public' AND table_name = 'pending_audit_logs'
+lib/db/src/audit-schema-check.ts:46:        "Missing required table public.pending_audit_logs. Apply the database schema with `pnpm --filter @workspace/db run push`, then restart the API.",
+lib/db/src/audit-schema-check.ts:52:       FROM information_schema.columns
+lib/db/src/audit-schema-check.ts:53:       WHERE table_schema = 'public' AND table_name = 'pending_audit_logs'`,
+lib/db/src/audit-schema-check.ts:65:       WHERE schemaname = 'public' AND tablename = 'pending_audit_logs'
+lib/db/src/audit-schema-check.ts:78:        `Stale public.pending_audit_logs schema (${missing.join("; ")}). Apply the database schema with \`pnpm --filter @workspace/db run push\`, then restart the API.`,
+lib/db/src/audit-schema-check.ts:83:export async function assertAuditOutboxSchema(): Promise<void> {
+lib/db/src/audit-schema-check.ts:86:    await assertAuditOutboxSchemaWithClient(client);
+artifacts/api-server/src/lib/task-execution-retention.test.ts:2:import { eq } from "drizzle-orm";
+lib/db/src/audit-schema-check.test.ts:6:  assertAuditOutboxSchemaWithClient,
+lib/db/src/audit-schema-check.test.ts:7:} from "./audit-schema-check.js";
+lib/db/src/audit-schema-check.test.ts:24:      if (sql.includes("information_schema.tables")) {
+lib/db/src/audit-schema-check.test.ts:30:      if (sql.includes("information_schema.columns")) {
+lib/db/src/audit-schema-check.test.ts:48:      throw new Error(`Unexpected schema query: ${sql}`);
+lib/db/src/audit-schema-check.test.ts:55:    assertAuditOutboxSchemaWithClient(clientFor(fixture)),
+lib/db/src/audit-schema-check.test.ts:66:describe("audit outbox schema checks", () => {
+lib/db/src/audit-schema-check.test.ts:88:  it("accepts the complete required schema", async () => {
+lib/db/src/audit-schema-check.test.ts:90:      assertAuditOutboxSchemaWithClient(clientFor({})),
+lib/db/package.json:8:    "./schema": "./src/schema/index.ts"
+lib/db/package.json:11:    "push": "drizzle-kit push --config ./drizzle.config.ts",
+lib/db/package.json:12:    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+lib/db/package.json:13:    "check-audit-schema": "tsx ./src/check-audit-schema.ts",
+lib/db/package.json:14:    "test": "tsx --test ./src/audit-schema-check.test.ts"
+lib/db/package.json:17:    "drizzle-orm": "catalog:",
+lib/db/package.json:18:    "drizzle-zod": "^0.8.3",
+lib/db/package.json:25:    "drizzle-kit": "^0.31.10",
+lib/db/drizzle.config.ts:1:import { defineConfig } from "drizzle-kit";
+lib/db/drizzle.config.ts:9:  schema: path.join(__dirname, "./src/schema/index.ts"),
+artifacts/api-server/src/lib/startup-migrations.ts:8: * - No DDL here; schema changes go through Replit's publish-time migration flow.
+artifacts/api-server/src/lib/startup-migrations.ts:15:import { like } from "drizzle-orm";
+artifacts/api-server/src/lib/startup-migrations.ts:50:      logger.info({ scope: "startup-migrations", fn: "ensureEncryptionKey" },
+artifacts/api-server/src/lib/startup-migrations.ts:54:    logger.warn({ scope: "startup-migrations", fn: "ensureEncryptionKey", storedLength: stored.length },
+artifacts/api-server/src/lib/startup-migrations.ts:66:    logger.info({ scope: "startup-migrations", fn: "ensureEncryptionKey", keyFile: ENCRYPTION_KEY_FILE },
+artifacts/api-server/src/lib/startup-migrations.ts:69:    logger.error({ scope: "startup-migrations", fn: "ensureEncryptionKey", err },
+artifacts/api-server/src/lib/startup-migrations.ts:111:        scope: "startup-migrations",
+artifacts/api-server/src/lib/startup-migrations.ts:119:    logger.error({ scope: "startup-migrations", fn: "reportDeadRootPaths", err },
+artifacts/api-server/src/lib/startup-migrations.ts:330:    logger.error({ scope: "startup-migrations", fn: "scrubHistoricalValidationDetails", err },
+artifacts/api-server/src/lib/startup-migrations.ts:421:    logger.error({ scope: "startup-migrations", fn: "pruneHistoricalAiDiagnostics", err },
+artifacts/api-server/src/routes/tasks.test.ts:3:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/rules.ts:15:import { eq, and, desc, isNull, sql } from "drizzle-orm";
+artifacts/api-server/src/lib/startup-migrations.test.ts:2:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/startup-migrations.test.ts:12:} from "./startup-migrations";
+artifacts/api-server/src/routes/rules.test.ts:6:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/scan-runner.ts:17:import { eq, and, or, isNull, inArray } from "drizzle-orm";
+scripts/release-configuration.test.ts:87:    name: "audit schema check",
+scripts/release-configuration.test.ts:88:    command: "run db:schema:check",
+scripts/release-configuration.test.ts:89:    diagnostic: "audit schema check failed: expected audit_events table was missing",
+scripts/release-configuration.test.ts:368:      "run db:schema:check",
+scripts/generate-truth-flow.ts:23:  "lib/api-zod/src/truth-flow-matrix.schema.ts → EXPECTED_CURRENT_TRUTH_FLOW_MATRIX";
+scripts/generate-truth-flow.ts:30:    `\n✅  Materialized the Truth Flow Matrix from the schema baseline.\n` +
+scripts/generate-truth-flow.ts:44:      `    To create the reviewable JSON representation from the schema, run:\n` +
+scripts/generate-truth-flow.ts:55:    `\n❌  Truth Flow Matrix baseline drifted from the schema authority.\n` +
+scripts/generate-truth-flow.ts:59:      `    or recover them from historical files. Review the intended schema change,\n` +
+scripts/generate-truth-flow.ts:67:  `\n✅  Truth Flow Matrix JSON matches the schema authority.\n` +
+artifacts/api-server/src/routes/projects.ts:26:import { eq, desc, and, inArray } from "drizzle-orm";
+scripts/patch-generated-zod.test.ts:42:    "const schema = z.object({ id: z.string() });\n",
+scripts/dashboard-journey-contract.test.mjs:653:    /checks\.database[\s\S]*checks\.schema/,
+scripts/dashboard-journey-contract.test.mjs:654:    "The release handshake must verify database and schema readiness.",
+scripts/dashboard-journey-contract.test.mjs:688:test("API readiness separates liveness from schema readiness", () => {
+scripts/dashboard-journey-contract.test.mjs:690:  assert.match(healthSource, /schema_incomplete/);
+artifacts/api-server/src/routes/projects.test.ts:3:import { eq, or } from "drizzle-orm";
+scripts/parse-check-spec.ts:82:if (!doc?.components?.schemas || typeof doc.components.schemas !== "object") {
+scripts/parse-check-spec.ts:83:  issues.push("Missing 'components.schemas' — contract schemas are required.");
+scripts/parse-check-spec.ts:103:const inlineRefs = [...specStr.matchAll(/"#\/components\/schemas\/(\w+)"/g)].map(
+scripts/parse-check-spec.ts:106:const definedSchemas = new Set(Object.keys(doc?.components?.schemas ?? {}));
+scripts/parse-check-spec.ts:110:    `Unresolvable $ref targets in components/schemas: ${missing.join(", ")}`,
+scripts/parse-check-spec.ts:128:const schemaCount = Object.keys(doc.components.schemas).length;
+scripts/parse-check-spec.ts:137:console.log(`    Paths   : ${pathCount}  Operations: ${opCount}  Schemas: ${schemaCount}`);
+artifacts/api-server/src/lib/database-schema-preflight.ts:4:  { tableName: "tasks", columnName: "remediation_plan" },
+artifacts/api-server/src/lib/database-schema-preflight.ts:30:    FROM information_schema.columns
+artifacts/api-server/src/lib/database-schema-preflight.ts:31:    WHERE table_schema = 'public'
+artifacts/api-server/src/lib/database-schema-preflight.ts:35:        OR (table_name = 'tasks' AND column_name = 'remediation_plan')
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:5:} from "./database-schema-preflight";
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:7:describe("database schema preflight", () => {
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:14:    ).toEqual(["tasks.remediation_plan"]);
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:22:        { table_name: "tasks", column_name: "remediation_plan" },
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:27:  it("queries only the allowlisted critical schema contract", async () => {
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:32:        { table_name: "tasks", column_name: "remediation_plan" },
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:38:    expect(query.mock.calls[0]?.[0]).toContain("remediation_plan");
+artifacts/api-server/src/routes/plugins.ts:5:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/metrics.ts:5:import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
+artifacts/api-server/src/routes/metrics.test.ts:3:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts:28:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/health.ts:6:import { getAiDiagnosticsRetentionHealth } from "../lib/startup-migrations.js";
+artifacts/api-server/src/routes/health.ts:19: * listening while the database schema is from an older build; release
+artifacts/api-server/src/routes/health.ts:27:       FROM information_schema.columns
+artifacts/api-server/src/routes/health.ts:28:       WHERE table_schema = 'public'
+artifacts/api-server/src/routes/health.ts:53:          schema: { status: "blocked", reason: "schema_incomplete", missing },
+artifacts/api-server/src/routes/health.ts:62:        schema: { status: "ready" },
+artifacts/api-server/src/routes/health.ts:71:        schema: { status: "blocked", reason: "schema_unavailable" },
+artifacts/api-server/src/routes/graph.ts:10:import { eq, and, inArray, gte, isNull, or, asc, count } from "drizzle-orm";
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:74:    coverage: ["OpenAPI/client parity", "Zod 3 generated-schema compatibility"],
+artifacts/api-server/src/routes/graph.test.ts:3:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/plugin-runtime.ts:17:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/ai-execution-state.ts:2:import { and, eq, inArray, lt, sql } from "drizzle-orm";
+artifacts/api-server/src/lib/audit.ts:2:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/audit.ts:15:// Derived from the DB enum so the schema stays the single source of truth —
+artifacts/api-server/src/lib/audit.ts:16:// adding a new entity type or action means updating lib/db/src/schema/audit_logs.ts
+artifacts/api-server/src/lib/audit.ts:32:   *  Same value should be set on the corresponding events/task_logs/metrics
+artifacts/api-server/src/routes/git.ts:28:import { eq, and, desc } from "drizzle-orm";
+artifacts/api-server/src/routes/git.test.ts:9:import { eq, and } from "drizzle-orm";
+artifacts/api-server/src/routes/events.ts:3:import { eq, and, desc, inArray, ilike, or, count } from "drizzle-orm";
+artifacts/api-server/src/routes/events.test.ts:6:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/ai-analysis-tools.ts:2:import { and, eq, ilike } from "drizzle-orm";
+artifacts/api-server/src/lib/operation-evidence.ts:1:import { and, eq } from "drizzle-orm";
+artifacts/api-server/src/routes/discovery.ts:19:import { eq, and, isNull, isNotNull, lt } from "drizzle-orm";
+artifacts/api-server/src/routes/discovery.ts:47: * `.constraint` fields; drizzle passes them through unchanged.
+artifacts/api-server/src/routes/discovery.ts:51:  // drizzle-orm wraps the raw node-postgres error in a DrizzleQueryError,
+artifacts/api-server/src/lib/job-recovery.test.ts:9:import { eq } from "drizzle-orm";
+artifacts/api-server/src/index.ts:15:} from "./lib/startup-migrations";
+artifacts/api-server/src/index.ts:17:import { assertAuditOutboxSchema, pool } from "@workspace/db";
+artifacts/api-server/src/index.ts:27:import { getMissingDatabaseColumns } from "./lib/database-schema-preflight";
+artifacts/api-server/src/index.ts:30: * DB-07: Bootstrap guard — verify the Drizzle schema has been pushed before
+artifacts/api-server/src/index.ts:42:      "DATABASE SCHEMA CHECK FAILED — cannot connect to the database or query information_schema",
+artifacts/api-server/src/index.ts:51:        hint: "Run the above command to apply the Drizzle schema to the managed PostgreSQL database.",
+artifacts/api-server/src/index.ts:57:        "  The Drizzle schema has not been pushed to this database yet.",
+artifacts/api-server/src/index.ts:118:// DB-07: Fail fast if the Drizzle schema has not been pushed yet. This must
+artifacts/api-server/src/index.ts:122:  await assertAuditOutboxSchema();
+artifacts/api-server/src/index.ts:126:    "AUDIT OUTBOX SCHEMA CHECK FAILED — apply the Drizzle schema before starting the API",
+artifacts/api-server/src/config.ts:14:// PORT is intentionally NOT part of this base schema: it's only meaningful
+artifacts/api-server/src/lib/ai-route-helpers.ts:13:import { eq, and } from "drizzle-orm";
+artifacts/api-server/src/routes/discovery.test.ts:4:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/job-reconciliation.ts:59:import { and, eq, inArray, isNull, lt, or, count } from "drizzle-orm";
+artifacts/api-server/src/routes/dashboard.ts:10:import { desc, eq, inArray, isNull, or } from "drizzle-orm";
+artifacts/api-server/src/routes/dashboard.ts:28: * drizzle-orm's inArray() requires a non-empty array and will throw on an
+artifacts/api-server/src/routes/dashboard.test.ts:11:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/job-reconciliation.test.ts:2:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/ai/workflows.ts:15:import { eq, and, desc } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-runner.ts:32:import { eq, and, isNull } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-runner.ts:245:  if (allDeps["drizzle-orm"]) orm = "Drizzle ORM";
+artifacts/api-server/src/lib/job-lease.ts:26:import { and, eq } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-runner.test.ts:102:    // drizzle-orm is in allDeps → Drizzle ORM should win; a TS file with
+artifacts/api-server/src/lib/discovery-runner.test.ts:112:    const { orm } = detectDb({ "drizzle-orm": "^0.45.0" }, files);
+artifacts/api-server/src/lib/discovery-runner.test.ts:120:    const { orm } = detectDb({ "drizzle-orm": "^0.45.0" }, []);
+artifacts/api-server/src/routes/ai/tasks.ts:15:import { eq, and } from "drizzle-orm";
+artifacts/api-server/src/lib/job-lease.test.ts:7:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/db-rate-limiter.ts:19:import { lt, sql } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-adapters.ts:24:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/job-idempotency.test.ts:9:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/graph-provenance.ts:4: * shape stored in the database (lib/db/src/schema/graph.ts).
+artifacts/api-server/src/routes/ai/providers.ts:18:import { eq, and } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-adapters.test.ts:11:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/job-concurrency.test.ts:9:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/ai/benchmark.ts:4:import { desc, eq } from "drizzle-orm";
+artifacts/api-server/src/routes/ai/analysis.ts:18:import { and, eq } from "drizzle-orm";
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:14:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:222:    // drizzle-orm re-exports from @workspace/db — return no-ops so they never
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1239:  ])("emits the public nested validation schema for $label events", async ({ step }) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1390:    // Round-trip the persisted column back through the same schema the route's
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:29:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/ai.test.ts:10:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/ai.test.ts:258:  // Spread the real module first so schemas the routes import at runtime
+artifacts/api-server/src/routes/ai.test.ts:627:  // process is interrupted between schema changes or while a row is leased.
+artifacts/api-server/src/routes/ai.test.ts:1103:  // DeepSeek (and other providers) may return valid text without strict JSON schema
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:27:import { and, eq } from "drizzle-orm";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4706:    // requiredClaims is missing — must be rejected by the body schema, so the
+artifacts/api-server/src/routes/ai/chat.ts:27:import { eq, desc, and, inArray, sql } from "drizzle-orm";
+artifacts/api-server/src/routes/ai/chat.ts:144:import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
+artifacts/api-server/src/routes/ai/chat.ts:511: * response schema is deliberately the source of truth here; serialising its
+artifacts/api-server/src/routes/ai/chat.ts:526: * audit exports. Keep the optional generatedAt field after schema parsing

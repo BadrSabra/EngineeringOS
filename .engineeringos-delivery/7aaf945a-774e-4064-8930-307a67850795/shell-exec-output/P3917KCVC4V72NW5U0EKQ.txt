@@ -1,0 +1,271 @@
+import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { test } from "node:test";
+
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const runControlledReleaseValidation =
+  process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1";
+
+async function readWorkspaceFile(fileName: string): Promise<string> {
+  return readFile(resolve(workspaceRoot, fileName), "utf8");
+}
+
+function commandsBetween(value: string, start: string, end: string): string[] {
+  const startIndex = value.indexOf(start);
+  const endIndex = value.indexOf(end, startIndex);
+  const section = value.slice(startIndex, endIndex);
+  return section.match(/args\s*=\s*"((?:\\"|[^"])*)"/g) ?? [];
+}
+
+type ReleaseFailureScenario = {
+  name: string;
+  command: string;
+  diagnostic: string;
+  laterCommands: string[];
+};
+
+type DeploymentFailureScenario = {
+  name: string;
+  command: string;
+  diagnostic: string;
+  laterCommands: string[];
+};
+
+const releaseFailureScenarios: ReleaseFailureScenario[] = [
+  {
+    name: "dashboard journey contract",
+    command: "run test:dashboard-journey-contract",
+    diagnostic: "dashboard journey contract fixture failed: expected route was missing",
+    laterCommands: [
+      "run test:mission-correlation-report",
+      "--filter @workspace/api-server run test:release-fixture-collisions",
+      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+      "--filter @workspace/api-server run test:process-recovery",
+    ],
+  },
+  {
+    name: "mission correlation report",
+    command: "run test:mission-correlation-report",
+    diagnostic: "mission correlation report fixture failed: operation revision mismatched",
+    laterCommands: [
+      "--filter @workspace/api-server run test:release-fixture-collisions",
+      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+      "--filter @workspace/api-server run test:process-recovery",
+    ],
+  },
+  {
+    name: "release fixture collision check",
+    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+    diagnostic: "release fixture collision check failed: duplicate fixture identity",
+    laterCommands: [
+      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+      "--filter @workspace/api-server run test:process-recovery",
+    ],
+  },
+  {
+    name: "release synthesis telemetry",
+    command: "--filter @workspace/api-server run test:release-synthesis-telemetry",
+    diagnostic: "release synthesis telemetry failed: expected audit event was absent",
+    laterCommands: [
+      "--filter @workspace/api-server run test:process-recovery",
+    ],
+  },
+  {
+    name: "process recovery",
+    command: "--filter @workspace/api-server run test:process-recovery",
+    diagnostic: "process recovery failed: child server did not become ready",
+    laterCommands: [],
+  },
+];
+
+const deploymentFailureScenarios: DeploymentFailureScenario[] = [
+  {
+    name: "audit schema check",
+    command: "run db:schema:check",
+    diagnostic: "audit schema check failed: expected audit_events table was missing",
+    laterCommands: [
+      "run test:benchmark-rollout",
+      "run verify:benchmark-rollout",
+      "run validate:release",
+      "store prune",
+    ],
+  },
+  {
+    name: "benchmark rollout tests",
+    command: "run test:benchmark-rollout",
+    diagnostic: "benchmark rollout tests failed: rollout fixture was incomplete",
+    laterCommands: [
+      "run verify:benchmark-rollout",
+      "run validate:release",
+      "store prune",
+    ],
+  },
+  {
+    name: "benchmark rollout verifier",
+    command: "run verify:benchmark-rollout",
+    diagnostic: "benchmark rollout verifier failed: provider-unavailable cases block deployment",
+    laterCommands: ["run validate:release", "store prune"],
+  },
+  {
+    name: "release validation",
+    command: "run validate:release",
+    diagnostic: "release validation failed: process recovery did not complete",
+    laterCommands: ["store prune"],
+  },
+];
+
+async function runReleaseWithInjectedFailure(
+  scenario: ReleaseFailureScenario,
+): Promise<{ output: string; trace: string; status: number | null }> {
+  const temporaryDirectory = await mkdtemp(
+    resolve(tmpdir(), "release-step-failure-"),
+  );
+  const tracePath = resolve(temporaryDirectory, "pnpm-trace.log");
+  const shimPath = resolve(temporaryDirectory, "pnpm");
+  const realPnpm = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+    encoding: "utf8",
+  }).stdout.trim();
+
+  await writeFile(
+    shimPath,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+if [ "$*" = "${scenario.command}" ]; then
+  echo "${scenario.diagnostic}" >&2
+  exit 23
+fi
+if [ "$*" != "run validate:release" ]; then
+  exit 0
+fi
+exec "${realPnpm}" "$@"
+`,
+    "utf8",
+  );
+  await chmod(shimPath, 0o755);
+
+  try {
+    const result = spawnSync("pnpm", ["run", "validate:release"], {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        APP_ORIGINS: "https://dashboard.example.com",
+        PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
+        RELEASE_VALIDATION_TRACE: tracePath,
+      },
+      encoding: "utf8",
+    });
+    return {
+      output: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+      trace: await readFile(tracePath, "utf8"),
+      status: result.status,
+    };
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+async function runDeploymentWithInjectedFailure(
+  scenario: DeploymentFailureScenario,
+): Promise<{ output: string; trace: string; status: number | null }> {
+  const temporaryDirectory = await mkdtemp(
+    resolve(tmpdir(), "deployment-step-failure-"),
+  );
+  const tracePath = resolve(temporaryDirectory, "pnpm-trace.log");
+  const shimPath = resolve(temporaryDirectory, "pnpm");
+  const realPnpm = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+  }).stdout.trim();
+
+  await writeFile(
+    shimPath,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+if [ "$*" = "${scenario.command}" ]; then
+  echo "${scenario.diagnostic}" >&2
+  exit 29
+fi
+if [ "$*" = "run deployment:post-build" ]; then
+  exec "${realPnpm}" "$@"
+fi
+exit 0
+`,
+    "utf8",
+  );
+  await chmod(shimPath, 0o755);
+
+  try {
+    const result = spawnSync("pnpm", ["run", "deployment:post-build"], {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        APP_ORIGINS: "https://dashboard.example.com",
+        PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
+        RELEASE_VALIDATION_TRACE: tracePath,
+      },
+      encoding: "utf8",
+    });
+    return {
+      output: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+      trace: await readFile(tracePath, "utf8"),
+      status: result.status,
+    };
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+async function runSuccessfulDeploymentFixture(): Promise<{
+  output: string;
+  trace: string;
+  status: number | null;
+  temporaryDirectory: string;
+}> {
+  const temporaryDirectory = await mkdtemp(
+    resolve(tmpdir(), "deployment-success-"),
+  );
+  const tracePath = resolve(temporaryDirectory, "pnpm-trace.log");
+  const shimPath = resolve(temporaryDirectory, "pnpm");
+  const realPnpm = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+  }).stdout.trim();
+
+  await writeFile(
+    shimPath,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+if [ "$*" = "run deployment:post-build" ]; then
+  exec "${realPnpm}" "$@"
+fi
+exit 0
+`,
+    "utf8",
+  );
+  await chmod(shimPath, 0o755);
+
+  const result = spawnSync("pnpm", ["run", "deployment:post-build"], {
+    cwd: workspaceRoot,
+    env: {
+      ...process.env,
+      APP_ORIGINS: "https://dashboard.example.com",
+      PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
+      RELEASE_VALIDATION_TRACE: tracePath,
+    },
+    encoding: "utf8",
+  });
+
+  return {
+    output: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+    trace: await readFile(tracePath, "utf8"),
+    status: result.status,
+    temporaryDirectory,
+  };
+}
+
+test("keeps release recovery validation before deployment cleanup", async () => {
+  const packageJson = JSON.parse(await readWorkspaceFile("package.json")) as {
+    scripts?: Record<string, string>;

@@ -1,0 +1,219 @@
+--- lib/db/src/application-schema-check.ts2026-08-28 03:59:22.262233438 +0000
++++ /tmp/prettier-lib_db_src_application-schema-check.ts2026-08-28 04:07:09.710004315 +0000
+@@ -55,11 +55,26 @@
+   tables: {
+     tasks: [
+       { name: "id", dataType: "text", udtName: "text", nullable: false },
+-      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
++      {
++        name: "project_id",
++        dataType: "text",
++        udtName: "text",
++        nullable: false,
++      },
+       { name: "rule_id", dataType: "text", udtName: "text", nullable: true },
+-      { name: "workflow_id", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "workflow_id",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+       { name: "title", dataType: "text", udtName: "text", nullable: false },
+-      { name: "description", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "description",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+       {
+         name: "status",
+         dataType: "USER-DEFINED",
+@@ -104,10 +119,25 @@
+       },
+       { name: "phase", dataType: "text", udtName: "text", nullable: true },
+       { name: "prompt", dataType: "text", udtName: "text", nullable: true },
+-      { name: "agent_response", dataType: "text", udtName: "text", nullable: true },
+-      { name: "verification_result", dataType: "jsonb", udtName: "jsonb", nullable: true },
++      {
++        name: "agent_response",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
++      {
++        name: "verification_result",
++        dataType: "jsonb",
++        udtName: "jsonb",
++        nullable: true,
++      },
+       // Explicitly nullable: old and generic tasks have no remediation plan.
+-      { name: "remediation_plan", dataType: "jsonb", udtName: "jsonb", nullable: true },
++      {
++        name: "remediation_plan",
++        dataType: "jsonb",
++        udtName: "jsonb",
++        nullable: true,
++      },
+       {
+         name: "created_at",
+         dataType: "timestamp without time zone",
+@@ -122,12 +152,37 @@
+         nullable: false,
+         defaultExpression: /(?:now\(\)|current_timestamp)/,
+       },
+-      { name: "completed_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+-      { name: "correlation_id", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "completed_at",
++        dataType: "timestamp without time zone",
++        udtName: "timestamp",
++        nullable: true,
++      },
++      {
++        name: "correlation_id",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+       { name: "worker_id", dataType: "text", udtName: "text", nullable: true },
+-      { name: "lease_until", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+-      { name: "last_heartbeat_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+-      { name: "idempotency_key", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "lease_until",
++        dataType: "timestamp without time zone",
++        udtName: "timestamp",
++        nullable: true,
++      },
++      {
++        name: "last_heartbeat_at",
++        dataType: "timestamp without time zone",
++        udtName: "timestamp",
++        nullable: true,
++      },
++      {
++        name: "idempotency_key",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+     ] satisfies readonly ColumnContract[],
+     task_logs: [
+       { name: "id", dataType: "text", udtName: "text", nullable: false },
+@@ -148,18 +203,32 @@
+         nullable: false,
+         defaultExpression: /(?:now\(\)|current_timestamp)/,
+       },
+-      { name: "correlation_id", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "correlation_id",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+     ] satisfies readonly ColumnContract[],
+   },
+   indexes: [
+     { name: "idx_tasks_project_id", columns: ["project_id"] },
+-    { name: "idx_tasks_project_id_created_at", columns: ["project_id", "created_at"] },
++    {
++      name: "idx_tasks_project_id_created_at",
++      columns: ["project_id", "created_at"],
++    },
+     { name: "idx_tasks_status", columns: ["status"] },
+     { name: "idx_tasks_priority", columns: ["priority"] },
+     { name: "idx_tasks_correlation_id", columns: ["correlation_id"] },
+-    { name: "idx_tasks_status_lease_until", columns: ["status", "lease_until"] },
++    {
++      name: "idx_tasks_status_lease_until",
++      columns: ["status", "lease_until"],
++    },
+     { name: "idx_task_logs_task_id", columns: ["task_id"] },
+-    { name: "idx_task_logs_task_id_timestamp", columns: ["task_id", "timestamp"] },
++    {
++      name: "idx_task_logs_task_id_timestamp",
++      columns: ["task_id", "timestamp"],
++    },
+     { name: "idx_task_logs_correlation_id", columns: ["correlation_id"] },
+   ] satisfies readonly IndexContract[],
+   foreignKeys: [
+@@ -226,7 +295,13 @@
+   expected: string,
+   actual?: string,
+ ): ApplicationSchemaIssue {
+-  return { kind, tableName, objectName, expected, ...(actual ? { actual } : {}) };
++  return {
++    kind,
++    tableName,
++    objectName,
++    expected,
++    ...(actual ? { actual } : {}),
++  };
+ }
+ 
+ export function formatApplicationSchemaIssues(
+@@ -267,7 +342,10 @@
+   const issues: ApplicationSchemaIssue[] = [];
+   const tables = new Set(snapshot.tables.map((row) => row.table_name));
+   const columns = new Map(
+-    snapshot.columns.map((row) => [`${row.table_name}.${row.column_name}`, row]),
++    snapshot.columns.map((row) => [
++      `${row.table_name}.${row.column_name}`,
++      row,
++    ]),
+   );
+ 
+   for (const tableName of REQUIRED_TABLES) {
+@@ -283,15 +361,21 @@
+       const key = `${tableName}.${expected.name}`;
+       const actual = columns.get(key);
+       if (!actual) {
+-        issues.push(issue("missing_column", tableName, expected.name, `${expected.dataType}, ${expected.nullable ? "nullable" : "NOT NULL"}`));
++        issues.push(
++          issue(
++            "missing_column",
++            tableName,
++            expected.name,
++            `${expected.dataType}, ${expected.nullable ? "nullable" : "NOT NULL"}`,
++          ),
++        );
+         continue;
+       }
+       const expectedNullable = expected.nullable ? "YES" : "NO";
+-      const defaultMatches =
+-        expected.defaultExpression
+-          ? actual.column_default !== null &&
+-            expected.defaultExpression.test(normalized(actual.column_default))
+-          : actual.column_default === null;
++      const defaultMatches = expected.defaultExpression
++        ? actual.column_default !== null &&
++          expected.defaultExpression.test(normalized(actual.column_default))
++        : actual.column_default === null;
+       if (
+         normalized(actual.data_type) !== normalized(expected.dataType) ||
+         normalized(actual.udt_name) !== normalized(expected.udtName) ||
+@@ -336,7 +420,14 @@
+   for (const expected of APPLICATION_SCHEMA_CONTRACT.indexes) {
+     const actual = indexes.get(expected.name);
+     if (!actual) {
+-      issues.push(issue("missing_index", expected.name.startsWith("idx_task_logs") ? "task_logs" : "tasks", expected.name, `index on (${expected.columns.join(", ")})`));
++      issues.push(
++        issue(
++          "missing_index",
++          expected.name.startsWith("idx_task_logs") ? "task_logs" : "tasks",
++          expected.name,
++          `index on (${expected.columns.join(", ")})`,
++        ),
++      );
+       continue;
+     }
+     // pg_indexes quotes reserved identifiers such as "timestamp". Compare
+@@ -464,4 +555,4 @@
+   }
+ }
+ 
+-export const applicationSchemaDeliveryCommand = DELIVERY_COMMAND;
+\ No newline at end of file
++export const applicationSchemaDeliveryCommand = DELIVERY_COMMAND;

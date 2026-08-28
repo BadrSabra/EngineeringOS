@@ -1,0 +1,543 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  findMissingDatabaseColumns,
+  getMissingDatabaseColumns,
+} from "./database-schema-preflight";
+
+describe("database schema preflight", () => {
+  it("reports the task remediation contract when its column is missing", () => {
+    expect(
+      findMissingDatabaseColumns([
+        { table_name: "projects", column_name: "id" },
+        { table_name: "ai_executions", column_name: "operation_id" },
+      ]),
+    ).toEqual(["tasks.remediation_plan"]);
+  });
+
+  it("passes when all critical columns are present", () => {
+    expect(
+      findMissingDatabaseColumns([
+        { table_name: "projects", column_name: "id" },
+        { table_name: "ai_executions", column_name: "operation_id" },
+        { table_name: "tasks", column_name: "remediation_plan" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("queries only the allowlisted critical schema contract", async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [
+        { table_name: "projects", column_name: "id" },
+        { table_name: "ai_executions", column_name: "operation_id" },
+        { table_name: "tasks", column_name: "remediation_plan" },
+      ],
+    });
+
+    await expect(getMissingDatabaseColumns({ query })).resolves.toEqual([]);
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0]?.[0]).toContain("remediation_plan");
+  });
+});
+--- routes task queries ---
+import { Router } from "express";
+import { db } from "@workspace/db";
+import {
+  tasksTable,
+  eventsTable,
+  taskLogsTable,
+  aiExecutionsTable,
+} from "@workspace/db";
+import {
+  CreateTaskBody,
+  UpdateTaskBody,
+  UpdateTaskParams,
+  DeleteTaskParams,
+  GetTaskParams,
+  ExecuteTaskParams,
+  RetryTaskParams,
+  RollbackTaskParams,
+  GetTaskLogsParams,
+  ListTasksQueryParams,
+  RecordTaskVerificationBody,
+  RecordTaskVerificationParams,
+} from "@workspace/api-zod";
+import { eq, and, desc, gt, asc, inArray, or, isNull } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
+import { invalidateContextCache } from "@workspace/ai-orchestrator";
+import { runTaskVerification } from "../services/task-service.js";
+import { requireAuth } from "../middlewares/requireAuth.js";
+import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+import { scheduleAiTaskExecution } from "./ai.js";
+import { parsePagination } from "../lib/pagination.js";
+import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
+import {
+  buildRuleVerificationChecks,
+  markRemediationPlanVerified,
+} from "../lib/remediation-plan.js";
+
+const router = Router();
+
+// Defense-in-depth: requireAuth is already applied globally in app.ts, but
+// adding it here too means this router is safe even if mounted without it.
+router.use(requireAuth);
+
+class TaskStateConflictError extends Error {}
+
+function serverOwnedVerificationChecks(
+  plan: typeof tasksTable.$inferSelect["remediationPlan"],
+) {
+  if (!plan) return [];
+  if (Array.isArray(plan.verificationChecks)) {
+    return plan.verificationChecks.filter(
+      (check): check is { id: string; kind: "operator_attestation"; guidance: string } =>
+        Boolean(
+          check &&
+            typeof check === "object" &&
+            typeof (check as { id?: unknown }).id === "string" &&
+            (check as { kind?: unknown }).kind === "operator_attestation" &&
+            typeof (check as { guidance?: unknown }).guidance === "string",
+        ),
+    );
+  }
+  return buildRuleVerificationChecks(
+    (plan.verificationSteps ?? []).filter(
+      (step): step is string => typeof step === "string",
+    ),
+  );
+}
+
+// List tasks
+router.get("/tasks", async (req, res) => {
+  const params = ListTasksQueryParams.parse(req.query);
+  const pagination = parsePagination(req, { defaultPageSize: 50, maxPageSize: 200 });
+  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+  if (!project) return;
+
+  const conditions: ReturnType<typeof eq>[] = [eq(tasksTable.projectId, project.id)];
+  if (params.status) conditions.push(eq(tasksTable.status, params.status));
+  if (params.priority)
+    conditions.push(eq(tasksTable.priority, params.priority));
+
+  const tasks = await db
+    .select()
+    .from(tasksTable)
+    .where(and(...conditions))
+    .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+    .limit(pagination.pageSize)
+    .offset(pagination.offset);
+  return res.json(tasks);
+});
+
+// Create task
+router.post("/tasks", async (req, res) => {
+  const body = CreateTaskBody.parse(req.body);
+  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+  if (!project) return;
+
+  const now = new Date();
+  const correlationId = randomUUID();
+  const task = await db.transaction(async (tx) => {
+    const rows = await tx.insert(tasksTable)
+      .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
+      .returning();
+    await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
+      taskId: rows[0].id, severity: "info",
+      message: `Task "${body.title}" created (${body.priority})`, correlationId,
+    });
+    await recordAuditInTransaction(tx, {
+      entityType: "task", entityId: rows[0].id, action: "created",
+      projectId: body.projectId, actor: req.userId, correlationId,
+      stateAfter: rows[0],
+    });
+    return rows;
+  });
+
+  invalidateContextCache(project.id);
+
+  return res.status(201).json(task[0]);
+});
+
+// Get task
+router.get("/tasks/:taskId", async (req, res) => {
+  const { taskId } = GetTaskParams.parse(req.params);
+  const task = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task[0]) return res.status(404).json({ error: "Task not found" });
+  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+  if (!project) return;
+  return res.json(task[0]);
+});
+
+// Update task
+router.patch("/tasks/:taskId", async (req, res) => {
+  const { taskId } = UpdateTaskParams.parse(req.params);
+  const body = UpdateTaskBody.parse(req.body);
+
+  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+  if (!before[0]) return res.status(404).json({ error: "Task not found" });
+  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+  if (!project) return;
+
+  // GAP-B3: reject edits while the AI agent is actively executing the task.
+  // Allowing a PATCH on a running task could corrupt the agent's in-flight
+  // state (e.g. overwriting the status it's about to transition away from).
+  if (before[0].status === "running") {
+    return res.status(409).json({
+      error: "task_running",
+      hint: "This task is currently being executed by the AI — wait for it to finish (or cancel it) before making changes.",
+    });
+  }
+  if (body.status && body.status !== before[0].status) {
+    const conflict = taskTransitionConflict(
+      before[0].status as TaskStatus,
+      body.status as TaskStatus,
+      "manual",
+    );
+    if (conflict) {
+      await recordAudit({
+        entityType: "task",
+        entityId: taskId,
+        action: "updated",
+        reason: `Rejected task status transition: ${conflict}`,
+        projectId: before[0].projectId,
+        actor: req.userId,
+        correlationId: randomUUID(),
+        changedFields: body,
+        stateBefore: before[0],
+      });
+      return res.status(409).json({
+        error: "invalid_task_transition",
+        reason: conflict,
+        from: before[0].status,
+        to: body.status,
+      });
+    }
+  }
+
+  const correlationId = randomUUID();
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx.update(tasksTable)
+      .set({ ...body, updatedAt: new Date() })
+      .where(and(
+        eq(tasksTable.id, taskId),
+        eq(tasksTable.status, before[0].status),
+        isNull(tasksTable.workerId),
+      )).returning();
+    if (rows[0]) {
+      const changes: string[] = [];
+      if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
+      if (body.priority && body.priority !== before[0].priority) changes.push(`priority: ${before[0].priority} → ${body.priority}`);
+      if (body.title && body.title !== before[0].title) changes.push("title updated");
+      if (changes.length) {
+        const isStatusChange = body.status !== undefined && body.status !== before[0].status;
+        await tx.insert(eventsTable).values({
+          id: randomUUID(), type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
+          projectId: before[0].projectId, taskId, severity: "info",
+          message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
+          ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+        });
+      }
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: taskId, action: "updated",
+        projectId: before[0].projectId, actor: req.userId, correlationId,
+        changedFields: body, stateBefore: before[0], stateAfter: rows[0],
+      });
+    }
+    return rows;
+  });
+  if (!updated[0]) {
+    return res.status(409).json({
+      error: "task_state_changed_concurrently",
+      reason: "The task changed while this update was being applied.",
+    });
+  }
+
+  // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
+  // and the task has a generated prompt.  Fire-and-forget — never blocks response.
+  if (body.status === "verifying" && updated[0].prompt) {
+    scheduleAiTaskExecution(taskId, req.userId);
+  }
+
+  invalidateContextCache(project.id);
+
+  return res.json(updated[0]);
+});
+
+// Delete task
+router.delete("/tasks/:taskId", async (req, res) => {
+  const { taskId } = DeleteTaskParams.parse(req.params);
+
+  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+  if (!before[0]) return res.status(404).json({ error: "Task not found" });
+  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+  if (!project) return;
+
+  const correlationId = randomUUID();
+  try {
+    await db.transaction(async (tx) => {
+    const [lockedTask] = await tx.select().from(tasksTable)
+      .where(eq(tasksTable.id, taskId)).for("update");
+    const activeExecutions = await tx.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.linkedTaskId, taskId),
+        inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+      ))
+      .limit(1);
+    if (!lockedTask || lockedTask.status === "running" || lockedTask.workerId || lockedTask.leaseUntil || activeExecutions.length > 0) {
+      throw new TaskStateConflictError("Cancel and terminalize the task execution before deleting this task.");
+    }
+    // Insert before the delete so the task FK is valid; ON DELETE SET NULL
+    // preserves this operation event after the task row is removed.
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "TaskDeleted",
+      projectId: before[0].projectId,
+      taskId,
+      severity: "info",
+      message: `Task "${before[0].title}" deleted`,
+      correlationId,
+      payload: { before: { status: before[0].status } },
+    });
+    await recordAuditInTransaction(tx, {
+      entityType: "task", entityId: taskId, action: "deleted",
+      projectId: before[0].projectId, actor: req.userId, correlationId,
+      stateBefore: before[0],
+    });
+    await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
+    });
+  } catch (error) {
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({ error: "task_active_work", reason: error.message });
+    }
+    throw error;
+  }
+
+  invalidateContextCache(project.id);
+
+--- routes ai tasks ---
+/**
+ * AI task execution routes + auto-trigger scheduler.
+ *
+ * POST /api/ai/tasks/:taskId/execute
+ * export scheduleAiTaskExecution
+ */
+import { Router } from "express";
+import { randomUUID } from "crypto";
+import { db } from "@workspace/db";
+import {
+  tasksTable,
+  taskLogsTable,
+  eventsTable,
+} from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import {
+  buildProjectContext,
+  invalidateContextCache,
+  executeTask,
+} from "@workspace/ai-orchestrator";
+import { recordAudit } from "../../lib/audit.js";
+import { logger } from "../../lib/logger.js";
+import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+import { heavyJobQueue } from "../../lib/job-queue.js";
+import {
+  requireProvider,
+  resolveProvider,
+  handleOrchestratorError,
+  runAgentWithFallback,
+} from "../../lib/ai-route-helpers.js";
+import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+import { buildRuleVerificationChecks } from "../../lib/remediation-plan.js";
+
+const router = Router();
+
+class TaskStateConflictError extends Error {}
+
+function pendingPlanVerificationSteps(
+  plan: typeof tasksTable.$inferSelect["remediationPlan"],
+) {
+  if (!plan) return [];
+  const checks = plan.verificationChecks?.length
+    ? plan.verificationChecks
+    : buildRuleVerificationChecks(plan.verificationSteps ?? []);
+  return checks.map((check) => ({
+    id: check.id,
+    name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+    kind: check.kind,
+    guidance: check.guidance,
+    passed: false,
+    output: "Not recorded — operator evidence is required",
+  }));
+}
+
+// ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
+
+router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+  const { taskId } = req.params;
+
+  const [task] = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+
+  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+  if (!ownerProject) return;
+
+  if (!["pending", "queued", "verifying"].includes(task.status)) {
+    return res
+      .status(409)
+      .json({ error: `Cannot AI-execute task with status "${task.status}"` });
+  }
+
+  const providerResolved = await requireProvider(req.userId, res, {
+    qualityProfile: "task_execution",
+  });
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
+
+  const rlExecute = await checkProjectRateLimitDb(task.projectId);
+  if (!rlExecute.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
+    });
+  }
+
+  let lifecycle: Awaited<ReturnType<typeof executeTaskLifecycle>>;
+  try {
+    lifecycle = await executeTaskLifecycle({
+      taskId,
+      userId: req.userId,
+      provider: { provider, apiKey },
+      trigger: "manual",
+      expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+      workspaceRevision: ownerProject.updatedAt?.toISOString(),
+    });
+  } catch (error) {
+    const [currentTask] = await db
+      .select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    if (
+      currentTask?.status !== task.status ||
+      (error instanceof Error && /state changed|concurrent|claim/i.test(error.message))
+    ) {
+      return res.status(409).json({
+        error: "task_state_changed_concurrently",
+        code: "TASK_STATE_CHANGED_CONCURRENTLY",
+        hint: "The task changed while this execution was finishing; refresh the task before retrying.",
+      });
+    }
+    throw error;
+  }
+  if (lifecycle.status === "conflict") {
+    return res.status(409).json({
+      error: "task_state_changed_concurrently",
+      code: "TASK_STATE_CHANGED_CONCURRENTLY",
+      hint: "The task changed while this execution was starting; refresh the task and retry if needed.",
+    });
+  }
+  if (!lifecycle.ok) {
+    const [currentTask] = await db
+      .select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    if (currentTask?.status !== task.status) {
+      return res.status(409).json({
+        error: "task_state_changed_concurrently",
+        code: "TASK_STATE_CHANGED_CONCURRENTLY",
+        hint: "The task changed while this execution was finishing; refresh the task before retrying.",
+      });
+    }
+    if (lifecycle.errorCode === "model_output_invalid") {
+      return res.status(422).json({
+        error: "model_output_invalid",
+        code: "model_output_invalid",
+        parseCode: lifecycle.parseCode,
+        hint: "The AI model returned an unexpected response — try executing the task again.",
+      });
+    }
+    if (handleOrchestratorError(lifecycle.error, res, {
+      projectId: task.projectId,
+      operation: "task-execution",
+      provider,
+    })) return;
+    if (lifecycle.errorCode === "context_build_failed") {
+      return res.status(500).json({
+        error: "Failed to build project context",
+        hint: "Try executing the task again or refresh the project graph and metrics.",
+      });
+    }
+    return res.status(500).json({
+      error: lifecycle.errorCode ?? "task_execution_failed",
+      reason: "The AI task could not be completed. Try again in a moment.",
+    });
+  }
+  return res.status(202).json(lifecycle.task);
+
+  const correlationId = randomUUID();
+  const now = new Date();
+
+  const [claimed] = await db
+    .update(tasksTable)
+    .set({ status: "running", updatedAt: now })
+    .where(
+      and(
+        eq(tasksTable.id, taskId),
+        eq(tasksTable.status, task.status),
+      ),
+    )
+    .returning();
+  if (!claimed) return res.status(409).json({ error: "Task state changed concurrently" });
+
+  await db.insert(taskLogsTable).values({
+    id: randomUUID(),
+    taskId,
+    level: "info",
+    message: "AI agent execution started",
+    metadata: { correlationId },
+    correlationId,
+  });
+
+  let projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+  try {
+    projectContext = await buildProjectContext(task.projectId, {
+      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+    });
+  } catch (err) {
+    logger.error({ err, taskId, correlationId }, "AI execution failed while building project context");
+    const [rolledBack] = await db
+      .update(tasksTable)
+      .set({ status: task.status, updatedAt: new Date() })
+      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+      .returning();
+    if (!rolledBack) {
+      logger.warn({ taskId, correlationId }, "AI execution failed, but task state changed concurrently — rollback skipped");
+    }
+    await db.insert(taskLogsTable).values({
+      id: randomUUID(),
+      taskId,
+      level: "error",
+      message: "AI execution failed while building project context",
+      metadata: { stage: "buildProjectContext", correlationId },
+      correlationId,
+    });
+    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider })) return;
+    return res.status(500).json({
+      error: "Failed to build project context",
+      hint: "Try executing the task again or refresh the project graph and metrics.",
+    });
+  }
+
+  await db.insert(taskLogsTable).values({
+    id: randomUUID(),
+    taskId,

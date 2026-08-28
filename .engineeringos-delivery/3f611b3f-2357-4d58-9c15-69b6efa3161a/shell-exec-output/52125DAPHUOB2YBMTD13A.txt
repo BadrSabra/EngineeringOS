@@ -1,0 +1,44 @@
+    429      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    431      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    450      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+    481      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    521      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/api-server run dev
+    535      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    548      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    606      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    651      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+    671      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    675      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+    708      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    727      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/api-server run dev
+    791      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/api-server run dev
+    812      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+    881      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+   1008      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+   1044      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+   1076      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/api-server run dev
+   1188      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/mockup-sandbox run dev
+   1213      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/dashboard run dev
+   1305    1284 Sl+  node            /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/artifacts/mockup-sandbox/node_modules/.bin/../vite/bin/vite.js dev
+   1556    1551 Sl+  node            /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node /home/runner/workspace/artifacts/mockup-sandbox/node_modules/.bin/../vite/bin/vite.js dev
+   1919     521 S+   sh              sh -c export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start
+   1924    1919 Sl+  MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm run build
+   1930     727 S+   sh              sh -c export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start
+   1938    1930 Sl+  MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm run build
+   1973     791 S+   sh              sh -c export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start
+   1997    1973 Sl+  MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm run build
+   2102    1305 Sl+  esbuild         /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2170    1468 Sl+  esbuild         /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2337    1076 S+   sh              sh -c export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start
+   2339    2337 Sl+  MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm run build
+   2380    1556 Sl+  esbuild         /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2399    1574 Sl+  esbuild         /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2519    1899 Sl+  esbuild         /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2529    2019 Sl+  esbuild         /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2545    2077 Sl+  esbuild         /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+   2634    2283 Sl+  esbuild         /home/runner/workspace/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+  12600      28 Ssl+ MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm --filter @workspace/api-server run dev
+  12618   12600 S+   sh              sh -c export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start
+  12662   12618 Sl+  MainThread      /nix/store/cikdc61gfwvdma6y0p9b5d5d448aqcv6-nodejs-24.12.0/bin/node /nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin/pnpm run start
+  19682      28 Ss+  bash            /nix/store/smkzrg2vvp3lng3hq7v9svfni5mnqjh2-bash-interactive-5.2p37/bin/bash -rcfile /nix/store/lqsn6gf2nv6vw3m3ynwd2p5xk158l4y2-replit-bashrc/bashrc --rcfile /nix/store/lqsn6gf2nv6vw3m3ynwd2p5xk158l4y2-replit-bashrc/bashrc -c ps -eo pid,ppid,stat,comm,args | rg 'validate:release|release|api-server|dashboard|mockup|pnpm' | head -120
+  19685   19682 S+   rg              rg validate:release|release|api-server|dashboard|mockup|pnpm

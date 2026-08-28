@@ -1,0 +1,214 @@
+import { pgTable, text, timestamp, real, pgEnum, index } from "drizzle-orm/pg-core";
+
+export const projectStatusEnum = pgEnum("project_status", [
+  "active",
+  "scanning",
+  "paused",
+  "archived",
+]);
+
+export const projectsTable = pgTable("projects", {
+  id: text("id").primaryKey(),
+  /**
+   * The Clerk user id (see requireAuth.ts) that owns this project. Every
+   * project mutation/read route scopes on this column — there is no
+   * team/org sharing yet, just single-owner access. Not nullable: every
+   * project is created through POST /projects, which always stamps
+   * ownerId from the authenticated request, never from client input.
+   */
+  ownerId: text("owner_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  rootPath: text("root_path").notNull().unique(),
+  language: text("language").notNull(),
+  framework: text("framework"),
+  status: projectStatusEnum("status").notNull().default("active"),
+  qualityScore: real("quality_score"),
+  lastScanAt: timestamp("last_scan_at"),
+  /** HTTPS remote URL for git push/pull — e.g. https://github.com/user/repo.git */
+  gitRemoteUrl: text("git_remote_url"),
+  /** Default branch to push to — e.g. main */
+  gitDefaultBranch: text("git_default_branch"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_projects_owner_id").on(t.ownerId),
+  // Covers: WHERE owner_id = ? ORDER BY created_at DESC (dashboard project list)
+  index("idx_projects_owner_id_created_at").on(t.ownerId, t.createdAt),
+  index("idx_projects_status").on(t.status),
+]);
+
+export type InsertProject = typeof projectsTable.$inferInsert;
+export type Project = typeof projectsTable.$inferSelect;
+import {
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  boolean,
+  jsonb,
+  pgEnum,
+  index,
+} from "drizzle-orm/pg-core";
+import { projectsTable } from "./projects.js";
+
+export const ruleSeverityEnum = pgEnum("rule_severity", [
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "info",
+]);
+
+/**
+ * Rule verification guidance is intentionally descriptive. It is converted
+ * into these server-owned check records when a remediation plan is built;
+ * neither the model nor an operator can supply shell text for execution.
+ */
+export type RuleVerificationCheckKind = "operator_attestation";
+
+export interface RuleVerificationCheck {
+  id: string;
+  kind: RuleVerificationCheckKind;
+  guidance: string;
+}
+
+export const rulesTable = pgTable("rules", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").references(() => projectsTable.id, { onDelete: "set null" }),
+  code: text("code").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description"),
+  severity: ruleSeverityEnum("severity").notNull().default("medium"),
+  pattern: text("pattern"),
+  fixDescription: text("fix_description"),
+  verifySteps: jsonb("verify_steps").$type<string[]>().default([]),
+  enabled: boolean("enabled").notNull().default(true),
+  hitCount: integer("hit_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_rules_project_id").on(t.projectId),
+  // Covers: WHERE project_id = ? ORDER BY hit_count DESC  (no severity filter)
+  index("idx_rules_project_id_hit_count").on(t.projectId, t.hitCount),
+  /**
+   * DB-18: Covers the filtered list query in rules.ts:
+   *   WHERE project_id = ? AND severity = ? ORDER BY hit_count DESC
+   * The three-column composite lets PostgreSQL index-scan the (project, severity)
+   * prefix and then return rows already ordered by hit_count — no post-sort needed.
+   *
+   * Note: global rules (project_id IS NULL) also use this query shape when a
+   * severity filter is provided. PostgreSQL IS-NULL predicates can use btree
+   * indexes, so this index covers that path too (NULL is a first-class btree value).
+   */
+  index("idx_rules_project_id_severity_hit_count").on(
+    t.projectId,
+    t.severity,
+    t.hitCount,
+  ),
+  index("idx_rules_severity").on(t.severity),
+  index("idx_rules_enabled").on(t.enabled),
+]);
+
+export type InsertRule = typeof rulesTable.$inferInsert;
+export type Rule = typeof rulesTable.$inferSelect;
+import {
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  jsonb,
+  pgEnum,
+  index,
+} from "drizzle-orm/pg-core";
+import { projectsTable } from "./projects.js";
+
+/**
+ * DB-09: All status columns in this file use pgEnum, which PostgreSQL enforces
+ * at the DB level. Inserting a value outside the declared set raises a
+ * "invalid input value for enum" error before the row is written. Any new
+ * status value requires an explicit schema change (enum alteration + push).
+ */
+export const workflowStatusEnum = pgEnum("workflow_status", [
+  "idle",
+  "running",
+  "completed",
+  "failed",
+  "stopped",
+]);
+
+export const workflowsTable = pgTable("workflows", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projectsTable.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: workflowStatusEnum("status").notNull().default("idle"),
+  /**
+   * DB-15: notNull + default([]) — the phases array is always present even
+   * when empty; NULL would indicate corrupt/incomplete data.
+   */
+  phases: jsonb("phases")
+    .$type<Array<{ name: string; steps: string[]; condition?: string }>>()
+    .notNull()
+    .default([]),
+  currentPhase: text("current_phase"),
+  executionCount: integer("execution_count").notNull().default(0),
+  lastExecutedAt: timestamp("last_executed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  // Covers: WHERE project_id = ? ORDER BY created_at DESC
+  index("idx_workflows_project_id_created_at").on(t.projectId, t.createdAt),
+  index("idx_workflows_status").on(t.status),
+]);
+
+export const workflowExecutionsTable = pgTable("workflow_executions", {
+  id: text("id").primaryKey(),
+  workflowId: text("workflow_id")
+    .notNull()
+    .references(() => workflowsTable.id, { onDelete: "cascade" }),
+  status: workflowStatusEnum("status").notNull().default("running"),
+  currentPhase: text("current_phase"),
+  /**
+   * DB-15: notNull + default([]) — always an array, never NULL; NULL would
+   * mean "unknown phases completed" which is different from "none completed".
+   */
+  completedPhases: jsonb("completed_phases").$type<string[]>().notNull().default([]),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  errorMessage: text("error_message"),
+}, (t) => [
+  // Covers: WHERE workflow_id = ? (fetch all executions for a workflow)
+  index("idx_wf_executions_workflow_id").on(t.workflowId),
+  // Covers: WHERE workflow_id = ? ORDER BY started_at DESC (latest execution lookup)
+  index("idx_wf_executions_workflow_id_started_at").on(t.workflowId, t.startedAt),
+  // Covers: WHERE status = ? (e.g. find all running executions for reconciliation)
+  index("idx_wf_executions_status").on(t.status),
+  // Covers: WHERE workflow_id = ? AND status = ? (start/stop/retry guards)
+  index("idx_wf_executions_workflow_id_status").on(t.workflowId, t.status),
+]);
+
+export type InsertWorkflow = typeof workflowsTable.$inferInsert;
+export type Workflow = typeof workflowsTable.$inferSelect;
+export type WorkflowExecution = typeof workflowExecutionsTable.$inferSelect;
+/**
+ * Durable outbox for audit rows whose initial write failed.
+ *
+ * This is intentionally separate from audit_logs: the audit write can be
+ * retried without requiring the destination table write to have succeeded.
+ */
+import { pgTable, integer, jsonb, timestamp, index, text } from "drizzle-orm/pg-core";
+
+export const pendingAuditLogsTable = pgTable("pending_audit_logs", {
+  id: text("id").primaryKey(),
+  row: jsonb("row").$type<Record<string, unknown>>().notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_pending_audit_logs_next_attempt_at").on(t.nextAttemptAt),
+]);
+
+export type PendingAuditLog = typeof pendingAuditLogsTable.$inferSelect;

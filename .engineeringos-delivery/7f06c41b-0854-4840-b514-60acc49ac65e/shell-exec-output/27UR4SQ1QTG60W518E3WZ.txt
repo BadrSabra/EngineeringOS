@@ -1,0 +1,215 @@
+# Task #2: Prevent schema drift failures
+
+# Prevent Schema Drift Failures
+
+## What & Why
+Make PostgreSQL schema delivery reviewable, repeatable, and fail closed for the task/remediation contract. The TypeScript and API layers already use nullable `tasks.remediation_plan` and related task-log fields, but the project currently relies on imperative Drizzle push and a preflight that checks only a few column names; a release can therefore reach startup with a missing or incompatible application schema.
+
+## Done looks like
+- The committed task and task-log schema declarations are checked against the runtime PostgreSQL contract, including required columns, types, nullability, defaults, foreign keys where applicable, and required indexes; `tasks.remediation_plan` is explicitly covered as nullable JSONB.
+- A narrow, reviewable schema-delivery path exists for both fresh databases and upgrades, including an upgrade fixture with existing tasks whose `remediation_plan` is NULL. Existing rows remain intact, and populated remediation plans round-trip with evidence, verification steps, source, and status unchanged.
+- Reapplying schema delivery is safe and idempotent: it does not duplicate objects, rewrite task data, or silently omit required columns. If Drizzle push remains supported, its ownership, environment, and repeatability are explicit.
+- Startup performs a read-only, fail-closed application-schema preflight before `app.listen`; missing or incompatible task/task-log contract details identify the safe delivery command and prevent public traffic. DDL remains outside `startup-migrations.ts`, and the audit-outbox check remains a separate check.
+- Task GET/list/execute and verification flows, task-log REST/SSE, discovery and scan remediation-plan persistence, dashboard task summaries, and owner-scoped access continue to work for both NULL and populated plans.
+- CI and release ordering apply or verify the schema before release validation and before server traffic; failures are nonzero and retain sanitized, actionable diagnostics without being confused with OpenAPI/codegen drift.
+
+## Out of scope
+- Redesigning remediation-plan semantics, task verification behavior, discovery/scan behavior, task-log behavior, or dashboard UX.
+- Rebuilding browser recovery, controlled journeys, quality-baseline governance, aggregate readiness, or autonomous-loop integration.
+- Replacing PostgreSQL, Drizzle, Clerk, or the existing application architecture.
+- Client fallbacks, weakened authorization, allowing traffic against a partially validated database, or DDL inside startup migrations.
+- Conflating database schema drift with generated API codegen drift; existing codegen checks remain a separate release concern.
+
+## Steps
+1. **Inventory the authoritative contract** — Compare the Drizzle task and task-log declarations with the database package exports, existing audit-schema checker, API query/write paths, discovery and scan persistence, and dashboard consumers. Define the smallest release-critical contract and distinguish nullable fields such as `remediation_plan` from non-null fields, defaults, indexes, and relationships.
+2. **Add reviewable schema delivery** — Introduce the narrowest committed migration or equivalent controlled delivery artifact supported by the current Drizzle setup, covering the complete required task/task-log contract on a fresh PostgreSQL database and an existing database missing `tasks.remediation_plan`. Keep data preservation explicit, avoid DDL in startup migrations, and document/test the supported role of any remaining `drizzle-kit push` command.
+3. **Build a complete read-only preflight** — Extend the reusable database schema check so it validates the selected task/task-log contract rather than only table/column presence, with actionable typed diagnostics for missing tables, columns, incompatible nullability/defaults/types, indexes, or relationships. Run it before the listener opens, preserve the separate pending-audit outbox check, and ensure connection or contract failures terminate startup with a nonzero result.
+4. **Add fresh, upgrade, and repeatability fixtures** — Exercise delivery against a clean database and an upgrade fixture containing existing tasks with NULL and populated remediation plans. Apply the delivery repeatedly, assert object definitions and row contents remain stable, and retain bounded sanitized evidence for both successful and failing cases.
+5. **Regress application behavior across plan states** — Extend focused API, discovery/scan, task-log, and dashboard tests so NULL plans remain valid while populated plans preserve all structured fields through task reads, lists, execution/verification, persistence, REST/SSE logs, summaries, and owner-scoped authorization. Assert unrelated task data is unchanged by schema delivery.
+6. **Wire release ordering and verification** — Replace the release-critical reliance on the audit-only schema command with the complete schema delivery/preflight sequence in package scripts and CI, before release validation and any server process or traffic. Add ordering/failure assertions, run the focused checks in the normal validation path, and retain actionable release diagnostics while keeping codegen validation independent.
+
+## Relevant files
+- `lib/db/src/schema/tasks.ts`
+- `lib/db/src/schema/task_logs.ts`
+- `lib/db/src/schema/index.ts`
+- `lib/db/src/index.ts`
+- `lib/db/drizzle.config.ts`
+- `lib/db/package.json`
+- `lib/db/src/check-audit-schema.ts`
+- `lib/db/src/audit-schema-check.ts`
+- `lib/db/src/audit-schema-check.test.ts`
+- `artifacts/api-server/src/lib/database-schema-preflight.ts`
+- `artifacts/api-server/src/lib/database-schema-preflight.test.ts`
+- `artifacts/api-server/src/lib/startup-migrations.ts`
+- `artifacts/api-server/src/lib/startup-migrations.test.ts`
+- `artifacts/api-server/src/index.ts`
+- `artifacts/api-server/src/routes/tasks.ts`
+- `artifacts/api-server/src/routes/tasks.test.ts`
+- `artifacts/api-server/src/routes/dashboard.ts`
+- `artifacts/api-server/src/routes/dashboard.test.ts`
+- `artifacts/api-server/src/lib/scan-runner.ts`
+- `artifacts/api-server/src/routes/discovery.ts`
+- `artifacts/dashboard/src/pages/Tasks.tsx`
+- `package.json`
+- `.github/workflows/ci.yml`
+- `scripts/release-configuration.test.ts`
+
+
+--- root package ---
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "codegen": "pnpm --filter @workspace/api-spec run codegen",
+    "codegen:check": "pnpm --filter @workspace/scripts run check-codegen-drift",
+    "db:schema:check": "pnpm --filter @workspace/db run check-audit-schema",
+    "verify:benchmark-rollout": "node scripts/verify-benchmark-rollout.mjs",
+    "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
+    "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",
+    "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
+    "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
+    "test:dashboard-contract-trigger": "node --test scripts/dashboard-contract-trigger.test.mjs",
+    "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
+    "validate:app-origins": "NODE_ENV=production node scripts/validate-app-origins.mjs",
+    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+    "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+    "validate:live-provider-review": "pnpm --filter @workspace/api-server run validate:live-provider-review",
+    "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+    "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
+    "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
+    "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+    "truth:baseline:check": "pnpm --filter @workspace/scripts run generate-truth-flow",
+    "truth:baseline:materialize": "pnpm --filter @workspace/scripts run generate-truth-flow -- --write",
+    "truth:validate": "pnpm --filter @workspace/scripts run validate-truth-flow",
+    "benchmark:baseline:check": "pnpm --filter @workspace/scripts run validate-benchmark-baseline",
+    "build": "pnpm run codegen && pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "test": "pnpm -r --if-present run test"
+  },
+  "private": true,
+  "dependencies": {
+    "@replit/connectors-sdk": "^0.4.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.4",
+    "typescript": "~5.9.3"
+  }
+}
+
+--- workflow files ---
+artifacts/api-server/src/lib/advisory-lock.ts
+artifacts/api-server/src/lib/ai-analysis-tools.ts
+artifacts/api-server/src/lib/ai-change-guard.ts
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+artifacts/api-server/src/lib/ai-execution-state.test.ts
+artifacts/api-server/src/lib/ai-execution-state.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+artifacts/api-server/src/lib/ai-repair-validation.test.ts
+artifacts/api-server/src/lib/ai-repair-validation.ts
+artifacts/api-server/src/lib/ai-route-helpers.test.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+artifacts/api-server/src/lib/approve-code-agent-baseline.ts
+artifacts/api-server/src/lib/archive-safety.test.ts
+artifacts/api-server/src/lib/archive-safety.ts
+artifacts/api-server/src/lib/audit.integration.test.ts
+artifacts/api-server/src/lib/audit.test.ts
+artifacts/api-server/src/lib/audit.ts
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts
+artifacts/api-server/src/lib/benchmark-release-gate.ts
+artifacts/api-server/src/lib/browser-preview-verification.test.ts
+artifacts/api-server/src/lib/browser-preview-verification.ts
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts
+artifacts/api-server/src/lib/condition-evaluator.ts
+artifacts/api-server/src/lib/credentials-crypto.ts
+artifacts/api-server/src/lib/database-schema-preflight.test.ts
+artifacts/api-server/src/lib/database-schema-preflight.ts
+artifacts/api-server/src/lib/db-rate-limiter.ts
+artifacts/api-server/src/lib/delivery-workspace.test.ts
+artifacts/api-server/src/lib/delivery-workspace.ts
+artifacts/api-server/src/lib/discovery-adapters.test.ts
+artifacts/api-server/src/lib/discovery-adapters.ts
+artifacts/api-server/src/lib/discovery-runner.test.ts
+artifacts/api-server/src/lib/discovery-runner.ts
+artifacts/api-server/src/lib/github-connector.test.ts
+artifacts/api-server/src/lib/github-connector.ts
+artifacts/api-server/src/lib/.gitkeep
+artifacts/api-server/src/lib/graph-provenance.ts
+artifacts/api-server/src/lib/job-concurrency.test.ts
+artifacts/api-server/src/lib/job-idempotency.test.ts
+artifacts/api-server/src/lib/job-lease.test.ts
+artifacts/api-server/src/lib/job-lease.ts
+artifacts/api-server/src/lib/job-queue.test.ts
+artifacts/api-server/src/lib/job-queue.ts
+artifacts/api-server/src/lib/job-reconciliation.test.ts
+artifacts/api-server/src/lib/job-reconciliation.ts
+artifacts/api-server/src/lib/job-recovery.test.ts
+artifacts/api-server/src/lib/logger.ts
+artifacts/api-server/src/lib/operational-counters.ts
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts
+artifacts/api-server/src/lib/operational-readiness-gate.ts
+artifacts/api-server/src/lib/operation-evidence.test.ts
+artifacts/api-server/src/lib/operation-evidence.ts
+artifacts/api-server/src/lib/pagination.ts
+artifacts/api-server/src/lib/path-validation.test.ts
+artifacts/api-server/src/lib/path-validation.ts
+artifacts/api-server/src/lib/plugin-runtime.test.ts
+artifacts/api-server/src/lib/plugin-runtime.ts
+artifacts/api-server/src/lib/project-error.test.ts
+artifacts/api-server/src/lib/project-materialization.test.ts
+artifacts/api-server/src/lib/project-materialization.ts
+artifacts/api-server/src/lib/project-root.test.ts
+artifacts/api-server/src/lib/project-root.ts
+artifacts/api-server/src/lib/remediation-plan.test.ts
+artifacts/api-server/src/lib/remediation-plan.ts
+artifacts/api-server/src/lib/rootpath-validator.ts
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts
+artifacts/api-server/src/lib/scan-runner.ts
+artifacts/api-server/src/lib/startup-migrations.test.ts
+artifacts/api-server/src/lib/startup-migrations.ts
+artifacts/api-server/src/lib/task-execution-retention.test.ts
+artifacts/api-server/src/lib/task-execution-retention.ts
+artifacts/api-server/src/lib/task-execution-service.test.ts
+artifacts/api-server/src/lib/task-execution-service.ts
+artifacts/api-server/src/lib/task-state.ts
+artifacts/api-server/src/lib/upload-store.test.ts
+artifacts/api-server/src/lib/upload-store.ts
+artifacts/api-server/src/lib/workflow-phase-execution.ts
+.github/dashboard-contract-trigger-policy.json
+.github/workflows/ci.yml
+scripts/check-codegen-drift.ts
+scripts/dashboard-contract-trigger.test.mjs
+scripts/dashboard-journey-contract.test.mjs
+scripts/generate-truth-flow.ts
+scripts/mission-correlation-report.mjs
+scripts/mission-correlation-report.test.mjs
+scripts/node_modules/.bin/js-yaml
+scripts/node_modules/.bin/tsx
+scripts/package.json
+scripts/parse-check-spec.ts
+scripts/patch-generated-zod.test.ts
+scripts/patch-generated-zod.ts
+scripts/post-merge.sh
+scripts/release-configuration.test.ts
+scripts/release-port-cleanup.test.mjs
+scripts/run-dashboard-journey.mjs
+scripts/src/hello.ts
+scripts/trigger-scan.mts
+scripts/tsconfig.json
+scripts/validate-app-origins.mjs
+scripts/validate-benchmark-baseline.ts
+scripts/validate-dashboard-client-contract.mjs
+scripts/validate-github-workflows.mjs
+scripts/validate-github-workflows.test.mjs
+scripts/validate-truth-flow.ts
+scripts/verify-benchmark-rollout.mjs
+scripts/verify-benchmark-rollout.test.mjs
+scripts/verify-setup.sh

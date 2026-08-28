@@ -18,3 +18,18 @@ export {
   AuditSchemaError,
   assertAuditOutboxSchema,
 } from "./audit-schema-check.js";
+export {
+  APPLICATION_SCHEMA_CONTRACT,
+  ApplicationSchemaError,
+  applicationSchemaDeliveryCommand,
+  assertApplicationSchema,
+  assertApplicationSchemaWithClient,
+  findApplicationSchemaIssues,
+  formatApplicationSchemaIssues,
+  readApplicationSchemaSnapshot,
+} from "./application-schema-check.js";
+export type {
+  ApplicationSchemaIssue,
+  ApplicationSchemaIssueKind,
+  ApplicationSchemaSnapshot,
+} from "./application-schema-check.js";

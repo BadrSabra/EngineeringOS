@@ -1,0 +1,221 @@
+import * as schema from "./schema/index.js";
+export declare const pool: import("pg").Pool;
+export declare const db: import("drizzle-orm/node-postgres").NodePgDatabase<typeof schema> & {
+    $client: import("pg").Pool;
+};
+export * from "./schema/index.js";
+export { AuditSchemaError, assertAuditOutboxSchema, } from "./audit-schema-check.js";
+export { APPLICATION_SCHEMA_CONTRACT, ApplicationSchemaError, applicationSchemaDeliveryCommand, assertApplicationSchema, assertApplicationSchemaWithClient, findApplicationSchemaIssues, formatApplicationSchemaIssues, readApplicationSchemaSnapshot, } from "./application-schema-check.js";
+export type { ApplicationSchemaIssue, ApplicationSchemaSnapshot, } from "./application-schema-check.js";
+//# sourceMappingURL=index.d.ts.mapimport {
+  assertApplicationSchemaWithClient,
+  findApplicationSchemaIssues,
+  readApplicationSchemaSnapshot,
+} from "@workspace/db";
+import type {
+  ApplicationSchemaIssue,
+  ApplicationSchemaSnapshot,
+} from "@workspace/db";
+
+export type ApplicationSchemaQuery = Parameters<
+  typeof readApplicationSchemaSnapshot
+>[0];
+
+export {
+  type ApplicationSchemaIssue,
+  type ApplicationSchemaSnapshot,
+  findApplicationSchemaIssues,
+};
+
+/**
+ * Kept as a named API-server boundary so startup and focused API tests use
+ * the same read-only contract as the database package.
+ */
+export async function assertDatabaseApplicationSchema(
+  queryable: ApplicationSchemaQuery,
+): Promise<void> {
+  await assertApplicationSchemaWithClient(queryable);
+}
+
+export async function getApplicationSchemaSnapshot(
+  queryable: ApplicationSchemaQuery,
+): Promise<ApplicationSchemaSnapshot> {
+  return readApplicationSchemaSnapshot(queryable);
+}
+
+/**
+ * Legacy narrow helper retained for callers that have not moved to the
+ * complete application contract yet. Startup intentionally does not use it.
+ */
+export const REQUIRED_DATABASE_COLUMNS = [
+  { tableName: "projects", columnName: "id" },
+  { tableName: "ai_executions", columnName: "operation_id" },
+  { tableName: "tasks", columnName: "remediation_plan" },
+] as const;
+
+export function findMissingDatabaseColumns(
+  rows: ReadonlyArray<{ table_name?: string; column_name?: string }>,
+): string[] {
+  const found = new Set(
+    rows.map((row) => `${row.table_name}.${row.column_name}`),
+  );
+  return REQUIRED_DATABASE_COLUMNS
+    .map(({ tableName, columnName }) => `${tableName}.${columnName}`)
+    .filter((required) => !found.has(required));
+}
+
+type LegacyDatabaseSchemaQuery = {
+  query: (sql: string) => Promise<{
+    rows: Array<{ table_name?: string; column_name?: string }>;
+  }>;
+};
+
+export async function getMissingDatabaseColumns(
+  queryable: LegacyDatabaseSchemaQuery,
+): Promise<string[]> {
+  const result = await queryable.query(`
+    SELECT table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND (
+        (table_name = 'projects' AND column_name = 'id')
+        OR (table_name = 'ai_executions' AND column_name = 'operation_id')
+        OR (table_name = 'tasks' AND column_name = 'remediation_plan')
+      )
+  `);
+  return findMissingDatabaseColumns(result.rows);
+}import app from "./app";
+import type { Server } from "node:http";
+import { logger } from "./lib/logger";
+import { getPort } from "./config";
+import {
+  reconcileStuckJobs,
+  startDurableJobDispatcher,
+  startStaleJobSweep,
+} from "./lib/job-reconciliation";
+import {
+  reportDeadRootPaths,
+  ensureEncryptionKey,
+  scrubHistoricalValidationDetails,
+  pruneHistoricalAiDiagnostics,
+} from "./lib/startup-migrations";
+import { heavyJobQueue } from "./lib/job-queue";
+import {
+  ApplicationSchemaError,
+  assertAuditOutboxSchema,
+  pool,
+} from "@workspace/db";
+import {
+  setInvalidationNotifier,
+  startContextInvalidationChannel,
+  validateAiProvidersAtStartup,
+  startMemorySweep,
+} from "@workspace/ai-orchestrator";
+import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
+import { drainPendingAudits, loadPendingAudits } from "./lib/audit";
+import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
+import { assertDatabaseApplicationSchema } from "./lib/database-schema-preflight";
+
+/**
+ * DB-07: Bootstrap guard — verify the release-critical task contract before
+ * accepting traffic. This is read-only; all DDL belongs to the explicit
+ * schema:apply delivery command.
+ */
+async function assertDatabaseSchema(): Promise<void> {
+  try {
+    await assertDatabaseApplicationSchema(pool);
+  } catch (err) {
+    const schemaIssues =
+      err instanceof ApplicationSchemaError ? err.issues : undefined;
+    logger.error(
+      {
+        schemaIssues,
+        fix: "pnpm --filter @workspace/db run schema:apply",
+      },
+      "DATABASE SCHEMA CHECK FAILED — application contract is unavailable or incompatible; no traffic will be accepted",
+    );
+    process.exit(1);
+  }
+}
+
+const port = getPort();
+let httpServer: Server | undefined;
+let staleJobSweep: NodeJS.Timeout | undefined;
+let durableJobDispatcher: NodeJS.Timeout | undefined;
+let memorySweep: { stop: () => void } | undefined;
+let shuttingDown = false;
+
+// ── PR-D3: Cross-process AI context cache invalidation ────────────────────────
+// Wire a pg_notify call into every invalidateContextCache() invocation so
+// sibling processes immediately evict their in-process copy instead of
+// waiting up to 30 s for the TTL to expire.
+setInvalidationNotifier((projectId: string) => {
+  pool
+    .query("SELECT pg_notify('ctx_invalid', $1)", [projectId])
+    .catch((err: unknown) =>
+      logger.warn(
+        { err, projectId },
+        "ctx-cache: pg_notify failed — degrading to TTL-only invalidation",
+      ),
+    );
+});
+
+// Start the dedicated LISTEN client that evicts local cache entries whenever
+// another process fires pg_notify('ctx_invalid', projectId).
+const { stop: stopCacheChannel } = startContextInvalidationChannel(pool);
+
+// Graceful shutdown: release the LISTEN client so the PG connection is closed
+// cleanly and the pool does not hang.
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info({ signal }, "Graceful shutdown started");
+  stopCacheChannel();
+  stopCatalogRefresh();
+  if (staleJobSweep) clearInterval(staleJobSweep);
+  if (durableJobDispatcher) clearInterval(durableJobDispatcher);
+  memorySweep?.stop();
+  await new Promise<void>((resolve) => {
+    if (!httpServer) return resolve();
+    httpServer.close(() => resolve());
+  });
+  await pool.end();
+  logger.info("Graceful shutdown complete");
+}
+
+process.once("SIGTERM", () => {
+  void shutdown("SIGTERM").finally(() => process.exit(0));
+});
+process.once("SIGINT", () => {
+  void shutdown("SIGINT").finally(() => process.exit(0));
+});
+
+// DB-07: Fail fast if the Drizzle schema has not been pushed yet. This must
+// run before any other startup step that touches the database.
+await assertDatabaseSchema();
+try {
+  await assertAuditOutboxSchema();
+} catch (err) {
+  logger.error(
+    { fix: "pnpm --filter @workspace/db run schema:apply" },
+    "AUDIT OUTBOX SCHEMA CHECK FAILED — apply the Drizzle schema before starting the API",
+  );
+  process.exit(1);
+}
+
+// Start the background free-model catalog refresh scheduler.  Runs every 5
+// minutes so the resolver always has a fresh live list of free-tier models —
+// even when the server is idle between user sessions.  The first refresh
+// fires immediately (before traffic arrives) so the catalog is pre-warmed.
+const { stop: stopCatalogRefresh } = startCatalogRefreshScheduler();
+
+// PR-006: validate AI providers before accepting traffic — checks key presence
+// and refreshes the dynamic OpenRouter model catalog so the resolver knows which
+// models are currently available. Never throws; logs actionable warnings.
+validateAiProvidersAtStartup().catch((err: unknown) => {
+  logger.warn({ err }, "AI provider startup validation failed — continuing without AI validation");
+});
+
+// Ensure the AI credential encryption key is available before accepting traffic.
+// Auto-generates and persists one if AI_CREDENTIALS_ENCRYPTION_KEY is not set.
+await ensureEncryptionKey();

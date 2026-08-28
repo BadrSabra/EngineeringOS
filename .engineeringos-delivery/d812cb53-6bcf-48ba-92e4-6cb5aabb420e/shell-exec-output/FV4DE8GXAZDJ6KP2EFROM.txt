@@ -1,0 +1,569 @@
+--- artifacts/api-server/src/index.ts2026-08-28 03:59:22.431021177 +0000
++++ /tmp/prettier-artifacts_api-server_src_index.ts2026-08-28 04:07:08.574004315 +0000
+@@ -112,7 +112,9 @@
+   await assertAuditOutboxSchema();
+ } catch (err) {
+   const auditIssue =
+-    err instanceof AuditSchemaError ? err.message : "schema contract unavailable";
++    err instanceof AuditSchemaError
++      ? err.message
++      : "schema contract unavailable";
+   logger.error(
+     {
+       auditIssue,
+@@ -133,7 +135,10 @@
+ // and refreshes the dynamic OpenRouter model catalog so the resolver knows which
+ // models are currently available. Never throws; logs actionable warnings.
+ validateAiProvidersAtStartup().catch((err: unknown) => {
+-  logger.warn({ err }, "AI provider startup validation failed — continuing without AI validation");
++  logger.warn(
++    { err },
++    "AI provider startup validation failed — continuing without AI validation",
++  );
+ });
+ 
+ // Ensure the AI credential encryption key is available before accepting traffic.
+--- artifacts/api-server/src/lib/database-schema-preflight.ts2026-08-28 03:53:51.895572812 +0000
++++ /tmp/prettier-artifacts_api-server_src_lib_database-schema-preflight.ts2026-08-28 04:07:09.122004315 +0000
+@@ -50,9 +50,9 @@
+   const found = new Set(
+     rows.map((row) => `${row.table_name}.${row.column_name}`),
+   );
+-  return REQUIRED_DATABASE_COLUMNS
+-    .map(({ tableName, columnName }) => `${tableName}.${columnName}`)
+-    .filter((required) => !found.has(required));
++  return REQUIRED_DATABASE_COLUMNS.map(
++    ({ tableName, columnName }) => `${tableName}.${columnName}`,
++  ).filter((required) => !found.has(required));
+ }
+ 
+ type LegacyDatabaseSchemaQuery = {
+@@ -75,4 +75,4 @@
+       )
+   `);
+   return findMissingDatabaseColumns(result.rows);
+-}
+\ No newline at end of file
++}
+--- lib/db/src/application-schema-check.ts2026-08-28 03:59:22.262233438 +0000
++++ /tmp/prettier-lib_db_src_application-schema-check.ts2026-08-28 04:07:09.710004315 +0000
+@@ -55,11 +55,26 @@
+   tables: {
+     tasks: [
+       { name: "id", dataType: "text", udtName: "text", nullable: false },
+-      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
++      {
++        name: "project_id",
++        dataType: "text",
++        udtName: "text",
++        nullable: false,
++      },
+       { name: "rule_id", dataType: "text", udtName: "text", nullable: true },
+-      { name: "workflow_id", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "workflow_id",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+       { name: "title", dataType: "text", udtName: "text", nullable: false },
+-      { name: "description", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "description",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+       {
+         name: "status",
+         dataType: "USER-DEFINED",
+@@ -104,10 +119,25 @@
+       },
+       { name: "phase", dataType: "text", udtName: "text", nullable: true },
+       { name: "prompt", dataType: "text", udtName: "text", nullable: true },
+-      { name: "agent_response", dataType: "text", udtName: "text", nullable: true },
+-      { name: "verification_result", dataType: "jsonb", udtName: "jsonb", nullable: true },
++      {
++        name: "agent_response",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
++      {
++        name: "verification_result",
++        dataType: "jsonb",
++        udtName: "jsonb",
++        nullable: true,
++      },
+       // Explicitly nullable: old and generic tasks have no remediation plan.
+-      { name: "remediation_plan", dataType: "jsonb", udtName: "jsonb", nullable: true },
++      {
++        name: "remediation_plan",
++        dataType: "jsonb",
++        udtName: "jsonb",
++        nullable: true,
++      },
+       {
+         name: "created_at",
+         dataType: "timestamp without time zone",
+@@ -122,12 +152,37 @@
+         nullable: false,
+         defaultExpression: /(?:now\(\)|current_timestamp)/,
+       },
+-      { name: "completed_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+-      { name: "correlation_id", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "completed_at",
++        dataType: "timestamp without time zone",
++        udtName: "timestamp",
++        nullable: true,
++      },
++      {
++        name: "correlation_id",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+       { name: "worker_id", dataType: "text", udtName: "text", nullable: true },
+-      { name: "lease_until", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+-      { name: "last_heartbeat_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+-      { name: "idempotency_key", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "lease_until",
++        dataType: "timestamp without time zone",
++        udtName: "timestamp",
++        nullable: true,
++      },
++      {
++        name: "last_heartbeat_at",
++        dataType: "timestamp without time zone",
++        udtName: "timestamp",
++        nullable: true,
++      },
++      {
++        name: "idempotency_key",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+     ] satisfies readonly ColumnContract[],
+     task_logs: [
+       { name: "id", dataType: "text", udtName: "text", nullable: false },
+@@ -148,18 +203,32 @@
+         nullable: false,
+         defaultExpression: /(?:now\(\)|current_timestamp)/,
+       },
+-      { name: "correlation_id", dataType: "text", udtName: "text", nullable: true },
++      {
++        name: "correlation_id",
++        dataType: "text",
++        udtName: "text",
++        nullable: true,
++      },
+     ] satisfies readonly ColumnContract[],
+   },
+   indexes: [
+     { name: "idx_tasks_project_id", columns: ["project_id"] },
+-    { name: "idx_tasks_project_id_created_at", columns: ["project_id", "created_at"] },
++    {
++      name: "idx_tasks_project_id_created_at",
++      columns: ["project_id", "created_at"],
++    },
+     { name: "idx_tasks_status", columns: ["status"] },
+     { name: "idx_tasks_priority", columns: ["priority"] },
+     { name: "idx_tasks_correlation_id", columns: ["correlation_id"] },
+-    { name: "idx_tasks_status_lease_until", columns: ["status", "lease_until"] },
++    {
++      name: "idx_tasks_status_lease_until",
++      columns: ["status", "lease_until"],
++    },
+     { name: "idx_task_logs_task_id", columns: ["task_id"] },
+-    { name: "idx_task_logs_task_id_timestamp", columns: ["task_id", "timestamp"] },
++    {
++      name: "idx_task_logs_task_id_timestamp",
++      columns: ["task_id", "timestamp"],
++    },
+     { name: "idx_task_logs_correlation_id", columns: ["correlation_id"] },
+   ] satisfies readonly IndexContract[],
+   foreignKeys: [
+@@ -226,7 +295,13 @@
+   expected: string,
+   actual?: string,
+ ): ApplicationSchemaIssue {
+-  return { kind, tableName, objectName, expected, ...(actual ? { actual } : {}) };
++  return {
++    kind,
++    tableName,
++    objectName,
++    expected,
++    ...(actual ? { actual } : {}),
++  };
+ }
+ 
+ export function formatApplicationSchemaIssues(
+@@ -267,7 +342,10 @@
+   const issues: ApplicationSchemaIssue[] = [];
+   const tables = new Set(snapshot.tables.map((row) => row.table_name));
+   const columns = new Map(
+-    snapshot.columns.map((row) => [`${row.table_name}.${row.column_name}`, row]),
++    snapshot.columns.map((row) => [
++      `${row.table_name}.${row.column_name}`,
++      row,
++    ]),
+   );
+ 
+   for (const tableName of REQUIRED_TABLES) {
+@@ -283,15 +361,21 @@
+       const key = `${tableName}.${expected.name}`;
+       const actual = columns.get(key);
+       if (!actual) {
+-        issues.push(issue("missing_column", tableName, expected.name, `${expected.dataType}, ${expected.nullable ? "nullable" : "NOT NULL"}`));
++        issues.push(
++          issue(
++            "missing_column",
++            tableName,
++            expected.name,
++            `${expected.dataType}, ${expected.nullable ? "nullable" : "NOT NULL"}`,
++          ),
++        );
+         continue;
+       }
+       const expectedNullable = expected.nullable ? "YES" : "NO";
+-      const defaultMatches =
+-        expected.defaultExpression
+-          ? actual.column_default !== null &&
+-            expected.defaultExpression.test(normalized(actual.column_default))
+-          : actual.column_default === null;
++      const defaultMatches = expected.defaultExpression
++        ? actual.column_default !== null &&
++          expected.defaultExpression.test(normalized(actual.column_default))
++        : actual.column_default === null;
+       if (
+         normalized(actual.data_type) !== normalized(expected.dataType) ||
+         normalized(actual.udt_name) !== normalized(expected.udtName) ||
+@@ -336,7 +420,14 @@
+   for (const expected of APPLICATION_SCHEMA_CONTRACT.indexes) {
+     const actual = indexes.get(expected.name);
+     if (!actual) {
+-      issues.push(issue("missing_index", expected.name.startsWith("idx_task_logs") ? "task_logs" : "tasks", expected.name, `index on (${expected.columns.join(", ")})`));
++      issues.push(
++        issue(
++          "missing_index",
++          expected.name.startsWith("idx_task_logs") ? "task_logs" : "tasks",
++          expected.name,
++          `index on (${expected.columns.join(", ")})`,
++        ),
++      );
+       continue;
+     }
+     // pg_indexes quotes reserved identifiers such as "timestamp". Compare
+@@ -464,4 +555,4 @@
+   }
+ }
+ 
+-export const applicationSchemaDeliveryCommand = DELIVERY_COMMAND;
+\ No newline at end of file
++export const applicationSchemaDeliveryCommand = DELIVERY_COMMAND;
+--- lib/db/src/application-schema-check.test.ts2026-08-28 03:55:29.409335062 +0000
++++ /tmp/prettier-lib_db_src_application-schema-check.test.ts2026-08-28 04:07:10.266004315 +0000
+@@ -102,13 +102,22 @@
+       sql: string,
+     ): Promise<{ rows: T[]; rowCount: number }> {
+       if (sql.includes("information_schema.tables")) {
+-        return { rows: value.tables as unknown as T[], rowCount: value.tables.length };
++        return {
++          rows: value.tables as unknown as T[],
++          rowCount: value.tables.length,
++        };
+       }
+       if (sql.includes("information_schema.columns")) {
+-        return { rows: value.columns as unknown as T[], rowCount: value.columns.length };
++        return {
++          rows: value.columns as unknown as T[],
++          rowCount: value.columns.length,
++        };
+       }
+       if (sql.includes("pg_indexes")) {
+-        return { rows: value.indexes as unknown as T[], rowCount: value.indexes.length };
++        return {
++          rows: value.indexes as unknown as T[],
++          rowCount: value.indexes.length,
++        };
+       }
+       if (sql.includes("constraint_type = 'PRIMARY KEY'")) {
+         return {
+@@ -131,7 +140,9 @@
+   it("accepts the complete task/task-log contract", async () => {
+     const snapshot = completeSnapshot();
+     assert.deepEqual(findApplicationSchemaIssues(snapshot), []);
+-    await assert.doesNotReject(assertApplicationSchemaWithClient(clientFor(snapshot)));
++    await assert.doesNotReject(
++      assertApplicationSchemaWithClient(clientFor(snapshot)),
++    );
+   });
+ 
+   it("explicitly permits NULL remediation plans and preserves their JSONB type", () => {
+@@ -168,17 +179,19 @@
+       ),
+       foreignKeys: snapshot.foreignKeys.filter(
+         (key) =>
+-          !(
+-            key.table_name === "task_logs" &&
+-            key.column_name === "task_id"
+-          ),
++          !(key.table_name === "task_logs" && key.column_name === "task_id"),
+       ),
+     };
+ 
+     const issues = findApplicationSchemaIssues(incomplete);
+     assert.deepEqual(
+       issues.map((item) => item.kind),
+-      ["missing_column", "incompatible_column", "missing_index", "missing_foreign_key"],
++      [
++        "missing_column",
++        "incompatible_column",
++        "missing_index",
++        "missing_foreign_key",
++      ],
+     );
+     await assert.rejects(
+       assertApplicationSchemaWithClient(clientFor(snapshot, incomplete)),
+@@ -203,8 +216,7 @@
+     assert.ok(
+       issues.some(
+         (item) =>
+-          item.kind === "missing_primary_key" &&
+-          item.tableName === "task_logs",
++          item.kind === "missing_primary_key" && item.tableName === "task_logs",
+       ),
+     );
+   });
+@@ -221,11 +233,15 @@
+   it("models an upgrade fixture with NULL and populated remediation plans", () => {
+     const rows = [
+       { id: "legacy-task", remediation_plan: null, title: "Legacy task" },
+-      { id: "planned-task", remediation_plan: remediationPlan, title: "Planned task" },
++      {
++        id: "planned-task",
++        remediation_plan: remediationPlan,
++        title: "Planned task",
++      },
+     ];
+     const afterDelivery = rows.map((row) => ({ ...row }));
+     assert.deepEqual(afterDelivery, rows);
+     assert.equal(afterDelivery[0]?.remediation_plan, null);
+     assert.deepEqual(afterDelivery[1]?.remediation_plan, remediationPlan);
+   });
+-});
+\ No newline at end of file
++});
+--- lib/db/src/check-schema.ts2026-08-28 03:51:52.845373368 +0000
++++ /tmp/prettier-lib_db_src_check-schema.ts2026-08-28 04:07:10.774004315 +0000
+@@ -21,4 +21,4 @@
+   process.exitCode = 1;
+ } finally {
+   await pool.end();
+-}
+\ No newline at end of file
++}
+--- lib/db/SCHEMA_DELIVERY.md2026-08-28 03:56:38.769376760 +0000
++++ /tmp/prettier-lib_db_SCHEMA_DELIVERY.md2026-08-28 04:07:11.250004315 +0000
+@@ -22,4 +22,4 @@
+ The lower-level `push` command remains available for local development and
+ Drizzle troubleshooting. `push-force` is not part of CI, deployment, or
+ startup because its purpose is to auto-approve potentially destructive data
+-loss statements. Schema application must run before starting release traffic.
+\ No newline at end of file
++loss statements. Schema application must run before starting release traffic.
+--- scripts/release-configuration.test.ts2026-08-28 03:58:56.354233438 +0000
++++ /tmp/prettier-scripts_release-configuration.test.ts2026-08-28 04:07:11.822004315 +0000
+@@ -39,7 +39,8 @@
+   {
+     name: "dashboard journey contract",
+     command: "run test:dashboard-journey-contract",
+-    diagnostic: "dashboard journey contract fixture failed: expected route was missing",
++    diagnostic:
++      "dashboard journey contract fixture failed: expected route was missing",
+     laterCommands: [
+       "run test:mission-correlation-report",
+       "--filter @workspace/api-server run test:release-fixture-collisions",
+@@ -50,7 +51,8 @@
+   {
+     name: "mission correlation report",
+     command: "run test:mission-correlation-report",
+-    diagnostic: "mission correlation report fixture failed: operation revision mismatched",
++    diagnostic:
++      "mission correlation report fixture failed: operation revision mismatched",
+     laterCommands: [
+       "--filter @workspace/api-server run test:release-fixture-collisions",
+       "--filter @workspace/api-server run test:release-synthesis-telemetry",
+@@ -59,8 +61,10 @@
+   },
+   {
+     name: "release fixture collision check",
+-    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+-    diagnostic: "release fixture collision check failed: duplicate fixture identity",
++    command:
++      "--filter @workspace/api-server run test:release-fixture-collisions",
++    diagnostic:
++      "release fixture collision check failed: duplicate fixture identity",
+     laterCommands: [
+       "--filter @workspace/api-server run test:release-synthesis-telemetry",
+       "--filter @workspace/api-server run test:process-recovery",
+@@ -68,11 +72,11 @@
+   },
+   {
+     name: "release synthesis telemetry",
+-    command: "--filter @workspace/api-server run test:release-synthesis-telemetry",
+-    diagnostic: "release synthesis telemetry failed: expected audit event was absent",
+-    laterCommands: [
+-      "--filter @workspace/api-server run test:process-recovery",
+-    ],
++    command:
++      "--filter @workspace/api-server run test:release-synthesis-telemetry",
++    diagnostic:
++      "release synthesis telemetry failed: expected audit event was absent",
++    laterCommands: ["--filter @workspace/api-server run test:process-recovery"],
+   },
+   {
+     name: "process recovery",
+@@ -86,7 +90,8 @@
+   {
+     name: "application schema delivery",
+     command: "run db:schema:apply",
+-    diagnostic: "application schema delivery failed: task contract was incomplete",
++    diagnostic:
++      "application schema delivery failed: task contract was incomplete",
+     laterCommands: [
+       "run test:benchmark-rollout",
+       "run verify:benchmark-rollout",
+@@ -97,7 +102,8 @@
+   {
+     name: "benchmark rollout tests",
+     command: "run test:benchmark-rollout",
+-    diagnostic: "benchmark rollout tests failed: rollout fixture was incomplete",
++    diagnostic:
++      "benchmark rollout tests failed: rollout fixture was incomplete",
+     laterCommands: [
+       "run verify:benchmark-rollout",
+       "run validate:release",
+@@ -107,7 +113,8 @@
+   {
+     name: "benchmark rollout verifier",
+     command: "run verify:benchmark-rollout",
+-    diagnostic: "benchmark rollout verifier failed: provider-unavailable cases block deployment",
++    diagnostic:
++      "benchmark rollout verifier failed: provider-unavailable cases block deployment",
+     laterCommands: ["run validate:release", "store prune"],
+   },
+   {
+@@ -392,20 +399,16 @@
+ });
+ 
+ test("reports a missing production origin before controlled recovery", async () => {
+-  const result = spawnSync(
+-    "pnpm",
+-    ["run", "validate:release"],
+-    {
+-      cwd: workspaceRoot,
+-      env: {
+-        ...process.env,
+-        DATABASE_URL: "",
+-        OPENROUTER_API_KEY: "",
+-        APP_ORIGINS: "",
+-      },
+-      encoding: "utf8",
++  const result = spawnSync("pnpm", ["run", "validate:release"], {
++    cwd: workspaceRoot,
++    env: {
++      ...process.env,
++      DATABASE_URL: "",
++      OPENROUTER_API_KEY: "",
++      APP_ORIGINS: "",
+     },
+-  );
++    encoding: "utf8",
++  });
+   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+ 
+   assert.notEqual(result.status, 0, "the controlled recovery check must fail");
+@@ -446,20 +449,16 @@
+   await chmod(shimPath, 0o755);
+ 
+   try {
+-    const result = spawnSync(
+-      "pnpm",
+-      ["run", "validate:release"],
+-      {
+-        cwd: workspaceRoot,
+-        env: {
+-          ...process.env,
+-          APP_ORIGINS: "https://dashboard.example.com",
+-          PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
+-          RELEASE_VALIDATION_TRACE: tracePath,
+-        },
+-        encoding: "utf8",
++    const result = spawnSync("pnpm", ["run", "validate:release"], {
++      cwd: workspaceRoot,
++      env: {
++        ...process.env,
++        APP_ORIGINS: "https://dashboard.example.com",
++        PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
++        RELEASE_VALIDATION_TRACE: tracePath,
+       },
+-    );
++      encoding: "utf8",
++    });
+     const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+     const trace = await readFile(tracePath, "utf8");
+ 
+@@ -490,7 +489,8 @@
+ 
+ for (const scenario of releaseFailureScenarios) {
+   test(`stops release validation after a ${scenario.name} diagnostic`, async () => {
+-    const { output, trace, status } = await runReleaseWithInjectedFailure(scenario);
++    const { output, trace, status } =
++      await runReleaseWithInjectedFailure(scenario);
+ 
+     assert.notEqual(
+       status,
+@@ -566,7 +566,10 @@
+     "[[workflows.workflow]]",
+     projectWorkflowStart + "[[workflows.workflow]]".length,
+   );
+-  const projectWorkflow = replitConfig.slice(projectWorkflowStart, nextWorkflowStart);
++  const projectWorkflow = replitConfig.slice(
++    projectWorkflowStart,
++    nextWorkflowStart,
++  );
+   assert.doesNotMatch(
+     projectWorkflow,
+     /validate:release|release-process-recovery|dashboard-restart-smoke/,
+@@ -599,7 +602,9 @@
+ 
+ test("keeps the standalone journey responsible for service orchestration", async () => {
+   const replitConfig = await readWorkspaceFile(".replit");
+-  const journeyStart = replitConfig.indexOf('name = "release-dashboard-journey"');
++  const journeyStart = replitConfig.indexOf(
++    'name = "release-dashboard-journey"',
++  );
+   assert.ok(journeyStart >= 0);
+   const journeySection = replitConfig.slice(journeyStart);
+   assert.match(
+@@ -615,11 +620,12 @@
+ test("keeps release teardown evidence attached to the controlled journey", async () => {
+   const workflow = await readWorkspaceFile(".github/workflows/ci.yml");
+   const releaseJobStart = workflow.indexOf("  release-validation:");
+-  assert.ok(releaseJobStart >= 0, "release-validation job must remain configured");
++  assert.ok(
++    releaseJobStart >= 0,
++    "release-validation job must remain configured",
++  );
+ 
+-  const nextJobOffset = workflow
+-    .slice(releaseJobStart + 1)
+-    .search(/\n  \S/);
++  const nextJobOffset = workflow.slice(releaseJobStart + 1).search(/\n  \S/);
+   const nextJobStart =
+     nextJobOffset >= 0 ? releaseJobStart + 1 + nextJobOffset : -1;
+   const releaseJob = workflow.slice(

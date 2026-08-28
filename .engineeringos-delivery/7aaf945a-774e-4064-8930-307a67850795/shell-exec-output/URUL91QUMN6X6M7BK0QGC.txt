@@ -1,0 +1,247 @@
+
+> @workspace/db@0.0.0 test /home/runner/workspace/lib/db
+> tsx --test ./src/audit-schema-check.test.ts ./src/application-schema-check.test.ts
+
+▶ application schema contract
+  ✖ accepts the complete task/task-log contract (6.973525ms)
+    AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+    + actual - expected ... Lines skipped
+    
+    + [
+    +   {
+    +     actual: "jsonb/jsonb, NO, default='[]'::jsonb",
+    +     expected: "jsonb/jsonb, NO, default matching /'\\\\[\\\\]'::jsonb/",
+    +     kind: 'incompatible_column',
+    +     objectName: 'related_files',
+    +     tableName: 'tasks'
+    +   },
+    +   {
+    +     actual: "jsonb/jsonb, NO, default='[]'::jsonb",
+    +     expected: "jsonb/jsonb, NO, default matching /'\\\\[\\\\]'::jsonb/",
+    +     kind: 'incompatible_column',
+    +     objectName: 'depends_on',
+    +     tableName: 'tasks'
+    +   },
+    +   {
+    +     actual: 'timestamp without time zone/timestamp, NO, default=now()',
+    +     expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/',
+    +     kind: 'incompatible_column',
+    +     objectName: 'created_at',
+    +     tableName: 'tasks'
+    +   },
+    +   {
+    +     actual: 'timestamp without time zone/timestamp, NO, default=now()',
+    +     expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/',
+    +     kind: 'incompatible_column',
+    +     objectName: 'updated_at',
+    +     tableName: 'tasks'
+    +   },
+    +   {
+    +     actual: 'timestamp without time zone/timestamp, NO, default=now()',
+    +     expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/',
+    +     kind: 'incompatible_column',
+    +     objectName: 'timestamp',
+    +     tableName: 'task_logs'
+    +   },
+    +   {
+    +     expected: 'references projects.id ON DELETE CASCADE',
+    +     kind: 'missing_foreign_key',
+    +     objectName: 'project_id',
+    +     tableName: 'tasks'
+    +   },
+    +   {
+    +     expected: 'references rules.id ON DELETE SET NULL',
+    +     kind: 'missing_foreign_key',
+    +     objectName: 'rule_id',
+    +     tableName: 'tasks'
+    +   },
+    +   {
+    +     expected: 'references workflows.id ON DELETE SET NULL',
+    ...
+    - []
+    ...
+        at TestContext.<anonymous> (/home/runner/workspace/lib/db/src/application-schema-check.test.ts:130:12)
+        at Test.runInAsyncScope (node:async_hooks:206:9)
+        at Test.run (node:internal/test_runner/test:796:25)
+        at Test.start (node:internal/test_runner/test:702:17)
+        at node:internal/test_runner/test:1133:71
+        at node:internal/per_context/primordials:482:82
+        at new Promise (<anonymous>)
+        at new SafePromise (node:internal/per_context/primordials:450:29)
+        at node:internal/per_context/primordials:482:9
+        at Array.map (<anonymous>) {
+      generatedMessage: true,
+      code: 'ERR_ASSERTION',
+      actual: [ { kind: 'incompatible_column', tableName: 'tasks', objectName: 'related_files', expected: "jsonb/jsonb, NO, default matching /'\\\\[\\\\]'::jsonb/", actual: "jsonb/jsonb, NO, default='[]'::jsonb" }, { kind: 'incompatible_column', tableName: 'tasks', objectName: 'depends_on', expected: "jsonb/jsonb, NO, default matching /'\\\\[\\\\]'::jsonb/", actual: "jsonb/jsonb, NO, default='[]'::jsonb" }, { kind: 'incompatible_column', tableName: 'tasks', objectName: 'created_at', expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/', actual: 'timestamp without time zone/timestamp, NO, default=now()' }, { kind: 'incompatible_column', tableName: 'tasks', objectName: 'updated_at', expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/', actual: 'timestamp without time zone/timestamp, NO, default=now()' }, { kind: 'incompatible_column', tableName: 'task_logs', objectName: 'timestamp', expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/', actual: 'timestamp without time zone/timestamp, NO, default=now()' }, { kind: 'missing_foreign_key', tableName: 'tasks', objectName: 'project_id', expected: 'references projects.id ON DELETE CASCADE' }, { kind: 'missing_foreign_key', tableName: 'tasks', objectName: 'rule_id', expected: 'references rules.id ON DELETE SET NULL' }, { kind: 'missing_foreign_key', tableName: 'tasks', objectName: 'workflow_id', expected: 'references workflows.id ON DELETE SET NULL' }, { kind: 'missing_foreign_key', tableName: 'task_logs', objectName: 'task_id', expected: 'references tasks.id ON DELETE CASCADE' } ],
+      expected: [],
+      operator: 'deepStrictEqual'
+    }
+
+  ✔ explicitly permits NULL remediation plans and preserves their JSONB type (0.294761ms)
+  ✖ reports missing and incompatible contract objects with actionable diagnostics (1.340323ms)
+    AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+    +   'incompatible_column',
+    -   'missing_column',
+        'incompatible_column',
+    +   'missing_column',
+    +   'incompatible_column',
+    +   'incompatible_column',
+    +   'incompatible_column',
+    +   'incompatible_column',
+    +   'missing_index',
+    +   'missing_foreign_key',
+    +   'missing_foreign_key',
+    +   'missing_foreign_key',
+    -   'missing_index',
+        'missing_foreign_key'
+      ]
+        at TestContext.<anonymous> (/home/runner/workspace/lib/db/src/application-schema-check.test.ts:176:12)
+        at Test.runInAsyncScope (node:async_hooks:206:9)
+        at Test.run (node:internal/test_runner/test:796:25)
+        at Suite.processPendingSubtests (node:internal/test_runner/test:526:18)
+        at Test.postRun (node:internal/test_runner/test:889:19)
+        at Test.run (node:internal/test_runner/test:835:12)
+        at async Suite.processPendingSubtests (node:internal/test_runner/test:526:7) {
+      generatedMessage: true,
+      code: 'ERR_ASSERTION',
+      actual: [ 'incompatible_column', 'incompatible_column', 'missing_column', 'incompatible_column', 'incompatible_column', 'incompatible_column', 'incompatible_column', 'missing_index', 'missing_foreign_key', 'missing_foreign_key', 'missing_foreign_key', 'missing_foreign_key' ],
+      expected: [ 'missing_column', 'incompatible_column', 'missing_index', 'missing_foreign_key' ],
+      operator: 'deepStrictEqual'
+    }
+
+  ✔ detects a missing primary key instead of treating an id column as sufficient (0.413666ms)
+  ✔ reads all metadata through read-only catalog queries (0.31075ms)
+  ✔ models an upgrade fixture with NULL and populated remediation plans (0.49475ms)
+✖ application schema contract (11.111676ms)
+▶ audit outbox schema checks
+  ✔ reports a missing table with an actionable remediation (1.755427ms)
+  ✔ reports missing required columns with an actionable remediation (0.403232ms)
+  ✔ reports a missing required index with an actionable remediation (0.244299ms)
+  ✔ accepts the complete required schema (0.388522ms)
+✔ audit outbox schema checks (3.92968ms)
+ℹ tests 10
+ℹ suites 2
+ℹ pass 8
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1066.095734
+
+✖ failing tests:
+
+test at src/application-schema-check.test.ts:1:3031
+✖ accepts the complete task/task-log contract (6.973525ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected ... Lines skipped
+  
+  + [
+  +   {
+  +     actual: "jsonb/jsonb, NO, default='[]'::jsonb",
+  +     expected: "jsonb/jsonb, NO, default matching /'\\\\[\\\\]'::jsonb/",
+  +     kind: 'incompatible_column',
+  +     objectName: 'related_files',
+  +     tableName: 'tasks'
+  +   },
+  +   {
+  +     actual: "jsonb/jsonb, NO, default='[]'::jsonb",
+  +     expected: "jsonb/jsonb, NO, default matching /'\\\\[\\\\]'::jsonb/",
+  +     kind: 'incompatible_column',
+  +     objectName: 'depends_on',
+  +     tableName: 'tasks'
+  +   },
+  +   {
+  +     actual: 'timestamp without time zone/timestamp, NO, default=now()',
+  +     expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/',
+  +     kind: 'incompatible_column',
+  +     objectName: 'created_at',
+  +     tableName: 'tasks'
+  +   },
+  +   {
+  +     actual: 'timestamp without time zone/timestamp, NO, default=now()',
+  +     expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/',
+  +     kind: 'incompatible_column',
+  +     objectName: 'updated_at',
+  +     tableName: 'tasks'
+  +   },
+  +   {
+  +     actual: 'timestamp without time zone/timestamp, NO, default=now()',
+  +     expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/',
+  +     kind: 'incompatible_column',
+  +     objectName: 'timestamp',
+  +     tableName: 'task_logs'
+  +   },
+  +   {
+  +     expected: 'references projects.id ON DELETE CASCADE',
+  +     kind: 'missing_foreign_key',
+  +     objectName: 'project_id',
+  +     tableName: 'tasks'
+  +   },
+  +   {
+  +     expected: 'references rules.id ON DELETE SET NULL',
+  +     kind: 'missing_foreign_key',
+  +     objectName: 'rule_id',
+  +     tableName: 'tasks'
+  +   },
+  +   {
+  +     expected: 'references workflows.id ON DELETE SET NULL',
+  ...
+  - []
+  ...
+      at TestContext.<anonymous> (/home/runner/workspace/lib/db/src/application-schema-check.test.ts:130:12)
+      at Test.runInAsyncScope (node:async_hooks:206:9)
+      at Test.run (node:internal/test_runner/test:796:25)
+      at Test.start (node:internal/test_runner/test:702:17)
+      at node:internal/test_runner/test:1133:71
+      at node:internal/per_context/primordials:482:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:450:29)
+      at node:internal/per_context/primordials:482:9
+      at Array.map (<anonymous>) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { kind: 'incompatible_column', tableName: 'tasks', objectName: 'related_files', expected: "jsonb/jsonb, NO, default matching /'\\\\[\\\\]'::jsonb/", actual: "jsonb/jsonb, NO, default='[]'::jsonb" }, { kind: 'incompatible_column', tableName: 'tasks', objectName: 'depends_on', expected: "jsonb/jsonb, NO, default matching /'\\\\[\\\\]'::jsonb/", actual: "jsonb/jsonb, NO, default='[]'::jsonb" }, { kind: 'incompatible_column', tableName: 'tasks', objectName: 'created_at', expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/', actual: 'timestamp without time zone/timestamp, NO, default=now()' }, { kind: 'incompatible_column', tableName: 'tasks', objectName: 'updated_at', expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/', actual: 'timestamp without time zone/timestamp, NO, default=now()' }, { kind: 'incompatible_column', tableName: 'task_logs', objectName: 'timestamp', expected: 'timestamp without time zone/timestamp, NO, default matching /(?:now\\\\(\\\\)|CURRENT_TIMESTAMP)/', actual: 'timestamp without time zone/timestamp, NO, default=now()' }, { kind: 'missing_foreign_key', tableName: 'tasks', objectName: 'project_id', expected: 'references projects.id ON DELETE CASCADE' }, { kind: 'missing_foreign_key', tableName: 'tasks', objectName: 'rule_id', expected: 'references rules.id ON DELETE SET NULL' }, { kind: 'missing_foreign_key', tableName: 'tasks', objectName: 'workflow_id', expected: 'references workflows.id ON DELETE SET NULL' }, { kind: 'missing_foreign_key', tableName: 'task_logs', objectName: 'task_id', expected: 'references tasks.id ON DELETE CASCADE' } ],
+    expected: [],
+    operator: 'deepStrictEqual'
+  }
+
+test at src/application-schema-check.test.ts:1:3642
+✖ reports missing and incompatible contract objects with actionable diagnostics (1.340323ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'incompatible_column',
+  -   'missing_column',
+      'incompatible_column',
+  +   'missing_column',
+  +   'incompatible_column',
+  +   'incompatible_column',
+  +   'incompatible_column',
+  +   'incompatible_column',
+  +   'missing_index',
+  +   'missing_foreign_key',
+  +   'missing_foreign_key',
+  +   'missing_foreign_key',
+  -   'missing_index',
+      'missing_foreign_key'
+    ]
+      at TestContext.<anonymous> (/home/runner/workspace/lib/db/src/application-schema-check.test.ts:176:12)
+      at Test.runInAsyncScope (node:async_hooks:206:9)
+      at Test.run (node:internal/test_runner/test:796:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:526:18)
+      at Test.postRun (node:internal/test_runner/test:889:19)
+      at Test.run (node:internal/test_runner/test:835:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:526:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'incompatible_column', 'incompatible_column', 'missing_column', 'incompatible_column', 'incompatible_column', 'incompatible_column', 'incompatible_column', 'missing_index', 'missing_foreign_key', 'missing_foreign_key', 'missing_foreign_key', 'missing_foreign_key' ],
+    expected: [ 'missing_column', 'incompatible_column', 'missing_index', 'missing_foreign_key' ],
+    operator: 'deepStrictEqual'
+  }
+/home/runner/workspace/lib/db:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/db@0.0.0 test: `tsx --test ./src/audit-schema-check.test.ts ./src/application-schema-check.test.ts`
+Exit status 1
