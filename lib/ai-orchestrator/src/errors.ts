@@ -34,6 +34,8 @@
  *
  * Response
  *   EMPTY_RESPONSE    Response received but contained no content or tool calls.
+ *   INVALID_TOOL_CALL Provider returned executable-looking output that did not
+ *                     satisfy the strict tool-call grammar/manifest.
  *
  * Configuration
  *   INVALID_CONFIG    GROQ_API_KEY is absent or empty at startup.
@@ -57,6 +59,7 @@ export type GroqErrorCode =
   | "MODEL_UNAVAILABLE"   // 422/410 — model temporarily offline (PR-008)
   // response
   | "EMPTY_RESPONSE"
+  | "INVALID_TOOL_CALL"
   // configuration
   | "INVALID_CONFIG";
 

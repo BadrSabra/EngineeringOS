@@ -18,6 +18,11 @@
  */
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import { GroqClientError } from "./errors.js";
+import {
+  createContentOnlyStreamGuard,
+  normalizeProviderResponse,
+  normalizeProviderToolCalls,
+} from "./provider-tool-calls.js";
 
 export const DEEPSEEK_MODEL_FAST    = "deepseek-chat";
 export const DEEPSEEK_MODEL_POWERFUL = "deepseek-chat";
@@ -33,6 +38,8 @@ export type DeepSeekCompleteOptions = {
   apiKey:     string;               // required — no server-side fallback for DeepSeek
   signal?: AbortSignal;
   tools?:     ToolDefinition[];
+  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+  toolManifest?: ToolDefinition[];
   toolChoice?: "auto" | "required";
   /**
    * Force a structured JSON response.
@@ -145,6 +152,7 @@ export async function* deepseekCompleteStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let hadContent = false;
+  const streamGuard = createContentOnlyStreamGuard({ providerName: "DeepSeek", model });
 
   try {
     while (true) {
@@ -168,11 +176,29 @@ export async function* deepseekCompleteStream(
           const delta = json.choices?.[0]?.delta?.content;
           if (delta) {
             hadContent = true;
-            yield delta;
+            for (const safeText of streamGuard.push(delta)) yield safeText;
           }
         } catch {
           // Ignore malformed SSE frames.
         }
+      }
+    }
+    // Providers occasionally omit the final newline. Parse that last complete
+    // SSE frame before the no-tool guard is finalized.
+    buffer += decoder.decode();
+    const trailing = buffer.trim();
+    if (trailing.startsWith("data: ") && trailing !== "data: [DONE]") {
+      try {
+        const json = JSON.parse(trailing.slice(6)) as {
+          choices?: Array<{ delta?: { content?: string | null } }>;
+        };
+        const delta = json.choices?.[0]?.delta?.content;
+        if (delta) {
+          hadContent = true;
+          for (const safeText of streamGuard.push(delta)) yield safeText;
+        }
+      } catch {
+        // Ignore malformed SSE frames.
       }
     }
   } finally {
@@ -180,6 +206,8 @@ export async function* deepseekCompleteStream(
     signal?.removeEventListener("abort", onAbort);
     reader.releaseLock();
   }
+
+  for (const safeText of streamGuard.finish()) yield safeText;
 
   if (!hadContent) {
     throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek stream returned no content");
@@ -260,7 +288,7 @@ export async function deepseekCompleteRaw(
 
   const data = await response.json() as {
     choices: Array<{
-      message?: { content?: string | null; tool_calls?: ToolCall[] };
+      message?: { content?: string | null; tool_calls?: unknown };
     }>;
     model:  string;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -275,19 +303,28 @@ export async function deepseekCompleteRaw(
 
   // Strip <think> tokens from DeepSeek-R1; safe no-op for DeepSeek-V3.
   const content   = stripThink(msg.content ?? null);
-  const hasCalls  = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+  const rawToolCalls: unknown = msg.tool_calls;
+  const hasCalls  = Array.isArray(rawToolCalls) && rawToolCalls.length > 0;
 
   if (!content && !hasCalls) {
+    if (rawToolCalls !== undefined) {
+      normalizeProviderToolCalls(rawToolCalls, {
+        tools,
+        toolManifest: opts.toolManifest,
+        providerName: "DeepSeek",
+        model,
+      });
+    }
     throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned neither content nor tool calls");
   }
 
-  return {
+  return normalizeProviderResponse({
     content,
-    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+    toolCalls: rawToolCalls === undefined ? null : rawToolCalls as ToolCall[],
     model:  data.model,
     usage: {
       promptTokens:       data.usage?.prompt_tokens  ?? 0,
       completionTokens:   data.usage?.completion_tokens ?? 0,
     },
-  };
+  }, { tools, toolManifest: opts.toolManifest, providerName: "DeepSeek", model });
 }

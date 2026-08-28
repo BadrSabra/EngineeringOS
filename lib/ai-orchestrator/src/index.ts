@@ -140,6 +140,12 @@ export type { RetryDecision } from "./quality/retry-controller.js";
 export { GroqClientError } from "./errors.js";
 export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
 export {
+  createContentOnlyStreamGuard,
+  normalizeProviderResponse,
+  normalizeProviderText,
+  normalizeProviderToolCalls,
+} from "./provider-tool-calls.js";
+export {
   classifyOpenRouterFailure,
 } from "./openai-compatible-client.js";
 export type {

@@ -28,6 +28,10 @@ import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionPhase } from "./quality/execution-phases.js";
 import { getPhaseBudget } from "./quality/execution-phases.js";
+import {
+  createContentOnlyStreamGuard,
+  normalizeProviderResponse,
+} from "./provider-tool-calls.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
@@ -44,6 +48,8 @@ export type OpenAICompatibleOptions = {
   /** Bearer API key — required. */
   apiKey: string;
   tools?: ToolDefinition[];
+  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+  toolManifest?: ToolDefinition[];
   toolChoice?: "auto" | "required";
   responseFormat?: { type: "json_object" };
   /** Override base URL (e.g. "https://openrouter.ai/api/v1"). */
@@ -331,6 +337,7 @@ export function classifyOpenRouterFailure(
     case "AUTH_ERROR":
     case "QUOTA":
     case "INVALID_CONFIG":
+    case "INVALID_TOOL_CALL":
       return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
   }
 }
@@ -598,122 +605,6 @@ function classifyStatus(
   );
 }
 
-// ── XML tool-call helpers ─────────────────────────────────────────────────────
-// Some free models (e.g. InclusionAI Ling) output tool calls as XML text in
-// their content field instead of (or in addition to) the standard OpenAI
-// ── Tool-call argument normalization ────────────────────────────────────────
-// Some free-tier models return `function.arguments` as a raw object, an empty
-// string, or otherwise-invalid JSON. If we echo such a tool_call back into the
-// message history on the next iteration, strict providers (e.g. Cohere via
-// OpenRouter) reject the WHOLE request with 400:
-//   "tool arguments must be a stringified JSON object"
-// Normalize at ingestion so every ToolCall we ever store/replay carries a
-// stringified JSON *object* in `arguments`.
-function normalizeToolCallArguments(
-  calls: ToolCall[],
-  providerName: string,
-  model: string,
-): ToolCall[] {
-  return calls.map((tc) => {
-    const raw: unknown = tc.function?.arguments;
-    let fixed: string | null = null;
-
-    if (typeof raw === "string") {
-      const trimmed = raw.trim();
-      if (trimmed === "") {
-        fixed = "{}";
-      } else {
-        try {
-          const parsed: unknown = JSON.parse(trimmed);
-          fixed =
-            parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-              ? trimmed === raw ? null : trimmed // valid object — keep (trim only if needed)
-              : "{}"; // valid JSON but not an object (number/array/string)
-        } catch {
-          fixed = "{}"; // unparseable string
-        }
-      }
-    } else if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
-      fixed = JSON.stringify(raw); // model returned a raw object
-    } else {
-      fixed = "{}"; // undefined / null / array / number
-    }
-
-    if (fixed === null) return tc;
-
-    console.warn(
-      JSON.stringify({
-        scope: "openai-compatible-client",
-        code: "TOOL_ARGS_NORMALIZED",
-        providerName,
-        model,
-        tool: tc.function?.name,
-        rawType: typeof raw,
-      }),
-    );
-    return { ...tc, function: { ...tc.function, arguments: fixed } };
-  });
-}
-
-// `tool_calls` JSON array.  These helpers normalise both cases so the rest of
-// the codebase never sees raw XML.
-
-/** Strip all <tool_call>…</tool_call> blocks from a content string. */
-function stripXmlToolCalls(text: string): string {
-  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
-}
-
-/**
- * Attempt to parse XML-style tool calls from content.
- * Handles two common formats:
- *   1. JSON inside tags:  <tool_call>{"name":"fn","arguments":{…}}</tool_call>
- *   2. Attribute syntax:  <tool_call> <function=fn> <parameter=k>v</parameter> </function> </tool_call>
- * Returns null when the content contains no recognisable tool-call XML.
- */
-function parseXmlToolCalls(content: string): ToolCall[] | null {
-  const blocks = [...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)];
-  if (blocks.length === 0) return null;
-
-  const calls: ToolCall[] = [];
-  for (const [, inner] of blocks) {
-    const trimmed = inner.trim();
-
-    // Format 1 — JSON inside <tool_call>
-    if (trimmed.startsWith("{")) {
-      try {
-        const parsed = JSON.parse(trimmed) as { name?: string; arguments?: unknown };
-        if (parsed.name) {
-          calls.push({
-            id: `xml_${Math.random().toString(36).slice(2, 9)}`,
-            type: "function",
-            function: {
-              name: parsed.name,
-              arguments: JSON.stringify(parsed.arguments ?? {}),
-            },
-          });
-        }
-      } catch { /* ignore malformed JSON */ }
-      continue;
-    }
-
-    // Format 2 — attribute syntax  <function=NAME> <parameter=KEY>VALUE</parameter>
-    const fnMatch = trimmed.match(/<function=([^\s>]+)/);
-    if (!fnMatch) continue;
-    const fnName = fnMatch[1];
-
-    const args: Record<string, string> = {};
-    for (const [, key, val] of trimmed.matchAll(/<parameter=([^\s>]+)>([\s\S]*?)<\/parameter>/g)) {
-      args[key] = val.trim();
-    }
-    calls.push({
-      id: `xml_${Math.random().toString(36).slice(2, 9)}`,
-      type: "function",
-      function: { name: fnName, arguments: JSON.stringify(args) },
-    });
-  }
-  return calls.length > 0 ? calls : null;
-}
-
 /**
  * Non-streaming chat completion against any OpenAI-compatible endpoint.
  * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
@@ -829,7 +720,7 @@ export async function oacCompleteRaw(
       finish_reason?: string | null;
       message?: {
         content?: string | null;
-        tool_calls?: ToolCall[];
+        tool_calls?: unknown;
         reasoning_content?: string | null;
         reasoning?: string | null;
       };
@@ -874,23 +765,27 @@ export async function oacCompleteRaw(
   const reasoningTokens =
     data.usage?.reasoning_tokens ??
     data.usage?.completion_tokens_details?.reasoning_tokens;
-  let hasCalls = Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0;
-  let toolCalls: ToolCall[] | null = hasCalls
-    ? normalizeToolCallArguments(msg!.tool_calls as ToolCall[], providerName, model)
-    : null;
-
-  // Some free models (e.g. Ling-3.0-flash) embed tool calls as XML text in
-  // content instead of using the standard tool_calls JSON field.
-  if (content && content.includes("<tool_call>")) {
-    if (!hasCalls) {
-      const xmlCalls = parseXmlToolCalls(content);
-      if (xmlCalls) {
-        toolCalls = xmlCalls;
-        hasCalls = true;
-      }
-    }
-    content = stripXmlToolCalls(content) || null;
-  }
+  const normalized = normalizeProviderResponse(
+    {
+      content,
+      toolCalls:
+        msg?.tool_calls === undefined ? null : msg.tool_calls as ToolCall[],
+      model: data.model,
+      usage: {
+        promptTokens: data.usage?.prompt_tokens ?? 0,
+        completionTokens: data.usage?.completion_tokens ?? 0,
+      },
+      finishReason: choice?.finish_reason ?? null,
+      reasoningContent,
+      outputText,
+      reasoningTokens,
+    },
+    { tools, toolManifest: opts.toolManifest, providerName, model },
+  );
+  content = normalized.content;
+  const normalizedCalls = normalized.toolCalls ?? [];
+  const toolCalls = normalizedCalls.length > 0 ? normalizedCalls : null;
+  const hasCalls = toolCalls !== null;
 
   if (!content && !hasCalls) {
     throw new GroqClientError(
@@ -916,19 +811,7 @@ export async function oacCompleteRaw(
     }),
   );
 
-  return {
-    content,
-    toolCalls,
-    model: data.model,
-    usage: {
-      promptTokens: data.usage?.prompt_tokens ?? 0,
-      completionTokens: data.usage?.completion_tokens ?? 0,
-    },
-    finishReason: choice?.finish_reason ?? null,
-    reasoningContent,
-    outputText,
-    reasoningTokens,
-  };
+  return { ...normalized, content, toolCalls };
 }
 
 /**
@@ -1008,7 +891,7 @@ export async function* oacCompleteStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let hadContent = false;
-  let xmlStreamBuf = "";
+  const streamGuard = createContentOnlyStreamGuard({ providerName, model });
 
   try {
     while (true) {
@@ -1031,27 +914,29 @@ export async function* oacCompleteStream(
           const delta = json.choices?.[0]?.delta?.content;
           if (delta) {
             hadContent = true;
-            xmlStreamBuf += delta;
+            for (const safeText of streamGuard.push(delta)) yield safeText;
           }
         } catch {
           // Ignore malformed SSE frames.
         }
       }
-
-      // Flush safe prefix — everything before any open <tool_call> tag.
-      const openIdx = xmlStreamBuf.indexOf("<tool_call>");
-      const closeIdx = xmlStreamBuf.indexOf("</tool_call>");
-      if (openIdx === -1) {
-        if (xmlStreamBuf) { yield xmlStreamBuf; xmlStreamBuf = ""; }
-      } else if (closeIdx !== -1 && closeIdx > openIdx) {
-        const before = xmlStreamBuf.slice(0, openIdx);
-        const after  = xmlStreamBuf.slice(closeIdx + "</tool_call>".length);
-        xmlStreamBuf = after;
-        if (before) yield before;
-      } else {
-        const before = xmlStreamBuf.slice(0, openIdx);
-        xmlStreamBuf = xmlStreamBuf.slice(openIdx);
-        if (before) yield before;
+    }
+    // Providers occasionally omit the final newline. Parse that last complete
+    // SSE frame before the no-tool guard is finalized.
+    buffer += decoder.decode();
+    const trailing = buffer.trim();
+    if (trailing.startsWith("data: ") && trailing !== "data: [DONE]") {
+      try {
+        const json = JSON.parse(trailing.slice(6)) as {
+          choices?: Array<{ delta?: { content?: string | null } }>;
+        };
+        const delta = json.choices?.[0]?.delta?.content;
+        if (delta) {
+          hadContent = true;
+          for (const safeText of streamGuard.push(delta)) yield safeText;
+        }
+      } catch {
+        // Ignore malformed SSE frames.
       }
     }
   } catch (err) {
@@ -1072,10 +957,7 @@ export async function* oacCompleteStream(
     reader.releaseLock();
   }
 
-  if (xmlStreamBuf) {
-    const clean = stripXmlToolCalls(xmlStreamBuf);
-    if (clean) yield clean;
-  }
+  for (const safeText of streamGuard.finish()) yield safeText;
 
   if (!hadContent) {
     throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream returned no content`);

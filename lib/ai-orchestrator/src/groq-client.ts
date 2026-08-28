@@ -16,6 +16,11 @@
  */
 import Groq from "groq-sdk";
 import { GroqClientError, type GroqErrorCode } from "./errors.js";
+import {
+  createContentOnlyStreamGuard,
+  normalizeProviderResponse,
+  normalizeProviderToolCalls,
+} from "./provider-tool-calls.js";
 
 export type Message = {
   role: "system" | "user" | "assistant";
@@ -47,6 +52,8 @@ export type CompleteOptions = {
   toolChoice?: "auto" | "required";
   /** Tool definitions for agentic calls. */
   tools?: ToolDefinition[];
+  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+  toolManifest?: ToolDefinition[];
   /**
    * Force a structured JSON response from the model.
    * Only use when tools are NOT present in the request — Groq rejects
@@ -267,10 +274,16 @@ export type RawGroqResponse = {
 
 function readRawResponse(
   completion: Awaited<ReturnType<Groq["chat"]["completions"]["create"]>>,
+  opts: {
+    tools?: ToolDefinition[];
+    toolManifest?: ToolDefinition[];
+    providerName: string;
+    model: string;
+  },
 ): RawGroqResponse {
   const c = completion as {
     choices: Array<{
-      message?: { content?: string | null; tool_calls?: ToolCall[] };
+      message?: { content?: string | null; tool_calls?: unknown };
     }>;
     model: string;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -288,19 +301,23 @@ function readRawResponse(
     : null;
 
   const hasContent = !!content;
-  const hasCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+  const rawToolCalls = msg.tool_calls;
+  const hasCalls = Array.isArray(rawToolCalls) && rawToolCalls.length > 0;
   if (!hasContent && !hasCalls) {
+    if (rawToolCalls !== undefined) {
+      normalizeProviderToolCalls(rawToolCalls, opts);
+    }
     throw new GroqClientError("EMPTY_RESPONSE", "Groq returned neither content nor tool calls");
   }
-  return {
+  return normalizeProviderResponse({
     content,
-    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+    toolCalls: rawToolCalls === undefined ? null : rawToolCalls as ToolCall[],
     model: c.model,
     usage: {
       promptTokens: c.usage?.prompt_tokens ?? 0,
       completionTokens: c.usage?.completion_tokens ?? 0,
     },
-  };
+  }, opts);
 }
 
 /**
@@ -358,7 +375,12 @@ export async function completeRaw(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const completion = await sendRequest(client, request, timeoutMs, signal);
-      const result = readRawResponse(completion);
+      const result = readRawResponse(completion, {
+        tools,
+        toolManifest: opts.toolManifest,
+        providerName: "Groq",
+        model,
+      });
       logOutcome({ model: result.model, durationMs: Date.now() - startedAt, attempt, outcome: "success" });
       circuitRecord(circuitKey, true);
       return result;
@@ -549,15 +571,17 @@ export async function* completeStream(
   }
 
   let hadContent = false;
+  const streamGuard = createContentOnlyStreamGuard({ providerName: "Groq", model });
   try {
     for await (const chunk of stream) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const delta: string | undefined = chunk.choices?.[0]?.delta?.content;
       if (delta) {
         hadContent = true;
-        yield delta;
+        for (const safeText of streamGuard.push(delta)) yield safeText;
       }
     }
+    for (const safeText of streamGuard.finish()) yield safeText;
     if (!hadContent) {
       throw new GroqClientError("EMPTY_RESPONSE", "Groq stream returned no content");
     }

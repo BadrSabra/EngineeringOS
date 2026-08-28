@@ -89,16 +89,20 @@ describe("flight-recorder reasoning field on tool_call steps", () => {
     const targetPath = "src/auth/verify-token.ts";
 
     vi.doMock("groq-sdk", () => makeGroqMock(modelReasoning, targetPath));
+    vi.doMock("../agents/query-planner.js", () => ({
+      planQuery: vi.fn().mockResolvedValue(null),
+    }));
 
     const { chat } = await import("../agents/chat-agent.js");
 
     const steps: AgentStep[] = [];
     await chat({
-      message: "How does token verification work in the auth module?",
+      message: "How does token verification work in src/auth/verify-token.ts?",
       history: [],
       projectContext: makeContext(),
       apiKey: "test-key",
       provider: "groq",
+      rootPath: process.cwd(),
       onStep: (step) => steps.push(step),
     });
 
@@ -179,16 +183,20 @@ describe("flight-recorder reasoning field on tool_call steps", () => {
         };
       },
     }));
+    vi.doMock("../agents/query-planner.js", () => ({
+      planQuery: vi.fn().mockResolvedValue(null),
+    }));
 
     const { chat } = await import("../agents/chat-agent.js");
 
     const steps: AgentStep[] = [];
     await chat({
-      message: "What is in the auth module?",
+      message: "What is in src/auth/verify-token.ts?",
       history: [],
       projectContext: makeContext(),
       apiKey: "test-key",
       provider: "groq",
+      rootPath: process.cwd(),
       onStep: (step) => steps.push(step),
     });
 
@@ -211,16 +219,20 @@ describe("flight-recorder reasoning field on tool_call steps", () => {
     const targetPath = "src/utils/helpers.ts";
 
     vi.doMock("groq-sdk", () => makeGroqMock(longReasoning, targetPath));
+    vi.doMock("../agents/query-planner.js", () => ({
+      planQuery: vi.fn().mockResolvedValue(null),
+    }));
 
     const { chat } = await import("../agents/chat-agent.js");
 
     const steps: AgentStep[] = [];
     await chat({
-      message: "What utilities are in helpers.ts?",
+      message: "What utilities are in src/utils/helpers.ts?",
       history: [],
       projectContext: makeContext(),
       apiKey: "test-key",
       provider: "groq",
+      rootPath: process.cwd(),
       onStep: (step) => steps.push(step),
     });
 

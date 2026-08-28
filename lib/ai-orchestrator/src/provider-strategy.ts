@@ -44,6 +44,8 @@ export type StrategyCallOptions = {
   /** Caller-owned cancellation signal for the active provider request. */
   signal?: AbortSignal;
   tools?: ToolDefinition[];
+  /** Full authorized execution manifest used to validate stale per-iteration calls. */
+  toolManifest?: ToolDefinition[];
   /**
    * Tool selection policy for agentic execution. `required` is used only for
    * an explicit repair-plan handoff that has concrete files to modify.

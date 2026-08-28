@@ -2477,6 +2477,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               ...(opts.capability ? { capability: opts.capability } : {}),
               ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
               ...(iterationTools != null ? { tools: iterationTools } : {}),
+              ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
               ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
             }),
             attemptCount: synthesisAttempts - synthesisAttemptsBeforeCall,
@@ -2486,13 +2487,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
         timeoutMs: 60_000,
         apiKey,
-         ...(opts.signal ? { signal: opts.signal } : {}),
-         taskType,
-         ...(opts.capability ? { capability: opts.capability } : {}),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        taskType,
+        ...(opts.capability ? { capability: opts.capability } : {}),
         ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
         ...(iterationTools != null ? { tools: iterationTools } : {}),
+        ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
         ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
-          });
+      });
       result = callResult.result;
       attemptCount = callResult.attemptCount;
     } catch (err) {
