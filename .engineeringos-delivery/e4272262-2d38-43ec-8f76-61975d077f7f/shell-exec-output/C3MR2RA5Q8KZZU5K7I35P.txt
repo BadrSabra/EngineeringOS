@@ -1,0 +1,350 @@
+96:  executeToolLoop,
+139:} from "../required-claims.js";
+178:} from "../forensic-recovery.js";
+215:  status: "passed" | "failed";
+254:    return { recentHistory: [], episodeSummaryMessage: null };
+260:    return { recentHistory, episodeSummaryMessage: null };
+274:  return {
+326:  return {
+350:    "- This ledger contains paths only; re-read a listed file only when an exact current excerpt is required for a new claim.\n" +
+440:      return { index, score };
+479: * Recovery tool wiring: recovery is a bounded verification pass, not an edit
+481: * ground a disputed claim, while keeping every write tool out of recovery.
+489:/** Cap on recovery tool-call rounds so a confused recovery model cannot loop. */
+491:/** Bound each recovery round-trip tool result so context stays bounded. */
+493:/** Capability probes are short reports; recovery must not become a second audit. */
+498: * Run one recovery provider call with both a server-owned deadline and an
+500: * option, so the race is still required; attaching a rejection handler keeps a
+510:    const error = new Error("capability probe recovery deadline exhausted");
+515:    const error = new Error("capability probe recovery cancelled");
+525:  // The operation owns its own provider resources; observe late failures when
+531:      const error = new Error("capability probe recovery timed out");
+540:          const error = new Error("capability probe recovery cancelled");
+547:          const error = new Error("capability probe recovery cancelled");
+565: * Classify a terminal structured Recovery failure into a distinct error kind so
+566: * analysts can tell WHY recovery failed instead of every case collapsing into a
+570: *  - parse failures     -> PARSE_FAILURE (the candidate was not a valid JSON envelope)
+571: *  - provider failures  -> TIMEOUT when the code signals a timeout, else PROVIDER_FAILURE
+572: *  - contract failures  -> EVIDENCE_FAILURE when the report was rebuilt deterministically
+580:  failure:
+587:  if (!failure) return undefined;
+588:  switch (failure.kind) {
+592:      return /timeout|timed.?out|deadline/i.test(failure.code)
+620:    return { excerpt: content ? "(source excerpt budget exhausted)" : "(empty source body)", consumed: 0 };
+630:    return { excerpt: content, consumed: content.length };
+640:  return {
+648: * next recovery attempt's correction prompt. The full recovered windows already
+658:    recoveryAttemptId: string;
+672:      `- ${datum.file} (lines ${datum.startLine}–${datum.endLine}, symbol "${datum.symbol}", recoveryAttemptId: ${datum.recoveryAttemptId}): ${excerpt}`,
+683:  return {
+686:      `structured envelope parse failed on recovery attempt ${attempt}`,
+705:  const namesDefect = /(?:behavioral\s+defect|defect|bug|issue|flaw|failure|vulnerab(?:ility|le)|عيب(?:\s+سلوكي)?|خلل|مشكلة|ثغرة|فشل)/i.test(
+726:  return /(?:\b(?:the\s+)?(?:system|implementation|verification(?:\s+system)?)\s+(?:is\s+)?confirmed\b|\bworks?\s+correctly\b|\boperates?\s+correctly\b|\bno\s+fixes?\s+(?:are\s+)?required\b|تم\s+تأكيد|يعمل\s+بشكل\s+صحيح|لا\s+توجد\s+إصلاحات\s+مطلوبة)/iu.test(
+842:      return {
+871:      return { response: withVerifiedSources(lines.join("\n")), sources: verifiedSources };
+886: * AI-009: decide whether a BEHAVIOR_QUERY answer must be treated as a failure.
+903:  "NOT PROVEN — EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED: source evidence was retained, but the answer did not close every required claim with a grounded source excerpt. An evidence inventory alone is not a final answer.";
+907:  "BLOCKED — the declared objective was not completed: required claims or required reachability edges remain unproven, so no final answer is emitted.";
+929:  requiredClaimClosure: RequiredClaimClosure | null;
+951:        "an answer is final only when every required claim is closed; these are not:",
+961:  return {
+962:    requiredClaimClosure: closure,
+989:  recoveryScopeViolated?: boolean;
+999:    return { gate: null, blocked: false, gatedResponse: opts.response, rejectionReason: undefined };
+1019:  const recoveryScopeViolated = opts.recoveryScopeViolated ?? false;
+1020:  // AI-OBJ-002 grounded closure: a required claim closes when the run retained a
+1032:    ...closedByEvidence.filter((c) => c.status === "CLOSED"),
+1033:    ...closedEdges.filter((c) => c.status === "CLOSED"),
+1038:  // JSON/proven claim unless the required claim is supplied as closed. The cast
+1044:        .filter((c) => c.status === "CLOSED")
+1045:        .map((c) => ({ claimId: c.claimId, text: c.text, taskType: "objective", evidenceIds: [], status: "SUPPORTED" })),
+1068:    recoveryScopeViolated,
+1072:    ? `objective:${objective.objectiveType}:${gate.status}:${(
+1081:        `status:${gate.status}`,
+1092:  return { gate, blocked, gatedResponse, rejectionReason };
+1133:  return { gatedResponse, blocked: gate.blocked };
+1156:    recoveryAttemptId: string;
+1191:  // EI-017/018: recovered evidence from a rejected recovery attempt is fed back
+1203:            `WINDOW (lines ${datum.startLine}–${datum.endLine}, recoveryAttemptId: ${datum.recoveryAttemptId}):`,
+1217:        "Use this objective to decide what behavior to assess, but accept a Finding only when its required claims are independently supported by the verified source excerpt and evidence gate.",
+1229:        "A suspicious name, fallback value, comment, import, or static status string is only a candidate, not a Finding. " +
+1233:        "Never invent Finding IDs, citations, failures, test results, scores, or repair phases. " +
+1259: * already-retained reads. This deliberately has no tools: recovery can repair
+1317: * exact executable quote required by the evidence gate. Give it one bounded
+1319: * from the C1-C7 capability-probe recovery contract.
+1510:  return {
+1576:    requiredClaims: ledger.requiredClaims,
+1579:    requiredEdges: ledger.requiredEdges,
+1582:    recoveryTriggered: ledger.recoveryTriggered,
+1583:    recoveryTarget: ledger.recoveryTarget,
+1654:          (recoverySignal) => opts.strategy.call(
+1668:              signal: recoverySignal,
+1818:  return {
+1842:  /^(language|branch|path|quality|status|metrics|graph|entities|relationships)$/i,
+1846:  /^(read_file|list_directory|search_code|write_file|git_status|git_diff|git_log)$/i,
+2111:  // root still reports unread files or a non-COMPLETE status. Conversely,
+2115:      root.status !== "COMPLETE" ||
+2165:  // EI-036: derive the scoped finding status from the actual per-implementation-file
+2212:    kind: "forensic_status",
+2249: * FEG-017: emit the terminal-failure explanation step. Replaces a flat
+2252: * bare "not proven" bubble. Emitted only for genuine failure terminals:
+2254: * - a run that retained evidence but never closed a required claim is
+2319:  const recoveryBlocked =
+2328:      recoveryBlocked,
+2370:  // arbitrary prose into a report because every section is still required and
+2403: * PR-E: Extended return type that carries an optional parse-failure marker.
+2711: * pre-read path) or a truthful failure reason for FIRST_EVIDENCE_UNAVAILABLE.
+2718:    return { ok: false, reason: "primary evidence target path contains a null byte" };
+2724:    return { ok: false, reason: "workspace root is inaccessible" };
+2728:    return { ok: false, reason: "primary evidence target escapes the workspace (lexical traversal)" };
+2734:    return { ok: false, reason: "primary evidence target does not exist on disk" };
+2737:    return { ok: false, reason: "primary evidence target resolves outside the workspace via a symlink" };
+2740:    return { ok: true, raw: await fs.readFile(real, "utf8") };
+2742:    return {
+2911:      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "refresh_project_scan", "query_knowledge_graph", "discover_project_apis"].includes(tool.function.name))
+3033:      return { name, score };
+3073: * Build the correction-call options used after a schema/JSON parse failure.
+3078: * response-format constraint so recovery never becomes a hard failure.
+3097:  return {
+3125:    // The agent owns the ordered recovery chain. Do not add another provider
+3131:    // Recovery is now read-capable: the recovery model may re-read the actual
+3135:    // loop so a confused recovery model cannot spin.
+3144:    return {
+3154:  return {
+3173:          const error = new Error("forensic recovery timed out");
+3216:      return {
+3224:      return { kind: "BEHAVIOR_ANSWER_RESULT", answer: semanticBehaviorAnswer };
+3230:      return {
+3244:      return {
+3253:      return {
+3261:      return {
+3314:      return {
+3323:  return {
+3374:    "### Evidence status",
+3436:   * Forwarded directly to executeToolLoop; never throws.
+3568:    return {
+3591:    // response field as a short compatibility/status message so the same plan
+3595:    return {
+3763:    const running = executionNodeStates.find((node) => node.status === "running");
+3783:    nextStatus: ExecutionNode["status"],
+3799:    if (!node) return executionNodeStates.find((candidate) => candidate.status === "running");
+3800:    if (node.status === "queued") transitionExecutionNodeSafe(node.id, "running");
+3826:      if (step.result.status === "passed") {
+3828:      } else if (step.repairState === "REPAIRING" && step.result.status === "failed") {
+3843:      const running = executionNodeStates.find((node) => node.status === "running");
+3871:  // AI-OBJ-005/007: required reachability edges proven by runtime-observed links
+3875:  // references can never close a required edge.
+3895:    return {
+3906:    return {
+3909:        : "There is no verified repair phase ready to execute. Unproven phases are blocked until the source is read and the failure is reproduced.",
+3917:    return {
+3932:    return {
+3952:  // report a repairBlockReason on the forensic_status step. Derive the scoped
+3953:  // finding status from the plan's OWN target files (the exact paths the write
+3986:    return {
+4426:  // synthesis fallback, or recovery step can silently switch back to the
+4526:            "- Complete reads: required\n" +
+4565:        coverage.status === "PARTIAL" || coverage.status === "BUDGET_EXHAUSTED",
+4577:                    `${coverage.root}=${coverage.status} (${coverage.readFiles}/${coverage.discoveredFiles})`,
+4910:  // On any failure this block is skipped and the standard single-loop path
+5023:      return {
+5089:          return {
+5090:            status: "blocked" as const,
+5095:          return {
+5096:            status: "blocked" as const,
+5130:                     "Re-read the approved files, make a new scoped patch that addresses the failure, and rerun validation.",
+5147:        const childLoop = await executeToolLoop({
+5159:          toolChoice: "required",
+5213:            latestNodeValidation.result.status !== "passed" &&
+5240:              typeof parsed.status === "string" &&
+5253:              status: "unavailable",
+5270:            automaticValidation.status === "passed"
+5272:              : automaticValidation.status === "failed" &&
+5282:            status: automaticValidation.status,
+5288:              (failure) => failure.name || failure.message,
+5301:              automaticValidation.status === "passed"
+5315:        const passedValidation = latestProfileValidation?.result.status === "passed";
+5334:          return {
+5335:            status: "blocked" as const,
+5345:            step.result.status !== "passed",
+5352:          return {
+5353:            status: "blocked" as const,
+5381:            if (proof.status !== "passed") {
+5396:              return {
+5397:                status: "failed" as const,
+5406:          return {
+5407:            status: "passed" as const,
+5413:        return {
+5414:          status: "failed" as const,
+5433:        coordinatedPlan.status !== "passed",
+5456:    return {
+5467:  const loopResult = await executeToolLoop({
+5483:        ? "required"
+5534:    // must carry proof of why it is required. Enable the gate whenever traversal
+5550:        "retained source evidence was handed to bounded recovery",
+5589:    return {
+5607:  // and ensures the forensic gate is fail-closed on truncation or read failure.
+5618:      return {
+5635:          status: root.coverageComplete
+5702:        "report built from completed tool telemetry without a model recovery call",
+5728:    return {
+5788:    return {
+5827:    return {
+5912:    return {
+5925:    return {
+5962:    recoveryAttempts?: number;
+5972:    const recoveryAttempts = input.recoveryAttempts ?? 0;
+5974:      .update(`${message}|${model}|${recoveryAttempts}`)
+5994:            status: input.sourceCoverage.complete
+6006:      recoveryAttempts,
+6057:    // other statuses (FIXTURE_PROVEN, TEST_PROVEN, MIXED_EVIDENCE).
+6069:    return { gatedResponse, blocked, rejectionReason, runtimeLedger };
+6162:        recoveryAttempts: 0,
+6168:      // FEG-011/012: apply the SHARED required-claim gate on this direct-stream
+6304:      return {
+6398:      // telemetry-gated text, and only override to required-claim NOT PROVEN when
+6418:        recoveryAttempts: 0,
+6425:      // FEG-011/012: apply the SHARED required-claim gate on this native-SSE
+6561:      return {
+6596:  // below; this is only an envelope recovery, not an evidence bypass.
+6633:  // and sends only a generic fallback into capability recovery.
+6689:      "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
+6723:        `correction provider failure code: ${errorCode}`,
+6736:  // Forensic contract recovery: tool gathering may succeed while a model
+6737:  // returns the six sections without the required markdown contract, or with
+6740:  // gathered. This call deliberately has no tools, so recovery cannot trigger
+6744:  // it is still safe to show to the no-tools recovery prompt, while skipping
+6745:  // recovery would turn a recoverable plain-text synthesis into an immediate
+6747:  let recoveryAttemptsUsed = 0;
+6748:  let recoveryFailureKind: RecoveryFailureKind | undefined;
+6752:   * EI-017/018: raw data from targeted reads issued during claim recovery.
+6754:   * after recovery completes (runId depends on recoveryAttemptsUsed).
+6760:    recoveryAttemptId: string;
+6781:    // re-enters the structured recovery path below with real evidence.
+6854:    const recoveryPackets = buildForensicEvidencePackets(forensicEvidence, orderedForensicRoots);
+6900:    // section shape, but recovery must still get a chance to repair the
+6912:          ? "The previous forensic report had an Evidence Map that could not be verified as written. The verifier rebuilt that map from completed reads, but the provider report is still a recovery candidate."
+6924:              "If the source does not support the candidate or a required field cannot be grounded, emit NO_FINDING only after resolving the contradiction; never combine a positive defect claim or repair scope with an empty Findings array.",
+6927:        "Do not invent Finding IDs. Emit an ID only when the Finding has all required fields and its cited file/evidence is present in the completed reads below.",
+6949:        "Never invent Finding IDs, citations, failures, test results, scores, or repair phases. A repair phase is valid only when its findingId exists in findings, names a registered validationProfile, and the checklist describes the behavior-specific regression it must verify.",
+6964:      const recoveryProviderFailureCodes: string[] = [];
+6974:        // If FIRST_EVIDENCE recovery was attempted (a single primary target
+6976:        // FIRST_EVIDENCE_UNAVAILABLE replaces the generic "recovery skipped"
+6986:            details: ["FIRST_EVIDENCE recovery failed", firstEvidenceFailure],
+7024:        // Match the enlarged provider-owned recovery chain (max 3 live
+7027:        const recoveryModelChain = resolvedRecoveryModelChain.slice(0, 3);
+7028:        const recoveryModelAttemptCount = Math.max(1, recoveryModelChain.length);
+7046:          recoveryPackets.length > 0 ? recoveryPackets : [fallbackPacket];
+7048:        let recoveryModelOverride: string | undefined;
+7049:        let recoveryAccepted = false;
+7056:        let recoveryProducedNoFinding = false;
+7067:            recoveryViolationHints = [
+7098:            recoveryViolationHints = mergedResult.violations.slice(0, 6);
+7106:            recoveryViolationHints = [
+7107:              "Merged NO_FINDING recovery lacks a source-grounded noFindingBasis; behavioral assessment remains incomplete.",
+7149:            recoveryProducedNoFinding = true;
+7152:          recoveryAccepted = true;
+7155:        let recoveryViolationHints = initialContract.violations.length > 0
+7158:        const recoveryAttemptLimit =
+7159:          packetsForRecovery.length * recoveryModelAttemptCount;
+7160:        const recoveryDeadline = Date.now() + FORENSIC_RECOVERY_DEADLINE_MS;
+7162:          let recoveryAttempt = 0;
+7163:          recoveryAttempt < recoveryAttemptLimit &&
+7164:          !recoveryAccepted &&
+7166:          Date.now() < recoveryDeadline;
+7167:          recoveryAttempt += 1
+7169:          recoveryAttemptsUsed = recoveryAttempt + 1;
+7171:          const packetIndex = Math.floor(recoveryAttempt / recoveryModelAttemptCount);
+7172:          const recoveryPacket = packetsForRecovery[packetIndex]!;
+7174:            recoveryPacket.files.length === forensicEvidence.fileContents.size;
+7178:            root: recoveryPacket.root,
+7181:            fileCount: recoveryPacket.files.length,
+7182:            implementationFiles: recoveryPacket.implementationFiles,
+7183:            contextFiles: recoveryPacket.contextFiles,
+7184:            generatedFiles: recoveryPacket.generatedFiles,
+7185:            status: "STARTED",
+7188:            kind: "forensic_recovery_start",
+7189:            attempt: recoveryAttempt + 1,
+7196:          const attemptCorrectionPrompt = recoveryAttempt === 0
+7200:                "The previous recovery candidate was rejected. Correct these exact issues in this attempt:",
+7201:                ...recoveryViolationHints.map((violation) => `- ${violation}`),
+7205:          const recoveryMessages = buildForensicRecoveryMessages(
+7206:            recoveryPacket.evidence,
+7215:          const remainingRecoveryMs = Math.max(1, recoveryDeadline - Date.now());
+7216:          const recoveryOptions = buildForensicRecoveryOptions(providerId, model, apiKey, undefined, signal);
+7217:          recoveryOptions.timeoutMs = Math.min(
+7218:            recoveryOptions.timeoutMs ?? 30_000,
+7221:          if (recoveryModelOverride) {
+7222:            recoveryOptions.model = recoveryModelOverride;
+7227:            recoveryOptions.maxFallbackModels = 1;
+7230:          // (never write_file / replace_text) so the recovery model can re-read
+7233:          const recoveryReadTools = Array.isArray(tools)
+7236:          if (recoveryReadTools.length > 0) {
+7237:            recoveryOptions.tools = recoveryReadTools;
+7238:            recoveryOptions.toolChoice = "auto";
+7240:          const recoveryStartedAt = Date.now();
+7241:          let recovery: Awaited<ReturnType<typeof strategy.call>>;
+7243:            let recoveryRoundMessages = recoveryMessages;
+7244:            let recoveryToolRound = 0;
+7248:              recovery = await awaitBoundedRecovery(
+7249:                strategy.call(recoveryRoundMessages, recoveryOptions),
+7250:                Math.min(recoveryOptions.timeoutMs ?? 30_000, remainingRecoveryMs),
+7252:              // A recovery model may issue read tool calls instead of an
+7255:              // so a confused recovery model cannot spin past the cap.
+7257:                Array.isArray(recovery.toolCalls) &&
+7258:                recovery.toolCalls.length > 0 &&
+7259:                recoveryToolRound < MAX_RECOVERY_TOOL_ROUNDS
+7261:                const executableCalls = recovery.toolCalls.filter(
+7268:                // window) so recovery evidence reflects the real file.
+7289:                recoveryToolRound += 1;
+7292:                  content: recovery.content,
+7293:                  tool_calls: recovery.toolCalls,
+7333:                    `recovery read round ${recoveryToolRound}: executed ${executableCalls.length} tool call(s)`,
+7340:                  round: recoveryToolRound,
+7344:                recoveryRoundMessages = [
+7345:                  ...recoveryRoundMessages,
+7350:            } while (providerReturnedToolCalls && recoveryToolRound < MAX_RECOVERY_TOOL_ROUNDS);
+7364:            if (!recoveryProviderFailureCodes.includes(providerCode)) {
+7365:              recoveryProviderFailureCodes.push(providerCode);
+7370:              root: recoveryPacket.root,
+7373:              fileCount: recoveryPacket.files.length,
+7374:              implementationFiles: recoveryPacket.implementationFiles,
+7375:              contextFiles: recoveryPacket.contextFiles,
+7376:              generatedFiles: recoveryPacket.generatedFiles,
+7377:              status: "FAILED",
+7380:            recoveryViolationHints = [`Provider recovery failed with ${providerCode}; produce a complete six-section report on the next attempt.`];
+7385:                : recoveryModelOverride ?? model;
+7399:                kind: "recovery_model_call",
+7402:                attempt: recoveryAttempt + 1,
+7405:            const currentIndex = recoveryModelChain.indexOf(failedModel);
+7407:              ? recoveryModelChain[currentIndex + 1]
+7414:              attempt: recoveryAttempt + 1,
+7418:                recoveryModelOverride = undefined;
+7422:              // read. Once the live recovery chain is exhausted, fall through
+7425:              // generic chat failure.
+7428:            recoveryModelOverride = nextModel;
+7434:              attempt: recoveryAttempt + 1,
+7438:          const actualRecoveryModel = recovery.model || recoveryOptions.model || model;
+7443:            promptTokens: recovery.usage?.promptTokens ?? 0,
+7444:            completionTokens: recovery.usage?.completionTokens ?? 0,
+7445:            durationMs: Date.now() - recoveryStartedAt,
+7448:            kind: "recovery_model_call",
+7451:            attempt: recoveryAttempt + 1,
+7461:          const recoveryContent = recovery.content ?? "";
+7463:            recoveryContent,
+7470:              recoveryPacket.evidence,
+7503:                  `structured envelope accepted for packet ${recoveryPacket.root}`,
+7512:                attempt: recoveryAttempt + 1,
+7513:                packet: recoveryPacket.root,
+7532:                    "NO_FINDING recovery requires noFindingBasis naming the inspected file and explaining why the requested behavioral defect is not proven",
+7535:                recoveryViolationHints = lastRecoveryFailure.violations;
+7540:                    `empty Recovery envelope omitted a source-grounded noFindingBasis on attempt ${recoveryAttempt + 1}`,
+7557:                    recoveryPacket.evidence,
+7566:                recoveryProducedNoFinding =
+7572:                recoveryViolationHints = [
+7574:                    ? "The previous Recovery candidate incorrectly returned an empty Finding set while the original report asserted a positive defect. Reconcile the contradiction from the verified source excerpt; emit FINDING_PROVEN only with every required field, otherwise mark every positive claim NOT PROVEN."
+7576:                      ? "NO_FINDING packet recovery must provide a source-grounded noFindingBasis for the active packet."
+7578:                      ? `Packet ${recoveryPacket.root} produced no Finding. Continue with the next forensic packet; this is not a global NO_FINDING verdict.`
+7585:                    `structured envelope contained no directly proven Finding on recovery attempt ${recoveryAttempt + 1}`,
+7594:                recoveryViolationHints = lastRecoveryFailure.violations;
+7598:                // Recovered evidence is tagged with recoveryAttemptId (EI-018) and

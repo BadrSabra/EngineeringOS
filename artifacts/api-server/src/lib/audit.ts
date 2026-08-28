@@ -51,6 +51,36 @@ async function insertAudit(row: typeof auditLogsTable.$inferInsert): Promise<voi
   await db.insert(auditLogsTable).values(row).onConflictDoNothing();
 }
 
+function isDeletedProjectReference(
+  error: unknown,
+  row: typeof auditLogsTable.$inferInsert,
+): boolean {
+  if (!row.projectId) return false;
+
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 4; depth++) {
+    if (typeof current !== "object") break;
+    const candidate = current as {
+      code?: unknown;
+      constraint?: unknown;
+      message?: unknown;
+      cause?: unknown;
+    };
+    const message = typeof candidate.message === "string" ? candidate.message : "";
+    if (
+      candidate.code === "23503" &&
+      (
+        candidate.constraint === "audit_logs_project_id_projects_id_fk" ||
+        message.includes("audit_logs_project_id_projects_id_fk")
+      )
+    ) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+  return false;
+}
+
 function buildAuditRow(params: RecordAuditParams): typeof auditLogsTable.$inferInsert {
   return {
     id: randomUUID(),
@@ -149,6 +179,24 @@ export async function drainPendingAudits(): Promise<void> {
         incrementRecoveredAudits();
         logger.info({ auditId: id, attempts: pending.attempts + 1 }, "recovered pending audit log entry");
       } catch (err) {
+        if (isDeletedProjectReference(err, pending.row)) {
+          const originalProjectId = pending.row.projectId;
+          const historicalRow = { ...pending.row, projectId: null };
+          try {
+            await insertAudit(historicalRow);
+            pendingAudits.delete(id);
+            await removePersistedAudit(id);
+            decrementPendingAudits();
+            incrementRecoveredAudits();
+            logger.warn(
+              { auditId: id, originalProjectId, attempts: pending.attempts + 1 },
+              "recovered pending audit log entry after project deletion",
+            );
+            continue;
+          } catch (fallbackErr) {
+            err = fallbackErr;
+          }
+        }
         pending.attempts++;
         pending.nextAttemptAt = Date.now() + retryDelaysMs[Math.min(pending.attempts - 1, retryDelaysMs.length - 1)]!;
         try {

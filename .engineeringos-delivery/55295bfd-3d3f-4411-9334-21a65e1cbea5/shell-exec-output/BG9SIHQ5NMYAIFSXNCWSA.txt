@@ -1,0 +1,172 @@
+./lib/db/src/schema/ai_executions.ts:3:import { aiChatMessagesTable, aiChatSessionsTable } from "./ai_chats.js";
+./lib/db/src/schema/ai_executions.ts:36:    .references(() => aiChatMessagesTable.id, { onDelete: "set null" }),
+./lib/db/src/schema/ai_chats.ts:41:export const aiChatMessagesTable = pgTable("ai_chat_messages", {
+./lib/db/src/schema/ai_chats.ts:76:  index("idx_ai_chat_messages_session_id").on(t.sessionId),
+./lib/db/src/schema/ai_chats.ts:78:  index("idx_ai_chat_messages_session_id_created_at").on(t.sessionId, t.createdAt),
+./lib/db/src/schema/ai_chats.ts:83:export type InsertAiChatMessage = typeof aiChatMessagesTable.$inferInsert;
+./lib/db/src/schema/ai_chats.ts:84:export type AiChatMessage = typeof aiChatMessagesTable.$inferSelect;
+./lib/db/src/schema/ai_change_proposals.ts:3:import { aiChatMessagesTable, aiChatSessionsTable } from "./ai_chats.js";
+./lib/db/src/schema/ai_change_proposals.ts:38:    .references(() => aiChatMessagesTable.id, { onDelete: "cascade" }),
+./artifacts/api-server/src/routes/ai.test.ts:22:  aiChatMessagesTable,
+./artifacts/api-server/src/routes/ai.test.ts:457:  await db.insert(aiChatMessagesTable).values({
+./artifacts/api-server/src/routes/ai.test.ts:573:  await db.insert(aiChatMessagesTable).values({
+./artifacts/api-server/src/routes/ai.test.ts:637:    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId));
+./artifacts/api-server/src/routes/ai.test.ts:1170:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai.test.ts:1171:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+./artifacts/api-server/src/routes/ai.test.ts:1721:    await db.insert(aiChatMessagesTable).values([
+./artifacts/api-server/src/routes/ai.test.ts:1777:    await db.insert(aiChatMessagesTable).values([
+./artifacts/api-server/src/routes/ai.test.ts:1815:    await db.insert(aiChatMessagesTable).values([
+./artifacts/api-server/src/routes/ai.test.ts:1883:    await db.insert(aiChatMessagesTable).values({
+./artifacts/api-server/src/routes/ai.test.ts:1932:    await db.insert(aiChatMessagesTable).values({
+./artifacts/api-server/src/routes/ai.test.ts:1980:    await db.insert(aiChatMessagesTable).values({
+./artifacts/api-server/src/routes/ai.test.ts:2044:    await db.insert(aiChatMessagesTable).values({
+./artifacts/api-server/src/routes/ai.test.ts:2074:    await db.insert(aiChatMessagesTable).values([
+./artifacts/api-server/src/routes/ai.test.ts:2117:    await db.insert(aiChatMessagesTable).values({
+./artifacts/api-server/src/routes/ai.test.ts:2355:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai.test.ts:2356:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+./artifacts/api-server/src/routes/ai.test.ts:2386:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai.test.ts:2387:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+./artifacts/api-server/src/routes/ai.test.ts:2639:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai.test.ts:2640:      .where(eq(aiChatMessagesTable.id, messageId))
+./artifacts/api-server/src/routes/ai.test.ts:2671:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai.test.ts:2672:      .where(eq(aiChatMessagesTable.id, messageId))
+./artifacts/api-server/src/routes/ai.test.ts:2677:      .update(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai.test.ts:2679:      .where(eq(aiChatMessagesTable.id, messageId));
+./artifacts/api-server/src/routes/ai.test.ts:2689:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai.test.ts:2690:      .where(eq(aiChatMessagesTable.id, messageId))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:33:  aiChatMessagesTable,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:331:  await db.insert(aiChatMessagesTable).values({
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:404:        .delete(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:405:        .where(eq(aiChatMessagesTable.sessionId, s.id))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1571:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1572:      .where(eq(aiChatMessagesTable.sessionId, plan.sessionId));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1721:      .select({ taskResult: aiChatMessagesTable.taskResult })
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1722:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1723:      .where(eq(aiChatMessagesTable.id, plan.messageId))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2237:      .from(aiChatMessagesTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2238:      .where(eq(aiChatMessagesTable.id, doneMessage.id))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2759:        content: aiChatMessagesTable.content,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2760:        sources: aiChatMessagesTable.sources,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2761:        behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+
+    expect(await screen.findByText('This AI execution is no longer eligible for resume.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    fetchSpy.mockRestore();
+  });
+
+  it('keeps a resumed analysis failure incomplete and refreshes its durable state', async () => {
+    mocks.activeExecutionStatus = { status: 'failed' };
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-failed-resume',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      resumeToken: 'opaque-resume-token',
+      message: 'Verify the analysis evidence',
+    }));
+
+    const { invalidateQueries } = renderAiChat();
+    expect(await screen.findByText('A saved AI execution is ready to resume')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+
+    await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
+      executionId: 'execution-failed-resume',
+      resumeToken: 'opaque-resume-token',
+      message: 'Verify the analysis evidence',
+    })));
+
+    act(() => {
+      (mocks.streamCallbacks as { onError?: (error: Record<string, unknown>) => void }).onError?.({
+        executionId: 'execution-failed-resume',
+        code: 'TOOL_UNAVAILABLE',
+        message: 'The required analysis did not complete.',
+      });
+    });
+
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['ai-execution', 'execution-failed-resume'],
+      });
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['ai-messages', 'session-1'],
+      });
+    });
+    expect(screen.queryByText(/COMPLETED/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
+  });
+
+  it('hydrates persisted chat data and keeps the audit pointer when the server completed offline', async () => {
+    mocks.activeExecutionStatus = { status: 'completed' };
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+  planDecisionPending,
+  onPlanBuild,
+  planBuildPending,
+  browserProfileFreshness,
+  onRegenerateReport,
+  reportRegenerationPending,
+  onRetryStructuredTask,
+  retryPending,
+}: {
+  msg: ChatMessage;
+  projectId?: string;
+  proposalId?: string;
+  onPlanDecision?: (messageId: string, decision: PlanDecision) => void;
+  planDecisionPending?: boolean;
+  onPlanBuild?: (messageId: string) => void;
+  planBuildPending?: boolean;
+  browserProfileFreshness?: BrowserValidationProfileFreshness | null;
+  onRegenerateReport?: (messageId: string) => void;
+  reportRegenerationPending?: boolean;
+  onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
+  retryPending?: boolean;
+}) {
+  const isUser = msg.role === 'user';
+  const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
+  const sources = parseSources(msg.sources);
+  const toolTrace = parseToolTrace(msg.toolTrace);
+  const activityEvents = msg.activityEvents ?? activityEventsFromToolTrace(toolTrace);
+  const executionSummary = !isUser ? parseExecutionSummary(toolTrace) : null;
+  const repairRadar = !isUser ? parseRepairRadar(toolTrace) : null;
+  // UI-01: strip any accidental JSON envelope before rendering.
+  const displayContent = extractDisplayText(msg.content);
+  const redactedDisplayContent = redactInternalDetails(displayContent);
+  const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
+  const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
+  const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+  const structuredFailure = !isUser && failedTurn && msg.structuredTask
+    ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
+    : null;
+  const failureKindLabel = msg.failureKind === 'PROVIDER_FORMAT'
+    ? 'Provider format issue'
+    : msg.failureKind === 'RATE_LIMIT'
+      ? 'Rate limit'
+      : msg.failureKind === 'CONFIGURATION'
+        ? 'Configuration issue'
+        : msg.failureKind === 'TRANSPORT'
+          ? 'Connection interrupted'
+          : 'Provider failure';
+  const userFacingContent = internalTechnicalDump
+    ? 'The agent produced internal technical details for this run.'
+    : redactedDisplayContent;
+  const persistedForensicStatus = !isUser
+    ? [...toolTrace].reverse().find((entry) => entry.kind === 'forensic_status')
+    : undefined;
+  const finalVerdict = !isUser
+    ? getFinalForensicVerdict(displayContent, persistedForensicStatus?.findingStatus)
+    : null;
+  const productionTrace = !isUser
+    ? [...toolTrace].reverse().find(
+        (entry) => entry.kind === 'production_trace' && entry.productionTrace,
+      )?.productionTrace
+    : undefined;
+  const crossFileTraces = !isUser
+    ? toolTrace
+        .filter((entry) => entry.kind === 'cross_file_trace' && entry.crossFileTrace)
+        .map((entry) => entry.crossFileTrace as AiCrossFileSemanticTrace)
+    : [];
+  const isForensicFallback = !isUser && isForensicFallbackMessage(displayContent);
+  const isEvidenceOnlyFallback = isForensicFallback && isEvidenceOnlyFallbackMessage(displayContent);
+  const incompleteBeforeEvidence = !isUser && isIncompleteBeforeEvidenceSummary(executionSummary);
+  const isNoFindingFallback = !isUser && Boolean(
+    finalVerdict === 'NO FINDING' ||

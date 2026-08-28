@@ -1,0 +1,351 @@
+artifacts/api-server/src/routes/git.ts:397:      // edited an applied file after validation, or another actor may have
+artifacts/api-server/src/routes/git.ts:478:    const { stdout: commitHash } = await runGit(["rev-parse", "HEAD"], rootPath);
+artifacts/api-server/src/routes/git.ts:490:      stateAfter: { commitMessage: message.trim(), commitHash, committedPaths, proposalId: proposalId ?? null },
+artifacts/api-server/src/routes/git.ts:506:        commitHash,
+artifacts/api-server/src/routes/git.ts:512:        .set({ lifecycle: "committed", committedHash: commitHash })
+artifacts/api-server/src/routes/git.ts:521:    return res.json({ ok: true, output: stdout || stderr, correlationId, commitHash, committedPaths });
+artifacts/api-server/src/routes/git.ts:569:    let commitHash: string | undefined;
+artifacts/api-server/src/routes/git.ts:598:      commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
+artifacts/api-server/src/routes/git.ts:603:        !commitHash
+artifacts/api-server/src/routes/git.ts:613:      if (currentHead !== commitHash) {
+artifacts/api-server/src/routes/git.ts:617:          expectedCommit: commitHash,
+artifacts/api-server/src/routes/git.ts:622:      commitHash = (await runGit(["rev-parse", "HEAD"], project.rootPath)).stdout;
+artifacts/api-server/src/routes/git.ts:627:      if (!commitHash) {
+artifacts/api-server/src/routes/git.ts:637:        commitHash,
+artifacts/api-server/src/routes/git.ts:651:      remoteCommitHash = commitHash;
+artifacts/api-server/src/routes/git.ts:668:        commitHash,
+artifacts/api-server/src/routes/git.ts:687:        commitHash,
+artifacts/api-server/src/routes/git.ts:760:    return res.json({ ok: true, branch, output: redact(output), correlationId, commitHash, remoteCommitHash });
+artifacts/api-server/src/lib/ai-execution-state.ts:53:  validationAttempts: number;
+artifacts/api-server/src/lib/ai-execution-state.ts:55:  validationProfile: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:61:  kind: "scope" | "behavior" | "validation" | "evidence";
+artifacts/api-server/src/lib/ai-execution-state.ts:234:  validationTargetPaths: string[];
+artifacts/api-server/src/lib/ai-execution-state.ts:245:  | "validationProfile"
+artifacts/api-server/src/lib/ai-execution-state.ts:247:  | "validationAttempts"
+artifacts/api-server/src/lib/ai-execution-state.ts:322:        id: "validation-passed",
+artifacts/api-server/src/lib/ai-execution-state.ts:323:        kind: "validation",
+artifacts/api-server/src/lib/ai-execution-state.ts:324:        description: "Registered validation passes for the approved scope.",
+artifacts/api-server/src/lib/ai-execution-state.ts:353:      !Array.isArray(value.validationTargetPaths)
+artifacts/api-server/src/lib/ai-execution-state.ts:388:            typeof candidate.validationProfile !== "string" ||
+artifacts/api-server/src/lib/ai-execution-state.ts:393:            (candidate.validationAttempts !== undefined && (
+artifacts/api-server/src/lib/ai-execution-state.ts:394:              typeof candidate.validationAttempts !== "number"
+artifacts/api-server/src/lib/ai-execution-state.ts:395:              || !Number.isInteger(candidate.validationAttempts)
+artifacts/api-server/src/lib/ai-execution-state.ts:396:              || candidate.validationAttempts < 0
+artifacts/api-server/src/lib/ai-execution-state.ts:397:              || candidate.validationAttempts > 3
+artifacts/api-server/src/lib/ai-execution-state.ts:407:              || typeof (candidate.lastFailure as { validationAttempts?: unknown }).validationAttempts !== "number"
+artifacts/api-server/src/lib/ai-execution-state.ts:408:              || !Number.isInteger((candidate.lastFailure as { validationAttempts: number }).validationAttempts)
+artifacts/api-server/src/lib/ai-execution-state.ts:409:              || (candidate.lastFailure as { validationAttempts: number }).validationAttempts < 0
+artifacts/api-server/src/lib/ai-execution-state.ts:410:              || (candidate.lastFailure as { validationAttempts: number }).validationAttempts > 3
+artifacts/api-server/src/lib/ai-execution-state.ts:426:            validationProfile: candidate.validationProfile as AiExecutionNodeCheckpoint["validationProfile"],
+artifacts/api-server/src/lib/ai-execution-state.ts:428:            validationAttempts: candidate.validationAttempts ?? 0,
+artifacts/api-server/src/lib/ai-execution-state.ts:438:                    validationAttempts: (candidate.lastFailure as { validationAttempts: number }).validationAttempts,
+artifacts/api-server/src/lib/ai-execution-state.ts:510:      || !Array.isArray(item.evidenceRefs) || typeof item.validationProfile !== "string"
+artifacts/api-server/src/lib/ai-execution-state.ts:511:      || !Number.isInteger(item.attempts) || !Number.isInteger(item.validationAttempts)
+artifacts/api-server/src/lib/ai-execution-state.ts:514:    const validationAttempts = item.validationAttempts as number;
+artifacts/api-server/src/lib/ai-execution-state.ts:521:      validationAttempts: Math.max(0, Math.min(validationAttempts, 3)),
+artifacts/api-server/src/lib/ai-execution-state.ts:523:      validationProfile: item.validationProfile.slice(0, 120),
+artifacts/api-server/src/lib/ai-execution-state.ts:532:      || !["scope", "behavior", "validation", "evidence"].includes(item.kind ?? "")
+artifacts/api-server/src/lib/ai-execution-state.ts:612: * redefine a node's title, scope, dependency graph, or validation profile.
+artifacts/api-server/src/lib/ai-execution-state.ts:632:      || planNode.validationProfile !== checkpointNode.validationProfile
+artifacts/api-server/src/lib/ai-execution-state.ts:634:      || checkpointNode.validationAttempts < planNode.validationAttempts
+artifacts/api-server/src/lib/ai-execution-state.ts:654:      validationAttempts: checkpointNode.validationAttempts,
+artifacts/api-server/src/lib/ai-execution-state.ts:720:    targetPaths: params.request.validationTargetPaths,
+artifacts/api-server/src/lib/delivery-workspace.ts:25:export type PromotionRecoveryResult = "PROMOTED" | "ROLLED_BACK" | "RECOVERY_REQUIRED";
+artifacts/api-server/src/lib/delivery-workspace.ts:60:  return changed ? "PROMOTED" : "ROLLED_BACK";
+artifacts/api-server/src/lib/delivery-workspace.ts:78:export function hashChangeSet(changes: readonly { path: string; newContent: string }[]): string {
+artifacts/api-server/src/lib/delivery-workspace.ts:88: * platforms and proves validation observed the exact bytes in the workspace.
+artifacts/api-server/src/lib/delivery-workspace.ts:90:export async function hashDeliveryWorkspace(workspaceRoot: string): Promise<string> {
+artifacts/api-server/src/lib/delivery-workspace.ts:112:export async function hashDeliveryFiles(
+artifacts/api-server/src/lib/delivery-workspace.ts:140:    // A retry of the same operation may be recovering a failed validation.
+artifacts/api-server/src/lib/delivery-workspace.ts:216:      changeSetHash: hashChangeSet(input.changes),
+artifacts/api-server/src/lib/ai-repair-validation.ts:25: * New validation results returned by runRepairValidation are always canonical.
+artifacts/api-server/src/lib/ai-repair-validation.ts:68:    timeoutMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:76:    timeoutMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:86:    timeoutMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:94:    timeoutMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:116:function validationNextAction(status: ValidationStatus, terminalState?: ValidationResult["terminalState"]): string {
+artifacts/api-server/src/lib/ai-repair-validation.ts:118:    return "Review the bounded timeout evidence, then rerun the same approved validation or narrow the approved check.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:124:      return "Review the bounded failure summary, correct the candidate, and rerun the approved validation.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:126:      return "Restore the registered validation profile or project workspace, then rerun validation.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:128:      return "Select an approved validation profile before attempting promotion.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:130:      return "Review the validation evidence before attempting another approved run.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:134:function validationTerminalState(status: ValidationStatus): ValidationResult["terminalState"] {
+artifacts/api-server/src/lib/ai-repair-validation.ts:151:  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-validation-"));
+artifacts/api-server/src/lib/ai-repair-validation.ts:188:        throw new Error(`Pending validation path escapes the project root: ${change.path}`);
+artifacts/api-server/src/lib/ai-repair-validation.ts:230:    name: match?.[1]?.trim() || "validation failure",
+artifacts/api-server/src/lib/ai-repair-validation.ts:254:    processBudgetMs: definition?.timeoutMs ?? config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:255:    overallBudgetMs: config.validationOverallTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:257:    remainingMs: config.validationOverallTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:258:    terminalState: status === "blocked" ? "timed_out" : validationTerminalState(status),
+artifacts/api-server/src/lib/ai-repair-validation.ts:259:    nextAction: validationNextAction(status, status === "blocked" ? "timed_out" : validationTerminalState(status)),
+artifacts/api-server/src/lib/ai-repair-validation.ts:270:      artifactRef: `validation-result:${evidenceId}`,
+artifacts/api-server/src/lib/ai-repair-validation.ts:314:      "Registered validation profile is unavailable.",
+artifacts/api-server/src/lib/ai-repair-validation.ts:324:  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
+artifacts/api-server/src/lib/ai-repair-validation.ts:326:    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+artifacts/api-server/src/lib/ai-repair-validation.ts:327:    await fs.access(path.resolve(validationWorkspace.rootPath, "package.json"));
+artifacts/api-server/src/lib/ai-repair-validation.ts:329:    await validationWorkspace?.cleanup();
+artifacts/api-server/src/lib/ai-repair-validation.ts:335:        ? "The pending changes could not be materialized into an isolated validation workspace."
+artifacts/api-server/src/lib/ai-repair-validation.ts:336:        : "The project root does not contain a package.json for the registered validation.",
+artifacts/api-server/src/lib/ai-repair-validation.ts:341:    const validationRootPath = validationWorkspace.rootPath;
+artifacts/api-server/src/lib/ai-repair-validation.ts:345:      rootPath: validationRootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:346:      cwd: validationRootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:373:            : boundedDetail(output) || `Registered validation failed with status ${execution.status}.`,
+artifacts/api-server/src/lib/ai-repair-validation.ts:375:        overallBudgetMs: config.validationOverallTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:377:        remainingMs: Math.max(0, config.validationOverallTimeoutMs - execution.durationMs),
+artifacts/api-server/src/lib/ai-repair-validation.ts:379:        nextAction: validationNextAction(
+artifacts/api-server/src/lib/ai-repair-validation.ts:391:      detail: output.slice(-2_000) || "Registered validation completed successfully.",
+artifacts/api-server/src/lib/ai-repair-validation.ts:393:      overallBudgetMs: config.validationOverallTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:395:      remainingMs: Math.max(0, config.validationOverallTimeoutMs - execution.durationMs),
+artifacts/api-server/src/lib/ai-repair-validation.ts:397:      nextAction: validationNextAction("passed"),
+artifacts/api-server/src/lib/ai-repair-validation.ts:408:      ? "Registered validation timed out."
+artifacts/api-server/src/lib/ai-repair-validation.ts:409:        : boundedDetail(output) || executionError.message || "Registered validation failed.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:422:      overallBudgetMs: config.validationOverallTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:423:      elapsedMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:426:      nextAction: validationNextAction("failed", executionError.killed ? "timed_out" : "failed"),
+artifacts/api-server/src/lib/ai-repair-validation.ts:429:    await validationWorkspace.cleanup();
+artifacts/api-server/src/lib/ai-repair-validation.ts:460:        "Registered validation exceeded its server-owned attempt deadline.",
+artifacts/api-server/src/lib/ai-repair-validation.ts:463:    }, config.validationOverallTimeoutMs);
+artifacts/api-server/src/lib/ai-repair-validation.ts:485:    result.status === "blocked" ? "timed_out" : validationTerminalState(result.status)
+artifacts/api-server/src/lib/ai-repair-validation.ts:489:    processBudgetMs: result.processBudgetMs ?? config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:490:    overallBudgetMs: result.overallBudgetMs ?? config.validationOverallTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:492:    remainingMs: Math.max(0, config.validationOverallTimeoutMs - elapsedMs),
+artifacts/api-server/src/lib/ai-repair-validation.ts:494:    nextAction: result.nextAction ?? validationNextAction(result.status, terminalState),
+artifacts/api-server/src/lib/ai-repair-validation.ts:509:  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
+artifacts/api-server/src/lib/ai-repair-validation.ts:511:    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+artifacts/api-server/src/lib/ai-repair-validation.ts:515:      rootPath: validationWorkspace.rootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:516:      cwd: validationWorkspace.rootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:518:        command.timeoutMs ?? config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:519:        config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:541:    await validationWorkspace?.cleanup();
+artifacts/api-server/src/lib/ai-repair-validation.ts:546: * Optional UI validation gate. It deliberately returns the same canonical
+artifacts/api-server/src/lib/ai-repair-validation.ts:547: * ValidationResult shape as command validation, so callers must explicitly
+artifacts/api-server/src/lib/ai-repair-validation.ts:593:      ? "Review the browser validation evidence; approval and scope gates still apply."
+artifacts/api-server/src/lib/ai-repair-validation.ts:594:      : "Review the browser validation block or failure, then rerun the approved Preview check.",
+artifacts/api-server/src/routes/ai/chat.ts:109:} from "../../lib/ai-repair-validation.js";
+artifacts/api-server/src/routes/ai/chat.ts:149:  hashChangeSet,
+artifacts/api-server/src/routes/ai/chat.ts:150:  hashDeliveryFiles,
+artifacts/api-server/src/routes/ai/chat.ts:151:  hashDeliveryWorkspace,
+artifacts/api-server/src/routes/ai/chat.ts:182:      && (step as Record<string, unknown>).kind === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:184:  const validation = latestValidation?.validation as ValidationResult | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:185:  const validationStatus = validation?.status;
+artifacts/api-server/src/routes/ai/chat.ts:187:  if (validationStatus === "passed") {
+artifacts/api-server/src/routes/ai/chat.ts:188:    return isProvenValidation(validation)
+artifacts/api-server/src/routes/ai/chat.ts:192:  if (validationStatus === "unavailable") return "UNAVAILABLE";
+artifacts/api-server/src/routes/ai/chat.ts:193:  if (validationStatus === "failed" || validationStatus === "blocked") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:328:      candidateHash: result.evidence.candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:330:      promotedHash: result.evidence.promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:369:        ...(typeof evidence.candidateHash === "string" ? { candidateHash: evidence.candidateHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:371:        ...(typeof evidence.promotedHash === "string" ? { promotedHash: evidence.promotedHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:455:  const validationCount = traces.filter((entry) =>
+artifacts/api-server/src/routes/ai/chat.ts:457:      (entry as { kind?: unknown }).kind === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:458:      || (entry as { phase?: unknown }).phase === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:460:  ).length + params.events.filter((event) => /validation/i.test(event.type)).length;
+artifacts/api-server/src/routes/ai/chat.ts:469:    validation: validationCount,
+artifacts/api-server/src/routes/ai/chat.ts:480:    validation: counts.validation >= 0,
+artifacts/api-server/src/routes/ai/chat.ts:777:      error: "The selected browser validation profile is not registered for this project.",
+artifacts/api-server/src/routes/ai/chat.ts:784:      error: "The selected browser validation profile belongs to an older project revision. Register a fresh browser check before continuing.",
+artifacts/api-server/src/routes/ai/chat.ts:831:  validationProfile?: ValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:921:  | "PROMOTION_INTENT"
+artifacts/api-server/src/routes/ai/chat.ts:922:  | "PROMOTED"
+artifacts/api-server/src/routes/ai/chat.ts:1007:    validationProfile?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1034:    if ((change.validationProfile ?? null) !== (storedChange.validationProfile ?? null)) {
+artifacts/api-server/src/routes/ai/chat.ts:1035:      return `validationProfile mismatch for "${change.path}"`;
+artifacts/api-server/src/routes/ai/chat.ts:1111:    const validationProfile = change.validationProfile ?? phase.validationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:1118:      { ...change, validationProfile },
+artifacts/api-server/src/routes/ai/chat.ts:1129:            kind: "validation",
+artifacts/api-server/src/routes/ai/chat.ts:1130:            id: validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:1131:            label: `Validation profile: ${validationProfile}`,
+artifacts/api-server/src/routes/ai/chat.ts:1145:    const validationProfile = change.validationProfile ?? "workspace-typecheck";
+artifacts/api-server/src/routes/ai/chat.ts:1147:      { ...change, validationProfile },
+artifacts/api-server/src/routes/ai/chat.ts:1151:          kind: "validation",
+artifacts/api-server/src/routes/ai/chat.ts:1152:          id: validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:1153:          label: `Validation profile: ${validationProfile}`,
+artifacts/api-server/src/routes/ai/chat.ts:1163:  validationReady = true,
+artifacts/api-server/src/routes/ai/chat.ts:1166:  if (!validationReady || !changes.length) return false;
+artifacts/api-server/src/routes/ai/chat.ts:1208:    if (!change.validationProfile) return false;
+artifacts/api-server/src/routes/ai/chat.ts:1212:      phase.validationProfile === change.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:1220:    .find((step): step is Extract<AgentStep, { kind: "validation" }> => step.kind === "validation");
+artifacts/api-server/src/routes/ai/chat.ts:1234:  const evidenceId = `validation-attempt:${randomUUID()}`;
+artifacts/api-server/src/routes/ai/chat.ts:1307:  phase?: "localization" | "evidence" | "patch_proposal" | "validation" | "repair_recovery" | "report";
+artifacts/api-server/src/routes/ai/chat.ts:1362:  validation?: import("@workspace/ai-orchestrator").PublicValidationResult;
+artifacts/api-server/src/routes/ai/chat.ts:1363:  /** Deprecated compatibility projection; new consumers must use validation. */
+artifacts/api-server/src/routes/ai/chat.ts:1364:  validationStatus?: ValidationResult["status"];
+artifacts/api-server/src/routes/ai/chat.ts:1366:  /** Deprecated compatibility projection; new consumers must use validation. */
+artifacts/api-server/src/routes/ai/chat.ts:1367:  validationProfile?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1368:  validationScenario?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1369:  validationCommand?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1370:  validationExitCode?: number | null;
+artifacts/api-server/src/routes/ai/chat.ts:1371:  validationFailedTests?: string[];
+artifacts/api-server/src/routes/ai/chat.ts:1372:  validationAffectedFiles?: string[];
+artifacts/api-server/src/routes/ai/chat.ts:1373:  validationFailedTestDetails?: ValidationResult["failedTests"];
+artifacts/api-server/src/routes/ai/chat.ts:1374:  validationChangedFiles?: string[];
+artifacts/api-server/src/routes/ai/chat.ts:1375:  validationAttempt?: number;
+artifacts/api-server/src/routes/ai/chat.ts:1376:  validationMaxAttempts?: number;
+artifacts/api-server/src/routes/ai/chat.ts:1377:  validationDetail?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1436:      case "validation":
+artifacts/api-server/src/routes/ai/chat.ts:1441:          validation: publicValidation,
+artifacts/api-server/src/routes/ai/chat.ts:1442:          validationStatus: step.result.status,
+artifacts/api-server/src/routes/ai/chat.ts:1444:          validationProfile: step.result.profile,
+artifacts/api-server/src/routes/ai/chat.ts:1445:          validationScenario: step.result.scenario,
+artifacts/api-server/src/routes/ai/chat.ts:1446:          validationExitCode: step.result.exitCode,
+artifacts/api-server/src/routes/ai/chat.ts:1447:          validationDetail: publicValidation.detail,
+artifacts/api-server/src/routes/ai/chat.ts:1448:          validationAttempt: step.attempt,
+artifacts/api-server/src/routes/ai/chat.ts:1449:          validationMaxAttempts: step.maxAttempts,
+artifacts/api-server/src/routes/ai/chat.ts:1642: * Checkpoint steps are durable too. Keep validation records in the same
+artifacts/api-server/src/routes/ai/chat.ts:1648:    step.kind === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:2076:    // Chat turns don't modify project data — no cache invalidation needed.
+artifacts/api-server/src/routes/ai/chat.ts:2077:    // Full invalidation happens only in /apply-changes when files are written.
+artifacts/api-server/src/routes/ai/chat.ts:2237:          : "Repair changes require a verified validation profile before approval."
+artifacts/api-server/src/routes/ai/chat.ts:2657:      validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+artifacts/api-server/src/routes/ai/chat.ts:2698:        JSON.stringify(storedRequest.validationTargetPaths) === JSON.stringify(executionRequest.validationTargetPaths) &&
+artifacts/api-server/src/routes/ai/chat.ts:2708:          message: "Execution does not match the requested session, plan, or validation scope.",
+artifacts/api-server/src/routes/ai/chat.ts:2847:      targetPaths: executionRequest.validationTargetPaths,
+artifacts/api-server/src/routes/ai/chat.ts:2851:        kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" : "inspect",
+artifacts/api-server/src/routes/ai/chat.ts:2855:        validationAttempts: node.validationAttempts,
+artifacts/api-server/src/routes/ai/chat.ts:2857:        validationProfile: node.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:2867:      ? "No accepted validation evidence has been recorded."
+artifacts/api-server/src/routes/ai/chat.ts:2879:                  kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" as const : "inspect" as const,
+artifacts/api-server/src/routes/ai/chat.ts:2883:                  validationAttempts: node.validationAttempts,
+artifacts/api-server/src/routes/ai/chat.ts:2885:                  validationProfile: node.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:3150:      if (step.kind === "validation") {
+artifacts/api-server/src/routes/ai/chat.ts:3205:      } else if (step.kind === "validation") {
+artifacts/api-server/src/routes/ai/chat.ts:3208:          type: "validation",
+artifacts/api-server/src/routes/ai/chat.ts:3209:          validation: publicValidation,
+artifacts/api-server/src/routes/ai/chat.ts:3419:    const validationRunner =
+artifacts/api-server/src/routes/ai/chat.ts:3463:              scenario: "Registered browser validation profile is unavailable.",
+artifacts/api-server/src/routes/ai/chat.ts:3471:              detail: "The browser validation profile is not approved for this plan.",
+artifacts/api-server/src/routes/ai/chat.ts:3493:              executionId: aiExecution?.id ?? "browser-validation",
+artifacts/api-server/src/routes/ai/chat.ts:3516:              detail: "Preview browser validation was unavailable.",
+artifacts/api-server/src/routes/ai/chat.ts:3529:    // Terminal execution is deliberately narrower than validation: one
+artifacts/api-server/src/routes/ai/chat.ts:3570:          allowValidationTools: Boolean(validationRunner),
+artifacts/api-server/src/routes/ai/chat.ts:3571:          validationRunner,
+artifacts/api-server/src/routes/ai/chat.ts:3578:            ...(validationRunner ? ["workspace-typecheck", "ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"] : []),
+artifacts/api-server/src/routes/ai/chat.ts:3589:          validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+artifacts/api-server/src/routes/ai/chat.ts:3609:      // A required analysis/validation tool failure is a terminal operation
+artifacts/api-server/src/routes/ai/chat.ts:4138:      .find((step) => step.kind === "validation");
+artifacts/api-server/src/routes/ai/chat.ts:4139:    if (finalValidation?.kind === "validation") {
+artifacts/api-server/src/routes/ai/chat.ts:4146:          ? "Registered validation passed with retained evidence bound to this execution."
+artifacts/api-server/src/routes/ai/chat.ts:4157:      const finalEvidenceRef = finalValidation?.kind === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:4165:          kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" as const : "inspect" as const,
+artifacts/api-server/src/routes/ai/chat.ts:4169:          validationAttempts: node.validationAttempts,
+artifacts/api-server/src/routes/ai/chat.ts:4171:          validationProfile: node.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:4218:        evidenceRefs: finalValidation?.kind === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:4303:          : "Repair changes require a verified validation profile before approval."
+artifacts/api-server/src/routes/ai/chat.ts:4636:    ...safePaths(request.validationTargetPaths),
+artifacts/api-server/src/routes/ai/chat.ts:4641:  const validations = Array.isArray(checkpoint.recentSteps)
+artifacts/api-server/src/routes/ai/chat.ts:4643:      if (!step || typeof step !== "object" || (step as Record<string, unknown>).kind !== "validation") return [];
+artifacts/api-server/src/routes/ai/chat.ts:4645:      const validation = value.validation && typeof value.validation === "object"
+artifacts/api-server/src/routes/ai/chat.ts:4646:        ? value.validation as Record<string, unknown>
+artifacts/api-server/src/routes/ai/chat.ts:4649:        status: safeText(validation.status, 80) ?? "unknown",
+artifacts/api-server/src/routes/ai/chat.ts:4650:        profile: safeText(validation.profile, 160),
+artifacts/api-server/src/routes/ai/chat.ts:4651:        scenario: safeText(validation.scenario, 240),
+artifacts/api-server/src/routes/ai/chat.ts:4652:        exitCode: typeof validation.exitCode === "number" ? validation.exitCode : null,
+artifacts/api-server/src/routes/ai/chat.ts:4653:        detail: safeText(validation.detail, 500),
+artifacts/api-server/src/routes/ai/chat.ts:4654:        ...(validation.reasonCode === "ownership"
+artifacts/api-server/src/routes/ai/chat.ts:4655:          || validation.reasonCode === "invalid_profile"
+artifacts/api-server/src/routes/ai/chat.ts:4656:          || validation.reasonCode === "resource_limit"
+artifacts/api-server/src/routes/ai/chat.ts:4657:          || validation.reasonCode === "stale_revision"
+artifacts/api-server/src/routes/ai/chat.ts:4658:          ? { reasonCode: validation.reasonCode } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:4689:    validations,
+artifacts/api-server/src/routes/ai/chat.ts:5318:        || proposal.validationEvidence
+artifacts/api-server/src/routes/ai/chat.ts:5326:            validationEvidence: proposal.validationEvidence
+artifacts/api-server/src/routes/ai/chat.ts:5327:              ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
+artifacts/api-server/src/routes/ai/chat.ts:5374:          ? "The delivery stopped because the retained changes need review before validation can continue."
+artifacts/api-server/src/routes/ai/chat.ts:5382:        : "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.";
+artifacts/api-server/src/routes/ai/chat.ts:5398:      validationEvidence: proposal.validationEvidence
+artifacts/api-server/src/routes/ai/chat.ts:5399:        ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+artifacts/api-server/src/routes/ai/chat.ts:5415:router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5447:  let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
+artifacts/api-server/src/routes/ai/chat.ts:5457:  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:5458:  const changeSetHash = proposal.changeSetHash ?? hashChangeSet(changes);
+artifacts/api-server/src/routes/ai/chat.ts:5461:    if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
+artifacts/api-server/src/routes/ai/chat.ts:5462:    const group = groups.get(change.validationProfile) ?? [];
+artifacts/api-server/src/routes/ai/chat.ts:5464:    groups.set(change.validationProfile, group);
+artifacts/api-server/src/routes/ai/chat.ts:5479:      result.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:5489:    validationEvidence: evidence,
+artifacts/api-server/src/routes/ai/chat.ts:5505:    validationEvidence: parsePublicValidationReceipts(results),
+artifacts/api-server/src/routes/ai/chat.ts:5552:        kind: z.enum(["finding", "source", "validation"]),
+artifacts/api-server/src/routes/ai/chat.ts:5560:    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]).optional(),
+artifacts/api-server/src/routes/ai/chat.ts:5563:      kind: z.enum(["finding", "source", "validation"]),
+artifacts/api-server/src/routes/ai/chat.ts:5968:        kind: z.enum(["finding", "source", "validation"]),
+artifacts/api-server/src/routes/ai/chat.ts:5976:    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]),
+artifacts/api-server/src/routes/ai/chat.ts:5979:      kind: z.enum(["finding", "source", "validation"]),
+artifacts/api-server/src/routes/ai/chat.ts:6029:      // The authoritative validation below reports malformed stored proposals.
+artifacts/api-server/src/routes/ai/chat.ts:6113:    if (!changes.every((change) => change.validationProfile)) {
+artifacts/api-server/src/routes/ai/chat.ts:6115:        error: "Approved repair changes must include a registered validation profile",
+artifacts/api-server/src/routes/ai/chat.ts:6148:    // revision, path, and validation gates below pass.
+artifacts/api-server/src/routes/ai/chat.ts:6196:      validationProfile?: ValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:6316:        if (change.validationProfile) {
+artifacts/api-server/src/routes/ai/chat.ts:6317:          const profileError = validateRepairValidationScope(change.validationProfile, [change.path]);
+artifacts/api-server/src/routes/ai/chat.ts:6324:                change.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:6326:                getRepairValidationProfile(change.validationProfile).scenario,
+artifacts/api-server/src/routes/ai/chat.ts:6339:          validationProfile: change.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:6376:    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6377:    const effectiveChangeSetHash = hashChangeSet(candidateChanges);
+artifacts/api-server/src/routes/ai/chat.ts:6379:      .set({ changeSetHash: effectiveChangeSetHash })
+artifacts/api-server/src/routes/ai/chat.ts:6386:      if (!change.validationProfile) continue;
+artifacts/api-server/src/routes/ai/chat.ts:6387:      const pathsForProfile = profiles.get(change.validationProfile) ?? [];
+artifacts/api-server/src/routes/ai/chat.ts:6389:      profiles.set(change.validationProfile, pathsForProfile);
+artifacts/api-server/src/routes/ai/chat.ts:6399:      const validation = await runRepairValidation(
+artifacts/api-server/src/routes/ai/chat.ts:6404:      if ("evidence" in validation) {
+artifacts/api-server/src/routes/ai/chat.ts:6405:        validation.evidence.operationId = applyCorrelationId;
+artifacts/api-server/src/routes/ai/chat.ts:6406:        validation.evidence.projectRevision = deliveryWorkspace.baseRevision;
+artifacts/api-server/src/routes/ai/chat.ts:6407:        validation.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6408:        validation.evidence.changeSetHash = effectiveChangeSetHash;
+artifacts/api-server/src/routes/ai/chat.ts:6410:      verificationByProfile.set(profile, validation);
+artifacts/api-server/src/routes/ai/chat.ts:6413:    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6414:    const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6427:    const validationNeedsReview = candidateChangedDuringValidation || liveRootChangedBeforePromotion || [...verificationByProfile.values()].some((validation) =>
+artifacts/api-server/src/routes/ai/chat.ts:6428:      validation.status === "failed" ||
+artifacts/api-server/src/routes/ai/chat.ts:6429:      validation.status === "unavailable" ||
+artifacts/api-server/src/routes/ai/chat.ts:6430:      validation.status === "skipped" ||
+artifacts/api-server/src/routes/ai/chat.ts:6431:      validation.status === "blocked",
+artifacts/api-server/src/routes/ai/chat.ts:6433:    if (validationNeedsReview) {
+artifacts/api-server/src/routes/ai/chat.ts:6434:      // Behavioral validation is a promotion gate. Keep the candidate for
+artifacts/api-server/src/routes/ai/chat.ts:6446:          ? "candidate_changed_after_validation"
+artifacts/api-server/src/routes/ai/chat.ts:6449:            : "behavioral_validation",
+artifacts/api-server/src/routes/ai/chat.ts:6450:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6451:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6458:      await appendApplyJournal("PROMOTION_INTENT", {
+artifacts/api-server/src/routes/ai/chat.ts:6461:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6463:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6484:          promotionState: "PROMOTED",
+artifacts/api-server/src/routes/ai/chat.ts:6517:      ? await hashDeliveryFiles(deliveryWorkspace.workspaceRoot, candidateChanges)
+artifacts/api-server/src/routes/ai/chat.ts:6518:      : effectiveChangeSetHash;
+artifacts/api-server/src/routes/ai/chat.ts:6519:    const promotedHash = writtenChanges.length > 0
+artifacts/api-server/src/routes/ai/chat.ts:6520:      ? await hashDeliveryFiles(resolvedRoot, writtenChanges)
+artifacts/api-server/src/routes/ai/chat.ts:6521:      : effectiveChangeSetHash;
+artifacts/api-server/src/routes/ai/chat.ts:6522:    if (writtenChanges.length > 0 && promotedHash !== candidateFilesHash) {
+artifacts/api-server/src/routes/ai/chat.ts:6534:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6535:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6536:        promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6540:    for (const validation of verificationByProfile.values()) {
+artifacts/api-server/src/routes/ai/chat.ts:6543:        && promotedHash === candidateFilesHash
+artifacts/api-server/src/routes/ai/chat.ts:6544:        && "evidence" in validation
+artifacts/api-server/src/routes/ai/chat.ts:6546:        validation.evidence.promotedHash = promotedHash;
+artifacts/api-server/src/routes/ai/chat.ts:6549:    const validationEvidence = [...verificationByProfile.values()].flatMap((validation) => {
+artifacts/api-server/src/routes/ai/chat.ts:6550:      if (!("evidence" in validation)) return [];
+artifacts/api-server/src/routes/ai/chat.ts:6552:      return [publicValidationReceipt(validation, stale
+artifacts/api-server/src/routes/ai/chat.ts:6556:              ? "The immutable candidate changed during validation and was not promoted."
+artifacts/api-server/src/routes/ai/chat.ts:6564:      const verification = change?.validationProfile
+artifacts/api-server/src/routes/ai/chat.ts:6565:        ? verificationByProfile.get(change.validationProfile) ?? {
+artifacts/api-server/src/routes/ai/chat.ts:6567:              change.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:6569:              "Registered validation did not produce a result.",
+artifacts/api-server/src/routes/ai/chat.ts:6577:              "No registered behavioral validation profile was selected.",
+artifacts/api-server/src/routes/ai/chat.ts:6578:              "No registered behavioral validation profile was selected.",
+artifacts/api-server/src/routes/ai/chat.ts:6597:      // validation did not pass. Keeping the proposal pending allows the user
+artifacts/api-server/src/routes/ai/chat.ts:6603:          reason: "behavioral_validation",
+artifacts/api-server/src/routes/ai/chat.ts:6635:    // behavioral validation has passed. Persistence and behavior remain
+artifacts/api-server/src/routes/ai/chat.ts:6657:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6658:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6659:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6678:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6679:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6680:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6711:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6712:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6713:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6727:            validationEvidence: JSON.stringify(validationEvidence),
+artifacts/api-server/src/routes/ai/chat.ts:6728:            committedHash: allOk ? promotedHash : null,
+artifacts/api-server/src/routes/ai/chat.ts:6743:            validationEvidence: JSON.stringify(validationEvidence),
+artifacts/api-server/src/routes/ai/chat.ts:6760:      validationEvidence,

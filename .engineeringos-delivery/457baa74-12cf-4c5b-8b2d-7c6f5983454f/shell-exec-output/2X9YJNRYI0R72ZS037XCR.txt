@@ -1,0 +1,300 @@
+docs/fact-record.md:277:| lib/ai-orchestrator/src/agents/chat-agent.ts | `chat()`: محادثة مع سياق المشروع الكامل؛ يُرسل آخر 10 رسائل كـ history؛ يُرجع JSON بحقلي `response` و`sources`. يستخدم MODEL_FAST. | لا streaming حالياً. | المحادثة التفاعلية مع المشروع. | High | lib/ai-orchestrator/src/agents/chat-agent.ts |
+docs/ai-orchestrator-trace-analysis.md:51:     → chat() → [tool loop] → parseAgentResponse → pendingChanges
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:39:`requireProvider`/`runAgentWithFallback`/`chatWithFallback` resolve a configured provider, classify failures, and provide bounded fallback behavior. `lib/ai-orchestrator/src/agents/chat-agent.ts` constructs the agent prompt and invokes `executeToolLoop`; execution-plan requests use `executeExecutionNodePlan`. `execution-node-coordinator.ts` schedules dependency-aware waves, disjoint file scopes, bounded attempts, and legal node transitions. A node is not accepted as passed merely because a model says so: the caller must report observed validation.
+docs/ai-orchestrator-forensic-analysis.md:142:- **LLM Call:** `chat()` agent loop (max 6 iterations). Uses `MODEL_FAST` (fallback `MODEL_POWERFUL` on error). Tools: `read_file`, `list_directory`, `search_code`, `git_*`.
+docs/ai-orchestrator-forensic-analysis.md:330:- **`toolCallCache` (lib/ai-orchestrator/src/agents/chat-agent.ts):** `Map<string, string>`. Keyed by `toolName + JSON.stringify(args)`. Local to a single `chat()` invocation (request-level). Prevents redundant execution of identical tool calls within one agent loop.
+docs/ai-orchestrator-forensic-analysis.md:449:9. [ai.ts:347] await chat({ message, history: [], projectContext, rootPath, apiKey }):
+docs/actual-capability-baseline-v1.md:118:3. `chat-agent.ts` selects the tool policy and uses `executeToolLoop`.
+docs/ai-agent-improvement-plan.md:24:| **لا تخطيط قبل بدء القراءة** | الوكيل يقرأ 24 ملفاً عشوائياً ثم ينفد من الخطوات | لا يوجد planner قبل `executeToolLoop` |
+docs/ai-agent-improvement-plan.md:37:  └─ executeToolLoop({maxIter=20, maxCalls=50})
+docs/ai-agent-improvement-plan.md:100:const loopResult = await executeToolLoop({
+docs/ai-agent-improvement-plan.md:164:// قبل executeToolLoop:
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:107:        { line: 1396, text: '  const result = await chat(req, res);' },
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1124:            { id: 'chat', name: 'chat()', stage: 'ORCHESTRATOR' },
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1151:            sourceSpan: { file: 'src/routes/ai/chat.ts', line: 91, column: 4, snippet: 'chat(...)' },
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1175:        excerpt: 'const result = await chat(...)',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1194:    const excerptText = screen.getByText('const result = await chat(...)');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1530:        excerpt: 'const result = await chat(req, res); return result;',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1560:        excerpt: 'const result = await chat(req, res);',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1617:        excerpt: 'const result = await chat(req, res);',
+artifacts/api-server/src/routes/ai.test.ts:1027:    // Top-level behaviorEvidence mirrors the orchestrated chat() result, parsed
+artifacts/api-server/src/routes/ai.test.ts:1056:  // implemented inside chat()/chatWithFallback; for it to actually fire on the
+artifacts/api-server/src/routes/ai.test.ts:1058:  // forward it into chat(). These endpoint tests pin that contract down.
+artifacts/api-server/src/routes/ai.test.ts:1059:  it("accepts a request objective and threads it into chat() for the Objective Completion Gate", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1091:    // requiredClaims is missing — must be rejected before chat() is touched.
+artifacts/api-server/src/routes/ai.test.ts:1891:          excerpt: "const result = await chat(...)",
+artifacts/api-server/src/routes/ai.test.ts:1908:      excerpt: "const result = await chat(...)",
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:71:      const result = await chat({
+lib/ai-orchestrator/src/tool-execution-engine.ts:9: *   executeToolLoop(opts)    — runs the loop until a non-tool response or the
+lib/ai-orchestrator/src/tool-execution-engine.ts:1365: * Discriminated union of observable events emitted during executeToolLoop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1589:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+artifacts/api-server/src/routes/ai/chat.ts:1776:      name: "chat()",
+artifacts/api-server/src/routes/ai/chat.ts:1797:    // the chat() call runs the Objective Completion Gate on the real entry point
+artifacts/api-server/src/routes/ai/chat.ts:2280:    // the chat() call runs the Objective Completion Gate on the real entry point
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:448:        excerpt: "const result = await chat(...)",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1226:      excerpt: "const result = await chat(...)",
+lib/ai-orchestrator/src/task-contracts.ts:1092:// The production API always supplies a transport-only trace (route → chat()).
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:846: * workspace state. The executor should call chat() and return only bounded
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:275:      const result = await chat({
+artifacts/api-server/src/lib/ai-route-helpers.ts:354: * Call `chat()` with automatic provider fallback on recoverable errors.
+artifacts/api-server/src/lib/ai-route-helpers.ts:381:     * Threaded straight into chat() so the Objective Completion Gate runs on the
+artifacts/api-server/src/lib/ai-route-helpers.ts:458:      const result = await chat({
+lib/ai-orchestrator/src/required-claims.ts:211: * chat() run — without it the gate could only ever block a claimed-but-ungrounded
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:667:      const result: ChatResult = await chat({
+lib/ai-orchestrator/src/provider-strategy.ts:5: * `chat()` (and any other agent) never imports client code directly.
+lib/ai-orchestrator/src/provider-strategy.ts:11: * Nothing inside `chat()` changes.
+lib/ai-orchestrator/src/agents/chat-agent.ts:96:  executeToolLoop,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1096: * AI-OBJ-005/007 (single shared finalization seam). EVERY terminal chat() path
+lib/ai-orchestrator/src/agents/chat-agent.ts:3384:export async function chat(opts: {
+lib/ai-orchestrator/src/agents/chat-agent.ts:3436:   * Forwarded directly to executeToolLoop; never throws.
+lib/ai-orchestrator/src/agents/chat-agent.ts:3872:  // WITH evidence. Derived once at the top of chat() so every terminal
+lib/ai-orchestrator/src/agents/chat-agent.ts:5147:        const childLoop = await executeToolLoop({
+lib/ai-orchestrator/src/agents/chat-agent.ts:5467:  const loopResult = await executeToolLoop({
+lib/ai-orchestrator/src/agents/chat-agent.ts:5573:  // forensicFileContents is declared at the top of chat() so every terminal
+lib/ai-orchestrator/src/agents/chat-agent.ts:8969:  // trace (API route → chat()) via runtimeChatTraceLinks, so we must NOT use
+lib/ai-orchestrator/src/agents/chat-agent.ts:8973:  // chat() orchestrator infrastructure.
+lib/ai-orchestrator/src/agents/chat-agent.ts:8983:  // trace is the generic transport link (route → chat()). This is the fix for
+lib/ai-orchestrator/src/agents/chat-agent.ts:9005:  // transport link (route → chat()) — the transport link must never be treated
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:28:import { executeToolLoop } from "../tool-execution-engine.js";
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:138:    const loopResult = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:14: * whole chat() pipeline with a mocked provider registry whose strategy returns a
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:99:/** Mock provider + model-selection registry so chat() uses the fake strategy. */
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:172:  it("chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication", async () => {
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:194:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:312:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:365:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:423:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:477:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:522:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:7: * exercises the WHOLE chat() pipeline (plan-prefetch real read + mocked provider
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:147:describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => {
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:169:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:216:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:269:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:13: *   2. Drives chat() end to end with a mocked provider registry and a real
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:59:/** Mock provider + model-selection registry so chat() uses the fake strategy. */
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:142:  it("chat() performs the FIRST source read of the named file directly, before any cross-file trace, and surfaces FIRST_EVIDENCE_READ_ALLOWED", async () => {
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:167:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:237:  it("chat() admits the DIRECT_READ-pinned file even when prose would otherwise form bogus roots", async () => {
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:261:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:290:  it("chat() emits the first read for a `./`-prefixed target in canonicalized form", async () => {
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:315:      await chat({
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:374:  it("chat() turns a completed single-file read into an accepted source-grounded NO_FINDING verdict via the deterministic path", async () => {
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:400:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:488:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:5: * BLOCKED). This file asserts the positive branch is reachable through chat():
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:90: * Mock provider + model-selection registry so chat() uses the fake strategy,
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:140:  "DETERMINISTIC FIXTURE — chat() resolves a production-source known-defect to PRODUCTION_PROVEN and unblocks repair (task #45)",
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:176:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:161:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:207:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:265:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:295:    const withoutRuntimeResult = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:307:    const withRuntimeResult = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:322:          name: "chat()",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:368:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:382:          name: "chat()",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:458:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:554:        const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:631:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:671:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:722:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:805:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:866:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:952:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1042:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1163:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1312:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1493:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1648:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1791:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1906:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2047:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2165:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2295:      await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2406:      await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2601:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2681:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2717:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2798:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2824:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2886:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2923:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2943:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2988:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3010:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3034:// returned by executeToolLoop and produces a useful report rather than throwing.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3068:        executeToolLoop: vi.fn(async () => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3097:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3140:        executeToolLoop: vi.fn(async () => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3169:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:3: * of `computeCentrality` must be PROVEN or REFUTED end to end through chat(),
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:14: *      scope) and asserted at the chat() level — not injected only into unit
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:340:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:431:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:498:        const result = await chat({
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:542:  it("OBJECTIVE_MISMATCH: an accepted behavioral answer for a reachability objective is blocked at chat() level", async () => {
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:576:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:619:  it("RECOVERY_SCOPE_FAILURE: recovery reading outside the bounded objective scope is a chat()-level reachability failure", async () => {
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:772:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:3: * through the WHOLE chat() pipeline.
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:14: * chat() pipeline (eager single-file prefetch of the fixture + mocked provider
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:99: * Mock provider + model-selection registry so chat() uses the fake strategy,
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:149:  "FIXTURE — chat() resolves a fixture-only known-defect to a scoped verdict (task #41)",
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:191:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:3: * end to end through chat() when the declared objective is not completed.
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:6: * acceptance: calling chat() with an `objective` that declares a required claim
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:84: * Mock provider + model-selection registry so chat() uses the fake strategy,
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:132:describe("chat() blocks a final answer when the declared objective is uncompleted (task #63)", () => {
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:184:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:278:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:357:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:7: * exercised the WHOLE chat() pipeline. This file drives `chat()` end to end with
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:227:  // Capture every runtimeLedger produced by chat() so the test can assert on
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:284:  "FIXTURE — chat() issues a targeted read that lands in the run ledger on recovery (task #36)",
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:307:      const result = await chat({
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:62:    const result = await chat({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4: * Exercises each engine contract independently of a full chat() call:
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:6: *   - executeToolLoop:   budget exhaustion, cache hits, tool dispatch, exhausted iterations
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:9: * executeSingleTool and executeToolLoop never touch the real filesystem.  The
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:345:// ── executeToolLoop ───────────────────────────────────────────────────────────
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:347:describe("executeToolLoop", () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:359:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:361:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:376:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:385:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:415:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:431:    const pending = executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:454:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:460:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:491:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:497:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:524:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:550:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:590:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:637:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:678:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:731:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:765:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:769:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:802:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:806:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:831:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:837:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:861:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:874:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:911:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:924:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:958:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:968:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:997:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1006:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1059:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1068:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1089:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1097:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1117:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1127:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1150:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1157:    await expect(executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1182:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1188:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1208:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1218:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1244:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1254:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1279:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1286:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1309:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1318:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1335:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1341:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1359:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1371:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1393:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1413:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1451:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1468:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1494:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1510:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1544:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1560:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1588:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1602:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1632:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1650:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1680:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1699:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1724:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1731:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1752:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1762:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1784:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1797:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1819:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1829:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1848:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1860:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1889:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1906:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1949:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2012:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2047:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2058:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2076:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2105:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2132:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2147:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2171:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2186:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2210:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2229:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2255:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2267:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2298:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2310:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2334:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2348:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2369:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2388:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2413:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2424:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2445:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2456:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2488:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2499:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2525:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2529:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2556:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2566:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2585:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2593:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2612:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2620:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2643:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2659:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2695:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2718:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2745:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2756:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2779:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2792:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2827:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2853:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2881:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2910:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2939:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2954:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2976:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2994:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3024:    const { executeToolLoop, splitRunBudget } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3048:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3092:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3107:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3133:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3149:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3192:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3206:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3226:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3237:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3257:    const { executeToolLoop } = await import("../tool-execution-engine.js");

@@ -1,0 +1,240 @@
+artifacts/api-server/src/index.ts:26:import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
+artifacts/api-server/src/index.ts:32: * execution column used by the current server build. If either is absent,
+artifacts/api-server/src/index.ts:51:        hint: "Run the above command to apply the Drizzle schema to the managed PostgreSQL database.",
+artifacts/api-server/src/index.ts:159:// Remove raw validation commands, output, failed-test details, and changed
+artifacts/api-server/src/index.ts:163:// Compact old terminal traces while preserving proof status and exit codes.
+artifacts/api-server/src/index.ts:166:// active and resumable executions. The sweep is batched and retryable.
+artifacts/api-server/src/index.ts:182:  // AI executions for explicit resume.
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:19: * a single-tenant-per-user internal tool, not a public multi-tenant SaaS
+artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts:10: * use the Auth pane in the workspace toolbar. There is no external Clerk
+artifacts/api-server/src/lib/job-recovery.test.ts:4: * Verifies that jobs left in non-terminal states after a simulated process
+artifacts/api-server/src/lib/job-reconciliation.ts:22: *                                  (AI execution was interrupted; safe to re-trigger),
+artifacts/api-server/src/lib/job-reconciliation.ts:34: * resume an AI agent call from an unknown midpoint, so we never re-execute
+artifacts/api-server/src/lib/job-reconciliation.ts:35: * automatically here — we only restore the task to a state where re-execution
+artifacts/api-server/src/lib/job-reconciliation.ts:40: *     prevent duplicate execution when a job is re-enqueued at startup while
+artifacts/api-server/src/lib/job-reconciliation.ts:46: *     runScanJob provides a second safety net against any double-execution.
+artifacts/api-server/src/lib/job-reconciliation.ts:66:import { reconcileAiExecutions } from "./ai-execution-state.js";
+artifacts/api-server/src/lib/job-reconciliation.ts:75: * user edits. Instead, convert any non-terminal journal into a durable,
+artifacts/api-server/src/lib/job-reconciliation.ts:207: * Handles scan_jobs left in non-terminal states:
+artifacts/api-server/src/lib/job-reconciliation.ts:221:  // These jobs were actively executing when the process died. We cannot
+artifacts/api-server/src/lib/job-reconciliation.ts:264:      // PR-D1: use enqueueWithId to prevent double-execution if another
+artifacts/api-server/src/lib/job-reconciliation.ts:349: * Handles discovery_sessions left in non-terminal states:
+artifacts/api-server/src/lib/job-reconciliation.ts:598: * a new execution can be explicitly started, preserving cancellation and
+artifacts/api-server/src/lib/job-reconciliation.ts:599: * avoiding duplicate model/tool side effects.
+artifacts/api-server/src/lib/job-reconciliation.ts:636:          : "Task returned to verifying because its worker lease expired; re-trigger to execute.",
+artifacts/api-server/src/lib/job-reconciliation.ts:659: * skipped — no double-execution risk. The advisory lock inside `runScanJob`
+artifacts/api-server/src/lib/job-reconciliation.ts:716: * duplicate-execution guard.
+artifacts/api-server/src/lib/job-reconciliation.ts:897: * AI task execution (scheduleAiTaskExecution) claims verifying → running,
+artifacts/api-server/src/lib/job-reconciliation.ts:899: * on normal execution failure, but a hard crash (SIGKILL, OOM) bypasses that
+artifacts/api-server/src/lib/job-reconciliation.ts:906: * We never auto-re-execute here because:
+artifacts/api-server/src/lib/job-reconciliation.ts:911: * the user or the auto-trigger to re-execute it cleanly.
+artifacts/api-server/src/lib/job-reconciliation.ts:948:          // PR-01: clear lease so the task can be re-claimed on next execution
+artifacts/api-server/src/lib/job-reconciliation.ts:975:          message: `Task reset to "verifying" after process restart (retry ${task.retryCount + 1}/${task.maxRetries}). Re-trigger to execute.`,
+artifacts/api-server/src/lib/job-reconciliation.ts:1058:      logger.info({ aiExecutions }, "startup reconciliation: paused interrupted AI executions");
+artifacts/api-server/src/lib/job-reconciliation.test.ts:17:// Prevent the in-memory job queue from actually executing enqueued closures
+artifacts/api-server/src/lib/job-reconciliation.test.ts:137:    // both applying terminal side effects to the same durable row.
+artifacts/api-server/src/lib/job-reconciliation.test.ts:513:  // ── AI tasks: terminal states untouched ───────────────────────────────────
+artifacts/api-server/src/lib/job-reconciliation.test.ts:515:  it("does not touch AI tasks in terminal states (completed, failed, pending)", async () => {
+artifacts/api-server/src/lib/job-queue.ts:10: * This queue caps how many jobs actually execute concurrently. Anything
+artifacts/api-server/src/lib/job-queue.ts:20: * and crash-recovery re-enqueues cannot produce duplicate executions. The
+artifacts/api-server/src/lib/job-queue.ts:79:   * to execute). Cleared when the item is shifted off the queue.
+artifacts/api-server/src/lib/job-queue.ts:84:   * IDs of jobs currently executing (between start and finally). Cleared
+artifacts/api-server/src/lib/job-queue.ts:96:  /** Number of jobs currently executing (not waiting). */
+artifacts/api-server/src/lib/job-queue.ts:108:   * waiting in the pending array or actively executing. Use this before
+artifacts/api-server/src/lib/job-queue.ts:119:   * Durability: this queue is in-process only. Jobs actively executing at
+artifacts/api-server/src/lib/job-queue.ts:130:   * cannot cause double-execution of jobs still in this queue.
+artifacts/api-server/src/lib/job-queue.ts:143:   * double-execution when the stale-pending sweep or startup reconciliation
+artifacts/api-server/src/lib/job-queue.test.ts:147:    // Let the job start executing
+artifacts/api-server/src/lib/job-queue.test.ts:159:    const executed: string[] = [];
+artifacts/api-server/src/lib/job-queue.test.ts:163:        executed.push("run-1");
+artifacts/api-server/src/lib/job-queue.test.ts:172:    // Same ID, second enqueue — should succeed and execute
+artifacts/api-server/src/lib/job-queue.test.ts:175:        executed.push("run-2");
+artifacts/api-server/src/lib/job-queue.test.ts:183:    expect(executed).toEqual(["run-1", "run-2"]);
+artifacts/api-server/src/lib/job-lease.ts:113: * The workerId guard is part of the terminal fence. A stale worker must not
+artifacts/api-server/src/lib/job-lease.ts:219: * terminal state.
+artifacts/api-server/src/lib/job-lease.ts:266: * Release an AI task's lease fields. Called after any terminal status
+artifacts/api-server/src/lib/job-idempotency.test.ts:5: * is executed at most once — the claim gate in job-lease.ts prevents
+artifacts/api-server/src/lib/job-idempotency.test.ts:6: * double execution.
+artifacts/api-server/src/lib/job-idempotency.test.ts:61:  it("second claim attempt on the same job is rejected — only one worker executes", async () => {
+artifacts/api-server/src/lib/job-concurrency.test.ts:4: * Proves that the DB-level atomic claim prevents double execution even when
+artifacts/api-server/src/lib/job-concurrency.test.ts:66:  it("5 concurrent workers claim exactly 1 job — no double execution", async () => {
+artifacts/api-server/src/lib/job-concurrency.test.ts:147:    // A stale worker may still reach its error path, but the terminal write
+artifacts/api-server/src/lib/github-connector.ts:1:import { execFile } from "node:child_process";
+artifacts/api-server/src/lib/github-connector.ts:5:const execFileAsync = promisify(execFile);
+artifacts/api-server/src/lib/github-connector.ts:69:  const result = await execFileAsync("git", ["-C", rootPath, ...args], {
+artifacts/api-server/src/lib/github-connector.ts:77:  const result = await execFileAsync(
+artifacts/api-server/src/lib/github-connector.test.ts:2:import { execFile } from "node:child_process";
+artifacts/api-server/src/lib/github-connector.test.ts:12:const execFileAsync = promisify(execFile);
+artifacts/api-server/src/lib/github-connector.test.ts:15:  return execFileAsync("git", ["-C", rootPath, ...args], { maxBuffer: 2_000_000 });
+artifacts/api-server/src/lib/condition-evaluator.ts:18: * than silently executing arbitrary server-side code.
+artifacts/api-server/src/lib/browser-preview-verification.ts:32:  executionId: string;
+artifacts/api-server/src/lib/browser-preview-verification.ts:43:/** Server-approved browser contract. The model selects a profile; it never
+artifacts/api-server/src/lib/browser-preview-verification.ts:44: * supplies the origin, selectors, or navigation steps at execution time. */
+artifacts/api-server/src/lib/browser-preview-verification.ts:68:  profile: RegisteredBrowserValidationProfile,
+artifacts/api-server/src/lib/browser-preview-verification.ts:70:  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(profile.name)) {
+artifacts/api-server/src/lib/browser-preview-verification.ts:71:    throw new Error("Browser profile names must be safe identifiers.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:73:  const origin = new URL(profile.permittedOrigin);
+artifacts/api-server/src/lib/browser-preview-verification.ts:75:    throw new Error("Browser profiles may only use the isolated Preview origin.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:77:  if (profile.steps.length < 1 || profile.steps.length > PREVIEW_LIMITS.maxSteps) {
+artifacts/api-server/src/lib/browser-preview-verification.ts:78:    throw new Error(`Browser profiles must contain between 1 and ${PREVIEW_LIMITS.maxSteps} steps.`);
+artifacts/api-server/src/lib/browser-preview-verification.ts:80:  if (!Number.isInteger(profile.timeoutMs) || profile.timeoutMs < 1 || profile.timeoutMs > PREVIEW_LIMITS.maxValidationMs) {
+artifacts/api-server/src/lib/browser-preview-verification.ts:81:    throw new Error("Browser profile timeout exceeds its resource limit.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:83:  for (const step of profile.steps) {
+artifacts/api-server/src/lib/browser-preview-verification.ts:85:      throw new Error("Browser profile navigation must use a relative path.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:90:        throw new Error("Browser profile selector is invalid or exceeds its resource limit.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:94:      throw new Error("Browser profile assertion text exceeds its resource limit.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:97:      throw new Error("Browser profile screenshot name exceeds its resource limit.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:103: * Keep malformed CSS-like selectors out of durable profiles. The browser
+artifacts/api-server/src/lib/browser-preview-verification.ts:105: * control characters here prevents a profile that can only fail at runtime.
+artifacts/api-server/src/lib/browser-preview-verification.ts:218:    shell: false,
+artifacts/api-server/src/lib/browser-preview-verification.ts:337:  executionId: string;
+artifacts/api-server/src/lib/browser-preview-verification.ts:350:        kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
+artifacts/api-server/src/lib/browser-preview-verification.ts:359:      kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
+artifacts/api-server/src/lib/browser-preview-verification.ts:367:      kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
+artifacts/api-server/src/lib/browser-preview-verification.ts:422:        kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
+artifacts/api-server/src/lib/browser-preview-verification.ts:428:        kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
+artifacts/api-server/src/lib/browser-preview-verification.ts:436:      kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:72:      session, operationId: "op", executionId: "exec", steps: [], browser: browserFactory(),
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:84:      session, expectedRevision: "rev-b", operationId: "op", executionId: "exec",
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:90:      session, operationId: "op", executionId: "exec",
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:105:      session, operationId: "op", executionId: "exec",
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:120:      session, operationId: "op", executionId: "exec", steps: [], browser: browserFactory({ consoleError: true }),
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:133:      session, operationId: "op", executionId: "exec", steps: [],
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:145:      session, operationId: "op", executionId: "exec", steps: [],
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:164:      session, operationId: "op", executionId: "exec", steps: [],
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:188:      session, operationId: "op", executionId: "exec",
+artifacts/api-server/src/lib/audit.integration.test.ts:81:  auditActionEnum: { enumValues: ["updated", "executed"] },
+artifacts/api-server/src/lib/archive-safety.ts:4:import { execFile } from "node:child_process";
+artifacts/api-server/src/lib/archive-safety.ts:7:const execFileAsync = promisify(execFile);
+artifacts/api-server/src/lib/archive-safety.ts:112:  const { stdout } = await execFileAsync(
+artifacts/api-server/src/lib/archive-safety.ts:128:  await execFileAsync(
+artifacts/api-server/src/lib/archive-safety.test.ts:6:import { execFile } from "node:child_process";
+artifacts/api-server/src/lib/archive-safety.test.ts:16:const execFileAsync = promisify(execFile);
+artifacts/api-server/src/lib/archive-safety.test.ts:38:  await execFileAsync("tar", ["-czf", tarPath, "-C", source, ...entries.map((entry) => entry.name)]);
+artifacts/api-server/src/lib/archive-safety.test.ts:80:    await execFileAsync("tar", ["-czf", tarPath, "-C", source, "escape"]);
+artifacts/api-server/src/lib/ai-execution-state.ts:17: * lifecycle status. `ai_executions.status` answers "is a worker alive?", while
+artifacts/api-server/src/lib/ai-execution-state.ts:136: * The terminal success contract for autonomous work. This is deliberately
+artifacts/api-server/src/lib/ai-execution-state.ts:158:    reasons.push("workspace revision does not match the execution request");
+artifacts/api-server/src/lib/ai-execution-state.ts:165:    reasons.push("acceptance checks are not executable");
+artifacts/api-server/src/lib/ai-execution-state.ts:168:  if (nodes.some((node) => node.status !== "passed")) reasons.push("not all execution nodes passed");
+artifacts/api-server/src/lib/ai-execution-state.ts:180:    if (outOfScope) reasons.push(`execution node is outside approved target scope: ${outOfScope}`);
+artifacts/api-server/src/lib/ai-execution-state.ts:259:    | "tool_loop"
+artifacts/api-server/src/lib/ai-execution-state.ts:283:  "tool_loop",
+artifacts/api-server/src/lib/ai-execution-state.ts:570:  if (stage === "tool_loop") return "mutating";
+artifacts/api-server/src/lib/ai-execution-state.ts:583:  // A stage-only writer may resume directly at tool_loop after a process
+artifacts/api-server/src/lib/ai-execution-state.ts:612: * redefine a node's title, scope, dependency graph, or validation profile.
+artifacts/api-server/src/lib/ai-execution-state.ts:614: * execution state.
+artifacts/api-server/src/lib/ai-execution-state.ts:672:    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+artifacts/api-server/src/lib/ai-execution-state.ts:673:    "Do not claim that any step succeeded unless the current tool result or persisted evidence confirms it.",
+artifacts/api-server/src/lib/ai-execution-state.ts:692:}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+artifacts/api-server/src/lib/ai-execution-state.ts:707:    return { execution: row, created: false };
+artifacts/api-server/src/lib/ai-execution-state.ts:712:  const executionId = randomUUID();
+artifacts/api-server/src/lib/ai-execution-state.ts:713:  const operationId = params.request.operationId ?? params.buildPlanMessageId ?? executionId;
+artifacts/api-server/src/lib/ai-execution-state.ts:723:  const [execution] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:726:      id: executionId,
+artifacts/api-server/src/lib/ai-execution-state.ts:753:  if (execution) return { execution, resumeToken, created: true };
+artifacts/api-server/src/lib/ai-execution-state.ts:757:  // resumable execution identity. Keep the request binding check here as well:
+artifacts/api-server/src/lib/ai-execution-state.ts:767:  if (!racedExecution) throw new Error("Failed to create AI execution");
+artifacts/api-server/src/lib/ai-execution-state.ts:772:  return { execution: racedExecution, created: false };
+artifacts/api-server/src/lib/ai-execution-state.ts:776:  executionId: string,
+artifacts/api-server/src/lib/ai-execution-state.ts:779:  const [execution] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:783:      eq(aiExecutionsTable.id, executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:787:  return execution;
+artifacts/api-server/src/lib/ai-execution-state.ts:791:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:793:}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+artifacts/api-server/src/lib/ai-execution-state.ts:795:  const [execution] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:802:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:807:  return execution ? { execution, resumeToken } : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:820:  execution: AiExecution;
+artifacts/api-server/src/lib/ai-execution-state.ts:825:function recoveryCheckpoint(execution: AiExecution): AiExecutionCheckpoint | undefined {
+artifacts/api-server/src/lib/ai-execution-state.ts:826:  return parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:830:  execution: AiExecution,
+artifacts/api-server/src/lib/ai-execution-state.ts:840:  const previous = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:871: * endpoint. Only a paused execution whose server-owned operation is uncertain
+artifacts/api-server/src/lib/ai-execution-state.ts:873: * retained for both outcomes; no new execution or user turn is created.
+artifacts/api-server/src/lib/ai-execution-state.ts:876:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:881:  const current = await getAiExecutionForUser(params.executionId, params.userId);
+artifacts/api-server/src/lib/ai-execution-state.ts:887:    return { execution: current, outcome: "stale" };
+artifacts/api-server/src/lib/ai-execution-state.ts:893:    return { execution: current, outcome: "already_abandoned" };
+artifacts/api-server/src/lib/ai-execution-state.ts:896:    return { execution: current, outcome: "resume_accepted" };
+artifacts/api-server/src/lib/ai-execution-state.ts:899:    return { execution: current, outcome: "already_running" };
+artifacts/api-server/src/lib/ai-execution-state.ts:902:    return { execution: current, outcome: "not_eligible" };
+artifacts/api-server/src/lib/ai-execution-state.ts:916:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:921:      ? { execution: updated, outcome: "resume_accepted", resumeToken }
+artifacts/api-server/src/lib/ai-execution-state.ts:922:      : { execution: current, outcome: "not_eligible" };
+artifacts/api-server/src/lib/ai-execution-state.ts:942:    eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:947:    ? { execution: updated, outcome: "abandoned" }
+artifacts/api-server/src/lib/ai-execution-state.ts:948:    : { execution: current, outcome: "not_eligible" };
+artifacts/api-server/src/lib/ai-execution-state.ts:952:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:971:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:981:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1005:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1016:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1027:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1036:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1054:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1111:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1120:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1134:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1142:  const terminalCheckpoint = current
+artifacts/api-server/src/lib/ai-execution-state.ts:1155:      ...(terminalCheckpoint ? { checkpoint: JSON.stringify(terminalCheckpoint) } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1158:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1165:  // Cancellation is an authoritative terminal fence. If the worker learned
+artifacts/api-server/src/lib/ai-execution-state.ts:1186:        eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1197:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1201:  const current = await getAiExecutionForUser(params.executionId, params.userId);
+artifacts/api-server/src/lib/ai-execution-state.ts:1208:  // Queued and paused executions have no active worker to observe the
+artifacts/api-server/src/lib/ai-execution-state.ts:1209:  // cancellation signal. Transition them directly to a terminal state so
+artifacts/api-server/src/lib/ai-execution-state.ts:1224:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1239:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1244:  if (updated) activeControllers.get(updated.id)?.abort(new Error("AI execution cancellation requested"));
+artifacts/api-server/src/lib/ai-execution-state.ts:1248:export function registerAiExecutionController(executionId: string, controller: AbortController): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:1249:  activeControllers.set(executionId, controller);
+artifacts/api-server/src/lib/ai-execution-state.ts:1252:export function unregisterAiExecutionController(executionId: string, controller: AbortController): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:1253:  if (activeControllers.get(executionId) === controller) activeControllers.delete(executionId);
+artifacts/api-server/src/lib/ai-execution-state.ts:1262:  for (const execution of running) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1263:    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:1264:    if (execution.status === "cancelling") {
+artifacts/api-server/src/lib/ai-execution-state.ts:1265:      const terminalCheckpoint = mergeTerminalCheckpoint(execution, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1277:        checkpoint: JSON.stringify(terminalCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:1280:        eq(aiExecutionsTable.id, execution.id),
+artifacts/api-server/src/lib/ai-execution-state.ts:1311:    }).where(and(eq(aiExecutionsTable.id, execution.id), eq(aiExecutionsTable.status, "running"))).returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/advisory-lock.ts:8: * unlock statements execute on the same session — required for session-scoped
+artifacts/api-server/src/lib/advisory-lock.ts:35:   * PR-3: Guards scan job execution.
+artifacts/api-server/src/lib/advisory-lock.ts:46:   * PR-3: Guards discovery session execution.
+artifacts/api-server/src/lib/advisory-lock.ts:97:    // than risk two concurrent executions).
+artifacts/api-server/src/app.ts:120:// Rate limiting: 300 req / 5 min per IP — generous for an internal tool
+artifacts/dashboard/src/pages/AiChat.tsx:121:  toolTrace?: string | null;
+artifacts/dashboard/src/pages/AiChat.tsx:123:  executionId?: string | null;
+artifacts/dashboard/src/pages/AiChat.tsx:222:                <span className="font-medium">{item.profile}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:223:                <span className="text-muted-foreground">{item.terminalState ?? item.status}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:263:    case 'invalid_profile':
+artifacts/dashboard/src/pages/AiChat.tsx:265:        title: 'The browser check profile is not valid for this run.',
+artifacts/dashboard/src/pages/AiChat.tsx:266:        action: 'Use the approved browser profile instead of retrying the same request.',
+artifacts/dashboard/src/pages/AiChat.tsx:271:        action: 'Use a smaller approved check or update the profile before rerunning validation.',
+artifacts/dashboard/src/pages/AiChat.tsx:322:  executionId?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:464:function validationProfileLabel(profile: PendingChange['validationProfile']): string {
+artifacts/dashboard/src/pages/AiChat.tsx:465:  switch (profile) {
+artifacts/dashboard/src/pages/AiChat.tsx:481:  profile?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:794:  tool?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:810:   * The agent's reasoning for why it called this tool — present only on fresh
+artifacts/dashboard/src/pages/AiChat.tsx:811:   * (non-cached) read/write tool_call steps where the model produced text
+artifacts/dashboard/src/pages/AiChat.tsx:812:   * before the tool call. Truncated to 500 characters at the source.
+artifacts/dashboard/src/pages/AiChat.tsx:820:  toolCalls?: number;
+artifacts/dashboard/src/pages/AiChat.tsx:855:  /** FEG-017: why a forensic investigation's terminal failed (PROVEN/NO_FINDING omit it). */
+artifacts/dashboard/src/pages/AiChat.tsx:856:  terminalKind?:
+artifacts/dashboard/src/pages/AiChat.tsx:878:  // EI-012: run-ledger telemetry reconciliation persisted into the toolTrace.
+artifacts/dashboard/src/pages/AiChat.tsx:1078:  'repeated_tool_call',
+artifacts/dashboard/src/pages/AiChat.tsx:1081:  'tool_failure',
+artifacts/dashboard/src/pages/AiChat.tsx:1082:  // Cancellation is a terminal audit state. Keep its persisted execution
+artifacts/dashboard/src/pages/AiChat.tsx:1102:  const recordedToolCalls = trace.filter((entry) => entry.kind === 'tool_call').length;
+artifacts/dashboard/src/pages/AiChat.tsx:1104:    (entry) => entry.kind === 'tool_call' && entry.prefetched === true,
+artifacts/dashboard/src/pages/AiChat.tsx:1130:    toolCalls: typeof done.toolCalls === 'number' ? done.toolCalls : recordedToolCalls,
+artifacts/dashboard/src/pages/AiChat.tsx:1152:    // cancelled report and its terminal state survive history reload, but
+artifacts/dashboard/src/pages/AiChat.tsx:1189: * The execution trace contains historical attempts. It is useful for
+artifacts/dashboard/src/pages/AiChat.tsx:1204:  // Cancellation is a terminal state of the audit, not a finding verdict.
+artifacts/dashboard/src/pages/AiChat.tsx:1249:  execution: {
+artifacts/dashboard/src/pages/AiChat.tsx:1252:    toolCalls: number;
+artifacts/dashboard/src/pages/AiChat.tsx:1269:    /** FEG-017: why a NOT_PROVEN terminal failed (absent for PROVEN/NO_FINDING). */
+artifacts/dashboard/src/pages/AiChat.tsx:1270:    terminalKind?:
+artifacts/dashboard/src/pages/AiChat.tsx:1339:function parseForensicEvidence(trace: ToolTraceEntry[], executionSummary: AiStreamExecutionSummary | null): ForensicEvidenceSummary {

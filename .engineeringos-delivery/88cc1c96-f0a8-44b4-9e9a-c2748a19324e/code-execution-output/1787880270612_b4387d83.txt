@@ -1,0 +1,326 @@
+stdout:
+{
+  "totalCount": 55,
+  "truncated": false,
+  "tasks": [
+    {
+      "ref": "#1",
+      "title": "Set up the imported project",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#2",
+      "title": "Enable AI-powered reviews with a provider connection",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#3",
+      "title": "Keep OpenRouter’s free model list current",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#4",
+      "title": "Fix the runtime oracle check blocking the full test suite",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#5",
+      "title": "Catch broken runtime oracle fixtures before the full suite",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#6",
+      "title": "Reconcile the runtime oracle fix on main",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#7",
+      "title": "Catch broken benchmark fixtures before the full suite",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#8",
+      "title": "Stabilize OpenRouter fallback resolution",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#9",
+      "title": "Confirm catalog diagnostics stay clear in the chat API",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#10",
+      "title": "Establish the actual capability baseline",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#11",
+      "title": "Map the Replit Agent parity gaps",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#12",
+      "title": "Catch missing benchmark scenarios before release runs",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#13",
+      "title": "Stop validation runs from hanging before code delivery",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#14",
+      "title": "Prove the full Agent journey works from project import to Git delivery",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#15",
+      "title": "Give operators clear next steps when the AI provider is unavailable",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#16",
+      "title": "Catch behavior regressions in every benchmark scenario before release",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#17",
+      "title": "Make validation time budgets tunable for different project sizes",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#18",
+      "title": "Complete live Git delivery proof after release gates",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#19",
+      "title": "Show AI provider health before a request fails",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#20",
+      "title": "Harden benchmark oracle integrity before release",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#21",
+      "title": "Make validation time limits visible to operators",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#22",
+      "title": "Catch subtle benchmark regressions after oracle hardening",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#23",
+      "title": "Bind benchmark proof to the exact candidate bytes",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#24",
+      "title": "Compute server-owned candidate hashes before benchmark oracles",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#25",
+      "title": "Bind benchmark releases to the exact source revision",
+      "state": "CANCELLED"
+    },
+    {
+      "ref": "#26",
+      "title": "Bind releases to source revision",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#27",
+      "title": "Provision a disposable authenticated Git target for live delivery proof",
+      "state": "CANCELLED"
+    },
+    {
+      "ref": "#28",
+      "title": "Confirm every provider failure keeps its safe reference details",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#29",
+      "title": "Keep provider failure guidance consistent in task and workflow runs",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#30",
+      "title": "Show the same provider recovery actions in task and workflow failures",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#31",
+      "title": "Catch missing recovery details in task and workflow screens",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#32",
+      "title": "Catch recovery redaction regressions in the browser journey",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#33",
+      "title": "Keep recovery guidance safe after task and workflow reloads",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#34",
+      "title": "Keep AI chat recovery messages free of provider secrets",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#35",
+      "title": "Close benchmark rollout blocker",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#36",
+      "title": "Restore the AI release checks so rollout can be verified end to end",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#37",
+      "title": "Update capability and parity reports",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#38",
+      "title": "Prove the authenticated delivery journey through Git",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#39",
+      "title": "Establish a reviewed live-quality benchmark baseline",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#40",
+      "title": "Make Git discovery proof use an approved disposable remote",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#41",
+      "title": "Keep authenticated browser readiness stable through restart",
+      "state": "CANCELLED"
+    },
+    {
+      "ref": "#42",
+      "title": "Produce an approved clean-witness live-quality baseline",
+      "state": "CANCELLED"
+    },
+    {
+      "ref": "#43",
+      "title": "Ensure abandoned repository scans never leave storage behind",
+      "state": "CANCELLED"
+    },
+    {
+      "ref": "#44",
+      "title": "Refresh AI Documentation Baseline",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#45",
+      "title": "Restore Discovery Acceptance",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#46",
+      "title": "Stabilize and Prove Browser Recovery",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#47",
+      "title": "Prove One Controlled Agent Journey",
+      "state": "CANCELLED"
+    },
+    {
+      "ref": "#48",
+      "title": "Govern and Prove Clean Quality Baseline",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "ref": "#49",
+      "title": "Integrate and Prove Operational Readiness",
+      "state": "CANCELLED"
+    },
+    {
+      "ref": "#50",
+      "title": "Complete and Prove Unified Autonomous Loop",
+      "state": "CANCELLED"
+    },
+    {
+      "ref": "#51",
+      "title": "Stabilize Probe Evidence Synthesis",
+      "state": "MERGED"
+    },
+    {
+      "ref": "#52",
+      "title": "Prevent Release Failures from Schema Drift",
+      "state": "PENDING",
+      "blockedBy": "CONCURRENCY_LIMIT"
+    },
+    {
+      "ref": "#53",
+      "title": "Restore a clean aggregate AI release validation run",
+      "state": "PROPOSED"
+    },
+    {
+      "ref": "#54",
+      "title": "Normalize Model Tool Calls",
+      "state": "PENDING",
+      "blockedBy": "CONCURRENCY_LIMIT"
+    },
+    {
+      "ref": "#55",
+      "title": "Unify AI Failure Persistence",
+      "state": "PENDING",
+      "blockedBy": "CONCURRENCY_LIMIT"
+    }
+  ]
+}
+[
+  {
+    "ref": "#48",
+    "title": "Govern and Prove Clean Quality Baseline",
+    "state": "IMPLEMENTED",
+    "dependsOn": [
+      "#44"
+    ],
+    "description": "# Govern and Prove Clean Quality Baseline\n\n## What & Why\n\nThe benchmark suite, behavioral oracles, airlock, isolation rules, approval checks, and release gates already exist and are enforced. Use them to establish one current, reproducible quality decision: keep deterministic evidence as the governed authority, and treat live provider quality as eligible only after an explicitly opted-in clean-witness campaign with complete coverage and one consistent source revision and candidate hash.\n\n## Done looks like\n\n- Existing 34-case fixtures, behavioral/mutation oracles, airlock policy, provider quarantine, and clean-witness rules remain the authoritative quality machinery; no replacement benchmark or oracle framework is introduced.\n- The deterministic baseline artifact is reproducible in the intended release context, and fixture/oracle tests plus deterministic replay remain separate from provider quality claims.\n- An explicitly opted-in clean-witness campaign runs all 34 cases in one disposable output/workspace against one approved source revision and one server-derived candidate hash.\n- Every campaign case has a bounded, redacted terminal result; provider-unavailable, skipped, failed, false-success, scope-escape, incomplete-evidence, mixed-revision, or mixed-hash outcomes prevent approval.\n- The scorecard and release gate are reviewed against unchanged suite/schema versions and governance thresholds; baseline replacement requires explicit human approval.\n- If the clean-witness campaign cannot be clean, the retained result is `blocked` with a precise recovery action and is not generalized into a capability claim. Live observations remain separate from deterministic authority.\n- The protected release path records the deterministic and benchmark-gate decision without making ordinary CI depend on external providers; optional live review remains explicitly opt-in and non-authoritative unless the governance rules are satisfied.\n\n## Out of scope\n\n- Lowering thresholds or changing `qualityEligible`/`rolloutAllowed` semantics to force approval.\n- Treating a single provider campaign as proof for all providers or production traffic.\n- Production deployment, uncontrolled credentials, or automatic baseline approval.\n- Browser recovery (Task #46), the disposable end-to-end journey (Task #47), database/schema implementation (Task #52), autonomous-loop integration (Task #50), or aggregate operational readiness (Task #49).\n- Adding benchmark scenarios unrelated to the existing approved suite.\n\n## Steps\n\n1. **Reconcile baseline authority** — Inspect the current suite, schema, deterministic artifact, existing live-quality review, and historical manifests; mark stale or diagnostic artifacts as historical and identify the single artifact set used for the current decision.\n2. **Prove deterministic reproducibility** — Run the existing 34-case fixture, behavioral-oracle, mutation-rejection, and deterministic replay checks; generate or validate the expected baseline artifact in the release context without introducing provider behavior.\n3. **Lock an optional clean-witness campaign** — Before provider execution, bind suite/schema versions, approved source revision, server-derived candidate hash, disposable output/workspace, target, provider mode, time budget, retry policy, and redaction rules.\n4. **Run and gate complete coverage** — Execute all 34 cases with bounded retries and provider isolation; retain per-case terminal receipts, reject U/F/provider-unavailable/false-success/scope-escape/incomplete outcomes, and reject mixed revisions, hashes, or campaign modes.\n5. **Evaluate and review conservatively** — Use the existing benchmark release gate and explicit approval path; do not let comparator output replace the deterministic baseline or let live observations create a generalized capability claim.\n6. **Wire and publish the release decision** — Ensure the protected release path consumes deterministic and benchmark-gate results while ordinary CI stays provider-free; preserve a redacted pass or blocked report, exact next action, and unchanged governed artifacts.\n\n## Relevant files\n\n- `artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts`\n- `artifacts/api-server/src/lib/benchmark-release-gate.ts`\n- `artifacts/api-server/src/lib/approve-code-agent-baseline.ts`\n- `artifacts/api-server/src/lib/ai-release-quality-gate.ts`\n- `lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts`\n- `lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts`\n- `lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts`\n- `lib/ai-orchestrator/..."
+  },
+  {
+    "ref": "#52",
+    "title": "Prevent Release Failures from Schema Drift",
+    "state": "PENDING",
+    "dependsOn": [],
+    "description": "# Prevent Release Failures from Schema Drift\n\n## What & Why\n\nThe application contract already declares and uses the nullable `tasks.remediation_plan` JSONB field across discovery, scanning, task execution, API responses, and the dashboard. The release failure is in physical schema delivery and preflight: the current setup relies on imperative `drizzle-kit push`, has no committed migration artifact for this change, and startup checks do not verify the task table contract before traffic opens. Make schema delivery reviewable, idempotent, and fail closed without redesigning task behavior or duplicating browser/release readiness work.\n\n## Done looks like\n\n- The authoritative task and task-log declarations are compared with the runtime database contract, including `tasks.remediation_plan`, nullability, defaults, indexes, and immediately required columns.\n- A narrow, reviewable schema delivery path applies the declared contract to fresh and existing PostgreSQL databases without data loss. If the project retains `drizzle-kit push`, its ownership, environment, and repeatability are explicit and tested rather than assumed.\n- An upgrade fixture containing existing tasks, including NULL remediation plans, succeeds; populated remediation plans round-trip unchanged with evidence, verification steps, source, and status preserved.\n- Applying the schema delivery and restarting the preflight are idempotent: repeated runs do not duplicate objects, rewrite rows, or silently skip a missing required column.\n- Startup schema preflight fails before `app.listen` when `public.tasks.remediation_plan` is absent, names the missing contract and safe delivery action, and proceeds only when the required schema is complete. DDL remains outside the no-DDL startup-migrations contract.\n- Task GET/list/execute, task logs REST/SSE, discovery/scan plan persistence, and dashboard task-plan/verification paths pass regression checks against both NULL and populated plans.\n- Schema delivery and preflight run before release validation and before server traffic; failures are nonzero and retained as actionable release evidence. The existing audit-outbox check remains separate and is not mistaken for full application-schema validation.\n\n## Out of scope\n\n- Redesigning remediation-plan semantics, task verification, discovery, scan behavior, or dashboard UX.\n- Rebuilding browser recovery (Task #46), the controlled journey (Task #47), quality baseline governance (Task #48), aggregate readiness (Task #49), or autonomous-loop integration (Task #50).\n- Replacing PostgreSQL, Drizzle, Clerk, or the existing application architecture.\n- Hiding schema errors with client fallbacks, weakening authorization, or allowing traffic against a partially validated database.\n- Conflating database schema drift with generated API codegen drift; keep codegen checks as a separate release concern.\n\n## Steps\n\n1. **Inventory the declared contract** — Compare the task and task-log schemas, generated/API contract, route queries, discovery/scan writes, and dashboard reads; identify the smallest required schema surface and the current audit-check limitations.\n2. **Choose the delivery boundary** — Add or formalize the narrowest reviewable schema delivery path compatible with the current Drizzle setup, covering fresh databases and an upgrade fixture missing `tasks.remediation_plan`; preserve existing rows and avoid DDL inside startup-migrations.\n3. **Add fail-closed preflight** — Extend the reusable schema check or startup preflight to verify the task contract before the listener opens, with safe actionable diagnostics for missing or incompatible columns and a successful path for a complete schema.\n4. **Exercise application regression paths** — Verify NULL and populated remediation plans through task reads/writes and execution, discovery/scan persistence, task-log REST/SSE, dashboard aggregation, and owner-scoped authorization; assert no unrelated task data changes.\n5. **Prove repeatability and release ordering** — Apply the delivery twice, restart/preflight twice, run the focused tests, then wire the schema check before release validation and traffic. Retain sanitized pass/fail evidence and classify any remaining environment issue separately from schema correctness.\n\n## Relevant files\n\n- `lib/db/src/schema/tasks.ts`\n- `lib/db/src/schema/task_logs.ts`\n- `lib/db/src/schema/index.ts`\n- `lib/db/src/index.ts`\n- `lib/db/drizzle.config.ts`\n- `lib/db/package.json`\n- `lib/db/src/check-audit-schema.ts`\n- `lib/db/src/audit-schema-check.test.ts`\n- `artifacts/api-server/src/lib/startup-migrations.ts`\n- `artifacts/api-..."
+  },
+  {
+    "ref": "#53",
+    "title": "Restore a clean aggregate AI release validation run",
+    "state": "PROPOSED",
+    "dependsOn": [
+      "#48"
+    ],
+    "description": "# Restore a clean aggregate AI release validation run\n\n## What & Why\nThe benchmark and deterministic governance lanes are green, but the aggregate provider-free AI release decision is currently blocked by unrelated route/stream fixtures. A clean aggregate run is needed before the protected release report can be considered fully green.\n\n## Done looks like\n- The route and stream integration suites run in isolation and together without shared database root collisions.\n- Arabic stream session assertions reflect the intended terminal forensic status.\n- `pnpm run validate:ai-release` completes with no unexpected blocking failures while live-provider checks remain disabled by default.\n\n## Relevant files\n- artifacts/api-server/src/routes/ai.test.ts\n- artifacts/api-server/src/routes/ai-stream-integration.test.ts\n- artifacts/api-server/src/lib/ai-release-quality-gate.ts\n- artifacts/api-server/src/lib/ai-release-quality-gate.test.ts"
+  },
+  {
+    "ref": "#54",
+    "title": "Normalize Model Tool Calls",
+    "state": "PENDING",
+    "dependsOn": [],
+    "description": "# Normalize Model Tool Calls\n\n## What & Why\nHarden the provider boundary against model responses that serialize tool calls as unsupported text markers such as `<|tool_call_start|>`, `plan(...)`, and `write_file(...)`. The current OpenAI-compatible client recognizes native `tool_calls` and one legacy `<tool_call>` XML form, so the captured session treated executable-looking text as an ordinary answer, entered forensic recovery, and performed no verified reads or writes.\n\n## Done looks like\n- Provider tool-call output is normalized only when it matches a documented, strict grammar and an actually registered tool; otherwise it is classified as an invalid/incomplete provider result rather than presented as a successful final answer.\n- `plan`-like pseudo-tools and runtime placeholders cannot create tool calls or bypass the existing tool policy, project-root checks, repair-plan scope, or approval-gated pending-change flow.\n- Native OpenAI tool calls and the existing supported XML form continue to dispatch unchanged, with safe JSON-object arguments.\n- Marker, malformed, mixed, nested-argument, and content-stripping behavior is covered by deterministic tests; no test relies on a live provider.\n- Content-only streaming remains explicit about its no-tool contract: unsupported executable-looking markers are not emitted as if they were verified assistant content.\n\n## Out of scope\n- Redesigning the forensic recovery contract, evidence gates, or provider fallback chain.\n- Adding an unrestricted shell or arbitrary tool execution path.\n- Making the current content-only provider stream execute tools; if that remains unsupported, the result must fail closed and be observable.\n- Changes to aggregate release validation, database schema, discovery, scan behavior, or dashboard layout.\n\n## Steps\n1. **Define the provider protocol boundary** — Document the accepted native and legacy textual forms, the exact handling of marker dialects, and the distinction between a registered executable tool, ignored planning metadata, and malformed provider output.\n2. **Normalize or reject marker responses safely** — Add a deterministic normalization path at provider-response ingestion that produces canonical tool calls only for registered names with valid object arguments, strips only recognized call blocks, and reports unsupported or partial markers through the existing bounded diagnostic/incomplete mechanisms.\n3. **Preserve execution policy across normalized calls** — Ensure normalized calls enter the same tool-loop dispatch, scope, authorization, root-containment, and approval paths as native calls; never interpret `plan` or placeholder paths as a new execution capability.\n4. **Make streaming behavior explicit** — Keep the provider strategy’s content-only stream contract consistent with the normalization decision so marker syntax is either safely handled as non-executable invalid output or rejected, never surfaced as trusted completed work.\n5. **Add protocol regression coverage** — Test native/XML compatibility, single and multiple marker calls, whitespace/newlines and nested JSON arguments, malformed/partial markers, unknown pseudo-tools, mixed native/text calls, and stream chunks or content that contain marker boundaries as applicable.\n\n## Relevant files\n- `lib/ai-orchestrator/src/openai-compatible-client.ts`\n- `lib/ai-orchestrator/src/provider-strategy.ts`\n- `lib/ai-orchestrator/src/strategies/openrouter.strategy.ts`\n- `lib/ai-orchestrator/src/groq-client.ts`\n- `lib/ai-orchestrator/src/tools/file-tools.ts`\n- `lib/ai-orchestrator/src/tool-execution-engine.ts`\n- `lib/ai-orchestrator/src/agents/chat-agent.ts`\n- `lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts`\n- `lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts`\n- `lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts`\n"
+  },
+  {
+    "ref": "#55",
+    "title": "Unify AI Failure Persistence",
+    "state": "PENDING",
+    "dependsOn": [],
+    "description": "# Unify AI Failure Persistence\n\n## What & Why\nMake required tool failures and terminal recovery failures durable and visible with the same semantics on JSON and SSE chat routes. The tool loop already emits typed failure telemetry, but the streaming route has its own trace inspection while the JSON route always persists and returns `SUCCEEDED`; recovery failures can likewise leave a successful-looking assistant message beside a failed execution.\n\n## Done looks like\n- A required `tool_failure` produces one consistent blocked/failed outcome in both `/api/ai/chat` and `/api/ai/chat/stream`; it is never persisted as a successful assistant turn.\n- Safe diagnostic code, failure kind, and operation/session correlation are available to the client without exposing provider secrets or raw diagnostics.\n- Terminal recovery failure or an explicitly incomplete forensic result is distinguished from an accepted evidence-only or source-grounded `NO_FINDING` fallback; only the latter can complete when its evidence gates pass.\n- Failed and interrupted turns remain failed/incomplete after session reload, reconnect, or execution recovery, without duplicate assistant success records.\n- Deterministic route, orchestrator, and dashboard tests prove the status contract without live providers or shared-fixture races.\n\n## Out of scope\n- Redesigning provider tool-call parsing or adding support for a new model wire dialect.\n- Rewriting forensic recovery, evidence validation, objective gating, or autonomous execution algorithms.\n- Changing the aggregate AI release gate, database schema, discovery/scan behavior, or dashboard visual design.\n- Enabling live-provider validation or weakening redaction and authorization boundaries.\n\n## Steps\n1. **Define one terminal outcome classifier** — Derive a shared route-facing status from the bounded trace, covering required tool failure, cancellation, terminal recovery failure, accepted evidence-only fallback, and ordinary successful completion; keep server-owned raw diagnostics out of user-facing fields.\n2. **Align the JSON route** — Inspect the trace before the existing success transaction, persist failed or interrupted turns through the established failure path, and return the documented structured failure response without writing a successful assistant outcome.\n3. **Align the SSE route and execution state** — Reuse the same classification for SSE error/done events, failed-turn persistence, and durable execution completion/failure so assistant history, reconnect state, and Flight Deck status cannot disagree.\n4. **Expose safe correlation and recovery state** — Include only allowlisted session/execution identifiers, diagnostic codes, failure kind, retryability, and incomplete/recovery status in API and SSE contracts; preserve redaction and avoid leaking provider responses or credentials.\n5. **Add regression coverage across layers** — Test JSON and SSE required-tool failures, interrupted runs, terminal recovery failure versus accepted fallback, persistence and reload behavior, reconnect/no-replay behavior, and the dashboard’s failed/incomplete rendering using isolated deterministic fixtures.\n\n## Relevant files\n- `artifacts/api-server/src/routes/ai/chat.ts`\n- `artifacts/api-server/src/routes/ai.test.ts`\n- `artifacts/api-server/src/routes/ai-stream-integration.test.ts`\n- `artifacts/api-server/src/lib/ai-execution-state.ts`\n- `lib/ai-orchestrator/src/agents/chat-agent.ts`\n- `lib/ai-orchestrator/src/tool-execution-engine.ts`\n- `lib/ai-orchestrator/src/__tests__/chat-agent.test.ts`\n- `lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts`\n- `lib/api-client-react/src/use-ai-chat-stream.ts`\n- `lib/api-client-react/src/use-ai-chat-stream.test.ts`\n- `artifacts/dashboard/src/pages/AiChat.tsx`\n- `artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx`\n"
+  }
+]

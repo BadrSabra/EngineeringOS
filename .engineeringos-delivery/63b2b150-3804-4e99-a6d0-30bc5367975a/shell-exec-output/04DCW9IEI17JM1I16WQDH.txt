@@ -1,0 +1,170 @@
+123:  executionId?: string | null;
+124:  outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
+125:  errorCode?: string | null;
+139:  failureKind?: AiStreamErrorEvent['failureKind'];
+158:  recoveryState: 'recoverable' | 'missing_workspace' | 'discarded';
+322:  executionId?: string;
+704: * versions. Failed turns must render stable recovery guidance rather than
+708:function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'errorCode' | 'errorMessage' | 'content'>): string {
+710:    message.failureKind,
+711:    message.errorCode,
+720:  if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
+722:  } else if (message.failureKind === 'RATE_LIMIT' || /rate.?limit|quota|429/.test(raw)) {
+724:  } else if (message.failureKind === 'TRANSPORT' || /outage|timeout|temporarily unavailable|disconnected|502|503/.test(raw)) {
+734:  message: Pick<ChatMessage, 'errorCode' | 'errorMessage' | 'content'>,
+740:    message.errorCode !== 'EXECUTION_PROVIDER_FAILURE' ||
+830:  recoveryStarted?: boolean;
+867:  status?: 'STARTED' | 'ACCEPTED' | 'REJECTED' | 'FAILED';
+872:  phase?: 'localization' | 'evidence' | 'patch_proposal' | 'validation' | 'repair_recovery' | 'report';
+1081:  'tool_failure',
+1084:  // recovery context is not replaced by a clean/no-finding fallback.
+1110:  const recoveryModelsUsed = new Set<string>();
+1119:    if (entry.kind === 'recovery_model_call' && entry.model) recoveryModelsUsed.add(entry.model);
+1146:    recoveryStarted:
+1147:      done.recoveryStarted === true ||
+1148:      trace.some((entry) => entry.kind === 'forensic_recovery_start') ||
+1151:    // Cancellation diagnostics are internal recovery/provider details. The
+1159:    ...(recoveryModelsUsed.size > 0
+1160:      ? { recoveryModelsUsed: [...recoveryModelsUsed].slice(0, 2) }
+1192: * taking precedence over earlier model/recovery events.
+1257:    recoveryStarted: boolean;
+1259:    recoveryModelsUsed: string[];
+1303:    status: 'STARTED' | 'ACCEPTED' | 'REJECTED' | 'FAILED';
+1402:    .find((entry) => entry.kind === 'forensic_terminal');
+1445:           recoveryStarted: executionSummary.recoveryStarted === true,
+1447:           recoveryModelsUsed: executionSummary.recoveryModelsUsed ?? [],
+1664:    case 'tool_failure':
+1673: * contract or recovery violation rather than an internal operational note.
+1685:    'bounded recovery candidates produced no directly proven finding',
+1686:    'provider recovery exhausted without an accepted six-section report',
+1693:    'first_evidence recovery failed',
+1715:  if (summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_PARSE_FAILED'))) {
+1718:  if (summary.diagnosticCodes.some((code) => code.includes('CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED'))) {
+1736:  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_PARSE_FAILED'))) {
+1743:    return 'No defect was directly proven from the completed source reads. This is a valid forensic outcome, so no repair phase is executable.';
+1751:      : 'All bounded recovery attempts failed after the completed source reads were preserved. The Evidence Map was rebuilt safely, but Findings and repair phases remain blocked.';
+1753:  if (summary.diagnosticCodes.some((code) => code.includes('PARSE_FAILED'))) {
+1756:      ? `The recovery response could not be parsed into the required six-section forensic report: ${violation}.`
+1757:      : 'The recovery response could not be parsed into the required six-section forensic report.';
+1759:  if (summary.diagnosticCodes.some((code) => code.includes('RECOVERY_FAILED'))) {
+1762:      ? `The bounded recovery attempt failed: ${violation}.`
+1763:      : 'The bounded recovery attempt failed, so the report stayed fail-closed instead of accepting unsupported findings.';
+1795:    code.includes('RECOVERY_FAILED') ||
+1796:    code.includes('PARSE_FAILED') ||
+2245:                          : packet.status === 'FAILED'
+2251:                        {packet.status === 'FAILED' ? 'RECOVERY FAILED' : packet.status}
+2291:                      : evidence.execution.recoveryStarted
+2307:              {evidence.execution.recoveryStarted && (
+2330:              {evidence.execution.recoveryModelsUsed.length > 0 && (
+2336:                    {evidence.execution.recoveryModelsUsed.map((model) => (
+2473:            code.includes('RECOVERY_PARSE_FAILED'),
+2529:      {String(summary.stopReason) === 'tool_failure' || summary.diagnosticCodes.some((code) =>
+2530:        code === 'TOOL_EXECUTION_FAILED' || code === 'TOOL_UNAVAILABLE' || code === 'TOOL_CANCELLED',
+2539:        code === 'EXECUTION_JSON_CORRECTION_FAILED' ||
+2540:        code === 'EXECUTION_JSON_CORRECTION_RETRY_FAILED',
+2546:        : 'the response required forensic recovery'}{' '}
+2606:  const recoveryModelsUsed = summary.recoveryModelsUsed ?? [];
+2681:            {recoveryModelsUsed.length > 0
+2682:              ? ` · recovery: ${recoveryModelsUsed.map(fmtModelId).join(' → ')}`
+3246:                 ? 'Blocked — recovery required'
+3602:    (normalized.includes('validator:') && normalized.includes('recoveryattempt:') && normalized.includes('finalstate:'))
+3608: * Shows each citation's safe outcome so analysts can tell exactly where proof
+3878:    'Source collection reached an empty provider response, but bounded forensic recovery did not produce an accepted report. The run is blocked without calling it budget exhaustion.',
+4314:  const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+4316:    ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
+4318:  const failureKindLabel = msg.failureKind === 'PROVIDER_FORMAT'
+4320:    : msg.failureKind === 'RATE_LIMIT'
+4322:      : msg.failureKind === 'CONFIGURATION'
+4324:        : msg.failureKind === 'TRANSPORT'
+4461:                      {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
+4463:                    <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">{failureKindLabel}</div>
+4464:                    {msg.executionId && (
+4465:                      <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
+4627:      onError: (err) => {
+4640:      onError: (err) => {
+4737:      onError: (err) => {
+4749:      onError: (err) => {
+4846:      onError: (err) => {
+4859:      onError: (err) => {
+4958:      onError: (err) => {
+4971:      onError: (err) => {
+5114:  failureKind?: AiStreamErrorEvent['failureKind'];
+5127:    const failureKinds: AiStreamErrorEvent['failureKind'][] = [
+5132:      failureKind: failureKinds.includes(marker.failureKind as AiStreamErrorEvent['failureKind'])
+5133:        ? marker.failureKind as AiStreamErrorEvent['failureKind']
+5144:  failureKind: AiStreamErrorEvent['failureKind'],
+5152:  const defaultRetryable = failureKind !== 'CONFIGURATION';
+5155:  switch (failureKind) {
+5646:            {diagnostics.length} recovery notice{diagnostics.length === 1 ? '' : 's'}
+5791:  if (entry.kind === 'model_call' || entry.kind === 'recovery_model_call') {
+5792:    return entry.kind === 'recovery_model_call' ? 'Recovery model call' : 'Model call';
+6058:          Validation outcome: {validationStatus}
+6346:  recovery?: {
+6351:    outcome: string | null;
+6632:  executionId,
+6658:  executionId?: string;
+6694:  const persistedStatus = execution?.status;
+6699:      (executionId
+6773:    executionId
+6783:  const hasRetainedAudit = Boolean(isCancelledAudit && executionId && canExport);
+6898:          {(execution?.id ?? executionId) && (
+6901:                Execution {execution?.id ?? executionId}
+6904:                href={`/flight-deck?executionId=${encodeURIComponent(execution?.id ?? executionId ?? '')}`}
+7351:    const executionId = activeExecution?.id;
+7352:    if (!executionId) throw new Error('No completed execution is selected.');
+7353:    const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/audit-export`, {
+7365:        `execution-${executionId}-audit.json`,
+7422:    setAgentStage('Saved execution recovered — checking server status…');
+7515:          executionId?: string;
+7519:        if (!response.ok || body.executionId !== execution.id || !body.resumeToken) {
+7525:        // Persist the capability in the same turn as recovery. The effect
+7624:    switch (err.failureKind) {
+7736:      onError: (err) => {
+7763:            outcome: err.outcome ?? 'FAILED',
+7764:            errorCode: err.code,
+7766:            failureKind: err.failureKind,
+7767:            retryable: err.retryable ?? err.failureKind !== 'CONFIGURATION',
+7777:          { type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' },
+7788:            outcome: 'INTERRUPTED',
+7789:            errorCode: 'transport_interrupted',
+7791:            failureKind: 'TRANSPORT',
+7920:  // TanStack Query v5 removed onError from query options; useEffect is the
+7988:    if (deliveryRecoveryPending || proposal.recoveryState !== 'recoverable') return;
+8007:            description: 'This recovery operation no longer exists. The recovery list was refreshed.',
+8020:              ? 'This recovery was already discarded. The recovery list was refreshed.'
+8021:              : 'This recovery workspace is no longer available. The recovery list was refreshed.',
+8026:        throw new Error(payload.error || 'Delivery recovery could not be completed.');
+8047:        title: 'Delivery recovery failed',
+8073:    onError: (error) => {
+8095:            failureKind: structuredFailure.failureKind ?? message.failureKind,
+8286:      onError: (err) => {
+8308:      onError: (err) => {
+8340:      onError: (err) => {
+8363:      onError: (err) => {
+8380:      onError: (err) => {
+8393:      onError: (err) => {
+8509:      executionId?: string;
+8534:      ...(options?.executionId ? { executionId: options.executionId } : {}),
+8536:    const ownsStream = (binding?: { sessionId?: string; executionId?: string }) => {
+8547:        binding?.executionId &&
+8548:        owner.executionId &&
+8549:        binding.executionId !== owner.executionId
+8555:    const isResume = Boolean(options?.executionId);
+8593:         executionId: options?.executionId,
+8598:          if (!ownsStream({ executionId: event.executionId })) return;
+8600:          owner.executionId = event.executionId;
+8602:            id: event.executionId,
+8614:            detail: event.executionId.slice(0, 8),
+8619:          if (!ownsStream({ executionId: event.executionId })) return;
+8975:        onError: (err) => {
+8976:          if (!ownsStream(err.executionId ? { executionId: err.executionId } : undefined)) return;
+9001:          const failedExecutionId = err.executionId ?? activeExecutionRef.current?.id;
+9033:      executionId: execution.id,
+9540:                      data-recovery-state={delivery.recoveryState}
+9543:                      <Badge variant={delivery.recoveryState === 'discarded' ? 'secondary' : delivery.recoveryState === 'missing_workspace' ? 'destructive' : 'outline'} className="text-[10px]">
+9544:                        {delivery.recoveryState === 'recoverable'
+9546:                          : delivery.recoveryState === 'missing_workspace'
+9554:                    {delivery.conflictReason && delivery.recoveryState !== 'discarded' && (
+9583:                        disabled={deliveryRecoveryPending !== null || delivery.recoveryState !== 'recoverable'}
+9594:                        disabled={deliveryRecoveryPending !== null || delivery.recoveryState !== 'recoverable'}
+9636:                   executionId={activeExecution?.id}

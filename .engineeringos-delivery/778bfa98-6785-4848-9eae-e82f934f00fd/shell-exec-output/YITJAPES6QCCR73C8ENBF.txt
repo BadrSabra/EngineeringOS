@@ -1,0 +1,199 @@
+254:    return { recentHistory: [], episodeSummaryMessage: null };
+260:    return { recentHistory, episodeSummaryMessage: null };
+274:  return {
+326:  return {
+440:      return { index, score };
+620:    return { excerpt: content ? "(source excerpt budget exhausted)" : "(empty source body)", consumed: 0 };
+630:    return { excerpt: content, consumed: content.length };
+640:  return {
+683:  return {
+842:      return {
+871:      return { response: withVerifiedSources(lines.join("\n")), sources: verifiedSources };
+961:  return {
+999:    return { gate: null, blocked: false, gatedResponse: opts.response, rejectionReason: undefined };
+1092:  return { gate, blocked, gatedResponse, rejectionReason };
+1133:  return { gatedResponse, blocked: gate.blocked };
+1510:  return {
+1818:  return {
+2718:    return { ok: false, reason: "primary evidence target path contains a null byte" };
+2724:    return { ok: false, reason: "workspace root is inaccessible" };
+2728:    return { ok: false, reason: "primary evidence target escapes the workspace (lexical traversal)" };
+2734:    return { ok: false, reason: "primary evidence target does not exist on disk" };
+2737:    return { ok: false, reason: "primary evidence target resolves outside the workspace via a symlink" };
+2740:    return { ok: true, raw: await fs.readFile(real, "utf8") };
+2742:    return {
+3033:      return { name, score };
+3078: * response-format constraint so recovery never becomes a hard failure.
+3097:  return {
+3144:    return {
+3154:  return {
+3216:      return {
+3224:      return { kind: "BEHAVIOR_ANSWER_RESULT", answer: semanticBehaviorAnswer };
+3230:      return {
+3244:      return {
+3253:      return {
+3261:      return {
+3314:      return {
+3323:  return {
+3568:    return {
+3595:    return {
+3895:    return {
+3906:    return {
+3917:    return {
+3932:    return {
+3986:    return {
+5023:      return {
+5089:          return {
+5095:          return {
+5334:          return {
+5352:          return {
+5396:              return {
+5406:          return {
+5413:        return {
+5456:    return {
+5589:    return {
+5618:      return {
+5728:    return {
+5788:    return {
+5827:    return {
+5912:    return {
+5925:    return {
+6069:    return { gatedResponse, blocked, rejectionReason, runtimeLedger };
+6304:      return {
+6561:      return {
+6747:  let recoveryAttemptsUsed = 0;
+6748:  let recoveryFailureKind: RecoveryFailureKind | undefined;
+6754:   * after recovery completes (runId depends on recoveryAttemptsUsed).
+7169:          recoveryAttemptsUsed = recoveryAttempt + 1;
+7955:          recoveryFailureKind = classifyRecoveryFailure(lastRecoveryFailure);
+8057:        // A provider recovery failure must not hide the fact that complete
+8161:          onStep?.({ kind: "diagnostic", code: "FORENSIC_CONTRACT_RECOVERY_FAILED" });
+8165:          code: "FORENSIC_CONTRACT_RECOVERY_FAILED",
+8307:    recoveryAttemptsUsed += 1;
+8385:    recoveryAttemptsUsed += 1;
+8419:        attempt: recoveryAttemptsUsed,
+8459:          recoveryFailureKind = "EVIDENCE_FAILURE";
+8472:        recoveryFailureKind = "PARSE_FAILURE";
+8490:      recoveryFailureKind = errorCode === "TIMEOUT" ? "TIMEOUT" : "PROVIDER_FAILURE";
+8515:    recoveryAttemptsUsed += 1;
+8554:        recoveryFailureKind = undefined;
+8561:        recoveryFailureKind ??= "EVIDENCE_FAILURE";
+8592:    recoveryFailureKind ??= "VALIDATION_FAILURE";
+8647:    .update(`${message}|${model}|${recoveryAttemptsUsed}`)
+8702:    recoveryAttempts: recoveryAttemptsUsed,
+8781:    recoveryAttemptsUsed > 0 &&
+8844:    triggered: recoveryAttemptsUsed > 0,
+8846:      recoveryAttemptsUsed > 0 && objective !== undefined
+9163:    recoveryAvailable: recoveryAttemptsUsed < FINAL_ANSWER_MAX_RECOVERY,
+9199:    recoveryAvailable: recoveryAttemptsUsed < FINAL_ANSWER_MAX_RECOVERY,
+9263:      recoveryAttempt: recoveryAttemptsUsed,
+9264:      ...(recoveryFailureKind ? { recoveryFailureKind } : {}),
+9266:        ? recoveryAttemptsUsed > 0
+9267:          ? recoveryFailureKind
+9353:    return {
+396:    outcome: string | null;
+448:  const terminalState = params.execution?.status === "cancelled"
+449:    || target.outcome === "INTERRUPTED"
+452:    : params.execution?.status === "failed" || target.outcome === "FAILED"
+453:      ? "FAILED"
+493:    terminalState,
+494:    outcomeClass: terminalState === "COMPLETED" ? "success" : "non-success",
+842:  outcome: "FAILED" | "INTERRUPTED";
+851:    // Resuming that execution must only add the next assistant outcome, not
+872:        outcome: "SUCCEEDED",
+885:      outcome: params.outcome,
+912:  | "PREFLIGHT_FAILED"
+915:  | "WRITE_FAILED"
+920:  | "ROLLBACK_FAILED"
+923:  | "RECOVERY_REQUIRED";
+1168:    const forensicStatus = [...traceSteps]
+1190:      !forensicStatus ||
+1191:      forensicStatus.auditScope !== "PRODUCTION" ||
+1192:      forensicStatus.productionReachability !== "PROVEN" ||
+1193:      forensicStatus.sourceCoverage !== "COMPLETE" ||
+1194:      forensicStatus.findingStatus !== "PROVEN" ||
+1195:      forensicStatus.repairReadiness !== "READY" ||
+1198:      decisionTrace?.trace.finalState !== "VERIFIED" ||
+1303:  status?: "STARTED" | "ACCEPTED" | "REJECTED" | "FAILED" | "active" | "done" | "info";
+1356:  finalState?: "VERIFIED" | "NOT_PROVEN" | "RECOVERY_REQUIRED" | "FAILED";
+1525:          finalState: step.trace.finalState,
+2159:        outcome: "SUCCEEDED",
+2170:          outcome: "SUCCEEDED",
+2227:      outcome: "SUCCEEDED",
+2629:        sse({ type: "error", code: "SESSION_CREATE_FAILED", message: "Failed to create chat session" });
+2957:        const outcome = (recovery as Record<string, unknown>).outcome;
+2958:        return ["recovery_required", "resume_accepted", "abandoned", "already_abandoned"].includes(String(outcome))
+2959:          ? outcome
+3295:          finalState: step.trace.finalState,
+3627:            : "TOOL_EXECUTION_FAILED";
+3646:          outcome: interrupted ? "INTERRUPTED" : "FAILED",
+3885:        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+3910:          outcome: "FAILED",
+4049:          outcome: "SUCCEEDED",
+4062:          outcome: "SUCCEEDED",
+4283:      outcome: "SUCCEEDED",
+4533:      outcome: typeof recoveryRecord?.outcome === "string" ? recoveryRecord.outcome : null,
+4673:      terminalState: execution.status,
+4711:  if (recovered.outcome === "stale") {
+4714:  if (recovered.outcome === "not_eligible") {
+4721:    outcome: recovered.outcome,
+4822:    if (cancelled) return { ...session, forensicStatus: "INCOMPLETE" as const };
+4828:      return { ...session, forensicStatus: "NO_FINDING" as const };
+4831:      return { ...session, forensicStatus: "FINDING_PROVEN" as const };
+4834:      return { ...session, forensicStatus: "NOT_PROVEN" as const };
+4891:      outcome: aiChatMessagesTable.outcome,
+5008:      outcome: message.outcome,
+5120:    logger.error({ scope: "chat-route", code: "PLAN_DECISION_SCHEMA_FAILED", issues: parsed.error.issues });
+5121:    return res.status(500).json({ error: "Could not persist the plan decision", code: "PLAN_DECISION_SCHEMA_FAILED" });
+6348:      preflightFailures.length > 0 ? "PREFLIGHT_FAILED" : "PREFLIGHT_PASSED",
+6502:        await appendApplyJournal("WRITE_FAILED", {
+6507:          rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK",
+6532:      await appendApplyJournal("ROLLBACK_FAILED", {
+6601:        rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK",
+6629:      ? "ROLLBACK_FAILED"
+124:  outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
+125:  errorCode?: string | null;
+139:  failureKind?: AiStreamErrorEvent['failureKind'];
+223:                <span className="text-muted-foreground">{item.terminalState ?? item.status}</span>
+708:function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'errorCode' | 'errorMessage' | 'content'>): string {
+710:    message.failureKind,
+711:    message.errorCode,
+720:  if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
+722:  } else if (message.failureKind === 'RATE_LIMIT' || /rate.?limit|quota|429/.test(raw)) {
+724:  } else if (message.failureKind === 'TRANSPORT' || /outage|timeout|temporarily unavailable|disconnected|502|503/.test(raw)) {
+734:  message: Pick<ChatMessage, 'errorCode' | 'errorMessage' | 'content'>,
+740:    message.errorCode !== 'EXECUTION_PROVIDER_FAILURE' ||
+1743:    return 'No defect was directly proven from the completed source reads. This is a valid forensic outcome, so no repair phase is executable.';
+3600:    (normalized.includes('aistreamdecisiontraceevent') && normalized.includes('decision_trace')) ||
+3608: * Shows each citation's safe outcome so analysts can tell exactly where proof
+4314:  const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+4316:    ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
+4318:  const failureKindLabel = msg.failureKind === 'PROVIDER_FORMAT'
+4320:    : msg.failureKind === 'RATE_LIMIT'
+4322:      : msg.failureKind === 'CONFIGURATION'
+4324:        : msg.failureKind === 'TRANSPORT'
+4461:                      {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
+4463:                    <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">{failureKindLabel}</div>
+5114:  failureKind?: AiStreamErrorEvent['failureKind'];
+5127:    const failureKinds: AiStreamErrorEvent['failureKind'][] = [
+5132:      failureKind: failureKinds.includes(marker.failureKind as AiStreamErrorEvent['failureKind'])
+5133:        ? marker.failureKind as AiStreamErrorEvent['failureKind']
+5144:  failureKind: AiStreamErrorEvent['failureKind'],
+5152:  const defaultRetryable = failureKind !== 'CONFIGURATION';
+5155:  switch (failureKind) {
+5365:           entry.validation?.terminalState
+5366:             ? `state ${entry.validation.terminalState}`
+5512:  /** Task #58: live verdict proof scope from the decision_trace SSE event. */
+6058:          Validation outcome: {validationStatus}
+6351:    outcome: string | null;
+7253:   *  decision_trace SSE event — surfaced during the run, cleared on done so the
+7624:    switch (err.failureKind) {
+7763:            outcome: err.outcome ?? 'FAILED',
+7764:            errorCode: err.code,
+7766:            failureKind: err.failureKind,
+7767:            retryable: err.retryable ?? err.failureKind !== 'CONFIGURATION',
+7777:          { type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' },
+7788:            outcome: 'INTERRUPTED',
+7789:            errorCode: 'transport_interrupted',
+7791:            failureKind: 'TRANSPORT',
+8095:            failureKind: structuredFailure.failureKind ?? message.failureKind,

@@ -1,0 +1,250 @@
+exit=0
+1220: ✓ src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > records zero-read evidence stops as failed, not completed 63ms
+1893:[00:42:03.199] ERROR (5854): chat stream: all providers failed
+1936:[00:42:03.245] ERROR (5854): chat stream: all providers failed
+2116:[00:42:03.520] ERROR (5854): chat stream: all providers failed
+3195: ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > emits the public nested validation schema for 'failed' events 17ms
+3203: Test Files  2 passed (2)
+3204:      Tests  74 passed | 1 skipped (75)
+
+--- tail ---
+[00:42:05.800] INFO (5898): request completed
+    req: {
+      "id": 25,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[00:42:05.816] INFO (5898): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "d02f3e15-027c-414f-b122-55d8872e5e42"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "d02f3e15-027c-414f-b122-55d8872e5e42",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[00:42:05.818] INFO (5898): request completed
+    req: {
+      "id": 26,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[00:42:05.828] INFO (5898): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "460fc9c2-e799-4154-893a-ee8855e4e558"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "460fc9c2-e799-4154-893a-ee8855e4e558",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[00:42:05.830] INFO (5898): request completed
+    req: {
+      "id": 27,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[00:42:05.838] INFO (5898): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "06c0ff35-47a3-44cc-bd8d-4e59b2a7d144"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "06c0ff35-47a3-44cc-bd8d-4e59b2a7d144",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[00:42:05.839] INFO (5898): request completed
+    req: {
+      "id": 28,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[00:42:05.845] INFO (5898): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "2d0ca0f5-98c4-40dc-8559-aa268f51581f"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "2d0ca0f5-98c4-40dc-8559-aa268f51581f",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[00:42:05.846] INFO (5898): request completed
+    req: {
+      "id": 29,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[00:42:05.855] INFO (5898): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "8d7e8b57-5402-40e2-a492-f0ae39cd11b2"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "8d7e8b57-5402-40e2-a492-f0ae39cd11b2",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[00:42:05.857] INFO (5898): request completed
+    req: {
+      "id": 30,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[00:42:05.863] INFO (5898): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "5895ee64-cdbf-4ff0-b4da-3a4e3618ce01"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "5895ee64-cdbf-4ff0-b4da-3a4e3618ce01",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[00:42:05.865] INFO (5898): request completed
+    req: {
+      "id": 31,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[00:42:05.871] INFO (5898): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "616cb994-5916-4901-8a36-867ff0f7bfb7"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "616cb994-5916-4901-8a36-867ff0f7bfb7",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[00:42:05.873] INFO (5898): request completed
+    req: {
+      "id": 32,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > emits the public nested validation schema for 'failed' events 17ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > emits the public nested validation schema for 'passed' events 13ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > removes command output and test/source details from SSE and persisted trace 6ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > persists verdictScope + scopedFindingStatus into tool_trace for a scoped decision_trace step 6ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > persists verdictScope + scopedFindingStatus into repair_plan_metadata for a scoped scenario 12ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > omits scope fields from the persisted tool_trace when the step has none 8ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > omits scope fields from the persisted repair_plan_metadata when the plan has none 8ms
+
+ Test Files  2 passed (2)
+      Tests  74 passed | 1 skipped (75)
+   Start at  00:41:45
+   Duration  20.48s (transform 4.50s, setup 0ms, import 9.05s, tests 11.02s, environment 0ms)
+

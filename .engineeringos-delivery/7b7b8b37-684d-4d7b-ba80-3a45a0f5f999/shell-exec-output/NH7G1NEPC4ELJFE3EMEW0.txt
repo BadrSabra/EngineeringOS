@@ -1,0 +1,726 @@
+     1  // project root is inaccessible. Such a fallback would let a user authorized
+     2  // for a stale/inaccessible project request arbitrary files (e.g. .env) from
+     3  // OTHER projects living in the shared workspace — a cross-project data leak.
+     4  // Here the project's own configured rootPath is the ONLY authorization
+     5  // boundary: if it is unusable, we return `available:false` and serve nothing.
+     6  const storedRoot = project.rootPath;
+     7  if (!storedRoot) {
+     8    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+     9  }
+    10
+    11  // Canonicalize the root FIRST (realpath resolves its own symlinks) so both
+    12  // a real absolute path and a symlinked project root resolve to the same
+    13  // canonical directory, and containment can be checked against that truth.
+    14  let resolvedRoot: string;
+    15  try {
+    16    resolvedRoot = await fs.realpath(storedRoot);
+    17  } catch {
+    18    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+    19  }
+    20
+    21  const resolved = path.resolve(resolvedRoot, relPath);
+    22  if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+    23    return res.status(200).json({ available: false, reason: "outside_project_root" });
+    24  }
+    25
+    26  let realResolved: string;
+    27  try {
+    28    // realpath follows symlinks in the target — catches a symlink pointing
+    29    // outside the (canonical) project root.
+    30    realResolved = await fs.realpath(resolved);
+    31  } catch {
+    32    return res.status(200).json({ available: false, reason: "file_not_found" });
+    33  }
+    34  if (realResolved !== resolvedRoot && !realResolved.startsWith(resolvedRoot + path.sep)) {
+    35    return res.status(200).json({ available: false, reason: "outside_project_root" });
+    36  }
+    37
+    38  let rawFile: string;
+    39  try {
+    40    rawFile = await fs.readFile(realResolved, "utf-8");
+    41  } catch {
+    42    return res.status(200).json({ available: false, reason: "file_unreadable" });
+    43  }
+    44
+    45  const allLines = rawFile.split(/\r?\n/);
+    46  // A file typically ends with a trailing newline, which split() turns into a
+    47  // spurious empty line; drop a single trailing empty line so line counts line
+    48  // up with an editor's visible line numbers.
+    49  if (allLines.length > 0 && allLines[allLines.length - 1] === "") allLines.pop();
+    50  // Bound the requested window so a single huge file never floods the response.
+    51  const MAX_WINDOW = 200;
+    52  const to = Math.min(allLines.length, endLine, startLine + MAX_WINDOW - 1);
+    53
+    54  return res.status(200).json({
+    55    available: true,
+    56    path: relPath,
+    57    startLine,
+    58    endLine: to,
+    59    fileLines: allLines.length,
+    60    truncated: to < endLine || to < allLines.length,
+    61    lines: allLines.slice(startLine - 1, to).map((text, i) => ({
+    62      line: startLine + i,
+    63      text,
+    64    })),
+    65  });
+    66});
+    67
+    68router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
+    69  const [session] = await db
+    70    .select()
+    71    .from(aiChatSessionsTable)
+    72    .where(eq(aiChatSessionsTable.id, req.params.sessionId))
+    73    .limit(1);
+    74  if (!session) return res.status(404).json({ error: "Chat session not found" });
+    75  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+    76  if (!project) return;
+    77
+    78  const [proposal] = await db
+    79    .select()
+    80    .from(aiChangeProposalsTable)
+    81    .where(and(
+    82      eq(aiChangeProposalsTable.sessionId, req.params.sessionId),
+    83    ))
+    84    .orderBy(desc(aiChangeProposalsTable.createdAt))
+    85    .limit(1);
+    86  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
+    87
+    88  const [proposalExecution] = await db
+    89    .select({
+    90      id: aiExecutionsTable.id,
+    91      operationId: aiExecutionsTable.operationId,
+    92      buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+    93    })
+    94    .from(aiExecutionsTable)
+    95    .where(and(
+    96      eq(aiExecutionsTable.proposalId, proposal.id),
+    97      eq(aiExecutionsTable.projectId, session.projectId),
+    98    ))
+    99    .orderBy(desc(aiExecutionsTable.updatedAt))
+   100    .limit(1);
+   101  const canonicalOperationId = proposalExecution?.operationId
+   102    ?? proposalExecution?.buildPlanMessageId
+   103    ?? proposalExecution?.id
+   104    ?? proposal.messageId;
+   105
+   106  try {
+   107    const changes = proposal.status === "pending"
+   108      ? parseStoredJson(proposal.changes) as ServerPendingChange[]
+   109      : [];
+   110    return res.json({
+   111      proposalId: proposal.status === "pending" ? proposal.id : null,
+   112      operationId: canonicalOperationId,
+   113      changes,
+   114      approvalRequired: proposal.status === "pending" ? proposal.approvalRequired : false,
+   115      revision: proposal.status === "pending" ? proposal.revision : null,
+   116      ...(
+   117        proposal.lifecycle !== "proposed"
+   118        || proposal.workspaceRoot
+   119        || proposal.validationEvidence
+   120        ? {
+   121            lifecycle: proposal.lifecycle,
+   122            baseRevision: proposal.baseRevision,
+   123            changeSetHash: proposal.changeSetHash,
+   124            conflictReason: proposal.conflictReason
+   125              ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+   126              : null,
+   127            validationEvidence: proposal.validationEvidence
+   128              ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
+   129              : [],
+   130          }
+   131        : {}
+   132      ),
+   133    });
+   134  } catch {
+   135    logger.error({ proposalId: proposal.id }, "Invalid stored AI change proposal");
+   136    return res.status(500).json({ error: "Stored change proposal is invalid" });
+   137  }
+   138});
+   139
+   140// Delivery recovery intentionally exposes only relative file names and bounded
+   141// evidence. Workspace roots and change contents remain server-owned.
+   142router.get("/ai/delivery/recoverable", async (req, res) => {
+   143  const project = await loadProjectByIdForUser(
+   144    typeof req.query.projectId === "string" ? req.query.projectId : undefined,
+   145    req.userId,
+   146    res,
+   147  );
+   148  if (!project) return;
+   149
+   150  const proposals = await db
+   151    .select()
+   152    .from(aiChangeProposalsTable)
+   153    .where(and(
+   154      eq(aiChangeProposalsTable.projectId, project.id),
+   155      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+   156    ))
+   157    .orderBy(desc(aiChangeProposalsTable.createdAt))
+   158    .limit(20);
+   159
+   160  const operations = await Promise.all(proposals.map(async (proposal) => {
+   161    const workspaceAvailable = Boolean(
+   162      proposal.operationId
+   163      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+   164    );
+   165    const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+   166      ? "discarded"
+   167      : workspaceAvailable
+   168        ? "recoverable"
+   169        : "missing_workspace";
+   170    const operatorExplanation = recoveryState === "discarded"
+   171      ? "This delivery recovery was already discarded."
+   172      : recoveryState === "missing_workspace"
+   173        ? "The saved delivery workspace is no longer available, so recovery cannot continue."
+   174        : proposal.lifecycle === "conflicted"
+   175          ? "The delivery stopped because the retained changes need review before validation can continue."
+   176          : proposal.lifecycle === "abandoned"
+   177            ? "The delivery was interrupted before it finished; its saved workspace can be checked again."
+   178            : "Validation did not complete successfully; the saved workspace can be checked again.";
+   179    const nextAction = recoveryState === "discarded"
+   180      ? "No action is required."
+   181      : recoveryState === "missing_workspace"
+   182        ? "Start a new delivery from the current project rather than retrying this recovery."
+   183        : "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.";
+   184    return {
+   185      proposalId: proposal.id,
+   186      operationId: proposal.operationId ?? proposal.messageId,
+   187      projectRevision: proposal.baseRevision,
+   188      changeSetHash: proposal.changeSetHash,
+   189      sessionId: proposal.sessionId,
+   190      lifecycle: proposal.lifecycle,
+   191      status: proposal.status,
+   192      createdAt: proposal.createdAt,
+   193      conflictReason: proposal.conflictReason
+   194        ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+   195        : null,
+   196      recoveryState,
+   197      operatorExplanation,
+   198      nextAction,
+   199      validationEvidence: proposal.validationEvidence
+   200        ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+   201        : null,
+   202      workspaceAvailable,
+   203      changeCount: (() => {
+   204        try {
+   205          const changes = parseStoredJson(proposal.changes);
+   206          return Array.isArray(changes) ? changes.length : 0;
+   207        } catch {
+   208          return 0;
+   209        }
+   210      })(),
+   211    };
+   212  }));
+   213  return res.json({ operations });
+   214});
+   215
+   216router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+   217  const [proposal] = await db.select().from(aiChangeProposalsTable)
+   218    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+   219  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+   220  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+   221  if (!project) return;
+   222
+   223  if (proposal.lifecycle === "validated") {
+   224    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+   225  }
+   226  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+   227    || proposal.status !== "pending"
+   228    || !proposal.operationId
+   229    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+   230    const discarded = proposal.lifecycle === "cancelled" || proposal.status === "rejected";
+   231    const workspaceAvailable = Boolean(
+   232      proposal.operationId
+   233      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+   234    );
+   235    return res.status(409).json({
+   236      error: discarded
+   237        ? "This delivery recovery was already discarded."
+   238        : "The saved delivery workspace is no longer available, so recovery cannot continue.",
+   239      code: discarded ? "DELIVERY_ALREADY_DISCARDED" : "DELIVERY_NOT_RECOVERABLE",
+   240      lifecycle: proposal.lifecycle,
+   241      recoveryState: discarded ? "discarded" : workspaceAvailable ? "recoverable" : "missing_workspace",
+   242      nextAction: discarded
+   243        ? "No action is required."
+   244        : "Start a new delivery from the current project rather than retrying this recovery.",
+   245    });
+   246  }
+   247
+   248  let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
+   249  try {
+   250    const parsed = parseStoredJson(proposal.changes);
+   251    if (!Array.isArray(parsed)) throw new Error("not an array");
+   252    changes = parsed;
+   253  } catch {
+   254    return res.status(409).json({ error: "Stored delivery changes are invalid.", code: "DELIVERY_INVALID" });
+   255  }
+   256  const workspaceRoot = proposal.workspaceRoot!;
+   257  const results: Array<Record<string, unknown>> = [];
+   258  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+   259  const changeSetHash = proposal.changeSetHash ?? hashChangeSet(changes);
+   260  const groups = new Map<string, typeof changes>();
+   261  for (const change of changes) {
+   262    if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
+   263    const group = groups.get(change.validationProfile) ?? [];
+   264    group.push(change);
+   265    groups.set(change.validationProfile, group);
+   266  }
+   267  for (const [profile, group] of groups) {
+   268    const parsedProfile = ValidationProfileSchema.safeParse(profile);
+   269    if (!parsedProfile.success) continue;
+   270    const result = await runRepairValidation(
+   271      workspaceRoot,
+   272      parsedProfile.data,
+   273      group.map((change) => change.path),
+   274      undefined,
+   275      [],
+   276    );
+   277    if ("evidence" in result) {
+   278      result.evidence.operationId = proposal.operationId ?? proposal.messageId;
+   279      result.evidence.projectRevision = proposal.baseRevision ?? undefined;
+   280      result.evidence.candidateHash = candidateHash;
+   281      result.evidence.changeSetHash = changeSetHash;
+   282    }
+   283    results.push(publicValidationReceipt(result));
+   284  }
+   285  const passed = results.length === groups.size && results.length > 0
+   286    && results.every((result) => result.status === "passed");
+   287  const evidence = JSON.stringify(results);
+   288  const [updated] = await db.update(aiChangeProposalsTable).set({
+   289    lifecycle: passed ? "validated" : "blocked",
+   290    validationEvidence: evidence,
+   291    conflictReason: passed ? null : "Validation recovery did not pass all registered profiles.",
+   292  }).where(and(
+   293    eq(aiChangeProposalsTable.id, proposal.id),
+   294    eq(aiChangeProposalsTable.status, "pending"),
+   295    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+   296  )).returning({ id: aiChangeProposalsTable.id });
+   297  if (!updated) {
+   298    const [current] = await db.select({ lifecycle: aiChangeProposalsTable.lifecycle })
+   299      .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
+   300    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+   301  }
+   302  return res.json({
+   303    proposalId: proposal.id,
+   304    operationId: proposal.operationId,
+   305    lifecycle: passed ? "validated" : "blocked",
+   306    validationEvidence: parsePublicValidationReceipts(results),
+   307  });
+   308});
+   309
+   310router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
+   311  const [proposal] = await db.select().from(aiChangeProposalsTable)
+   312    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+   313  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+   314  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+   315  if (!project) return;
+   316  if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
+   317    return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
+   318  }
+   319  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+   320    return res.status(409).json({ error: "Only abandoned or blocked delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
+   321  }
+   322  const [updated] = await db.update(aiChangeProposalsTable).set({
+   323    status: "rejected",
+   324    lifecycle: "cancelled",
+   325    consumedAt: new Date(),
+   326  }).where(and(eq(aiChangeProposalsTable.id, proposal.id), eq(aiChangeProposalsTable.status, "pending"))).returning({ id: aiChangeProposalsTable.id });
+   327  if (updated && proposal.workspaceRoot && proposal.operationId) {
+   328    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+   329  }
+   330  return res.json({ proposalId: proposal.id, lifecycle: "cancelled", discarded: Boolean(updated) });
+   331});
+   332
+   333// ── POST /api/ai/chat/rebase-changes ──────────────────────────────────────────
+   334//
+   335// A stale proposal never writes through automatically. This endpoint attempts a
+   336// deterministic, reviewable rebase onto the current workspace and updates the
+   337// still-pending proposal only when every hunk matches uniquely.
+   338router.post("/ai/chat/rebase-changes", async (req, res) => {
+   339  const RebaseChangeSchema = z.object({
+   340    path: z.string().min(1),
+   341    absolutePath: z.string().min(1).refine(path.isAbsolute, "absolutePath must be an absolute path"),
+   342    newContent: z.string(),
+   343    originalContent: z.string().nullable(),
+   344    baseHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+   345    hunks: z.array(z.object({
+   346      startLine: z.number().int().min(1),
+   347      endLine: z.number().int().min(1),
+   348      expectedText: z.string(),
+   349      replacementText: z.string(),
+   350      reason: z.string().min(1),
+   351      risk: z.enum(["low", "medium", "high"]).optional(),
+   352      evidence: z.array(z.object({
+   353        kind: z.enum(["finding", "source", "validation"]),
+   354        id: z.string().min(1),
+   355        label: z.string().min(1).max(240),
+   356        file: z.string().min(1).optional(),
+   357        line: z.number().int().min(1).optional(),
+   358      }).strict()).max(4).optional(),
+   359    }).strict()).max(100).optional(),
+   360    reason: z.string().min(1),
+   361    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]).optional(),
+   362    risk: z.enum(["low", "medium", "high"]).optional(),
+   363    evidence: z.array(z.object({
+   364      kind: z.enum(["finding", "source", "validation"]),
+   365      id: z.string().min(1),
+   366      label: z.string().min(1).max(240),
+   367      file: z.string().min(1).optional(),
+   368      line: z.number().int().min(1).optional(),
+   369    }).strict()).max(4).optional(),
+   370  }).strict();
+   371  const RebaseBodySchema = z.object({
+   372    projectId: z.string({ required_error: "projectId is required" }).min(1),
+   373    proposalId: z.string({ required_error: "proposalId is required" }).uuid(),
+   374    changes: z.array(RebaseChangeSchema).min(1).max(50),
+   375  });
+   376  const parsed = RebaseBodySchema.safeParse(req.body);
+   377  if (!parsed.success) {
+   378    const issue = parsed.error.issues[0];
+   379    return res.status(400).json({
+   380      error: issue?.message ?? "Invalid rebase request",
+   381      field: String(issue?.path[0] ?? ""),
+   382    });
+   383  }
+   384
+   385  const { projectId, proposalId, changes } = parsed.data;
+   386  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+   387  if (!project) return;
+   388  const rootCheck = await resolveRootPath(project.rootPath, projectId);
+   389  if (!rootCheck.validRootPath) {
+   390    console.error("DEBUG_APPLY_ROOT", projectId, proposalId, project.rootPath);
+   391    return res.status(409).json({
+   392      error: "project_root_unavailable",
+   393      code: "PROJECT_ROOT_UNAVAILABLE",
+   394      message: "The project working directory is unavailable; restore or rescan the project before rebasing changes.",
+   395    });
+   396  }
+   397
+   398  const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+   399  if (!applyLock.acquired) {
+   400    return res.status(409).json({
+   401      error: "apply_in_progress",
+   402      code: "APPLY_IN_PROGRESS",
+   403      hint: "Another apply or rebase operation is already in progress for this project.",
+   404    });
+   405  }
+   406
+   407  try {
+   408    const [proposal] = await db
+   409      .select()
+   410      .from(aiChangeProposalsTable)
+   411      .where(and(
+   412        eq(aiChangeProposalsTable.id, proposalId),
+   413        eq(aiChangeProposalsTable.projectId, projectId),
+   414      ))
+   415      .limit(1);
+   416    if (!proposal) {
+   417      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+   418    }
+   419    if (proposal.status !== "pending") {
+   420      return res.status(409).json({
+   421        error: "Change proposal has already been consumed",
+   422        code: "PROPOSAL_ALREADY_CONSUMED",
+   423      });
+   424    }
+   425
+   426    let approvedChanges: ServerPendingChange[];
+   427    try {
+   428      approvedChanges = parseStoredJson(proposal.changes) as ServerPendingChange[];
+   429    } catch {
+   430      return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
+   431    }
+   432    if (serializeCanonical(changes) !== serializeCanonical(approvedChanges)) {
+   433      return res.status(409).json({
+   434        error: "Submitted changes do not match the approved proposal",
+   435        code: "PROPOSAL_MISMATCH",
+   436      });
+   437    }
+   438
+   439    const rebasedChanges: ServerPendingChange[] = [];
+   440    const conflicts: Array<{
+   441      path: string;
+   442      ok: false;
+   443      code: "PATCH_REBASE_UNAVAILABLE" | "PATCH_REBASE_CONFLICT";
+   444      error: string;
+   445      conflict?: {
+   446        kind: "base_hash_mismatch" | "hunk_mismatch";
+   447        expectedHash?: string;
+   448        actualHash?: string;
+   449        hunkIndex?: number;
+   450      };
+   451    }> = [];
+   452    const seenRealPaths = new Set<string>();
+   453    const resolvedRoot = path.resolve(project.rootPath);
+   454    const BLOCKED_WRITE_EXTENSIONS =
+   455      /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+   456
+   457    for (const change of approvedChanges) {
+   458      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {
+   459        conflicts.push({
+   460          path: change.path,
+   461          ok: false,
+   462          code: "PATCH_REBASE_UNAVAILABLE",
+   463          error: "Sensitive files cannot be rebased through the AI approval flow.",
+   464        });
+   465        continue;
+   466      }
+   467      if (!change.hunks || change.hunks.length === 0 || !change.baseHash) {
+   468        conflicts.push({
+   469          path: change.path,
+   470          ok: false,
+   471          code: "PATCH_REBASE_UNAVAILABLE",
+   472          error: "This legacy proposal has no Patch Lab hunks/base hash; generate a fresh patch instead.",
+   473        });
+   474        continue;
+   475      }
+   476
+   477      const resolved = path.resolve(change.absolutePath);
+   478      if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+   479        conflicts.push({
+   480          path: change.path,
+   481          ok: false,
+   482          code: "PATCH_REBASE_UNAVAILABLE",
+   483          error: "Path is outside the project root.",
+   484        });
+   485        continue;
+   486      }
+   487
+   488      try {
+   489        const parentDir = path.dirname(resolved);
+   490        const realParent = await fs.realpath(parentDir);
+   491        const realResolved = path.join(realParent, path.basename(resolved));
+   492        if (realResolved !== resolvedRoot && !realResolved.startsWith(resolvedRoot + path.sep)) {
+   493          conflicts.push({
+   494            path: change.path,
+   495            ok: false,
+   496            code: "PATCH_REBASE_UNAVAILABLE",
+   497            error: "Path is outside the project root after symlink resolution.",
+   498          });
+   499          continue;
+   500        }
+   501        if (seenRealPaths.has(realResolved)) {
+   502          conflicts.push({
+   503            path: change.path,
+   504            ok: false,
+   505            code: "PATCH_REBASE_UNAVAILABLE",
+   506            error: "Duplicate file path in rebase request.",
+   507          });
+   508          continue;
+   509        }
+   510        seenRealPaths.add(realResolved);
+   511
+   512        let currentContent: string | null = null;
+   513        try {
+   514          currentContent = await fs.readFile(realResolved, "utf-8");
+   515        } catch (error) {
+   516          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+   517        }
+   518        const actualHash = hashPatchBase(currentContent);
+   519        const rebased = rebasePatchHunks(currentContent, change.hunks);
+   520        if (!rebased.ok) {
+   521          conflicts.push({
+   522            path: change.path,
+   523            ok: false,
+   524            code: rebased.kind === "unsupported" ? "PATCH_REBASE_UNAVAILABLE" : "PATCH_REBASE_CONFLICT",
+   525            error: rebased.reason,
+   526            conflict: rebased.kind === "hunk_mismatch"
+   527              ? {
+   528                  kind: "hunk_mismatch",
+   529                  ...(rebased.hunkIndex === undefined ? {} : { hunkIndex: rebased.hunkIndex }),
+   530                  ...(change.baseHash === actualHash ? {} : {
+   531                    expectedHash: change.baseHash,
+   532                    actualHash,
+   533                  }),
+   534                }
+   535              : undefined,
+   536          });
+   537          continue;
+   538        }
+   539
+   540        rebasedChanges.push({
+   541          ...change,
+   542          absolutePath: realResolved,
+   543          originalContent: currentContent,
+   544          baseHash: actualHash,
+   545          newContent: rebased.content,
+   546          hunks: buildPatchHunks(currentContent, rebased.content, change.reason, {
+   547            risk: change.risk,
+   548            evidence: change.evidence,
+   549          }),
+   550        });
+   551      } catch (error) {
+   552        conflicts.push({
+   553          path: change.path,
+   554          ok: false,
+   555          code: "PATCH_REBASE_UNAVAILABLE",
+   556          error: error instanceof Error ? error.message : String(error),
+   557        });
+   558      }
+   559    }
+   560
+   561    if (conflicts.length > 0 || rebasedChanges.length !== approvedChanges.length) {
+   562      return res.status(409).json({
+   563        error: "Patch could not be safely rebased. No proposal data was changed.",
+   564        code: "PATCH_REBASE_CONFLICT",
+   565        results: [
+   566          ...conflicts,
+   567          ...rebasedChanges.map((change) => ({
+   568            path: change.path,
+   569            ok: false as const,
+   570            code: "PATCH_REBASE_ABORTED" as const,
+   571            error: "Batch rebase aborted because another file conflicted.",
+   572          })),
+   573        ],
+   574      });
+   575    }
+   576
+   577    await db.transaction(async (tx) => {
+   578      const nextRevision = proposal.revision + 1;
+   579      const updated = await tx
+   580        .update(aiChangeProposalsTable)
+   581        .set({
+   582          changes: serializeServerPendingChanges(rebasedChanges),
+   583          revision: nextRevision,
+   584          approvalRequired: true,
+   585        })
+   586        .where(and(
+   587          eq(aiChangeProposalsTable.id, proposalId),
+   588          eq(aiChangeProposalsTable.projectId, projectId),
+   589          eq(aiChangeProposalsTable.status, "pending"),
+   590        ))
+   591        .returning({ id: aiChangeProposalsTable.id });
+   592      if (!updated[0]) throw new Error("Change proposal was consumed during rebase");
+   593      await tx.insert(eventsTable).values({
+   594        id: randomUUID(),
+   595        type: "AiPatchRebased",
+   596        projectId,
+   597        severity: "info",
+   598        message: `AI patch rebased for ${rebasedChanges.length} file${rebasedChanges.length === 1 ? "" : "s"}; user review is required again.`,
+   599        correlationId: proposalId,
+   600        payload: {
+   601          proposalId,
+   602          rebasedFiles: rebasedChanges.map((change) => change.path),
+   603          approvalRequired: true,
+   604        },
+   605      });
+   606    });
+   607
+   608    return res.status(200).json({
+   609      proposalId,
+   610      changes: rebasedChanges,
+   611      rebasedFiles: rebasedChanges.map((change) => change.path),
+   612      approvalRequired: true,
+   613      revision: proposal.revision + 1,
+   614    });
+   615  } catch (error) {
+   616    if (error instanceof Error && error.message === "Change proposal was consumed during rebase") {
+   617      return res.status(409).json({
+   618        error: "Change proposal has already been consumed",
+   619        code: "PROPOSAL_ALREADY_CONSUMED",
+   620      });
+   621    }
+   622    throw error;
+   623  } finally {
+   624    await applyLock.release();
+   625  }
+   626});
+   627
+   628// ── POST /api/ai/chat/proposals/:proposalId/approve ──────────────────────────
+   629//
+   630// Rebased proposals remain pending but are explicitly blocked from apply until
+   631// the user approves the new revision. The compare-and-set prevents an approval
+   632// from racing with another rebase of the same proposal.
+   633router.post("/ai/chat/proposals/:proposalId/approve", async (req, res) => {
+   634  const body = z.object({
+   635    projectId: z.string().min(1),
+   636    revision: z.number().int().min(0),
+   637  }).strict().safeParse(req.body);
+   638  if (!body.success) {
+   639    return res.status(400).json({
+   640      error: body.error.issues[0]?.message ?? "Invalid proposal approval request",
+   641      code: "PROPOSAL_APPROVAL_INVALID",
+   642    });
+   643  }
+   644
+   645  const { projectId, revision } = body.data;
+   646  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+   647  if (!project) return;
+   648
+   649  const [proposal] = await db
+   650    .select()
+   651    .from(aiChangeProposalsTable)
+   652    .where(and(
+   653      eq(aiChangeProposalsTable.id, req.params.proposalId),
+   654      eq(aiChangeProposalsTable.projectId, projectId),
+   655    ))
+   656    .limit(1);
+   657  if (!proposal) {
+   658    return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+   659  }
+   660  if (proposal.status !== "pending") {
+   661    return res.status(409).json({
+   662      error: "Change proposal has already been consumed",
+   663      code: "PROPOSAL_ALREADY_CONSUMED",
+   664    });
+   665  }
+   666  if (!proposal.approvalRequired) {
+   667    return res.status(409).json({
+   668      error: "This proposal does not require re-approval",
+   669      code: "PROPOSAL_REAPPROVAL_NOT_REQUIRED",
+   670      approvalRequired: false,
+   671      revision: proposal.revision,
+   672    });
+   673  }
+   674
+   675  const updated = await db.transaction(async (tx) => {
+   676    const rows = await tx
+   677      .update(aiChangeProposalsTable)
+   678      .set({ approvalRequired: false })
+   679      .where(and(
+   680        eq(aiChangeProposalsTable.id, proposal.id),
+   681        eq(aiChangeProposalsTable.projectId, projectId),
+   682        eq(aiChangeProposalsTable.status, "pending"),
+   683        eq(aiChangeProposalsTable.approvalRequired, true),
+   684        eq(aiChangeProposalsTable.revision, revision),
+   685      ))
+   686      .returning({ id: aiChangeProposalsTable.id });
+   687    if (!rows[0]) return false;
+   688
+   689    await tx.insert(eventsTable).values({
+   690      id: randomUUID(),
+   691      type: "AiPatchReapproved",
+   692      projectId,
+   693      severity: "success",
+   694      message: "AI rebased patch approved for apply",
+   695      correlationId: proposal.messageId,
+   696      payload: {
+   697        proposalId: proposal.id,
+   698        revision,
+   699        approvalRequired: false,
+   700      },
+   701    });
+   702    return true;
+   703  });
+   704
+   705  if (!updated) {
+   706    return res.status(409).json({
+   707      error: "The proposal changed before it could be approved; reload and review it again",
+   708      code: "PROPOSAL_APPROVAL_CONFLICT",
+   709    });
+   710  }
+   711
+   712  return res.status(200).json({
+   713    proposalId: proposal.id,
+   714    approvalRequired: false,
+   715    revision,
+   716  });
+   717});
+   718
+   719router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
+   720  const [proposal] = await db
+   721    .select()
+   722    .from(aiChangeProposalsTable)
+   723    .where(eq(aiChangeProposalsTable.id, req.params.proposalId))
+   724    .limit(1);
+   725  if (!proposal) {
+   726    return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });

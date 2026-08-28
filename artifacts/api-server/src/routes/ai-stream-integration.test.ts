@@ -1860,6 +1860,11 @@ describe("Plan-to-push agent cycle", () => {
       status: "passed",
       profile: "workspace-typecheck",
       scenario: "Deterministic agent-cycle validation",
+      evidence: {
+        evidenceId: "agent-cycle-validation",
+        observedAt: "2026-08-27T00:00:00.000Z",
+        artifactRef: "validation-result:agent-cycle-validation",
+      },
       detail: "Validation passed in the integration fixture.",
     });
 
@@ -1919,6 +1924,19 @@ describe("Plan-to-push agent cycle", () => {
       persistenceVerified: true,
       behavioralVerification: { status: "passed" },
     });
+    expect(apply.body.applyStatus).toBe("APPLIED");
+    expect(apply.body.validationEvidence).toEqual([
+      expect.objectContaining({
+        status: "passed",
+        evidence: expect.objectContaining({
+          operationId,
+          projectRevision: expect.any(String),
+          candidateHash: expect.any(String),
+          changeSetHash: expect.any(String),
+          promotedHash: expect.any(String),
+        }),
+      }),
+    ]);
     await expect(fs.readFile(proposedChange.absolutePath, "utf8"))
       .resolves.toBe(proposedChange.newContent);
     const [appliedProposal] = await db

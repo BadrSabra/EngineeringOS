@@ -1,0 +1,220 @@
+lib/ai-orchestrator/src/agents/chat-agent.ts:5492:    toolCallsDisabledAfter: structuredOutputMode
+lib/ai-orchestrator/src/agents/chat-agent.ts:5936:        toolCalls: null,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6180:      const streamingObjectiveGate = applyObjectiveCompletionGate({
+lib/ai-orchestrator/src/agents/chat-agent.ts:7257:                Array.isArray(recovery.toolCalls) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7258:                recovery.toolCalls.length > 0 &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7261:                const executableCalls = recovery.toolCalls.filter(
+lib/ai-orchestrator/src/agents/chat-agent.ts:7293:                  tool_calls: recovery.toolCalls,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1095:  toolCallsDisabledAfter?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1545:      toolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1605:    toolCallsDisabledAfter,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1673:    toolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1677:    toolCalls: prefetchToolCalls + loopToolCalls,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2109:      !first.result.toolCalls?.length ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2377:          toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2441:      (toolCallsDisabledAfter !== undefined && iter >= toolCallsDisabledAfter);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2598:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2670:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2731:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2799:      (!result.toolCalls || result.toolCalls.length === 0)
+lib/ai-orchestrator/src/tool-execution-engine.ts:2853:    if (!result.toolCalls || result.toolCalls.length === 0) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2983:      const terminalResult: RawGroqResponse = { ...result, toolCalls: null };
+lib/ai-orchestrator/src/tool-execution-engine.ts:3004:          toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3021:    const safeToolCalls = result.toolCalls.map((tc) => {
+lib/ai-orchestrator/src/deepseek-client.ts:191: * The returned shape is identical to completeRaw() so chat-agent.ts can
+lib/ai-orchestrator/src/deepseek-client.ts:286:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/openai-compatible-client.ts:172:      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+lib/ai-orchestrator/src/openai-compatible-client.ts:174:      if (!hasContent && toolCalls.length === 0) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:180:        toolCalls
+lib/ai-orchestrator/src/openai-compatible-client.ts:673:function parseXmlToolCalls(content: string): ToolCall[] | null {
+lib/ai-orchestrator/src/openai-compatible-client.ts:719: * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
+lib/ai-orchestrator/src/openai-compatible-client.ts:878:  let toolCalls: ToolCall[] | null = hasCalls
+lib/ai-orchestrator/src/openai-compatible-client.ts:886:      const xmlCalls = parseXmlToolCalls(content);
+lib/ai-orchestrator/src/openai-compatible-client.ts:888:        toolCalls = xmlCalls;
+lib/ai-orchestrator/src/openai-compatible-client.ts:921:    toolCalls,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1328:export async function* openrouterCompleteStream(
+lib/ai-orchestrator/src/index.ts:1:export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:4: * Wraps `openrouterCompleteWithFallback` and `openrouterCompleteStream` from
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:21:  openrouterCompleteStream,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:207:      yield* openrouterCompleteStream(messages, { ...requestOpts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:4: * Wraps `completeRaw` (non-streaming, tool-capable) and `completeStream`
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:8:import { completeRaw, completeStream } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:21:    return completeRaw(messages, opts);
+lib/ai-orchestrator/src/agent-complete.ts:8:import { complete, completeRaw } from "./groq-client.js";
+lib/ai-orchestrator/src/agent-complete.ts:118:      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000, model: probeModelDecision.model });
+lib/ai-orchestrator/src/groq-client.ts:158: * Record the outcome of one complete()/completeRaw() call (after all retries).
+lib/ai-orchestrator/src/groq-client.ts:256:  toolCalls: ToolCall[] | null;
+lib/ai-orchestrator/src/groq-client.ts:297:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/groq-client.ts:313:export async function completeRaw(
+lib/ai-orchestrator/src/groq-client.ts:445:  // request streaming, so this is always a ChatCompletion at runtime.
+lib/ai-orchestrator/src/groq-client.ts:495: * and per-user key caching reuse the same infrastructure as `completeRaw`.
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:129:    toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/behavioral-oracle-gate.test.ts:18:    toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:127:  toolCalls: number;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:154:  toolCalls: number;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:751:    toolCalls: Math.max(0, telemetry.toolCalls),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:880:        toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:1020:    averageToolCalls: average(qualityResults.map((result) => result.toolCalls)),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:44:    toolCalls: 4,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:184:        toolCalls: 3,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:203:        toolCalls: 3,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:226:      toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:308:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:335:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:348:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:372:        toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:416:        toolCalls: 8,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:439:        toolCalls: 3,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:464:        toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:497:          toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:528:        toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:37:  toolCalls: number;
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:280:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:359:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:392:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:435:    toolCalls: steps.filter((step) => step.kind === "tool_call").length,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:628:    averageToolCalls: average(results.map((result) => result.trace.toolCalls)),
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:763:      `| ${result.caseId} | ${result.status} | ${result.rawContractValid ? "yes" : "no"} | ${result.finalContractValid ? "yes" : "no"} | ${(result.evidenceCitationAccuracy * 100).toFixed(0)}% | ${result.recoverySucceeded ? "yes" : "no"} | ${result.repairPlanBlocked ? "yes" : "no"} | ${result.trace.toolCalls} | ${result.trace.sourceReads} |`,
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:188:    toolCalls: steps.filter((step) => step.kind === "tool_call").length,
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:249:        toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:405:        toolCalls: steps.filter((step) => step.kind === "tool_call").length,
+lib/ai-orchestrator/src/benchmark/contract-oracle.test.ts:21:    toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:124:  "toolCalls",
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:325:    toolCalls: integerField(value.toolCalls, `${path}.toolCalls`, 0, 10_000),
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:80:    const toolCalls = qualityObserved.reduce((sum, observation) => sum + observation.toolCalls, 0);
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:86:      toolEfficiency: rate(qualityObserved.reduce((sum, observation) => sum + observation.filesRead, 0), toolCalls),
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts:67:  toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:70:    toolCalls: 3,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:86:    toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:373:              toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:400:              toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:444:          toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:44:  toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts:25:    toolCalls: grade === "U" ? 0 : 1,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5492:    toolCallsDisabledAfter: structuredOutputMode
+lib/ai-orchestrator/src/agents/chat-agent.ts:5936:        toolCalls: null,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6180:      const streamingObjectiveGate = applyObjectiveCompletionGate({
+lib/ai-orchestrator/src/agents/chat-agent.ts:7257:                Array.isArray(recovery.toolCalls) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7258:                recovery.toolCalls.length > 0 &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7261:                const executableCalls = recovery.toolCalls.filter(
+lib/ai-orchestrator/src/agents/chat-agent.ts:7293:                  tool_calls: recovery.toolCalls,
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark-deterministic.ts:37:    toolCalls: blocked ? 2 : 4,
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:40:  toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:171:  const toolCalls = response.toolCalls ?? [];
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:172:  if (toolCalls.length === 0) {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:179:  if (toolCalls.length !== 1 || toolCalls[0]?.function.name !== PROBE_TOOL_NAME) {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:188:    const parsed: unknown = JSON.parse(toolCalls[0].function.arguments);
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.test.ts:45:        toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.test.ts:23:    toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:13:function response(toolCalls: RawGroqResponse["toolCalls"]): RawGroqResponse {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:16:    toolCalls,
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:108:          toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:122:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:9:  completeRaw: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:24:  openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:29:      toolCalls: null,
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:98:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:120:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:127:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:111:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:137:          toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:151:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:111:): { content: string; toolCalls: [] } {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:117:  return { content: "", toolCalls: [] };
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:219:    expect(steps.find((step) => step.kind === "done")).toMatchObject({ toolCalls: 0 });
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:227:    const toolCalls: AgentStep[] = [];
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:270:      onStep: (step) => toolCalls.push(step),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:273:    expect(toolCalls.filter((step) => step.kind === "tool_call")).toHaveLength(0);
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:513:              toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:621:      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: envelope, toolCalls: [] }),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:622:      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: envelope, toolCalls: [] }),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:623:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:661:      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: plainProse, toolCalls: [] }),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:662:      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: plainProse, toolCalls: [] }),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:663:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:697:          return { content: "not valid JSON at first", toolCalls: [], model: "m", usage: {} };
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:699:        return { content: '{"response":"corrected","sources":[]}', toolCalls: [], model: "m", usage: {} };
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:779:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:925:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1016:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1087:            toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1100:          return { content: "not valid JSON", toolCalls: [], model: "m", usage: {} };
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1125:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1252:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1278:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1402:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1436:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1577:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1602:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1612:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1724:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1748:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1757:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1860:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1872:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1975:        toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1988:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1999:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2127:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2263:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2374:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2510:            toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2525:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2554:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2564:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2704:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2713:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2980:      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: "```text\n  Hello   world  \n```", toolCalls: [] }),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2981:      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: "```text\n  Hello   world  \n```", toolCalls: [] }),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2982:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3000:    const malformed = { content: "The provider stopped before producing JSON.", toolCalls: [] };
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3004:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3059:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3073:            toolCalls: null,
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3131:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3145:            toolCalls: null,
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:131:          toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:153:      return { content: response, toolCalls: [], model: "fixture-model", usage: {} };
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:152:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:178:          toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:192:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:219:          toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:233:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:265:          toolCalls: [{
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:276:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:97:    const calls: Array<{ toolCalls?: unknown }> = [];
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:106:        calls.push({ toolCalls: [] });
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:116:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:212:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:328:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:402:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:205:          toolCalls: [{
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:222:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:327:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:417:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:563:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:674:            toolCalls: [
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:722:            toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:750:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts:166:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:169:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:264:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:343:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:11:function response(content: string, toolCalls?: RawGroqResponse["toolCalls"]): RawGroqResponse {
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:14:    toolCalls: toolCalls ?? null,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:557:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:667:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:732:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:816:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:229:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:306:            toolCalls: [
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:319:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:393:            toolCalls: [
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:421:          toolCalls: [],
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:493:        toolCalls: [],
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1810:      '* Evidence: `export { complete, completeRaw, completeStream } from "./groq-client.js";`',
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1820:        'export { complete, completeRaw, completeStream } from "./groq-client.js";\n',
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:77:      toolCalls: [],
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:92:      toolCalls: [],
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:120:          toolCalls: [{
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:131:        toolCalls: [],

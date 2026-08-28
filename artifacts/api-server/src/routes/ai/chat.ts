@@ -1761,6 +1761,20 @@ function nextSessionTaskState(args: {
   return null;
 }
 
+/**
+ * Only the turn that is at least as new as the state currently stored on the
+ * session may replace or clear that state. Keep this predicate on the UPDATE
+ * itself: a CASE expression in an otherwise-unconditional UPDATE can be
+ * evaluated from a snapshot taken before the statement waits for a row lock.
+ */
+function sessionTaskStateIsAtOrBefore(msgNow: Date) {
+  return sql`COALESCE(
+    NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+    ${aiChatSessionsTable.updatedAt}
+  ) <= ${msgNow}
+  AND ${aiChatSessionsTable.updatedAt} <= ${msgNow}`;
+}
+
 const router = Router();
 
 function runtimeChatTraceLinks(routeName: string): ProductionTraceLink[] {
@@ -2204,10 +2218,13 @@ router.post("/ai/chat", async (req, res) => {
       await tx
         .update(aiChatSessionsTable)
         .set({
-          activeTaskState: sql`CASE WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState} ELSE ${aiChatSessionsTable.activeTaskState} END`,
+          activeTaskState,
           updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
         })
-        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+        .where(and(
+          eq(aiChatSessionsTable.id, sessionIdToUse),
+          sessionTaskStateIsAtOrBefore(msgNow),
+        ));
       return msg;
     });
     // Fire-and-forget memory write — must not block the JSON response.
@@ -4106,24 +4123,13 @@ router.post("/ai/chat/stream", async (req, res) => {
       await tx
         .update(aiChatSessionsTable)
         .set({
-          // The session row lock serializes concurrent completions, but the
-          // older turn may acquire it after the newer turn. Compare against
-          // the state-owned progress timestamp, not only the session
-          // timestamp, so a late completion cannot resurrect stale evidence
-          // or an older execution plan.
-          activeTaskState: sql`CASE
-            WHEN CAST(${activeTaskState} AS text) IS NULL THEN NULL
-            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
-            WHEN COALESCE(
-              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
-              ${aiChatSessionsTable.updatedAt}
-            ) <= ${msgNow}
-            AND ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState}
-            ELSE ${aiChatSessionsTable.activeTaskState}
-          END`,
+          activeTaskState,
           updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
         })
-        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+        .where(and(
+          eq(aiChatSessionsTable.id, sessionIdToUse),
+          sessionTaskStateIsAtOrBefore(msgNow),
+        ));
       return msg;
     });
 

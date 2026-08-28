@@ -22,9 +22,11 @@ import {
   aiChatMessagesTable,
   aiChangeProposalsTable,
   aiExecutionsTable,
+  aiSessionMemoriesTable,
   aiApplyJournalTable,
   taskLogsTable,
   auditLogsTable,
+  scanJobsTable,
 } from "@workspace/db";
 import { buildPatchHunks, hashPatchBase } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
@@ -601,12 +603,73 @@ const projectIds: string[] = [];
 const workflowIds: string[] = [];
 const deliveryWorkspaceRoots: string[] = [];
 
+async function cleanupProjectFixture(projectId: string): Promise<void> {
+  const sessions = await db
+    .select({ id: aiChatSessionsTable.id })
+    .from(aiChatSessionsTable)
+    .where(eq(aiChatSessionsTable.projectId, projectId));
+  const sessionIds = sessions.map(({ id }) => id);
+
+  const tasks = await db
+    .select({ id: tasksTable.id })
+    .from(tasksTable)
+    .where(eq(tasksTable.projectId, projectId));
+  const taskIds = tasks.map(({ id }) => id);
+
+  const workflows = await db
+    .select({ id: workflowsTable.id })
+    .from(workflowsTable)
+    .where(eq(workflowsTable.projectId, projectId));
+  const workflowIdsForProject = workflows.map(({ id }) => id);
+
+  // Keep this order explicit rather than relying on the database's cascade
+  // configuration. Release fixture cleanup must remain reliable if a test
+  // process is interrupted between schema changes or while a row is leased.
+  await db.delete(aiApplyJournalTable).where(eq(aiApplyJournalTable.projectId, projectId));
+  await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, projectId));
+  await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+  await db.delete(aiSessionMemoriesTable).where(eq(aiSessionMemoriesTable.projectId, projectId));
+  await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+  await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, projectId));
+  await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, projectId));
+
+  for (const sessionId of sessionIds) {
+    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId));
+  }
+  await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+
+  for (const taskId of taskIds) {
+    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+  }
+  await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId));
+
+  for (const workflowId of workflowIdsForProject) {
+    await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.workflowId, workflowId));
+  }
+  await db.delete(workflowsTable).where(eq(workflowsTable.projectId, projectId));
+  await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+}
+
+async function cleanupInterruptedTmpFixtures(): Promise<void> {
+  const tmpProjects = await db
+    .select({ id: projectsTable.id, name: projectsTable.name })
+    .from(projectsTable)
+    .where(eq(projectsTable.rootPath, "/tmp"));
+
+  for (const project of tmpProjects) {
+    if (project.name.startsWith("apply-")) {
+      await cleanupProjectFixture(project.id);
+    }
+  }
+}
+
 // All AI routes require a Groq API key. Set a dummy env key for the entire
 // test file — every AI orchestrator call is mocked so the real key is never
 // used.  Individual tests that want to verify the 428 path remove the key
 // themselves and restore it in a finally block.
 let _savedGroqKeyFileLevel: string | undefined;
-beforeAll(() => {
+beforeAll(async () => {
+  await cleanupInterruptedTmpFixtures();
   _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
   process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
 });
@@ -624,43 +687,12 @@ afterEach(async () => {
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
   }
   for (const pid of projectIds.splice(0)) {
-    await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, pid)).catch(() => undefined);
-    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, pid)).catch(() => undefined); // may not match, that's fine
-    await db.delete(aiApplyJournalTable).where(eq(aiApplyJournalTable.projectId, pid)).catch(() => undefined);
-    await db.delete(eventsTable).where(eq(eventsTable.projectId, pid)).catch(() => undefined);
-    await db.delete(aiChatMessagesTable)
-      .where(
-        eq(
-          aiChatMessagesTable.sessionId,
-          db
-            .select({ id: aiChatSessionsTable.id })
-            .from(aiChatSessionsTable)
-            .where(eq(aiChatSessionsTable.projectId, pid))
-            .limit(1) as unknown as string,
-        ),
-      )
-      .catch(() => undefined);
-    // Clean sessions for this project
-    const sessions = await db
-      .select({ id: aiChatSessionsTable.id })
-      .from(aiChatSessionsTable)
-      .where(eq(aiChatSessionsTable.projectId, pid));
-    for (const s of sessions) {
-      await db
-        .delete(aiChatMessagesTable)
-        .where(eq(aiChatMessagesTable.sessionId, s.id))
-        .catch(() => undefined);
-    }
-    await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, pid)).catch(() => undefined);
-    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
-    for (const wid of workflowIds.splice(0)) {
-      await db.delete(workflowsTable).where(eq(workflowsTable.id, wid)).catch(() => undefined);
-    }
-    await db.delete(projectsTable).where(eq(projectsTable.id, pid)).catch(() => undefined);
+    await cleanupProjectFixture(pid);
   }
   // Also clear any lingering workflow ids
   for (const wid of workflowIds.splice(0)) {
-    await db.delete(workflowsTable).where(eq(workflowsTable.id, wid)).catch(() => undefined);
+    await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.workflowId, wid));
+    await db.delete(workflowsTable).where(eq(workflowsTable.id, wid));
   }
 });
 

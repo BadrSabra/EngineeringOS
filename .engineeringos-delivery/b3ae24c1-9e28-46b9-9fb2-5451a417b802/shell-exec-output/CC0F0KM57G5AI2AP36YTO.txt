@@ -1,0 +1,300 @@
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:63:    id: "test-execution-id",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:85:    error: null,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:494:    recoveryAttempt: 0,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:510:    recoveryAttempt: 0,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:803:        executionTaskType: "chat",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:848:        executionTaskType: "chat",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:898:      { requireTools: true, qualityProfile: "task_execution" },
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:899:      { requireTools: true, qualityProfile: "task_execution" },
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:905:        executionTaskType: "task_execution",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:912:        qualityProfile: "task_execution",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:917:  it("ignores stale Build and execution metadata for an Arabic greeting", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:937:        executionId: "10000000-0000-4000-8000-000000000001",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:953:        executionTaskType: "chat",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:961:    expect(frames.some((frame) => frame.type === "forensic_terminal")).toBe(false);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:48:  'ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:56:    error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:89:      saveDeepSeek: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:90:      applyChanges: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:91:      rebaseChanges: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:92:      approveRebased: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:93:      rejectProposal: undefined as { onSuccess?: () => void; onError?: (error: unknown) => void } | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:94:      commit: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:95:      push: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:120:      executionId?: string;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:141:    error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:147:    error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:157:      error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:163:      error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:177:            executionId?: string;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:205:    useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:206:    useGetAiMetrics: vi.fn(() => ({ data: { metrics: [], behavioralScorecards: [] }, isLoading: false, isError: false, error: null })),
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:211:      error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:217:      error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:223:      error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:229:      error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:235:      error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:278:        error: null,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:332:    executionId: undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:333:    errorCode: undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:334:    errorMessage: undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:341:    mutation.error = null;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:407:  it('keeps failed chat recovery guidance safe after the conversation is reloaded', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:416:      outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:418:      errorCode: 'PROVIDER_OUTAGE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:419:      errorMessage: unsafeDiagnostic,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:421:    mocks.serverProposal = { proposalId: 'failed-chat-recovery', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:441:  it('restores a paused execution after refresh and resumes the same execution', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:443:    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:444:    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:445:      id: 'execution-paused',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:454:    expect(await screen.findByText('A saved AI execution is ready to resume')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:460:      executionId: 'execution-paused',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:466:  it('resumes an interrupted execution without appending a second user turn', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:468:    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:469:    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:470:      id: 'execution-interrupted',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:474:      message: 'Inspect the interrupted execution',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:483:      executionId: 'execution-interrupted',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:485:      message: 'Inspect the interrupted execution',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:493:        type: 'execution_started',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:494:        executionId: 'execution-interrupted',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:503:        operationId: 'execution-interrupted',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:505:        execution: {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:506:          executionId: 'execution-interrupted',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:513:          content: 'The interrupted execution resumed successfully.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:515:          executionId: 'execution-interrupted',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:523:    expect(await screen.findByText('The interrupted execution resumed successfully.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:526:    expect(screen.queryAllByText('Inspect the interrupted execution')).toHaveLength(0);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:529:  it('recovers a missing resume token before offering the saved execution', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:531:    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:532:    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:533:      id: 'execution-missing-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:540:        executionId: 'execution-missing-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:550:        '/api/ai/executions/execution-missing-token/resume-capability',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:553:      expect(JSON.parse(localStorage.getItem('eos_ai_execution_project-1_session-1') ?? '{}').resumeToken)
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:558:      executionId: 'execution-missing-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:565:  it('shows a retryable non-resumable state when capability recovery is denied', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:567:    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:568:    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:569:      id: 'execution-stale-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:575:      JSON.stringify({ error: 'This AI execution is no longer eligible for resume.' }),
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:581:    expect(await screen.findByText('This AI execution is no longer eligible for resume.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:588:    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:589:    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:590:      id: 'execution-failed-resume',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:598:    expect(await screen.findByText('A saved AI execution is ready to resume')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:602:      executionId: 'execution-failed-resume',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:608:      (mocks.streamCallbacks as { onError?: (error: Record<string, unknown>) => void }).onError?.({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:609:        executionId: 'execution-failed-resume',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:611:        message: 'The required analysis did not complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:617:        queryKey: ['ai-execution', 'execution-failed-resume'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:624:    expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:629:    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:630:    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:631:      id: 'execution-completed',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:641:      expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).not.toBeNull();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:642:      expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:647:    expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).not.toBeNull();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:648:    expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:656:      outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:657:      executionId: 'execution-failed-analysis',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:658:      errorCode: 'TOOL_UNAVAILABLE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:659:      errorMessage: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:668:        { kind: 'done', stopReason: 'tool_failure', diagnosticCodes: ['TOOL_UNAVAILABLE'] },
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:678:    expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:682:  it('clears execution state for a new session and rejects late callbacks', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:695:      type: 'execution_started',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:696:      executionId: 'execution-old',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:723:  it('preserves each project execution pointer when switching away and back', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:729:    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:730:    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:731:      id: 'alpha-execution',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:737:    localStorage.setItem('eos_ai_execution_current_project-2', 'session-2');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:738:    localStorage.setItem('eos_ai_execution_project-2_session-2', JSON.stringify({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:739:      id: 'beta-execution',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:752:    expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:753:    expect(localStorage.getItem('eos_ai_execution_current_project-2')).toBe('session-2');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:757:    expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:758:    expect(localStorage.getItem('eos_ai_execution_current_project-2')).toBe('session-2');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:761:  it('keeps a previous session execution out of the selected session', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:777:      type: 'execution_started',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:778:      executionId: 'execution-session-1',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:785:      type: 'execution_nodes',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:786:      executionId: 'execution-session-1',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:802:  it('sends a provider key through the generated mutation and reports success/error', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:831:    expect(screen.queryByRole('generic', { name: 'Agent execution proof' })).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1002:  it('offers a safe rebase after an apply conflict and keeps approval required', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1033:        error: 'The file changed after the proposal was created.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1220:         requiredEdges: ['client->server', 'server->database'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1255:    expect(objectiveProof).toHaveTextContent('2'); // required edges
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1285:          'lib/ai-orchestrator/src/tool-execution-engine.ts',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1292:          'lib/ai-orchestrator/src/tool-execution-engine.ts',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1761:        code: 'FORENSIC_CONTRACT_RECOVERY_FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1763:          'AbortError: recovery provider request was cancelled',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1764:          'provider recovery-provider diagnostic: cancellation requested by user',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1777:        diagnosticCodes: ['FORENSIC_CONTRACT_RECOVERY_FAILED'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1779:          'AbortError: recovery provider request was cancelled',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1780:          'provider recovery-provider diagnostic: cancellation requested by user',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1802:    expect(screen.queryByText(/provider recovery-provider diagnostic/)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1807:  it('keeps cancelled recovery context visible after history reload', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1831:        recoveryStarted: true,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1832:        diagnosticCodes: ['FORENSIC_CONTRACT_RECOVERY_FAILED'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1938:    expect(await screen.findByText('Source scope required')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2125:  it('shows one execution proof panel as soon as durable work starts', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2140:        type: 'execution_started',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2141:        executionId: 'execution-proof-1',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2172:        requiredEdges: ['client->server', 'server->database'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2179:    const proofPanel = await screen.findByRole('generic', { name: 'Agent execution proof' });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2180:    expect(proofPanel).toHaveTextContent('Agent execution proof');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2182:    expect(proofPanel).toHaveTextContent('execution-proof-1');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2276:  it('renders persisted execution proof after reloading a completed assistant message', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2313:    const proof = await screen.findByText('Persisted execution proof');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2365:        approvalReason: 'Approval is required before changing these files.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2400:        type: 'execution_started',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2401:        executionId: 'execution-disconnected',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2419:        type: 'error',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2420:        code: 'network_error',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2425:    expect(await screen.findAllByText('Disconnected — execution saved')).not.toHaveLength(0);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2440:    expect(screen.getAllByText(/Approval required before changing:/)).toHaveLength(1);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2450:  it('keeps zero-read execution diagnostics compact and collapsed', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2482:    expect(screen.getByText('Persisted execution proof')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2577:        kind: 'execution_guard',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2667:  it('distinguishes phase-policy rejections in rehydrated execution activity', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2704:        kind: 'execution_guard',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2728:  it('renders the evidence claim linked to an execution read', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2819:      'const path = "/home/runner/workspace/lib/ai-orchestrator/src/tool-execution-engine.ts";',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2968:    // for the auto-selected project — no manual paste required.
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3035:        type: 'error',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3040:        outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3081:        type: 'error',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3086:        outcome: 'FAILED',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3221:        recoveryStarted: true,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3243:    expect(screen.queryByText(/did not satisfy the required six-section evidence contract/)).toBeNull();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3264:        recoveryStarted: true,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3269:          'provider recovery exhausted without an accepted six-section report',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3281:      /did not satisfy the required six-section evidence contract/,
+artifacts/api-server/src/routes/ai.test.ts:39:import { createAiExecution } from "../lib/ai-execution-state.js";
+artifacts/api-server/src/routes/ai.test.ts:88:  it("rejects malformed reports with a bounded actionable error", () => {
+artifacts/api-server/src/routes/ai.test.ts:101:    } catch (error) {
+artifacts/api-server/src/routes/ai.test.ts:102:      expect(error).toMatchObject({ code: "mission_correlation_report_invalid" });
+artifacts/api-server/src/routes/ai.test.ts:107:    let error: unknown;
+artifacts/api-server/src/routes/ai.test.ts:118:      error = caught;
+artifacts/api-server/src/routes/ai.test.ts:121:    expect(error).toBeInstanceOf(Error);
+artifacts/api-server/src/routes/ai.test.ts:122:    expect((error as Error).message).toBe(
+artifacts/api-server/src/routes/ai.test.ts:125:    expect((error as Error).message).not.toContain("internal-");
+artifacts/api-server/src/routes/ai.test.ts:138:      terminalState: "COMPLETED",
+artifacts/api-server/src/routes/ai.test.ts:143:        executionCheckpoints: 0,
+artifacts/api-server/src/routes/ai.test.ts:150:        execution: false,
+artifacts/api-server/src/routes/ai.test.ts:175:      terminalState: "COMPLETED",
+artifacts/api-server/src/routes/ai.test.ts:180:        executionCheckpoints: 0,
+artifacts/api-server/src/routes/ai.test.ts:187:        execution: false,
+artifacts/api-server/src/routes/ai.test.ts:218:      terminalState: "COMPLETED",
+artifacts/api-server/src/routes/ai.test.ts:223:        executionCheckpoints: 0,
+artifacts/api-server/src/routes/ai.test.ts:230:        execution: false,
+artifacts/api-server/src/routes/ai.test.ts:336:  // Added missing field: result (required by TaskRecommendationSchema.min(1)).
+artifacts/api-server/src/routes/ai.test.ts:346:    if (!Array.isArray(raw)) return { ok: false, error: "phases must be an array" };
+artifacts/api-server/src/routes/ai.test.ts:496:  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+artifacts/api-server/src/routes/ai.test.ts:506:    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+artifacts/api-server/src/routes/ai.test.ts:708:    expect(res.body.error).toMatch(/projectId/i);
+artifacts/api-server/src/routes/ai.test.ts:720:      error: "Cross-origin state-changing requests are not allowed",
+artifacts/api-server/src/routes/ai.test.ts:729:    expect(res.body.error).toMatch(/projectId/i);
+artifacts/api-server/src/routes/ai.test.ts:737:    expect(res.body.error).toMatch(/message/i);
+artifacts/api-server/src/routes/ai.test.ts:807:      expect(res.body.error).toBeDefined();
+artifacts/api-server/src/routes/ai.test.ts:839:    expect(res.body.error).toContain("proposalId");
+artifacts/api-server/src/routes/ai.test.ts:964:  it("returns execution trace separately from the assistant report", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1072:      requiredClaims: [{ claimId: "unsafe-eval-present", text: "return eval(input)" }],
+artifacts/api-server/src/routes/ai.test.ts:1073:      requiredEvidenceEdges: [],
+artifacts/api-server/src/routes/ai.test.ts:1091:    // requiredClaims is missing — must be rejected before chat() is touched.
+artifacts/api-server/src/routes/ai.test.ts:1111:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+artifacts/api-server/src/routes/ai.test.ts:1132:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+artifacts/api-server/src/routes/ai.test.ts:1142:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:1146:    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+artifacts/api-server/src/routes/ai.test.ts:1245:      executionPlan: {
+artifacts/api-server/src/routes/ai.test.ts:1279:        executionTaskType?: string;
+artifacts/api-server/src/routes/ai.test.ts:1287:      executionTaskType: "chat",
+artifacts/api-server/src/routes/ai.test.ts:1406:      executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
+artifacts/api-server/src/routes/ai.test.ts:1410:      activeTaskState?: { executionPlan?: { phases?: Array<{ files?: string[] }> } } | null;
+artifacts/api-server/src/routes/ai.test.ts:1421:      executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
+artifacts/api-server/src/routes/ai.test.ts:1430:  it("rejects Repair Plan execution without the original session before calling the model", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1442:    expect(res.body.error).toBe("execution_session_required");
+artifacts/api-server/src/routes/ai.test.ts:1463:describe("GET /api/ai/executions/history", () => {
+artifacts/api-server/src/routes/ai.test.ts:1464:  it("returns only the selected owner's project's redacted incomplete executions", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1490:      error: "internal provider diagnostic",
+artifacts/api-server/src/routes/ai.test.ts:1493:    }).where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/routes/ai.test.ts:1496:      .get("/api/ai/executions/history")
+artifacts/api-server/src/routes/ai.test.ts:1502:      id: created.execution.id,
+artifacts/api-server/src/routes/ai.test.ts:1516:describe("GET /api/ai/executions/:executionId/audit-export", () => {
+artifacts/api-server/src/routes/ai.test.ts:1517:  it("exports owner-scoped terminal evidence while excluding sensitive execution data", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1576:        error: null,
+artifacts/api-server/src/routes/ai.test.ts:1582:      .where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/routes/ai.test.ts:1603:      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+artifacts/api-server/src/routes/ai.test.ts:1607:      `execution-${created.execution.id}-audit.json`,
+artifacts/api-server/src/routes/ai.test.ts:1610:      format: "engineeringos.execution-audit.v1",
+artifacts/api-server/src/routes/ai.test.ts:1611:      execution: {
+artifacts/api-server/src/routes/ai.test.ts:1613:        terminalState: "completed",
+artifacts/api-server/src/routes/ai.test.ts:1616:          required: true,
+artifacts/api-server/src/routes/ai.test.ts:1640:      .where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/routes/ai.test.ts:1642:      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+artifacts/api-server/src/routes/ai.test.ts:1644:    expect(forbidden.body).toEqual({ error: "AI execution not found" });
+artifacts/api-server/src/routes/ai.test.ts:1654:    expect(res.body.error).toMatch(/projectId/i);
+artifacts/api-server/src/routes/ai.test.ts:2015:      terminalState: "BLOCKED",
+artifacts/api-server/src/routes/ai.test.ts:2020:        executionCheckpoints: 1,
+artifacts/api-server/src/routes/ai.test.ts:2027:        execution: true,
+artifacts/api-server/src/routes/ai.test.ts:2289:        message: "JSON parse error from /tmp/parser-output.txt (request req-analysis-123)",
+artifacts/api-server/src/routes/ai.test.ts:2299:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:2305:    expect(serialized).not.toContain("JSON parse error");
+artifacts/api-server/src/routes/ai.test.ts:2335:        message: "JSON parse error from an internal parser",
+artifacts/api-server/src/routes/ai.test.ts:2347:    expect(firstEvent.type).toBe("error");
+artifacts/api-server/src/routes/ai.test.ts:2349:    expect(firstEvent.outcome).toBe("FAILED");
+artifacts/api-server/src/routes/ai.test.ts:2365:      outcome: "FAILED",
+artifacts/api-server/src/routes/ai.test.ts:2366:      errorCode: "model_output_invalid",
+artifacts/api-server/src/routes/ai.test.ts:2367:      errorMessage: "The AI returned an unexpected response format.",
+artifacts/api-server/src/routes/ai.test.ts:2381:    expect(retryEvent.type).toBe("error");
+artifacts/api-server/src/routes/ai.test.ts:2391:    expect(failures.every((message) => message.outcome === "FAILED")).toBe(true);
+artifacts/api-server/src/routes/ai.test.ts:2392:    expect(failures.every((message) => message.errorCode === "model_output_invalid")).toBe(true);
+artifacts/api-server/src/routes/ai.test.ts:2438:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "missing field", raw: "bad output" },
+artifacts/api-server/src/routes/ai.test.ts:2446:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:2448:    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+artifacts/api-server/src/routes/ai.test.ts:2477:    expect(res.body.error).toBe("Workflow not found");
+artifacts/api-server/src/routes/ai.test.ts:2530:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:2605:    expect(res.body.error).not.toContain("req-secret");
+artifacts/api-server/src/routes/ai.test.ts:2606:    expect(res.body.error).not.toContain("/srv/");
+artifacts/api-server/src/routes/ai.test.ts:2611:    // response path; when present it must contain only the stable error code.
+artifacts/api-server/src/routes/ai.test.ts:2705:describe("delivery recovery routes", () => {
+artifacts/api-server/src/routes/ai.test.ts:2713:      error: "Change proposal not found",
+artifacts/api-server/src/routes/ai.test.ts:2725:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-proposal-recovery.",
+artifacts/api-server/src/routes/ai.test.ts:2765:      { error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" },
+artifacts/api-server/src/routes/ai.test.ts:2766:      { error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" },
+artifacts/api-server/src/routes/ai.test.ts:2767:      { error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" },
+artifacts/api-server/src/routes/ai.test.ts:2768:      { error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" },
+artifacts/api-server/src/routes/ai.test.ts:2769:      { error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" },
+artifacts/api-server/src/routes/ai.test.ts:2784:      conflictReason: "Apply stopped after a file conflict; review is required.",
+artifacts/api-server/src/routes/ai.test.ts:2798:      conflictReason: "Apply stopped after a file conflict; review is required.",
+artifacts/api-server/src/routes/ai.test.ts:2799:      recoveryState: "recoverable",
+artifacts/api-server/src/routes/ai.test.ts:2801:      nextAction: "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+artifacts/api-server/src/routes/ai.test.ts:2810:  it("explains missing and already-discarded recovery states without exposing paths", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2829:      recoveryState: "missing_workspace",
+artifacts/api-server/src/routes/ai.test.ts:2830:      operatorExplanation: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+artifacts/api-server/src/routes/ai.test.ts:2831:      nextAction: "Start a new delivery from the current project rather than retrying this recovery.",
+artifacts/api-server/src/routes/ai.test.ts:2835:      recoveryState: "discarded",
+artifacts/api-server/src/routes/ai.test.ts:2842:  it("returns the safe not-found contract for deleted recovery links", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2846:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-recovery-root.",
+artifacts/api-server/src/routes/ai.test.ts:2866:        error: "Delivery operation not found",
+artifacts/api-server/src/routes/ai.test.ts:2876:  it("enforces project ownership for recovery listing and actions", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3084:    expect(res.body.results[0].error).toContain("not promoted");
+artifacts/api-server/src/routes/ai.test.ts:3150:      expect(res.body.results[0].error).toContain("not promoted");
+artifacts/api-server/src/routes/ai.test.ts:3235:      expect(res.body.results[0].error).toContain("destructive");
+artifacts/api-server/src/routes/ai.test.ts:3346:      expect(res.body.results[0].error).toContain("changed after");
+artifacts/api-server/src/routes/ai.test.ts:3550:    // runRepairValidation returns ValidationResult — supply every required field.
+artifacts/api-server/src/routes/ai.test.ts:3993:    expect(res.body.error).toBe("Task not found");
+artifacts/api-server/src/routes/ai.test.ts:4003:    expect(res.body.error).toMatch(/completed/i);
+artifacts/api-server/src/routes/ai.test.ts:4013:    expect(res.body.error).toMatch(/failed/i);
+artifacts/api-server/src/routes/ai.test.ts:4047:  it("creates task logs and an event on successful execution", async () => {
+artifacts/api-server/src/routes/ai.test.ts:4069:  it("creates an audit entry on execution", async () => {
+artifacts/api-server/src/routes/ai.test.ts:4094:        code: "SCHEMA_VALIDATION_FAILED",
+artifacts/api-server/src/routes/ai.test.ts:4095:        message: "required field missing at /srv/app/task-parser.ts (request req-task-789)",
+artifacts/api-server/src/routes/ai.test.ts:4106:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:4108:    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+artifacts/api-server/src/routes/ai.test.ts:4112:    expect(serialized).not.toContain("required field missing");
+artifacts/api-server/src/routes/ai.test.ts:4127:    const errLog = logs.find((l) => l.level === "error");

@@ -1,0 +1,300 @@
+./artifacts/dashboard/src/pages/AiChat.tsx:811:   * (non-cached) read/write tool_call steps where the model produced text
+./artifacts/dashboard/src/pages/AiChat.tsx:1078:  'repeated_tool_call',
+./artifacts/dashboard/src/pages/AiChat.tsx:1102:  const recordedToolCalls = trace.filter((entry) => entry.kind === 'tool_call').length;
+./artifacts/dashboard/src/pages/AiChat.tsx:1104:    (entry) => entry.kind === 'tool_call' && entry.prefetched === true,
+./artifacts/dashboard/src/pages/AiChat.tsx:1347:    if (entry.kind === 'tool_call' && (entry.tool === 'read_file' || entry.tool === 'read_file_range')) {
+./artifacts/dashboard/src/pages/AiChat.tsx:1656:    case 'repeated_tool_call':
+./artifacts/dashboard/src/pages/AiChat.tsx:2600:      entry.kind === 'tool_call' &&
+./artifacts/dashboard/src/pages/AiChat.tsx:2931:      entry.kind === 'tool_call' &&
+./artifacts/dashboard/src/pages/AiChat.tsx:2932:      (entry.tool === 'write_file' || entry.tool === 'replace_text'),
+./artifacts/dashboard/src/pages/AiChat.tsx:5269:    if (entry.kind === 'tool_call' && entry.tool) {
+./artifacts/dashboard/src/pages/AiChat.tsx:5777:    write_file: 'Prepare file change',
+./artifacts/dashboard/src/pages/AiChat.tsx:5781:  if (entry.kind === 'tool_call') {
+./artifacts/dashboard/src/pages/AiChat.tsx:5851:/** Returns true for tool_call steps on read/write tools that may carry reasoning. */
+./artifacts/dashboard/src/pages/AiChat.tsx:5853:  if (entry.kind !== 'tool_call') return false;
+./artifacts/dashboard/src/pages/AiChat.tsx:5856:    'write_file', 'replace_text',
+./artifacts/dashboard/src/pages/AiChat.tsx:5868:    write_file: 'Propose edit',
+./artifacts/dashboard/src/pages/AiChat.tsx:6008:  const linkedEvidence = entry.kind === 'tool_call' && (
+./artifacts/dashboard/src/pages/AiChat.tsx:6020:  const patchContext = entry.kind === 'tool_call'
+./artifacts/dashboard/src/pages/AiChat.tsx:6021:    && (entry.tool === 'write_file' || entry.tool === 'replace_text')
+./artifacts/dashboard/src/pages/Tasks.tsx:48:  if (m.includes('write_file'))                             return '✏️';
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2086:        type: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2152:        type: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2198:        kind: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2280:        kind: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2510:        kind: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2559:        kind: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2675:        tool: 'write_file',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2676:        details: ['write_file is not allowed in evidence'],
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2684:    expect(screen.getByText('write_file rejected during evidence phase')).toBeInTheDocument();
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2692:        kind: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2700:        tool: 'write_file',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2701:        details: ['write_file is not allowed in evidence'],
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2723:    expect(recorder).toHaveTextContent('rejected tool: write_file');
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3100:        kind: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3147:        kind: 'tool_call',
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3178:        kind: 'tool_call',
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:36:    model: 'openai/gpt-4.1-mini',
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:54:        model: 'openai/gpt-4.1-mini',
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:60:          provider: 'openai',
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:152:    expect(screen.getByText('openrouter / openai/gpt-4.1-mini')).toBeInTheDocument();
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:167:    expect(await screen.findByText('openrouter · openai/gpt-4.1-mini')).toBeInTheDocument();
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:171:    expect(screen.getByText('openai · gpt-4o-mini')).toBeInTheDocument();
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:189:    expect(await screen.findByText('openrouter · openai/gpt-4.1-mini')).toBeInTheDocument();
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:193:    expect(screen.getByText('openai · gpt-4o-mini')).toBeInTheDocument();
+./artifacts/dashboard/src/pages/MissionControl.test.tsx:576:      'live', 'live-selected', 'Repair the "auth", scope\ncheck', 'BLOCKED', 'openrouter', 'openai/gpt-4.1-mini',
+./lib/api-zod/src/generated/api.ts:3860: *    { "type": "tool_call", "tool": "...", "args": { "...": "..." }, "cached": false }
+./lib/api-zod/src/generated/api.ts:3978: *   "stopReason": "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout",
+./artifacts/dashboard/e2e/dashboard.journey.ts:925:      kind: "tool_call",
+./artifacts/dashboard/e2e/dashboard.journey.ts:994:      type: "tool_call",
+./artifacts/dashboard/e2e/dashboard.journey.ts:1056:      kind: "tool_call",
+./artifacts/dashboard/e2e/dashboard.journey.ts:1100:      type: "tool_call",
+./lib/api-spec/openapi.yaml:2011:           { "type": "tool_call", "tool": "...", "args": { "...": "..." }, "cached": false }
+./lib/api-spec/openapi.yaml:2131:          "stopReason": "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout",
+./lib/api-client-react/src/use-ai-chat-stream.ts:226:  type: 'tool_call';
+./lib/api-client-react/src/use-ai-chat-stream.ts:550:  stopReason: 'response' | 'iteration_budget' | 'soft_limit' | 'repeated_tool_call' | 'empty_response' | 'provider_timeout' | 'cancelled';
+./lib/api-client-react/src/use-ai-chat-stream.ts:861:        case 'tool_call':
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:229:        kind: "tool_call",
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:754:        expect(resumedText).not.toMatch(/write_file|replace_text|delete_file/);
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:812:        kind: "tool_call",
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:925:    expect(resumed.text).not.toContain("write_file");
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2176:        kind: "tool_call",
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2804:        kind: "tool_call",
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2990:        kind: "tool_call",
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:3048:    expect(indexOf("tool_call")).toBeGreaterThan(indexOf("intent"));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:3049:    expect(indexOf("tool_result")).toBeGreaterThan(indexOf("tool_call"));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:3537:      expect.objectContaining({ kind: "tool_call", tool: "read_file" }),
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4412:        onStep?.({ kind: "tool_call", tool: "read_file", args: { path: source }, cached: false });
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4666:      expect.objectContaining({ kind: "tool_call", tool: "read_file" }),
+./lib/api-client-react/src/generated/api.ts:5651: *    { "type": "tool_call", "tool": "...", "args": { "...": "..." }, "cached": false }
+./lib/api-client-react/src/generated/api.ts:5769: *   "stopReason": "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout",
+./lib/ai-orchestrator/src/tool-execution-engine.ts:415:  /** Parsed arguments from the model's tool_call.function.arguments. */
+./lib/ai-orchestrator/src/tool-execution-engine.ts:419:  /** Accumulated pending changes array — mutated in place by write_file. */
+./lib/ai-orchestrator/src/tool-execution-engine.ts:456:       * write_file produces no source — it queues a pending change instead.
+./lib/ai-orchestrator/src/tool-execution-engine.ts:677: * write_file never produces a source — it mutates pendingChanges instead.
+./lib/ai-orchestrator/src/tool-execution-engine.ts:869: * to reference a `tool_call_id` in the IMMEDIATELY PRECEDING assistant
+./lib/ai-orchestrator/src/tool-execution-engine.ts:870: * `tool_calls` array. When the provider truncates the context server-side it
+./lib/ai-orchestrator/src/tool-execution-engine.ts:881:  // IDs advertised by the most recent assistant turn that carried tool_calls.
+./lib/ai-orchestrator/src/tool-execution-engine.ts:888:      // Refresh the set from this assistant turn's tool_calls.
+./lib/ai-orchestrator/src/tool-execution-engine.ts:890:      if (Array.isArray(m.tool_calls)) {
+./lib/ai-orchestrator/src/tool-execution-engine.ts:891:        for (const tc of m.tool_calls) {
+./lib/ai-orchestrator/src/tool-execution-engine.ts:897:      const id = (m as { tool_call_id?: string }).tool_call_id;
+./lib/ai-orchestrator/src/tool-execution-engine.ts:900:        continue; // drop — no matching tool_call in the preceding assistant turn
+./lib/ai-orchestrator/src/tool-execution-engine.ts:981:   * The loop appends assistant (with tool_calls) and tool-result messages.
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1036:   * OpenAI-compatible clients ignore this while tools are present and apply it
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1044:   * first iteration (the model never emits tool_calls without definitions).
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1054:  /** Accumulated pending changes — mutated in place by write_file calls. */
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1107:   * reading the same file without reaching replace_text/write_file.
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1216:      /** Raw model response — contains content but no tool_calls. */
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1273:      reason: "repeated_tool_call";
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1386:      kind: "tool_call";
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1554:        | "repeated_tool_call"
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1577: *   2. If the model returns tool_calls: for each call —
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1583: *   3. If the model returns no tool_calls: return kind:"response".
+./lib/ai-orchestrator/src/tool-execution-engine.ts:1868:    // structurally unavoidable: replace_text or write_file.
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2093:   * Some OpenRouter models return tool_calls even when the request contains no
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2122:        reason: "provider returned tool_calls during a no-tools synthesis request",
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2409:             ? "هذه عملية تنفيذ Repair Plan وليست تدقيقًا جديدًا. لا تعاود قراءة الملف نفسه. إذا كانت الأدلة الموجودة كافية، انتقل الآن إلى replace_text أو write_file، وإلا أنهِ المرحلة برسالة واضحة دون ادعاء تطبيق التغيير."
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2410:             : "This is a Repair Plan execution, not a new audit. Do not reread the same file. If the gathered evidence is sufficient, call replace_text or write_file now; otherwise end the phase clearly without claiming the change was applied.")
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2930:          // tool_calls payload. Never feed those calls back into the normal
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2975:    // Some providers still emit tool_calls after the tool schema has been
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3015:    // ── Append assistant turn with tool_calls ────────────────────────────────
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3016:    // Defensive belt: `function.arguments` MUST be a stringified JSON object
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3039:      tool_calls: safeToolCalls,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3051:        args = JSON.parse(tc.function.arguments) as Record<string, string>;
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3077:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3088:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3108:        messages.push({ role: "tool", tool_call_id: tc.id, content: blockedOutput });
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3153:        messages.push({ role: "tool", tool_call_id: tc.id, content: blockedOutput });
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3190:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3206:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3226:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3273:            tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3291:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3312:            tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3330:              tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3340:            tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3425:            tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3447:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3457:      // to replace_text/write_file instead of receiving another copy of the
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3466:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3469:            "Call replace_text with an exact unique old_text/new_text pair, or write_file only for a new file.",
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3482:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3521:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3585:            "Move to replace_text/write_file using the evidence already gathered, or return a final response.";
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3604:          classifyZeroReadTerminal("repeated_tool_call", iter + 1);
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3611:              stopReason: "repeated_tool_call",
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3622:            reason: "repeated_tool_call",
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3677:        try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3763:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3770:                "For a Repair Plan, call replace_text/write_file now if the evidence is sufficient, or return a final response."
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3813:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3830:          "write_file", "replace_text",
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3834:          kind: "tool_call",
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3906:        messages.push({ role: "tool", tool_call_id: tc.id, content: "The requested tool is not available. The operation did not complete." });
+./lib/ai-orchestrator/src/tool-execution-engine.ts:3918:          tool_call_id: tc.id,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:4124:        tool_call_id: tc.id,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:2: * Generic OpenAI-compatible HTTP client.
+./lib/ai-orchestrator/src/openai-compatible-client.ts:32:export type OpenAICompatibleOptions = {
+./lib/ai-orchestrator/src/openai-compatible-client.ts:59:export type OpenAICompatibleStreamOptions = Omit<
+./lib/ai-orchestrator/src/openai-compatible-client.ts:60:  OpenAICompatibleOptions,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:107: *   - An assistant message that carries `tool_calls` opens a tool_group and
+./lib/ai-orchestrator/src/openai-compatible-client.ts:109: *     `tool_call_id` is in that assistant turn's declared IDs.
+./lib/ai-orchestrator/src/openai-compatible-client.ts:124:      Array.isArray(m.tool_calls) &&
+./lib/ai-orchestrator/src/openai-compatible-client.ts:125:      m.tool_calls.length > 0
+./lib/ai-orchestrator/src/openai-compatible-client.ts:129:        m.tool_calls.map((tc) => tc.id).filter((id): id is string => !!id),
+./lib/ai-orchestrator/src/openai-compatible-client.ts:136:        const toolMsg = messages[j] as { role: "tool"; tool_call_id?: string };
+./lib/ai-orchestrator/src/openai-compatible-client.ts:137:        if (toolMsg.tool_call_id && declaredIds.has(toolMsg.tool_call_id)) {
+./lib/ai-orchestrator/src/openai-compatible-client.ts:158: * OpenAI-compatible providers. A provider may return an empty assistant turn
+./lib/ai-orchestrator/src/openai-compatible-client.ts:172:      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+./lib/ai-orchestrator/src/openai-compatible-client.ts:189:      const toolCallId = message.tool_call_id;
+./lib/ai-orchestrator/src/openai-compatible-client.ts:209: * a `tool` message whose `tool_call_id` has no matching entry in a preceding
+./lib/ai-orchestrator/src/openai-compatible-client.ts:449:      scope: "openai-compatible-client",
+./lib/ai-orchestrator/src/openai-compatible-client.ts:603:// their content field instead of (or in addition to) the standard OpenAI
+./lib/ai-orchestrator/src/openai-compatible-client.ts:605:// Some free-tier models return `function.arguments` as a raw object, an empty
+./lib/ai-orchestrator/src/openai-compatible-client.ts:606:// string, or otherwise-invalid JSON. If we echo such a tool_call back into the
+./lib/ai-orchestrator/src/openai-compatible-client.ts:646:        scope: "openai-compatible-client",
+./lib/ai-orchestrator/src/openai-compatible-client.ts:658:// `tool_calls` JSON array.  These helpers normalise both cases so the rest of
+./lib/ai-orchestrator/src/openai-compatible-client.ts:661:/** Strip all <tool_call>…</tool_call> blocks from a content string. */
+./lib/ai-orchestrator/src/openai-compatible-client.ts:663:  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+./lib/ai-orchestrator/src/openai-compatible-client.ts:669: *   1. JSON inside tags:  <tool_call>{"name":"fn","arguments":{…}}</tool_call>
+./lib/ai-orchestrator/src/openai-compatible-client.ts:670: *   2. Attribute syntax:  <tool_call> <function=fn> <parameter=k>v</parameter> </function> </tool_call>
+./lib/ai-orchestrator/src/openai-compatible-client.ts:674:  const blocks = [...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)];
+./lib/ai-orchestrator/src/openai-compatible-client.ts:681:    // Format 1 — JSON inside <tool_call>
+./lib/ai-orchestrator/src/openai-compatible-client.ts:718: * Non-streaming chat completion against any OpenAI-compatible endpoint.
+./lib/ai-orchestrator/src/openai-compatible-client.ts:723:  opts: OpenAICompatibleOptions,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:767:      scope: "openai-compatible-client",
+./lib/ai-orchestrator/src/openai-compatible-client.ts:816:        scope: "openai-compatible-client",
+./lib/ai-orchestrator/src/openai-compatible-client.ts:829:      finish_reason?: string | null;
+./lib/ai-orchestrator/src/openai-compatible-client.ts:832:        tool_calls?: ToolCall[];
+./lib/ai-orchestrator/src/openai-compatible-client.ts:877:  let hasCalls = Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0;
+./lib/ai-orchestrator/src/openai-compatible-client.ts:879:    ? normalizeToolCallArguments(msg!.tool_calls as ToolCall[], providerName, model)
+./lib/ai-orchestrator/src/openai-compatible-client.ts:883:  // content instead of using the standard tool_calls JSON field.
+./lib/ai-orchestrator/src/openai-compatible-client.ts:884:  if (content && content.includes("<tool_call>")) {
+./lib/ai-orchestrator/src/openai-compatible-client.ts:905:      scope: "openai-compatible-client",
+./lib/ai-orchestrator/src/openai-compatible-client.ts:910:      finishReason: choice?.finish_reason ?? null,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:927:    finishReason: choice?.finish_reason ?? null,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:935: * Streaming chat completion against any OpenAI-compatible endpoint.
+./lib/ai-orchestrator/src/openai-compatible-client.ts:940:  opts: OpenAICompatibleStreamOptions,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1041:      // Flush safe prefix — everything before any open <tool_call> tag.
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1042:      const openIdx = xmlStreamBuf.indexOf("<tool_call>");
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1043:      const closeIdx = xmlStreamBuf.indexOf("</tool_call>");
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1048:        const after  = xmlStreamBuf.slice(closeIdx + "</tool_call>".length);
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1101:  opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1104:  const fullOpts: OpenAICompatibleOptions = {
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1164:  OpenAICompatibleOptions,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1330:  opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1333:  const fullOpts: OpenAICompatibleStreamOptions = {
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1443:const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1446: * Non-streaming completion via Google Gemini (OpenAI-compatible endpoint).
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1451:  opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1462: * Streaming completion via Google Gemini (OpenAI-compatible endpoint).
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1466:  opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1469:    opts as OpenAICompatibleOptions & { tools?: unknown; responseFormat?: unknown };
+./lib/ai-orchestrator/src/index.ts:144:} from "./openai-compatible-client.js";
+./lib/ai-orchestrator/src/index.ts:148:} from "./openai-compatible-client.js";
+./lib/ai-orchestrator/src/agent-complete.ts:10:import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
+./lib/ai-orchestrator/src/tools/file-tools.ts:13: *   - write_file / replace_text NEVER write to disk — they queue a PendingChange that the
+./lib/ai-orchestrator/src/tools/file-tools.ts:228:        "Propose a focused text replacement inside an existing file. The server reads the complete current file, requires the old text to match exactly once, and constructs the full pending change. Prefer this over write_file for existing source files, especially large files.",
+./lib/ai-orchestrator/src/tools/file-tools.ts:262:      name: "write_file",
+./lib/ai-orchestrator/src/tools/file-tools.ts:311: * For paths that do not yet exist (new files queued by write_file), realpath
+./lib/ai-orchestrator/src/tools/file-tools.ts:400: * the tool-result message. For write_file and replace_text the actual write is deferred —
+./lib/ai-orchestrator/src/tools/file-tools.ts:571:    // ── write_file ────────────────────────────────────────────────────────────
+./lib/ai-orchestrator/src/tools/file-tools.ts:572:    case "write_file": {
+./lib/ai-orchestrator/src/tool-policy.ts:42:const FILE_WRITE_TOOL_NAMES = new Set(["write_file", "replace_text"]);
+./artifacts/api-server/src/routes/ai/chat.ts:802:      (step.kind === "tool_call" || step.kind === "tool_result") &&
+./artifacts/api-server/src/routes/ai/chat.ts:1270:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+./artifacts/api-server/src/routes/ai/chat.ts:1403:      case "tool_call":
+./artifacts/api-server/src/routes/ai/chat.ts:3059:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+./artifacts/api-server/src/routes/ai/chat.ts:3173:      if (step.kind === "tool_call") {
+./artifacts/api-server/src/routes/ai/chat.ts:3175:          type: "tool_call",
+./lib/ai-orchestrator/src/task-execution-partial-report.ts:34:    if (step.kind === "tool_call") {
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:391:    resolvedModel: { id: "test-model", provider: "openai", free: false },
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:394:  effectiveProvider: "openai",
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:462:  effectiveProvider: "openai",
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:542:  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:594:    const readStep: Extract<AgentStep, { kind: "tool_call" }> = {
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:595:      kind: "tool_call",
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:635:    expect(JSON.stringify(jsonStart.body)).not.toContain("write_file");
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:645:    expect(streamStart.text).not.toContain("write_file");
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:733:          kind: "tool_call",
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:765:      expect.objectContaining({ kind: "tool_call", args: { path: "[runtime path] (request [internal id])" } }),
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:1347:      resolvedModel: { id: "test-model", provider: "openai", free: false },
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:1350:    effectiveProvider: "openai",
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:1439:          resolvedModel: { id: "test-model", provider: "openai", free: false },
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:1442:        effectiveProvider: "openai",
+./lib/ai-orchestrator/src/task-checklist.ts:35:const WRITE_TOOL_NAMES = new Set(["replace_text", "write_file"]);
+./lib/ai-orchestrator/src/task-checklist.ts:129:    if (step.kind === "tool_call") {
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:5: * openai-compatible-client.ts behind the `ProviderStrategy` interface.
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:22:} from "../openai-compatible-client.js";
+./artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:321:      harness.toolResponse("write-1", "write_file", {
+./artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:461:      harness.toolResponse("write-1", "write_file", {
+./artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:468:      harness.toolResponse("write-2", "write_file", {
+./artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:571:      harness.toolResponse("write-1", "write_file", {
+./artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:656:      harness.toolResponse("write-1", "write_file", {
+./lib/ai-orchestrator/src/strategies/gemini.strategy.ts:5: * openai-compatible-client.ts behind the `ProviderStrategy` interface.
+./lib/ai-orchestrator/src/strategies/gemini.strategy.ts:12: * OpenAI-compatible shim currently returns 404 with tools attached).
+./lib/ai-orchestrator/src/strategies/gemini.strategy.ts:17:} from "../openai-compatible-client.js";
+./lib/ai-orchestrator/src/quality/execution-phases.ts:58:  patch_proposal: ["read_file", "read_file_range", "replace_text", "write_file"],
+./lib/ai-orchestrator/src/quality/execution-phases.ts:60:  repair_recovery: ["read_file", "read_file_range", "replace_text", "write_file", "run_validation"],
+./artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:400:      requiredCapability: "tool_calling",
+./lib/ai-orchestrator/src/prompts/chat.prompt.ts:44:      `File tools: read_file · list_directory · search_code · replace_text · write_file
+./lib/ai-orchestrator/src/prompts/chat.prompt.ts:50:- Use write_file only for new files or small existing files whose complete current content was read.
+./lib/ai-orchestrator/src/prompts/chat.prompt.ts:58: - Do not apply files automatically. All write_file/replace_text output remains pending approval.
+./lib/ai-orchestrator/src/prompts/chat.prompt.ts:62:2. For an existing file, prefer replace_text. Include enough exact surrounding text to make old_text unique. Use write_file only for a new file or a small existing file whose complete current content was read. Never reconstruct a large file from a truncated read.
+./lib/ai-orchestrator/src/prompts/chat.prompt.ts:112:2. **No translation of technical terms**: Keep ALL of the following verbatim in their original English form regardless of conversation language — file names, function names, class names, route paths, tool names (read_file, list_directory, search_code, write_file), programming keywords, library names, framework names, CLI commands, error codes, HTTP methods, and any identifier that appears in source code. Only prose/explanation text is translated, never the terms themselves.
+./lib/ai-orchestrator/src/prompts/capability-probe.ts:20:deferred edit tools (write_file / replace_text) which NEVER write until
+./lib/ai-orchestrator/src/prompts/capability-probe.ts:56:\`run()\`, a call to \`write_file\` that writes to disk immediately. If a symbol
+./lib/ai-orchestrator/src/prompts/capability-probe.ts:61:No code changes are requested or allowed. Do not call write_file / replace_text
+./lib/ai-orchestrator/src/openrouter/model-resolver.ts:20: *   openrouterCompleteWithFallback() in openai-compatible-client.ts consumes
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:22:  | "tool_calling"  // Function/tool call protocol (native JSON)
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:33:  /** Supports native OpenAI tool_calls protocol. */
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:60:    capabilities: ["chat", "coding", "tool_calling", "json"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:70:    capabilities: ["chat", "coding", "tool_calling", "json"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:80:    capabilities: ["chat", "coding", "tool_calling", "json"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:90:    capabilities: ["chat", "coding", "tool_calling", "json"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:100:    capabilities: ["chat", "coding", "tool_calling", "json"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:110:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:123:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:133:    capabilities: ["coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:143:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:153:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:163:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:173:    capabilities: ["chat", "reasoning", "coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:183:    capabilities: ["chat", "reasoning", "coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/openrouter/model-catalog.ts:194:    capabilities: ["chat", "reasoning", "coding", "tool_calling", "json", "long_context"],
+./lib/ai-orchestrator/src/model-selection/model-resolver.ts:58:    return "tool_calling";
+./lib/ai-orchestrator/src/model-selection/model-resolver.ts:193:      ...(isCapabilityProbe ? { selectionMode: "fast_tool_calling" } : {}),
+./lib/ai-orchestrator/src/groq-client.ts:251:  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+./lib/ai-orchestrator/src/groq-client.ts:252:  | { role: "tool"; content: string; tool_call_id: string };
+./lib/ai-orchestrator/src/groq-client.ts:263:  /** Some OpenAI-compatible providers expose final text outside message.content. */
+./lib/ai-orchestrator/src/groq-client.ts:273:      message?: { content?: string | null; tool_calls?: ToolCall[] };
+./lib/ai-orchestrator/src/groq-client.ts:291:  const hasCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+./lib/ai-orchestrator/src/groq-client.ts:297:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+./lib/ai-orchestrator/src/forensic-output-guard.ts:85:  tool_calls?: Array<{
+./lib/ai-orchestrator/src/forensic-output-guard.ts:89:  tool_call_id?: string;
+./lib/ai-orchestrator/src/forensic-output-guard.ts:1827:    if (message.role === "assistant" && Array.isArray(message.tool_calls)) {
+./lib/ai-orchestrator/src/forensic-output-guard.ts:1828:      for (const toolCall of message.tool_calls) {
+./lib/ai-orchestrator/src/forensic-output-guard.ts:1831:            const parsed = JSON.parse(String(toolCall.function.arguments ?? "{}")) as { path?: unknown };
+./lib/ai-orchestrator/src/forensic-output-guard.ts:1843:            const parsed = JSON.parse(String(toolCall.function.arguments ?? "{}")) as {
+./lib/ai-orchestrator/src/forensic-output-guard.ts:1861:    if (message.role !== "tool" || !message.tool_call_id) continue;
+./lib/ai-orchestrator/src/forensic-output-guard.ts:1862:    const sourcePath = toolCallPaths.get(message.tool_call_id);
+./lib/ai-orchestrator/src/forensic-output-guard.ts:1873:    const search = searchToolCalls.get(message.tool_call_id);
+./lib/ai-orchestrator/src/deepseek-client.ts:2: * DeepSeek API client — OpenAI-compatible REST API via api.deepseek.com
+./lib/ai-orchestrator/src/deepseek-client.ts:76: * DeepSeek's API is OpenAI-compatible and fully supports `stream: true` on
+./lib/ai-orchestrator/src/deepseek-client.ts:263:      message?: { content?: string | null; tool_calls?: ToolCall[] };
+./lib/ai-orchestrator/src/deepseek-client.ts:278:  const hasCalls  = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+./lib/ai-orchestrator/src/deepseek-client.ts:286:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+./lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:168:      capability: "tool_calling",
+./lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:188:    toolCalls: steps.filter((step) => step.kind === "tool_call").length,
+./lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:405:        toolCalls: steps.filter((step) => step.kind === "tool_call").length,
+./lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:244:        ? "This is a read-only safety case. Do not call replace_text or write_file. No pending change is valid; preserve the BLOCKED terminal."
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:3:import type { OpenRouterFailureAction } from "../openai-compatible-client.js";
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:188:    const parsed: unknown = JSON.parse(toolCalls[0].function.arguments);
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:264:      ? { quality: "fast" as const, capability: "tool_calling" as const, maxFallbackModels: 4 }
+./lib/ai-orchestrator/src/benchmark/free-only-policy.test.ts:8:    capabilities: ["coding", "tool_calling", "json"],
+./lib/ai-orchestrator/src/benchmark/free-only-policy.test.ts:18:    capabilities: ["coding", "tool_calling", "json"],
+./lib/ai-orchestrator/src/benchmark/free-only-policy.test.ts:38:    capabilities: ["coding", "tool_calling", "json"],
+./lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:210:      tool_calls: [{
+./lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:215:    messages.push({ role: "tool", tool_call_id: toolCallId, content });
+./lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:274:    { kind: "tool_call", tool: "read_file", args: { path: "lib/knowledge-engine/src/queries.ts" }, cached: false },

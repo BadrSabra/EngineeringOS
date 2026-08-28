@@ -1,0 +1,116 @@
+314: * recovery boundaries. Keep this projection explicit so persisted historical
+448:  const terminalState = params.execution?.status === "cancelled"
+450:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+493:    terminalState,
+494:    outcomeClass: terminalState === "COMPLETED" ? "success" : "non-success",
+872:        outcome: "SUCCEEDED",
+1270:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+1277:  recoveryStarted?: boolean;
+1307:  phase?: "localization" | "evidence" | "patch_proposal" | "validation" | "repair_recovery" | "report";
+1319:  /** FEG-017: why a forensic investigation's terminal failed (NO_FINDING/PROVEN runs omit it). */
+1320:  terminalKind?:
+1354:  recoveryAttempt?: number;
+1355:  recoveryFailureKind?: string;
+1468:      case "forensic_recovery_start":
+1498:      case "forensic_terminal":
+1501:          terminalKind: step.terminalKind,
+1523:          recoveryAttempt: step.trace.recoveryAttempt,
+1524:          recoveryFailureKind: step.trace.recoveryFailureKind,
+1566:      case "recovery_model_call":
+1614:          stopReason: step.stopReason,
+1621:          ...(steps.some((candidate) => candidate.kind === "forensic_recovery_start")
+1622:            ? { recoveryStarted: true }
+1625:            .filter((candidate): candidate is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+1626:              candidate.kind === "model_call" || candidate.kind === "recovery_model_call",
+2159:        outcome: "SUCCEEDED",
+2170:          outcome: "SUCCEEDED",
+2223:    return res.json({
+2227:      outcome: "SUCCEEDED",
+2952:      recoveryOutcome: (() => {
+2953:        const recovery = (streamCheckpoint as (typeof streamCheckpoint & {
+2954:          recovery?: unknown;
+2955:        }) | undefined)?.recovery;
+2956:        if (!recovery || typeof recovery !== "object") return null;
+2957:        const outcome = (recovery as Record<string, unknown>).outcome;
+2958:        return ["recovery_required", "resume_accepted", "abandoned", "already_abandoned"].includes(String(outcome))
+3059:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+3066:          recoveryStarted?: boolean;
+3228:        // Forensic contract recovery runs after the tool-loop emits its
+3229:        // `done` step. Keep the summary live so recovery candidates are not
+3250:      } else if (step.kind === "forensic_terminal") {
+3251:        sse({ type: "forensic_terminal", terminalKind: step.terminalKind });
+3293:          recoveryAttempt: step.trace.recoveryAttempt,
+3294:          recoveryFailureKind: step.trace.recoveryFailureKind,
+3307:      } else if (step.kind === "forensic_recovery_start") {
+3308:        if (executionSummary) executionSummary.recoveryStarted = true;
+3326:          stopReason: step.stopReason,
+3334:          ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
+3335:            ? { recoveryStarted: true }
+3338:            .filter((candidate): candidate is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+3339:              candidate.kind === "model_call" || candidate.kind === "recovery_model_call",
+3350:        // Forensic recovery/provider details are server diagnostics, not user
+3376:          executionSummary.recoveryStarted = true;
+3609:      // A required analysis/validation tool failure is a terminal operation
+3614:      const terminalToolFailure = [...traceSteps]
+3616:        .find((step) => step.kind === "done" && step.stopReason === "tool_failure");
+3617:      if (terminalToolFailure?.kind === "done") {
+3654:          "chat stream: failed to persist terminal tool failure",
+4049:          outcome: "SUCCEEDED",
+4062:          outcome: "SUCCEEDED",
+4194:      // remain terminally cancelled rather than entering the normal success
+4238:        // Keep the terminal report visible to the operator. The execution is
+4283:      outcome: "SUCCEEDED",
+4334:          : "Execution ended before reaching a terminal result.",
+4338:        logger.warn({ err, executionId: aiExecution!.id }, "AI execution terminal-state update failed");
+4378:  return res.json(executions.map((execution) => {
+4410:      terminalReason: execution.status === "cancelled"
+4478:  const recoveryRecord = checkpointRecord.recovery && typeof checkpointRecord.recovery === "object"
+4479:    ? checkpointRecord.recovery as Record<string, unknown>
+4483:  return res.json({
+4511:    terminalReason: execution.error
+4519:    // Historical/operator views receive a safe terminal description instead.
+4528:    recovery: {
+4533:      outcome: typeof recoveryRecord?.outcome === "string" ? recoveryRecord.outcome : null,
+4673:      terminalState: execution.status,
+4685:      terminalReason: safeText(execution.error ?? checkpoint.detail, 500) ?? null,
+4696:  return res.json(body);
+4699:router.post("/ai/executions/:executionId/recovery", async (req, res) => {
+4712:    return res.status(409).json({ error: "This recovery request targets a stale workspace revision.", code: "EXECUTION_STALE" });
+4715:    return res.status(409).json({ error: "This execution is not eligible for operator recovery.", code: "EXECUTION_NOT_RECOVERABLE" });
+4717:  return res.json({
+4732:    return res.json({
+4761:  return res.json({
+4785:  if (sessions.length === 0) return res.json(sessions);
+4807:  return res.json(sessions.map((session) => {
+4815:        (entry as { stopReason?: unknown }).stopReason === "cancelled"
+4846:    return res.status(400).json({ error: "This report recovery action does not accept a request body.", code: "REPORT_REGENERATION_BODY_NOT_ALLOWED" });
+4959:  return res.json({
+4989:  return res.json(messages.map((message) => {
+5159:  return res.json({
+5285:  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
+5309:    return res.json({
+5339:// Delivery recovery intentionally exposes only relative file names and bounded
+5364:    const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+5369:    const operatorExplanation = recoveryState === "discarded"
+5370:      ? "This delivery recovery was already discarded."
+5371:      : recoveryState === "missing_workspace"
+5372:        ? "The saved delivery workspace is no longer available, so recovery cannot continue."
+5378:    const nextAction = recoveryState === "discarded"
+5380:      : recoveryState === "missing_workspace"
+5381:        ? "Start a new delivery from the current project rather than retrying this recovery."
+5382:        : "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.";
+5395:      recoveryState,
+5412:  return res.json({ operations });
+5423:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+5436:        ? "This delivery recovery was already discarded."
+5437:        : "The saved delivery workspace is no longer available, so recovery cannot continue.",
+5440:      recoveryState: discarded ? "discarded" : workspaceAvailable ? "recoverable" : "missing_workspace",
+5443:        : "Start a new delivery from the current project rather than retrying this recovery.",
+5490:    conflictReason: passed ? null : "Validation recovery did not pass all registered profiles.",
+5499:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+5501:  return res.json({
+5516:    return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
+5529:  return res.json({ proposalId: proposal.id, lifecycle: "cancelled", discarded: Boolean(updated) });
+6147:    // recovery/proof artifact; the durable root is only written after all
+6435:      // inspection/recovery, but never write an unproven candidate to the
+6753:    // succeeded. It does not prove that the proposed repair is behaviorally

@@ -1,0 +1,260 @@
+package.json:18:    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+package.json:20:    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+docs/replit-agent-parity-gaps.md:45:  full approval → promotion, and Clerk-authenticated commit/push against a
+docs/replit-agent-parity-gaps.md:82:| Git delivery | Status/log/commit/push/export endpoints are separate and protected by project access/write middleware; release artifacts bind candidate evidence to a server-observed source revision ([Git routes](../artifacts/api-server/src/routes/git.ts#L180-L786)). | **Partial** | Isolated route tests prove scoped Apply → commit → push and operation/commit binding. Clerk-authenticated live delivery against a disposable remote is still blocked, so this is an operational proof gap, not a missing Git capability. |
+docs/replit-agent-parity-gaps.md:83:| Audit/export | Operation evidence projects allowlisted events, receipts, revisions, proposals, commit, and push data; audit export is exposed by API ([operation evidence](../artifacts/api-server/src/lib/operation-evidence.ts#L118-L282); [chat audit route](../artifacts/api-server/src/routes/ai/chat.ts#L4481-L4500)). | **Parity for scoped product goal** | It is intentionally an audit artifact, not an IDE transcript or arbitrary workspace export. No download smoke check was run. |
+docs/replit-agent-parity-gaps.md:113:| Source-bound release identity | Release evidence carries server-observed source revision with the candidate hash; governance and comparison rules were not changed. |
+docs/replit-agent-parity-gaps.md:168:  → cancellation/restart reload → audit export → scoped commit/push.
+docs/replit-agent-parity-gaps.md:233:| Production-ready specialized Agent | All provider-free release gates green; no validation timeout or terminal-ordering defect; controlled campaign passes discovery, grounded chat, analysis/review, task/workflow, plan approval, candidate-bound validation, apply, conflict retry, cancellation/restart, evidence reload/export, and safe Git commit/push. Provider diagnostics are actionable, and benchmark rollout is allowed. | **Not established** | The release decision passes its enabled provider-free checks, but preview/live checks are skipped and the benchmark baseline is not rollout-eligible. EngineeringOS remains intentionally narrower than a general IDE Agent. |
+docs/replit-agent-parity-gaps.md:251:   discovery, provider-backed work, approval/promotion, and Git commit/push;
+docs/replit-agent-parity-gaps.md:260:commit/push proof is still missing. Only after the controlled gates pass should
+scripts/dashboard-journey-contract.test.mjs:41:    const server = app.listen(Number(process.env.PORT), "127.0.0.1");
+scripts/dashboard-journey-contract.test.mjs:585:    "Delivery success must observe apply, commit, and push events.",
+docs/architecture.md:120:- The encryption key is derived from `SESSION_SECRET` (env secret, never committed).
+docs/architecture.md:307:- A periodic dispatcher recovers fresh queued/pending rows after a commit-to-
+docs/architecture.md:431:  matching project and candidate revision/hash, passed required nodes,
+artifacts/api-server/package.json:28:    "validate:ai-release": "tsx src/lib/ai-release-quality-gate.ts"
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+docs/completion-plan.md:51:  `audit.ts`) since it's best-effort telemetry on an already-committed change.
+docs/completion-plan.md:167:  each one calls `recordAudit` after its transaction commits and emits an `events` row inside the
+docs/gap-analysis-2026-07-27.md:120:- `artifacts/dashboard/src/components/GitPanel.tsx` — calls `/api/projects/:id/git/config`, `/api/ai/github-token`, `/api/projects/:id/git/status`, `/api/projects/:id/git/log`, `/api/projects/:id/git/commit`, `/api/projects/:id/git/push` via raw `apiFetch`
+artifacts/api-server/src/index.ts:173:httpServer = app.listen(port, (err) => {
+artifacts/api-server/src/index.ts:196:  // was committed just before the original process disappeared.
+scripts/validate-github-workflows.test.mjs:335:        "  external-commit:",
+scripts/patch-generated-zod.ts:56:        "Update the post-codegen transform before committing generated output.",
+scripts/check-codegen-drift.ts:6: * If the generated output differs from what is committed, the developer
+scripts/check-codegen-drift.ts:114:// drift-check sandbox (or differs from the committed client).
+scripts/check-codegen-drift.ts:193:// ─── 3. Check the generated output against the committed output ─────────────
+scripts/check-codegen-drift.ts:195:console.log("🔍  Checking for uncommitted changes in generated files …");
+scripts/check-codegen-drift.ts:210:    "    These files changed after re-running codegen — commit the regenerated output:\n",
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:7:EngineeringOS has a strong safety-and-observability foundation, but it is not source-proven equivalent to an autonomous software-engineering agent. It can inspect a project, build bounded context, plan a scoped multi-file change, queue deferred edits, run server-approved checks, persist checkpoints, and expose guarded apply/commit/push actions. It does **not** currently show one uninterrupted, server-owned loop that can discover a defect, mutate an isolated working tree, verify the mutation in that same tree, repair failures, and deliver the result without crossing explicit human/API approval boundaries.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:65:`routes/git.ts` scopes read operations by project access and commit/push by write access. Generic commands use `execFile` with bounds. AI proposal commit checks applied lifecycle, successful apply evidence, exact content/no drift, no unrelated staged or worktree changes, and stages only scoped paths. Push checks that the recorded commit is `HEAD`, uses a credential-free GitHub remote form, and queues a post-push scan.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:78:6. A successful apply can be committed only through the guarded Git route; push is another explicit action. Promotion now records intent and uses atomic per-file replacement with restart classification, but it is not a whole-tree atomic swap, and a restarted task is not automatically re-executed because provider credentials and partial changes require a deliberate recovery decision.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:105:| Git commit/push delivery / partial capability | `routes/git.ts` → AI commit/push guards; `git-tools.ts` read-only tools | Guarded user/API delivery exists and checks content/evidence/HEAD. The model cannot independently commit/push, and production success is not source-verifiable. | high | Treat commit/push as terminal operation nodes with durable receipts, explicit policy, and resumable recovery. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:121:12. **Execution → Git:** AI commit/push are separate guarded API actions and read-only model Git tools are intentional. Applied content, operation identity, and `HEAD` checks reduce scope escape, but delivery success under a real remote is **Cannot Verify From Current Source**.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:128:`intake → authorize → snapshot → inspect → plan → approve/policy decision → prepare isolated workspace → apply candidate → validate candidate → diagnose → bounded repair → revalidate → promote → commit/push policy decision → verify delivery → terminal receipt`.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:146:2. **Execution graph:** existing execution nodes gain explicit inspect, mutate-candidate, validate, repair, promote, commit, and push node types. Node scopes and dependencies remain server-owned.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:151:7. **Delivery:** commit/push remain policy-controlled terminal nodes, with exact content hash, expected `HEAD`, remote identity, and durable receipt.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:220:1. **Foundational integrity (P0):** bind validation to the immutable candidate and its hashes; keep promotion recovery conservative and idempotent; finish cancellation/checkpoint/token race handling; close root, command-cwd, authorization-enumeration, and graph-boundary gaps. Task #45 is not reopened.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:231:| P0-1 | `chat.ts` apply; `ai-repair-validation.ts`; `delivery-workspace.ts` | Validate `resolvedRoot` → validate immutable candidate workspace | Current pass can describe different bytes; critical integrity risk | Depends on workspace marker/hash. Unit path tests; integration overlay/validation; E2E apply; failure test wrong-root rejection | Validation receipt contains workspace root identity, base/changeset hash, and candidate bytes match promoted bytes |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:273:5. Apply/promotion → exact content verification → commit guard → push guard → post-push scan.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:276:The release/browser workflow must remain opt-in for real providers and deployment. Screenshots, fixture names, and generated API contracts are not acceptance evidence by themselves. Each accepted result must include operation ID, revision, candidate/changeset hash, profile revision, terminal state, and retained evidence completeness. Live-provider, browser-in-deployment, and remote-push success remain **Cannot Verify From Current Source** until such an artifact is intentionally produced.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:295:4. candidate/changeset hash, with validation performed against that candidate;
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:312:| Candidate mutation | Deferred writes, exact proposal subset, lexical/realpath guards, delivery workspace and changeset hashing | **Partial** | Candidate root identity and candidate hash; no direct live-root write before candidate validation |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:313:| Validation | Registered command/browser profiles, bounded kernel, public validation evidence, provenance fields | **Blocked for autonomous completion** | Validation must target the immutable candidate and match revision, changeset, and candidate hash; current apply path passes the live root |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:316:| Delivery | Scoped commit/push guards check applied content, evidence, paths, and `HEAD` | **Partial / approval-gated** | Commit/push receipt bound to operation, exact content hash, expected ref, and remote identity |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:365:* `delivery-success` requires candidate-bound evidence before apply, commit,
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:374:rejects a delivery-success terminal without a candidate-bound validation hash.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:382:* `pnpm run validate:ai-release`
+docs/ai-orchestrator-executive-table.md:21:| `lib/ai-orchestrator/src/tools/git-tools.ts` | Git CLI Adapter — يوفر `git_status`، `git_diff`، `git_log` عبر `execFile`. | (1) `maxBuffer: 10MB` — repo بـ commits كبيرة يُقطع الـ diff بصمت أو يرمي `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. (2) `cwd` يُمرَّر من الـ caller بدون تحقق إضافي داخل git-tools — يعتمد كلياً على `rootPath` من الـ route. (3) جميع العمليات read-only ولكن `execFile` نفسه غير مُقيَّد — إضافة أمر git جديد بالخطأ قد يُنفَّذ كتابةً. تحقق: allowlist صريح للأوامر المسموحة، تحديد maxBuffer ديناميكياً حسب حجم الـ repo. |
+lib/db/src/schema/tasks.ts:115:  remediationPlan: jsonb("remediation_plan").$type<RemediationPlan>(),
+docs/PR_BACKLOG.md:38:**Scope (identified in forensic §5 "Apply / commit / push"):**
+docs/PR_BACKLOG.md:39:- `artifacts/api-server/src/routes/git.ts` — `POST /projects/:projectId/git/commit` already emits `GitCommitCreated`; `POST /projects/:projectId/git/push` already emits `GitPushed`. Verify both also call `recordAudit` with `action: "executed"` — they do for push, confirm for commit
+docs/PR_BACKLOG.md:246:| Session PR-03 | Remove committed encryption key from `.replit` — `AI_CREDENTIALS_ENCRYPTION_KEY` moved out of version control; must be provisioned as a Replit Secret via `openssl rand -hex 32` | ✅ Closed (secret provisioning is a user step) |
+docs/PR_BACKLOG.md:263:| PR-B | Write-path event emission (apply/commit/push/task/workflow) | 2026-07-19 |
+docs/truth-flow-pr-checklist.md:54:- [ ] منع commit إذا كانت generated outputs قديمة.
+lib/db/src/schema/ai_change_proposals.ts:16:  "committed",
+lib/db/src/schema/ai_change_proposals.ts:46:  /** Stable operation identity shared by workspace, evidence, commit, and push. */
+lib/db/src/schema/ai_change_proposals.ts:56:  committedHash: text("committed_hash"),
+docs/actual-capability-baseline-v1.md:28:“Proposed”, “validated”, “committed”, and “pushed” describe change state, not
+docs/actual-capability-baseline-v1.md:35:| Committed | Git commit endpoint completed for the approved candidate. |
+docs/actual-capability-baseline-v1.md:40:receipts; its committed/pushed state is determined by the task merge process.
+docs/actual-capability-baseline-v1.md:76:   Git route's approved Apply → commit → push behavior. It did not complete the
+docs/actual-capability-baseline-v1.md:107:| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; commit/push are proposal/operation-aware and release identity is source-bound | **Partial** | Isolated route proof passed the approved Apply → commit → push flow with one operation trace and matching commit hash; Clerk-authenticated live delivery and push against a real GitHub remote remain unrun |
+docs/actual-capability-baseline-v1.md:141:resolution → promotion/apply → commit → push`
+docs/actual-capability-baseline-v1.md:157:- Git commit/push are separate API transitions and require project write access
+docs/actual-capability-baseline-v1.md:175:  commit → push, rejection of a mismatched operation, and matching local and
+docs/actual-capability-baseline-v1.md:176:  remote commit identity.
+docs/actual-capability-baseline-v1.md:205:| Revision/hash binding | Workspace revision, candidate/change-set/promoted hashes and apply/rebase checks | Code-backed |
+docs/actual-capability-baseline-v1.md:225:| Latest AI release quality decision | `pnpm run validate:ai-release` | Provider-free release contract suite; preview/live checks opt-in | **PASS**: 9 checks passed, 0 blocking failures; preview check skipped, live provider disabled |
+docs/actual-capability-baseline-v1.md:270:8. Git status → source-bound scoped commit → push with a safe fixture remote.
+docs/baseline-governance.md:43:34 cases and records the server-owned source revision and candidate hash, but
+docs/ai-orchestrator-gap-analysis.md:36:| G-14 | Events → Apply / Commit / Push | `routes/ai.ts`, `routes/git.ts` | `applyChanges`, `commitChanges`, `pushChanges` | Audit log written; no `eventsTable` entry | **No high-level events** are emitted for any of the three write operations. AI analysis and review create `eventsTable` rows that appear in the dashboard activity feed and in the AI context's `recentEvents`. Apply/commit/push are invisible to both | **Medium** |
+docs/ai-orchestrator-gap-analysis.md:73:| No VCS writes | ✅ Yes | `commit`/`push` omitted from tool definitions entirely |
+docs/ai-orchestrator-gap-analysis.md:135:No `eventsTable` rows are created for apply, commit, or push (G-14). These operations are invisible to the dashboard activity feed and to the AI's `recentEvents` context.
+docs/ai-orchestrator-gap-analysis.md:148:- Git-status query is invalidated after commit ✅
+docs/ai-orchestrator-gap-analysis.md:160:| 3 | G-02 + G-14 | Missing events — apply/commit/push invisible to AI and dashboard |
+docs/ai-orchestrator-trace-analysis.md:202:| Git commit | ❌ | **G-14 fixed** |
+lib/api-zod/src/generated/api.ts:3429:  "committed": zod.string().nullable()
+lib/api-zod/src/generated/api.ts:3513:  "committed": zod.string().nullable()
+lib/api-zod/src/generated/api.ts:3722:  "committed": zod.string().nullable()
+lib/api-zod/src/generated/api.ts:4419:  "lifecycle": zod.enum(['proposed', 'isolated', 'validated', 'applied', 'conflicted', 'committed', 'cancelled', 'abandoned', 'blocked']).optional(),
+lib/api-zod/src/generated/api.ts:5230:  "clean": zod.boolean().describe('True when there are no uncommitted changes'),
+lib/api-zod/src/generated/api.ts:5239: * @summary Get recent git commit history for a project (last 20 commits)
+lib/api-zod/src/generated/api.ts:5246:  "commits": zod.array(zod.object({
+lib/api-zod/src/generated/api.ts:5247:  "hash": zod.string().describe('Full 40-character commit SHA'),
+lib/api-zod/src/generated/api.ts:5248:  "shortHash": zod.string().describe('Abbreviated commit SHA'),
+lib/api-zod/src/generated/api.ts:5251:  "subject": zod.string().describe('First line of the commit message')
+lib/api-zod/src/generated/api.ts:5257: * @summary Stage all changes and create a git commit
+lib/api-zod/src/generated/api.ts:5276:  "commitHash": zod.string().optional().describe('Commit SHA created by a successful commit or pushed by a successful push'),
+lib/api-zod/src/generated/api.ts:5277:  "committedPaths": zod.array(zod.string()).optional().describe('Files included in a successful commit')
+lib/api-zod/src/generated/api.ts:5298:  "commitHash": zod.string().describe('Commit SHA proven to exist locally immediately before the push'),
+artifacts/api-server/src/routes/git.ts:2: * Git integration routes — commit, push, status, log, config.
+artifacts/api-server/src/routes/git.ts:4: * All mutating operations (commit, push) require project write access.
+artifacts/api-server/src/routes/git.ts:262:    const commits = stdout
+artifacts/api-server/src/routes/git.ts:269:    return res.json({ commits });
+artifacts/api-server/src/routes/git.ts:292:/** POST /api/projects/:projectId/git/commit — stage selected or all changes and commit */
+artifacts/api-server/src/routes/git.ts:293:router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async (req, res) => {
+artifacts/api-server/src/routes/git.ts:330:          error: "AI changes must pass Apply and behavioral verification before commit",
+artifacts/api-server/src/routes/git.ts:340:          error: "AI proposal is not in a committable lifecycle state",
+artifacts/api-server/src/routes/git.ts:353:          error: "AI commit requires a recorded successful Apply operation for this proposal and operation",
+artifacts/api-server/src/routes/git.ts:398:      // changed the working tree. Never commit that drift under the original
+artifacts/api-server/src/routes/git.ts:414:            error: "An applied AI file is no longer present; commit requires a fresh Apply",
+artifacts/api-server/src/routes/git.ts:421:            error: "An applied AI file changed after verification; commit requires a fresh Apply",
+artifacts/api-server/src/routes/git.ts:433:          error: "Scoped AI commit blocked by unrelated staged changes",
+artifacts/api-server/src/routes/git.ts:439:      // A scoped AI commit must be the only pending filesystem change. This
+artifacts/api-server/src/routes/git.ts:456:          error: "Scoped AI commit blocked by unrelated working-tree changes",
+artifacts/api-server/src/routes/git.ts:465:      // Generic Git commits retain their existing behavior.
+artifacts/api-server/src/routes/git.ts:474:        "commit", "-m", message.trim(),
+artifacts/api-server/src/routes/git.ts:478:    const { stdout: commitHash } = await runGit(["rev-parse", "HEAD"], rootPath);
+artifacts/api-server/src/routes/git.ts:479:    const committedPaths = scopedPaths ?? (await runGit(
+artifacts/api-server/src/routes/git.ts:480:      ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+artifacts/api-server/src/routes/git.ts:490:      stateAfter: { commitMessage: message.trim(), commitHash, committedPaths, proposalId: proposalId ?? null },
+artifacts/api-server/src/routes/git.ts:494:    // G-14: emit a high-level event so commit appears in the dashboard
+artifacts/api-server/src/routes/git.ts:501:      message: `Git commit: ${message.trim().slice(0, 120)}`,
+artifacts/api-server/src/routes/git.ts:506:        commitHash,
+artifacts/api-server/src/routes/git.ts:507:        committedPaths,
+artifacts/api-server/src/routes/git.ts:512:        .set({ lifecycle: "committed", committedHash: commitHash })
+artifacts/api-server/src/routes/git.ts:521:    return res.json({ ok: true, output: stdout || stderr, correlationId, commitHash, committedPaths });
+artifacts/api-server/src/routes/git.ts:524:    // "nothing to commit" is not an error from the user's perspective
+artifacts/api-server/src/routes/git.ts:525:    const msg = e.stderr?.trim() || e.stdout?.trim() || e.message || "git commit failed";
+artifacts/api-server/src/routes/git.ts:526:    if (msg.includes("nothing to commit")) {
+artifacts/api-server/src/routes/git.ts:527:      return res.status(409).json({ error: "Nothing to commit — working tree is clean." });
+artifacts/api-server/src/routes/git.ts:569:    let commitHash: string | undefined;
+artifacts/api-server/src/routes/git.ts:586:          && (proposal.operationId !== correlationId || proposal.lifecycle !== "committed")
+artifacts/api-server/src/routes/git.ts:590:          error: "AI push requires the same committed delivery operation",
+artifacts/api-server/src/routes/git.ts:597:      const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
+artifacts/api-server/src/routes/git.ts:598:      commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
+artifacts/api-server/src/routes/git.ts:600:        !commitEvidence ||
+artifacts/api-server/src/routes/git.ts:601:        commitEvidence.proposalId !== proposalId ||
+artifacts/api-server/src/routes/git.ts:602:        commitEvidence.operationId !== correlationId ||
+artifacts/api-server/src/routes/git.ts:603:        !commitHash
+artifacts/api-server/src/routes/git.ts:606:          error: "AI push requires a recorded commit operation for this proposal and operation",
+artifacts/api-server/src/routes/git.ts:613:      if (currentHead !== commitHash) {
+artifacts/api-server/src/routes/git.ts:615:          error: "The repository changed after the recorded AI commit; commit again before pushing",
+artifacts/api-server/src/routes/git.ts:617:          expectedCommit: commitHash,
+artifacts/api-server/src/routes/git.ts:622:      commitHash = (await runGit(["rev-parse", "HEAD"], project.rootPath)).stdout;
+artifacts/api-server/src/routes/git.ts:627:      if (!commitHash) {
+artifacts/api-server/src/routes/git.ts:629:          error: "A local commit is required before pushing through the GitHub integration",
+artifacts/api-server/src/routes/git.ts:637:        commitHash,
+artifacts/api-server/src/routes/git.ts:651:      remoteCommitHash = commitHash;
+artifacts/api-server/src/routes/git.ts:668:        commitHash,
+artifacts/api-server/src/routes/git.ts:687:        commitHash,
+artifacts/api-server/src/routes/git.ts:760:    return res.json({ ok: true, branch, output: redact(output), correlationId, commitHash, remoteCommitHash });
+artifacts/api-server/src/routes/git.test.ts:38:  await git(rootPath, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "fixture"]);
+artifacts/api-server/src/routes/git.test.ts:125:describe("AI-scoped Git commits", () => {
+artifacts/api-server/src/routes/git.test.ts:126:  it("rejects an AI commit when successful Apply evidence is missing", async () => {
+artifacts/api-server/src/routes/git.test.ts:135:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:146:  it("rejects a scoped commit when unrelated working-tree changes exist", async () => {
+artifacts/api-server/src/routes/git.test.ts:152:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:162:  it("rejects a scoped commit when unrelated changes are already staged", async () => {
+artifacts/api-server/src/routes/git.test.ts:169:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:176:  it("completes an approved Apply → commit → push flow with one operation trace", async () => {
+artifacts/api-server/src/routes/git.test.ts:261:      const commit = await request(app)
+artifacts/api-server/src/routes/git.test.ts:262:        .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:268:      expect(commit.status).toBe(200);
+artifacts/api-server/src/routes/git.test.ts:269:      expect(commit.body).toMatchObject({
+artifacts/api-server/src/routes/git.test.ts:271:        committedPaths: ["verified.ts"],
+artifacts/api-server/src/routes/git.test.ts:288:        commitHash: commit.body.commitHash,
+lib/api-zod/src/generated/types/operationEvidenceProjectionHashes.ts:13:  committed: string | null;
+artifacts/api-server/src/routes/projects.test.ts:296:    // wait lets both writes commit before we assert on the project row.
+lib/api-zod/src/generated/types/gitStatus.ts:11:  /** True when there are no uncommitted changes */
+lib/api-zod/src/generated/types/gitPushResult.ts:18:  commitHash: string;
+lib/api-zod/src/generated/types/gitOperationResult.ts:15:  /** Commit SHA created by a successful commit or pushed by a successful push */
+lib/api-zod/src/generated/types/gitOperationResult.ts:16:  commitHash?: string;
+lib/api-zod/src/generated/types/gitOperationResult.ts:17:  /** Files included in a successful commit */
+lib/api-zod/src/generated/types/gitOperationResult.ts:18:  committedPaths?: string[];
+lib/api-zod/src/generated/types/gitLog.ts:11:  commits: GitCommitEntry[];
+lib/api-zod/src/generated/types/gitCommitEntry.ts:10:  /** Full 40-character commit SHA */
+lib/api-zod/src/generated/types/gitCommitEntry.ts:12:  /** Abbreviated commit SHA */
+lib/api-zod/src/generated/types/gitCommitEntry.ts:18:  /** First line of the commit message */
+artifacts/api-server/src/routes/discovery.test.ts:939:    // The session must be fully committed to "imported" — never stuck in a
+artifacts/api-server/src/routes/discovery.test.ts:958:    // Regression: recordAudit was called *after* the transaction committed but
+artifacts/api-server/src/routes/discovery.test.ts:971:    // The import must still be fully committed (session → imported, project row exists).
+artifacts/api-server/src/routes/discovery.test.ts:1084:    await execFileAsync("git", ["-C", worktree, "commit", "-q", "-m", "fixture"]);
+artifacts/api-server/src/routes/discovery.ts:109:  // independently after the project import has committed.
+artifacts/api-server/src/routes/discovery.ts:454:      // blocks until this transaction commits or rolls back, then sees 0
+artifacts/api-server/src/routes/discovery.ts:614:  // Best-effort audit: the import transaction has already committed and the
+artifacts/api-server/src/routes/ai/chat.ts:1270:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:1816:  // happens before provider resolution and before SSE headers are committed.
+artifacts/api-server/src/routes/ai/chat.ts:2318:  // happens before provider resolution and before SSE headers are committed.
+artifacts/api-server/src/routes/ai/chat.ts:2467:      "Use the existing read and deferred-write flow. Prepare pending changes only; do not claim that files were applied, committed, or published.",
+artifacts/api-server/src/routes/ai/chat.ts:2609:    // messages are still committed together after the model returns.
+artifacts/api-server/src/routes/ai/chat.ts:3059:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:3616:        .find((step) => step.kind === "done" && step.stopReason === "tool_failure");
+artifacts/api-server/src/routes/ai/chat.ts:5026:// does not apply changes, run commands, commit, or publish.
+artifacts/api-server/src/routes/ai/chat.ts:5457:  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6376:    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6413:    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6533:        reason: "promoted_candidate_hash_mismatch",
+artifacts/api-server/src/routes/ai/chat.ts:6638:    // plan/apply/commit/push lifecycle queryable as one trace instead of
+artifacts/api-server/src/routes/ai/chat.ts:6728:            committedHash: allOk ? promotedHash : null,
+lib/api-zod/src/generated/types/aiPendingProposalLifecycle.ts:18:  committed: 'committed',
+lib/api-spec/openapi.yaml:3107:      summary: Get recent git commit history for a project (last 20 commits)
+lib/api-spec/openapi.yaml:3117:          description: Git commit log
+lib/api-spec/openapi.yaml:3131:  /api/projects/{projectId}/git/commit:
+lib/api-spec/openapi.yaml:3134:      summary: Stage all changes and create a git commit
+lib/api-spec/openapi.yaml:3164:          description: Nothing to commit — working tree is clean
+lib/api-spec/openapi.yaml:3696:          required: [changeSet, committed]
+lib/api-spec/openapi.yaml:3699:            committed: { type: ["string", "null"] }
+lib/api-spec/openapi.yaml:4199:          description: True when there are no uncommitted changes
+lib/api-spec/openapi.yaml:4211:          description: Full 40-character commit SHA
+lib/api-spec/openapi.yaml:4214:          description: Abbreviated commit SHA
+lib/api-spec/openapi.yaml:4223:          description: First line of the commit message
+lib/api-spec/openapi.yaml:4227:      required: [commits]
+lib/api-spec/openapi.yaml:4229:        commits:
+lib/api-spec/openapi.yaml:4262:        commitHash:
+lib/api-spec/openapi.yaml:4264:          description: Commit SHA created by a successful commit or pushed by a successful push
+lib/api-spec/openapi.yaml:4265:        committedPaths:
+lib/api-spec/openapi.yaml:4269:          description: Files included in a successful commit
+lib/api-spec/openapi.yaml:4284:      required: [ok, branch, output, correlationId, commitHash]
+lib/api-spec/openapi.yaml:4297:        commitHash:
+lib/api-spec/openapi.yaml:4795:          enum: [proposed, isolated, validated, applied, conflicted, committed, cancelled, abandoned, blocked]
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1758:      "commit", "-qm", "fixture",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1949:    const commit = await request(app)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1950:      .post(`/api/projects/${projectId}/git/commit`)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1952:    expect(commit.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1953:    expect(commit.body).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1956:      commitHash: expect.stringMatching(/^[0-9a-f]{40}$/),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1957:      committedPaths: ["src/approved.ts"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1961:    const committedFiles = await execFileAsync(realGit, [
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1964:    expect(committedFiles.stdout.trim()).toBe("src/approved.ts");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2005:        commitHash: commit.body.commitHash,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2057:                commit: commit.body.ok ? "created" : "not_created",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2071:                commitHash: commit.body.commitHash,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4037:        stopReason: "tool_failure",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4112:        stopReason: "tool_failure",
+lib/api-client-react/src/generated/api.ts:8741: * @summary Get recent git commit history for a project (last 20 commits)
+lib/api-client-react/src/generated/api.ts:8788: * @summary Get recent git commit history for a project (last 20 commits)
+lib/api-client-react/src/generated/api.ts:8814:  return `/api/projects/${projectId}/git/commit`
+lib/api-client-react/src/generated/api.ts:8818: * @summary Stage all changes and create a git commit
+lib/api-client-react/src/generated/api.ts:8868: * @summary Stage all changes and create a git commit
+lib/api-client-react/src/generated/api.schemas.ts:359:  committed: string | null;
+lib/api-client-react/src/generated/api.schemas.ts:768:  /** True when there are no uncommitted changes */
+lib/api-client-react/src/generated/api.schemas.ts:774:  /** Full 40-character commit SHA */
+lib/api-client-react/src/generated/api.schemas.ts:776:  /** Abbreviated commit SHA */
+lib/api-client-react/src/generated/api.schemas.ts:782:  /** First line of the commit message */
+lib/api-client-react/src/generated/api.schemas.ts:787:  commits: GitCommitEntry[];
+lib/api-client-react/src/generated/api.schemas.ts:808:  /** Commit SHA created by a successful commit or pushed by a successful push */
+lib/api-client-react/src/generated/api.schemas.ts:809:  commitHash?: string;
+lib/api-client-react/src/generated/api.schemas.ts:810:  /** Files included in a successful commit */
+lib/api-client-react/src/generated/api.schemas.ts:811:  committedPaths?: string[];
+lib/api-client-react/src/generated/api.schemas.ts:830:  commitHash: string;
+lib/api-client-react/src/generated/api.schemas.ts:1405:  committed: 'committed',
+artifacts/api-server/src/lib/operation-evidence.ts:39:  kind: "process" | "provider" | "validation" | "promotion" | "commit" | "push";
+artifacts/api-server/src/lib/operation-evidence.ts:58:    committed: string | null;
+artifacts/api-server/src/lib/operation-evidence.ts:82:  proposal?: { revision: number; baseRevision: string | null; changeSetHash: string | null; committedHash: string | null } | null;
+artifacts/api-server/src/lib/operation-evidence.ts:97:  if (["passed", "success", "succeeded", "completed", "applied", "committed", "pushed"].includes(normalized)) return "passed";
+artifacts/api-server/src/lib/operation-evidence.ts:108:  if (/commit/.test(normalized)) return "commit";
+artifacts/api-server/src/lib/operation-evidence.ts:203:      committed: text(input.proposal?.committedHash, 128) ?? null,
+artifacts/api-server/src/lib/operation-evidence.ts:268:          changeSetHash: aiChangeProposalsTable.changeSetHash, committedHash: aiChangeProposalsTable.committedHash,
+artifacts/api-server/src/lib/operation-evidence.test.ts:84:        committedHash: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1557:         | "tool_failure"
+lib/ai-orchestrator/src/tool-execution-engine.ts:2322:        stopReason: "tool_failure",
+artifacts/api-server/src/lib/job-reconciliation.ts:474: * during a deploy between the DB commit and queue dispatch).
+artifacts/api-server/src/lib/job-reconciliation.ts:719: * rows. It closes the small failure window where the request committed the
+artifacts/api-server/src/lib/github-connector.ts:76:async function gitBlob(rootPath: string, commitHash: string, filePath: string): Promise<Buffer> {
+artifacts/api-server/src/lib/github-connector.ts:79:    ["-C", rootPath, "cat-file", "blob", `${commitHash}:${filePath}`],
+artifacts/api-server/src/lib/github-connector.ts:85:async function gitMode(rootPath: string, commitHash: string, filePath: string): Promise<string> {
+artifacts/api-server/src/lib/github-connector.ts:86:  const line = await gitText(rootPath, ["ls-tree", commitHash, "--", filePath]);
+artifacts/api-server/src/lib/github-connector.ts:157: * Push a verified local commit to GitHub through the Replit connector.

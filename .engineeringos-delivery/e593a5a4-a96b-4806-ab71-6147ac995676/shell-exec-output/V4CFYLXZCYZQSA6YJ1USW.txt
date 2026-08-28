@@ -1,0 +1,220 @@
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:53:    (!options.requireTools || model.supportsTools);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:127:  // Filter: must support the capability; if tools required, must support them.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:131:      (!requireTools || m.supportsTools),
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:204:      (!requireTools || m.supportsTools),
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:208:    : FREE_MODELS.filter((m) => !requireTools || m.supportsTools) as OpenRouterFreeModel[];
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:259:    (!capabilityOptions.requireTools || initial.supportsTools);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:266:    (!capabilityOptions.requireTools || m.supportsTools);
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:34:  supportsTools: boolean;
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:58:    id: "liquid/lfm-2.5-2.6b:free",
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:62:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:72:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:82:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:92:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:102:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:112:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:125:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:135:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:145:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:155:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:165:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:175:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:185:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:196:    supportsTools: true,
+lib/ai-orchestrator/src/provider-capabilities.ts:12:  supportsTools: boolean;
+lib/ai-orchestrator/src/provider-capabilities.ts:38:  supportsTools: false,
+lib/ai-orchestrator/src/provider-capabilities.ts:55:  if (hints.requireTools && !capabilities.supportsTools) return false;
+lib/ai-orchestrator/src/provider-capabilities.ts:77:  if (hints.requireTools) score += capabilities.supportsTools ? 10 : -1000;
+lib/ai-orchestrator/src/evidence-integrity.ts:251: * Single source of truth for a run. All interfaces/tools read reconciliation
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:53:    (!options.requireTools || model.supportsTools);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:127:  // Filter: must support the capability; if tools required, must support them.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:131:      (!requireTools || m.supportsTools),
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:204:      (!requireTools || m.supportsTools),
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:208:    : FREE_MODELS.filter((m) => !requireTools || m.supportsTools) as OpenRouterFreeModel[];
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:259:    (!capabilityOptions.requireTools || initial.supportsTools);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:266:    (!capabilityOptions.requireTools || m.supportsTools);
+lib/ai-orchestrator/src/tool-execution-engine.ts:7: *   executeSingleTool(opts)  — dispatches one tool call by name (file-tools or
+lib/ai-orchestrator/src/tool-execution-engine.ts:8: *                              git-tools), enforces the registry.
+lib/ai-orchestrator/src/tool-execution-engine.ts:41:import { FILE_TOOL_DEFINITIONS, executeFileTool } from "./tools/file-tools.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:42:import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:52:} from "./tools/execution-tools.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:58:} from "./tools/analysis-tools.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:87: * the message history.  The model is asked to stop calling tools and write a
+lib/ai-orchestrator/src/tool-execution-engine.ts:406:    "Synthesis constraint: answer from this summary and the confirmed evidence only; do not call tools.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:429:  commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:430:  commandRunner?: import("./tools/execution-tools.js").CommandRunner;
+lib/ai-orchestrator/src/tool-execution-engine.ts:437:  /** Fail-closed dispatcher gate for execution tools. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:558:  /** Distinct paths the loop actually read via read tools (recordRead). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:694:      errorMessage: `Tool "${name}" is not registered — use one of the tools listed in the system prompt.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1035:   * Optional response envelope requested for the final no-tools synthesis call.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1036:   * OpenAI-compatible clients ignore this while tools are present and apply it
+lib/ai-orchestrator/src/tool-execution-engine.ts:1042:   * Tool definitions passed to the model.  undefined means tools are
+lib/ai-orchestrator/src/tool-execution-engine.ts:1046:  tools: ToolDefinitionLike[] | undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1050:   * never touched when tools is undefined.  Pass "" when rootPath is absent.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1056:  /** Server-owned phase; caps budgets and filters tools when provided. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1091:   * no tools are executed and the provider is asked to finish from gathered
+lib/ai-orchestrator/src/tool-execution-engine.ts:1118:  commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1119:  commandRunner?: import("./tools/execution-tools.js").CommandRunner;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1395:       * Present only on fresh (non-cached) calls for read and write tools.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1572: * Run the full agentic tool loop until the model stops requesting tools or
+lib/ai-orchestrator/src/tool-execution-engine.ts:1810:  // Neutral, evidence-free outputs the tools return when they found nothing.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1821:  // of the "found nothing" neutral shapes the tools actually emit.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1859:    if (!opts.tools || executionMode !== "repair_plan") return opts.tools;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1870:      return opts.tools.filter((tool) => tool.function.name !== "read_file");
+lib/ai-orchestrator/src/tool-execution-engine.ts:1873:    return opts.tools;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1880:      (opts.tools ?? [])
+lib/ai-orchestrator/src/tool-execution-engine.ts:1908:  const readToolConfigured = (opts.tools ?? []).some((tool) =>
+lib/ai-orchestrator/src/tool-execution-engine.ts:2094:   * tools. That response cannot be executed in the synthesis window and often
+lib/ai-orchestrator/src/tool-execution-engine.ts:2096:   * produce the no-tools answer before handing the evidence to recovery.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2122:        reason: "provider returned tool_calls during a no-tools synthesis request",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2413:             : "You have gathered enough information. Please synthesize and summarize everything you have found so far — do not call additional tools.");
+lib/ai-orchestrator/src/tool-execution-engine.ts:2464:    // ordinary tool-loop turns as well as the no-tools synthesis window.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2479:              ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2493:        ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2531:                ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2543:            ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2687:        // chat agent can run its bounded no-tools contract-recovery attempt
+lib/ai-orchestrator/src/tool-execution-engine.ts:2710:          // valuable and must reach chat-agent's bounded no-tools recovery;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2794:    // no-tools completion pass with a larger output budget before accepting
+lib/ai-orchestrator/src/tool-execution-engine.ts:2811:            "Preserve the requested response format and do not call tools.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2855:      // the provider client intentionally omits response_format whenever tools
+lib/ai-orchestrator/src/tool-execution-engine.ts:2857:      // give it one explicit no-tools synthesis pass so JSON mode is actually
+lib/ai-orchestrator/src/tool-execution-engine.ts:2901:              "Do not call tools and do not add facts.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2929:          // A provider may ignore the no-tools request and still emit a
+lib/ai-orchestrator/src/tool-execution-engine.ts:2980:    // bounded no-tools contract-recovery pass against the evidence already
+lib/ai-orchestrator/src/tool-execution-engine.ts:3079:            "Synthesis phase is active. No further tools may run. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3229:            "Use only the tools listed in the effective manifest.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3816:            "Synthesize your answer from the information already gathered — do not call further tools.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4182:            // Hide planning tools on the next turn so the only route forward is
+lib/ai-orchestrator/src/deepseek-client.ts:35:  tools?:     ToolDefinition[];
+lib/ai-orchestrator/src/deepseek-client.ts:39:   * Mutually exclusive with `tools` — when both are present, tools take precedence
+lib/ai-orchestrator/src/deepseek-client.ts:78: * this for the final synthesis step (no tools in the request body).
+lib/ai-orchestrator/src/deepseek-client.ts:82:  opts: Omit<DeepSeekCompleteOptions, "tools" | "responseFormat">,
+lib/ai-orchestrator/src/deepseek-client.ts:205:    tools,
+lib/ai-orchestrator/src/deepseek-client.ts:216:  const hasTools = Array.isArray(tools) && tools.length > 0;
+lib/ai-orchestrator/src/deepseek-client.ts:218:    body.tools        = tools;
+lib/ai-orchestrator/src/deepseek-client.ts:221:    // tools and response_format are mutually exclusive on DeepSeek (same as Groq).
+lib/ai-orchestrator/src/quality-engine.ts:108:      // tool loop — a provider that doesn't support function calling cannot
+lib/ai-orchestrator/src/quality-engine.ts:109:      // execute this profile correctly. Require tools on both strict and
+lib/ai-orchestrator/src/quality-engine.ts:110:      // relaxed hints so Gemini (supportsTools: false) is never selected.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:34:  supportsTools: boolean;
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:58:    id: "liquid/lfm-2.5-2.6b:free",
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:62:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:72:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:82:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:92:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:102:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:112:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:125:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:135:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:145:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:155:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:165:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:175:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:185:    supportsTools: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:196:    supportsTools: true,
+lib/ai-orchestrator/src/openai-compatible-client.ts:46:  tools?: ToolDefinition[];
+lib/ai-orchestrator/src/openai-compatible-client.ts:61:  "tools" | "responseFormat"
+lib/ai-orchestrator/src/openai-compatible-client.ts:731:    tools,
+lib/ai-orchestrator/src/openai-compatible-client.ts:746:  const hasTools = !isGemini && Array.isArray(tools) && tools.length > 0;
+lib/ai-orchestrator/src/openai-compatible-client.ts:748:    body.tools = tools;
+lib/ai-orchestrator/src/openai-compatible-client.ts:774:      toolCount: hasTools && Array.isArray(tools) ? tools.length : 0,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1171:  /** Execution-plan tool contract, including calls with tools supplied later. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:1193:  const requireTools = opts.requireTools ?? !!(opts.tools?.length);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1453:  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } = opts;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1468:  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } =
+lib/ai-orchestrator/src/openai-compatible-client.ts:1469:    opts as OpenAICompatibleOptions & { tools?: unknown; responseFormat?: unknown };
+lib/ai-orchestrator/src/index.ts:77:export type { PendingChange } from "./tools/file-tools.js";
+lib/ai-orchestrator/src/index.ts:156:export type { RepairLoopState, ValidationRunner, ValidationToolResult, BrowserValidationRunner } from "./tools/execution-tools.js";
+lib/ai-orchestrator/src/index.ts:157:export { executeCommandTool, runRegisteredCommand, COMMAND_PROFILE_LIMITS } from "./tools/execution-tools.js";
+lib/ai-orchestrator/src/index.ts:158:export type { CommandProfile, CommandRunner } from "./tools/execution-tools.js";
+lib/ai-orchestrator/src/index.ts:187:} from "./tools/analysis-tools.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:79:        hasTools: Array.isArray(opts.tools) && opts.tools.length > 0,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:80:        toolCount: Array.isArray(opts.tools) ? opts.tools.length : 0,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:97:              requireTools: Boolean(opts.tools?.length),
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:7: * `supportsNativeStream: false` — the Gemini shim strips tools and
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:12: * OpenAI-compatible shim currently returns 404 with tools attached).
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:37:    // geminiCompleteRaw already strips tools and responseFormat internally.
+lib/ai-orchestrator/src/groq-client.ts:49:  tools?: ToolDefinition[];
+lib/ai-orchestrator/src/groq-client.ts:52:   * Only use when tools are NOT present in the request — Groq rejects
+lib/ai-orchestrator/src/groq-client.ts:53:   * response_format + tools together.
+lib/ai-orchestrator/src/groq-client.ts:310: * The caller is responsible for executing tools and looping until the model
+lib/ai-orchestrator/src/groq-client.ts:315:  opts: CompleteOptions & { tools?: ToolDefinition[] } = {},
+lib/ai-orchestrator/src/groq-client.ts:325:    tools,
+lib/ai-orchestrator/src/groq-client.ts:340:  const hasTools = tools && tools.length > 0;
+lib/ai-orchestrator/src/groq-client.ts:347:    // response_format and tools are mutually exclusive on Groq; tools take priority.
+lib/ai-orchestrator/src/groq-client.ts:349:      ? { tools, tool_choice: toolChoice ?? "auto" }
+lib/ai-orchestrator/src/groq-client.ts:493: * Designed for the final synthesis step (no tool calls). Do NOT pass `tools` here;
+lib/ai-orchestrator/src/groq-client.ts:494: * the Groq API rejects stream + tools together in most configurations. Circuit-breaker
+lib/ai-orchestrator/src/forensic-output-guard.ts:56:  /** Sources actually returned by read/list/search tools during this turn. */
+lib/ai-orchestrator/src/schemas/chat.schema.ts:145: * Field constraints mirror the guarantees provided by file-tools.ts:
+lib/ai-orchestrator/src/execution-node-coordinator.ts:7:import { MAX_REPAIR_ATTEMPTS } from "./tools/execution-tools.js";
+lib/ai-orchestrator/src/provider-capabilities.ts:12:  supportsTools: boolean;
+lib/ai-orchestrator/src/provider-capabilities.ts:38:  supportsTools: false,
+lib/ai-orchestrator/src/provider-capabilities.ts:55:  if (hints.requireTools && !capabilities.supportsTools) return false;
+lib/ai-orchestrator/src/provider-capabilities.ts:77:  if (hints.requireTools) score += capabilities.supportsTools ? 10 : -1000;
+lib/ai-orchestrator/src/provider-strategy.ts:46:  tools?: ToolDefinition[];
+lib/ai-orchestrator/src/provider-strategy.ts:55:/** Options for a streaming (SSE) completion call. No tool support. */
+lib/ai-orchestrator/src/provider-strategy.ts:90:   * Only used for the final synthesis step (no tools in the request).
+lib/ai-orchestrator/src/tools/git-tools.ts:2: * Git tools for the chat agent.
+lib/ai-orchestrator/src/tools/git-tools.ts:108:        // safePath guard in file-tools.ts.  git -C rootPath handles the
+lib/ai-orchestrator/src/tools/git-tools.ts:118:          return `[git-tools]: Rejected — path "${args.path}" resolves outside the project root.`;
+lib/ai-orchestrator/src/tools/git-tools.ts:135:      return `[git-tools]: Unknown tool "${name}" — available tools: git_status, git_diff, git_log`;
+lib/ai-orchestrator/src/tools/file-tools.ts:2: * File system tools for the chat agent.
+lib/ai-orchestrator/src/tools/file-tools.ts:76:// so callers that already import from file-tools.ts do not need to change their
+lib/ai-orchestrator/src/tools/execution-tools.ts:1:import type { ToolDefinition } from "./file-tools.js";
+lib/ai-orchestrator/src/tools/analysis-tools.ts:1:import type { ToolDefinition } from "./file-tools.js";
+lib/ai-orchestrator/src/tools/analysis-tools.ts:120:        scope: "analysis-tools",
+lib/ai-orchestrator/src/tools/analysis-tools.ts:146:      scope: "analysis-tools",
+lib/ai-orchestrator/src/tool-policy.ts:4: * This layer decides whether a provider may receive any tools at all and
+lib/ai-orchestrator/src/tool-policy.ts:8:import { FILE_TOOL_DEFINITIONS, type ToolDefinition } from "./tools/file-tools.js";
+lib/ai-orchestrator/src/tool-policy.ts:9:import { GIT_TOOL_DEFINITIONS, type GitToolDefinition } from "./tools/git-tools.js";
+lib/ai-orchestrator/src/tool-policy.ts:10:import { EXECUTION_TOOL_DEFINITIONS } from "./tools/execution-tools.js";
+lib/ai-orchestrator/src/tool-policy.ts:11:import { ANALYSIS_TOOL_DEFINITIONS } from "./tools/analysis-tools.js";
+lib/ai-orchestrator/src/tool-policy.ts:79:  } else if (!provider.supportsTools) {
+lib/ai-orchestrator/src/tool-policy.ts:120:      supportsTools: provider.supportsTools,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:31:    return `**File-system tools: NOT active in this session.**
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:44:      `File tools: read_file · list_directory · search_code · replace_text · write_file
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:45:Git tools: git_status · git_diff · git_log
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:65:5. Git read tools (git_status, git_diff, git_log) ARE available in this session — use them to inspect the working tree, uncommitted changes, and commit history. However, NEVER claim the ability to commit, push, or perform any write VCS operation. Those actions are handled by the Git panel in the dashboard. If the user asks to commit or push, direct them to the GitHub Integration panel.`,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:95:    rule9 = `9. **Tool planning discipline**: When you need tools, begin your FIRST response with one short sentence: "Plan: [what I will look for and why]." Then call 2–4 targeted tools in that same turn rather than exploring broadly. This prevents aimless iteration and makes every tool call purposeful. Skip the plan sentence for simple factual questions that need ≤1 tool call.`;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:124:6. **No hallucinated APIs or endpoints**: If asked about APIs, tools, or endpoints — only cite those present in the knowledge graph or discovered via a tool call. Do not invent routes, methods, or configurations.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:201:**Step 1 — READ FIRST:** Call all file-read tools. Read EVERY implementation file the user asked for. Do NOT write output yet.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:243:        "Answer the behavioral question directly and cite only relevant source evidence available in context or from completed tools. Identify the target symbol/function, include the exact supporting control-flow source fragment in backticks, and identify its file. A default constant or file inventory is not enough to prove runtime behavior. If no completed read proves the behavior, say NOT PROVEN. A missing Finding is not a failure: do not invent a defect or force a forensic report.",
+lib/ai-orchestrator/src/prompts/capability-probe.ts:18:invent symbols that are not present. You have these tools only for source
+lib/ai-orchestrator/src/prompts/capability-probe.ts:20:deferred edit tools (write_file / replace_text) which NEVER write until
+lib/ai-orchestrator/src/prompts/capability-probe.ts:29:lib/ai-orchestrator/src/tools/file-tools.ts
+lib/ai-orchestrator/src/prompts/capability-probe.ts:84:  "lib/ai-orchestrator/src/tools/file-tools.ts",
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:260:  // tools are environmental outcomes. They must not become quality failures
+lib/ai-orchestrator/src/agents/chat-agent.ts:81:import type { AnalysisToolRunner } from "../tools/analysis-tools.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:108:} from "../tools/execution-tools.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:109:import type { CommandProfile, CommandRunner } from "../tools/execution-tools.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:121:import { stripReadFileWrapper, executeFileTool } from "../tools/file-tools.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:480: * pass. Give the model ONLY read tools so it can re-read the actual source to
+lib/ai-orchestrator/src/agents/chat-agent.ts:1259: * already-retained reads. This deliberately has no tools: recovery can repair
+lib/ai-orchestrator/src/agents/chat-agent.ts:2480: * call tools as the very first output.
+lib/ai-orchestrator/src/agents/chat-agent.ts:2508: * narrower than requiresToolExecution(): "راجع الكود" needs tools, but it
+lib/ai-orchestrator/src/agents/chat-agent.ts:2521: * when the question mentions tools or source files.  Tool use and execution
+lib/ai-orchestrator/src/agents/chat-agent.ts:2904:  const tools = getAllowedToolDefinitions(policy);
+lib/ai-orchestrator/src/agents/chat-agent.ts:2907:      ? tools.filter((tool) => tool.function.name === "read_file")
+lib/ai-orchestrator/src/agents/chat-agent.ts:2909:      ? tools.filter((tool) => ["read_file", "list_directory"].includes(tool.function.name))
+lib/ai-orchestrator/src/agents/chat-agent.ts:2911:      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "refresh_project_scan", "query_knowledge_graph", "discover_project_apis"].includes(tool.function.name))
+lib/ai-orchestrator/src/agents/chat-agent.ts:2913:      ? tools.filter((tool) =>
+lib/ai-orchestrator/src/agents/chat-agent.ts:2921:      : tools;
+lib/ai-orchestrator/src/agents/chat-agent.ts:2929:        blockedTools: tools
+lib/ai-orchestrator/src/agents/chat-agent.ts:2940:        blockedTools: tools
+lib/ai-orchestrator/src/agents/chat-agent.ts:2952:        blockedTools: tools
+lib/ai-orchestrator/src/agents/chat-agent.ts:2965:        reason: "tool policy produced no allowed tools",
+lib/ai-orchestrator/src/agents/chat-agent.ts:3112:  tools?: ToolDefinition[],
+lib/ai-orchestrator/src/agents/chat-agent.ts:3133:    // Only read tools are ever supplied (never write_file / replace_text), and
+lib/ai-orchestrator/src/agents/chat-agent.ts:3136:    ...(tools && tools.length > 0 ? { tools, toolChoice: "auto" } : {}),
+lib/ai-orchestrator/src/agents/chat-agent.ts:3388:  /** Absolute path to the project root on disk. Activates file-system tools when provided. */
+lib/ai-orchestrator/src/agents/chat-agent.ts:3447:  browserValidationRunner?: import("../tools/execution-tools.js").BrowserValidationRunner;
+lib/ai-orchestrator/src/agents/chat-agent.ts:3577:  // write tools. Approval and execution will be separate milestones.
+lib/ai-orchestrator/src/agents/chat-agent.ts:3898:        : "Build Mode is blocked because the approved plan has no safely executable steps. No tools were run and no files were written.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:3943:            "No tools were run, no files were written, and no changes were proposed.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:3998:            "No tools were run, no files were written, and no changes were proposed.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4212:  // A provider retry may not expose tools (for example Gemini), but its
+lib/ai-orchestrator/src/agents/chat-agent.ts:4229:  // Security: apply the same two-phase containment check used by file-tools.ts
+lib/ai-orchestrator/src/agents/chat-agent.ts:4361:  const tools = modelHasTools
+lib/ai-orchestrator/src/agents/chat-agent.ts:4430:  // BUG-1 fix: pass `tools != null` (actual tool availability for THIS provider)

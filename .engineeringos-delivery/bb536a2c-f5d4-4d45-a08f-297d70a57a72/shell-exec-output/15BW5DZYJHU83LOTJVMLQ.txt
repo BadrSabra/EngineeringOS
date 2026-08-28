@@ -1,0 +1,97 @@
+lib/ai-orchestrator/src/groq-client.ts:251:  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+lib/ai-orchestrator/src/groq-client.ts:273:      message?: { content?: string | null; tool_calls?: ToolCall[] };
+lib/ai-orchestrator/src/groq-client.ts:291:  const hasCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+lib/ai-orchestrator/src/groq-client.ts:297:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:37:  normalizeObjectivePath,
+lib/ai-orchestrator/src/tool-execution-engine.ts:419:  /** Accumulated pending changes array — mutated in place by write_file. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:456:       * write_file produces no source — it queues a pending change instead.
+lib/ai-orchestrator/src/tool-execution-engine.ts:677: * write_file never produces a source — it mutates pendingChanges instead.
+lib/ai-orchestrator/src/tool-execution-engine.ts:870: * `tool_calls` array. When the provider truncates the context server-side it
+lib/ai-orchestrator/src/tool-execution-engine.ts:881:  // IDs advertised by the most recent assistant turn that carried tool_calls.
+lib/ai-orchestrator/src/tool-execution-engine.ts:888:      // Refresh the set from this assistant turn's tool_calls.
+lib/ai-orchestrator/src/tool-execution-engine.ts:890:      if (Array.isArray(m.tool_calls)) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:891:        for (const tc of m.tool_calls) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:981:   * The loop appends assistant (with tool_calls) and tool-result messages.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1044:   * first iteration (the model never emits tool_calls without definitions).
+lib/ai-orchestrator/src/tool-execution-engine.ts:1054:  /** Accumulated pending changes — mutated in place by write_file calls. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1107:   * reading the same file without reaching replace_text/write_file.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1165:   * Optional read_file path allow-list. Paths are compared as normalized
+lib/ai-orchestrator/src/tool-execution-engine.ts:1216:      /** Raw model response — contains content but no tool_calls. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1577: *   2. If the model returns tool_calls: for each call —
+lib/ai-orchestrator/src/tool-execution-engine.ts:1583: *   3. If the model returns no tool_calls: return kind:"response".
+lib/ai-orchestrator/src/tool-execution-engine.ts:1868:    // structurally unavoidable: replace_text or write_file.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1918:    const normalized = value.replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+lib/ai-orchestrator/src/tool-execution-engine.ts:1926:      normalized === root ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:1927:      normalized.startsWith(`${root}/`),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2093:   * Some OpenRouter models return tool_calls even when the request contains no
+lib/ai-orchestrator/src/tool-execution-engine.ts:2122:        reason: "provider returned tool_calls during a no-tools synthesis request",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2194:    const normalized = path.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+lib/ai-orchestrator/src/tool-execution-engine.ts:2195:    return fegTarget ? normalized === fegTarget : true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2409:             ? "هذه عملية تنفيذ Repair Plan وليست تدقيقًا جديدًا. لا تعاود قراءة الملف نفسه. إذا كانت الأدلة الموجودة كافية، انتقل الآن إلى replace_text أو write_file، وإلا أنهِ المرحلة برسالة واضحة دون ادعاء تطبيق التغيير."
+lib/ai-orchestrator/src/tool-execution-engine.ts:2410:             : "This is a Repair Plan execution, not a new audit. Do not reread the same file. If the gathered evidence is sufficient, call replace_text or write_file now; otherwise end the phase clearly without claiming the change was applied.")
+lib/ai-orchestrator/src/tool-execution-engine.ts:2930:          // tool_calls payload. Never feed those calls back into the normal
+lib/ai-orchestrator/src/tool-execution-engine.ts:2975:    // Some providers still emit tool_calls after the tool schema has been
+lib/ai-orchestrator/src/tool-execution-engine.ts:3015:    // ── Append assistant turn with tool_calls ────────────────────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:3019:    // normalize at ingestion, but any path that bypasses that (native Groq,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3039:      tool_calls: safeToolCalls,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3275:              `UNJUSTIFIED_SCOPE_EXPANSION: \`${normalizeObjectivePath(requestedPath)}\` is outside the ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3457:      // to replace_text/write_file instead of receiving another copy of the
+lib/ai-orchestrator/src/tool-execution-engine.ts:3469:            "Call replace_text with an exact unique old_text/new_text pair, or write_file only for a new file.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3585:            "Move to replace_text/write_file using the evidence already gathered, or return a final response.";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3770:                "For a Repair Plan, call replace_text/write_file now if the evidence is sufficient, or return a final response."
+lib/ai-orchestrator/src/tool-execution-engine.ts:3830:          "write_file", "replace_text",
+lib/ai-orchestrator/src/openai-compatible-client.ts:107: *   - An assistant message that carries `tool_calls` opens a tool_group and
+lib/ai-orchestrator/src/openai-compatible-client.ts:124:      Array.isArray(m.tool_calls) &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:125:      m.tool_calls.length > 0
+lib/ai-orchestrator/src/openai-compatible-client.ts:129:        m.tool_calls.map((tc) => tc.id).filter((id): id is string => !!id),
+lib/ai-orchestrator/src/openai-compatible-client.ts:172:      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+lib/ai-orchestrator/src/openai-compatible-client.ts:393:  const normalizedBody = body.toLowerCase();
+lib/ai-orchestrator/src/openai-compatible-client.ts:395:    normalizedBody.includes("response_format") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:396:    normalizedBody.includes("tool_choice") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:397:    normalizedBody.includes("structured output") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:398:    normalizedBody.includes("structured outputs") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:399:    normalizedBody.includes("unsupported parameter") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:400:    normalizedBody.includes("request parameter") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:401:    normalizedBody.includes("invalid request") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:402:    normalizedBody.includes("not supported") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:403:    normalizedBody.includes("agent harness") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:404:    normalizedBody.includes("requires an agent") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:405:    normalizedBody.includes("only available through an agent") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:406:    normalizedBody.includes("agent-only") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:407:    normalizedBody.includes("agentic") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:498:  const normalizedBody = body.toLowerCase();
+lib/ai-orchestrator/src/openai-compatible-client.ts:500:    normalizedBody.includes("not a valid model id") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:501:    normalizedBody.includes("invalid model id") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:502:    normalizedBody.includes("unknown model") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:503:    normalizedBody.includes("model not found") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:504:    normalizedBody.includes("model unavailable") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:505:    normalizedBody.includes("unavailable for free") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:506:    normalizedBody.includes("no endpoints") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:525:      normalizedBody.includes("quota") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:526:      normalizedBody.includes("credits exhausted") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:527:      normalizedBody.includes("credit balance") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:528:      normalizedBody.includes("insufficient funds") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:529:      normalizedBody.includes("insufficient credits") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:530:      normalizedBody.includes("balance is") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:531:      normalizedBody.includes("account limit");
+lib/ai-orchestrator/src/openai-compatible-client.ts:556:      normalizedBody.includes("unavailable for free") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:557:      normalizedBody.includes("free tier") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:558:      normalizedBody.includes("requires a paid plan") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:559:      normalizedBody.includes("paid plan") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:560:      normalizedBody.includes("credits") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:561:      normalizedBody.includes("billing")
+lib/ai-orchestrator/src/openai-compatible-client.ts:612:function normalizeToolCallArguments(
+lib/ai-orchestrator/src/openai-compatible-client.ts:658:// `tool_calls` JSON array.  These helpers normalise both cases so the rest of
+lib/ai-orchestrator/src/openai-compatible-client.ts:661:/** Strip all <tool_call>…</tool_call> blocks from a content string. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:663:  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+lib/ai-orchestrator/src/openai-compatible-client.ts:669: *   1. JSON inside tags:  <tool_call>{"name":"fn","arguments":{…}}</tool_call>
+lib/ai-orchestrator/src/openai-compatible-client.ts:670: *   2. Attribute syntax:  <tool_call> <function=fn> <parameter=k>v</parameter> </function> </tool_call>
+lib/ai-orchestrator/src/openai-compatible-client.ts:674:  const blocks = [...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)];
+lib/ai-orchestrator/src/openai-compatible-client.ts:681:    // Format 1 — JSON inside <tool_call>
+lib/ai-orchestrator/src/openai-compatible-client.ts:832:        tool_calls?: ToolCall[];
+lib/ai-orchestrator/src/openai-compatible-client.ts:877:  let hasCalls = Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0;
+lib/ai-orchestrator/src/openai-compatible-client.ts:879:    ? normalizeToolCallArguments(msg!.tool_calls as ToolCall[], providerName, model)
+lib/ai-orchestrator/src/openai-compatible-client.ts:883:  // content instead of using the standard tool_calls JSON field.
+lib/ai-orchestrator/src/openai-compatible-client.ts:884:  if (content && content.includes("<tool_call>")) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1041:      // Flush safe prefix — everything before any open <tool_call> tag.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1042:      const openIdx = xmlStreamBuf.indexOf("<tool_call>");

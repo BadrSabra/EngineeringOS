@@ -1,0 +1,165 @@
+stdout:
+--- #23 Bind benchmark proof to the exact candidate bytes (MERGED) ---
+# Bind benchmark proof to the exact candidate bytes
+
+## What & Why
+The current adversarial checks prove stale workspace revision and candidate identity are rejected at the autonomous-operation boundary, but benchmark observations do not yet carry an explicit candidate hash. Adding that binding would prevent a valid oracle result from being reused after candidate bytes change.
+
+## Done looks like
+- Benchmark evidence records the candidate identity or hash used by each oracle run.
+- A mismatched or missing candidate hash blocks rollout without changing benchmark grade semantics.
+- Tests cover both matching and stale candidate evidence.
+
+## Relevant files
+- lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts
+- lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts
+- lib/ai-orchestrator/src/validation-result.ts
+
+--- #24 Compute server-owned candidate hashes before benchmark oracles (MERGED) ---
+# Compute server-owned candidate hashes before benchmark oracles
+
+## What & Why
+Remove the remaining trust gap at the benchmark boundary by deriving the immutable candidate workspace hash on the server before any oracle runs. The server-owned hash must flow through telemetry, observations, and the final verdict.
+
+## Done looks like
+- The campaign computes the candidate hash from the isolated workspace; callers and fixtures cannot supply or replace it.
+- Oracle inputs, observations, and verdicts retain the same candidate hash and revision.
+- Missing, stale, malformed, or mismatched hashes fail closed with an explicit scenario and operation diagnostic.
+- Existing benchmark scoring and rollout rules remain unchanged.
+- A deterministic regression test proves a caller-supplied stale hash cannot pass.
+
+## Out of scope
+- Live provider campaigns or changing model quality thresholds.
+- Reworking candidate creation, promotion, or general Git hashing.
+- Weakening candidate/revision/evidence binding.
+
+## Steps
+1. Identify every benchmark entry point and replace caller-trusted candidate hash values with a server-derived hash from the immutable candidate workspace.
+2. Carry the hash and revision through oracle telemetry, persisted observations, and release-gate comparison.
+3. Add fail-closed tests for stale, substituted, missing, and mismatched hash values.
+4. Run the full provider-free benchmark and confirm the hardening does not alter legitimate grades.
+
+## Relevant files
+- artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+- artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+- lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts
+- artifacts/api-server/src/lib/benchmark-release-gate.ts
+
+--- #26 Bind releases to source revision (MERGED) ---
+# Bind Releases to Source Revision
+
+## What & Why
+Restore the cancelled source-lineage work by binding every benchmark release artifact to the exact server-observed source revision that produced it. Candidate hashes already identify the evaluated bytes; this adds the missing immutable lineage needed for trustworthy release comparison and final rollout decisions. The approved planning reference is the current `main` revision `672a2447a0604e4f562796dab969b5d136582277`, subject to verification at campaign start.
+
+## Done looks like
+- Targeted and clean-witness benchmark artifacts contain a bounded, server-owned source revision captured at campaign start.
+- Callers, fixtures, or persisted inputs cannot substitute the source revision.
+- The release gate rejects missing, malformed, stale, or mismatched revisions with an explicit blocker.
+- Source revision and server-derived candidate hash travel together through observations, telemetry, persisted evidence, and the final release decision.
+- Existing benchmark scoring, quality thresholds, and rollout rules remain unchanged.
+- Provider-free tests cover valid lineage plus missing and mismatched revision cases.
+- The provider-free release checks complete successfully, or the remaining blocker is recorded with its operation and artifact evidence.
+
+## Out of scope
+- Live provider campaign execution.
+- Changes to benchmark scoring, model quality thresholds, or rollout policy.
+- Reworking candidate creation, promotion, or general Git hashing.
+- Treating an artifact from a different source revision as comparable evidence.
+- Production deployment.
+
+## Steps
+1. **Capture authoritative lineage** — At campaign start, resolve and retain the server-owned source revision for the approved main branch, verify its format and expected reference, and prevent caller-provided values from becoming authoritative.
+2. **Propagate release identity** — Carry the source revision alongside the immutable candidate hash through targeted and clean-witness artifacts, observations, telemetry, persistence, and release-gate comparison.
+3. **Fail closed on lineage gaps** — Add deterministic provider-free coverage for missing, malformed, stale, substituted, and mismatched revisions, with diagnostics that identify the blocked operation and artifact without exposing unsafe details.
+4. **Validate the release gate** — Run the relevant provider-free benchmark and release checks, confirm legitimate grades and thresholds are unchanged, and retain the resulting evidence or explicit blocker for the follow-on live Git-delivery task.
+
+## Relevant files
+- `artifacts/api-server/src/lib/ai-code-agent-benchmark.ts`
+- `artifacts/api-server/src/lib/benchmark-release-gate.ts`
+- `artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts`
+- `lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts`
+
+
+--- #47 Prove One Controlled Agent Journey (CANCELLED) ---
+# Prove One Controlled Agent Journey
+
+## What & Why
+
+The current code has real discovery, scan, AI delivery, evidence, commit, push, and recovery mechanisms, but no single release harness executes them together. Produce one bounded, authenticated, disposable acceptance run that invokes the real API path for discovery through delivery and emits a redacted receipt. Prove the integration of existing safeguards without rebuilding them or claiming that one run represents every provider, deployment, or project size.
+
+## Done looks like
+
+- One disposable source and isolated workspace execute real discovery, readiness polling, import, and scan rather than inserting a ready session or relying on dashboard API fixtures.
+- The run performs one bounded AI operation through the real stream/API path, retrieves the server-owned proposal, requires explicit approval, then exercises candidate-bound validation, promotion, and the existing guarded delivery stages.
+- The delivery segment proves candidate hash, project revision, change-set hash, promoted bytes, apply journal, commit evidence, and optional remote push are consistent; discovery/session, scan-job, and AI/delivery identifiers are retained with their actual parent correlations rather than falsely presented as one identity.
+- The receipt includes audit/evidence projections, dashboard/Flight Deck observation, and a clear pass, blocked, or incomplete result for every required stage. Missing cross-domain correlation remains blocked and is handed to Task #50 rather than inferred from timestamps.
+- Conflict/rebase, cancellation, reconnect/restart, provider-unavailable, remote-unavailable, and cleanup failures remain safe and visibly incomplete or blocked rather than being counted as success.
+- No production data, production deployment, uncontrolled remote, or unredacted provider/model output is retained.
+
+## Out of scope
+
+- Automatic approval or arbitrary model-provided shell execution.
+- Rebuilding discovery acceptance/recovery (Task #45), browser recovery (Task #46), database/schema alignment (Task #52), unified cross-domain operation identity (Task #50), or aggregate readiness decisions (Task #49).
+- Treating a provider-free fixture run as live model-quality evidence, or treating a live run as proof for every provider.
+- A broad multi-provider benchmark or production rollout.
+- Changing acceptance thresholds, evidence semantics, or the approved deterministic baseline.
+
+## Steps
+
+1. **Prepare the disposable run** — Pin source revision/provenance, disposable project and workspace, authenticated test user, bounded provider mode, isolated remote policy, correlation metadata, time budget, and cleanup policy; require explicit opt-in for provider-backed execution and remote push.
+2. **Execute real discovery and scan** — Invoke discovery through its real route, poll the durable session to ready, import the project, start the real scan, and verify root provenance, owner boundary, scan state, graph/metrics state, and the actual session/job identifiers. Reuse Task #45’s behavior and do not alter its implementation.
+3. **Exercise the real AI delivery path** — Start one bounded AI stream/API execution on the imported project, retain the server execution/proposal identity, require explicit approval, and run the existing candidate-bound validation, promotion, and apply journal path. Do not substitute the dashboard’s intercepted API fixtures for the core acceptance path.
+4. **Complete guarded Git delivery** — Exercise scoped status, commit, and optional push against an approved disposable remote; assert apply/commit/push evidence, hashes, operation identity for the delivery segment, and no unrelated paths. If the remote or connector prerequisite is unavailable, retain a blocked receipt rather than using a fake success.
+5. **Assemble and validate the receipt** — Fetch discovery/import/scan records, execution evidence, audit export, apply journal, correlated events, and dashboard/Flight Deck observation; preserve each real identifier and parent correlation; validate redaction and required-stage completeness through the existing mission-correlation contract.
+6. **Close the run safely** — Exercise only the recovery cases that belong to this acceptance proof, retain pass/blocked/incomplete outcomes and sanitized diagnostics, then remove only generated roots and disposable data. Leave stream recovery to Task #46 and cross-domain operation unification to Task #50.
+
+## Relevant files
+
+- `artifacts/dashboard/e2e/dashboard.journey.ts`
+- `scripts/run-dashboard-journey.mjs`
+- `artifacts/api-server/src/routes/d...
+
+--- #48 Govern and Prove Clean Quality Baseline (IMPLEMENTED) ---
+# Govern and Prove Clean Quality Baseline
+
+## What & Why
+
+The benchmark suite, behavioral oracles, airlock, isolation rules, approval checks, and release gates already exist and are enforced. Use them to establish one current, reproducible quality decision: keep deterministic evidence as the governed authority, and treat live provider quality as eligible only after an explicitly opted-in clean-witness campaign with complete coverage and one consistent source revision and candidate hash.
+
+## Done looks like
+
+- Existing 34-case fixtures, behavioral/mutation oracles, airlock policy, provider quarantine, and clean-witness rules remain the authoritative quality machinery; no replacement benchmark or oracle framework is introduced.
+- The deterministic baseline artifact is reproducible in the intended release context, and fixture/oracle tests plus deterministic replay remain separate from provider quality claims.
+- An explicitly opted-in clean-witness campaign runs all 34 cases in one disposable output/workspace against one approved source revision and one server-derived candidate hash.
+- Every campaign case has a bounded, redacted terminal result; provider-unavailable, skipped, failed, false-success, scope-escape, incomplete-evidence, mixed-revision, or mixed-hash outcomes prevent approval.
+- The scorecard and release gate are reviewed against unchanged suite/schema versions and governance thresholds; baseline replacement requires explicit human approval.
+- If the clean-witness campaign cannot be clean, the retained result is `blocked` with a precise recovery action and is not generalized into a capability claim. Live observations remain separate from deterministic authority.
+- The protected release path records the deterministic and benchmark-gate decision without making ordinary CI depend on external providers; optional live review remains explicitly opt-in and non-authoritative unless the governance rules are satisfied.
+
+## Out of scope
+
+- Lowering thresholds or changing `qualityEligible`/`rolloutAllowed` semantics to force approval.
+- Treating a single provider campaign as proof for all providers or production traffic.
+- Production deployment, uncontrolled credentials, or automatic baseline approval.
+- Browser recovery (Task #46), the disposable end-to-end journey (Task #47), database/schema implementation (Task #52), autonomous-loop integration (Task #50), or aggregate operational readiness (Task #49).
+- Adding benchmark scenarios unrelated to the existing approved suite.
+
+## Steps
+
+1. **Reconcile baseline authority** — Inspect the current suite, schema, deterministic artifact, existing live-quality review, and historical manifests; mark stale or diagnostic artifacts as historical and identify the single artifact set used for the current decision.
+2. **Prove deterministic reproducibility** — Run the existing 34-case fixture, behavioral-oracle, mutation-rejection, and deterministic replay checks; generate or validate the expected baseline artifact in the release context without introducing provider behavior.
+3. **Lock an optional clean-witness campaign** — Before provider execution, bind suite/schema versions, approved source revision, server-derived candidate hash, disposable output/workspace, target, provider mode, time budget, retry policy, and redaction rules.
+4. **Run and gate complete coverage** — Execute all 34 cases with bounded retries and provider isolation; retain per-case terminal receipts, reject U/F/provider-unavailable/false-success/scope-escape/incomplete outcomes, and reject mixed revisions, hashes, or campaign modes.
+5. **Evaluate and review conservatively** — Use the existing benchmark release gate and explicit approval path; do not let comparator output replace the deterministic baseline or let live observations create a generalized capability claim.
+6. **Wire and publish the release decision** — Ensure the protected release path consumes deterministic and benchmark-gate results while ordinary CI stays provider-free; preserve a redacted pass or blocked report, exact next action, and unchanged governed artifacts.
+
+## Relevant files
+
+- `artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts`
+- `artifacts/api-server/src/lib/benchmark-release-gate.ts`
+- `artifacts/api-server/src/lib/approve-code-agent-baseline.ts`
+- `artifacts/api-server/src/lib/ai-release-quality-gate.ts`
+- `lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts`
+- `lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts`
+- `lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts`
+- `lib/ai-orchestr...

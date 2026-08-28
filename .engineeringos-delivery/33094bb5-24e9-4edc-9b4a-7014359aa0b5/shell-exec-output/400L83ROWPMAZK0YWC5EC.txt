@@ -1,0 +1,141 @@
+9: *   executeToolLoop(opts)    — runs the loop until a non-tool response or the
+99:  return {
+101:    status: "blocked",
+122:    const status = (JSON.parse(output) as { status?: unknown }).status;
+123:    return status === "passed" || status === "failed" || status === "timed_out" ||
+124:      status === "cancelled" || status === "spawn_error" ? status : undefined;
+142:  recovery: 0.1, // reserved to force a first read on a zero-evidence run
+149:  recovery: number;
+156:  const recovery = Math.max(1, maxIterations - planning - evidence - reasoning);
+157:  return { planning, evidence, reasoning, recovery };
+162: * classified as a zero-read start failure.
+167: * for provider recovery, then force a bounded decision.
+413:  /** Registered tool name (e.g. "read_file", "git_status"). */
+417:  /** Absolute path to the project root — required for path containment. */
+467:      failureKind: "execution" | "unavailable" | "cancelled";
+489: * Read status for a single source read (SR-001).
+507: * Classify a read tool output into a status. Truncation markers and error /
+604:   * between planning, protected evidence acquisition, and recovery.
+664:  return { ...EMPTY_SOURCE_RETRIEVAL_TELEMETRY, readPaths: [], scopeExpansions: [] };
+676: * list_directory, search_code, git_status, git_diff, git_log).
+692:    return {
+700:      return {
+702:        failureKind: "unavailable",
+716:      return {
+718:        failureKind: "unavailable",
+724:      return {
+726:        failureKind: "unavailable",
+734:          failureKind: "execution" | "unavailable" | "cancelled";
+774:              analysisStatus = result.status;
+775:              if (result.status === "complete") return result.output;
+776:              const failureKind = opts.signal?.aborted
+778:                : result.status === "unavailable"
+781:              const diagnosticCode = failureKind === "cancelled"
+783:                : result.status === "unavailable"
+787:                failureKind,
+808:        failureKind: analysisFailure.failureKind,
+810:      return {
+829:      case "git_status":
+830:        source = "git:status";
+842:    return { kind: "ok", output, source };
+852:    return {
+854:      failureKind: cancelled ? "cancelled" : "execution",
+968:    return { ...message, content: bounded };
+1012:   * Whether a zero-read terminal is an evidence failure. Ordinary chat,
+1032:  toolChoice?: "auto" | "required";
+1157:   * reference / why_required). The FIRST read is never gated — only each
+1253:      /** A required tool failed; no completed operation may be claimed. */
+1259:      failureKind: "execution" | "unavailable" | "cancelled";
+1331:  // FIRST_EVIDENCE_UNAVAILABLE replaces the generic "recovery skipped" outcome
+1346:  // normal terminal - and, within the recovery allocation, the loop forces a
+1351:  // it is required; an unproven dependency read is blocked, not executed.
+1365: * Discriminated union of observable events emitted during executeToolLoop.
+1373:      status: "active" | "done" | "info";
+1384:  | { kind: "recovery_model_call"; model: string; provider: string; attempt: number }
+1409:      /** Server-owned command status, when the tool is run_command. */
+1423:      status?: ValidationResult["status"];
+1450:  | { kind: "forensic_recovery_start"; attempt: number }
+1452:      kind: "forensic_status";
+1501:      requiredClaims?: string[];
+1504:      requiredEdges?: string[];
+1507:      recoveryTriggered?: boolean;
+1508:      recoveryTarget?: string;
+1524:      status: "STARTED" | "ACCEPTED" | "REJECTED" | "FAILED";
+1557:         | "tool_failure"
+1589:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+1695:  // Tracks per-path read status so a truncated read is never treated as a
+1719:    const status = classifyReadStatus(toolName, output);
+1721:      if (status === "READ_TRUNCATED" && readStatusByPath.get(path) !== "READ_TRUNCATED") {
+1730:      readStatusByPath.set(path, status);
+1731:      if (status === "READ_COMPLETE" || status === "READ_TARGETED") {
+1744:    if (status === "READ_TARGETED") sourceRetrieval.targetedReads += 1;
+1745:    return status;
+1751:  // evidence; a truncated recovery window is NOT a duplicate (FEG-015).
+1774:      return { isNew: false, remaining: searchBudgetRemaining };
+1784:    return { isNew, remaining: searchBudgetRemaining };
+1905:  // evidence-allocation guard and the recovery-bounds first-read force are only
+1991:      return { result: await strategy.call(callMessages, callOptions), attemptCount: 1 };
+2013:        return {
+2020:            `provider failure code: ${retryErr.code}`,
+2096:   * produce the no-tools answer before handing the evidence to recovery.
+2131:      return {
+2151:  // maxIterations is split into planning / evidence / reasoning / recovery
+2213:    const status = classifyReadStatus(toolName, output);
+2214:    return status === "READ_COMPLETE" || status === "READ_TARGETED";
+2298:    return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
+2302:    failureKind: "execution" | "unavailable" | "cancelled",
+2307:      onStep?.({ kind: "diagnostic", code: diagnosticCode, details: [`${tool}: ${failureKind}`] });
+2313:        resultKind: failureKind === "execution" ? "failed" : failureKind,
+2322:        stopReason: "tool_failure",
+2328:    return {
+2334:      failureKind,
+2394:        return {
+2550:              `fallback provider failure code: ${fallbackErr.code}`,
+2593:            return {
+2611:          emitExecutionDiagnostic("EXECUTION_PROVIDER_FAILURE", [`provider failure code: ${err.code}`]);
+2665:            return {
+2687:        // chat agent can run its bounded no-tools contract-recovery attempt
+2690:          emitExecutionDiagnostic("EXECUTION_PROVIDER_FAILURE", ["provider failure code: EMPTY_RESPONSE"]);
+2705:            return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+2710:          // valuable and must reach chat-agent's bounded no-tools recovery;
+2712:          // contract failure for an empty response.
+2727:            return {
+2754:          return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+2933:          // forensic contract/recovery path handle it instead.
+2939:          // chat agent will still run its strict forensic contract/recovery
+2972:      return { kind: "response", result, toolSources, fileContents, sourceRetrieval };
+2980:    // bounded no-tools contract-recovery pass against the evidence already
+2998:        return { kind: "response", result: terminalResult, toolSources, fileContents, sourceRetrieval };
+3000:      return {
+3033:      return { ...tc, function: { ...tc.function, arguments: repaired } };
+3099:          status: "blocked",
+3119:            status: "blocked",
+3145:          status: "blocked",
+3161:            status: "blocked",
+3195:              : "Forced-evidence mode: a source read is required now. " +
+3197:            " No other tool may run until the required read completes.",
+3352:      // of why it is required — which already-read file references it
+3355:      // dependency must be read now (why_required). The first read is never
+3384:        // from_symbol and why_required must also be non-empty so the proof
+3393:          typeof args.why_required === "string" ? args.why_required.trim() : "";
+3430:              "reference to the EXACT import/call line present in that file's content, and why_required to " +
+3525:            "Use search_code to locate the exact symbol or line, then read_file_range(path, startLine, endLine) to retrieve only the required window.",
+3617:          return {
+3644:          // completed-evidence status (isCompletedPath), never mere attempt
+3645:          // (map.has), so a truncated-recovery window is a real acquisition.
+3649:            // persistent force (the required source evidenced on this path is
+3658:            // of NO_PROGRESS iterations is required to re-force.
+3715:        // Every cached duplicate is a behavioral failure sample, not only
+3915:      if (toolResult.kind === "failed") {
+3923:          toolResult.failureKind,
+3956:            && typeof parsed.status === "string"
+3968:            status: "unavailable",
+3985:          validation.status === "passed"
+3987:            : validation.status === "failed" && validationAttempt! < boundedMaxValidationAttempts
+3997:            status: validation.status,
+4002:            failedTests: validation.failedTests.map((failure) => failure.name || failure.message),
+4022:          // A validation failure is new, actionable execution evidence. Do not
+4024:          // that is allowed to respond to that failure.
+4028:        } else if (executionMode === "repair_plan" && validation.status === "passed") {
+4269:    return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "soft_limit" };
+4285:  return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "iteration_budget" };

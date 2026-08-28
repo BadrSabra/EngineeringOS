@@ -1,0 +1,137 @@
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/api-server
+
+ ↓ src/routes/ai.test.ts > verified repair proposal gate > rejects proposal creation until Finding claims are closed
+ ↓ src/routes/ai.test.ts > mission correlation report persistence contract > rejects malformed reports with a bounded actionable error
+ ↓ src/routes/ai.test.ts > mission correlation report persistence contract > rejects unsupported report versions without exposing internal identifiers
+ ↓ src/routes/ai.test.ts > mission correlation report persistence contract > accepts a safe regeneration timestamp as optional provenance
+ ↓ src/routes/ai.test.ts > mission correlation report persistence contract > projects report exports with regeneration timing but no internal identifiers
+ ↓ src/routes/ai.test.ts > mission correlation report persistence contract > leaves reports without regeneration provenance unchanged
+ ✓ src/routes/ai.test.ts > POST /api/ai/chat > allows same-origin mutations to reach normal request validation 67ms
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > rejects hostile origins before an authenticated mutation runs
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > returns 400 when projectId is missing
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > returns 400 when message is missing
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > returns 400 when message is blank
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > keeps 'a failed catalog refresh' diagnostics safe and actionable
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > keeps 'a stale configured model' diagnostics safe and actionable
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > keeps 'no compatible live model' diagnostics safe and actionable
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > returns 400 when proposalId is missing
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > restores the pending proposal for its session
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > rejects a submitted payload that differs from the approved proposal
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > does not consume a proposal when behavioral verification blocks the write
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > creates a session and returns sessionId + message on first chat
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > returns execution trace separately from the assistant report
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > includes pendingChanges array in the response
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > forwards behaviorEvidence with exact sourceSpans in the non-streaming response
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > accepts a request objective and threads it into chat() for the Objective Completion Gate
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > returns 400 when the objective body fails ObjectiveContractSchema validation
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > returns 200 with fallback when chat has _parseError but non-empty response
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > returns 422 with model_output_invalid when chat returns _parseError with empty response
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > reuses an existing session when sessionId is provided
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > restores a JSON continuation but isolates later neutral chat from stale forensic state
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > keeps the newer resumable contract when concurrent JSON turns finish out of order
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > rejects Repair Plan execution without the original session before calling the model
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat > rejects an unknown sessionId instead of silently creating a new session
+ ↓ src/routes/ai.test.ts > GET /api/ai/executions/history > returns only the selected owner's project's redacted incomplete executions
+ ↓ src/routes/ai.test.ts > GET /api/ai/executions/:executionId/audit-export > exports owner-scoped terminal evidence while excluding sensitive execution data
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/sessions > returns 400 when projectId is missing
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/sessions > returns 200 with sessions for a project
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/sessions > returns an empty array for a project with no sessions
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/sessions > returns stable derived forensic statuses after history reload
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/sessions > derives the displayed verdict from the newest assistant message
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/sessions > uses the deterministic message id tie-breaker for equal-timestamp verdicts
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > distinguishes a missing session from an empty session
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > returns messages in chronological order
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > returns a persisted message with parsed behaviorEvidence preserving source spans
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > returns a persisted message with parsed taskResult so a reloaded session keeps its typed panel
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > preserves a WORKSPACE_REVIEW_RESULT through persisted history reload
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > returns the stored mission correlation report as a parsed API field
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > keeps ordinary history when a stored mission correlation report is invalid
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > renders generic assistant messages without a taskResult (null-equivalent)
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/file-content > returns the REAL source lines for the requested window, not a trimmed excerpt
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/file-content > bounds a window that exceeds the file length and reports truncation
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/file-content > rejects parent-traversal paths before touching the filesystem
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/file-content > returns available:false when the file is missing (never an uncaught 500)
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/file-content > requires a path parameter
+ ↓ src/routes/ai.test.ts > GET /api/ai/chat/file-content > never serves files from the shared workspace when the project root is inaccessible
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/analyze > returns 200 with analysis result
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/analyze > creates an AiScanAnalysisCompleted event
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/analyze > returns 422 with model_output_invalid when analyzeScan returns _parseError
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/analyze > streams the structured analysis lifecycle and result
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/analyze > persists structured failures and preserves them when the session is retried
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/review > returns 200 with code review result
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/review > creates an AiCodeReviewCompleted event
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/review > returns 422 with model_output_invalid when reviewCode returns _parseError
+ ↓ src/routes/ai.test.ts > POST /api/ai/projects/:projectId/review > streams the structured review lifecycle and result
+ ↓ src/routes/ai.test.ts > POST /api/ai/workflows/:workflowId/orchestrate > returns 404 for an unknown workflow
+ ↓ src/routes/ai.test.ts > POST /api/ai/workflows/:workflowId/orchestrate > returns 200 with an orchestration decision for a known workflow
+ ↓ src/routes/ai.test.ts > POST /api/ai/workflows/:workflowId/orchestrate > creates an AiWorkflowOrchestration event
+ ↓ src/routes/ai.test.ts > POST /api/ai/workflows/:workflowId/orchestrate > returns 422 with model_output_invalid when orchestrateWorkflow returns _parseError
+ ↓ src/routes/ai.test.ts > POST /api/ai/workflows/:workflowId/orchestrate > is suggestion-only: explicit advance owns the persisted transition
+ ↓ src/routes/ai.test.ts > POST /api/ai/workflows/:workflowId/orchestrate > maps provider timeout to a safe response and keeps raw diagnostics out of activity
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/plans/:messageId/decision > persists approval and stages the plan for Build Mode without applying files
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/plans/:messageId/decision > allows only one decision for a pending plan
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/plans/:messageId/decision > blocks approval when the plan has no safe file scope
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/plans/:messageId/decision > rejects malformed decisions before reading or changing a plan
+ ↓ src/routes/ai.test.ts > delivery recovery routes > keeps deleted legacy proposal links on the safe not-found contract
+ ↓ src/routes/ai.test.ts > delivery recovery routes > keeps every proposal action on its safe not-found contract for stale links
+ ↓ src/routes/ai.test.ts > delivery recovery routes > lists only owned recoverable operations and retains conflict evidence
+ ↓ src/routes/ai.test.ts > delivery recovery routes > explains missing and already-discarded recovery states without exposing paths
+ ↓ src/routes/ai.test.ts > delivery recovery routes > returns the safe not-found contract for deleted recovery links
+ ↓ src/routes/ai.test.ts > delivery recovery routes > enforces project ownership for recovery listing and actions
+ ↓ src/routes/ai.test.ts > delivery recovery routes > rejects resume when the server-owned workspace marker is missing
+ ↓ src/routes/ai.test.ts > delivery recovery routes > makes concurrent resume clicks idempotent and never repeats delivery stages
+ ↓ src/routes/ai.test.ts > delivery recovery routes > makes concurrent discard clicks idempotent and removes the workspace once
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns 400 when changes array is missing
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns 400 when projectId is missing
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > emits a warning AiChangesApplied event when no file can be written
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not promote a candidate when behavioral verification is unavailable
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > fails closed before promotion when behavioral verification is unavailable
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > blocks a destructive source-file replacement and leaves the original intact
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not partially apply a safe sibling when another change is destructive
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects applying a pending change when the file changed after proposal
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns a base-hash conflict and never writes a stale patch
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > aborts the whole batch when one accepted change has a stale base
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > returns a hunk conflict even when the submitted base hash is current
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > applies a partial hunk selection — only accepted hunks are written via rebase
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects a partial-apply submission that sends empty hunks for a hunk-bearing proposal (bypass attempt)
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects a partial-apply submission that omits hunks entirely for a hunk-bearing proposal
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects a partial-apply submission that duplicates an authorized hunk (multiset bypass attempt)
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rejects a partial-apply submission that introduces a hunk not in the stored proposal
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > rebases a stale Patch Lab proposal without writing the workspace
+ ↓ src/routes/ai.test.ts > POST /api/ai/chat/apply-changes > does not update a proposal when one rebase hunk conflicts
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 404 for an unknown task
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 409 for a completed task
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 409 for a failed task
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > executes a pending task and returns 202 with updated status
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > sets task status to 'verifying' when AI says needsHumanReview
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > creates task logs and an event on successful execution
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > creates an audit entry on execution
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 422 with model_output_invalid when executeTask returns _parseError, and rolls back task status
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 500 and restores task status when buildProjectContext fails
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > keeps raw provider diagnostics out of manual task JSON and persisted records
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > keeps raw provider diagnostics out of automatic task records
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > keeps automatic parser output private in task records
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 428 and leaves task in original status when no AI provider is configured
+ ↓ src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 409 and preserves a concurrent status change instead of overwriting it
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'authentication' guidance safe for task execution
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'model' guidance safe for task execution
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'catalog' guidance safe for task execution
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'quota' guidance safe for task execution
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'rate-limit' guidance safe for task execution
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'circuit' guidance safe for task execution
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'outage' guidance safe for task execution
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'authentication' guidance safe for workflow orchestration
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'model' guidance safe for workflow orchestration
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'catalog' guidance safe for workflow orchestration
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'quota' guidance safe for workflow orchestration
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'rate-limit' guidance safe for workflow orchestration
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'circuit' guidance safe for workflow orchestration
+ ↓ src/routes/ai.test.ts > task and workflow provider failure contract > keeps 'outage' guidance safe for workflow orchestration
+ ↓ src/routes/ai.test.ts > resolveProvider tool-capability filtering > skips Gemini when a request requires tools
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 127 skipped (128)
+   Start at  00:19:31
+   Duration  8.90s (transform 4.54s, setup 0ms, import 7.94s, tests 770ms, environment 0ms)
+

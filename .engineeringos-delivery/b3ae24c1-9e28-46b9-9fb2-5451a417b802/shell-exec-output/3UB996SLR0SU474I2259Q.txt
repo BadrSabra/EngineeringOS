@@ -1,0 +1,162 @@
+lib/ai-orchestrator/src/openai-compatible-client.ts:107: *   - An assistant message that carries `tool_calls` opens a tool_group and
+lib/ai-orchestrator/src/openai-compatible-client.ts:124:      Array.isArray(m.tool_calls) &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:125:      m.tool_calls.length > 0
+lib/ai-orchestrator/src/openai-compatible-client.ts:129:        m.tool_calls.map((tc) => tc.id).filter((id): id is string => !!id),
+lib/ai-orchestrator/src/openai-compatible-client.ts:172:      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+lib/ai-orchestrator/src/openai-compatible-client.ts:393:  const normalizedBody = body.toLowerCase();
+lib/ai-orchestrator/src/openai-compatible-client.ts:395:    normalizedBody.includes("response_format") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:396:    normalizedBody.includes("tool_choice") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:397:    normalizedBody.includes("structured output") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:398:    normalizedBody.includes("structured outputs") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:399:    normalizedBody.includes("unsupported parameter") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:400:    normalizedBody.includes("request parameter") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:401:    normalizedBody.includes("invalid request") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:402:    normalizedBody.includes("not supported") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:403:    normalizedBody.includes("agent harness") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:404:    normalizedBody.includes("requires an agent") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:405:    normalizedBody.includes("only available through an agent") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:406:    normalizedBody.includes("agent-only") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:407:    normalizedBody.includes("agentic") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:498:  const normalizedBody = body.toLowerCase();
+lib/ai-orchestrator/src/openai-compatible-client.ts:500:    normalizedBody.includes("not a valid model id") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:501:    normalizedBody.includes("invalid model id") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:502:    normalizedBody.includes("unknown model") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:503:    normalizedBody.includes("model not found") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:504:    normalizedBody.includes("model unavailable") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:505:    normalizedBody.includes("unavailable for free") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:506:    normalizedBody.includes("no endpoints") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:525:      normalizedBody.includes("quota") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:526:      normalizedBody.includes("credits exhausted") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:527:      normalizedBody.includes("credit balance") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:528:      normalizedBody.includes("insufficient funds") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:529:      normalizedBody.includes("insufficient credits") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:530:      normalizedBody.includes("balance is") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:531:      normalizedBody.includes("account limit");
+lib/ai-orchestrator/src/openai-compatible-client.ts:556:      normalizedBody.includes("unavailable for free") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:557:      normalizedBody.includes("free tier") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:558:      normalizedBody.includes("requires a paid plan") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:559:      normalizedBody.includes("paid plan") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:560:      normalizedBody.includes("credits") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:561:      normalizedBody.includes("billing")
+lib/ai-orchestrator/src/openai-compatible-client.ts:612:function normalizeToolCallArguments(
+lib/ai-orchestrator/src/openai-compatible-client.ts:658:// `tool_calls` JSON array.  These helpers normalise both cases so the rest of
+lib/ai-orchestrator/src/openai-compatible-client.ts:661:/** Strip all <tool_call>…</tool_call> blocks from a content string. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:663:  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+lib/ai-orchestrator/src/openai-compatible-client.ts:669: *   1. JSON inside tags:  <tool_call>{"name":"fn","arguments":{…}}</tool_call>
+lib/ai-orchestrator/src/openai-compatible-client.ts:670: *   2. Attribute syntax:  <tool_call> <function=fn> <parameter=k>v</parameter> </function> </tool_call>
+lib/ai-orchestrator/src/openai-compatible-client.ts:674:  const blocks = [...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)];
+lib/ai-orchestrator/src/openai-compatible-client.ts:681:    // Format 1 — JSON inside <tool_call>
+lib/ai-orchestrator/src/openai-compatible-client.ts:832:        tool_calls?: ToolCall[];
+lib/ai-orchestrator/src/openai-compatible-client.ts:877:  let hasCalls = Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0;
+lib/ai-orchestrator/src/openai-compatible-client.ts:879:    ? normalizeToolCallArguments(msg!.tool_calls as ToolCall[], providerName, model)
+lib/ai-orchestrator/src/openai-compatible-client.ts:883:  // content instead of using the standard tool_calls JSON field.
+lib/ai-orchestrator/src/openai-compatible-client.ts:884:  if (content && content.includes("<tool_call>")) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1041:      // Flush safe prefix — everything before any open <tool_call> tag.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1042:      const openIdx = xmlStreamBuf.indexOf("<tool_call>");
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:174:  const normalizedRead = [...o.scopedReadSet].sort();
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:175:  const normalizedExpected = [...o.expectedReadSet].sort();
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:176:  expect(normalizedRead).toEqual(normalizedExpected);
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:328:      expect(recoveryMessages.some((message) => "tool_calls" in message)).toBe(false);
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:108:function plan(targetFiles: string[]) {
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:302:    await mockChatProviders(groundedStrategy(groundedResponse, calls), plan([FILE]));
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:356:    await mockChatProviders(groundedStrategy(sourceSuggestion, calls), plan([FILE]));
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:403:    await mockChatProviders(targetedReadStrategy(groundedResponse, calls), plan([FILE]));
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:465:      plan([FILE]),
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:539:    await mockChatProviders(targetedReadStrategy(groundedResponse, calls), plan([FILE]));
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:590:    await mockChatProviders(nativeSseStrategy(groundedResponse, calls), plan([FILE]));
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:310:            choices: [{ message: { content: null, tool_calls: [] } }],
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:638:              tool_calls: [{
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:784:    tool_calls: ids.map((id) => ({
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:805:  it("wraps an assistant-with-tool_calls + its tool results as one tool_group", () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:872:          (!message.tool_calls || message.tool_calls.length === 0),
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:936:      const tm = m as { tool_call_id?: string; tool_calls?: unknown[] };
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:937:      return !tm.tool_call_id && !(Array.isArray(tm.tool_calls) && tm.tool_calls.length > 0);
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:1008:      if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:1010:          m.tool_calls.map((tc: { id?: string }) => tc.id).filter((id): id is string => !!id),
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:1012:        m.tool_calls.forEach((tc: { id?: string }) => { if (tc.id) assistantIds.add(tc.id); });
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:163:        // (else). Every read path (prefetch + tool-loop) normalizes its body to
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:109:function normalizeEmptyFinalFixture(
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:408:                      tool_calls: [
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:525:          // The normalized result came from the provider-shaped fixture above.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:527:            ...normalizeEmptyFinalFixture(fixture),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2978:  it("strips markdown fences and normalizes fallback text", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:57:    choices: [{ message: { content: "Hello!", tool_calls: undefined } }],
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:271:          `export const file${index} = true;\n${"x".repeat(4_000)}\n// late-marker-${index}`,
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:289:      expect(serialized).toContain(`// late-marker-${index}`);
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:585:  it("normalizes slash and dot-path differences without allowing unrelated files", () => {
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:310:    // Prove coverage is complete: no truncation markers in the read content.
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:383:    // No truncation markers — coverage is deterministically COMPLETE.
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:505:  // ordered-root audit would read the stub (tiny, no truncation marker) instead of
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:787:    // This drives REAL production truncation, not an embedded marker. The eager
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:789:    // never append a marker by itself. Instead we run an ordered-root audit whose
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:792:    // "[... forensic read exceeded the maximum safe evidence window ...]" marker.
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:802:    // A real source file larger than the 512 KB forensic read cap. The marker is
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:862:      // production truncation marker, so the live pipeline must infer PARTIAL.
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:138:  ])("fails closed for %s with a wait fallback and parse marker", async (_label, response) => {
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:152:    // The orchestrator retains the raw value only in its internal parse marker;
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:153:    // the API route redacts that marker before returning it to callers.
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:59:            tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:157:            tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:171:            tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:245:          tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>;
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:258:        .flatMap((message) => message.tool_calls ?? [])
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:286:            tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:300:            tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:371:            tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:393:            tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:498:              tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:522:              tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:649:              tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:673:              tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:820:              tool_calls: [{
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:844:              tool_calls: [{
+lib/ai-orchestrator/src/__tests__/forensic-prompt-safety.test.ts:36:    expect(prompt).toContain("truncation marker is never evidence");
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:15:        tool_calls: [
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:236:  it("normalizes a compact capability-test report into a proven finding and repair phase", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:267:  it("normalizes harmless numbered heading variants without weakening evidence gates", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:503:      tool_calls: [{
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:639:    expect(fallback.response).toContain("display truncation marker");
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:645:  it("uses the real cached read body instead of the cache marker as evidence", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:651:          tool_calls: [
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:709:          tool_calls: [
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:778:          tool_calls: [
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:839:          tool_calls: [
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:867:          tool_calls: [
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1902:          tool_calls: [
+lib/ai-orchestrator/src/__tests__/forensic-evidence-packets.test.ts:71:    // A truncated window must never be FULL — even a stray marker in the body.
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts:41:                    tool_calls: [{
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts:50:                  finish_reason: "tool_calls",
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts:61:                  tool_calls: null,
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts:141:                      tool_calls: [
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts:160:                    finish_reason: "tool_calls",
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts:170:                    tool_calls: null,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:948:  it("classifies truncation markers as READ_TRUNCATED, never READ_COMPLETE (SR-001 gate)", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3531:  it("grounds from_file through a normalized-path alias of an actually-read file (FEG-005/006)", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4146:        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4178:        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4185:        tool_calls: [makeToolCall("id-2", "read_file", { path: "b.ts" })],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4204:        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:93:  it("keeps only unique normalized file paths in the evidence ledger", () => {
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1119:// ── 9. Truncation-marker inference — PARTIAL coverage without an explicit scope ─
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1121:describe("truncation-marker inference — partial read detected from file content", () => {
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1124:   * carries a "[prefetch output truncated" (or equivalent) marker must be
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1128:  it("a [prefetch output truncated marker infers sourceCoverage:PARTIAL", () => {
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1137:  it("a [read output truncated marker infers sourceCoverage:PARTIAL", () => {
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1155:  it("complete file content (no marker) emits sourceCoverage:COMPLETE with no coverage object", () => {
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1182: *   - optional list marker (* or -) with optional trailing whitespace
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1215:  it("(a) list-marker ID line without interpunct → NOT_PROVEN", () => {
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1231:    // No list marker, no interpunct — hasFinding must remain false.
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1428:  it("positive: dash list marker '- ID: F-02 ·' also resolves to PROVEN", () => {
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1429:    // The regex allows both '*' and '-' list markers.
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1446:  it("positive: no list marker 'ID: F-03 ·' at start of line resolves to PROVEN", () => {
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts:1447:    // The list marker is optional — a bare 'ID: F-03 ·' at line start also matches.
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:114:  it("supports a complete forensic read without the normal 128 KB marker", async () => {
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts:565:  it("buildReachabilityProofSummary normalizes stale proven:true IMPORT_ONLY edges", () => {
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts:567:    // with proven:true for an IMPORT_ONLY relationship should be normalized to
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:447:  // The graph convention uses lowercase relation names; the gate must normalize.
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:474:          // Lowercase graph-convention relation — must be normalized to IMPORTS / blocked.
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:339:  it("rejects a constant whose value contains a flow-marker word in a string literal", () => {
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:342:    // non-executable tokens via the lexical scanner, no flow marker remains,
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:374:    // handle string delimiters before comment markers in a single pass.
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:400:    // A block-comment marker inside a string must not be treated as a comment
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:410:      "What happens when note contains a comment marker?",

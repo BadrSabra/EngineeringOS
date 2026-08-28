@@ -1,0 +1,128 @@
+5: * POST /api/ai/chat/stream
+314: * recovery boundaries. Keep this projection explicit so persisted historical
+448:  const terminalState = params.execution?.status === "cancelled"
+450:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+452:    : params.execution?.status === "failed" || target.outcome === "FAILED"
+540:// A turn is persisted only after its provider call completes, but history must
+644:  // Re-establish the persisted root at the point of use. Checking only
+836:async function persistFailedChatTurn(params: {
+850:    // A provider/network failure may already have persisted the user turn.
+923:  | "RECOVERY_REQUIRED";
+952:        throw new Error("Rollback persistence verification failed.");
+1270:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+1356:  finalState?: "VERIFIED" | "NOT_PROVEN" | "RECOVERY_REQUIRED" | "FAILED";
+1357:  /** Task #46: verdict's proof scope persisted from the final runtime ledger. */
+1526:          // Task #46: persist the verdict's proof scope for later reconciliation.
+1614:          stopReason: step.stopReason,
+1712:  persisted: ReturnType<typeof parseActiveTaskState>;
+1722:  if (args.persisted && (args.resumed || args.executionPlan)) {
+1723:    const touched = touchActiveTaskState(args.persisted, args.now);
+1789:router.post("/ai/chat", async (req, res) => {
+1880:  const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
+1892:    : persistedActiveTaskState;
+1996:      const chatOut = await chatWithFallback(
+2107:      persisted: resumableStateForTurn,
+2132:            // AI-TASK-001: persist task linkage so re-opened sessions remain task-aware.
+2220:      logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
+2258:// ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
+2260:router.post("/ai/chat/stream", async (req, res) => {
+2328:      code: "EXECUTION_SESSION_REQUIRED",
+2355:        code: "BUILD_SESSION_REQUIRED",
+2398:        code: "PLAN_APPROVAL_REQUIRED",
+2407:        code: "PLAN_FILE_SCOPE_REQUIRED",
+2489:  const persistedActiveTaskState = resolveSessionTaskState(
+2495:    : persistedActiveTaskState;
+2537:  // persisted forensic task and must not be routed from its raw text alone.
+2717:          message: "This execution is already running. Reconnect through its status instead of starting a duplicate.",
+2736:          code: "EXECUTION_RESUME_TOKEN_REQUIRED",
+2764:          message: "Another resume won the execution claim. Retry after refreshing its status.",
+2794:          message: "Another request won the execution claim. Retry after refreshing its status.",
+2807:    const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
+2817:    const persistedExecutionNodes = executionPlanForRun?.nodes ?? [];
+2819:      persistedExecutionNodes,
+2839:    executionNodeStates = reconciledExecutionNodes ?? persistedExecutionNodes;
+2869:    const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
+2899:              ...(executionNodeStates.find((node) => node.status === "running")
+2900:                ? { currentNode: executionNodeStates.find((node) => node.status === "running")?.id }
+2912:          const persisted = await checkpointAiExecution({
+2917:          if (!persisted) {
+2939:      persistExecutionCheckpoint({
+2970:    persistExecutionCheckpoint({ stage: "running" });
+2973:        persistExecutionCheckpoint({
+3039:    }, "chat/stream: dispatching chatWithFallback");
+3046:    // delta event. The accumulated string is used below for DB persistence.
+3059:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+3086:        persistExecutionCheckpoint({
+3160:        } else if (step.result.status === "failed" || step.result.status === "blocked") {
+3168:      persistExecutionCheckpoint({
+3326:          stopReason: step.stopReason,
+3548:      const chatOut = await chatWithFallback(
+3568:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+3616:        .find((step) => step.kind === "done" && step.stopReason === "tool_failure");
+3640:        await persistFailedChatTurn({
+3652:        }).catch((persistError) => logger.error(
+3653:          { persistError, sessionId: sessionIdToUse },
+3654:          "chat stream: failed to persist terminal tool failure",
+3781:              ? "Retry shortly so OpenRouter can refresh its model catalog; configure another provider if it persists."
+3784:                : "Retry in a moment; configure another provider if the issue persists.",
+3875:          operatorAction: "Retry in a moment; configure another provider if the issue persists.",
+3879:      await persistFailedChatTurn({
+3891:      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+3904:        await persistFailedChatTurn({
+3916:        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+3972:      persisted: streamResumableStateForTurn,
+4017:            // AI-TASK-001: persist task linkage so re-opened sessions remain task-aware.
+4130:    persistExecutionCheckpoint({
+4151:      } else if (finalValidation.status === "failed" || finalValidation.status === "blocked") {
+4179:      throw new Error("AI execution checkpoint persistence failed before finalization");
+4193:      // still persisted above for reconnect/history, but the execution must
+4195:      // finalizer (which can race the cancel endpoint's row update).
+4252:      logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
+4369:      inArray(aiExecutionsTable.status, ["paused", "cancelled", "failed"]),
+4386:      executionStatus: execution.status,
+4390:    const resumable = execution.status === "paused" || execution.status === "failed";
+4398:      status: execution.status,
+4410:      terminalReason: execution.status === "cancelled"
+4412:        : execution.status === "failed"
+4433:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4471:    executionStatus: execution.status,
+4490:    status: execution.status,
+4496:      executionStatus: execution.status,
+4527:    resumable: execution.status === "paused" || execution.status === "failed",
+4550:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4628:      type: `execution_${execution.status}`,
+4629:      status: execution.status,
+4630:      detail: safeText(execution.error ?? checkpoint.detail ?? `Execution ${execution.status}`, 500),
+4672:      status: execution.status,
+4673:      terminalState: execution.status,
+4699:router.post("/ai/executions/:executionId/recovery", async (req, res) => {
+4720:    status: recovered.execution.status,
+4726:router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+4747:router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+4763:    status: execution.status,
+4815:        (entry as { stopReason?: unknown }).stopReason === "cancelled"
+4844:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+5023:// A plan decision is persisted on the assistant message that produced the
+5027:router.post("/ai/chat/plans/:messageId/decision", async (req, res) => {
+5106:        code: "PLAN_FILE_SCOPE_REQUIRED",
+5121:    return res.status(500).json({ error: "Could not persist the plan decision", code: "PLAN_DECISION_SCHEMA_FAILED" });
+5185:    return res.status(400).json({ error: "path is required", code: "FILE_PATH_REQUIRED" });
+5415:router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+5509:router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
+5537:router.post("/ai/chat/rebase-changes", async (req, res) => {
+5832:router.post("/ai/chat/proposals/:proposalId/approve", async (req, res) => {
+5868:      code: "PROPOSAL_REAPPROVAL_NOT_REQUIRED",
+5951:router.post("/ai/chat/apply-changes", async (req, res) => {
+6056:    persistenceVerified?: boolean;
+6086:        code: "PROPOSAL_REAPPROVAL_REQUIRED",
+6116:        code: "PROPOSAL_VALIDATION_REQUIRED",
+6428:      validation.status === "failed" ||
+6475:          const persisted = await fs.readFile(change.realPath, "utf-8");
+6476:          if (persisted !== change.newContent) {
+6477:            throw new Error("Post-write persistence verification failed.");
+6493:            result.persistenceVerified = false;
+6527:          result.persistenceVerified = false;
+6584:        persistenceVerified: result.ok,
+6589:      result.behavioralVerification.status === "failed" ||
+6596:      // Never leave a persisted AI repair in place when its registered
+6612:        result.persistenceVerified = false;

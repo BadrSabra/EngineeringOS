@@ -1,0 +1,124 @@
+lib/ai-orchestrator/src/agent-complete.ts
+lib/ai-orchestrator/src/schemas/chat.schema.ts
+lib/ai-orchestrator/src/prompts/chat.prompt.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/validate-code-agent-benchmark-scenarios.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark-deterministic.ts
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts
+lib/ai-orchestrator/src/agents/scan-analyst.ts
+lib/ai-orchestrator/src/agents/query-planner.ts
+lib/ai-orchestrator/src/agents/implementation-planner.ts
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts
+lib/ai-orchestrator/src/agents/base-agent.ts
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+lib/ai-orchestrator/src/agents/chat-agent.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+lib/ai-orchestrator/src/agents/code-reviewer.ts
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/agent-prompt-boundary.test.ts
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts
+lib/ai-orchestrator/src/agents/workflow-engine/transition.ts
+lib/ai-orchestrator/src/agents/workflow-engine/state.ts
+lib/ai-orchestrator/src/agents/workflow-engine/guard.ts
+lib/ai-orchestrator/src/agents/workflow-engine/executor.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts:1095:  toolCallsDisabledAfter?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1545:      toolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1605:    toolCallsDisabledAfter,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1673:    toolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1677:    toolCalls: prefetchToolCalls + loopToolCalls,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2108:      first.result.content?.trim() ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2109:      !first.result.toolCalls?.length ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2377:          toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2441:      (toolCallsDisabledAfter !== undefined && iter >= toolCallsDisabledAfter);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2598:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2670:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2731:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2786:    if (result.content && result.content.trim().length > 0) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2798:      result.content?.trim() &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:2799:      (!result.toolCalls || result.toolCalls.length === 0)
+lib/ai-orchestrator/src/tool-execution-engine.ts:2801:      const truncatedContent = result.content.trim();
+lib/ai-orchestrator/src/tool-execution-engine.ts:2853:    if (!result.toolCalls || result.toolCalls.length === 0) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2861:      const trimmedContent = result.content?.trim() ?? "";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2894:            content: result.content ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2983:      const terminalResult: RawGroqResponse = { ...result, toolCalls: null };
+lib/ai-orchestrator/src/tool-execution-engine.ts:2991:          stopReason: result.content?.trim() ? "response" : "empty_response",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2997:      if (result.content?.trim()) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3004:          toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3021:    const safeToolCalls = result.toolCalls.map((tc) => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3038:      content: result.content,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3790:        emitReadEvidenceLinked(tc.function.name, args.path, result.content, cached);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3832:        const rawReasoning = result.content?.trim();
+lib/ai-orchestrator/src/tool-execution-engine.ts:4106:      emitReadEvidenceLinked(tc.function.name, args.path, result.content, toolResult.output);
+lib/ai-orchestrator/src/openai-compatible-client.ts:172:      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+lib/ai-orchestrator/src/openai-compatible-client.ts:174:      if (!hasContent && toolCalls.length === 0) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:180:        toolCalls
+lib/ai-orchestrator/src/openai-compatible-client.ts:878:  let toolCalls: ToolCall[] | null = hasCalls
+lib/ai-orchestrator/src/openai-compatible-client.ts:888:        toolCalls = xmlCalls;
+lib/ai-orchestrator/src/openai-compatible-client.ts:921:    toolCalls,
+lib/ai-orchestrator/src/index.ts:189:export { extractJson, parseAgentResponse } from "./parsing.js";
+lib/ai-orchestrator/src/parsing.ts:6: * `parseAgentResponse` is the single place that handles all of that: it
+lib/ai-orchestrator/src/parsing.ts:146:export function parseAgentResponse<T>(
+lib/ai-orchestrator/src/groq-client.ts:256:  toolCalls: ToolCall[] | null;
+lib/ai-orchestrator/src/groq-client.ts:283:  // consumer (chat-agent loop, parseAgentResponse, conversation history)
+lib/ai-orchestrator/src/groq-client.ts:297:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/deepseek-client.ts:286:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/agent-complete.ts:182:      return { content: assertContent(provider, result.content) };
+lib/ai-orchestrator/src/agent-complete.ts:202:      return { content: assertContent(provider, result.content) };
+lib/ai-orchestrator/src/agent-complete.ts:213:      return { content: assertContent(provider, result.content) };
+lib/ai-orchestrator/src/agent-complete.ts:224:      return { content: assertContent(provider, result.content) };
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts:22:import { parseAgentResponse } from "../parsing.js";
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts:52: * parse/schema failures degrade to a "wait" fallback (see `parseAgentResponse`).
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts:72:  const parseResponse = (raw: string) => parseAgentResponse(raw, WorkflowDecisionSchema, fallbackDecision);
+lib/ai-orchestrator/src/agents/query-planner.ts:660:  const parsedPlan = parsePlannerResponse(result.content);
+lib/ai-orchestrator/src/agents/query-planner.ts:667:        raw: result.content?.slice(0, 300),
+lib/ai-orchestrator/src/agents/base-agent.ts:14:import { parseAgentResponse } from "../parsing.js";
+lib/ai-orchestrator/src/agents/base-agent.ts:68:    const parseResponse = (raw: string) => parseAgentResponse(raw, this.schema, (fallbackRaw) => this.fallbackOutput(fallbackRaw));
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:156:        ? (loopResult.result.content ?? "")
+lib/ai-orchestrator/src/agents/chat-agent.ts:75:import { extractJson, parseAgentResponse } from "../parsing.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:1699:        !retryRequirement.test(result.content ?? "")
+lib/ai-orchestrator/src/agents/chat-agent.ts:1714:      const extractedLines = extractCapabilityMicroProbeLines(result.content ?? "", group.labels);
+lib/ai-orchestrator/src/agents/chat-agent.ts:1715:      const quotedFragments = [...(result.content ?? "").matchAll(/`([^`\n]{8,})`/g)].map((match) => match[1]!);
+lib/ai-orchestrator/src/agents/chat-agent.ts:1719:      const selectedEvidenceIds = [...(result.content ?? "").matchAll(/(?:Evidence\s*ID|EVIDENCE_ID)\s*:\s*([A-Za-z0-9_-]+)/gi)]
+lib/ai-orchestrator/src/agents/chat-agent.ts:1751:        contentLength: result.content?.length ?? 0,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1752:        executableMarker: /\b(?:return|if|switch|throw)\b/i.test(result.content ?? ""),
+lib/ai-orchestrator/src/agents/chat-agent.ts:5492:    toolCallsDisabledAfter: structuredOutputMode
+lib/ai-orchestrator/src/agents/chat-agent.ts:5662:    deterministicTaskExecution && loopResult.kind === "response" && loopResult.result.content?.trim()
+lib/ai-orchestrator/src/agents/chat-agent.ts:5663:      ? parseAgentResponse(loopResult.result.content, ChatResponseSchema, fallbackChatOutput)
+lib/ai-orchestrator/src/agents/chat-agent.ts:5936:        toolCalls: null,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6087:    const directContent = result.content;
+lib/ai-orchestrator/src/agents/chat-agent.ts:6094:      // parseAgentResponse strips the envelope and gives us the inner prose.
+lib/ai-orchestrator/src/agents/chat-agent.ts:6100:      const parsedDirect = parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
+lib/ai-orchestrator/src/agents/chat-agent.ts:6577:  let content = result.content ?? "";
+lib/ai-orchestrator/src/agents/chat-agent.ts:6583:  let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
+lib/ai-orchestrator/src/agents/chat-agent.ts:6705:      const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
+lib/ai-orchestrator/src/agents/chat-agent.ts:7257:                Array.isArray(recovery.toolCalls) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7258:                recovery.toolCalls.length > 0 &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7261:                const executableCalls = recovery.toolCalls.filter(
+lib/ai-orchestrator/src/agents/chat-agent.ts:7293:                  tool_calls: recovery.toolCalls,
+lib/ai-orchestrator/src/agents/chat-agent.ts:7462:          const structuredRecovery = parseAgentResponse(
+lib/ai-orchestrator/src/agents/chat-agent.ts:7726:            const recoveryParsed = parseAgentResponse(

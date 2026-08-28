@@ -1,0 +1,105 @@
+artifacts/api-server/src/routes/git.test.ts:20:} from "@workspace/db";
+artifacts/api-server/src/routes/git.test.ts:80:      validationProfile: "workspace-typecheck",
+artifacts/api-server/src/routes/git.test.ts:88:    type: "AiChangesApplied",
+artifacts/api-server/src/routes/git.test.ts:130:      eq(eventsTable.type, "AiChangesApplied"),
+artifacts/api-server/src/routes/git.test.ts:135:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:140:      code: "AI_COMMIT_REQUIRES_APPLY_EVIDENCE",
+artifacts/api-server/src/routes/git.test.ts:152:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:157:      code: "AI_COMMIT_UNRELATED_WORKTREE_CHANGES",
+artifacts/api-server/src/routes/git.test.ts:169:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:173:    expect(response.body.code).toBe("AI_COMMIT_UNRELATED_STAGED_CHANGES");
+artifacts/api-server/src/routes/git.test.ts:224:        eq(eventsTable.type, "AiChangesApplied"),
+artifacts/api-server/src/routes/git.test.ts:262:        .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:308:        expect.arrayContaining(["AiChangesApplied", "GitCommitCreated", "GitPushed"]),
+artifacts/api-server/src/routes/git.test.ts:310:      for (const event of traceEvents.filter((entry) => ["AiChangesApplied", "GitCommitCreated", "GitPushed"].includes(entry.type))) {
+artifacts/api-server/src/lib/delivery-workspace.test.ts:12:} from "./delivery-workspace.js";
+artifacts/api-server/src/lib/delivery-workspace.test.ts:14:describe("delivery workspaces", () => {
+artifacts/api-server/src/lib/delivery-workspace.test.ts:21:      const workspace = await createDeliveryWorkspace({
+artifacts/api-server/src/lib/delivery-workspace.test.ts:27:      expect(workspace.lifecycle).toBe("isolated");
+artifacts/api-server/src/lib/delivery-workspace.test.ts:28:      expect(workspace.workspaceRoot).not.toBe(fixture);
+artifacts/api-server/src/lib/delivery-workspace.test.ts:29:      await expect(readFile(join(workspace.workspaceRoot, "app.ts"), "utf8"))
+artifacts/api-server/src/lib/delivery-workspace.test.ts:33:      await expect(discardDeliveryWorkspace(workspace.workspaceRoot, operationId)).resolves.toBe(true);
+artifacts/api-server/src/routes/ai.test.ts:30:} from "@workspace/db";
+artifacts/api-server/src/routes/ai.test.ts:31:import { buildPatchHunks, hashPatchBase } from "@workspace/ai-orchestrator";
+artifacts/api-server/src/routes/ai.test.ts:40:import { createDeliveryWorkspace, deliveryWorkspaceExists } from "../lib/delivery-workspace.js";
+artifacts/api-server/src/routes/ai.test.ts:136:      workspaceRevision: "revision",
+artifacts/api-server/src/routes/ai.test.ts:173:      workspaceRevision: "revision",
+artifacts/api-server/src/routes/ai.test.ts:217:      workspaceRevision: "revision",
+artifacts/api-server/src/routes/ai.test.ts:251:// Every export from @workspace/ai-orchestrator is replaced with a stub that
+artifacts/api-server/src/routes/ai.test.ts:255:vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
+artifacts/api-server/src/routes/ai.test.ts:443:    validationProfile?: "ai-orchestrator-tests" | "knowledge-engine-tests" | "api-ai-tests" | "workspace-typecheck";
+artifacts/api-server/src/routes/ai.test.ts:489:): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+artifacts/api-server/src/routes/ai.test.ts:504:  let workspaceRoot: string | null = null;
+artifacts/api-server/src/routes/ai.test.ts:509:    const workspace = await createDeliveryWorkspace({
+artifacts/api-server/src/routes/ai.test.ts:515:    workspaceRoot = workspace.workspaceRoot;
+artifacts/api-server/src/routes/ai.test.ts:516:    deliveryWorkspaceRoots.push(workspaceRoot);
+artifacts/api-server/src/routes/ai.test.ts:521:    workspaceRoot,
+artifacts/api-server/src/routes/ai.test.ts:527:  return { proposalId, operationId, workspaceRoot, change };
+artifacts/api-server/src/routes/ai.test.ts:686:  for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
+artifacts/api-server/src/routes/ai.test.ts:687:    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+artifacts/api-server/src/routes/ai.test.ts:775:    const { chat: mockChat, GroqClientError } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1000:    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1060:    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1106:    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1127:    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1177:    const { chat: mockChat, classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1199:    } as ReturnType<typeof import("@workspace/ai-orchestrator").classifyRequest>;
+artifacts/api-server/src/routes/ai.test.ts:1294:    const { chat: mockChat, classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1316:    } as ReturnType<typeof import("@workspace/ai-orchestrator").classifyRequest>;
+artifacts/api-server/src/routes/ai.test.ts:1431:    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1447:    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:1532:        workspaceRevision: "revision-abc123",
+artifacts/api-server/src/routes/ai.test.ts:1535:          "/home/runner/workspace/private.ts",
+artifacts/api-server/src/routes/ai.test.ts:1553:          detail: "Completed using /home/runner/workspace/private.ts",
+artifacts/api-server/src/routes/ai.test.ts:1633:    expect(exported).not.toContain("/home/runner/workspace");
+artifacts/api-server/src/routes/ai.test.ts:2014:      workspaceRevision: "stored-revision",
+artifacts/api-server/src/routes/ai.test.ts:2216:  it("never serves files from the shared workspace when the project root is inaccessible", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2218:    // endpoint must NOT fall back to the global workspace root (whose package.json
+artifacts/api-server/src/routes/ai.test.ts:2220:    // arbitrary files (.env, etc.) from OTHER projects in the shared workspace.
+artifacts/api-server/src/routes/ai.test.ts:2236:    // Confirm the workspace file we are trying to protect is actually readable,
+artifacts/api-server/src/routes/ai.test.ts:2237:    // so this test would genuinely fail if the endpoint fell back to workspace.
+artifacts/api-server/src/routes/ai.test.ts:2239:    await expect(fs.access(`/home/runner/workspace/${knownWorkspaceFile}`)).resolves.toBeUndefined();
+artifacts/api-server/src/routes/ai.test.ts:2244:    // Not the workspace file's content — the request is refused as unavailable.
+artifacts/api-server/src/routes/ai.test.ts:2280:    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:2326:    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:2429:    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:2512:    const { orchestrateWorkflow: mockOrchestrate } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:2593:    const { GroqClientError, orchestrateWorkflow: mockOrchestrate } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:2716:    expect(JSON.stringify(res.body)).not.toMatch(/workspace|path|content|diagnostic/i);
+artifacts/api-server/src/routes/ai.test.ts:2728:      operation.workspaceRoot,
+artifacts/api-server/src/routes/ai.test.ts:2776:      expect(serialized).not.toMatch(/workspace|path|content|diagnostic/i);
+artifacts/api-server/src/routes/ai.test.ts:2802:      workspaceAvailable: true,
+artifacts/api-server/src/routes/ai.test.ts:2806:    expect(res.body.operations[0]).not.toHaveProperty("workspaceRoot");
+artifacts/api-server/src/routes/ai.test.ts:2829:      recoveryState: "missing_workspace",
+artifacts/api-server/src/routes/ai.test.ts:2830:      operatorExplanation: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+artifacts/api-server/src/routes/ai.test.ts:2832:      workspaceAvailable: false,
+artifacts/api-server/src/routes/ai.test.ts:2836:      workspaceAvailable: false,
+artifacts/api-server/src/routes/ai.test.ts:2839:    expect(JSON.stringify(res.body)).not.toContain("workspaceRoot");
+artifacts/api-server/src/routes/ai.test.ts:2849:      operation.workspaceRoot,
+artifacts/api-server/src/routes/ai.test.ts:2895:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(true);
+artifacts/api-server/src/routes/ai.test.ts:2898:  it("rejects resume when the server-owned workspace marker is missing", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2902:    await fs.rm(operation.workspaceRoot!, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai.test.ts:2949:    expect(await fs.readFile(`${operation.workspaceRoot}/${operation.change.path}`, "utf8"))
+artifacts/api-server/src/routes/ai.test.ts:2953:  it("makes concurrent discard clicks idempotent and removes the workspace once", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2971:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(false);
+artifacts/api-server/src/routes/ai.test.ts:2994:  it("emits a warning AiChangesApplied event when no file can be written", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3035:    const ev = events.find((e) => e.type === "AiChangesApplied");
+artifacts/api-server/src/routes/ai.test.ts:3091:    const ev = events.find((e) => e.type === "AiChangesApplied");
+artifacts/api-server/src/routes/ai.test.ts:3167:      const event = events.find((candidate) => candidate.type === "AiChangesApplied");
+artifacts/api-server/src/routes/ai.test.ts:3554:        profile: "workspace-typecheck",
+artifacts/api-server/src/routes/ai.test.ts:3556:        scenario: "Run the workspace TypeScript typecheck.",
+artifacts/api-server/src/routes/ai.test.ts:3598:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3654:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3701:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3745:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3795:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3815:  it("rebases a stale Patch Lab proposal without writing the workspace", async () => {
+artifacts/api-server/src/routes/ai.test.ts:4029:    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:4086:    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:4137:    const { buildProjectContext } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:4164:    const { executeTask: mockExecuteTask, GroqClientError } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:4192:    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:4222:    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:4303:    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:4501:      const { GroqClientError, executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:4515:      const { GroqClientError, orchestrateWorkflow: mockOrchestrate } = await import("@workspace/ai-orchestrator");

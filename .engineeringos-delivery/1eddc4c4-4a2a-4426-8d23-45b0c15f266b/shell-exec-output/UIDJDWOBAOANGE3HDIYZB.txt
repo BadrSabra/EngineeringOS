@@ -1,0 +1,415 @@
+artifacts/api-server/src/routes/ai/analysis.ts:211:  metadata.operationalTrace.push({
+artifacts/api-server/src/routes/ai/analysis.ts:270:  metadata.operationalTrace.push({ stage: "task", status: "started" });
+artifacts/api-server/src/routes/ai/analysis.ts:284:  metadata.operationalTrace.push({ stage: "failed", status: "failed" });
+artifacts/api-server/src/routes/ai/chat.ts:328:      candidateHash: result.evidence.candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:329:      changeSetHash: result.evidence.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:330:      promotedHash: result.evidence.promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:369:        ...(typeof evidence.candidateHash === "string" ? { candidateHash: evidence.candidateHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:370:        ...(typeof evidence.changeSetHash === "string" ? { changeSetHash: evidence.changeSetHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:371:        ...(typeof evidence.promotedHash === "string" ? { promotedHash: evidence.promotedHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:956:      failures.push({ path: change.path, error: message });
+artifacts/api-server/src/routes/ai/chat.ts:1816:  // happens before provider resolution and before SSE headers are committed.
+artifacts/api-server/src/routes/ai/chat.ts:2026:        (step) => traceSteps.push(step),
+artifacts/api-server/src/routes/ai/chat.ts:2318:  // happens before provider resolution and before SSE headers are committed.
+artifacts/api-server/src/routes/ai/chat.ts:2467:      "Use the existing read and deferred-write flow. Prepare pending changes only; do not claim that files were applied, committed, or published.",
+artifacts/api-server/src/routes/ai/chat.ts:2609:    // messages are still committed together after the model returns.
+artifacts/api-server/src/routes/ai/chat.ts:3111:      traceSteps.push(step);
+artifacts/api-server/src/routes/ai/chat.ts:3357:          diagnosticCodes.push(step.code);
+artifacts/api-server/src/routes/ai/chat.ts:3362:              executionDiagnosticDetails.push(detail);
+artifacts/api-server/src/routes/ai/chat.ts:3367:          executionSummary.diagnosticCodes.push(step.code);
+artifacts/api-server/src/routes/ai/chat.ts:5026:// does not apply changes, run commands, commit, or publish.
+artifacts/api-server/src/routes/ai/chat.ts:5317:        || proposal.workspaceRoot
+artifacts/api-server/src/routes/ai/chat.ts:5322:            changeSetHash: proposal.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:5362:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+artifacts/api-server/src/routes/ai/chat.ts:5387:      changeSetHash: proposal.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:5428:    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+artifacts/api-server/src/routes/ai/chat.ts:5432:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+artifacts/api-server/src/routes/ai/chat.ts:5455:  const workspaceRoot = proposal.workspaceRoot!;
+artifacts/api-server/src/routes/ai/chat.ts:5457:  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:5458:  const changeSetHash = proposal.changeSetHash ?? hashChangeSet(changes);
+artifacts/api-server/src/routes/ai/chat.ts:5463:    group.push(change);
+artifacts/api-server/src/routes/ai/chat.ts:5470:      workspaceRoot,
+artifacts/api-server/src/routes/ai/chat.ts:5479:      result.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:5480:      result.evidence.changeSetHash = changeSetHash;
+artifacts/api-server/src/routes/ai/chat.ts:5482:    results.push(publicValidationReceipt(result));
+artifacts/api-server/src/routes/ai/chat.ts:5526:  if (updated && proposal.workspaceRoot && proposal.operationId) {
+artifacts/api-server/src/routes/ai/chat.ts:5527:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+artifacts/api-server/src/routes/ai/chat.ts:5658:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5667:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5678:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5692:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5701:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5720:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5739:        rebasedChanges.push({
+artifacts/api-server/src/routes/ai/chat.ts:5751:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5943:  if (proposal.workspaceRoot && proposal.operationId) {
+artifacts/api-server/src/routes/ai/chat.ts:5944:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+artifacts/api-server/src/routes/ai/chat.ts:6158:        workspaceRoot: deliveryWorkspace.workspaceRoot,
+artifacts/api-server/src/routes/ai/chat.ts:6160:        changeSetHash: deliveryWorkspace.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6215:        results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6225:        results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+artifacts/api-server/src/routes/ai/chat.ts:6236:          results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+artifacts/api-server/src/routes/ai/chat.ts:6241:          results.push({ path: change.path, ok: false, error: "Duplicate file path in apply request" });
+artifacts/api-server/src/routes/ai/chat.ts:6256:            results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6274:            results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6290:            results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6312:          results.push({ path: change.path, ok: false, error: guard.error });
+artifacts/api-server/src/routes/ai/chat.ts:6319:            results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6334:        writableChanges.push({
+artifacts/api-server/src/routes/ai/chat.ts:6342:        results.push({ path: change.path, ok: false, error: e instanceof Error ? e.message : String(e) });
+artifacts/api-server/src/routes/ai/chat.ts:6359:        results.push({ path: change.path, ok: false, error: batchError });
+artifacts/api-server/src/routes/ai/chat.ts:6365:    // bytes before any live-root file is promoted.
+artifacts/api-server/src/routes/ai/chat.ts:6368:      const candidatePath = path.resolve(deliveryWorkspace.workspaceRoot, change.path);
+artifacts/api-server/src/routes/ai/chat.ts:6369:      if (candidatePath !== deliveryWorkspace.workspaceRoot
+artifacts/api-server/src/routes/ai/chat.ts:6370:        && !candidatePath.startsWith(`${deliveryWorkspace.workspaceRoot}${path.sep}`)) {
+artifacts/api-server/src/routes/ai/chat.ts:6376:    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6379:      .set({ changeSetHash: effectiveChangeSetHash })
+artifacts/api-server/src/routes/ai/chat.ts:6388:      pathsForProfile.push(change.path);
+artifacts/api-server/src/routes/ai/chat.ts:6400:        deliveryWorkspace.workspaceRoot,
+artifacts/api-server/src/routes/ai/chat.ts:6407:        validation.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6408:        validation.evidence.changeSetHash = effectiveChangeSetHash;
+artifacts/api-server/src/routes/ai/chat.ts:6413:    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6414:    const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6434:      // Behavioral validation is a promotion gate. Keep the candidate for
+artifacts/api-server/src/routes/ai/chat.ts:6438:        results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6441:          error: "Behavioral verification did not pass; the candidate was not promoted.",
+artifacts/api-server/src/routes/ai/chat.ts:6448:            ? "live_root_changed_before_promotion"
+artifacts/api-server/src/routes/ai/chat.ts:6450:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6451:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6460:        candidateWorkspace: deliveryWorkspace.workspaceRoot,
+artifacts/api-server/src/routes/ai/chat.ts:6461:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6463:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6473:          attemptedChanges.push(change);
+artifacts/api-server/src/routes/ai/chat.ts:6479:          writtenChanges.push(change);
+artifacts/api-server/src/routes/ai/chat.ts:6480:          results.push({ path: change.path, ok: true });
+artifacts/api-server/src/routes/ai/chat.ts:6484:          promotionState: "PROMOTED",
+artifacts/api-server/src/routes/ai/chat.ts:6500:          results.push({ path: change.path, ok: false, error: `Apply aborted: ${writeFailure}` });
+artifacts/api-server/src/routes/ai/chat.ts:6517:      ? await hashDeliveryFiles(deliveryWorkspace.workspaceRoot, candidateChanges)
+artifacts/api-server/src/routes/ai/chat.ts:6519:    const promotedHash = writtenChanges.length > 0
+artifacts/api-server/src/routes/ai/chat.ts:6522:    if (writtenChanges.length > 0 && promotedHash !== candidateFilesHash) {
+artifacts/api-server/src/routes/ai/chat.ts:6533:        reason: "promoted_candidate_hash_mismatch",
+artifacts/api-server/src/routes/ai/chat.ts:6534:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6535:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6536:        promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6543:        && promotedHash === candidateFilesHash
+artifacts/api-server/src/routes/ai/chat.ts:6546:        validation.evidence.promotedHash = promotedHash;
+artifacts/api-server/src/routes/ai/chat.ts:6556:              ? "The immutable candidate changed during validation and was not promoted."
+artifacts/api-server/src/routes/ai/chat.ts:6557:              : "The project changed before promotion and the validated candidate was not promoted.",
+artifacts/api-server/src/routes/ai/chat.ts:6638:    // plan/apply/commit/push lifecycle queryable as one trace instead of
+artifacts/api-server/src/routes/ai/chat.ts:6657:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6658:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6659:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6678:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6679:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6680:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6711:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6712:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6713:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6728:            committedHash: allOk ? promotedHash : null,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:182:                fixture.messages.push({ ...MOCK_MSG, ...vals });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:778:        captured.push({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:823:        captured.push({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:880:        captured.push({
+artifacts/api-server/src/lib/operational-counters.ts:14: *   mutationsWithoutAudit    — a committed mutation could not be durably
+artifacts/api-server/src/lib/delivery-workspace.test.ts:28:      expect(workspace.workspaceRoot).not.toBe(fixture);
+artifacts/api-server/src/lib/delivery-workspace.test.ts:29:      await expect(readFile(join(workspace.workspaceRoot, "app.ts"), "utf8"))
+artifacts/api-server/src/lib/delivery-workspace.test.ts:33:      await expect(discardDeliveryWorkspace(workspace.workspaceRoot, operationId)).resolves.toBe(true);
+artifacts/api-server/src/lib/delivery-workspace.test.ts:43:    expect(transitionDeliveryLifecycle("isolated", "committed")).toBe(false);
+artifacts/api-server/src/lib/delivery-workspace.test.ts:44:    expect(transitionDeliveryLifecycle("committed", "isolated")).toBe(false);
+artifacts/api-server/src/lib/delivery-workspace.test.ts:47:  it("recovers a mixed promotion only from exact base bytes", async () => {
+artifacts/api-server/src/lib/condition-evaluator.ts:55:    if (input.slice(i, i + 3) === "===") { tokens.push({ kind: "op", value: "===" }); i += 3; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:56:    if (input.slice(i, i + 3) === "!==") { tokens.push({ kind: "op", value: "!==" }); i += 3; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:59:    if (input.slice(i, i + 2) === ">=") { tokens.push({ kind: "op", value: ">=" }); i += 2; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:60:    if (input.slice(i, i + 2) === "<=") { tokens.push({ kind: "op", value: "<=" }); i += 2; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:61:    if (input.slice(i, i + 2) === "==") { tokens.push({ kind: "op", value: "==" }); i += 2; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:62:    if (input.slice(i, i + 2) === "!=") { tokens.push({ kind: "op", value: "!=" }); i += 2; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:63:    if (input.slice(i, i + 2) === "&&") { tokens.push({ kind: "and" }); i += 2; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:64:    if (input.slice(i, i + 2) === "||") { tokens.push({ kind: "or" }); i += 2; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:67:    if (ch === ">") { tokens.push({ kind: "op", value: ">" }); i++; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:68:    if (ch === "<") { tokens.push({ kind: "op", value: "<" }); i++; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:69:    if (ch === "!") { tokens.push({ kind: "not" }); i++; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:70:    if (ch === "(") { tokens.push({ kind: "lparen" }); i++; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:71:    if (ch === ")") { tokens.push({ kind: "rparen" }); i++; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:72:    if (ch === ".") { tokens.push({ kind: "dot" }); i++; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:73:    if (ch === ",") { tokens.push({ kind: "comma" }); i++; continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:83:      tokens.push({ kind: "num", value: parsed });
+artifacts/api-server/src/lib/condition-evaluator.ts:105:      tokens.push({ kind: "str", value: str });
+artifacts/api-server/src/lib/condition-evaluator.ts:118:      if (ident === "true")  { tokens.push({ kind: "bool", value: true  }); continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:119:      if (ident === "false") { tokens.push({ kind: "bool", value: false }); continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:120:      if (ident === "null")  { tokens.push({ kind: "null" }); continue; }
+artifacts/api-server/src/lib/condition-evaluator.ts:121:      tokens.push({ kind: "ident", name: ident });
+artifacts/api-server/src/lib/condition-evaluator.ts:265:            args.push(this.parsePrimary());
+artifacts/api-server/src/routes/ai/benchmark.ts:335:      && ["planned", "inspecting", "mutating", "validating", "diagnosing", "repairing", "promoting", "delivering", "succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(autonomousState)
+artifacts/api-server/src/lib/operation-evidence.ts:39:  kind: "process" | "provider" | "validation" | "promotion" | "commit" | "push";
+artifacts/api-server/src/lib/operation-evidence.ts:58:    committed: string | null;
+artifacts/api-server/src/lib/operation-evidence.ts:82:  proposal?: { revision: number; baseRevision: string | null; changeSetHash: string | null; committedHash: string | null } | null;
+artifacts/api-server/src/lib/operation-evidence.ts:97:  if (["passed", "success", "succeeded", "completed", "applied", "committed", "pushed"].includes(normalized)) return "passed";
+artifacts/api-server/src/lib/operation-evidence.ts:107:  if (/promot|apply|rollback|recovery|delivery/.test(normalized)) return "promotion";
+artifacts/api-server/src/lib/operation-evidence.ts:108:  if (/commit/.test(normalized)) return "commit";
+artifacts/api-server/src/lib/operation-evidence.ts:109:  if (/push/.test(normalized)) return "push";
+artifacts/api-server/src/lib/operation-evidence.ts:115:  if (gaps.length < OPERATION_EVIDENCE_LIMITS.gaps) gaps.push(gap);
+artifacts/api-server/src/lib/operation-evidence.ts:137:  const pushReceipt = (kind: OperationReceipt["kind"], value: unknown, timestamp: Date | string, attempt = 0, diagnostic?: unknown) => {
+artifacts/api-server/src/lib/operation-evidence.ts:138:    receipts.push({
+artifacts/api-server/src/lib/operation-evidence.ts:148:  pushReceipt("process", "started", execution.startedAt ?? execution.createdAt, execution.attempt);
+artifacts/api-server/src/lib/operation-evidence.ts:152:    pushReceipt(
+artifacts/api-server/src/lib/operation-evidence.ts:161:    pushReceipt(receiptKind(entry.stage), entry.stage, entry.createdAt, Number(record(entry.payload).attempt ?? 0), record(entry.payload).reason);
+artifacts/api-server/src/lib/operation-evidence.ts:163:  if (execution.completedAt) pushReceipt("process", execution.status, execution.completedAt, execution.attempt, execution.error);
+artifacts/api-server/src/lib/operation-evidence.ts:202:      changeSet: text(input.proposal?.changeSetHash, 128) ?? null,
+artifacts/api-server/src/lib/operation-evidence.ts:203:      committed: text(input.proposal?.committedHash, 128) ?? null,
+artifacts/api-server/src/lib/operation-evidence.ts:227:    candidateIdentity: input.proposal?.changeSetHash ?? null,
+artifacts/api-server/src/lib/operation-evidence.ts:268:          changeSetHash: aiChangeProposalsTable.changeSetHash, committedHash: aiChangeProposalsTable.committedHash,
+artifacts/api-server/src/lib/browser-preview-verification.ts:129:      stack.push(character);
+artifacts/api-server/src/lib/browser-preview-verification.ts:378:        consoleErrors.push(bounded(message.text(), 500));
+artifacts/api-server/src/lib/operation-evidence.test.ts:83:        changeSetHash: "change-hash",
+artifacts/api-server/src/lib/operation-evidence.test.ts:84:        committedHash: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:20: * proof that a mutation, promotion, or delivery succeeded.
+artifacts/api-server/src/lib/ai-execution-state.ts:29:  "promoting",
+artifacts/api-server/src/lib/ai-execution-state.ts:44:  | "promote"
+artifacts/api-server/src/lib/ai-execution-state.ts:88:  validating: ["succeeded", "diagnosing", "promoting", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:91:  promoting: ["delivering", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:109:  if (["succeeded", "promoting", "delivering"].includes(nextState)
+artifacts/api-server/src/lib/ai-execution-state.ts:151:  if (!operation.objective.trim()) reasons.push("objective is missing");
+artifacts/api-server/src/lib/ai-execution-state.ts:153:    reasons.push("workspace revision is unbound");
+artifacts/api-server/src/lib/ai-execution-state.ts:155:  if (!operation.expectedBehavior.trim()) reasons.push("expected behavior is missing");
+artifacts/api-server/src/lib/ai-execution-state.ts:156:  if (operation.acceptanceChecks.length === 0) reasons.push("acceptance checks are missing");
+artifacts/api-server/src/lib/ai-execution-state.ts:158:    reasons.push("workspace revision does not match the execution request");
+artifacts/api-server/src/lib/ai-execution-state.ts:161:    reasons.push("candidate identity does not match the operation");
+artifacts/api-server/src/lib/ai-execution-state.ts:165:    reasons.push("acceptance checks are not executable");
+artifacts/api-server/src/lib/ai-execution-state.ts:168:  if (nodes.some((node) => node.status !== "passed")) reasons.push("not all execution nodes passed");
+artifacts/api-server/src/lib/ai-execution-state.ts:170:    ["mutate", "repair", "promote", "delivery"].includes(node.kind),
+artifacts/api-server/src/lib/ai-execution-state.ts:173:    reasons.push("mutating operation has no approved target scope");
+artifacts/api-server/src/lib/ai-execution-state.ts:180:    if (outOfScope) reasons.push(`execution node is outside approved target scope: ${outOfScope}`);
+artifacts/api-server/src/lib/ai-execution-state.ts:187:  if (refs.length === 0) reasons.push("required acceptance evidence is missing");
+artifacts/api-server/src/lib/ai-execution-state.ts:189:    reasons.push(`evidence verdict is ${params.evidenceVerdict ?? "NOT_RECORDED"}`);
+artifacts/api-server/src/lib/ai-execution-state.ts:507:      typeof item.id !== "string" || !["inspect", "mutate", "validate", "diagnose", "repair", "promote", "delivery"].includes(item.kind ?? "")
+artifacts/api-server/src/lib/job-recovery.test.ts:71:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-recovery.test.ts:96:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-recovery.test.ts:116:    sessionCleanup.push(sessionId);
+artifacts/api-server/src/lib/job-recovery.test.ts:141:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-recovery.test.ts:168:    sessionCleanup.push(sessionId);
+artifacts/api-server/src/lib/archive-safety.test.ts:25:  roots.push(root);
+artifacts/api-server/src/lib/archive-safety.test.ts:31:  roots.push(source);
+artifacts/api-server/src/lib/archive-safety.test.ts:77:    roots.push(source);
+artifacts/api-server/src/lib/ai-change-guard.ts:75:      if (!afterExports.has(name)) removedExports.push(name);
+artifacts/api-server/src/lib/ai-change-guard.ts:88:      reasons.push(
+artifacts/api-server/src/lib/ai-change-guard.ts:93:      reasons.push(`named exports would be removed: ${removedExports.slice(0, 12).join(", ")}`);
+artifacts/api-server/src/lib/job-idempotency.test.ts:49:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-idempotency.test.ts:51:    jobCleanup.push(jobId);
+artifacts/api-server/src/lib/ai-analysis-tools.ts:105:        if (query) conditions.push(ilike(graphEntitiesTable.name, `%${query}%`));
+artifacts/api-server/src/lib/job-reconciliation.ts:77: * partially promoted tree from being reported as successful.
+artifacts/api-server/src/lib/job-reconciliation.ts:87:      workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+artifacts/api-server/src/lib/job-reconciliation.ts:129:                result.push({ path: file.path, newContent: file.newContent, originalContent: typeof file.originalContent === "string" ? file.originalContent : null });
+artifacts/api-server/src/lib/job-reconciliation.ts:142:        logger.warn({ error, proposalId: proposal.id }, "delivery promotion recovery could not be evaluated");
+artifacts/api-server/src/lib/job-reconciliation.ts:156:          workspaceRoot: proposal.workspaceRoot,
+artifacts/api-server/src/lib/job-reconciliation.ts:474: * during a deploy between the DB commit and queue dispatch).
+artifacts/api-server/src/lib/job-reconciliation.ts:719: * rows. It closes the small failure window where the request committed the
+artifacts/api-server/src/lib/job-concurrency.test.ts:39:  projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-concurrency.test.ts:41:  jobCleanup.push(jobId);
+artifacts/api-server/src/lib/job-concurrency.test.ts:105:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-concurrency.test.ts:107:    jobCleanup.push(jobId);
+artifacts/api-server/src/lib/graph-provenance.ts:48: * Evidence is inherited from the push site (import-statement, call-site, etc.)
+artifacts/api-server/src/lib/github-connector.ts:76:async function gitBlob(rootPath: string, commitHash: string, filePath: string): Promise<Buffer> {
+artifacts/api-server/src/lib/github-connector.ts:79:    ["-C", rootPath, "cat-file", "blob", `${commitHash}:${filePath}`],
+artifacts/api-server/src/lib/github-connector.ts:85:async function gitMode(rootPath: string, commitHash: string, filePath: string): Promise<string> {
+artifacts/api-server/src/lib/github-connector.ts:86:  const line = await gitText(rootPath, ["ls-tree", commitHash, "--", filePath]);
+artifacts/api-server/src/lib/github-connector.ts:139:      if (oldPath) changes.push({ kind: "delete", path: oldPath });
+artifacts/api-server/src/lib/github-connector.ts:140:      if (newPath) changes.push({ kind: "upsert", path: newPath });
+artifacts/api-server/src/lib/github-connector.ts:146:      if (copiedPath) changes.push({ kind: "upsert", path: copiedPath });
+artifacts/api-server/src/lib/github-connector.ts:151:    changes.push({ kind: status.startsWith("D") ? "delete" : "upsert", path: filePath });
+artifacts/api-server/src/lib/github-connector.ts:157: * Push a verified local commit to GitHub through the Replit connector.
+artifacts/api-server/src/lib/github-connector.ts:160: * the single verified commit as GitHub blob/tree/commit objects. The remote
+artifacts/api-server/src/lib/github-connector.ts:161: * branch must still point at the local commit's parent; otherwise this fails
+artifacts/api-server/src/lib/github-connector.ts:164:export async function pushLocalCommitToGitHub(args: {
+artifacts/api-server/src/lib/github-connector.ts:168:  commitHash: string;
+artifacts/api-server/src/lib/github-connector.ts:173:  const parents = (await gitText(args.rootPath, ["rev-list", "--parents", "-n", "1", args.commitHash]))
+artifacts/api-server/src/lib/github-connector.ts:177:    throw new GitHubConnectorError("Only single-parent commits can be pushed through the GitHub connector", "GITHUB_PUSH_UNSUPPORTED_COMMIT");
+artifacts/api-server/src/lib/github-connector.ts:185:    throw new GitHubConnectorError("GitHub branch reference did not return a commit", "GITHUB_API_INVALID_RESPONSE");
+artifacts/api-server/src/lib/github-connector.ts:187:  if (remoteCommitHash === args.commitHash) {
+artifacts/api-server/src/lib/github-connector.ts:192:      "GitHub branch changed after the verified local commit; pull/reconcile before pushing",
+artifacts/api-server/src/lib/github-connector.ts:197:  const commit = await request(repoPath(args.remote, `/git/commits/${encodePathPart(remoteCommitHash)}`));
+artifacts/api-server/src/lib/github-connector.ts:198:  const baseTree = typeof (commit.tree as { sha?: unknown } | undefined)?.sha === "string"
+artifacts/api-server/src/lib/github-connector.ts:199:    ? (commit.tree as { sha: string }).sha
+artifacts/api-server/src/lib/github-connector.ts:202:    throw new GitHubConnectorError("GitHub commit did not return a base tree", "GITHUB_API_INVALID_RESPONSE");
+artifacts/api-server/src/lib/github-connector.ts:207:    ["diff-tree", "--no-commit-id", "--name-status", "-z", "-M", localParent, args.commitHash, "--"],
+artifacts/api-server/src/lib/github-connector.ts:210:    throw new GitHubConnectorError("The verified local commit has no changed files", "GITHUB_PUSH_EMPTY_COMMIT");
+artifacts/api-server/src/lib/github-connector.ts:216:      tree.push({ path: change.path, mode: "100644", type: "blob", sha: null });
+artifacts/api-server/src/lib/github-connector.ts:219:    const content = await gitBlob(args.rootPath, args.commitHash, change.path);
+artifacts/api-server/src/lib/github-connector.ts:227:    tree.push({
+artifacts/api-server/src/lib/github-connector.ts:229:      mode: await gitMode(args.rootPath, args.commitHash, change.path),
+artifacts/api-server/src/lib/github-connector.ts:243:  const createdCommit = await request(repoPath(args.remote, "/git/commits"), {
+artifacts/api-server/src/lib/github-connector.ts:252:    throw new GitHubConnectorError("GitHub commit creation returned no sha", "GITHUB_API_INVALID_RESPONSE");
+artifacts/api-server/src/lib/github-connector.test.ts:9:  pushLocalCommitToGitHub,
+artifacts/api-server/src/lib/github-connector.test.ts:18:describe("GitHub connector push", () => {
+artifacts/api-server/src/lib/github-connector.test.ts:28:  it("mirrors a verified local commit through GitHub git objects", async () => {
+artifacts/api-server/src/lib/github-connector.test.ts:36:        "commit", "-qm", "initial",
+artifacts/api-server/src/lib/github-connector.test.ts:43:        "commit", "-qm", "verified change",
+artifacts/api-server/src/lib/github-connector.test.ts:45:      const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
+artifacts/api-server/src/lib/github-connector.test.ts:54:        calls.push({ path: requestPath, method: init.method ?? "GET", body });
+artifacts/api-server/src/lib/github-connector.test.ts:58:        if (requestPath.endsWith(`/git/commits/${parentHash}`)) {
+artifacts/api-server/src/lib/github-connector.test.ts:66:        if (requestPath.endsWith("/git/commits")) return { sha: "remote-commit" };
+artifacts/api-server/src/lib/github-connector.test.ts:71:      const result = await pushLocalCommitToGitHub({
+artifacts/api-server/src/lib/github-connector.test.ts:75:        commitHash,
+artifacts/api-server/src/lib/github-connector.test.ts:81:        remoteCommitHash: "remote-commit",
+artifacts/api-server/src/lib/github-connector.test.ts:86:        `GET /repos/acme/flight-deck/git/commits/${parentHash}`,
+artifacts/api-server/src/lib/github-connector.test.ts:89:        "POST /repos/acme/flight-deck/git/commits",
+artifacts/api-server/src/lib/github-connector.test.ts:106:        "commit", "-qm", "fixture",
+artifacts/api-server/src/lib/github-connector.test.ts:112:        "commit", "-qm", "verified fixture",
+artifacts/api-server/src/lib/github-connector.test.ts:114:      const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
+artifacts/api-server/src/lib/github-connector.test.ts:115:      await expect(pushLocalCommitToGitHub({
+artifacts/api-server/src/lib/github-connector.test.ts:119:        commitHash,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:82:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:120:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:143:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:166:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:208:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:247:    sessionCleanup.push(sessionId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:277:    sessionCleanup.push(sessionId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:301:    sessionCleanup.push(sessionId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:317:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:349:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:373:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:405:    sessionCleanup.push(sessionId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:423:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:471:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:517:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:566:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:593:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:615:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:636:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:693:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:703:    sessionCleanup.push(sessionId);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:728:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-lease.test.ts:57:    projectCleanup.push(projectId);
+artifacts/api-server/src/lib/job-lease.test.ts:59:    jobCleanup.push(jobId);
+artifacts/api-server/src/lib/job-lease.test.ts:191:    sessionCleanup.push(sessionId);
+artifacts/api-server/src/lib/job-queue.test.ts:42:            completed.push(i);
+artifacts/api-server/src/lib/job-queue.test.ts:63:        order.push("first");
+artifacts/api-server/src/lib/job-queue.test.ts:67:        order.push("second");
+artifacts/api-server/src/lib/job-queue.test.ts:163:        executed.push("run-1");
+artifacts/api-server/src/lib/job-queue.test.ts:175:        executed.push("run-2");
+artifacts/api-server/src/lib/job-queue.test.ts:215:        order.push("first");
+artifacts/api-server/src/lib/job-queue.test.ts:219:        order.push("second");
+artifacts/api-server/src/lib/job-queue.ts:166:    this.queue.push({ id, fn: job });
+artifacts/api-server/src/lib/job-queue.ts:190:    this.queue.push({ id: null, fn: job });
+artifacts/api-server/src/lib/delivery-workspace.ts:7:  | "committed" | "cancelled" | "abandoned" | "blocked";
+artifacts/api-server/src/lib/delivery-workspace.ts:15:  const temp = `${target}.engineeringos-promotion-${operationId}-${process.pid}-${randomUUID()}`;
+artifacts/api-server/src/lib/delivery-workspace.ts:28: * Reconcile an interrupted promotion from durable candidate bytes. A live file
+artifacts/api-server/src/lib/delivery-workspace.ts:66:  workspaceRoot: string;
+artifacts/api-server/src/lib/delivery-workspace.ts:68:  changeSetHash: string;
+artifacts/api-server/src/lib/delivery-workspace.ts:90:export async function hashDeliveryWorkspace(workspaceRoot: string): Promise<string> {
+artifacts/api-server/src/lib/delivery-workspace.ts:95:      if (directory === workspaceRoot && entry.name === MARKER) continue;
+artifacts/api-server/src/lib/delivery-workspace.ts:97:      const relative = path.relative(workspaceRoot, absolute).replaceAll("\\", "/");
+artifacts/api-server/src/lib/delivery-workspace.ts:102:        entries.push({ path: relative, kind: "file", content: (await readFile(absolute)).toString("base64") });
+artifacts/api-server/src/lib/delivery-workspace.ts:104:        entries.push({ path: relative, kind: "symlink", content: await readFile(absolute, "utf8").catch(() => "") });
+artifacts/api-server/src/lib/delivery-workspace.ts:108:  await visit(workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:137:  const workspaceRoot = deliveryWorkspacePath(input.operationId);
+artifacts/api-server/src/lib/delivery-workspace.ts:144:      if ((await readFile(path.join(workspaceRoot, MARKER), "utf8")) === `${input.operationId}\n`) {
+artifacts/api-server/src/lib/delivery-workspace.ts:145:        await rm(workspaceRoot, { recursive: true, force: true });
+artifacts/api-server/src/lib/delivery-workspace.ts:151:    const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:156:      : workspaceRoot;
+artifacts/api-server/src/lib/delivery-workspace.ts:198:    if (copyDestination !== workspaceRoot) {
+artifacts/api-server/src/lib/delivery-workspace.ts:199:      await rename(copyDestination, workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:201:    await writeFile(path.join(workspaceRoot, MARKER), `${input.operationId}\n`, { flag: "wx", mode: 0o600 });
+artifacts/api-server/src/lib/delivery-workspace.ts:204:      const target = path.resolve(workspaceRoot, relative);
+artifacts/api-server/src/lib/delivery-workspace.ts:205:      if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`)) {
+artifacts/api-server/src/lib/delivery-workspace.ts:214:      workspaceRoot,
+artifacts/api-server/src/lib/delivery-workspace.ts:216:      changeSetHash: hashChangeSet(input.changes),
+artifacts/api-server/src/lib/delivery-workspace.ts:220:    await rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+artifacts/api-server/src/lib/delivery-workspace.ts:225:export async function discardDeliveryWorkspace(workspaceRoot: string, operationId: string): Promise<boolean> {
+artifacts/api-server/src/lib/delivery-workspace.ts:226:  const candidate = path.resolve(workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:238:export async function deliveryWorkspaceExists(workspaceRoot: string | null, operationId: string): Promise<boolean> {
+artifacts/api-server/src/lib/delivery-workspace.ts:239:  if (!workspaceRoot) return false;
+artifacts/api-server/src/lib/delivery-workspace.ts:240:  const candidate = path.resolve(workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:258:    applied: ["committed", "conflicted", "cancelled", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:260:    committed: [],
+artifacts/api-server/src/lib/ai-route-helpers.ts:90:      skipped.push({ provider, reason: "no_api_key" });
+artifacts/api-server/src/lib/ai-route-helpers.ts:99:      skipped.push({ provider, reason });
+artifacts/api-server/src/lib/ai-route-helpers.ts:108:      skipped.push({ provider, reason: "circuit_open" });
+artifacts/api-server/src/lib/ai-route-helpers.ts:111:    available.push({ provider, apiKey: key });
+artifacts/api-server/src/lib/ai-route-helpers.ts:491:        providerErrors.push({ provider: providerEntry.provider, code: err.code, message: err.message });
+artifacts/api-server/src/lib/plugin-runtime.ts:104:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:115:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:147:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:155:          events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:182:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:192:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:214:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:221:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:244:      events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:259:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:304:        events.push({
+artifacts/api-server/src/lib/plugin-runtime.ts:328: * Called after a successful scan transaction has committed.
+artifacts/api-server/src/lib/task-execution-retention.test.ts:144:    let promotedAfterSelection = false;
+artifacts/api-server/src/lib/task-execution-retention.test.ts:147:      if (!promotedAfterSelection && text.includes("SELECT l.id")) {
+artifacts/api-server/src/lib/task-execution-retention.test.ts:148:        promotedAfterSelection = true;
+artifacts/api-server/src/lib/task-execution-retention.test.ts:173:      expect(promotedAfterSelection).toBe(true);
+artifacts/api-server/src/lib/task-execution-retention.test.ts:262:    let promotedAfterSelection = false;
+artifacts/api-server/src/lib/task-execution-retention.test.ts:265:      if (!promotedAfterSelection && text.includes("SELECT e.id")) {
+artifacts/api-server/src/lib/task-execution-retention.test.ts:266:        promotedAfterSelection = true;
+artifacts/api-server/src/lib/task-execution-retention.test.ts:283:      expect(promotedAfterSelection).toBe(true);
+artifacts/api-server/src/lib/startup-migrations.ts:34: * Replit restarts without being committed to source control.
+artifacts/api-server/src/lib/startup-migrations.ts:103:        dead.push(p);
+artifacts/api-server/src/lib/discovery-adapters.ts:209:    if (config.branch) cloneArgs.push("-b", config.branch);
+artifacts/api-server/src/lib/discovery-adapters.ts:233:    cloneArgs.push(cloneUrl, tempDir);
+artifacts/api-server/src/lib/startup-migrations.test.ts:43:    cleanupQueue.push(projectId);
+artifacts/api-server/src/lib/startup-migrations.test.ts:59:    cleanupQueue.push(projectId);
+artifacts/api-server/src/lib/startup-migrations.test.ts:74:    cleanupQueue.push(projectId);
+artifacts/api-server/src/lib/operational-readiness-gate.ts:61:  candidate: "Rebuild and validate the immutable candidate workspace before promotion.",
+artifacts/api-server/src/lib/operational-readiness-gate.ts:83:  checks.push(check("objective-and-acceptance", input.requiredNodes.length > 0,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:85:  checks.push(check("approved-scope", input.approvedScope.length > 0,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:87:  checks.push(check("project-revision", Boolean(input.projectRevision),
+artifacts/api-server/src/lib/operational-readiness-gate.ts:92:  checks.push(check("candidate-revision", candidateMatchesProject,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:99:  checks.push(check("required-validation-nodes", nodesPassed,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:102:  checks.push(check("retained-redacted-evidence", evidenceOkay,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:106:  checks.push(check("terminal-proven-verdict", verdictOkay,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:111:    checks.push(check("campaign-binding", bound, bound ? "Campaign findings match operation and revision." : "Campaign findings are stale or bound to another operation.", true, ACTIONS.campaign));
+artifacts/api-server/src/lib/operational-readiness-gate.ts:113:      checks.push({
+artifacts/api-server/src/lib/operational-readiness-gate.ts:122:    checks.push({ id: "campaign-observation", status: "not-applicable", blocking: false, detail: "Optional external campaign observation was not evaluated." });
+artifacts/api-server/src/lib/ai-repair-validation.ts:128:      return "Select an approved validation profile before attempting promotion.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:151:  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-validation-"));
+artifacts/api-server/src/lib/ai-repair-validation.ts:153:    await fs.cp(sourceRoot, workspaceRoot, {
+artifacts/api-server/src/lib/ai-repair-validation.ts:164:    const overlayModules = path.join(workspaceRoot, "node_modules");
+artifacts/api-server/src/lib/ai-repair-validation.ts:176:          ? path.join(workspaceRoot, "artifacts/api-server")
+artifacts/api-server/src/lib/ai-repair-validation.ts:178:            ? path.join(workspaceRoot, "artifacts/dashboard")
+artifacts/api-server/src/lib/ai-repair-validation.ts:179:            : path.join(workspaceRoot, "lib", workspacePackage.name);
+artifacts/api-server/src/lib/ai-repair-validation.ts:186:      const target = path.resolve(workspaceRoot, relative);
+artifacts/api-server/src/lib/ai-repair-validation.ts:187:      if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`)) {
+artifacts/api-server/src/lib/ai-repair-validation.ts:195:      rootPath: workspaceRoot,
+artifacts/api-server/src/lib/ai-repair-validation.ts:197:        await fs.rm(workspaceRoot, { recursive: true, force: true });
+artifacts/api-server/src/lib/ai-repair-validation.ts:201:    await fs.rm(workspaceRoot, { recursive: true, force: true });
+artifacts/api-server/src/lib/benchmark-release-gate.ts:43:  if (!blockers.includes(blocker)) blockers.push(blocker);
+artifacts/api-server/src/lib/benchmark-release-gate.ts:134:  const targetedCandidateHash = targetedRun.scorecard.candidateHash;
+artifacts/api-server/src/lib/benchmark-release-gate.ts:135:  const cleanCandidateHash = cleanWitnessRun.scorecard.candidateHash;
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:69:  const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:100:    candidateHash,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:128:      evaluateBenchmarkCaseOracle(rootPath, testCase, telemetry, pendingChanges, undefined, candidateHash),
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:193:  const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:231:      candidateHash,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:262:      evaluateBenchmarkCaseOracle(rootPath, testCase, telemetry, pendingChanges, signal, candidateHash),
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:290:    candidateHash,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:308:    telemetry.candidateHash !== expectedCandidateHash
+artifacts/api-server/src/lib/ai-execution-state.test.ts:136:      "promoting",
+artifacts/api-server/src/lib/task-execution-service.ts:295:    stages.push("context");
+artifacts/api-server/src/lib/task-execution-service.ts:305:    stages.push("provider_call");
+artifacts/api-server/src/lib/task-execution-service.ts:322:    if (effectiveProvider !== params.provider.provider) stages.push("provider_fallback");
+artifacts/api-server/src/lib/task-execution-service.ts:329:      stages.push("parse");
+artifacts/api-server/src/lib/task-execution-service.ts:378:    stages.push("finalize");
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:230:      ...(typeof raw.candidateHash === "string" ? { candidateHash: raw.candidateHash.slice(0, 200) } : {}),
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:445:  const candidateHash = await hashDeliveryWorkspace(isolated.rootPath);
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:446:  if (initialResults.some((entry) => entry.observation.candidateHash !== candidateHash)) {
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:16:    candidateHash: "a".repeat(64),
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:161:        scorecard: scorecard({ candidateHash: "b".repeat(64) }),
+artifacts/api-server/src/lib/scan-runner.ts:315:  // committed — that would create tasks with no corresponding metrics row,
+artifacts/api-server/src/lib/scan-runner.ts:407:      newTaskIds.push(taskId);
+artifacts/api-server/src/lib/scan-runner.ts:439:      existing.push(id);
+artifacts/api-server/src/lib/scan-runner.ts:669:    // Audit is intentionally recorded *after* the transaction commits and
+artifacts/api-server/src/lib/scan-runner.ts:694:    // the full transaction has durably committed.
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:235:      results.push({ ...check, status: "skipped", durationMs: 0 });
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:238:    results.push(await runCommand(check, options.cwd ?? path.resolve(process.cwd(), "../..")));
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:251:  const workspaceRoot = path.resolve(process.cwd(), "../..");
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:260:      cwd: workspaceRoot,
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:264:        path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+artifacts/api-server/src/lib/discovery-runner.ts:293:  if (!testFramework) risks.push("No test framework detected");
+artifacts/api-server/src/lib/discovery-runner.ts:294:  if (!ci) risks.push("No CI/CD pipeline detected");
+artifacts/api-server/src/lib/discovery-runner.ts:296:    risks.push("Potential hardcoded environment variables");
+artifacts/api-server/src/lib/discovery-runner.ts:298:  if (Object.keys(allDeps).length > 100) risks.push("High dependency count (>100 packages)");

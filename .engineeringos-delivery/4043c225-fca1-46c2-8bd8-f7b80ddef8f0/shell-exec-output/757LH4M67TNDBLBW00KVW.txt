@@ -1,0 +1,300 @@
+./scripts/run-dashboard-journey.mjs:80:const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
+./scripts/run-dashboard-journey.mjs:140:    reason: redact(String(reason)).replaceAll(workspaceRoot, "[PROJECT_ROOT]"),
+./scripts/run-dashboard-journey.mjs:235:    cwd: workspaceRoot,
+./scripts/run-dashboard-journey.mjs:587:      `Release teardown evidence summary: validation run ${
+./scripts/run-dashboard-journey.mjs:674:    ["--filter", "@workspace/api-server", "run", "build"],
+./scripts/run-dashboard-journey.mjs:696:    ["--filter", "@workspace/dashboard", "run", "dev"],
+./scripts/run-dashboard-journey.mjs:722:      ["--filter", "@workspace/dashboard", "run", "test:clerk-handoff"],
+./scripts/run-dashboard-journey.mjs:859:                "@workspace/api-server",
+./scripts/run-dashboard-journey.mjs:919:      workspaceRoot,
+./scripts/run-dashboard-journey.mjs:987:        "Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.",
+./scripts/run-dashboard-journey.mjs:999:        "@workspace/dashboard",
+./scripts/run-dashboard-journey.mjs:1009:        cwd: workspaceRoot,
+./scripts/run-dashboard-journey.mjs:1030:            workspaceRoot,
+./scripts/dashboard-journey-contract.test.mjs:229:      "approved upload requests should reach archive validation without provider work",
+./scripts/dashboard-journey-contract.test.mjs:274:      "approved live-update requests should reach stream validation without provider work",
+./scripts/dashboard-journey-contract.test.mjs:342:    "Live-only report validation must remain behind the opt-in flag.",
+./scripts/dashboard-journey-contract.test.mjs:359:test("dashboard convergence carries a server revision and asserts rendered freshness", () => {
+./scripts/dashboard-journey-contract.test.mjs:363:    "The browser fixture must model a newer server-owned dashboard revision.",
+./scripts/dashboard-journey-contract.test.mjs:395:    /at least one accepted evidence item and one validation checkpoint/,
+./scripts/dashboard-journey-contract.test.mjs:405:    /const validation = recentSteps\.filter/,
+./scripts/dashboard-journey-contract.test.mjs:406:    "The live report capture must include validation checkpoints.",
+./scripts/dashboard-journey-contract.test.mjs:500:    /Release teardown evidence summary: validation run/,
+./scripts/dashboard-journey-contract.test.mjs:501:    "The release runner must identify the validation run beside the retained artifact.",
+./scripts/dashboard-journey-contract.test.mjs:539:    "The CI summary must identify the validation run even without evidence.",
+./scripts/dashboard-journey-contract.test.mjs:556:    /DEFAULT_LIVE_PROMPT[\s\S]*accepted evidence item[\s\S]*validation checkpoint/,
+./scripts/dashboard-journey-contract.test.mjs:561:    /successStates\.has\(terminalState\)[\s\S]*evidenceCount < 1[\s\S]*validation\.length < 1/,
+./scripts/dashboard-journey-contract.test.mjs:562:    "A successful live terminal must not pass without evidence and validation.",
+./scripts/dashboard-journey-contract.test.mjs:571:test("live campaign covers provider failures and candidate-bound delivery", () => {
+./scripts/dashboard-journey-contract.test.mjs:585:    "Delivery success must observe apply, commit, and push events.",
+./scripts/dashboard-journey-contract.test.mjs:590:    "Live reports must require candidate correlation.",
+./scripts/release-configuration.test.ts:9:const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+./scripts/release-configuration.test.ts:14:  return readFile(resolve(workspaceRoot, fileName), "utf8");
+./scripts/release-configuration.test.ts:45:      "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:46:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:47:      "--filter @workspace/api-server run test:process-recovery",
+./scripts/release-configuration.test.ts:53:    diagnostic: "mission correlation report fixture failed: operation revision mismatched",
+./scripts/release-configuration.test.ts:55:      "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:56:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:57:      "--filter @workspace/api-server run test:process-recovery",
+./scripts/release-configuration.test.ts:62:    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:65:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:66:      "--filter @workspace/api-server run test:process-recovery",
+./scripts/release-configuration.test.ts:71:    command: "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:74:      "--filter @workspace/api-server run test:process-recovery",
+./scripts/release-configuration.test.ts:79:    command: "--filter @workspace/api-server run test:process-recovery",
+./scripts/release-configuration.test.ts:114:    name: "release validation",
+./scripts/release-configuration.test.ts:116:    diagnostic: "release validation failed: process recovery did not complete",
+./scripts/release-configuration.test.ts:152:      cwd: workspaceRoot,
+./scripts/release-configuration.test.ts:202:      cwd: workspaceRoot,
+./scripts/release-configuration.test.ts:250:    cwd: workspaceRoot,
+./scripts/release-configuration.test.ts:268:test("keeps release recovery validation before deployment cleanup", async () => {
+./scripts/release-configuration.test.ts:285:    "release recovery validation must run before pnpm store prune",
+./scripts/release-configuration.test.ts:307:    "deployments must report the post-build validation command as their result",
+./scripts/release-configuration.test.ts:330:      cwd: workspaceRoot,
+./scripts/release-configuration.test.ts:343:      `controlled release validation must complete after recovery succeeds:\n${output}`,
+./scripts/release-configuration.test.ts:347:      /Real process-recovery validation completed successfully\./,
+./scripts/release-configuration.test.ts:353:test("runs deployment checks in order and prunes only after successful release validation", async () => {
+./scripts/release-configuration.test.ts:355:    cwd: workspaceRoot,
+./scripts/release-configuration.test.ts:377:      "pnpm store prune must start only after release validation succeeds",
+./scripts/release-configuration.test.ts:384:    cwd: workspaceRoot,
+./scripts/release-configuration.test.ts:399:      cwd: workspaceRoot,
+./scripts/release-configuration.test.ts:414:    /> workspace@[^ ]+ validate:release/,
+./scripts/release-configuration.test.ts:415:    "deployment output must identify the release validation command",
+./scripts/release-configuration.test.ts:424:test("stops release validation after an API typecheck diagnostic", async () => {
+./scripts/release-configuration.test.ts:438:if [ "$1" = "--filter" ] && [ "$2" = "@workspace/api-server" ] && [ "$3" = "run" ] && [ "$4" = "typecheck" ]; then
+./scripts/release-configuration.test.ts:453:        cwd: workspaceRoot,
+./scripts/release-configuration.test.ts:469:      `release validation must fail when the API typecheck fails:\n${output}`,
+./scripts/release-configuration.test.ts:478:      /--filter @workspace\/api-server run typecheck/,
+./scripts/release-configuration.test.ts:492:  test(`stops release validation after a ${scenario.name} diagnostic`, async () => {
+./scripts/release-configuration.test.ts:498:      `${scenario.name} failure must keep release validation non-zero`,
+./scripts/release-configuration.test.ts:508:      `${scenario.name} must start before release validation stops`,
+./scripts/release-configuration.test.ts:550:test("keeps the local Project workflow and release validation separate", async () => {
+./scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+./scripts/release-configuration.test.ts:617:  const releaseJobStart = workflow.indexOf("  release-validation:");
+./scripts/release-configuration.test.ts:618:  assert.ok(releaseJobStart >= 0, "release-validation job must remain configured");
+./scripts/release-configuration.test.ts:633:    "release validation must run the controlled dashboard journey",
+./scripts/release-configuration.test.ts:638:    "release validation must configure the teardown report path",
+./scripts/release-configuration.test.ts:642:    /name:\s*release-validation-\$\{\{\s*github\.run_id\s*\}\}-teardown/,
+./scripts/release-configuration.test.ts:648:    "release teardown evidence must upload even after validation fails",
+./scripts/verify-setup.sh:3:# Run after: pnpm install, Clerk secrets provisioned, pnpm --filter @workspace/db run push
+./scripts/verify-setup.sh:55:  check "API server /api/healthz → 200" "got HTTP $API_STATUS — start: pnpm --filter @workspace/api-server run dev"
+./scripts/verify-setup.sh:63:  check "Dashboard /dashboard/ → 200" "got HTTP $DASH_STATUS — start: pnpm --filter @workspace/dashboard run dev"
+./scripts/verify-setup.sh:72:    check "DB schema pushed (projects table)" "missing — run: pnpm --filter @workspace/db run push"
+./attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389833.json:22:      "nextAction": "Trigger regeneration and hash/shape verification whenever contract files change.",
+./scripts/validate-truth-flow.ts:6: * CurrentTruthFlowMatrixSchema from @workspace/api-zod.
+./scripts/validate-truth-flow.ts:40:} from "@workspace/api-zod";
+./scripts/validate-truth-flow.ts:63:// ─── 2. Layer 1 — Structural validation ──────────────────────────────────────
+./scripts/validate-truth-flow.ts:98:  console.error(`\n  Schema validation errors (${result.error.issues.length}):`);
+./scripts/validate-truth-flow.ts:115:    Inspect the focused diff before re-running this blocking validation.
+./package.json:2:  "name": "workspace",
+./package.json:7:    "codegen": "pnpm --filter @workspace/api-spec run codegen",
+./package.json:8:    "codegen:check": "pnpm --filter @workspace/scripts run check-codegen-drift",
+./package.json:9:    "db:schema:check": "pnpm --filter @workspace/db run check-audit-schema",
+./package.json:16:    "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
+./package.json:18:    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+./package.json:20:    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+./package.json:22:    "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+./package.json:23:    "validate:live-provider-review": "pnpm --filter @workspace/api-server run validate:live-provider-review",
+./package.json:27:    "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+./package.json:28:    "truth:baseline:check": "pnpm --filter @workspace/scripts run generate-truth-flow",
+./package.json:29:    "truth:baseline:materialize": "pnpm --filter @workspace/scripts run generate-truth-flow -- --write",
+./package.json:30:    "truth:validate": "pnpm --filter @workspace/scripts run validate-truth-flow",
+./package.json:31:    "benchmark:baseline:check": "pnpm --filter @workspace/scripts run validate-benchmark-baseline",
+./scripts/validate-github-workflows.mjs:159:    console.error(`❌ GitHub Actions workflow validation failed: ${error.message}`);
+./scripts/validate-dashboard-client-contract.mjs:12:      "@workspace/api-client-react",
+./scripts/validate-dashboard-client-contract.mjs:23:      "@workspace/api-client-react",
+./scripts/validate-dashboard-client-contract.mjs:33:      "@workspace/dashboard",
+./scripts/validate-benchmark-baseline.ts:5: * This is intentionally separate from Truth Flow validation. The benchmark
+./scripts/validate-benchmark-baseline.ts:20:const workspaceRoot = resolve(import.meta.dirname, "..");
+./scripts/validate-benchmark-baseline.ts:22:  workspaceRoot,
+./scripts/validate-benchmark-baseline.ts:35:      `      pnpm --filter @workspace/ai-orchestrator run benchmark:code-agent:deterministic\n` +
+./scripts/validate-app-origins.mjs:30:    parsed.pathname === "/" && !parsed.search && !parsed.hash,
+./scripts/validate-app-origins.mjs:31:    `Invalid APP_ORIGINS entry "${entry}": expected a bare origin without a path, query, or hash.`,
+./scripts/trigger-scan.mts:14: *   pnpm tsx --conditions workspace scripts/trigger-scan.mts
+./scripts/trigger-scan.mts:16:import { db } from "@workspace/db";
+./scripts/trigger-scan.mts:17:import { projectsTable, scanJobsTable } from "@workspace/db";
+./scripts/src/hello.ts:1:console.log("Hello from @workspace/scripts");
+./scripts/post-merge.sh:13:pnpm --filter @workspace/db run push
+./artifacts/mockup-sandbox/src/index.css:166:    @apply border-border;
+./artifacts/mockup-sandbox/src/index.css:169:    @apply font-sans antialiased bg-background text-foreground;
+./artifacts/mockup-sandbox/src/index.css:176:    @apply hidden;
+./scripts/patch-generated-zod.ts:5: * workspace uses Zod v3.
+./scripts/parse-check-spec.ts:10: *   pnpm run parse-check-spec         # from workspace root
+./scripts/parse-check-spec.ts:11: *   pnpm --filter @workspace/api-spec run parse-check   # from api-spec package
+./scripts/parse-check-spec.ts:41:// js-yaml is a devDependency of @workspace/api-spec (used internally by Orval).
+./scripts/parse-check-spec.ts:42:// We import it dynamically so this script runs in the @workspace/scripts
+./scripts/parse-check-spec.ts:47:  // js-yaml is hoisted from Orval's deps in the pnpm workspace.
+./scripts/package.json:2:  "name": "@workspace/scripts",
+./scripts/package.json:19:    "@workspace/api-zod": "workspace:*",
+./.replit:42:args = "PORT=8080 pnpm --filter @workspace/api-server run dev"
+./.replit:54:args = "PORT=23183 BASE_PATH=/dashboard/ pnpm --filter @workspace/dashboard run dev"
+./.replit:66:args = "PORT=8081 BASE_PATH=/__mockup pnpm --filter @workspace/mockup-sandbox run dev"
+./scripts/mission-correlation-report.test.mjs:23:    workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:36:    validation: success ? [{ status: "passed" }] : [],
+./scripts/mission-correlation-report.test.mjs:77:    workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:97:test("formats a redacted release summary with evidence and validation counts", () => {
+./scripts/mission-correlation-report.test.mjs:102:      counts: { evidence: 2, validation: 3 },
+./scripts/mission-correlation-report.test.mjs:104:    "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=3.",
+./scripts/mission-correlation-report.test.mjs:113:      counts: { evidence: 0, validation: 0 },
+./scripts/mission-correlation-report.test.mjs:117:    "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+./scripts/mission-correlation-report.test.mjs:147:          ? "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=1."
+./scripts/mission-correlation-report.test.mjs:148:          : "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+./scripts/mission-correlation-report.test.mjs:192:test("correlates every mission surface by operation and workspace revision", () => {
+./scripts/mission-correlation-report.test.mjs:197:    workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:211:    validation: [{ status: "passed" }],
+./scripts/mission-correlation-report.test.mjs:223:  assert.equal(report.workspaceRevision, "abc1234");
+./scripts/mission-correlation-report.test.mjs:228:test("rejects a successful terminal without accepted evidence or validation", () => {
+./scripts/mission-correlation-report.test.mjs:233:    workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:250:    /Evidence-backed success is incomplete: evidence=0, validation=0/,
+./scripts/mission-correlation-report.test.mjs:254:    /Evidence-backed success is incomplete: evidence=1, validation=0/,
+./scripts/mission-correlation-report.test.mjs:263:    workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:287:    ["workspaceRevision", { workspaceRevision: "" }],
+./scripts/mission-correlation-report.test.mjs:300:          workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:324:        workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:336:    workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:389:      workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:401:      validation: outcomeClass === "success" ? [{ status: "passed" }] : [],
+./scripts/mission-correlation-report.test.mjs:421:        "workspaceRevision",
+./scripts/mission-correlation-report.test.mjs:427:test("strict live validation rejects success without evidence and validation", () => {
+./scripts/mission-correlation-report.test.mjs:435:          workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:451:    /Evidence-backed success is incomplete: evidence=0, validation=0/,
+./scripts/mission-correlation-report.test.mjs:455:test("strict live validation accepts completed evidence-backed missions", () => {
+./scripts/mission-correlation-report.test.mjs:461:      workspaceRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:474:      validation: [{ status: "passed" }],
+./scripts/mission-correlation-report.test.mjs:482:  assert.equal(report.agreement.validation, true);
+./scripts/mission-correlation-report.test.mjs:485:test("strict live validation requires a matching candidate revision", () => {
+./scripts/mission-correlation-report.test.mjs:492:    /candidateIdentity/,
+./scripts/mission-correlation-report.test.mjs:497:      candidateIdentity: "candidate-1",
+./scripts/mission-correlation-report.test.mjs:498:      candidateRevision: "different-revision",
+./scripts/mission-correlation-report.test.mjs:503:    /candidateRevision/,
+./scripts/mission-correlation-report.test.mjs:507:    candidateIdentity: "candidate-1",
+./scripts/mission-correlation-report.test.mjs:508:    candidateRevision: "abc1234",
+./scripts/mission-correlation-report.test.mjs:513:  assert.equal(report.candidateIdentity, "candidate-1");
+./scripts/mission-correlation-report.test.mjs:514:  assert.equal(report.candidateRevision, "abc1234");
+./scripts/mission-correlation-report.mjs:73:  const validation = Number.isSafeInteger(counts.validation) && counts.validation >= 0
+./scripts/mission-correlation-report.mjs:74:    ? counts.validation
+./scripts/mission-correlation-report.mjs:81:    `terminal=${terminalState} evidence=${evidence} validation=${validation}.`
+./scripts/mission-correlation-report.mjs:91:  const workspaceRevision = requireValue(input.workspaceRevision, "workspaceRevision");
+./scripts/mission-correlation-report.mjs:106:  const validation = Array.isArray(input.validation) ? input.validation : [];
+./scripts/mission-correlation-report.mjs:107:  const candidateIdentity = text(input.candidateIdentity);
+./scripts/mission-correlation-report.mjs:108:  const candidateRevision = text(input.candidateRevision);
+./scripts/mission-correlation-report.mjs:111:    (candidate) => candidate?.id === execution.id,
+./scripts/mission-correlation-report.mjs:149:    (!Number.isFinite(evidenceCount) || evidenceCount < 1 || validation.length < 1)
+./scripts/mission-correlation-report.mjs:153:      `validation=${validation.length}.`,
+./scripts/mission-correlation-report.mjs:157:    if (!candidateIdentity) {
+./scripts/mission-correlation-report.mjs:158:      throw new Error("Correlation report is missing candidateIdentity.");
+./scripts/mission-correlation-report.mjs:160:    if (!candidateRevision) {
+./scripts/mission-correlation-report.mjs:161:      throw new Error("Correlation report is missing candidateRevision.");
+./scripts/mission-correlation-report.mjs:163:    same(candidateRevision, workspaceRevision, "candidateRevision");
+./scripts/mission-correlation-report.mjs:164:    if (success && validation.some((step) =>
+./scripts/mission-correlation-report.mjs:166:      step.projectRevision !== workspaceRevision
+./scripts/mission-correlation-report.mjs:168:      throw new Error("Correlation report contains validation from another project revision.");
+./scripts/mission-correlation-report.mjs:178:    workspaceRevision,
+./scripts/mission-correlation-report.mjs:179:    ...(candidateIdentity ? { candidateIdentity } : {}),
+./scripts/mission-correlation-report.mjs:180:    ...(candidateRevision ? { candidateRevision } : {}),
+./scripts/mission-correlation-report.mjs:189:      validation: validation.length,
+./scripts/mission-correlation-report.mjs:196:      validation: validation.length > 0 || !success,
+./scripts/generate-truth-flow.ts:15:import { EXPECTED_CURRENT_TRUTH_FLOW_MATRIX } from "@workspace/api-zod";
+./scripts/dashboard-contract-trigger.test.mjs:116:    /@workspace\/api-client-react|@\/lib\/api-fetch|from ["'][^"']*api-fetch["']|fetch\(\s*["']\/api\//;
+./scripts/check-codegen-drift.ts:15: *   1 — drift detected; run `pnpm --filter @workspace/api-spec run codegen` to fix
+./scripts/check-codegen-drift.ts:46:  execSync("pnpm --filter @workspace/scripts run parse-check-spec", {
+./scripts/check-codegen-drift.ts:57:// Generate into a temporary workspace instead of the checked-out generated
+./scripts/check-codegen-drift.ts:168:  execSync("pnpm --filter @workspace/api-spec run codegen", {
+./scripts/check-codegen-drift.ts:216:    "\n    Fix: pnpm --filter @workspace/api-spec run codegen && git add lib/api-zod lib/api-client-react\n",
+./replit.md:26:2. `pnpm --filter @workspace/db run push` — pushes Drizzle schema to the DB
+./release-evidence/live-mission-correlation.json:8:  "workspaceRevision": "b189fca",
+./release-evidence/live-mission-correlation.json:17:    "validation": 0,
+./release-evidence/live-mission-correlation.json:28:    "validation": true
+./.git/config:20:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:22:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:26:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:28:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:30:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:32:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:34:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:36:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:38:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:40:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:42:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:44:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:46:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:48:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:50:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:52:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:54:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:56:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:58:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:60:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:62:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:64:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:66:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:68:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:70:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:72:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:74:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:76:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:78:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:80:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:82:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:84:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:86:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:88:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:90:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:92:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:94:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:96:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:98:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:100:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:102:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:104:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:106:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:108:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:110:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:112:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:114:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:116:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:118:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:120:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:122:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:124:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:126:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:128:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:130:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:132:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:134:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:136:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:138:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:140:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:142:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:144:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:146:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:148:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:150:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:152:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:154:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:156:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:158:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:160:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:164:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:166:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:168:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:170:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:172:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:174:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:176:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:178:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./.git/config:180:url = git+ssh://git@ssh.worf.replit.dev:/home/runner/workspace
+./.git/config:182:lfsurl = ssh://git@ssh.worf.replit.dev/home/runner/workspace
+./pnpm-workspace.yaml:12:# extremely dangerous and leaves the entire workspace vulnerable to supply-
+./pnpm-workspace.yaml:33:  # this setting guards against does not apply to our own packages.
+./tsconfig.base.json.bak:24:    "customConditions": ["workspace"]
+./tsconfig.base.json:24:    "customConditions": ["workspace"]
+./artifacts/mockup-sandbox/src/App.tsx:107:          This server renders individual components for the workspace canvas.
+./artifacts/mockup-sandbox/package.json:2:  "name": "@workspace/mockup-sandbox",
+./artifacts/mockup-sandbox/.replit-artifact/artifact.toml:17:run = "pnpm --filter @workspace/mockup-sandbox run dev"
+./pnpm-lock.yaml:179:      '@workspace/ai-orchestrator':
+./pnpm-lock.yaml:180:        specifier: workspace:*
+./pnpm-lock.yaml:182:      '@workspace/api-zod':
+./pnpm-lock.yaml:183:        specifier: workspace:*
+./pnpm-lock.yaml:185:      '@workspace/db':

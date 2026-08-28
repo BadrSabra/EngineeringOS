@@ -79,6 +79,48 @@ describe("audit write recovery", () => {
     expect(insertMock).toHaveBeenCalledTimes(3);
   });
 
+  it("preserves a pending audit after its project is deleted", async () => {
+    let auditAttempts = 0;
+    const projectDeletedError = Object.assign(
+      new Error("project no longer exists"),
+      { code: "23503", constraint: "audit_logs_project_id_projects_id_fk" },
+    );
+    insertMock.mockImplementation((table) => {
+      if (table === auditTable) {
+        return {
+          values: vi.fn().mockReturnValue({
+            onConflictDoNothing: vi.fn(async () => {
+              auditAttempts++;
+              if (auditAttempts === 1 || auditAttempts === 2) throw projectDeletedError;
+            }),
+          }),
+        };
+      }
+      return {
+        values: vi.fn().mockReturnValue({
+          onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+        }),
+      };
+    });
+
+    await recordAudit({
+      entityType: "project",
+      entityId: "deleted-project",
+      projectId: "deleted-project",
+      action: "deleted",
+    });
+    await drainPendingAudits();
+
+    expect(auditAttempts).toBe(3);
+    expect(getPendingAuditCount()).toBe(0);
+    expect(getOperationalCounters()).toMatchObject({
+      auditWriteFailures: 1,
+      auditWritesPending: 0,
+      auditWritesRecovered: 1,
+    });
+    expect(deleteMock).toHaveBeenCalled();
+  });
+
   it("keeps a row pending when recovery also fails", async () => {
     insertMock.mockImplementation((table) => table === auditTable
       ? { values: vi.fn().mockRejectedValue(new Error("database still unavailable")) }

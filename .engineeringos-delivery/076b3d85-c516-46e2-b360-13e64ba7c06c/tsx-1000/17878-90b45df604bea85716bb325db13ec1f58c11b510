@@ -1,0 +1,1 @@
+{"code":"const AiChatMessageRole={user:\"user\",assistant:\"assistant\",system:\"system\"};export{AiChatMessageRole};\n","warnings":[],"map":{"version":3,"mappings":"AAWO,MAAM,kBAAoB,CAC/B,KAAM,OACN,UAAW,YACX,OAAQ,QACV","names":[],"ignoreList":[],"sources":["/home/runner/workspace/lib/api-zod/src/generated/types/aiChatMessageRole.ts"],"sourcesContent":[null]}}
