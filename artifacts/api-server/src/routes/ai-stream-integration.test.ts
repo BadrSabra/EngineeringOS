@@ -35,7 +35,13 @@ import {
   aiExecutionsTable,
   aiProviderCredentialsTable,
   aiSessionMemoriesTable,
+  aiApplyJournalTable,
   eventsTable,
+  auditLogsTable,
+  tasksTable,
+  taskLogsTable,
+  workflowsTable,
+  workflowExecutionsTable,
   scanJobsTable,
   discoverySessionsTable,
 } from "@workspace/db";
@@ -370,6 +376,53 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
+async function cleanupProjectFixture(projectId: string): Promise<void> {
+  const sessions = await db
+    .select({ id: aiChatSessionsTable.id })
+    .from(aiChatSessionsTable)
+    .where(eq(aiChatSessionsTable.projectId, projectId));
+  const sessionIds = sessions.map(({ id }) => id);
+
+  const tasks = await db
+    .select({ id: tasksTable.id })
+    .from(tasksTable)
+    .where(eq(tasksTable.projectId, projectId));
+  const taskIds = tasks.map(({ id }) => id);
+
+  const workflows = await db
+    .select({ id: workflowsTable.id })
+    .from(workflowsTable)
+    .where(eq(workflowsTable.projectId, projectId));
+  const workflowIds = workflows.map(({ id }) => id);
+
+  // Keep deletion scoped to the fixture's project and explicit across all
+  // project-owned tables. This prevents a release test from relying on
+  // cascades whose behavior may differ after a schema change.
+  await db.delete(aiApplyJournalTable).where(eq(aiApplyJournalTable.projectId, projectId));
+  await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, projectId));
+  await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+  await db.delete(aiSessionMemoriesTable).where(eq(aiSessionMemoriesTable.projectId, projectId));
+  await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+  await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, projectId));
+  await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, projectId));
+
+  for (const sessionId of sessionIds) {
+    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId));
+  }
+  await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+
+  for (const taskId of taskIds) {
+    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+  }
+  await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId));
+
+  for (const workflowId of workflowIds) {
+    await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.workflowId, workflowId));
+  }
+  await db.delete(workflowsTable).where(eq(workflowsTable.projectId, projectId));
+  await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+}
+
 beforeAll(() => {
   process.env.GROQ_API_KEY = "test-dummy-key-for-stream-tests";
 });
@@ -392,21 +445,7 @@ afterEach(async () => {
       .catch(() => undefined);
   }
   for (const pid of projectIds.splice(0)) {
-    await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, pid)).catch(() => undefined);
-    await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, pid)).catch(() => undefined);
-    await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, pid)).catch(() => undefined);
-    const sessions = await db
-      .select({ id: aiChatSessionsTable.id })
-      .from(aiChatSessionsTable)
-      .where(eq(aiChatSessionsTable.projectId, pid));
-    for (const s of sessions) {
-      await db
-        .delete(aiChatMessagesTable)
-        .where(eq(aiChatMessagesTable.sessionId, s.id))
-        .catch(() => undefined);
-    }
-    await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, pid)).catch(() => undefined);
-    await db.delete(projectsTable).where(eq(projectsTable.id, pid)).catch(() => undefined);
+    await cleanupProjectFixture(pid);
   }
   for (const rootPath of rootPaths.splice(0)) {
     await fs.rm(rootPath, { recursive: true, force: true });
@@ -2951,7 +2990,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     }];
     const behaviorResult = {
       response:
-        "عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.",
+        "ANALYSIS_INCOMPLETE — عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.",
       sources: [source],
       pendingChanges: [],
       behaviorEvidence: evidence,
@@ -3055,6 +3094,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(done?.["sessionId"]).toBe(sessionId);
     expect(done?.["sources"]).toEqual([source]);
     expect((done?.["message"] as Record<string, unknown>)["content"]).toContain("تقريرًا جزئيًا");
+    expect((done?.["message"] as Record<string, unknown>)["content"]).toContain("ANALYSIS_INCOMPLETE");
     expect(done?.["telemetry"]).toEqual({
       latencyMs: expect.any(Number),
       provider: "groq",
@@ -3095,6 +3135,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       kind: "BEHAVIOR_ANSWER_RESULT",
       answer: { sourceScope: [source] },
     });
+    const sessionSummary = await request(app)
+      .get(`/api/ai/chat/sessions?projectId=${projectId}`)
+      .expect(200);
+    expect(sessionSummary.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: sessionId, forensicStatus: "INCOMPLETE" }),
+    ]));
+    expect(storedAssistant?.["content"]).toContain("ANALYSIS_INCOMPLETE");
     expect(JSON.stringify(historyMessages)).not.toMatch(/systemPrompt|rawPrompt|apiKey|diagnosticDetails|providerKey|stackTrace/i);
   });
 

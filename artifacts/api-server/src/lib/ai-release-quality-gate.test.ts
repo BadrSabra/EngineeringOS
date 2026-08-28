@@ -43,13 +43,19 @@ describe("AI release quality gate", () => {
   it("blocks a failed typecheck or false-success benchmark without raw output", () => {
     const decision = evaluateAiReleaseQuality([
       result({ id: "api-typecheck", kind: "typecheck", failureCode: "API_TYPECHECK_FAILED_2", status: "failed" }),
-      result({ id: "benchmark", kind: "benchmark", failureCode: "FALSE_SUCCESS", status: "failed" }),
+      result({
+        id: "benchmark",
+        kind: "benchmark",
+        failureCode: "provider output: leaked prompt and source diagnostics",
+        status: "failed",
+      }),
       result({ id: "informational", blocking: false, status: "failed", failureCode: "LATENCY_HIGH" }),
     ]);
     expect(decision.status).toBe("blocked");
     expect(decision.summary.blockingFailures).toBe(2);
     expect(decision.summary.informationalFailures).toBe(1);
-    expect(JSON.stringify(decision)).not.toContain("prompt");
+    expect(JSON.stringify(decision)).not.toMatch(/provider output|leaked prompt|source diagnostics/i);
+    expect(decision.blockers).toContain("BENCHMARK_FAILED");
   });
 
   it("reports skipped preview cases while preserving a deterministic decision", () => {

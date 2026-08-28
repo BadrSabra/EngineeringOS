@@ -11,10 +11,12 @@ import {
 
 const artifactRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const vitestConfig = path.join(artifactRoot, "vitest.config.ts");
-// These are the API suites whose fixtures write ai_provider_credentials. Keep
-// this list explicit: the release stream suite has independent timing-sensitive
-// concurrency coverage and is already run by the neighboring release check.
+// Keep every suite that writes shared AI fixture state in this repeated run.
+// The explicit owning-artifact paths and release lock make this a useful
+// collision check rather than a second, potentially racy test invocation.
 const credentialFixtureTests = [
+  path.join(artifactRoot, "src", "routes", "ai.test.ts"),
+  path.join(artifactRoot, "src", "routes", "ai-stream-integration.test.ts"),
   path.join(artifactRoot, "src", "routes", "git.test.ts"),
 ];
 

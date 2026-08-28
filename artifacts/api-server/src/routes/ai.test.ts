@@ -650,26 +650,12 @@ async function cleanupProjectFixture(projectId: string): Promise<void> {
   await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
 }
 
-async function cleanupInterruptedTmpFixtures(): Promise<void> {
-  const tmpProjects = await db
-    .select({ id: projectsTable.id, name: projectsTable.name })
-    .from(projectsTable)
-    .where(eq(projectsTable.rootPath, "/tmp"));
-
-  for (const project of tmpProjects) {
-    if (project.name.startsWith("apply-")) {
-      await cleanupProjectFixture(project.id);
-    }
-  }
-}
-
 // All AI routes require a Groq API key. Set a dummy env key for the entire
 // test file — every AI orchestrator call is mocked so the real key is never
 // used.  Individual tests that want to verify the 428 path remove the key
 // themselves and restore it in a finally block.
 let _savedGroqKeyFileLevel: string | undefined;
 beforeAll(async () => {
-  await cleanupInterruptedTmpFixtures();
   _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
   process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
 });

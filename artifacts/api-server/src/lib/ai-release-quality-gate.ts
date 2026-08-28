@@ -165,15 +165,35 @@ function failureCode(check: AiReleaseCheckDefinition, exitCode: number | null, s
   return `${check.id.toUpperCase().replaceAll("-", "_")}_FAILED_${exitCode ?? "UNKNOWN"}`;
 }
 
+const SAFE_FAILURE_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
+
+function normalizedFailureCode(result: AiReleaseCheckResult): string | undefined {
+  if (result.status !== "failed") return undefined;
+  if (result.failureCode && SAFE_FAILURE_CODE.test(result.failureCode)) {
+    return result.failureCode;
+  }
+  return `${result.id.toUpperCase().replaceAll("-", "_")}_FAILED`;
+}
+
 export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[], options: {
   enableLiveProvider?: boolean;
   enablePreview?: boolean;
   generatedAt?: string;
 } = {}): AiReleaseQualityDecision {
-  const blockers = results
+  // Normalize at the report boundary as well as at command execution. This
+  // keeps callers from accidentally persisting provider output, prompts, or
+  // diagnostics as a failure code.
+  const normalizedResults: AiReleaseCheckResult[] = results.map((result) => {
+    const safeCode = normalizedFailureCode(result);
+    if (result.status === "failed") {
+      return { ...result, failureCode: safeCode };
+    }
+    return { ...result, failureCode: undefined };
+  });
+  const blockers = normalizedResults
     .filter((result) => result.status === "failed" && result.blocking)
     .map((result) => result.failureCode ?? `${result.id.toUpperCase().replaceAll("-", "_")}_FAILED`);
-  const failed = results.filter((result) => result.status === "failed");
+  const failed = normalizedResults.filter((result) => result.status === "failed");
   return {
     kind: "ai-release-quality-decision",
     version: AI_RELEASE_QUALITY_GATE_VERSION,
@@ -182,15 +202,15 @@ export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[
     liveProviderChecks: options.enableLiveProvider ? "enabled" : "disabled",
     previewChecks: options.enablePreview ? "enabled" : "disabled",
     summary: {
-      totalCases: results.length,
-      passedCases: results.filter((result) => result.status === "passed").length,
+      totalCases: normalizedResults.length,
+      passedCases: normalizedResults.filter((result) => result.status === "passed").length,
       failedCases: failed.length,
-      skippedCases: results.filter((result) => result.status === "skipped").length,
+      skippedCases: normalizedResults.filter((result) => result.status === "skipped").length,
       blockingFailures: blockers.length,
       informationalFailures: failed.filter((result) => !result.blocking).length,
     },
     blockers: [...new Set(blockers)],
-    checks: [...results],
+    checks: normalizedResults,
   };
 }
 
