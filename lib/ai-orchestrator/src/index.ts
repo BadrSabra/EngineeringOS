@@ -179,6 +179,34 @@ export type {
 export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed, authorizeToolInvocation } from "./tool-policy.js";
 export type { ToolMode, ToolPolicy, ToolAuthorization } from "./tool-policy.js";
 export {
+  CAPABILITY_CONTRACT_VERSION,
+  SUPPORTED_RECIPE_VERSIONS,
+  CapabilityIdSchema,
+  RecipeVersionSchema,
+  CapabilityRiskSchema,
+  CapabilityPolicySchema,
+  CapabilityDescriptorSchema,
+  CapabilityRegistrationSchema,
+  CAPABILITY_INPUT_LIMITS,
+  CapabilityRegistry,
+  CapabilityRegistryError,
+  DEFAULT_CAPABILITY_POLICY,
+} from "./capability-contract.js";
+export type {
+  CapabilityId,
+  RecipeVersion,
+  CapabilityRisk,
+  CapabilityPolicy,
+  CapabilityDescriptor,
+  CapabilityRegistration,
+  CapabilityExecutionContext,
+  CapabilityAdapter,
+  CapabilityFailureCode,
+  CapabilityFailure,
+  CapabilityValidation,
+  CapabilityInvocationResult,
+} from "./capability-contract.js";
+export {
   createUntrustedContent,
   formatUntrustedContent,
   isUntrustedContent,
