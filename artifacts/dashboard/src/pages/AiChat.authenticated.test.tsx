@@ -2317,7 +2317,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('1 source read')).toBeInTheDocument();
     expect(screen.getByText('Writes gated')).toBeInTheDocument();
     expect(screen.getByText('response completed')).toBeInTheDocument();
-    expect(screen.getByText(/Model path:.*history-model/)).toBeInTheDocument();
+    expect(screen.queryByText(/Model path:.*history-model/)).not.toBeInTheDocument();
     expect(screen.getByText('1 attempt')).toBeInTheDocument();
     expect(screen.getByText('budget 1000 ms')).toBeInTheDocument();
     expect(screen.getByText('completed within budget')).toBeInTheDocument();
@@ -3021,7 +3021,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText(/Analysis complete/)).toBeInTheDocument();
     expect(screen.getByText('Agent activity')).toBeInTheDocument();
     expect(screen.getByText(/Calling AI model/)).toBeInTheDocument();
-    expect(screen.getByText(/analysis-model/)).toBeInTheDocument();
+    expect(screen.getByText(/Provider response received/)).toBeInTheDocument();
   });
 
   it('shows a retryable incomplete code review and preserves the failed attempt after retry', async () => {

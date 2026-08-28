@@ -574,6 +574,8 @@ export function handleOrchestratorError(
     operation?: string;
     provider?: ProviderId;
     incompleteReview?: { sessionId?: string; failureKind?: string };
+    /** Chat routes use the strict public contract instead of provider UI metadata. */
+    publicContract?: "chat";
   },
 ): boolean {
   if (!(err instanceof GroqClientError)) return false;
@@ -582,6 +584,37 @@ export function handleOrchestratorError(
     { err, projectId: ctx?.projectId, operation: ctx?.operation, provider: ctx?.provider },
     "AI orchestrator request failed",
   );
+
+  if (ctx?.publicContract === "chat") {
+    const retryable = err.code === "TIMEOUT"
+      || err.code === "NETWORK_ERROR"
+      || err.code === "SERVER_ERROR"
+      || err.code === "RATE_LIMITED";
+    const status = err.code === "AUTH_ERROR"
+      ? 401
+      : err.code === "RATE_LIMITED"
+        ? 429
+        : err.code === "QUOTA" || err.code === "PLAN_RESTRICTED"
+          ? 402
+            : err.code === "INVALID_CONFIG" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+              ? 503
+          : err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE" ||
+                err.code === "INVALID_CONFIG"
+            ? 422
+            : retryable ? 503 : 502;
+    res.status(status).json({
+      code: /^[A-Z][A-Z0-9_]{2,79}$/.test(err.code) ? err.code : "AI_PROVIDER_FAILURE",
+      error: retryable
+        ? "The AI request could not complete. Please retry."
+        : "The AI request was not completed because the provider configuration could not satisfy it.",
+      outcome: "FAILED",
+      retryable,
+      recoveryState: "REQUIRED",
+      correlationId: randomUUID(),
+      ...(ctx.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
+    });
+    return true;
+  }
 
   if (ctx?.projectId) {
     void db

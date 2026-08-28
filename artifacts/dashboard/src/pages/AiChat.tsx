@@ -138,6 +138,7 @@ type ChatMessage = {
   structuredTask?: 'analyze' | 'review';
   failureKind?: AiStreamErrorEvent['failureKind'];
   retryable?: boolean;
+  recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
   createdAt: string;
 };
 
@@ -619,22 +620,6 @@ function ProviderReadinessNotice({
  * Maps an AiApiError (or any error) to a concise, user-facing string.
  * Status codes align with what ai.ts returns after handleOrchestratorError.
  */
-/** STORY-04: human-readable label for an OpenRouter model ID. */
-const OR_MODEL_LABELS: Record<string, string> = {
-  "meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B",
-  "meta-llama/llama-3.1-8b-instruct:free":  "Llama 3.1 8B",
-  "deepseek/deepseek-r1:free":               "DeepSeek R1",
-  "qwen/qwen3-235b-a22b:free":               "Qwen3 235B",
-  "qwen/qwen3-8b:free":                      "Qwen3 8B",
-  "qwen/qwen3-30b-a3b:free":                 "Qwen3 30B",
-  "mistralai/mistral-7b-instruct:free":      "Mistral 7B",
-  "google/gemma-3-27b-it:free":              "Gemma 3 27B",
-  "google/gemma-3-12b-it:free":              "Gemma 3 12B",
-};
-function fmtModelId(id: string): string {
-  return OR_MODEL_LABELS[id] ?? (id.split("/").pop()?.replace(/:free$/, "") ?? id);
-}
-
 /**
  * Keep implementation details useful to the agent out of the normal chat
  * transcript. Absolute runtime paths and opaque UUIDs can disclose deployment
@@ -645,18 +630,6 @@ function redactInternalDetails(value: string): string {
     .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, '[project path]')
     .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, '[runtime path]')
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal id]');
-}
-
-/** Build a provider context suffix for error messages, showing model/status/raw hint. */
-function providerContextSuffix(err: ApiError): string {
-  const parts: string[] = [];
-  const ctx = err.providerContext as Record<string, unknown> | undefined;
-  if (ctx) {
-    if (ctx['providerName']) parts.push(`Provider: ${ctx['providerName']}`);
-    if (ctx['providerModel']) parts.push(`Model: ${fmtModelId(String(ctx['providerModel']))}`);
-    if (ctx['providerStatus']) parts.push(`Status: ${ctx['providerStatus']}`);
-  }
-  return parts.length > 0 ? ` (${parts.join(' · ')})` : '';
 }
 
 function availabilitySuffix(err: unknown): string {
@@ -675,7 +648,7 @@ function availabilitySuffix(err: unknown): string {
 
 function describeAiError(err: unknown): string {
   if (err instanceof AiApiError) {
-    const suffix = providerContextSuffix(err) + availabilitySuffix(err);
+    const suffix = availabilitySuffix(err);
     switch (err.status) {
       case 400: return err.errorMessage + suffix;
       case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
@@ -1106,8 +1079,6 @@ function parseExecutionSummary(trace: ToolTraceEntry[]): DashboardExecutionSumma
   const recordedLoopToolCalls = recordedToolCalls - recordedPrefetchToolCalls;
   const diagnosticCodes = new Set<string>();
   const diagnosticDetails = new Set<string>();
-  const modelsUsed = new Set<string>();
-  const recoveryModelsUsed = new Set<string>();
   for (const entry of trace) {
     if (entry.kind === 'diagnostic' && entry.code) diagnosticCodes.add(entry.code);
     if (entry.kind === 'diagnostic') {
@@ -1115,8 +1086,6 @@ function parseExecutionSummary(trace: ToolTraceEntry[]): DashboardExecutionSumma
     }
     for (const code of entry.diagnosticCodes ?? []) diagnosticCodes.add(code);
     for (const detail of entry.diagnosticDetails ?? []) diagnosticDetails.add(detail);
-    if (entry.kind === 'model_call' && entry.model) modelsUsed.add(entry.model);
-    if (entry.kind === 'recovery_model_call' && entry.model) recoveryModelsUsed.add(entry.model);
   }
   const capabilityProbeRecoveryStarted = [...diagnosticCodes].some(
     (code) =>
@@ -1154,10 +1123,6 @@ function parseExecutionSummary(trace: ToolTraceEntry[]): DashboardExecutionSumma
     // summary is now restored.
     ...(diagnosticDetails.size > 0 && done.stopReason !== 'cancelled'
       ? { diagnosticDetails: [...diagnosticDetails] }
-      : {}),
-    ...(modelsUsed.size > 0 ? { modelsUsed: [...modelsUsed].slice(0, 12) } : {}),
-    ...(recoveryModelsUsed.size > 0
-      ? { recoveryModelsUsed: [...recoveryModelsUsed].slice(0, 2) }
       : {}),
   };
 }
@@ -2315,32 +2280,6 @@ function ForensicEvidenceCard({
                     : 'Forensic Recovery started after the tool-loop response but did not produce an accepted six-section report; the preserved-evidence fallback remains active.'}
                 </div>
               )}
-              {evidence.execution.modelsUsed.length > 0 && (
-                <div className="mt-2 border-t border-border/40 pt-2">
-                  <div className="text-[10px] text-muted-foreground">Models used</div>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {evidence.execution.modelsUsed.map((model) => (
-                      <code key={model} className="rounded border border-border/50 bg-background/30 px-1.5 py-0.5 text-[10px] text-foreground/80">
-                        {fmtModelId(model)}
-                      </code>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {evidence.execution.recoveryModelsUsed.length > 0 && (
-                <div className="mt-2 border-t border-border/40 pt-2">
-                  <div className="text-[10px] text-muted-foreground">
-                    Recovery models (max 2)
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {evidence.execution.recoveryModelsUsed.map((model) => (
-                      <code key={model} className="rounded border border-amber-500/30 bg-amber-500/5 px-1.5 py-0.5 text-[10px] text-amber-100">
-                        {fmtModelId(model)}
-                      </code>
-                    ))}
-                  </div>
-                </div>
-              )}
               {(evidence.execution.prefetchToolCalls > 0 || evidence.execution.loopToolCalls > 0) && (
                 <div className="mt-2 border-t border-border/40 pt-2 text-[10px] text-muted-foreground">
                    Counted in total: {evidence.execution.prefetchToolCalls} prefetch · {evidence.execution.loopToolCalls} loop
@@ -2571,9 +2510,6 @@ function ExecutionSummaryBanner({
       {summary.diagnosticDetails && summary.diagnosticDetails.length > 0
         ? <div className="mt-1 text-[10px] text-muted-foreground">{summary.diagnosticDetails.join(' · ')}</div>
         : null}
-      {summary.modelsUsed && summary.modelsUsed.length > 1
-        ? <div className="mt-1 text-[10px] text-muted-foreground">Models tried: {summary.modelsUsed.map(fmtModelId).join(' → ')}</div>
-        : null}
     </div>
   );
 }
@@ -2602,8 +2538,6 @@ function PersistedExecutionProof({
   ).length;
   const completedReads = evidence?.completedReads ?? readCalls;
   const sourceReadLabel = completedReads === 1 ? 'source read' : 'source reads';
-  const modelsUsed = summary.modelsUsed ?? [];
-  const recoveryModelsUsed = summary.recoveryModelsUsed ?? [];
   const integrity = evidence?.evidenceIntegrity;
   const incompleteBeforeEvidence =
     summary.toolCalls === 0 &&
@@ -2674,14 +2608,6 @@ function PersistedExecutionProof({
         )}
         {behaviorEvidenceCount > 0 && (
           <div>{behaviorEvidenceCount} claim-bound evidence excerpt{behaviorEvidenceCount === 1 ? '' : 's'} retained</div>
-        )}
-        {modelsUsed.length > 0 && (
-          <div className="break-words">
-            Model path: {modelsUsed.map(fmtModelId).join(' → ')}
-            {recoveryModelsUsed.length > 0
-              ? ` · recovery: ${recoveryModelsUsed.map(fmtModelId).join(' → ')}`
-              : ''}
-          </div>
         )}
       </div>
     </details>
@@ -4323,7 +4249,20 @@ function MessageBubble({
         ? 'Configuration issue'
         : msg.failureKind === 'TRANSPORT'
           ? 'Connection interrupted'
+          : msg.failureKind === 'TOOL_FAILURE'
+            ? 'Required tool failed'
+            : msg.failureKind === 'CANCELLATION'
+              ? 'Cancelled before completion'
+              : msg.failureKind === 'RECOVERY_FAILURE'
+                ? 'Recovery failed'
+                : msg.failureKind === 'INCOMPLETE'
+                  ? 'Incomplete evidence'
           : 'Provider failure';
+  const preservedFailureReport = failedTurn
+    && !internalTechnicalDump
+    && (isForensicFallbackMessage(displayContent) || /\bANALYSIS_INCOMPLETE\b/i.test(displayContent))
+    ? redactedDisplayContent
+    : null;
   const userFacingContent = internalTechnicalDump
     ? 'The agent produced internal technical details for this run.'
     : redactedDisplayContent;
@@ -4455,14 +4394,20 @@ function MessageBubble({
                       {partialProviderResponse}
                     </div>
                   )}
-                  <div className="mb-2 whitespace-pre-wrap">{safeFailureMessage}</div>
+                  {preservedFailureReport ? (
+                    <div className="mb-2 whitespace-pre-wrap">{preservedFailureReport}</div>
+                  ) : (
+                    <div className="mb-2 whitespace-pre-wrap">{safeFailureMessage}</div>
+                  )}
                   <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
                     <div className="font-medium">
                       {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
                     </div>
                     <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">{failureKindLabel}</div>
-                    {msg.executionId && (
-                      <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
+                    {msg.recoveryState && msg.recoveryState !== 'NONE' && (
+                      <div className="mt-1 text-[10px] opacity-70">
+                        {msg.recoveryState === 'REQUIRED' ? 'Recovery required' : 'Additional evidence is required'}
+                      </div>
                     )}
                   </div>
                 </>
@@ -5315,12 +5260,12 @@ function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentActivity
       continue;
     }
 
-    if (entry.kind === 'model_call' && entry.model) {
+    if (entry.kind === 'model_call') {
       events.push({
         id: nextId++,
         kind: 'model',
         label: 'Model response',
-        detail: `${entry.model}${entry.provider ? ` · ${entry.provider}` : ''}`,
+        detail: 'Provider response received',
         status: 'info',
       });
       continue;
@@ -7196,9 +7141,6 @@ export default function AiChat() {
   // Streaming: accumulates raw text deltas while Groq is streaming a response.
   // Cleared to '' once the `done` event arrives and the full message is added.
   const [streamingContent, setStreamingContent] = useState('');
-  // STORY-04: actual model used at runtime — updated from every SSE done event
-  // so the badge always reflects what the model that actually ran the request.
-  const [lastResolvedModel, setLastResolvedModel] = useState<{ id: string; provider: string; free: boolean } | undefined>(undefined);
   const { send: streamSend, cancel: cancelStream, isPending: isSending } = useAiChatStream();
   const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
   const streamGenerationRef = useRef(0);
@@ -7626,6 +7568,10 @@ export default function AiChat() {
       case 'RATE_LIMIT': return { title: `${name} paused`, reason: `This ${name} reached a temporary usage limit. Wait a moment, then try again.` };
       case 'CONFIGURATION': return { title: `${name} unavailable`, reason: `This ${name} cannot run until the AI setup is updated. Fix the setup, then start a new ${name}.` };
       case 'TRANSPORT': return { title: `${name} interrupted`, reason: `The connection ended before the ${name} finished, so no completed result was saved.` };
+      case 'TOOL_FAILURE': return { title: `${name} blocked`, reason: `A required project tool did not complete, so no completed ${name} result was saved.` };
+      case 'CANCELLATION': return { title: `${name} cancelled`, reason: `The ${name} was cancelled before it reached a verified result.` };
+      case 'RECOVERY_FAILURE': return { title: `${name} recovery failed`, reason: `The ${name} could not be recovered into a complete verified result.` };
+      case 'INCOMPLETE': return { title: `${name} incomplete`, reason: `The ${name} did not have enough verified evidence to complete.` };
       default: return { title: `${name} incomplete`, reason: `The ${name} could not finish. Try again in a moment.` };
     }
   }
@@ -7691,21 +7637,15 @@ export default function AiChat() {
         appendLiveActivityEvent({
           kind: 'stage',
           label: event.message,
-          detail: event.provider,
           status: 'info',
         });
       },
       onModelCall: (event) => {
-        setAgentModel(event.model);
-        setAgentModelHistory((previous) => (
-          previous.some((model) => model.id === event.model && model.provider === event.provider)
-            ? previous
-            : [...previous, { id: event.model, provider: event.provider }]
-        ));
+        setAgentModel('AI model');
         appendLiveActivityEvent({
           kind: 'model',
           label: 'Model response',
-          detail: `${event.model} · ${event.provider}`,
+          detail: 'Provider response received',
           status: 'info',
         });
       },
@@ -8206,11 +8146,9 @@ export default function AiChat() {
     const tmpErr = new AiApiError(
       statusForCode[err.code] ?? 502,
       err.message,
-      err.hint,
+      undefined,
       err.code,
       {
-        availabilityState: err.availabilityState,
-        operatorAction: err.operatorAction,
         correlationId: err.correlationId,
       },
     );
@@ -8767,17 +8705,12 @@ export default function AiChat() {
          },
         onModelCall: (event) => {
           if (generation !== streamGenerationRef.current) return;
-          setAgentModel(event.model);
-          setAgentModelHistory((prev) => (
-            prev.some((attempt) => attempt.id === event.model)
-              ? prev
-              : [...prev, { id: event.model, provider: event.provider }]
-          ));
-          setAgentStage(`Model response: ${fmtModelId(event.model)}`);
+          setAgentModel('AI model');
+          setAgentStage('Model response received');
           appendLiveActivityEvent({
             kind: 'model',
             label: 'Model response',
-            detail: `${fmtModelId(event.model)} · ${event.provider}`,
+            detail: 'Provider response received',
             status: 'info',
           });
         },
@@ -8967,8 +8900,6 @@ export default function AiChat() {
                ? data.operationId ?? (data.proposalId ? data.message.id : undefined)
                : undefined,
            );
-          // STORY-04: update displayed model from the done event
-          if (data.resolvedModel) setLastResolvedModel(data.resolvedModel);
           streamOwnerRef.current = null;
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
         },
@@ -9007,6 +8938,26 @@ export default function AiChat() {
             void qc.invalidateQueries({ queryKey: ['ai-messages', failedSessionId] });
           }
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
+          if (err.outcome === 'FAILED' || err.outcome === 'INTERRUPTED') {
+            const safeMessage = err.message
+              ? redactInternalDetails(err.message).slice(0, 500)
+              : 'The AI request did not complete.';
+            setLocalMessages((prev) => [
+              ...prev.filter((m) => !m.id.startsWith('opt-')),
+              {
+                id: `stream-failed-${Date.now()}`,
+                role: 'assistant' as const,
+                content: '',
+                outcome: err.outcome,
+                errorCode: err.code,
+                errorMessage: safeMessage,
+                failureKind: err.failureKind,
+                retryable: err.retryable,
+                recoveryState: err.recoveryState,
+                createdAt: new Date().toISOString(),
+              },
+            ]);
+          }
           toast({ title: 'Failed to send message', description: describeStreamError(err), variant: 'destructive' });
         },
       },
@@ -9496,9 +9447,7 @@ export default function AiChat() {
             {activeProvider?.provider === 'deepseek'
               ? 'DeepSeek V3'
               : activeProvider?.provider === 'openrouter'
-                ? (lastResolvedModel
-                    ? `${fmtModelId(lastResolvedModel.id)} · OpenRouter`
-                    : 'OpenRouter')
+                ? 'OpenRouter'
                 : activeProvider?.provider === 'gemini'
                   ? 'Gemini 2.5 Flash'
                   : 'Llama 3.3 · Groq'}

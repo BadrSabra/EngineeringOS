@@ -6,7 +6,9 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiBehaviorAnswerResult } from './aiBehaviorAnswerResult';
+import type { AiChatMessageFailureKind } from './aiChatMessageFailureKind';
 import type { AiChatMessageOutcome } from './aiChatMessageOutcome';
+import type { AiChatMessageRecoveryState } from './aiChatMessageRecoveryState';
 import type { AiChatMessageRole } from './aiChatMessageRole';
 import type { AiCodeExtractionResult } from './aiCodeExtractionResult';
 import type { AiFindingResult } from './aiFindingResult';
@@ -30,6 +32,12 @@ export interface AiChatMessage {
   outcome?: AiChatMessageOutcome;
   errorCode?: string | null;
   errorMessage?: string | null;
+  /** Bounded terminal classification; present only for non-success assistant turns */
+  failureKind?: AiChatMessageFailureKind;
+  /** Whether the same bounded operation may be retried */
+  retryable?: boolean;
+  /** Bounded recovery/incomplete state for terminal outcomes */
+  recoveryState?: AiChatMessageRecoveryState;
   /**
      * Parsed accepted behavior-evidence references, each with an optional exact source line span
      * @maxItems 8

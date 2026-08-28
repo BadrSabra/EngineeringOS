@@ -736,27 +736,23 @@ describe("POST /api/ai/chat", () => {
       providerCode: "NO_COMPATIBLE_FREE_MODEL",
       catalogStatus: "failed" as const,
       expectedStatus: 503,
-      expectedHint: "catalog could not be refreshed",
     },
     {
       name: "a stale configured model",
       providerCode: "STALE_CONFIGURED_MODEL",
       catalogStatus: "success" as const,
       expectedStatus: 422,
-      expectedHint: "Select a current free model or clear the stale model override",
     },
     {
       name: "no compatible live model",
       providerCode: "NO_COMPATIBLE_FREE_MODEL",
       catalogStatus: "success" as const,
       expectedStatus: 503,
-      expectedHint: "no free model matching this request",
     },
-  ])("keeps $name diagnostics safe and actionable", async ({
+  ])("keeps $name diagnostics bounded and safe", async ({
     providerCode,
     catalogStatus,
     expectedStatus,
-    expectedHint,
   }) => {
     const { chat: mockChat, GroqClientError } = await import("@workspace/ai-orchestrator");
     const rawCatalogError =
@@ -788,10 +784,15 @@ describe("POST /api/ai/chat", () => {
       expect(res.status).toBe(expectedStatus);
       expect(res.body).toMatchObject({
         code: "INVALID_CONFIG",
-        provider: "openrouter",
+        outcome: "FAILED",
+        retryable: false,
+        recoveryState: "REQUIRED",
       });
       expect(res.body.error).toBeDefined();
-      expect(res.body.hint).toContain(expectedHint);
+      expect(res.body.provider).toBeUndefined();
+      expect(res.body.hint).toBeUndefined();
+      expect(res.body.availabilityState).toBeUndefined();
+      expect(res.body.operatorAction).toBeUndefined();
 
       const responseJson = JSON.stringify(res.body);
       expect(responseJson).not.toContain("sk-or-v1-test-secret");
@@ -1127,9 +1128,13 @@ describe("POST /api/ai/chat", () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toBe("model_output_invalid");
     expect(res.body.code).toBe("model_output_invalid");
-    expect(typeof res.body.hint).toBe("string");
+    expect(res.body.outcome).toBe("FAILED");
+    expect(res.body.failureKind).toBe("PROVIDER_FAILURE");
+    expect(res.body.retryable).toBe(false);
+    expect(res.body.recoveryState).toBe("REQUIRED");
+    expect(res.body.hint).toBeUndefined();
     expect(res.body.raw).toBeUndefined();
-    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(res.body.parseCode).toBeUndefined();
   });
 
   it("reuses an existing session when sessionId is provided", async () => {

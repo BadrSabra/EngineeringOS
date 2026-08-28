@@ -110,6 +110,9 @@ export type AiStreamDoneEvent = {
     outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
     errorCode?: string | null;
     errorMessage?: string | null;
+    failureKind?: 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE' | null;
+    retryable?: boolean;
+    recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
   };
   /** Exact source line spans for each accepted behavior-evidence excerpt. */
   behaviorEvidence?: AiBehaviorEvidence[];
@@ -130,9 +133,7 @@ export type AiStreamDoneEvent = {
   /** Distinguishes a read-only audit from the delivery workflow trace. */
   operationMode?: 'FORENSIC_AUDIT' | 'DELIVERY' | 'CHAT';
   proposalUnavailable?: string;
-  /** STORY-04: actual model used at runtime (may differ from configured default if fallback occurred). */
-  resolvedModel?: { id: string; provider: string; free: boolean };
-  telemetry?: { latencyMs: number; provider: string };
+  telemetry?: { latencyMs: number };
   /** Bounded execution diagnostics, kept separate from assistant content. */
   execution?: AiStreamExecutionSummary;
   productionReachability?: AiProductionReachabilityTrace;
@@ -202,21 +203,50 @@ export type AiStreamErrorEvent = {
   type: 'error';
   code: string;
   message: string;
-  hint?: string;
-  raw?: string;
-  parseCode?: string;
-  providerContext?: Record<string, unknown>;
   retryable?: boolean;
-  suggestedFix?: string;
   executionId?: string;
   sessionId?: string;
   turnIntent?: string;
   outcome?: 'FAILED' | 'INTERRUPTED';
-  failureKind?: 'PROVIDER_FORMAT' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT';
-  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'provider_outage';
-  operatorAction?: string;
+  failureKind?: 'PROVIDER_FORMAT' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT'
+    | 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE';
+  recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
   correlationId?: string;
 };
+
+const PUBLIC_FAILURE_KINDS = new Set([
+  'TOOL_FAILURE',
+  'CANCELLATION',
+  'RECOVERY_FAILURE',
+  'INCOMPLETE',
+]);
+
+function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
+  const safeCode = /^[A-Za-z][A-Za-z0-9_]{2,79}$/.test(event.code)
+    ? event.code
+    : 'AI_STREAM_ERROR';
+  const safeMessage = event.message
+    .replace(/\/(?:home\/runner\/workspace|tmp|workspace)\/[^\s`"'<>),;]+/g, '[runtime path]')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal id]')
+    .slice(0, 500);
+  const safeFailureKind = PUBLIC_FAILURE_KINDS.has(event.failureKind ?? '')
+    ? event.failureKind
+    : undefined;
+  const safeEvent = { ...event } as AiStreamErrorEvent & Record<string, unknown>;
+  delete safeEvent.raw;
+  delete safeEvent.providerContext;
+  delete safeEvent.parseCode;
+  delete safeEvent.suggestedFix;
+  delete safeEvent.availabilityState;
+  delete safeEvent.operatorAction;
+  delete safeEvent.failureKind;
+  return {
+    ...safeEvent,
+    code: safeCode,
+    message: safeMessage,
+    ...(safeFailureKind ? { failureKind: safeFailureKind } : {}),
+  };
+}
 
 export type AiStreamResetEvent = {
   type: 'stream_reset';
@@ -344,9 +374,6 @@ export function parseValidationEvent(raw: unknown): AiStreamValidationEvent | nu
 
 export type AiStreamModelCallEvent = {
   type: 'model_call';
-  /** Exact model ID that returned the response for this loop iteration. */
-  model: string;
-  provider: string;
 };
 
 export type AiStreamThinkingEvent = {
@@ -478,7 +505,6 @@ export type AiStreamTaskStartedEvent = {
 export type AiStructuredAuditTraceEntry = {
   stage: string;
   status: 'started' | 'completed' | 'failed' | 'incomplete';
-  provider?: string;
 };
 
 export type AiStructuredAuditMetadata = {
@@ -494,7 +520,6 @@ export type AiStreamTaskProgressEvent = {
   type: 'task_progress';
   task: 'analyze' | 'review';
   message: string;
-  provider?: string;
   operationId: string;
   projectId: string;
   projectRevision: string;
@@ -824,7 +849,7 @@ export async function processAiStream(
       if (event.type === 'task_started') taskStarted = true;
       if (event.type === 'done' || event.type === 'error') terminalEventReceived = true;
 
-      switch (event.type) {
+       switch (event.type) {
         case 'execution_started':
           callbacks.onExecutionStarted?.(event);
           break;
@@ -853,7 +878,7 @@ export async function processAiStream(
           callbacks.onDone?.(event);
           break;
         case 'error':
-          callbacks.onError?.(event);
+          callbacks.onError?.(sanitizeStreamError(event));
           break;
         case 'stream_reset':
           callbacks.onStreamReset?.();
@@ -1006,7 +1031,7 @@ export function useAiChatStream() {
 
       // Handle non-SSE error responses (e.g. 400/401/428/429 before the stream starts)
       if (!res.ok) {
-        let parsed: { code?: string; error?: string; hint?: string } = {};
+        let parsed: { code?: string; error?: string } = {};
         try { parsed = await res.json() as typeof parsed; } catch { /* ignore */ }
 
         // HTTP 401 without a structured code means the Clerk session expired
@@ -1018,10 +1043,9 @@ export function useAiChatStream() {
         guardedCallbacks.onError?.({
           type: 'error',
           code: isSessionExpiry ? 'AUTH_ERROR' : (parsed.code ?? 'request_failed'),
-          message: parsed.error ?? `Request failed (${res.status})`,
-          hint: isSessionExpiry
-            ? 'جلستك انتهت — أعد تحميل الصفحة لتسجيل الدخول. / Your session expired — refresh the page to sign in again.'
-            : parsed.hint,
+          message: isSessionExpiry
+            ? 'Your session expired. Refresh the page to sign in again.'
+            : parsed.error ?? `Request failed (${res.status})`,
         });
         return;
       }
@@ -1146,7 +1170,6 @@ export function useAiTaskStream() {
           type: 'error',
           code: parsed.code ?? 'request_failed',
           message: parsed.error ?? `Request failed (${res.status})`,
-          hint: parsed.hint,
           retryable: parsed.retryable ?? failureKind !== 'CONFIGURATION',
           failureKind,
           outcome: 'FAILED',

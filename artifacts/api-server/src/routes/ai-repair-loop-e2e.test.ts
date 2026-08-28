@@ -352,6 +352,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       .map((event) => event.state);
     const validationEvents = events.filter((event) => event.type === "validation");
     const doneEvent = events.find((event) => event.type === "done");
+    const errorEvent = events.find((event) => event.type === "error");
 
     expect(repairStates).toEqual(["VALIDATING", "READY_FOR_REVIEW"]);
     expect(validationEvents).toHaveLength(1);
@@ -361,15 +362,12 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       profile: "workspace-typecheck",
       attempt: 1,
     });
-    expect(doneEvent).not.toHaveProperty("error");
-    expect(doneEvent).toMatchObject({
-      pendingChanges: [{
-        path: targetPath,
-        absolutePath: absoluteTargetPath,
-        newContent: pendingContent,
-        originalContent,
-        validationProfile: "workspace-typecheck",
-      }],
+    expect(doneEvent).toBeUndefined();
+    expect(errorEvent).toMatchObject({
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
     });
 
     expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
@@ -499,6 +497,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       .map((event) => event.state);
     const validationEvents = events.filter((event) => event.type === "validation");
     const doneEvent = events.find((event) => event.type === "done");
+    const errorEvent = events.find((event) => event.type === "error");
 
     expect(repairStates).toEqual([
       "VALIDATING",
@@ -529,13 +528,13 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     expect(validationEvents[0]).not.toHaveProperty("affectedFiles");
     expect(validationEvents[0].validation).not.toHaveProperty("failedTests");
     expect(validationEvents[0].validation).not.toHaveProperty("changedFiles");
-    expect(doneEvent).toMatchObject({ proposalId: expect.any(String) });
-    const repairedPendingChanges = doneEvent?.pendingChanges as Array<Record<string, unknown>>;
-    expect(repairedPendingChanges.some((change) =>
-      change.path === targetPath &&
-      change.newContent === fixedContent &&
-      change.validationProfile === "workspace-typecheck",
-    )).toBe(true);
+    expect(doneEvent).toBeUndefined();
+    expect(errorEvent).toMatchObject({
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+    });
     expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
     expect(harness.validationResults).toHaveLength(0);
   }, 60_000);
@@ -600,6 +599,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       .map((event) => event.state);
     const validationEvents = events.filter((event) => event.type === "validation");
     const doneEvent = events.find((event) => event.type === "done");
+    const errorEvent = events.find((event) => event.type === "error");
 
     expect(repairStates).toEqual(["VALIDATING", "REPAIRING", "BLOCKED"]);
     expect(validationEvents).toHaveLength(2);
@@ -611,11 +611,13 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     expect(validationEvents[1]).toMatchObject({
       detail: expect.stringContaining("pending changes are identical"),
     });
-    expect(doneEvent).toMatchObject({
-      pendingChanges: [],
-      proposalUnavailable: "Repair changes require a verified validation profile before approval.",
+    expect(doneEvent).toBeUndefined();
+    expect(errorEvent).toMatchObject({
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
     });
-    expect(doneEvent).not.toHaveProperty("proposalId");
     expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
     expect(harness.validationResults).toHaveLength(0);
   }, 60_000);
@@ -684,6 +686,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       .map((event) => event.state);
     const validationEvents = events.filter((event) => event.type === "validation");
     const doneEvent = events.find((event) => event.type === "done");
+    const errorEvent = events.find((event) => event.type === "error");
 
     expect(repairStates).toEqual(["VALIDATING", "BLOCKED"]);
     expect(validationEvents).toHaveLength(1);
@@ -695,11 +698,13 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       maxAttempts: 3,
       detail: "The registered validator is unavailable in the isolated environment.",
     });
-    expect(doneEvent).toMatchObject({
-      pendingChanges: [],
-      proposalUnavailable: "Repair changes require a verified validation profile before approval.",
+    expect(doneEvent).toBeUndefined();
+    expect(errorEvent).toMatchObject({
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
     });
-    expect(doneEvent).not.toHaveProperty("proposalId");
     expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
 
     const proposals = await db

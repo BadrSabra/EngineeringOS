@@ -977,6 +977,31 @@ export const AiChatMessageOutcome = {
   INTERRUPTED: 'INTERRUPTED',
 } as const;
 
+/**
+ * Bounded terminal classification; present only for non-success assistant turns
+ */
+export type AiChatMessageFailureKind = typeof AiChatMessageFailureKind[keyof typeof AiChatMessageFailureKind] | null;
+
+
+export const AiChatMessageFailureKind = {
+  TOOL_FAILURE: 'TOOL_FAILURE',
+  CANCELLATION: 'CANCELLATION',
+  RECOVERY_FAILURE: 'RECOVERY_FAILURE',
+  INCOMPLETE: 'INCOMPLETE',
+} as const;
+
+/**
+ * Bounded recovery/incomplete state for terminal outcomes
+ */
+export type AiChatMessageRecoveryState = typeof AiChatMessageRecoveryState[keyof typeof AiChatMessageRecoveryState];
+
+
+export const AiChatMessageRecoveryState = {
+  NONE: 'NONE',
+  REQUIRED: 'REQUIRED',
+  INCOMPLETE: 'INCOMPLETE',
+} as const;
+
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];
 
 
@@ -1124,6 +1149,12 @@ export interface AiChatMessage {
   outcome?: AiChatMessageOutcome;
   errorCode?: string | null;
   errorMessage?: string | null;
+  /** Bounded terminal classification; present only for non-success assistant turns */
+  failureKind?: AiChatMessageFailureKind;
+  /** Whether the same bounded operation may be retried */
+  retryable?: boolean;
+  /** Bounded recovery/incomplete state for terminal outcomes */
+  recoveryState?: AiChatMessageRecoveryState;
   /**
      * Parsed accepted behavior-evidence references, each with an optional exact source line span
      * @maxItems 8

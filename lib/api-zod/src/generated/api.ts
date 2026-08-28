@@ -3198,6 +3198,9 @@ export const AiChatResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish(),
   "errorCode": zod.string().nullish(),
   "errorMessage": zod.string().nullish(),
+  "failureKind": zod.enum(['TOOL_FAILURE', 'CANCELLATION', 'RECOVERY_FAILURE', 'INCOMPLETE']).nullish().describe('Bounded terminal classification; present only for non-success assistant turns'),
+  "retryable": zod.boolean().optional().describe('Whether the same bounded operation may be retried'),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
   "excerpt": zod.string().optional(),
@@ -3819,8 +3822,11 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *        source contents are never included. The same snapshot is stored in
  *        the durable execution checkpoint.
  *
- *     { "type": "done", "sessionId": "...", "message": { "id": "...", "role": "assistant",
- *      "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "..." }, "sources": [...],
+ *    { "type": "done", "sessionId": "...", "message": { "id": "...", "role": "assistant",
+ *       "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "...",
+ *       "outcome": "SUCCEEDED" | "FAILED" | "INTERRUPTED",
+ *       "failureKind": "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
+ *       "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE" }, "sources": [...],
  *     "pendingChanges": [{ "path": "...", "absolutePath": "...", "newContent": "...",
  *      "originalContent": "..." | null, "reason": "...", "validationProfile": "..." }],
  *       "proposalId": "..." | undefined, "proposalUnavailable": "..." | undefined,
@@ -3849,8 +3855,10 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *       input-path evidence from non-fixture production source is required.
  *
  *    { "type": "error", "code": "...", "message": "...", "executionId"?: "...",
- *      "hint"?: "...",
- *     "raw"?: "...", "parseCode"?: "..." }
+ *       "sessionId"?: "...", "outcome"?: "FAILED" | "INTERRUPTED",
+ *       "failureKind"?: "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
+ *       "retryable"?: true | false, "recoveryState"?: "NONE" | "REQUIRED" | "INCOMPLETE",
+ *       "hint"?: "..." }
  *     — Terminal error; the stream will close after this event.
  *
  *   { "type": "execution_guard", "code": "REPEATED_TOOL_CALL", "tool": "...",
@@ -3883,9 +3891,9 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *        blocked by approval gates. The command and registered profile are
  *        bounded by the server; arbitrary commands are not accepted.
  *
- *    { "type": "model_call", "model": "...", "provider": "..." }
- *      — Bounded metadata for the model that actually returned this loop response.
- *        This may be a fallback model; it contains no prompt, source, or model text.
+ *     { "type": "model_call" }
+ *       — Bounded progress metadata indicating that a model response was received.
+ *         Provider and model routing identifiers are server-side diagnostics.
  *
  *     { "type": "production_trace", "status": "PROVEN" | "NOT_PROVEN" | "OUT_OF_SCOPE",
  *       "nodes": [...], "edges": [...] }
@@ -3968,25 +3976,24 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *
  * The full TypeScript event union is exported as `AiStreamEvent` from `@workspace/api-client-react`. Treat that type definition as the authoritative schema — it must stay in sync with this description.
  *
- *   The `done` event may also include `toolTrace`, `resolvedModel`,
+ *    The `done` event may also include `toolTrace`,
  *   `operationMode: "FORENSIC_AUDIT" | "DELIVERY" | "CHAT"` — the
  *   read-only audit mode must not be rendered as a missing Plan/Apply/Commit/Push
  *   delivery trace,
- *  `telemetry: { "latencyMs": 123, "provider": "..." }`, and
+ *   `telemetry: { "latencyMs": 123 }`, and
  *   `execution: { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
  *   "prefetchToolCalls": 8, "loopToolCalls": 27,
  *   "stopReason": "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout",
  *     "synthesisStarted": true, "recoveryStarted": false,
  *     "diagnosticCodes": ["..."],
  *      "diagnosticDetails"?: ["bounded contract violation"],
- *      "modelsUsed"?: ["provider/model-id"],
  *      "evidenceConsistent"?: true | false }`, and
  *  `_meta.rootPathFallback: { "used": true, "original": "..." }`.
  *  `execution.evidenceConsistent` (EI-012) is true when this turn's
  *  run-ledger telemetry reconciled with its cited evidence, and
  *  false/absent when the reconciliation gate blocked the verdict.
- *  Provider errors may include `providerContext`, `retryable`, and
- *  `suggestedFix`; these are diagnostics and are separate from report content.
+ *  Error events expose only bounded failure metadata; provider context,
+ *  raw model output, and runtime diagnostics are never part of the client contract.
  * @summary Send a message to the AI assistant (SSE streaming)
  */
 export const aiChatStreamBodyResumeTokenMin = 32;
@@ -4544,6 +4551,9 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish(),
   "errorCode": zod.string().nullish(),
   "errorMessage": zod.string().nullish(),
+  "failureKind": zod.enum(['TOOL_FAILURE', 'CANCELLATION', 'RECOVERY_FAILURE', 'INCOMPLETE']).nullish().describe('Bounded terminal classification; present only for non-success assistant turns'),
+  "retryable": zod.boolean().optional().describe('Whether the same bounded operation may be retried'),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
   "excerpt": zod.string().optional(),

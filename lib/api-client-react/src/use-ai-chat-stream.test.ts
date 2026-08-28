@@ -118,6 +118,36 @@ afterEach(() => {
 });
 
 describe('processAiStream — semantic trace dispatch', () => {
+  it('projects terminal errors to bounded public metadata', async () => {
+    const onError = vi.fn();
+    await processAiStream(
+      makeSseStream(sseFrame({
+        type: 'error',
+        code: 'TOOL_FAILURE',
+        message: 'provider secret at /tmp/private-output/response.json',
+        raw: 'Authorization: Bearer provider-secret',
+        providerContext: { providerName: 'private-provider', raw: 'model output' },
+        parseCode: 'RAW_PROVIDER_PARSE',
+        outcome: 'FAILED',
+        failureKind: 'TOOL_FAILURE',
+        retryable: true,
+        recoveryState: 'REQUIRED',
+      })),
+      { onError },
+    );
+
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'TOOL_FAILURE',
+      message: 'provider secret at [runtime path]',
+      failureKind: 'TOOL_FAILURE',
+      retryable: true,
+      recoveryState: 'REQUIRED',
+    }));
+    expect(onError.mock.calls[0]?.[0]).not.toHaveProperty('raw');
+    expect(onError.mock.calls[0]?.[0]).not.toHaveProperty('providerContext');
+    expect(onError.mock.calls[0]?.[0]).not.toHaveProperty('parseCode');
+  });
+
   it('treats EOF after a structured task starts as an interrupted run', async () => {
     const onStreamReset = vi.fn();
     await processAiStream(
@@ -557,7 +587,7 @@ describe('processAiStream — structured task events', () => {
         sseFrame({ type: 'task_started', task: 'analyze', projectId: 'project-1' }),
         sseFrame({ type: 'stage', stage: 'building-context' }),
         sseFrame({ type: 'task_progress', task: 'analyze', message: 'Calling AI model…' }),
-        sseFrame({ type: 'model_call', model: 'test-model', provider: 'test-provider' }),
+        sseFrame({ type: 'model_call' }),
         sseFrame({ type: 'task_done', task: 'analyze', result: { summary: 'complete' } }),
       ),
       { onTaskStarted: started, onTaskProgress: progress, onModelCall: model, onTaskDone: done, onDelta: delta },
@@ -569,7 +599,7 @@ describe('processAiStream — structured task events', () => {
       task: 'analyze',
       message: 'Calling AI model…',
     });
-    expect(model).toHaveBeenCalledWith({ type: 'model_call', model: 'test-model', provider: 'test-provider' });
+    expect(model).toHaveBeenCalledWith({ type: 'model_call' });
     expect(done).toHaveBeenCalledWith({ type: 'task_done', task: 'analyze', result: { summary: 'complete' } });
     expect(delta).not.toHaveBeenCalled();
   });

@@ -41,7 +41,6 @@ type StructuredTask = "analyze" | "review";
 type StructuredAuditTraceEntry = {
   stage: string;
   status: "started" | "completed" | "failed" | "incomplete";
-  provider?: string;
 };
 type StructuredAuditMetadata = {
   operationId: string;
@@ -54,7 +53,7 @@ type StructuredAuditMetadata = {
 type StructuredTaskEvent =
   | ({ type: "task_started"; task: StructuredTask; projectId: string }
     | { type: "stage"; stage: string }
-    | { type: "task_progress"; task: StructuredTask; message: string; provider?: string }
+     | { type: "task_progress"; task: StructuredTask; message: string }
     | { type: "task_done"; task: StructuredTask; result: Record<string, unknown> }
    | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string })
     & Partial<StructuredAuditMetadata>;
@@ -206,12 +205,10 @@ function recordTrace(
   metadata: StructuredAuditMetadata,
   stage: string,
   status: StructuredAuditTraceEntry["status"],
-  provider?: string,
 ): void {
   metadata.operationalTrace.push({
     stage,
     status,
-    ...(provider ? { provider: redactUserFacingText(provider) } : {}),
   });
 }
 
@@ -362,7 +359,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
     ));
   } catch (err) {
     metadata.incomplete = true;
-    recordTrace(metadata, "analyze", "failed", effectiveProvider);
+    recordTrace(metadata, "analyze", "failed");
     const details = structuredFailureDetails(err);
     let sessionId: string | undefined;
     try {
@@ -393,7 +390,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
   // Only a completely empty/unusable response (no summary at all) should 422.
   if (result._parseError) {
     metadata.incomplete = true;
-    recordTrace(metadata, "analyze", "incomplete", effectiveProvider);
+    recordTrace(metadata, "analyze", "incomplete");
     logger.warn(
       { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
       "scan-analyst: parse error",
@@ -429,7 +426,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
     });
   });
 
-  recordTrace(metadata, "analyze", "completed", effectiveProvider);
+  recordTrace(metadata, "analyze", "completed");
   return res.json({ ...redactUserFacingValue(result) as Record<string, unknown>, ...auditEnvelope(metadata) });
 });
 
@@ -494,7 +491,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
     ));
   } catch (err) {
     metadata.incomplete = true;
-    recordTrace(metadata, "review", "failed", effectiveProvider);
+    recordTrace(metadata, "review", "failed");
     const details = structuredFailureDetails(err);
     let sessionId: string | undefined;
     try {
@@ -523,7 +520,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
   // Serve it with a warning header so the UI can display something useful.
   if (result._parseError) {
     metadata.incomplete = true;
-    recordTrace(metadata, "review", "incomplete", effectiveProvider);
+    recordTrace(metadata, "review", "incomplete");
     logger.warn(
       { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
       "code-reviewer: parse error",
@@ -559,7 +556,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
     });
   });
 
-  recordTrace(metadata, "review", "completed", effectiveProvider);
+  recordTrace(metadata, "review", "completed");
   return res.json({ ...redactUserFacingValue(result) as Record<string, unknown>, ...auditEnvelope(metadata) });
 });
 
@@ -611,7 +608,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     });
 
     emit({ type: "stage", stage: "calling-model" });
-    recordTrace(metadata, "calling-model", "started", providerResolved.provider);
+    recordTrace(metadata, "calling-model", "started");
     const { provider, apiKey } = providerResolved;
     let effectiveProvider = provider;
     const { result } = await runAgentWithFallback(
@@ -623,7 +620,6 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
           type: "task_progress",
           task: "analyze",
           message,
-          provider: opts.provider,
         }),
       }),
       { qualityProfile: "analysis" },
@@ -634,7 +630,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
 
     if (result._parseError) {
       metadata.incomplete = true;
-      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+      recordTrace(metadata, "calling-model", "incomplete");
       const sessionId = await persistStructuredFailure({
         projectId,
         userId: req.userId,
@@ -660,7 +656,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     }
 
     emit({ type: "stage", stage: "persisting-result" });
-    recordTrace(metadata, "persisting-result", "completed", effectiveProvider);
+    recordTrace(metadata, "persisting-result", "completed");
     invalidateContextCache(projectId);
     await db.transaction(async (tx) => {
       await tx.insert(auditLogsTable).values({
@@ -683,7 +679,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     });
 
     emit({ type: "stage", stage: "completed" });
-    recordTrace(metadata, "analyze", "completed", effectiveProvider);
+    recordTrace(metadata, "analyze", "completed");
     emit({
       type: "task_done",
       task: "analyze",
@@ -776,7 +772,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     });
 
     emit({ type: "stage", stage: "calling-model" });
-    recordTrace(metadata, "calling-model", "started", providerResolved.provider);
+    recordTrace(metadata, "calling-model", "started");
     const { provider, apiKey } = providerResolved;
     let effectiveProvider = provider;
     const { result } = await runAgentWithFallback(
@@ -788,7 +784,6 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
           type: "task_progress",
           task: "review",
           message,
-          provider: opts.provider,
         }),
       }),
       { qualityProfile: "code_review" },
@@ -799,7 +794,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
 
     if (result._parseError) {
       metadata.incomplete = true;
-      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+      recordTrace(metadata, "calling-model", "incomplete");
       const sessionId = await persistStructuredFailure({
         projectId,
         userId: req.userId,
@@ -825,7 +820,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     }
 
     emit({ type: "stage", stage: "persisting-result" });
-    recordTrace(metadata, "persisting-result", "completed", effectiveProvider);
+    recordTrace(metadata, "persisting-result", "completed");
     invalidateContextCache(projectId);
     await db.transaction(async (tx) => {
       await tx.insert(auditLogsTable).values({
@@ -848,7 +843,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     });
 
     emit({ type: "stage", stage: "completed" });
-    recordTrace(metadata, "review", "completed", effectiveProvider);
+    recordTrace(metadata, "review", "completed");
     emit({
       type: "task_done",
       task: "review",
