@@ -77,6 +77,12 @@ function completeSnapshot() {
       { table_name: "task_logs", table_type: "BASE TABLE" },
     ],
     columns,
+    enums: Object.entries(APPLICATION_SCHEMA_CONTRACT.enums).map(
+      ([enum_name, enum_labels]) => ({
+        enum_name,
+        enum_labels: [...enum_labels],
+      }),
+    ),
     indexes,
     primaryKeys: [
       { table_name: "tasks", column_name: "id" },
@@ -111,6 +117,12 @@ function clientFor(
         return {
           rows: value.columns as unknown as T[],
           rowCount: value.columns.length,
+        };
+      }
+      if (sql.includes("FROM pg_type")) {
+        return {
+          rows: value.enums as unknown as T[],
+          rowCount: value.enums.length,
         };
       }
       if (sql.includes("pg_indexes")) {
@@ -155,6 +167,108 @@ describe("application schema contract", () => {
     assert.equal(remediation?.is_nullable, "YES");
     assert.equal(remediation?.data_type, "jsonb");
     assert.equal(remediation?.column_default, null);
+  });
+
+  it("reports a missing enum member with the expected and observed sets", async () => {
+    const snapshot = completeSnapshot();
+    const incomplete = {
+      ...snapshot,
+      enums: snapshot.enums.map((enumType) =>
+        enumType.enum_name === "task_status"
+          ? {
+              ...enumType,
+              enum_labels: enumType.enum_labels.filter(
+                (label) => label !== "verifying",
+              ),
+            }
+          : enumType,
+      ),
+    };
+
+    const issues = findApplicationSchemaIssues(incomplete);
+    assert.deepEqual(
+      issues.filter((item) => item.kind === "incompatible_enum"),
+      [
+        {
+          kind: "incompatible_enum",
+          tableName: "public",
+          objectName: "task_status",
+          expected:
+            "[pending, queued, running, verifying, completed, failed, cancelled]",
+          actual: "[pending, queued, running, completed, failed, cancelled]",
+        },
+      ],
+    );
+    await assert.rejects(
+      assertApplicationSchemaWithClient(clientFor(snapshot, incomplete)),
+      (error: unknown) => {
+        assert.ok(error instanceof ApplicationSchemaError);
+        assert.match(error.message, /task_status/);
+        assert.match(error.message, /verifying/);
+        assert.match(error.message, /schema:apply/);
+        return true;
+      },
+    );
+  });
+
+  it("reports an unexpected enum member with the expected and observed sets", () => {
+    const snapshot = completeSnapshot();
+    const incompatible = {
+      ...snapshot,
+      enums: snapshot.enums.map((enumType) =>
+        enumType.enum_name === "log_level"
+          ? {
+              ...enumType,
+              enum_labels: [...enumType.enum_labels, "trace"],
+            }
+          : enumType,
+      ),
+    };
+
+    const issues = findApplicationSchemaIssues(incompatible);
+    assert.deepEqual(
+      issues.filter((item) => item.kind === "incompatible_enum"),
+      [
+        {
+          kind: "incompatible_enum",
+          tableName: "public",
+          objectName: "log_level",
+          expected: "[debug, info, warn, error]",
+          actual: "[debug, info, warn, error, trace]",
+        },
+      ],
+    );
+  });
+
+  it("reports all enum mismatches together without changing the audit concern", () => {
+    const snapshot = completeSnapshot();
+    const incompatible = {
+      ...snapshot,
+      enums: snapshot.enums.map((enumType) => {
+        if (enumType.enum_name === "task_status") {
+          return {
+            ...enumType,
+            enum_labels: enumType.enum_labels.filter(
+              (label) => label !== "cancelled",
+            ),
+          };
+        }
+        if (enumType.enum_name === "task_priority") {
+          return {
+            ...enumType,
+            enum_labels: [...enumType.enum_labels, "p4"],
+          };
+        }
+        return enumType;
+      }),
+    };
+
+    assert.deepEqual(
+      findApplicationSchemaIssues(incompatible)
+        .filter((item) => item.kind === "incompatible_enum")
+        .map((item) => item.objectName),
+      ["task_status", "task_priority"],
+    );
   });
 
   it("reports missing and incompatible contract objects with actionable diagnostics", async () => {
@@ -226,6 +340,7 @@ describe("application schema contract", () => {
     const client = clientFor(snapshot);
     const result = await readApplicationSchemaSnapshot(client);
     assert.equal(result.columns.length, snapshot.columns.length);
+    assert.deepEqual(result.enums, snapshot.enums);
     assert.equal(result.indexes.length, snapshot.indexes.length);
     assert.equal(result.foreignKeys.length, snapshot.foreignKeys.length);
   });

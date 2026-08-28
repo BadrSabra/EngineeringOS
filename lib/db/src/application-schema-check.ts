@@ -13,6 +13,7 @@ export type ApplicationSchemaIssueKind =
   | "missing_primary_key"
   | "missing_column"
   | "incompatible_column"
+  | "incompatible_enum"
   | "missing_index"
   | "incompatible_index"
   | "missing_foreign_key";
@@ -44,6 +45,11 @@ type ForeignKeyContract = {
   foreignTableName: string;
   foreignColumnName: string;
   deleteRule: string;
+};
+
+type EnumRow = {
+  enum_name: string;
+  enum_labels: string[];
 };
 
 /**
@@ -261,6 +267,19 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       deleteRule: "CASCADE",
     },
   ] satisfies readonly ForeignKeyContract[],
+  enums: {
+    task_status: [
+      "pending",
+      "queued",
+      "running",
+      "verifying",
+      "completed",
+      "failed",
+      "cancelled",
+    ],
+    task_priority: ["p0", "p1", "p2", "p3"],
+    log_level: ["debug", "info", "warn", "error"],
+  },
 } as const;
 
 type TableRow = { table_name: string; table_type?: string };
@@ -282,6 +301,7 @@ type ForeignKeyRow = {
 };
 
 const REQUIRED_TABLES = Object.keys(APPLICATION_SCHEMA_CONTRACT.tables);
+const REQUIRED_ENUMS = Object.keys(APPLICATION_SCHEMA_CONTRACT.enums);
 const DELIVERY_COMMAND = "pnpm --filter @workspace/db run schema:apply";
 
 function normalized(value: string): string {
@@ -331,6 +351,7 @@ export class ApplicationSchemaError extends Error {
 export interface ApplicationSchemaSnapshot {
   tables: readonly TableRow[];
   columns: readonly ColumnRow[];
+  enums: readonly EnumRow[];
   indexes: readonly IndexRow[];
   primaryKeys: readonly { table_name: string; column_name: string }[];
   foreignKeys: readonly ForeignKeyRow[];
@@ -395,6 +416,32 @@ export function findApplicationSchemaIssues(
           ),
         );
       }
+    }
+  }
+
+  const enums = new Map(
+    snapshot.enums.map((row) => [row.enum_name, row.enum_labels]),
+  );
+  for (const enumName of REQUIRED_ENUMS) {
+    const expectedLabels =
+      APPLICATION_SCHEMA_CONTRACT.enums[
+        enumName as keyof typeof APPLICATION_SCHEMA_CONTRACT.enums
+      ];
+    const actualLabels = enums.get(enumName);
+    if (
+      !actualLabels ||
+      actualLabels.length !== expectedLabels.length ||
+      actualLabels.some((label, index) => label !== expectedLabels[index])
+    ) {
+      issues.push(
+        issue(
+          "incompatible_enum",
+          "public",
+          enumName,
+          `[${expectedLabels.join(", ")}]`,
+          actualLabels ? `[${actualLabels.join(", ")}]` : "type not found",
+        ),
+      );
     }
   }
 
@@ -487,6 +534,19 @@ export async function readApplicationSchemaSnapshot(
     WHERE table_schema = 'public'
       AND table_name IN ('tasks', 'task_logs')
   `);
+  const enums = await client.query<EnumRow>(
+    `
+      SELECT t.typname AS enum_name,
+             array_agg(e.enumlabel ORDER BY e.enumsortorder) AS enum_labels
+      FROM pg_type t
+      JOIN pg_enum e ON e.enumtypid = t.oid
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'public'
+        AND t.typname = ANY($1::text[])
+      GROUP BY t.typname
+    `,
+    [REQUIRED_ENUMS],
+  );
   const indexes = await client.query<IndexRow>(`
     SELECT tablename, indexname, indexdef
     FROM pg_indexes
@@ -531,6 +591,7 @@ export async function readApplicationSchemaSnapshot(
   return {
     tables: tables.rows,
     columns: columns.rows,
+    enums: enums.rows,
     indexes: indexes.rows,
     primaryKeys: primaryKeys.rows,
     foreignKeys: foreignKeys.rows,
