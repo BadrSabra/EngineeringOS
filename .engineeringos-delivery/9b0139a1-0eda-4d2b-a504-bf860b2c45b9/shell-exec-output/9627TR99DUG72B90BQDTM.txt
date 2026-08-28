@@ -1,0 +1,728 @@
+CHAT SYMBOLS
+4: * POST /api/ai/chat
+5: * POST /api/ai/chat/stream
+6: * GET  /api/ai/chat/sessions
+7: * GET  /api/ai/chat/:sessionId/messages
+8: * POST /api/ai/chat/apply-changes
+115:  checkpointAiExecution,
+117:  completeAiExecution,
+119:  createAiExecution,
+120:  failAiExecution,
+139:  handleOrchestratorError,
+381: * This intentionally does not call a provider or reinterpret assistant prose:
+411:  if (!target || target.role !== "assistant") {
+415:  const traces = params.messages.flatMap((message) => {
+440:    && traces.length === 0
+450:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+455:  const validationCount = traces.filter((entry) =>
+463:    sseEvents: Math.min(traces.length, REPORT_REGENERATION_MAX_EVENTS),
+514:export function serializeMissionCorrelationReport(value: unknown): string | null {
+530:export function projectMissionCorrelationReportForExport(
+543:// the user/assistant rows or make equal-timestamp ordering database-dependent.
+545:function allocateTurnTimestamps(): { startedAt: Date; assistantAt: Date } {
+551:    assistantAt: new Date(startedAtMs + 1),
+792:function endedBeforeFirstSourceRead(traceSteps: AgentStep[]): boolean {
+793:  const incompleteCode = traceSteps.some(
+800:  return !traceSteps.some(
+846:  assistantAt: Date;
+851:    // Resuming that execution must only add the next assistant outcome, not
+879:      role: "assistant",
+881:      // assistant answer and must not be rendered as one.
+889:      createdAt: params.assistantAt,
+892:      .set({ updatedAt: params.assistantAt })
+1160:export function canCreateProposal(
+1164:  traceSteps: AgentStep[] = [],
+1168:    const forensicStatus = [...traceSteps]
+1173:    const evidenceIntegrity = [...traceSteps]
+1178:    const decisionTrace = [...traceSteps]
+1180:      .find((step): step is Extract<AgentStep, { kind: "decision_trace" }> =>
+1181:        step.kind === "decision_trace",
+1198:      decisionTrace?.trace.finalState !== "VERIFIED" ||
+1217:function hasPassedLatestValidation(traceSteps: AgentStep[]): boolean {
+1218:  const latestValidation = [...traceSteps]
+1383: * Keep execution observability separate from the assistant report. The trace
+1506:          verificationStage: step.trace.stage,
+1507:          responseLength: step.trace.responseLength,
+1508:          sourceCount: step.trace.sourceCount,
+1509:          evidenceCount: step.trace.evidenceCount,
+1510:          acceptedEvidenceCount: step.trace.acceptedEvidenceCount,
+1511:          rejectionReasons: step.trace.rejectionReasons,
+1513:      case "decision_trace":
+1516:          taskType: step.trace.taskType,
+1517:          allowedFiles: step.trace.allowedFiles,
+1518:          filesRead: step.trace.filesRead,
+1519:          evidenceSelected: step.trace.evidenceSelected,
+1520:          claim: step.trace.claim,
+1521:          validator: step.trace.validator,
+1522:          rejectionReason: step.trace.rejectionReason,
+1523:          recoveryAttempt: step.trace.recoveryAttempt,
+1524:          recoveryFailureKind: step.trace.recoveryFailureKind,
+1525:          finalState: step.trace.finalState,
+1527:          ...(step.trace.verdictScope ? { verdictScope: step.trace.verdictScope } : {}),
+1528:          ...(step.trace.scopedFindingStatus
+1529:            ? { scopedFindingStatus: step.trace.scopedFindingStatus }
+1532:      case "production_trace":
+1535:          productionTrace: step.trace,
+1537:      case "cross_file_trace":
+1540:          crossFileTrace: step.trace,
+1674: * The assistant history is the source of truth for a Repair Plan handoff. Keep
+1683:    if (row.role !== "assistant") return false;
+1785:      path: "artifacts/api-server/src/routes/ai/chat.ts",
+1795:    source: "artifacts/api-server/src/routes/ai/chat.ts",
+1801:// ── POST /api/ai/chat ────────────────────────────────────────────────────────
+1803:router.post("/ai/chat", async (req, res) => {
+1824:  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+1829:  // Keep execution handoff fail-closed in the streaming route too. This check
+1983:    // AI-TASK-007: Structured chat context trace.
+1986:      action: "pre_chat_trace",
+2008:    const traceSteps: AgentStep[] = [];
+2016:            .filter((m) => m.role === "user" || m.role === "assistant")
+2018:              role: m.role as "user" | "assistant",
+2020:              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+2029:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
+2040:        (step) => traceSteps.push(step),
+2043:      if (turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps)) {
+2055:      if (handleOrchestratorError(err, res, { projectId, operation: "chat", provider })) return;
+2095:    // Atomic: session creation (when needed) + user message + assistant message
+2105:      hasPassedLatestValidation(traceSteps),
+2106:      traceSteps,
+2128:      readFiles: collectReadEvidencePaths(traceSteps),
+2132:    const assistantMsg = await db.transaction(async (tx) => {
+2181:          role: "assistant",
+2186:          toolTrace: serializeToolTrace(traceSteps),
+2242:      message: { ...assistantMsg, taskResult: parseTaskResult(assistantMsg.taskResult) },
+2246:      toolTrace: assistantMsg.toolTrace,
+2252:        ? hasPassedLatestValidation(traceSteps)
+2275:// ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
+2277:router.post("/ai/chat/stream", async (req, res) => {
+2332:  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+2334:  // Keep execution handoff fail-closed in the streaming route too. This check
+2510:  const streamResumableStateForTurn = isolatedConversationTurn
+2513:  const streamClassificationResolution = resumeActiveTaskClassification(
+2516:    streamResumableStateForTurn,
+2518:  const streamImplementationPlanResume = isImplementationPlanContinuation(
+2520:    streamResumableStateForTurn,
+2522:  const streamClassification = streamClassificationResolution.classification;
+2523:  const streamTurnIntent = resolveTurnIntent(message, {
+2524:    classification: streamClassification,
+2525:    resumed: streamClassificationResolution.resumed,
+2526:    implementationPlanResume: streamImplementationPlanResume,
+2531:  const streamAuditScopeDescription = (streamTurnIntent as unknown as {
+2534:  const streamModelHasTools = streamTurnIntent.requiresTools;
+2553:  // downstream agent. In particular, a terse continuation can inherit a
+2556:    requireTools: streamModelHasTools,
+2557:    qualityProfile: streamTurnIntent.executionTaskType,
+2562:  const applyLock = streamModelHasTools
+2581:    res.setHeader("Content-Type", "text/event-stream");
+2625:    // or the stream fails before the final `done` event. The user and assistant
+2658:    if (streamAuditScopeDescription) {
+2661:        scopeDescription: streamAuditScopeDescription,
+2790:      const created = await createAiExecution({
+2822:    const streamCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
+2840:      await failAiExecution({
+2929:          const persisted = await checkpointAiExecution({
+2958:        streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+2959:        recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+2970:        const recovery = (streamCheckpoint as (typeof streamCheckpoint & {
+2992:          streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+2993:          recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+2998:    const streamIsGreetingTurn = isolatedConversationTurn;
+3013:      sections: profileContextSections(streamClassification.contextProfile),
+3015:    const projectContext = streamClassification.implementationPlanMode
+3020:      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
+3027:      intent: streamTurnIntent.kind,
+3028:      operationMode: streamTurnIntent.operationMode,
+3029:      requiresEvidence: streamTurnIntent.requiresEvidence,
+3034:    // AI-TASK-007: Structured stream context trace.
+3037:      action: "pre_stream_trace",
+3045:      turnIntent: streamTurnIntent.kind,
+3046:      requireTools: streamModelHasTools,
+3047:      requiresEvidence: streamTurnIntent.requiresEvidence,
+3048:      qualityProfile: streamTurnIntent.executionTaskType,
+3049:      contextProfile: streamClassification.contextProfile,
+3056:    }, "chat/stream: dispatching chatWithFallback");
+3064:    let streamedContent = "";
+3065:    let streamingActive = false;
+3066:    const traceSteps: AgentStep[] = [];
+3093:      if (!streamingActive) {
+3095:        // the live streaming bubble.
+3096:        sse({ type: "stage", stage: "streaming" });
+3097:        streamingActive = true;
+3100:      streamedContent += safeDelta;
+3102:      if (streamedContent.length % 4096 < delta.length) {
+3105:          streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+3109:    // GAP-A2: Called by chatWithFallback when the native SSE stream broke
+3110:    // mid-flight and the agent is falling back to the non-streaming result.
+3111:    // Emit stream_reset so the client discards the partial bubble before the
+3114:      if (streamingActive) {
+3116:          { scope: "chat-route", action: "stream_reset", provider, streamedBytes: streamedContent.length },
+3117:          "SSE stream broke mid-flight — emitting stream_reset to client",
+3119:        streamedContent = "";
+3120:        sse({ type: "stream_reset" });
+3128:      traceSteps.push(step);
+3187:        streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+3188:        recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+3259:          ...(streamAuditScopeDescription
+3260:            ? { scopeDescription: streamAuditScopeDescription }
+3272:          stage: step.trace.stage,
+3273:          responseLength: step.trace.responseLength,
+3274:          evidenceCount: step.trace.evidenceCount,
+3275:          acceptedEvidenceCount: step.trace.acceptedEvidenceCount,
+3276:          rejectionReasons: step.trace.rejectionReasons,
+3304:      } else if (step.kind === "decision_trace") {
+3306:          type: "decision_trace",
+3307:          taskType: step.trace.taskType,
+3308:          evidenceSelected: step.trace.evidenceSelected,
+3309:          validator: step.trace.validator,
+3310:          recoveryAttempt: step.trace.recoveryAttempt,
+3311:          recoveryFailureKind: step.trace.recoveryFailureKind,
+3312:          finalState: step.trace.finalState,
+3313:          rejectionReason: step.trace.rejectionReason,
+3315:          ...(step.trace.verdictScope ? { verdictScope: step.trace.verdictScope } : {}),
+3316:          ...(step.trace.scopedFindingStatus
+3317:            ? { scopedFindingStatus: step.trace.scopedFindingStatus }
+3320:        } else if (step.kind === "production_trace") {
+3321:          sse({ type: "production_trace", ...step.trace });
+3322:        } else if (step.kind === "cross_file_trace") {
+3323:          sse({ type: "cross_file_trace", ...step.trace });
+3351:          ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
+3354:          modelsUsed: traceSteps
+3368:        // report content. Keep them in the internal trace for debugging, but
+3369:        // do not stream them to a forensic audit client.
+3370:        const visibleDiagnosticDetails = streamTurnIntent.requiresEvidence
+3412:    if (streamImplementationPlanResume && executionPlanForRun?.implementationPlan) {
+3571:            .filter((m) => m.role === "user" || m.role === "assistant")
+3573:              role: m.role as "user" | "assistant",
+3575:              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+3582:          activeTaskState: streamResumableStateForTurn,
+3585:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+3607:           buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
+3610:          turnIntent: streamTurnIntent,
+3611:          allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
+3617:        { requireTools: streamModelHasTools, qualityProfile: streamTurnIntent.executionTaskType },
+3623:        streamTurnIntent.requiresEvidence &&
+3625:        endedBeforeFirstSourceRead(traceSteps);
+3628:      // Do not let that response enter the normal successful assistant-message
+3629:      // and completeAiExecution path: doing so makes a failed run look
+3631:      const terminalToolFailure = [...traceSteps]
+3635:        const failedToolResult = [...traceSteps]
+3661:          turnIntent: streamTurnIntent.kind,
+3667:          assistantAt: msgNow,
+3668:          toolTrace: traceSteps,
+3671:          "chat stream: failed to persist terminal tool failure",
+3674:          await failAiExecution({
+3680:            streamedPreview: streamedContent,
+3681:            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+3758:          "chat stream: all providers failed",
+3764:        // Provider messages can contain request IDs, file paths, or upstream
+3766:        // the user-facing stream.
+3844:              suggestedFix: "Check your OpenRouter API key and model availability on openrouter.ai/models.",
+3875:            // Never echo provider-owned text on the stream. It may contain
+3886:        logger.error({ err }, "chat stream: unexpected non-GroqClientError");
+3900:        turnIntent: streamTurnIntent.kind,
+3906:        assistantAt: msgNow,
+3907:        toolTrace: traceSteps,
+3908:      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+3925:          turnIntent: streamTurnIntent.kind,
+3931:          assistantAt: msgNow,
+3932:          toolTrace: traceSteps,
+3933:        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+3961:    // Atomic: session creation (when needed) + user message + assistant message
+3974:      hasPassedLatestValidation(traceSteps),
+3975:      traceSteps,
+3989:      persisted: streamResumableStateForTurn,
+3990:      classification: streamClassification,
+3991:      resumed: streamClassificationResolution.resumed,
+3996:      readFiles: collectReadEvidencePaths(traceSteps),
+4019:    let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
+4020:    const assistantMsg = await db.transaction(async (tx) => {
+4064:          turnIntent: streamTurnIntent.kind,
+4075:          role: "assistant",
+4077:          turnIntent: streamTurnIntent.kind,
+4081:          toolTrace: serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
+4091:        const operationId = assistantOperationId ?? proposalMessageId;
+4092:        assistantOperationId = operationId;
+4138:      streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+4139:      recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+4142:    const finalValidation = [...traceSteps]
+4188:      await failAiExecution({
+4203:      await failAiExecution({
+4209:        streamedPreview: streamedContent,
+4210:        recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+4214:      const completed = await completeAiExecution({
+4217:        finalMessageId: assistantMsg.id,
+4229:        await failAiExecution({
+4258:      logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
+4269:        : streamTurnIntent.operationMode;
+4271:    const publicToolTrace = streamTurnIntent.requiresEvidence
+4272:        ? serializeToolTrace(traceSteps, false, streamAuditScopeDescription)
+4273:      : assistantMsg.toolTrace;
+4275:    // every SSE projection of that row must use the public trace.
+4276:    assistantMsg.toolTrace = publicToolTrace;
+AGENT SYMBOLS
+190:  type ProductionReachabilityTrace,
+191:  type ProductionTraceLink,
+192:} from "../semantic-trace.js";
+246:export function buildConversationHistoryWindow(
+254:    return { recentHistory: [], episodeSummaryMessage: null };
+260:    return { recentHistory, episodeSummaryMessage: null };
+274:  return {
+301:export function isRepeatedConversationQuestion(
+326:  return {
+338:export function buildResumedEvidenceLedger(
+368:export function extractPriorRepairPlanMetadata(
+417:export function buildBehaviorRecoverySourceCandidates(
+440:      return { index, score };
+579:export function classifyRecoveryFailure(
+620:    return { excerpt: content ? "(source excerpt budget exhausted)" : "(empty source body)", consumed: 0 };
+630:    return { excerpt: content, consumed: content.length };
+640:  return {
+678:export function structuredRecoveryParseDiagnostic(
+683:  return {
+696: * surfaced as a valid NO_FINDING result.
+698:export function requiresBehavioralFindingAssessment(objective: string): boolean {
+717:export function hasUnverifiedPositiveForensicClaim(
+737:export function isCapabilityProbeRequest(message: string): boolean {
+842:      return {
+871:      return { response: withVerifiedSources(lines.join("\n")), sources: verifiedSources };
+895:export function shouldRejectBehaviorAnswerForMissingEvidence(
+919: * for the rejection trace.
+961:  return {
+999:    return { gate: null, blocked: false, gatedResponse: opts.response, rejectionReason: undefined };
+1092:  return { gate, blocked, gatedResponse, rejectionReason };
+1133:  return { gatedResponse, blocked: gate.blocked };
+1147:export function buildForensicRecoveryMessages(
+1231:        "When a candidate is merely unusual or needs runtime/context evidence that is not present, emit NO_FINDING with a source-grounded noFindingBasis instead. " +
+1262:export function buildCapabilityProbeRecoveryMessages(
+1321:export function buildBehaviorEvidenceRecoveryMessages(
+1356:        "If the supplied reads do not prove the answer, say ANALYSIS_INCOMPLETE instead of inventing a conclusion.",
+1510:  return {
+1818:  return {
+1850:  /^(?:directory|git|search|telemetry|trace|tool)\s*:/i,
+1955: * agentic loop. Keep them visible in the bounded execution trace so the
+1959: * The trace intentionally contains only path/length metadata. The source body
+1966:  onStep?: (step: AgentStep) => void,
+1973:      onStep?.({
+1980:      onStep?.({
+2001:export function isFixturePath(file: string): boolean {
+2013:export function extractFindingFilePaths(report: string): string[] {
+2033:export function emitForensicStatus(
+2034:  onStep: ((step: AgentStep) => void) | undefined,
+2107:      ? "NO_FINDING"
+2132:      : findingStatus === "PROVEN" || findingStatus === "NO_FINDING"
+2211:  onStep?.({
+2236:  onStep?.({
+2262:  onStep: ((step: AgentStep) => void) | undefined;
+2276:    onStep,
+2283:  if (!onStep) return;
+2296:    onStep({
+2304:    onStep({
+2322:  onStep({
+2347:export function extractRawForensicReport(raw: string): string | null {
+2461:  onStep: ((step: AgentStep) => void) | undefined,
+2468:    onStep?.({ kind: "diagnostic", code, details: details?.slice(0, 2) });
+2500:export function isReportRegenerationRequest(message: string): boolean {
+2512:export function isImmediateExecutionRequest(message: string): boolean {
+2525:export function resolveBehaviorAnswerLanguage(
+2542:export function resolveResponseLanguage(message: string): "ar" | "en" {
+2549:// no trace of the Findings / Repair Plan it is supposed to implement. We
+2565:export function extractPriorRepairPlan(history: ChatMessage[]): string | null {
+2583:export function getRepairPlanExecutionBlockers(plan: string): string[] {
+2612:export function extractExecutionFilePaths(plan: string): string[] {
+2689:export function extractSingleFilePaths(message: string): string[] {
+2718:    return { ok: false, reason: "primary evidence target path contains a null byte" };
+2724:    return { ok: false, reason: "workspace root is inaccessible" };
+2728:    return { ok: false, reason: "primary evidence target escapes the workspace (lexical traversal)" };
+2734:    return { ok: false, reason: "primary evidence target does not exist on disk" };
+2737:    return { ok: false, reason: "primary evidence target resolves outside the workspace via a symlink" };
+2740:    return { ok: true, raw: await fs.readFile(real, "utf8") };
+2742:    return {
+2755:export function restrictPendingChangesToRepairPlan(
+2780:export function isRepairPlanExecutionRequest(message: string): boolean {
+3033:      return { name, score };
+3097:  return {
+3144:    return {
+3154:  return {
+3193:export function buildTaskResult(opts: {
+3216:      return {
+3224:      return { kind: "BEHAVIOR_ANSWER_RESULT", answer: semanticBehaviorAnswer };
+3230:      return {
+3244:      return {
+3253:      return {
+3261:      return {
+3314:      return {
+3323:  return {
+3345:export function buildBehaviorEvidenceIncompleteResponse(
+3353:      "ANALYSIS_INCOMPLETE — لم يُرجع مزوّد الذكاء الاصطناعي نصًا نهائيًا بعد القراءات المتاحة.",
+3369:    "ANALYSIS_INCOMPLETE — the AI provider returned no final text after the available reads.",
+3384:export async function chat(opts: {
+3438:  onStep?: (step: AgentStep) => void;
+3512:    onStep,
+3568:    return {
+3595:    return {
+3675:  // AI-TASK-008: Decision trace — log which mode the agent is operating in.
+3701:  const resumedImplementationStep = resumedImplementationPlan?.steps[
+3709:        `Current step: ${resumedImplementationStep?.id ?? "(none)"} — ${resumedImplementationStep?.title ?? "No current step"}.`,
+3710:        `Action: ${resumedImplementationStep?.action ?? "blocked"}.`,
+3711:        `Allowed files: ${(resumedImplementationStep?.files ?? []).join(", ") || "(none)"}.`,
+3712:        resumedImplementationStep?.action === "inspect" || resumedImplementationStep?.action === "test"
+3750:    if (emit) emitExecutionDiagnostic(onStep, repairPlanExecution, code, boundedDetails);
+3848:    // Keep the complete bounded loop trace available for deterministic task
+3856:      onStep?.(step);
+3860:  // above, before any source read) so the audit trace shows the full claim/edge
+3895:    return {
+3906:    return {
+3917:    return {
+3932:    return {
+3986:    return {
+4005:  // Handoff trace: this is intentionally metadata-only. It lets route-level
+4028:  // the normal chat path can return an unverified NO_FINDING summary before
+4075:      // identifiers and section headings (including ANALYSIS_INCOMPLETE) in
+4454:    for (const trace of graphGuidance.crossFileTraces) {
+4455:      relayAgentStep({ kind: "cross_file_trace", trace });
+4983:        ? `ANALYSIS_INCOMPLETE — تعذر إغلاق أجزاء السؤال المركب: ${
+4986:        : `ANALYSIS_INCOMPLETE — the compound answer could not close every requested part: ${
+5023:      return {
+5063:        onStep?.(step);
+5089:          return {
+5095:          return {
+5176:           onStep: recordNodeStep,
+5334:          return {
+5352:          return {
+5396:              return {
+5406:          return {
+5413:        return {
+5456:    return {
+5538:    onStep: relayAgentStep,
+5556:  // allow a cancellation to reach a completed NO_FINDING fallback.
+5589:    return {
+5618:      return {
+5728:    return {
+5772:        onStep,
+5788:    return {
+5827:    return {
+5896:        onStep,
+5912:    return {
+5925:    return {
+6069:    return { gatedResponse, blocked, rejectionReason, runtimeLedger };
+6131:          onStep,
+6211:          onStep,
+6267:      // FEG-011/012 + AI-OBJ-005: mirror the non-streaming rejection trace so the
+6283:          trace: {
+6304:      return {
+6360:          onStep,
+6470:      // request backed only by the transport trace must therefore be blocked
+6486:          "The available trace only proves transport into the chat orchestrator.";
+6490:          onStep,
+6524:      // FEG-011/012 + AI-OBJ-005: mirror the non-streaming rejection trace so the
+6540:          trace: {
+6561:      return {
+6805:          onStep?.({
+6842:          { emptyVerdict: "NO_VERIFIED_FINDING", language: responseLanguage },
+6924:              "If the source does not support the candidate or a required field cannot be grounded, emit NO_FINDING only after resolving the contradiction; never combine a positive defect claim or repair scope with an empty Findings array.",
+6932:              "For NO_FINDING, `noFindingBasis` must be a concrete source-grounded explanation that names the inspected file and explains why the requested behavior is not a verified defect. Do not use 'the file was read' or 'no inference made' as the basis.",
+6939:           ? '{"verdict":"NO_FINDING","findings":[],"repairPlan":[],"validationChecklist":["Checked the quoted implementation fragment against the requested behavior."],"noFindingBasis":"<name one inspected implementation file and quote an exact source fragment; explain why it does not prove the requested defect>"}'
+6940:           : '{"verdict":"NO_FINDING","findings":[],"repairPlan":[],"validationChecklist":[]}',
+6943:               "For this behavioral assessment, `noFindingBasis` is mandatory, not optional. A NO_FINDING envelope without it is invalid and will be rejected.",
+6967:        // Keep the primary classification fail-closed as ANALYSIS_INCOMPLETE,
+6969:        // zero-read scope gate. This is not a completed NO_FINDING result.
+6983:          onStep?.({
+6995:          onStep?.({
+7062:          // packet, but it must never synthesize a global NO_FINDING result.
+7068:              "The requested forensic scope is partial; a global NO_FINDING verdict is not authorized.",
+7107:              "Merged NO_FINDING recovery lacks a source-grounded noFindingBasis; behavioral assessment remains incomplete.",
+7114:                   emptyVerdict: "ANALYSIS_INCOMPLETE",
+7119:                emptyVerdict: "ANALYSIS_INCOMPLETE",
+7130:            onStep?.({
+7176:          onStep?.({
+7187:          onStep?.({
+7329:                onStep?.({
+7368:            onStep?.({
+7388:            // attempted candidates here so the trace and UI show every model
+7398:              onStep?.({
+7447:          onStep?.({
+7499:              onStep?.({
+7532:                    "NO_FINDING recovery requires noFindingBasis naming the inspected file and explaining why the requested behavioral defect is not proven",
+7536:                onStep?.({
+7550:                // Recovery envelope as NO_FINDING in that case: the model
+7576:                      ? "NO_FINDING packet recovery must provide a source-grounded noFindingBasis for the active packet."
+7578:                      ? `Packet ${recoveryPacket.root} produced no Finding. Continue with the next forensic packet; this is not a global NO_FINDING verdict.`
+7581:                onStep?.({
+7583:                  code: "FORENSIC_NO_FINDING",
+7672:                        onStep?.({
+7696:                onStep?.({
+7708:                  ? "FORENSIC_NO_FINDING"
+7723:          // parser: an empty envelope would otherwise overwrite NO_FINDING
+7821:              if (structuredParseDiagnostic) onStep?.({ kind: "diagnostic", ...structuredParseDiagnostic });
+7897:          onStep?.({
+7958:            onStep?.({
+7975:              emptyVerdict: "ANALYSIS_INCOMPLETE",
+7997:            onStep?.({
+7999:              code: "FORENSIC_DETERMINISTIC_NO_FINDING",
+8003:                "a source-grounded NO_FINDING basis was emitted; this does not prove the implementation is correct",
+8010:            onStep?.({
+8012:              code: "FORENSIC_NO_FINDING",
+8023:            onStep?.({
+8037:            onStep?.({
+8043:            onStep?.({ kind: "diagnostic", code: "FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED" });
+8048:            failureKind: lastRecoveryFailure?.kind ?? "empty",
+8070:            emptyVerdict: "ANALYSIS_INCOMPLETE",
+8103:              { emptyVerdict: "NO_VERIFIED_FINDING", language: responseLanguage },
+8122:          onStep?.({
+8131:          onStep?.({
+8133:            code: "FORENSIC_DETERMINISTIC_NO_FINDING",
+8137:              "a source-grounded NO_FINDING basis was emitted; this does not prove the implementation is correct",
+8148:          onStep?.({
+8161:          onStep?.({ kind: "diagnostic", code: "FORENSIC_CONTRACT_RECOVERY_FAILED" });
+8189:      { emptyVerdict: "ANALYSIS_INCOMPLETE", language: responseLanguage, cancelled: true },
+8223:    trace: {
+8234:      onStep,
+8733:        "the final state is ANALYSIS_INCOMPLETE rather than a correctness claim",
+8745:  // runtime-observation paths — the caller-supplied route/orchestrator trace
+8907:      ? "ANALYSIS_INCOMPLETE — the capability probe did not retain complete source bodies for both named files; no C1–C7 result is proven."
+8909:      ? "ANALYSIS_INCOMPLETE — the capability probe retained both named source bodies, but strict evidence validation could not close every C1–C7 claim."
+8933:      onStep,
+8965:    relayAgentStep({ kind: "production_trace", trace: productionReachability });
+8969:  // trace (API route → chat()) via runtimeChatTraceLinks, so we must NOT use
+8983:  // trace is the generic transport link (route → chat()). This is the fix for
+9011:  // supplied production trace.
+9021:  // Normalize a trace relation string to detect import/package membership
+9046:  // model from the supplied trace links and evidence so the validator can
+9056:    // When the external trace already shows PROVEN with no import-only hops
+9060:    // Only build and validate the claim model for runs where the trace is
+9193:  // AI-OBJ-012: compute the objective verdict kind for the decision trace.
+9230:    // Keep this count visible in the shared trace without converting it into
+9242:    trace: {
+9252:    kind: "decision_trace",
+9253:    trace: {
+9295:              graphGuidance?.crossFileTraces.find((trace) => trace.status === "PROVEN") ??
+9353:    return {
+ENGINE SYMBOLS
+9: *   executeToolLoop(opts)    — runs the loop until a non-tool response or the
+19:import { GroqClientError } from "./errors.js";
+99:  return {
+120:): "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error" | undefined {
+124:      status === "cancelled" || status === "spawn_error" ? status : undefined;
+125:  } catch {
+142:  recovery: 0.1, // reserved to force a first read on a zero-evidence run
+149:  recovery: number;
+156:  const recovery = Math.max(1, maxIterations - planning - evidence - reasoning);
+157:  return { planning, evidence, reasoning, recovery };
+167: * for provider recovery, then force a bounded decision.
+462:      /** Human-readable error forwarded to the model as the tool message. */
+463:      errorMessage: string;
+467:      failureKind: "execution" | "unavailable" | "cancelled";
+507: * Classify a read tool output into a status. Truncation markers and error /
+515:    // (non-error), and a window can come back empty — neither is source
+532:/** True when a read_file body carries a truncation marker (incomplete source). */
+541: * underlying tool can return a non-error result whose window carries no source
+604:   * between planning, protected evidence acquisition, and recovery.
+619:   * (never read, and no usable prefetch). Such a terminal is classified
+624:  incompleteBeforeEvidence?: boolean;
+664:  return { ...EMPTY_SOURCE_RETRIEVAL_TELEMETRY, readPaths: [], scopeExpansions: [] };
+692:    return {
+694:      errorMessage: `Tool "${name}" is not registered — use one of the tools listed in the system prompt.`,
+700:      return {
+702:        failureKind: "unavailable",
+716:      return {
+718:        failureKind: "unavailable",
+724:      return {
+726:        failureKind: "unavailable",
+734:          failureKind: "execution" | "unavailable" | "cancelled";
+776:              const failureKind = opts.signal?.aborted
+781:              const diagnosticCode = failureKind === "cancelled"
+787:                failureKind,
+804:      console.error(JSON.stringify({
+808:        failureKind: analysisFailure.failureKind,
+810:      return {
+842:    return { kind: "ok", output, source };
+843:  } catch (error) {
+844:    const errorMessage = error instanceof Error ? error.message : String(error);
+846:    console.error(JSON.stringify({
+850:      error: errorMessage,
+852:    return {
+854:      failureKind: cancelled ? "cancelled" : "execution",
+968:    return { ...message, content: bounded };
+991:   * When the strategy returns a transient error, the loop may retry with
+992:   * powerModel before propagating the error.
+996:  /** More capable fallback model used on transient errors from model. */
+1012:   * Whether a zero-read terminal is an evidence failure. Ordinary chat,
+1207:   * Never throws — errors inside onStep are silently swallowed so a buggy
+1210:  onStep?: (step: AgentStep) => void;
+1230:       * rather than a generic error message.
+1259:      failureKind: "execution" | "unavailable" | "cancelled";
+1331:  // FIRST_EVIDENCE_UNAVAILABLE replaces the generic "recovery skipped" outcome
+1345:  // acquired. This is classified as incomplete-before-evidence - it is NOT a
+1346:  // normal terminal - and, within the recovery allocation, the loop forces a
+1365: * Discriminated union of observable events emitted during executeToolLoop.
+1366: * Callers supply an onStep callback to receive these in real time — useful
+1384:  | { kind: "recovery_model_call"; model: string; provider: string; attempt: number }
+1410:      commandStatus?: "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
+1450:  | { kind: "forensic_recovery_start"; attempt: number }
+1481:  | { kind: "forensic_terminal"; terminalKind: ForensicTerminalKind }
+1507:      recoveryTriggered?: boolean;
+1508:      recoveryTarget?: string;
+1557:         | "tool_failure"
+1580: *        c. Unknown    → serve error string (no budget consumed).
+1587: * Other errors: re-thrown immediately.
+1589:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+1630:    onStep,
+1751:  // evidence; a truncated recovery window is NOT a duplicate (FEG-015).
+1774:      return { isNew: false, remaining: searchBudgetRemaining };
+1784:    return { isNew, remaining: searchBudgetRemaining };
+1820:  // Whether a search/list result is usable: non-empty, non-error, and not one
+1851:      } catch {
+1905:  // evidence-allocation guard and the recovery-bounds first-read force are only
+1951:   * OR-004: Transient error codes that warrant a powerModel retry within
+1952:   * the same provider. User/validation errors (NON_200, AUTH_ERROR) are not
+1961:      onStep?.({ kind: "diagnostic", code, details: details.slice(0, 2) });
+1962:    } catch { /* ignore */ }
+1991:      return { result: await strategy.call(callMessages, callOptions), attemptCount: 1 };
+1992:    } catch (err) {
+2013:        return {
+2017:      } catch (retryErr) {
+2072:      } catch (error) {
+2073:        lastError = error;
+2074:        if (error instanceof GroqClientError && error.code === "TIMEOUT") {
+2078:        if (!(error instanceof GroqClientError) || error.code !== "EMPTY_RESPONSE") {
+2079:          throw error;
+2096:   * produce the no-tools answer before handing the evidence to recovery.
+2131:      return {
+2135:    } catch {
+2151:  // maxIterations is split into planning / evidence / reasoning / recovery
+2182:  // (e.g. a missing path that would resolve to a directory-read error) must not
+2198:  // read produced usable, non-error output (READ_COMPLETE or READ_TARGETED).
+2199:  // A failed read (error, empty, directory listing) is NOT source evidence, so
+2249:  // ── Zero-read terminal classification (FEG-010) ────────────────────────────
+2251:  // weigh — that is NOT a normal terminal, it is INCOMPLETE_BEFORE_EVIDENCE.
+2252:  // We flag it (telemetry + diagnostic) at every terminal return so a caller
+2257:  // `elapsedIterations` is the loop's actual terminal iteration count (the same
+2264:    sourceRetrieval.incompleteBeforeEvidence = true;
+2269:      onStep?.({
+2276:    } catch { /* ignore */ }
+2280:      onStep?.({
+2297:    } catch { /* ignore */ }
+2298:    return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
+2302:    failureKind: "execution" | "unavailable" | "cancelled",
+2307:      onStep?.({ kind: "diagnostic", code: diagnosticCode, details: [`${tool}: ${failureKind}`] });
+2308:      onStep?.({
+2313:        resultKind: failureKind === "execution" ? "failed" : failureKind,
+2317:      onStep?.({
+2322:        stopReason: "tool_failure",
+2327:    } catch { /* observers must not change the terminal result */ }
+2328:    return {
+2334:      failureKind,
+2341:    try { onStep?.({ kind: "iteration_start", iter, maxIterations }); } catch { /* ignore */ }
+2363:          onStep?.({
+2371:        } catch { /* ignore */ }
+2373:      try { onStep?.({ kind: "soft_limit", iter }); } catch { /* ignore */ }
+2383:          onStep?.({
+2393:        } catch { /* ignore */ }
+2394:        return {
+2426:    // ── Model call (with transient-error fallback to powerModel) ────────────
+2446:        onStep?.({
+2451:      } catch { /* ignore */ }
+2498:    } catch (err) {
+2500:      // OR-004: only fall back to powerModel on transient infrastructure errors,
+2501:      // not on user/validation errors like NON_200 or AUTH_ERROR.
+2518:            errorCode: err.code,
+2547:        } catch (fallbackErr) {
+2555:          // partial report rather than a generic error message.
+2575:              onStep?.({
+2592:            } catch { /* ignore */ }
+2593:            return {
+2620:            errorCode: err instanceof GroqClientError ? err.code : "unknown",
+2627:        // surface a partial report rather than a generic error message.
+2647:              onStep?.({
+2664:            } catch { /* ignore */ }
+2665:            return {
+2680:          // surface a meaningful retryable error to the user.
+2687:        // chat agent can run its bounded no-tools contract-recovery attempt
+2694:              onStep?.({
+2704:            } catch { /* ignore */ }
+2705:            return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+2710:          // valuable and must reach chat-agent's bounded no-tools recovery;
+2716:              onStep?.({
+2726:            } catch { /* ignore */ }
+2727:            return {
+2743:            onStep?.({
+2753:          } catch { /* ignore */ }
+2754:          return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+2774:      onStep?.({
+2779:    } catch { /* ignore */ }
+2785:    // of a generic error message.
+2839:      } catch (err) {
+2846:            error: err instanceof Error ? err.message : String(err),
+2870:        } catch {
+2887:          onStep?.({ kind: "synthesis_start", iter, maxIterations });
+2888:        } catch { /* ignore */ }
+2923:            onStep?.({
+2928:          } catch { /* ignore */ }
+2933:          // forensic contract/recovery path handle it instead.
+2937:        } catch (err) {
+2939:          // chat agent will still run its strict forensic contract/recovery
+2946:              errorCode: err instanceof GroqClientError ? err.code : "unknown",
+2954:        onStep?.({
+2971:      } catch { /* ignore */ }
+2972:      return { kind: "response", result, toolSources, fileContents, sourceRetrieval };
+2978:    // must be terminal. Preserve any usable text. When there is no text,
+2980:    // bounded no-tools contract-recovery pass against the evidence already
+2983:      const terminalResult: RawGroqResponse = { ...result, toolCalls: null };
+2986:        onStep?.({
+2996:      } catch { /* ignore */ }
+2998:        return { kind: "response", result: terminalResult, toolSources, fileContents, sourceRetrieval };
+3000:      return {
+3027:        } catch { /* fall through to repair */ }
+3033:      return { ...tc, function: { ...tc.function, arguments: repaired } };
+3052:      } catch {
+3053:        // Malformed arguments — leave args empty; handler returns an error string.
+3110:          onStep?.({
+3123:          onStep?.({
+3128:        } catch { /* ignore */ }
+3142:          "Make a bounded patch change or return BLOCKED; repeated validation without progress is incomplete.";
+3155:          onStep?.({
+3165:          onStep?.({ kind: "repair_state", state: "BLOCKED", detail });
+3166:        } catch { /* ignore */ }
+3212:          onStep?.({
+3219:        } catch { /* observers must not change execution semantics */ }
+3252:            onStep?.({
+3260:          } catch { /* ignore */ }
+3263:            onStep?.({
+3270:          } catch { /* ignore */ }
+3415:            onStep?.({
+3422:          } catch { /* ignore */ }
+3597:            onStep?.({
+3603:          } catch { /* ignore */ }
+3606:            onStep?.({
+3616:          } catch { /* ignore */ }
+3617:          return {
+3645:          // (map.has), so a truncated-recovery window is a real acquisition.
+3677:        try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
+3681:        // "incomplete" after the session is reloaded.
+3687:          onStep?.({
+3700:        } catch { /* ignore */ }
+3833:        onStep?.({
+3842:      } catch { /* ignore */ }
+3845:          onStep?.({
+3852:        } catch { /* ignore */ }
+3895:        console.error(
+3923:          toolResult.failureKind,
+3963:        } catch { /* keep the bounded unavailable fallback below */ }
+3991:          onStep?.({
+4008:          onStep?.({
+4017:        } catch { /* ignore */ }
+4034:        // forced-evidence mode. A failed read (error, empty body, directory
+4062:      // produced USABLE, GENUINELY NOVEL evidence (non-empty, non-error output
+4108:        onStep?.({
+4121:      } catch { /* ignore */ }
+4167:            onStep?.({
+4177:          } catch { /* ignore */ }
+4217:          onStep?.({
+4227:        } catch { /* ignore */ }
+4254:  // can give the user a useful answer instead of a generic error message.
+4258:      onStep?.({
+4268:    } catch { /* ignore */ }
+4269:    return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "soft_limit" };
+4274:    onStep?.({
+4284:  } catch { /* ignore */ }
+4285:  return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "iteration_budget" };

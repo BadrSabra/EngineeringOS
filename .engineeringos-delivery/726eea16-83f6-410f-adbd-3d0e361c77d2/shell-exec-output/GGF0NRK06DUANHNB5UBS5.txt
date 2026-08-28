@@ -1,0 +1,260 @@
+lib/db/src/schema/ai_executions.ts:32:  operationId: text("operation_id"),
+lib/db/src/schema/ai_change_proposals.ts:47:  operationId: text("operation_id"),
+lib/db/src/schema/ai_change_proposals.ts:52:  changeSetHash: text("change_set_hash"),
+lib/db/src/schema/ai_change_proposals.ts:55:  validationEvidence: text("validation_evidence"),
+lib/db/src/schema/ai_change_proposals.ts:56:  committedHash: text("committed_hash"),
+lib/db/src/schema/ai_apply_journal.ts:8: * operationId is stable across the Plan -> Apply -> Commit -> Push lifecycle.
+lib/db/src/schema/ai_apply_journal.ts:12:export const aiApplyJournalTable = pgTable("ai_apply_journal", {
+lib/db/src/schema/ai_apply_journal.ts:14:  operationId: text("operation_id").notNull(),
+lib/db/src/schema/ai_apply_journal.ts:27:  index("idx_ai_apply_journal_operation_created").on(t.operationId, t.createdAt),
+lib/db/src/schema/ai_apply_journal.ts:33:export type InsertAiApplyJournal = typeof aiApplyJournalTable.$inferInsert;
+lib/db/src/schema/ai_apply_journal.ts:34:export type AiApplyJournal = typeof aiApplyJournalTable.$inferSelect;
+artifacts/api-server/src/routes/workflows.ts:251:      operationId: phaseExecution.operationId,
+artifacts/api-server/src/routes/workflows.ts:576:      operationId: phaseExecution.operationId,
+artifacts/api-server/src/routes/git.ts:297:    operationId?: unknown;
+artifacts/api-server/src/routes/git.ts:301:  const operationId = typeof body.operationId === "string" ? body.operationId : undefined;
+artifacts/api-server/src/routes/git.ts:306:  if (operationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+artifacts/api-server/src/routes/git.ts:307:    return res.status(400).json({ error: "operationId must be a valid UUID" });
+artifacts/api-server/src/routes/git.ts:311:  const correlationId = operationId ?? proposalId ?? randomUUID();
+artifacts/api-server/src/routes/git.ts:349:        applyEvidence.operationId !== correlationId ||
+artifacts/api-server/src/routes/git.ts:356:          operationId: correlationId,
+artifacts/api-server/src/routes/git.ts:505:        operationId: correlationId,
+artifacts/api-server/src/routes/git.ts:512:        .set({ lifecycle: "committed", committedHash: commitHash })
+artifacts/api-server/src/routes/git.ts:538:  const operationId = typeof (body as { operationId?: unknown }).operationId === "string"
+artifacts/api-server/src/routes/git.ts:539:    ? (body as { operationId: string }).operationId
+artifacts/api-server/src/routes/git.ts:544:  if (operationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+artifacts/api-server/src/routes/git.ts:545:    return res.status(400).json({ error: "operationId must be a valid UUID" });
+artifacts/api-server/src/routes/git.ts:547:  const correlationId = operationId ?? proposalId ?? randomUUID();
+artifacts/api-server/src/routes/git.ts:574:          operationId: aiChangeProposalsTable.operationId,
+artifacts/api-server/src/routes/git.ts:585:          proposal.operationId
+artifacts/api-server/src/routes/git.ts:586:          && (proposal.operationId !== correlationId || proposal.lifecycle !== "committed")
+artifacts/api-server/src/routes/git.ts:593:          operationId: correlationId,
+artifacts/api-server/src/routes/git.ts:602:        commitEvidence.operationId !== correlationId ||
+artifacts/api-server/src/routes/git.ts:609:          operationId: correlationId,
+artifacts/api-server/src/routes/git.ts:686:        operationId: correlationId,
+artifacts/api-server/src/routes/git.ts:767:        operationId: correlationId,
+artifacts/api-server/src/routes/ai/workflows.ts:141:        operationId: operationExecution.operationId ?? operationExecution.id,
+artifacts/api-server/src/routes/ai/workflows.ts:250:      correlationId: operation?.operationId ?? operationExecution.operationId ?? operationExecution.id,
+artifacts/api-server/src/routes/ai/workflows.ts:259:      correlationId: operation?.operationId ?? operationExecution.operationId ?? operationExecution.id,
+artifacts/api-server/src/routes/git.test.ts:95:      operationId: proposalId,
+artifacts/api-server/src/routes/git.test.ts:142:      operationId: fixture.proposalId,
+artifacts/api-server/src/routes/git.test.ts:178:    const operationId = randomUUID();
+artifacts/api-server/src/routes/git.test.ts:214:        correlationId: operationId,
+artifacts/api-server/src/routes/git.test.ts:217:          operationId,
+artifacts/api-server/src/routes/git.test.ts:266:          operationId,
+artifacts/api-server/src/routes/git.test.ts:270:        correlationId: operationId,
+artifacts/api-server/src/routes/git.test.ts:276:        .send({ proposalId: fixture.proposalId, operationId: randomUUID() });
+artifacts/api-server/src/routes/git.test.ts:282:        .send({ proposalId: fixture.proposalId, operationId });
+artifacts/api-server/src/routes/git.test.ts:287:        correlationId: operationId,
+artifacts/api-server/src/routes/git.test.ts:305:          eq(eventsTable.correlationId, operationId),
+artifacts/api-server/src/routes/git.test.ts:311:        expect(event.correlationId).toBe(operationId);
+artifacts/api-server/src/routes/git.test.ts:314:          operationId,
+artifacts/api-server/src/routes/ai/chat.ts:21:  aiApplyJournalTable,
+artifacts/api-server/src/routes/ai/chat.ts:326:      operationId: result.evidence.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:328:      candidateHash: result.evidence.candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:329:      changeSetHash: result.evidence.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:330:      promotedHash: result.evidence.promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:367:        ...(typeof evidence.operationId === "string" ? { operationId: evidence.operationId } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:369:        ...(typeof evidence.candidateHash === "string" ? { candidateHash: evidence.candidateHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:370:        ...(typeof evidence.changeSetHash === "string" ? { changeSetHash: evidence.changeSetHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:371:        ...(typeof evidence.promotedHash === "string" ? { promotedHash: evidence.promotedHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:401:    operationId: string | null;
+artifacts/api-server/src/routes/ai/chat.ts:434:  const operationId = params.execution?.operationId
+artifacts/api-server/src/routes/ai/chat.ts:435:    ?? (typeof request.operationId === "string" ? request.operationId : undefined)
+artifacts/api-server/src/routes/ai/chat.ts:486:    operationId,
+artifacts/api-server/src/routes/ai/chat.ts:1924:    operationId: string;
+artifacts/api-server/src/routes/ai/chat.ts:1930:    operationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts:2196:        const operationId = msg.id;
+artifacts/api-server/src/routes/ai/chat.ts:2202:          messageId: operationId,
+artifacts/api-server/src/routes/ai/chat.ts:2214:          correlationId: operationId,
+artifacts/api-server/src/routes/ai/chat.ts:2215:          payload: { messageId: operationId, proposalId: proposalId ?? null },
+artifacts/api-server/src/routes/ai/chat.ts:2536:    operationId: string;
+artifacts/api-server/src/routes/ai/chat.ts:2542:    operationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts:2788:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+artifacts/api-server/src/routes/ai/chat.ts:2800:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+artifacts/api-server/src/routes/ai/chat.ts:2818:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+artifacts/api-server/src/routes/ai/chat.ts:2859:      operationId: aiExecution.operationId ?? aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:3476:      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+artifacts/api-server/src/routes/ai/chat.ts:3509:              operationId: request.operationId ?? analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:3529:                evidenceId: `browser-start:${request.operationId ?? "unknown"}`,
+artifacts/api-server/src/routes/ai/chat.ts:3591:            operationId: analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:3601:             operationId: analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4019:    let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
+artifacts/api-server/src/routes/ai/chat.ts:4091:        const operationId = assistantOperationId ?? proposalMessageId;
+artifacts/api-server/src/routes/ai/chat.ts:4092:        assistantOperationId = operationId;
+artifacts/api-server/src/routes/ai/chat.ts:4114:          correlationId: operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4117:            operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4304:      operationId: assistantOperationId,
+artifacts/api-server/src/routes/ai/chat.ts:4429:      operationId: execution.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4452:  let operationId = execution.operationId ?? execution.buildPlanMessageId ?? execution.proposalId ?? null;
+artifacts/api-server/src/routes/ai/chat.ts:4453:  if (!execution.operationId && execution.proposalId) {
+artifacts/api-server/src/routes/ai/chat.ts:4459:    operationId = proposal?.messageId ?? operationId;
+artifacts/api-server/src/routes/ai/chat.ts:4461:  const operationEvents = operationId
+artifacts/api-server/src/routes/ai/chat.ts:4467:        eq(eventsTable.correlationId, operationId),
+artifacts/api-server/src/routes/ai/chat.ts:4523:    operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4536:      operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4583:  const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
+artifacts/api-server/src/routes/ai/chat.ts:4596:      eq(eventsTable.correlationId, operationId),
+artifacts/api-server/src/routes/ai/chat.ts:4676:      operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4725:    operationId: recovered.execution.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4908:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4927:  const operationId = execution?.operationId ?? execution?.id ?? target.executionId ?? messageId;
+artifacts/api-server/src/routes/ai/chat.ts:4933:      eq(eventsTable.correlationId, operationId),
+artifacts/api-server/src/routes/ai/chat.ts:5291:  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
+artifacts/api-server/src/routes/ai/chat.ts:5296:      operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:5306:  const canonicalOperationId = proposalExecution?.operationId
+artifacts/api-server/src/routes/ai/chat.ts:5317:      operationId: canonicalOperationId,
+artifacts/api-server/src/routes/ai/chat.ts:5324:        || proposal.validationEvidence
+artifacts/api-server/src/routes/ai/chat.ts:5328:            changeSetHash: proposal.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:5332:            validationEvidence: proposal.validationEvidence
+artifacts/api-server/src/routes/ai/chat.ts:5333:              ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
+artifacts/api-server/src/routes/ai/chat.ts:5367:      proposal.operationId
+artifacts/api-server/src/routes/ai/chat.ts:5368:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+artifacts/api-server/src/routes/ai/chat.ts:5391:      operationId: proposal.operationId ?? proposal.messageId,
+artifacts/api-server/src/routes/ai/chat.ts:5393:      changeSetHash: proposal.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:5404:      validationEvidence: proposal.validationEvidence
+artifacts/api-server/src/routes/ai/chat.ts:5405:        ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+artifacts/api-server/src/routes/ai/chat.ts:5429:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+artifacts/api-server/src/routes/ai/chat.ts:5433:    || !proposal.operationId
+artifacts/api-server/src/routes/ai/chat.ts:5434:    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+artifacts/api-server/src/routes/ai/chat.ts:5437:      proposal.operationId
+artifacts/api-server/src/routes/ai/chat.ts:5438:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+artifacts/api-server/src/routes/ai/chat.ts:5463:  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:5464:  const changeSetHash = proposal.changeSetHash ?? hashChangeSet(changes);
+artifacts/api-server/src/routes/ai/chat.ts:5483:      result.evidence.operationId = proposal.operationId ?? proposal.messageId;
+artifacts/api-server/src/routes/ai/chat.ts:5485:      result.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:5486:      result.evidence.changeSetHash = changeSetHash;
+artifacts/api-server/src/routes/ai/chat.ts:5495:    validationEvidence: evidence,
+artifacts/api-server/src/routes/ai/chat.ts:5505:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+artifacts/api-server/src/routes/ai/chat.ts:5509:    operationId: proposal.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:5511:    validationEvidence: parsePublicValidationReceipts(results),
+artifacts/api-server/src/routes/ai/chat.ts:5532:  if (updated && proposal.workspaceRoot && proposal.operationId) {
+artifacts/api-server/src/routes/ai/chat.ts:5533:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+artifacts/api-server/src/routes/ai/chat.ts:5949:  if (proposal.workspaceRoot && proposal.operationId) {
+artifacts/api-server/src/routes/ai/chat.ts:5950:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+artifacts/api-server/src/routes/ai/chat.ts:5995:    operationId: z.string().uuid().optional(),
+artifacts/api-server/src/routes/ai/chat.ts:6008:  const { changes, projectId, proposalId, operationId } = applyBody.data;
+artifacts/api-server/src/routes/ai/chat.ts:6129:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:6139:    const canonicalOperationId = proposalExecution?.operationId
+artifacts/api-server/src/routes/ai/chat.ts:6143:    if (operationId && operationId !== canonicalOperationId) {
+artifacts/api-server/src/routes/ai/chat.ts:6157:      operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6163:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6166:        changeSetHash: deliveryWorkspace.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6180:      await db.insert(aiApplyJournalTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:6182:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6193:      operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6382:    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6385:      .set({ changeSetHash: effectiveChangeSetHash })
+artifacts/api-server/src/routes/ai/chat.ts:6411:        validation.evidence.operationId = applyCorrelationId;
+artifacts/api-server/src/routes/ai/chat.ts:6413:        validation.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6414:        validation.evidence.changeSetHash = effectiveChangeSetHash;
+artifacts/api-server/src/routes/ai/chat.ts:6419:    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6420:    const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6456:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6457:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6465:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6467:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6469:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6525:    const promotedHash = writtenChanges.length > 0
+artifacts/api-server/src/routes/ai/chat.ts:6528:    if (writtenChanges.length > 0 && promotedHash !== candidateFilesHash) {
+artifacts/api-server/src/routes/ai/chat.ts:6540:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6541:        changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6542:        promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6549:        && promotedHash === candidateFilesHash
+artifacts/api-server/src/routes/ai/chat.ts:6552:        validation.evidence.promotedHash = promotedHash;
+artifacts/api-server/src/routes/ai/chat.ts:6555:    const validationEvidence = [...verificationByProfile.values()].flatMap((validation) => {
+artifacts/api-server/src/routes/ai/chat.ts:6651:      await tx.insert(aiApplyJournalTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:6653:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6663:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6664:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6665:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6683:          operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6684:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6685:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6686:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6712:          operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6717:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6718:          changeSetHash: effectiveChangeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6719:          promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:6733:            validationEvidence: JSON.stringify(validationEvidence),
+artifacts/api-server/src/routes/ai/chat.ts:6734:            committedHash: allOk ? promotedHash : null,
+artifacts/api-server/src/routes/ai/chat.ts:6749:            validationEvidence: JSON.stringify(validationEvidence),
+artifacts/api-server/src/routes/ai/chat.ts:6766:      validationEvidence,
+artifacts/api-server/src/routes/ai/benchmark.ts:81:    if (!isRecord(raw) || typeof raw.operationId !== "string" || typeof raw.caseId !== "string" ||
+artifacts/api-server/src/routes/ai/benchmark.ts:85:    return [{ operationId: raw.operationId.slice(0, 128), caseId: raw.caseId.slice(0, 128),
+artifacts/api-server/src/routes/ai/benchmark.ts:355:    operationId: execution.operationId ?? execution.correlationId ?? execution.id,
+artifacts/api-server/src/routes/ai.test.ts:26:  aiApplyJournalTable,
+artifacts/api-server/src/routes/ai.test.ts:113:        operationId: "internal-operation-id",
+artifacts/api-server/src/routes/ai.test.ts:133:      operationId: "operation",
+artifacts/api-server/src/routes/ai.test.ts:170:      operationId: "123e4567-e89b-12d3-a456-426614174000",
+artifacts/api-server/src/routes/ai.test.ts:200:      operationId: "[internal id]",
+artifacts/api-server/src/routes/ai.test.ts:214:      operationId: "123e4567-e89b-12d3-a456-426614174000",
+artifacts/api-server/src/routes/ai.test.ts:243:      operationId: "[internal id]",
+artifacts/api-server/src/routes/ai.test.ts:489:): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+artifacts/api-server/src/routes/ai.test.ts:495:  const operationId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:496:  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+artifacts/api-server/src/routes/ai.test.ts:506:    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+artifacts/api-server/src/routes/ai.test.ts:511:      operationId,
+artifacts/api-server/src/routes/ai.test.ts:520:    operationId,
+artifacts/api-server/src/routes/ai.test.ts:523:    changeSetHash: "change-set-hash",
+artifacts/api-server/src/routes/ai.test.ts:527:  return { proposalId, operationId, workspaceRoot, change };
+artifacts/api-server/src/routes/ai.test.ts:628:  await db.delete(aiApplyJournalTable).where(eq(aiApplyJournalTable.projectId, projectId));
+artifacts/api-server/src/routes/ai.test.ts:868:      operationId: proposal.messageId,
+artifacts/api-server/src/routes/ai.test.ts:1520:    const operationId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:1526:      correlationId: operationId,
+artifacts/api-server/src/routes/ai.test.ts:1544:        operationId,
+artifacts/api-server/src/routes/ai.test.ts:1588:      correlationId: operationId,
+artifacts/api-server/src/routes/ai.test.ts:2011:      operationId: "stored-operation",
+artifacts/api-server/src/routes/ai.test.ts:2795:      operationId: operation.operationId,
+artifacts/api-server/src/routes/ai.test.ts:2804:      validationEvidence: null,
+artifacts/api-server/src/routes/ai.test.ts:2895:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(true);
+artifacts/api-server/src/routes/ai.test.ts:2947:    expect(await db.select().from(aiApplyJournalTable)
+artifacts/api-server/src/routes/ai.test.ts:2948:      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+artifacts/api-server/src/routes/ai.test.ts:2971:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(false);
+artifacts/api-server/src/routes/ai.test.ts:2972:    expect(await db.select().from(aiApplyJournalTable)
+artifacts/api-server/src/routes/ai.test.ts:2973:      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+artifacts/api-server/src/routes/ai.test.ts:3174:        .from(aiApplyJournalTable)
+artifacts/api-server/src/routes/ai.test.ts:3175:        .where(eq(aiApplyJournalTable.operationId, proposal?.messageId ?? proposalId));
+artifacts/api-server/src/routes/ai/analysis.ts:47:  operationId: string;
+artifacts/api-server/src/routes/ai/analysis.ts:224:    operationId: randomUUID(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1001:    expect(created.execution.operationId).toBe(created.execution.id);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1006:    expect(queuedStatus.body.operationId).toBe(created.execution.id);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1045:    const resumedCorrelations: Array<{ operationId?: string; projectRevision?: string }> = [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1047:      const params = args[1] as { analysisCorrelation?: { operationId: string; projectRevision: string } };
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1070:      operationId: created.execution.operationId ?? created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1420:    const operationId = done?.["operationId"] as string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1423:    expect(operationId).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1424:    expect(operationId).not.toBe(assistantMessageId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1429:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1436:      operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1443:    expect(pending.body.operationId).toBe(operationId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1458:      .send({ projectId, proposalId, operationId, changes: [proposedChange] });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1465:      event.type === "AiChangesApplied" && event.correlationId === operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1888:    const operationId = plan.messageId;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1894:      operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1905:        operationId: randomUUID(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1916:        operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1928:    expect(apply.body.validationEvidence).toEqual([
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1932:          operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1934:          candidateHash: expect.any(String),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1935:          changeSetHash: expect.any(String),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1936:          promotedHash: expect.any(String),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1951:        .send({ message: "Apply verified AI changes", proposalId, operationId });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1955:      correlationId: operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1999:        .send({ proposalId, operationId });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2004:        correlationId: operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2023:          .filter((event) => event.correlationId === operationId)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2038:        const validationEvidence = Array.isArray(apply.body.validationEvidence)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2039:          ? apply.body.validationEvidence
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2064:                operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2068:                validationCheckpoints: validationEvidence.length,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2069:                candidateBound: validationEvidence.length > 0,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2636:      expect(done?.operationId).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4189:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4199:      operationId: started?.executionId,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:17:  operationId: string;
+artifacts/api-server/src/lib/workflow-phase-execution.ts:52:    operationId: params.workflowExecutionId,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:71:      operationId: durable.execution.operationId ?? durable.execution.id,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:79:      operationId: durable.execution.operationId ?? durable.execution.id,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:104:      operationId: durable.execution.operationId ?? durable.execution.id,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:120:      operationId: durable.execution.operationId ?? durable.execution.id,

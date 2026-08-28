@@ -1,0 +1,140 @@
+package.json
+21:    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+
+scripts/run-dashboard-journey.mjs
+23:const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+24:const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23184);
+26:  process.env.DASHBOARD_E2E_BASE_URL ??
+29:  process.env.DASHBOARD_E2E_API_HEALTH_URL ??
+32:  process.env.DASHBOARD_E2E_API_READINESS_URL ??
+38:  process.env.DASHBOARD_E2E_API_BASE_URL ??
+41:  process.env.DASHBOARD_E2E_EMAIL ??
+44:  process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
+47:  process.env.DASHBOARD_E2E_READINESS_TIMEOUT_MS ?? 15_000,
+50:  process.env.DASHBOARD_E2E_RESTART_TIMEOUT_MS ?? 30_000,
+53:  process.env.DASHBOARD_E2E_TEST_MODE ??
+54:  (process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+58:  process.env.DASHBOARD_E2E_LIVE_PROJECT_ID ?? "e2e-project";
+60:  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+63:  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+71:  process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1"
+85:  process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
+89:  process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
+96:  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
+135:    process.env.DASHBOARD_E2E_READINESS_ARTIFACT_PATH ??
+161:        process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1" ? "ready" : "blocked",
+162:      ...(process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+168:        process.env.DASHBOARD_E2E_LIVE_DISPOSABLE === "1" &&
+169:        Boolean(process.env.DASHBOARD_E2E_LIVE_PROJECT_ID)
+172:      ...(process.env.DASHBOARD_E2E_LIVE_DISPOSABLE === "1" &&
+173:      process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
+644:  if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
+664:  const chromium = process.env.DASHBOARD_E2E_EXECUTABLE_PATH;
+667:      "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH; configure Chromium before starting services.",
+867:                process.env.DASHBOARD_E2E_CONTRACT_TIMEOUT_MS ?? "120000",
+920:      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+971:  if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
+982:    if (process.env.DASHBOARD_E2E_SKIP_API_CONTRACTS !== "1") {
+1004:        ...(process.env.DASHBOARD_E2E_GREP
+1005:          ? ["--grep", process.env.DASHBOARD_E2E_GREP]
+1013:          DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
+1014:          DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
+1015:          DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
+1016:          DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
+1017:          DASHBOARD_E2E_READINESS_TIMEOUT_MS: String(readinessTimeoutMs),
+1018:          DASHBOARD_E2E_READINESS_ARTIFACT_PATH: resolve(
+1022:          DASHBOARD_E2E_LIVE_PROJECT_ID: dashboardFixtureProjectId,
+1023:          DASHBOARD_E2E_EMAIL: testEmail,
+1024:          DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
+1025:          DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,
+1026:          DASHBOARD_E2E_EXECUTABLE_PATH:
+1027:            process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
+1029:          DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
+1031:            process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+1035:            ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
+1055:      process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+
+scripts/release-port-cleanup.test.mjs
+67:      [resolve(root, "scripts/run-dashboard-journey.mjs")],
+72:          DASHBOARD_E2E_TEARDOWN_FIXTURE: "1",
+73:          DASHBOARD_E2E_API_PORT: String(apiPort),
+74:          DASHBOARD_E2E_PORT: String(dashboardPort),
+139:    resolve(root, "scripts/run-dashboard-journey.mjs"),
+
+scripts/release-configuration.test.ts
+602:  const journeyStart = replitConfig.indexOf('name = "release-dashboard-journey"');
+607:    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+611:    /name = "release-dashboard-journey"/,
+632:    /pnpm run validate:dashboard-journey/,
+637:    /DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+
+scripts/dashboard-journey-contract.test.mjs
+12:const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+31:    /DASHBOARD_E2E_LIVE_TIMEOUT_MS\s*\?\?\s*([0-9_]+)/,
+336:    /test\.skip\(\s*process\.env\.DASHBOARD_E2E_LIVE_PROVIDER !== "1"/,
+341:    /process\.env\.DASHBOARD_E2E_LIVE_PROVIDER === "1"/,
+354:    /DASHBOARD_E2E_LIVE_PROVIDER\s*:/,
+413:    /DASHBOARD_E2E_LIVE_DISPOSABLE !== "1"/,
+418:    /DASHBOARD_E2E_LIVE_PROJECT_ID/,
+620:    /DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins\.join\(","\)/,
+658:    /DASHBOARD_E2E_TEST_MODE/,
+716:    /DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH/,
+733:    /DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath/,
+
+artifacts/dashboard/e2e/dashboard.journey.ts
+15:    process.env.DASHBOARD_E2E_EMAIL ??
+41:  const scenario = process.env.DASHBOARD_E2E_LIVE_SCENARIO?.trim();
+42:  if (process.env.DASHBOARD_E2E_LIVE_CAMPAIGN === "1" && !scenario) {
+44:      "Live campaign requires DASHBOARD_E2E_LIVE_SCENARIO=provider-outage, malformed-output, or delivery-success.",
+64:  return process.env.DASHBOARD_E2E_LIVE_PROMPT ?? DEFAULT_LIVE_PROMPT;
+68:  const configured = Number(process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS);
+75:  return process.env.DASHBOARD_E2E_TEST_MODE ?? "fixture";
+79:  const configured = Number(process.env.DASHBOARD_E2E_READINESS_TIMEOUT_MS);
+90:  const receiptPath = process.env.DASHBOARD_E2E_READINESS_ARTIFACT_PATH;
+103:            ? process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
+114:  const origins = (process.env.DASHBOARD_E2E_APPROVED_ORIGINS ?? "")
+120:      "DASHBOARD_E2E_APPROVED_ORIGINS must contain every approved dashboard origin.",
+219:  const controlUrl = process.env.DASHBOARD_E2E_CONTROL_URL;
+1455:    if (process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1") {
+1461:        "BLOCKED: live-provider mode requires DASHBOARD_E2E_LIVE_PROVIDER=1.",
+1464:    if (process.env.DASHBOARD_E2E_LIVE_DISPOSABLE !== "1") {
+1531:            ? process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
+1577:  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+1619:  return process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH;
+1644:  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+1647:      "DASHBOARD_E2E_API_BASE_URL is required for origin checks.",
+1752:  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+1755:      "DASHBOARD_E2E_API_BASE_URL is required for origin checks.",
+1886:      process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
+1889:    if (process.env.DASHBOARD_E2E_LIVE_DISPOSABLE !== "1") {
+1891:        "Live-provider journey requires DASHBOARD_E2E_LIVE_DISPOSABLE=1 and a disposable project.",
+1895:    const projectId = process.env.DASHBOARD_E2E_LIVE_PROJECT_ID;
+1898:        "DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.",
+1988:      process.env.DASHBOARD_E2E_LIVE_CAMPAIGN === "1" &&
+2137:      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+2738:      !process.env.DASHBOARD_E2E_CONTROL_URL,
+3110:    }, process.env.DASHBOARD_E2E_API_BASE_URL ?? page.url());
+
+artifacts/dashboard/e2e/playwright.config.ts
+23:      ...(process.env.DASHBOARD_E2E_EXECUTABLE_PATH
+24:        ? { executablePath: process.env.DASHBOARD_E2E_EXECUTABLE_PATH }
+29:      process.env.DASHBOARD_E2E_BASE_URL ?? "http://127.0.0.1:5173/dashboard/",
+
+artifacts/dashboard/e2e/README.md
+22:DASHBOARD_E2E_BASE_URL=https://$REPLIT_DEV_DOMAIN/dashboard/ \
+23:DASHBOARD_E2E_API_HEALTH_URL=https://$REPLIT_DEV_DOMAIN/api/healthz \
+24:pnpm run validate:dashboard-journey
+28:`DASHBOARD_E2E_EMAIL` (default:
+50:DASHBOARD_E2E_LIVE_PROVIDER=1 \
+51:DASHBOARD_E2E_LIVE_CAMPAIGN=1 \
+52:DASHBOARD_E2E_LIVE_SCENARIO=delivery-success \
+53:DASHBOARD_E2E_LIVE_DISPOSABLE=1 \
+54:DASHBOARD_E2E_LIVE_PROJECT_ID=<disposable-project-id> \
+55:DASHBOARD_E2E_LIVE_REPORT_PATH=test-results/dashboard-journey/live-mission-correlation.json \
+57:pnpm run validate:dashboard-journey
+60:The run is bounded by `DASHBOARD_E2E_LIVE_TIMEOUT_MS` (default 120 seconds)
+63:provider-backed path is skipped unless `DASHBOARD_E2E_LIVE_PROVIDER=1` is set.
+104:checks pass, `DASHBOARD_E2E_BASE_URL` includes the trailing `/dashboard/`, and
+
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+134:    command: "pnpm run validate:dashboard-journey",

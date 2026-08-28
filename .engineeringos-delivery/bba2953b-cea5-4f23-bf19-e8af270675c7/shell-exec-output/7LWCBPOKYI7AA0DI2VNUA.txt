@@ -1,0 +1,494 @@
+--- ai orchestrator ---
+lib/ai-orchestrator/src/agent-complete.ts
+lib/ai-orchestrator/src/agents/base-agent.ts
+lib/ai-orchestrator/src/agents/chat-agent.ts
+lib/ai-orchestrator/src/agents/code-reviewer.ts
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts
+lib/ai-orchestrator/src/agents/implementation-planner.ts
+lib/ai-orchestrator/src/agents/query-planner.ts
+lib/ai-orchestrator/src/agents/scan-analyst.ts
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+lib/ai-orchestrator/src/audit-telemetry.ts
+lib/ai-orchestrator/src/behavioral-scorecard.ts
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts
+lib/ai-orchestrator/src/benchmark/baseline-approval.ts
+lib/ai-orchestrator/src/benchmark/behavioral-oracle-gate.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.ts
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts
+lib/ai-orchestrator/src/benchmark/benchmark-shards.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-shards.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/contract-oracle.test.ts
+lib/ai-orchestrator/src/benchmark/contract-oracle.ts
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts
+lib/ai-orchestrator/src/benchmark/free-only-policy.test.ts
+lib/ai-orchestrator/src/benchmark/free-only-policy.ts
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.test.ts
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.test.ts
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark-deterministic.ts
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/run-forensic-benchmark.ts
+lib/ai-orchestrator/src/benchmark/run-free-tier-quality-envelope.ts
+lib/ai-orchestrator/src/benchmark/validate-code-agent-benchmark-scenarios.ts
+lib/ai-orchestrator/src/context-builder.test.ts
+lib/ai-orchestrator/src/context-builder.ts
+lib/ai-orchestrator/src/context-cache-manager.ts
+lib/ai-orchestrator/src/context-compressor.ts
+lib/ai-orchestrator/src/context-loader.ts
+lib/ai-orchestrator/src/context-manifest.ts
+lib/ai-orchestrator/src/context-runtime/context-admission.ts
+lib/ai-orchestrator/src/context-runtime/context-diff.ts
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts
+lib/ai-orchestrator/src/context-runtime/context-object.ts
+lib/ai-orchestrator/src/context-serializer.ts
+lib/ai-orchestrator/src/deepseek-client.ts
+lib/ai-orchestrator/src/errors.ts
+lib/ai-orchestrator/src/evidence-integrity.ts
+lib/ai-orchestrator/src/execution-kernel.test.ts
+lib/ai-orchestrator/src/execution-kernel.ts
+lib/ai-orchestrator/src/execution-node-coordinator.ts
+lib/ai-orchestrator/src/filesystem-manifest.ts
+lib/ai-orchestrator/src/flight-deck-state.ts
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts
+lib/ai-orchestrator/src/forensic-evidence-packets.ts
+lib/ai-orchestrator/src/forensic-output-guard.ts
+lib/ai-orchestrator/src/forensic-recovery.ts
+lib/ai-orchestrator/src/forensic-source-policy.ts
+lib/ai-orchestrator/src/groq-client.ts
+lib/ai-orchestrator/src/index.ts
+lib/ai-orchestrator/src/model-selection/decision-engine.ts
+lib/ai-orchestrator/src/model-selection/execution-plan.ts
+lib/ai-orchestrator/src/model-selection/model-resolver.ts
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts
+lib/ai-orchestrator/src/objective-scope.ts
+lib/ai-orchestrator/src/openai-compatible-client.ts
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts
+lib/ai-orchestrator/src/openrouter/index.ts
+lib/ai-orchestrator/src/openrouter/model-catalog.ts
+lib/ai-orchestrator/src/openrouter/model-resolver.ts
+lib/ai-orchestrator/src/parsing.ts
+lib/ai-orchestrator/src/patch-contract.ts
+lib/ai-orchestrator/src/prompts/capability-probe.ts
+lib/ai-orchestrator/src/prompts/chat.prompt.ts
+lib/ai-orchestrator/src/prompts/implementation-plan.prompt.ts
+lib/ai-orchestrator/src/prompts/index.ts
+lib/ai-orchestrator/src/prompts/profile-classifier.ts
+lib/ai-orchestrator/src/prompts/prompt-composer.ts
+lib/ai-orchestrator/src/prompts/prompt-planner.ts
+lib/ai-orchestrator/src/prompts/review.prompt.ts
+lib/ai-orchestrator/src/prompts/scan.prompt.ts
+lib/ai-orchestrator/src/prompts/task.prompt.ts
+lib/ai-orchestrator/src/prompts/workflow.prompt.ts
+lib/ai-orchestrator/src/provider-capabilities.ts
+lib/ai-orchestrator/src/provider-metrics.ts
+lib/ai-orchestrator/src/provider-registry.ts
+lib/ai-orchestrator/src/provider-strategy.ts
+lib/ai-orchestrator/src/quality-engine.ts
+lib/ai-orchestrator/src/quality/execution-phases.ts
+lib/ai-orchestrator/src/quality/quality-planner.ts
+lib/ai-orchestrator/src/quality/retry-controller.ts
+lib/ai-orchestrator/src/quality/task-profile.ts
+lib/ai-orchestrator/src/required-claims.ts
+lib/ai-orchestrator/src/schemas/chat.schema.ts
+lib/ai-orchestrator/src/schemas/code-review.schema.ts
+lib/ai-orchestrator/src/schemas/context.schema.ts
+lib/ai-orchestrator/src/schemas/implementation-plan.schema.ts
+lib/ai-orchestrator/src/schemas/index.ts
+lib/ai-orchestrator/src/schemas/scan.schema.ts
+lib/ai-orchestrator/src/schemas/task.schema.ts
+lib/ai-orchestrator/src/schemas/workflow.schema.ts
+lib/ai-orchestrator/src/semantic-trace.ts
+lib/ai-orchestrator/src/session-memory.ts
+lib/ai-orchestrator/src/startup-validator.ts
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts
+lib/ai-orchestrator/src/strategies/groq.strategy.ts
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts
+lib/ai-orchestrator/src/task-checklist.ts
+lib/ai-orchestrator/src/task-contracts.ts
+lib/ai-orchestrator/src/task-execution-partial-report.ts
+lib/ai-orchestrator/src/task-session-state.ts
+lib/ai-orchestrator/src/__tests__/agent-prompt-boundary.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-013-status-telemetry.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-objective-completion-gate.test.ts
+lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts
+lib/ai-orchestrator/src/__tests__/behavioral-scorecard.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts
+lib/ai-orchestrator/src/__tests__/context-loader.test.ts
+lib/ai-orchestrator/src/__tests__/conversation-history.test.ts
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts
+lib/ai-orchestrator/src/__tests__/fixture-guards.test.ts
+lib/ai-orchestrator/src/__tests__/fixture-guards.ts
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts
+lib/ai-orchestrator/src/__tests__/flight-deck-state.test.ts
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-deterministic-findings.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-evidence-packets.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-prompt-safety.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts
+lib/ai-orchestrator/src/__tests__/free-model-override.test.ts
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts
+lib/ai-orchestrator/src/__tests__/live-review-receipt.test.ts
+lib/ai-orchestrator/src/__tests__/objective-scope.test.ts
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts
+lib/ai-orchestrator/src/__tests__/parsing.test.ts
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts
+lib/ai-orchestrator/src/__tests__/profile-classifier.test.ts
+lib/ai-orchestrator/src/__tests__/prompt-composer.test.ts
+lib/ai-orchestrator/src/__tests__/quality-engine.test.ts
+lib/ai-orchestrator/src/__tests__/query-planner.test.ts
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts
+lib/ai-orchestrator/src/__tests__/required-claims.test.ts
+lib/ai-orchestrator/src/__tests__/retry-controller.test.ts
+lib/ai-orchestrator/src/__tests__/schemas.test.ts
+lib/ai-orchestrator/src/__tests__/semantic-trace.test.ts
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts
+lib/ai-orchestrator/src/__tests__/task-checklist.test.ts
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts
+lib/ai-orchestrator/src/__tests__/task-profile.test.ts
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts
+lib/ai-orchestrator/src/__tests__/turn-intent.test.ts
+lib/ai-orchestrator/src/__tests__/untrusted-content.test.ts
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/tool-policy.ts
+lib/ai-orchestrator/src/tools/analysis-tools.ts
+lib/ai-orchestrator/src/tools/execution-tools.ts
+lib/ai-orchestrator/src/tools/file-tools.ts
+lib/ai-orchestrator/src/tools/git-tools.ts
+lib/ai-orchestrator/src/turn-intent.ts
+lib/ai-orchestrator/src/untrusted-content.ts
+lib/ai-orchestrator/src/validation-result.ts
+lib/ai-orchestrator/src/zzz_test.txt
+--- api ai ---
+artifacts/api-server/src/lib/ai-analysis-tools.ts
+artifacts/api-server/src/lib/ai-change-guard.ts
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+artifacts/api-server/src/lib/ai-execution-state.test.ts
+artifacts/api-server/src/lib/ai-execution-state.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+artifacts/api-server/src/lib/ai-repair-validation.test.ts
+artifacts/api-server/src/lib/ai-repair-validation.ts
+artifacts/api-server/src/lib/ai-route-helpers.test.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+artifacts/api-server/src/lib/path-validation.test.ts
+artifacts/api-server/src/lib/path-validation.ts
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts
+artifacts/api-server/src/lib/task-execution-retention.test.ts
+artifacts/api-server/src/lib/task-execution-retention.ts
+artifacts/api-server/src/lib/task-execution-service.test.ts
+artifacts/api-server/src/lib/task-execution-service.ts
+artifacts/api-server/src/lib/workflow-phase-execution.ts
+artifacts/api-server/src/routes/ai/analysis.ts
+artifacts/api-server/src/routes/ai/benchmark.test.ts
+artifacts/api-server/src/routes/ai/benchmark.ts
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+artifacts/api-server/src/routes/ai/chat.ts
+artifacts/api-server/src/routes/ai/index.ts
+artifacts/api-server/src/routes/ai/providers.ts
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts
+artifacts/api-server/src/routes/ai-route-parity.test.ts
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+artifacts/api-server/src/routes/ai/tasks.ts
+artifacts/api-server/src/routes/ai.test.ts
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/routes/ai/workflows.ts
+artifacts/api-server/src/routes/dashboard.test.ts
+artifacts/api-server/src/routes/dashboard.ts
+artifacts/api-server/src/routes/discovery.test.ts
+artifacts/api-server/src/routes/discovery.ts
+artifacts/api-server/src/routes/empty-model-response-live.test.ts
+artifacts/api-server/src/routes/events.test.ts
+artifacts/api-server/src/routes/events.ts
+artifacts/api-server/src/routes/git.test.ts
+artifacts/api-server/src/routes/git.ts
+artifacts/api-server/src/routes/graph.test.ts
+artifacts/api-server/src/routes/graph.ts
+artifacts/api-server/src/routes/health.test.ts
+artifacts/api-server/src/routes/health.ts
+artifacts/api-server/src/routes/index.ts
+artifacts/api-server/src/routes/metrics.test.ts
+artifacts/api-server/src/routes/metrics.ts
+artifacts/api-server/src/routes/plugins.test.ts
+artifacts/api-server/src/routes/plugins.ts
+artifacts/api-server/src/routes/projects.test.ts
+artifacts/api-server/src/routes/projects.ts
+artifacts/api-server/src/routes/rules.test.ts
+artifacts/api-server/src/routes/rules.ts
+artifacts/api-server/src/routes/tasks.test.ts
+artifacts/api-server/src/routes/tasks.ts
+artifacts/api-server/src/routes/upload.ts
+artifacts/api-server/src/routes/workflows.test.ts
+artifacts/api-server/src/routes/workflows.ts
+--- package scripts ---
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "codegen": "pnpm --filter @workspace/api-spec run codegen",
+    "codegen:check": "pnpm --filter @workspace/scripts run check-codegen-drift",
+    "db:schema:check": "pnpm --filter @workspace/db run check-audit-schema",
+    "verify:benchmark-rollout": "node scripts/verify-benchmark-rollout.mjs",
+    "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
+    "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",
+    "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
+    "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
+    "test:dashboard-contract-trigger": "node --test scripts/dashboard-contract-trigger.test.mjs",
+    "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
+    "validate:app-origins": "NODE_ENV=production node scripts/validate-app-origins.mjs",
+    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+    "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+    "validate:live-provider-review": "pnpm --filter @workspace/api-server run validate:live-provider-review",
+    "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+    "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
+    "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
+    "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+    "truth:baseline:check": "pnpm --filter @workspace/scripts run generate-truth-flow",
+    "truth:baseline:materialize": "pnpm --filter @workspace/scripts run generate-truth-flow -- --write",
+    "truth:validate": "pnpm --filter @workspace/scripts run validate-truth-flow",
+    "benchmark:baseline:check": "pnpm --filter @workspace/scripts run validate-benchmark-baseline",
+    "build": "pnpm run codegen && pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "test": "pnpm -r --if-present run test"
+  },
+  "private": true,
+  "dependencies": {
+    "@replit/connectors-sdk": "^0.4.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.4",
+    "typescript": "~5.9.3"
+  }
+}
+--- monorepo packages ---
+# ============================================================================
+# SECURITY: Minimum release age for npm packages (supply-chain attack defense)
+# ============================================================================
+#
+# This setting requires that any npm package version must have been published
+# for at least 1 day (1440 minutes) before pnpm will allow installing it.
+# This is a critical defense against supply-chain attacks. In most cases,
+# malicious npm releases are discovered and pulled within hours, so a 1-day
+# delay provides a strong safety buffer.
+#
+# DO NOT DISABLE THIS SETTING. Removing or setting it to 0 is considered
+# extremely dangerous and leaves the entire workspace vulnerable to supply-
+# chain attacks, which have been the #1 vector for npm ecosystem compromises.
+#
+# If you absolutely need to install a package before the 1-day window has
+# passed (e.g. an urgent security bugfix), you can add it to the
+# `minimumReleaseAgeExclude` allowlist below. Only consider doing this for
+# packages released by trusted organizations with an impeccable security
+# posture (e.g. Replit packsges, react from Meta, typescript from Microsoft). Even then,
+# remove the exclusion once the 1-day window has passed.
+#
+# Example:
+#   minimumReleaseAgeExclude:
+#     - react
+#     - typescript
+#
+# ============================================================================
+minimumReleaseAge: 1440
+
+minimumReleaseAgeExclude:
+  # Exclude @replit scoped packages from the minimum release age check.
+  # These are published by Replit and trusted — the supply-chain attack vector
+  # this setting guards against does not apply to our own packages.
+  - '@replit/*'
+  - stripe-replit-sync
+
+packages:
+  - artifacts/*
+  - lib/*
+  - lib/integrations/*
+  - scripts
+
+catalog:
+  '@replit/vite-plugin-cartographer': ^0.5.21
+  '@replit/vite-plugin-dev-banner': ^0.1.1
+  '@replit/vite-plugin-runtime-error-modal': ^0.0.6
+  '@tailwindcss/vite': ^4.1.14
+  '@tanstack/react-query': ^5.90.21
+  '@types/node': ^25.3.3
+  '@types/react': ^19.2.0
+  '@types/react-dom': ^19.2.0
+  '@vitejs/plugin-react': ^5.0.4
+  class-variance-authority: ^0.7.1
+  clsx: ^2.1.1
+  drizzle-orm: ^0.45.2
+  framer-motion: ^12.23.24
+  lucide-react: ^0.545.0
+  # Must be this exact version because expo requires it
+  react: 19.1.0
+  # Must be this exact version because expo requires it
+  react-dom: 19.1.0
+  tailwind-merge: ^3.3.1
+  tailwindcss: ^4.1.14
+  tsx: ^4.21.0
+  vite: ^7.3.2
+  wouter: ^3.3.5
+  zod: ^3.25.76
+
+autoInstallPeers: false
+
+onlyBuiltDependencies:
+  - '@swc/core'
+  - esbuild
+  - msw
+  - unrs-resolver
+
+overrides:
+  # replit uses linux-x64 only, we can exclude all other platforms
+  "esbuild>@esbuild/darwin-arm64": "-"
+  "esbuild>@esbuild/darwin-x64": "-"
+  "esbuild>@esbuild/freebsd-arm64": "-"
+  "esbuild>@esbuild/freebsd-x64": "-"
+  "esbuild>@esbuild/linux-arm": "-"
+  "esbuild>@esbuild/linux-arm64": "-"
+  "esbuild>@esbuild/linux-ia32": "-"
+  "esbuild>@esbuild/linux-loong64": "-"
+  "esbuild>@esbuild/linux-mips64el": "-"
+  "esbuild>@esbuild/linux-ppc64": "-"
+  "esbuild>@esbuild/linux-riscv64": "-"
+  "esbuild>@esbuild/linux-s390x": "-"
+  "esbuild>@esbuild/netbsd-arm64": "-"
+  "esbuild>@esbuild/netbsd-x64": "-"
+  "esbuild>@esbuild/openbsd-arm64": "-"
+  "esbuild>@esbuild/openbsd-x64": "-"
+  "esbuild>@esbuild/sunos-x64": "-"
+  "esbuild>@esbuild/win32-arm64": "-"
+  "esbuild>@esbuild/win32-ia32": "-"
+  "esbuild>@esbuild/win32-x64": "-"
+  "esbuild>@esbuild/aix-ppc64": '-'
+  "esbuild>@esbuild/android-arm": '-'
+  "esbuild>@esbuild/android-arm64": '-'
+  "esbuild>@esbuild/android-x64": '-'
+  "esbuild>@esbuild/openharmony-arm64": '-'
+  "lightningcss>lightningcss-android-arm64": "-"
+  "lightningcss>lightningcss-darwin-arm64": "-"
+  "lightningcss>lightningcss-darwin-x64": "-"
+  "lightningcss>lightningcss-freebsd-x64": "-"
+  "lightningcss>lightningcss-linux-arm-gnueabihf": "-"
+  "lightningcss>lightningcss-linux-arm64-gnu": "-"
+  "lightningcss>lightningcss-linux-arm64-musl": "-"
+  "lightningcss>lightningcss-linux-x64-musl": "-"
+  "lightningcss>lightningcss-win32-arm64-msvc": "-"
+  "lightningcss>lightningcss-win32-x64-msvc": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-android-arm64": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-darwin-arm64": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-darwin-x64": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-freebsd-x64": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-linux-arm-gnueabihf": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-linux-arm64-gnu": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-linux-arm64-musl": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc": "-"
+  "@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl": "-"
+  "rollup>@rollup/rollup-android-arm-eabi": "-"
+  "rollup>@rollup/rollup-android-arm64": "-"
+  "rollup>@rollup/rollup-darwin-arm64": "-"
+  "rollup>@rollup/rollup-darwin-x64": "-"
+  "rollup>@rollup/rollup-freebsd-arm64": "-"
+  "rollup>@rollup/rollup-freebsd-x64": "-"
+  "rollup>@rollup/rollup-linux-arm-gnueabihf": "-"
+  "rollup>@rollup/rollup-linux-arm-musleabihf": "-"
+  "rollup>@rollup/rollup-linux-arm64-gnu": "-"
+  "rollup>@rollup/rollup-linux-arm64-musl": "-"
+  "rollup>@rollup/rollup-linux-loong64-gnu": "-"
+  "rollup>@rollup/rollup-linux-loong64-musl": "-"
+  "rollup>@rollup/rollup-linux-ppc64-gnu": "-"
+  "rollup>@rollup/rollup-linux-ppc64-musl": "-"
+  "rollup>@rollup/rollup-linux-riscv64-gnu": "-"
+  "rollup>@rollup/rollup-linux-riscv64-musl": "-"
+  "rollup>@rollup/rollup-linux-s390x-gnu": "-"
+  "rollup>@rollup/rollup-linux-x64-musl": "-"
+  "rollup>@rollup/rollup-openbsd-x64": "-"
+  "rollup>@rollup/rollup-openharmony-arm64": "-"
+  "rollup>@rollup/rollup-win32-arm64-msvc": "-"
+  "rollup>@rollup/rollup-win32-ia32-msvc": "-"
+  "rollup>@rollup/rollup-win32-x64-gnu": "-"
+  "rollup>@rollup/rollup-win32-x64-msvc": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-darwin-arm64": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-darwin-x64": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-freebsd-ia32": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-freebsd-x64": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-linux-arm64": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-linux-arm": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-linux-ia32": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-sunos-x64": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-win32-ia32": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-win32-x64": "-"
+  # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
+  "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
+  esbuild: "0.27.3"

@@ -1,0 +1,172 @@
+64:import { tryAdvisoryLock } from "../lib/advisory-lock.js";
+68:  return { ...actual, tryAdvisoryLock: vi.fn(actual.tryAdvisoryLock) };
+73:const runRealApiProcessRecovery = process.env.RUN_REAL_API_PROCESS_RECOVERY === "1";
+74:const liveRecoveryProvider = process.env.LIVE_RECOVERY_PROVIDER ?? "openrouter";
+79:  groq: "GROQ_API_KEY",
+83:  ? process.env[liveRecoveryProviderKey]
+296:  rootPath = `/tmp/stream-test-${randomUUID()}`,
+303:    ownerId:  "test-user",
+360:const projectIds: string[] = [];
+361:const rootPaths: string[] = [];
+374:  process.env.GROQ_API_KEY = "test-dummy-key-for-stream-tests";
+377:  delete process.env.GROQ_API_KEY;
+394:  for (const pid of projectIds.splice(0)) {
+411:  for (const rootPath of rootPaths.splice(0)) {
+448:    const ownerId = "test-user";
+450:    const encryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+455:        eq(aiProviderCredentialsTable.ownerId, ownerId),
+465:      process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+468:        ownerId,
+478:      process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+496:          eq(aiProviderCredentialsTable.ownerId, ownerId),
+519:      if (encryptionKey === undefined) delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+520:      else process.env.AI_CREDENTIALS_ENCRYPTION_KEY = encryptionKey;
+528:    projectIds.push(projectId);
+539:      userId: "test-user",
+565:      userId: "test-user",
+571:      userId: "test-user",
+591:      const originalEncryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+592:      const originalNodeEnv = process.env.NODE_ENV;
+593:      const originalPort = process.env.PORT;
+627:        const rootPath = await fs.mkdtemp("/tmp/stream-real-process-recovery-");
+628:        rootPaths.push(rootPath);
+635:        projectIds.push(projectId);
+648:        process.env.AI_CREDENTIALS_ENCRYPTION_KEY =
+650:        process.env.NODE_ENV = "test";
+651:        process.env.PORT = String(port);
+662:        const liveEnvironment = { ...process.env };
+673:          AI_CREDENTIALS_ENCRYPTION_KEY: process.env.AI_CREDENTIALS_ENCRYPTION_KEY,
+685:          userId: "test-user",
+758:        if (originalEncryptionKey === undefined) delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+759:        else process.env.AI_CREDENTIALS_ENCRYPTION_KEY = originalEncryptionKey;
+760:        if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+761:        else process.env.NODE_ENV = originalNodeEnv;
+762:        if (originalPort === undefined) delete process.env.PORT;
+763:        else process.env.PORT = originalPort;
+797:    const rootPath = await fs.mkdtemp("/tmp/stream-forensic-restart-");
+798:    rootPaths.push(rootPath);
+805:    projectIds.push(projectId);
+865:      userId: "test-user",
+875:      userId: "test-user",
+975:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-");
+976:    rootPaths.push(rootPath);
+978:    projectIds.push(projectId);
+994:      userId: "test-user",
+1011:      userId: "test-user",
+1099:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-queued-");
+1100:    rootPaths.push(rootPath);
+1102:    projectIds.push(projectId);
+1105:      userId: "test-user",
+1120:      userId: "test-user",
+1133:      userId: "test-user",
+1139:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-running-");
+1140:    rootPaths.push(rootPath);
+1142:    projectIds.push(projectId);
+1145:      userId: "test-user",
+1160:      userId: "test-user",
+1168:      userId: "test-user",
+1197:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-drift-");
+1198:    rootPaths.push(rootPath);
+1208:    projectIds.push(projectId);
+1220:      userId: "test-user",
+1232:      userId: "test-user",
+1346:    const rootPath = await fs.mkdtemp("/tmp/stream-non-build-correlation-");
+1347:    rootPaths.push(rootPath);
+1349:    projectIds.push(projectId);
+1470:    const rootPath = await fs.mkdtemp("/tmp/stream-build-plan-");
+1471:    rootPaths.push(rootPath);
+1473:    projectIds.push(projectId);
+1490:    const rootPath = await fs.mkdtemp("/tmp/stream-build-empty-scope-");
+1491:    rootPaths.push(rootPath);
+1493:    projectIds.push(projectId);
+1510:    const rootPath = await fs.mkdtemp("/tmp/stream-build-read-only-");
+1511:    rootPaths.push(rootPath);
+1513:    projectIds.push(projectId);
+1533:    const rootPath = await fs.mkdtemp("/tmp/stream-build-scope-");
+1534:    rootPaths.push(rootPath);
+1536:    projectIds.push(projectId);
+1577:    const rootPath = await fs.mkdtemp("/tmp/stream-build-validation-");
+1578:    rootPaths.push(rootPath);
+1580:    projectIds.push(projectId);
+1616:    const rootPath = await fs.mkdtemp("/tmp/stream-hostile-release-");
+1617:    rootPaths.push(rootPath);
+1619:    projectIds.push(projectId);
+1738:    const rootPath = await fs.mkdtemp(
+1741:    const remotePath = await fs.mkdtemp("/tmp/agent-cycle-remote-");
+1742:    const wrapperDir = await fs.mkdtemp("/tmp/agent-cycle-git-bin-");
+1743:    rootPaths.push(rootPath, remotePath, wrapperDir);
+1796:    projectIds.push(projectId);
+1966:    const previousPath = process.env.PATH;
+1967:    const previousRealGit = process.env.ENGINEERINGOS_TEST_REAL_GIT;
+1968:    const previousRemote = process.env.ENGINEERINGOS_TEST_PUSH_REMOTE;
+1969:    const previousCryptoKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+1978:    process.env.PATH = `${wrapperDir}:${previousPath ?? ""}`;
+1979:    process.env.ENGINEERINGOS_TEST_REAL_GIT = realGit;
+1980:    process.env.ENGINEERINGOS_TEST_PUSH_REMOTE = remotePath;
+1981:    process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+1984:      ownerId: "test-user",
+1989:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+2036:      const receiptPath = process.env.CONTROLLED_AGENT_JOURNEY_RECEIPT_PATH;
+2081:      if (previousPath === undefined) delete process.env.PATH;
+2082:      else process.env.PATH = previousPath;
+2083:      if (previousRealGit === undefined) delete process.env.ENGINEERINGOS_TEST_REAL_GIT;
+2084:      else process.env.ENGINEERINGOS_TEST_REAL_GIT = previousRealGit;
+2085:      if (previousRemote === undefined) delete process.env.ENGINEERINGOS_TEST_PUSH_REMOTE;
+2086:      else process.env.ENGINEERINGOS_TEST_PUSH_REMOTE = previousRemote;
+2087:      if (previousCryptoKey === undefined) delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+2088:      else process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previousCryptoKey;
+2140:    const rootPath = await fs.mkdtemp("/tmp/stream-arabic-persistence-");
+2141:    rootPaths.push(rootPath);
+2143:    projectIds.push(projectId);
+2152:    const sensitiveDiagnostic = "/tmp/private-trace";
+2274:    projectIds.push(projectId);
+2413:   * arrive before either is released, and the release order is explicitly the
+2422:    let released = false;
+2431:      if (released) return;
+2440:      async releaseReverse() {
+2442:        if (released) throw new Error("concurrent fixture barrier released twice");
+2443:        released = true;
+2499:    projectIds.push(projectId);
+2523:    await barrier.releaseReverse();
+2567:    projectIds.push(projectId);
+2612:    await barrier.releaseReverse();
+2647:    projectIds.push(projectId);
+2699:    projectIds.push(projectId);
+2781:    projectIds.push(projectId);
+2938:    projectIds.push(projectId);
+3189:    projectIds.push(projectId);
+3317:    projectIds.push(projectId);
+3326:    let releaseOld!: () => void;
+3327:    let releaseNew!: () => void;
+3328:    const oldReady = new Promise<void>((resolve) => { releaseOld = resolve; });
+3329:    const newReady = new Promise<void>((resolve) => { releaseNew = resolve; });
+3339:    vi.mocked(tryAdvisoryLock).mockResolvedValue({
+3341:      release: async () => undefined,
+3399:    releaseNew();
+3401:    releaseOld();
+3434:    projectIds.push(projectId);
+3498:    projectIds.push(projectId);
+3566:    projectIds.push(projectId);
+3663:    projectIds.push(projectId);
+3736:    projectIds.push(projectId);
+3865:    projectIds.push(projectId);
+4018:    projectIds.push(projectId);
+4094:    projectIds.push(projectId);
+4212:    projectIds.push(projectId);
+4278:    projectIds.push(projectId);
+4294:    projectIds.push(projectId);
+4313:    const rootPath = await fs.mkdtemp("/tmp/stream-native-reset-");
+4314:    rootPaths.push(rootPath);
+4320:    projectIds.push(projectId);
+4331:      onDelta?.(`partial provider diagnostic /tmp/provider-${randomUUID()}`);
+4397:    const rootPath = await fs.mkdtemp("/tmp/stream-provider-failover-");
+4398:    rootPaths.push(rootPath);
+4404:    projectIds.push(projectId);
+4489:    projectIds.push(projectId);
+4541:    projectIds.push(projectId);
+4606:    projectIds.push(projectId);
+4627:    projectIds.push(projectId);
+4678:    projectIds.push(projectId);
+4701:    projectIds.push(projectId);
+4722:    projectIds.push(projectId);
+4755:    projectIds.push(projectId);

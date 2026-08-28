@@ -1,0 +1,221 @@
+407:    ownerId: "test-user",
+409:    rootPath: `/tmp/ai-test-${id}`,
+499:    absolutePath: `/tmp/${fileName}`,
+506:    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+602:const projectIds: string[] = [];
+606:async function cleanupProjectFixture(projectId: string): Promise<void> {
+626:  // configuration. Release fixture cleanup must remain reliable if a test
+653:async function cleanupInterruptedTmpFixtures(): Promise<void> {
+661:      await cleanupProjectFixture(project.id);
+672:  await cleanupInterruptedTmpFixtures();
+673:  _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
+674:  process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+678:    process.env.GROQ_API_KEY = _savedGroqKeyFileLevel;
+680:    delete process.env.GROQ_API_KEY;
+689:  for (const pid of projectIds.splice(0)) {
+690:    await cleanupProjectFixture(pid);
+792:    const previousOpenRouterKey = process.env.OPENROUTER_API_KEY;
+793:    process.env.OPENROUTER_API_KEY = "test-openrouter-key-for-mocked-tests";
+795:    projectIds.push(projectId);
+817:        delete process.env.OPENROUTER_API_KEY;
+819:        process.env.OPENROUTER_API_KEY = previousOpenRouterKey;
+831:          absolutePath: "/tmp/a.ts",
+844:    projectIds.push(projectId);
+847:      absolutePath: `/tmp/${randomUUID()}/src/restore.ts`,
+877:    projectIds.push(projectId);
+880:      absolutePath: `/tmp/${randomUUID()}/src/mismatch.ts`,
+903:      ownerId: "test-user",
+911:    projectIds.push(projectId);
+915:      absolutePath: `/tmp/lib/ai-orchestrator/${fileName}`,
+945:      await fs.rm(`/tmp/lib/ai-orchestrator/${fileName}`, { force: true });
+951:    projectIds.push(projectId);
+966:    projectIds.push(projectId);
+981:    projectIds.push(projectId);
+1021:    projectIds.push(projectId);
+1068:    projectIds.push(projectId);
+1089:    projectIds.push(projectId);
+1115:    projectIds.push(projectId);
+1136:    projectIds.push(projectId);
+1151:    projectIds.push(projectId);
+1231:    projectIds.push(projectId);
+1345:    projectIds.push(projectId);
+1355:    let releaseOld!: () => void;
+1356:    let releaseNew!: () => void;
+1357:    const oldReady = new Promise<void>((resolve) => { releaseOld = resolve; });
+1358:    const newReady = new Promise<void>((resolve) => { releaseNew = resolve; });
+1394:    releaseNew();
+1396:    releaseOld();
+1435:    projectIds.push(projectId);
+1451:    projectIds.push(projectId);
+1466:    projectIds.push(projectId);
+1468:      userId: "test-user",
+1519:    projectIds.push(projectId);
+1524:      userId: "test-user",
+1536:          "/tmp/runtime-secret.ts",
+1558:              profile: "release-safe",
+1590:      message: "Validation passed; private path /tmp/private.log",
+1593:        profile: "release-safe",
+1596:        files: ["src/feature.ts", "/tmp/private.log"],
+1622:        profile: "release-safe",
+1634:    expect(exported).not.toContain("/tmp/");
+1659:    projectIds.push(projectId);
+1675:    projectIds.push(projectId);
+1684:    projectIds.push(projectId);
+1765:    projectIds.push(projectId);
+1804:    projectIds.push(projectId);
+1852:    projectIds.push(projectId);
+1868:    projectIds.push(projectId);
+1917:    projectIds.push(projectId);
+1970:    projectIds.push(projectId);
+2004:    projectIds.push(projectId);
+2064:    projectIds.push(projectId);
+2106:    projectIds.push(projectId);
+2139:    const root = `/tmp/ai-test-${id}`;
+2143:      ownerId: "test-user",
+2158:    projectIds.push(projectId);
+2179:    projectIds.push(projectId);
+2191:    projectIds.push(projectId);
+2200:    projectIds.push(projectId);
+2210:    projectIds.push(projectId);
+2223:    const goneRoot = `/tmp/ai-test-gone-${id}`;
+2226:      ownerId: "test-user",
+2234:    projectIds.push(id);
+2256:    projectIds.push(projectId);
+2266:    projectIds.push(projectId);
+2289:        message: "JSON parse error from /tmp/parser-output.txt (request req-analysis-123)",
+2295:    projectIds.push(projectId);
+2307:    expect(serialized).not.toContain("/tmp/");
+2313:    projectIds.push(projectId);
+2341:    projectIds.push(projectId);
+2402:    projectIds.push(projectId);
+2414:    projectIds.push(projectId);
+2442:    projectIds.push(projectId);
+2454:    projectIds.push(projectId);
+2482:    projectIds.push(projectId);
+2496:    projectIds.push(projectId);
+2524:    projectIds.push(projectId);
+2539:    expect(serialized).not.toContain("/tmp/");
+2544:    projectIds.push(projectId);
+2598:    projectIds.push(projectId);
+2625:    projectIds.push(projectId);
+2649:    projectIds.push(projectId);
+2667:    projectIds.push(projectId);
+2721:    projectIds.push(projectId);
+2722:    const projectRoot = `/tmp/ai-test-${projectId}`;
+2725:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-proposal-recovery.",
+2782:    projectIds.push(projectId);
+2812:    projectIds.push(projectId);
+2815:      conflictReason: "Recovery stopped at /tmp/private-delivery-root after a diagnostic failure.",
+2838:    expect(JSON.stringify(res.body)).not.toContain("/tmp/private-delivery-root");
+2844:    projectIds.push(projectId);
+2846:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-recovery-root.",
+2878:    projectIds.push(projectId);
+2880:    await db.update(projectsTable).set({ ownerId: "another-user" })
+2900:    projectIds.push(projectId);
+2916:    projectIds.push(projectId);
+2955:    projectIds.push(projectId);
+2980:    projectIds.push(projectId);
+2990:      .send({ changes: [{ path: "a.ts", absolutePath: "/tmp/a.ts", newContent: "" }] });
+3001:      ownerId: "test-user",
+3009:    projectIds.push(id);
+3048:      ownerId: "test-user",
+3056:    projectIds.push(id);
+3059:    const absolutePath = `/tmp/${fileName}`;
+3110:      ownerId: "test-user",
+3118:    projectIds.push(id);
+3121:    const absolutePath = `/tmp/${fileName}`;
+3195:      ownerId: "test-user",
+3203:    projectIds.push(id);
+3206:    const absolutePath = `/tmp/${fileName}`;
+3247:      ownerId: "test-user",
+3255:    projectIds.push(id);
+3259:    const dangerousPath = `/tmp/${dangerousName}`;
+3260:    const safePath = `/tmp/${safeName}`;
+3312:      ownerId: "test-user",
+3320:    projectIds.push(id);
+3323:    const absolutePath = `/tmp/${fileName}`;
+3358:      ownerId: "test-user",
+3366:    projectIds.push(id);
+3369:    const absolutePath = `/tmp/${fileName}`;
+3408:      ownerId: "test-user",
+3416:    projectIds.push(id);
+3420:    const stalePath = `/tmp/${staleName}`;
+3421:    const validPath = `/tmp/${validName}`;
+3484:      ownerId: "test-user",
+3492:    projectIds.push(id);
+3495:    const absolutePath = `/tmp/${fileName}`;
+3538:      ownerId: "test-user",
+3546:    projectIds.push(id);
+3573:    const absolutePath = `/tmp/${fileName}`;
+3629:      ownerId: "test-user",
+3637:    projectIds.push(id);
+3640:    const absolutePath = `/tmp/${fileName}`;
+3676:      ownerId: "test-user",
+3684:    projectIds.push(id);
+3687:    const absolutePath = `/tmp/${fileName}`;
+3723:      id, ownerId: "test-user",
+3728:    projectIds.push(id);
+3731:    const absolutePath = `/tmp/${fileName}`;
+3770:      ownerId: "test-user",
+3778:    projectIds.push(id);
+3781:    const absolutePath = `/tmp/${fileName}`;
+3820:      ownerId: "test-user",
+3828:    projectIds.push(id);
+3831:    const absolutePath = `/tmp/${fileName}`;
+3918:      ownerId: "test-user",
+3926:    projectIds.push(id);
+3929:    const absolutePath = `/tmp/${fileName}`;
+3979:    savedGroqKey = process.env.GROQ_API_KEY;
+3980:    process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+3984:      process.env.GROQ_API_KEY = savedGroqKey;
+3986:      delete process.env.GROQ_API_KEY;
+3998:    projectIds.push(projectId);
+4008:    projectIds.push(projectId);
+4018:    projectIds.push(projectId);
+4039:    projectIds.push(projectId);
+4049:    projectIds.push(projectId);
+4071:    projectIds.push(projectId);
+4101:    projectIds.push(projectId);
+4115:    expect(serialized).not.toContain("/tmp/");
+4141:    projectIds.push(projectId);
+4171:    projectIds.push(projectId);
+4197:    projectIds.push(projectId);
+4203:    scheduleAiTaskExecution(taskId, "test-user");
+4231:        message: "invalid output at /tmp/auto-parser.json (request req-auto-parser-999)",
+4237:    projectIds.push(projectId);
+4243:    scheduleAiTaskExecution(taskId, "test-user");
+4258:    expect(persisted).not.toContain("/tmp/auto-parser.json");
+4267:      "GROQ_API_KEY",
+4273:      providerKeys.map((key) => [key, process.env[key]]),
+4275:    for (const key of providerKeys) delete process.env[key];
+4279:      projectIds.push(projectId);
+4296:        if (value === undefined) delete process.env[key];
+4297:        else process.env[key] = value;
+4330:    projectIds.push(projectId);
+4449:            ? { catalogError: "raw catalog response at /tmp/catalog.json" }
+4476:    expect(serialized).not.toContain("/tmp/catalog.json");
+4483:    const providerKeys = ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY"] as const;
+4484:    const saved = Object.fromEntries(providerKeys.map((key) => [key, process.env[key]]));
+4485:    for (const key of providerKeys) delete process.env[key];
+4487:    process.env[envKey] = `test-${provider}-key-for-provider-failure-matrix`;
+4493:        if (value === undefined) delete process.env[key];
+4494:        else process.env[key] = value;
+4505:      projectIds.push(projectId);
+4519:      projectIds.push(projectId);
+4531:    const savedGroq = process.env.GROQ_API_KEY;
+4532:    const savedOpenRouter = process.env.OPENROUTER_API_KEY;
+4533:    const savedDeepSeek = process.env.DEEPSEEK_API_KEY;
+4534:    const savedGemini = process.env.GEMINI_API_KEY;
+4536:    delete process.env.GROQ_API_KEY;
+4537:    delete process.env.OPENROUTER_API_KEY;
+4538:    delete process.env.DEEPSEEK_API_KEY;
+4539:    process.env.GEMINI_API_KEY = "test-gemini-key";
+4543:      const resolved = await resolveProvider("test-user", { requireTools: true });
+4546:      if (savedGroq !== undefined) process.env.GROQ_API_KEY = savedGroq;
+4547:      else delete process.env.GROQ_API_KEY;
+4549:      if (savedOpenRouter !== undefined) process.env.OPENROUTER_API_KEY = savedOpenRouter;
+4550:      else delete process.env.OPENROUTER_API_KEY;
+4552:      if (savedDeepSeek !== undefined) process.env.DEEPSEEK_API_KEY = savedDeepSeek;
+4553:      else delete process.env.DEEPSEEK_API_KEY;
+4555:      if (savedGemini !== undefined) process.env.GEMINI_API_KEY = savedGemini;
+4556:      else delete process.env.GEMINI_API_KEY;

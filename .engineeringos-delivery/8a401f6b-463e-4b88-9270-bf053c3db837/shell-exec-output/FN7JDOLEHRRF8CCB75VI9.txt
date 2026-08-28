@@ -1,0 +1,260 @@
+8:import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+21:  aiChatSessionsTable,
+25:  aiSessionMemoriesTable,
+42:describe("verified repair proposal gate", () => {
+56:    scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+62:        kind: "forensic_status",
+66:        findingStatus: "PROVEN",
+87:describe("mission correlation report persistence contract", () => {
+115:        sessionId: "internal-session-id",
+135:      sessionId: "session",
+138:      terminalState: "COMPLETED",
+172:      sessionId: "323e4567-e89b-12d3-a456-426614174002",
+175:      terminalState: "COMPLETED",
+202:      sessionId: "[internal id]",
+216:      sessionId: "323e4567-e89b-12d3-a456-426614174002",
+218:      terminalState: "COMPLETED",
+245:      sessionId: "[internal id]",
+267:    groq: { providerId: "groq", label: "Groq", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "console.groq.com", statusUrl: "status.groq.com", defaultModels: { fast: "llama-3.1-8b-instant", powerful: "llama-3.3-70b-versatile" } },
+268:    deepseek: { providerId: "deepseek", label: "DeepSeek", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "platform.deepseek.com", statusUrl: "platform.deepseek.com", defaultModels: { fast: "deepseek-chat", powerful: "deepseek-chat" } },
+269:    gemini: { providerId: "gemini", label: "Gemini", supportsStreaming: true, supportsTools: false, supportsJsonMode: true, consoleUrl: "aistudio.google.com/apikey", statusUrl: "status.cloud.google.com", defaultModels: { fast: "gemini-2.0-flash", powerful: "gemini-2.0-flash" } },
+270:    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "openrouter.ai/keys", statusUrl: "openrouter.ai", defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+328:  // Removed stale fields: confidence, suggestedNextPhase, blockers.
+354:    readonly catalogStatus?: "never" | "success" | "failed" | "empty";
+361:        catalogStatus?: "never" | "success" | "failed" | "empty";
+369:      this.catalogStatus = options?.context?.catalogStatus;
+394:  // enrichContextWithMemories and writeSessionMemories are called by the chat route.
+396:  writeSessionMemories: vi.fn(async () => undefined),
+409:    rootPath: `/tmp/ai-test-${id}`,
+411:    status: "active",
+446:  const sessionId = randomUUID();
+450:  await db.insert(aiChatSessionsTable).values({
+451:    id: sessionId,
+459:    sessionId,
+467:    sessionId,
+479:    status: "pending",
+487:  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+489:): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+504:  let workspaceRoot: string | null = null;
+506:    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+507:    await fs.mkdir(sourceRoot, { recursive: true });
+508:    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+510:      rootPath: sourceRoot,
+515:    workspaceRoot = workspace.workspaceRoot;
+516:    deliveryWorkspaceRoots.push(workspaceRoot);
+517:    await fs.rm(sourceRoot, { recursive: true, force: true });
+521:    workspaceRoot,
+527:  return { proposalId, operationId, workspaceRoot, change };
+530:async function insertTask(projectId: string, status = "pending"): Promise<string> {
+538:    status: status as "pending",
+553:    status: "running",
+563:  const sessionId = randomUUID();
+566:  await db.insert(aiChatSessionsTable).values({
+567:    id: sessionId,
+575:    sessionId,
+594:      approvalStatus: "PENDING_APPROVAL",
+604:const deliveryWorkspaceRoots: string[] = [];
+607:  const sessions = await db
+608:    .select({ id: aiChatSessionsTable.id })
+609:    .from(aiChatSessionsTable)
+610:    .where(eq(aiChatSessionsTable.projectId, projectId));
+611:  const sessionIds = sessions.map(({ id }) => id);
+625:  // Keep this order explicit rather than relying on the database's cascade
+631:  await db.delete(aiSessionMemoriesTable).where(eq(aiSessionMemoriesTable.projectId, projectId));
+636:  for (const sessionId of sessionIds) {
+637:    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId));
+639:  await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+657:    .where(eq(projectsTable.rootPath, "/tmp"));
+669:// themselves and restore it in a finally block.
+684:afterEach(async () => {
+686:  for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
+687:    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+701:describe("POST /api/ai/chat", () => {
+707:    expect(res.status).toBe(400);
+718:    expect(res.status).toBe(403);
+728:    expect(res.status).toBe(400);
+736:    expect(res.status).toBe(400);
+744:    expect(res.status).toBe(400);
+751:      catalogStatus: "failed" as const,
+752:      expectedStatus: 503,
+758:      catalogStatus: "success" as const,
+759:      expectedStatus: 422,
+765:      catalogStatus: "success" as const,
+766:      expectedStatus: 503,
+771:    catalogStatus,
+772:    expectedStatus,
+785:            catalogStatus,
+802:      expect(res.status).toBe(expectedStatus);
+838:    expect(res.status).toBe(400);
+842:  it("restores the pending proposal for its session", async () => {
+856:        sessionId: aiChangeProposalsTable.sessionId,
+864:      .get(`/api/ai/chat/${proposal.sessionId}/pending-proposal`);
+865:    expect(res.status).toBe(200);
+894:    expect(res.status).toBe(409);
+898:  it("does not consume a proposal when behavioral verification blocks the write", async () => {
+905:      rootPath: "/tmp",
+907:      status: "active",
+925:      expect(first.status).toBe(207);
+928:        writeStatus: "not_written",
+930:        behavioralVerification: { status: "unavailable" },
+933:      expect(second.status).toBe(207);
+934:      expect(second.body.results[0].behavioralVerification.status).toBe("unavailable");
+937:          status: aiChangeProposalsTable.status,
+943:      expect(proposal?.status).toBe("pending");
+949:  it("creates a session and returns sessionId + message on first chat", async () => {
+956:    expect(res.status).toBe(200);
+957:    expect(typeof res.body.sessionId).toBe("string");
+972:    expect(res.status).toBe(200);
+986:    expect(res.status).toBe(200);
+999:    // is locked in on this path too.
+1026:    expect(res.status).toBe(200);
+1040:    // GET /messages so a reloaded session keeps the source anchors too.
+1041:    const { sessionId } = res.body;
+1042:    const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+1043:    expect(history.status).toBe(200);
+1079:    expect(res.status).toBe(200);
+1099:    expect(res.status).toBe(400);
+1121:    expect(res.status).toBe(200);
+1141:    expect(res.status).toBe(422);
+1149:  it("reuses an existing session when sessionId is provided", async () => {
+1153:    // First message creates a session
+1157:    expect(first.status).toBe(200);
+1158:    const { sessionId } = first.body;
+1163:      .send({ projectId, message: "Follow-up", sessionId });
+1164:    expect(second.status).toBe(200);
+1165:    expect(second.body.sessionId).toBe(sessionId);
+1167:    // DB: session has messages from both turns
+1171:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+1176:  it("restores a JSON continuation but isolates later neutral chat from stale forensic state", async () => {
+1178:    const forensicClassification = {
+1185:      singleFileForensicMode: false,
+1186:      orderedForensicRoots: [],
+1191:      taskType: "FULL_FORENSIC_AUDIT",
+1192:      analysisMode: "FORENSIC",
+1193:      outputContract: "FORENSIC_REPORT",
+1201:      .mockReturnValueOnce(forensicClassification)
+1202:      .mockReturnValueOnce(forensicClassification);
+1210:      scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+1235:      .send({ projectId, message: "forensic audit" });
+1236:    expect(first.status).toBe(200);
+1237:    const { sessionId } = first.body;
+1240:      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+1241:      .from(aiChatSessionsTable)
+1242:      .where(eq(aiChatSessionsTable.id, sessionId));
+1244:      taskType: "FULL_FORENSIC_AUDIT",
+1251:          sourceRoots: ["src"],
+1253:        claims: [{ claimId: "finding:F-1", findingId: "F-1", status: "PROVEN" }],
+1259:      .send({ projectId, sessionId, message: "أكمل" });
+1260:    expect(second.status).toBe(200);
+1266:      taskType: "FULL_FORENSIC_AUDIT",
+1272:      .send({ projectId, sessionId, message: "Tell me a joke" });
+1273:    expect(neutral.status).toBe(200);
+1293:  it("keeps the newer resumable contract when concurrent JSON turns finish out of order", async () => {
+1295:    const forensicClassification = {
+1302:      singleFileForensicMode: false,
+1303:      orderedForensicRoots: [],
+1308:      taskType: "FULL_FORENSIC_AUDIT",
+1309:      analysisMode: "FORENSIC",
+1310:      outputContract: "FORENSIC_REPORT",
+1317:    vi.mocked(mockClassifyRequest).mockReturnValue(forensicClassification);
+1329:        scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+1350:      .send({ projectId, message: "forensic audit" });
+1351:    expect(first.status).toBe(200);
+1352:    const { sessionId } = first.body;
+1353:    expect(sessionId).toBeTruthy();
+1379:      throw new Error(`Unexpected concurrent test message: ${message}`);
+1384:      .send({ projectId, sessionId, message: "continue older work" });
+1387:      .send({ projectId, sessionId, message: "continue newer work" });
+1398:    expect(newerResponse.status).toBe(200);
+1399:    expect(olderResponse.status).toBe(200);
+1402:      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+1403:      .from(aiChatSessionsTable)
+1404:      .where(eq(aiChatSessionsTable.id, sessionId));
+1418:      .send({ projectId, sessionId, message: "continue" });
+1419:    expect(continuation.status).toBe(200);
+1430:  it("rejects Repair Plan execution without the original session before calling the model", async () => {
+1441:    expect(res.status).toBe(409);
+1442:    expect(res.body.error).toBe("execution_session_required");
+1446:  it("rejects an unknown sessionId instead of silently creating a new session", async () => {
+1455:      .send({ projectId, sessionId: randomUUID(), message: "Hello" });
+1457:    expect(res.status).toBe(404);
+1458:    expect(res.body.code).toBe("SESSION_NOT_FOUND");
+1463:describe("GET /api/ai/executions/history", () => {
+1479:      status: "cancelled",
+1499:    expect(response.status).toBe(200);
+1504:      status: "cancelled",
+1516:describe("GET /api/ai/executions/:executionId/audit-export", () => {
+1517:  it("exports owner-scoped terminal evidence while excluding sensitive execution data", async () => {
+1545:        status: "completed",
+1557:              status: "passed",
+1567:            status: "completed",
+1592:        status: "passed",
+1605:    expect(response.status).toBe(200);
+1612:        status: "completed",
+1613:        terminalState: "completed",
+1621:        status: "passed",
+1643:    expect(forbidden.status).toBe(404);
+1648:// ─── GET /api/ai/chat/sessions ────────────────────────────────────────────────
+1650:describe("GET /api/ai/chat/sessions", () => {
+1652:    const res = await request(app).get("/api/ai/chat/sessions");
+1653:    expect(res.status).toBe(400);
+1657:  it("returns 200 with sessions for a project", async () => {
+1661:    // Create a session via chat
+1664:      .send({ projectId, message: "Session list test" });
+1666:    const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
+1667:    expect(res.status).toBe(200);
+1673:  it("returns an empty array for a project with no sessions", async () => {
+1677:    const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
+1678:    expect(res.status).toBe(200);
+1682:  it("returns stable derived forensic statuses after history reload", async () => {
+1686:    const incompleteSessionId = randomUUID();
+1687:    const noFindingSessionId = randomUUID();
+1688:    const findingProvenSessionId = randomUUID();
+1689:    const notProvenSessionId = randomUUID();
+1691:    await db.insert(aiChatSessionsTable).values([
+1693:        id: incompleteSessionId,
+1700:        id: noFindingSessionId,
+1707:        id: findingProvenSessionId,
+1714:        id: notProvenSessionId,
+1724:        sessionId: incompleteSessionId,
+1731:        sessionId: noFindingSessionId,
+1738:        sessionId: findingProvenSessionId,
+1745:        sessionId: notProvenSessionId,
+1752:    const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
+1754:    expect(res.status).toBe(200);
+1756:      expect.objectContaining({ id: incompleteSessionId, forensicStatus: "INCOMPLETE" }),
+1757:      expect.objectContaining({ id: noFindingSessionId, forensicStatus: "NO_FINDING" }),
+1758:      expect.objectContaining({ id: findingProvenSessionId, forensicStatus: "FINDING_PROVEN" }),
+1759:      expect.objectContaining({ id: notProvenSessionId, forensicStatus: "NOT_PROVEN" }),
+1766:    const sessionId = randomUUID();
+1770:    await db.insert(aiChatSessionsTable).values({
+1771:      id: sessionId,
+1780:        sessionId,
+1787:        sessionId,
+1794:    const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
+1796:    expect(res.status).toBe(200);
+1798:      expect.objectContaining({ id: sessionId, forensicStatus: "NO_FINDING" }),
+1805:    const sessionId = randomUUID();
+1808:    await db.insert(aiChatSessionsTable).values({
+1809:      id: sessionId,
+1818:        sessionId,
+1825:        sessionId,
+1832:    const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
+1834:    expect(res.status).toBe(200);
+1836:      expect.objectContaining({ id: sessionId, forensicStatus: "FINDING_PROVEN" }),
+1841:// ─── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+1843:describe("GET /api/ai/chat/:sessionId/messages", () => {
+1844:  it("distinguishes a missing session from an empty session", async () => {
+1846:    expect(res.status).toBe(404);
+1847:    expect(res.body).toMatchObject({ code: "SESSION_NOT_FOUND" });
+1857:    const { sessionId } = chatRes.body;
+1859:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+1860:    expect(res.status).toBe(200);
+1874:    const sessionId = randomUUID();
+1876:    await db.insert(aiChatSessionsTable).values({
+1877:      id: sessionId,
+1879:      title: "Evidence session",
+1885:      sessionId,
+1900:    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+1901:    expect(res.status).toBe(200);
+1915:  it("returns a persisted message with parsed taskResult so a reloaded session keeps its typed panel", async () => {

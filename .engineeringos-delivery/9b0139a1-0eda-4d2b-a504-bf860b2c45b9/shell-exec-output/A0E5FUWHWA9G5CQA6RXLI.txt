@@ -1,0 +1,564 @@
+1);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1091-    expect(completed[0]).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1092:      id: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1093-      status: "completed",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1094-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1095-    expect(completed[0]?.finalMessageId).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1096-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1097-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1098:  it("cancels a queued execution as a terminal state with a durable checkpoint", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1099:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-queued-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1100-    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1101-    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1102-    projectIds.push(projectId);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1106-      request: {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1107-        projectId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1108-        sessionId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1109:        message: "cancel before start",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1110:        modelMessage: "cancel before start",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1111-        validationTargetPaths: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1112-      },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1113-      idempotencyKey: randomUUID(),
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1115-      sessionId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1116-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1117-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1118:    const cancelled = await requestAiExecutionCancel({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1119:      executionId: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1120-      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1121-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1122-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1123:    expect(cancelled).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1124:      id: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1125:      status: "cancelled",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1126-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1127:    expect(parseAiExecutionCheckpoint(cancelled!.checkpoint)).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1128:      stage: "cancelled",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1129:      detail: "Execution cancelled before a worker started.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1130-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1131-    expect(await claimAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1132:      executionId: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1133-      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1134-      workerId: randomUUID(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1135-    })).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1136-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1137-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1138:  it("moves running cancellation through cancelling and prevents a late worker success", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1139:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-running-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1140-    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1141-    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1142-    projectIds.push(projectId);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1146-      request: {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1147-        projectId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1148-        sessionId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1149:        message: "cancel during provider call",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1150:        modelMessage: "cancel during provider call",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1151-        validationTargetPaths: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1152-      },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1153-      idempotencyKey: randomUUID(),
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1156-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1157-    const workerId = randomUUID();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1158-    expect((await claimAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1159:      executionId: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1160-      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1161-      workerId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1162-    }))?.status).toBe("running");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1163-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1164-    const controller = new AbortController();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1165:    registerAiExecutionController(created.execution.id, controller);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1166:    const cancelling = await requestAiExecutionCancel({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1167:      executionId: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1168-      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1169-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1170-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1171:    expect(cancelling).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1172:      id: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1173:      status: "cancelling",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1174-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1175-    expect(controller.signal.aborted).toBe(true);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1176-    expect(await failAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1177:      executionId: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1178-      workerId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1179:      cancelled: true,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1180:      error: "provider observed cancellation",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1181-    })).toBe(true);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1182:    unregisterAiExecutionController(created.execution.id, controller);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1183-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1184-    const terminal = await db
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1185-      .select({ status: aiExecutionsTable.status, checkpoint: aiExecutionsTable.checkpoint })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1186-      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1187:      .where(eq(aiExecutionsTable.id, created.execution.id))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1188-      .limit(1);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1189:    expect(terminal[0]?.status).toBe("cancelled");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1190-    expect(parseAiExecutionCheckpoint(terminal[0]!.checkpoint)).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1191:      stage: "cancelled",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1192:      detail: "provider observed cancellation",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1193-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1194-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1195-
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1228-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1229-    const workerId = randomUUID();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1230-    expect((await claimAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1231:      executionId: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1232-      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1233-      workerId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1234-    }))?.status).toBe("running");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1235-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1236-    await checkpointAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1237:      executionId: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1238-      workerId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1239-      checkpoint: {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1240-        stage: "tool_loop",
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1291-        sessionId: plan.sessionId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1292-        buildPlanMessageId: plan.messageId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1293-        message: requestEnvelope.message,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1294:        executionId: created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1295-        resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1296-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1297-    expect(resumed.status).toBe(200);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1342-});
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1343-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1344-describe("Implementation Plan Build handoff", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1345:  it("keeps a non-Build execution identity through proposal reload and apply", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1346-    const rootPath = await fs.mkdtemp("/tmp/stream-non-build-correlation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1347-    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1348-    const projectId = await insertProject(rootPath);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1423-    expect(operationId).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1424-    expect(operationId).not.toBe(assistantMessageId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1425-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1426:    const [execution] = await db
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1427-      .select({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1428-        id: aiExecutionsTable.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1429-        operationId: aiExecutionsTable.operationId,
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1432-      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1433-      .where(eq(aiExecutionsTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1434-      .limit(1);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1435:    expect(execution).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1436-      operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1437-      proposalId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1438-    });
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1694-      .toBe("IMPLEMENTATION_PLAN_SCOPE_BLOCKED");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1695-    expect(capturedInput?.buildHandoff).toBe(true);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1696-    expect(capturedInput?.validationTargetPaths).toEqual(["src/approved.ts"]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1697:    expect(capturedInput?.executionPlanOverride.nodes[0].allowedFiles)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1698-      .toEqual(["src/approved.ts"]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1699-    expect(capturedInput?.commandProfiles).toEqual([expect.objectContaining({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1700-      name: "workspace-typecheck",
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1727-      writeAccess: "APPROVED_FOR_BUILD",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1728-      steps: [{ files: ["src/approved.ts"] }],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1729-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1730:    expect(events.find((event) => event["type"] === "execution_nodes"))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1731-      .toMatchObject({ nodes: [{ allowedFiles: ["src/approved.ts"] }] });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1732-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1733-});
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2111-}
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2112-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2113-describe("Phase 6 — Arabic evidence persistence and history rehydration", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2114:  it("preserves the Arabic report, structured evidence, verdict, and redacted trace after reload", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2115-    const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2116-    const forensicClassification = {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2117-      category: "deep_analysis",
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2252-    expect(sessions.body[0].id).toBe(sessionId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2253-    expect(sessions.body[0].forensicStatus).toBe("FINDING_PROVEN");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2254-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2255:    const reloaded = await request(app)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2256-      .get(`/api/ai/chat/${sessionId}/messages`);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2257:    expect(reloaded.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2258:    expect(reloaded.body).toHaveLength(2);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2259:    const restored = reloaded.body.find((message: { id: string }) => message.id === doneMessage.id);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2260-    expect(restored).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2261-    expect(restored.content).toBe(ArabicReport);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2262-    expect(JSON.parse(restored.sources)).toEqual([publicSource]);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2379-    expect(sessions.body).toHaveLength(1);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2380-    expect(sessions.body[0]).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2381-      id: sessionId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2382:      forensicStatus: "NO_FINDING",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2383-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2384-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2385-});
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2555-      excerpt: turns.feature.citation,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2556-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2557-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2558:    const executions = await db
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2559-      .select({ sessionId: aiExecutionsTable.sessionId, request: aiExecutionsTable.request })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2560-      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2561-      .where(eq(aiExecutionsTable.sessionId, sessionId));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2562:    expect(executions).toHaveLength(0);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2563-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2564-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2565:  it("keeps interleaved SSE deltas, evidence, executions, and done messages request-owned", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2566-    const projectId = await insertProject();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2567-    projectIds.push(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2568-    const sessionId = await createSession(projectId);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2615-    for (const [response, turn] of [[first, turns.technology], [second, turns.feature]] as const) {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2616-      expect(response.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2617-      const events = parseSseEvents(response.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2618:      const started = events.find((event) => event.type === "execution_started");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2619-      const evidence = events.find((event) => event.type === "evidence_integrity");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2620-      const done = events.find((event) => event.type === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2621:      expect(started?.executionId).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2622-      expect(evidence).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2623-        completedReadFiles: [turn.source],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2624-        acceptedEvidenceFiles: [turn.source],
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2781-    projectIds.push(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2782-    const source = "src/loop.ts";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2783-    const question = "Does the loop run at most 20 iterations?";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2784:    const incomplete = "ANALYSIS_INCOMPLETE — source reads completed, but no grounded behavioral answer could be accepted.";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2785-    const evidenceAnswer = {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2786-      kind: "BEHAVIOR_ANSWER_RESULT" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2787-      answer: {
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2881-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2882-    expect(done).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2883-    expect(done?.["sources"]).toEqual([]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2884:    expect((done?.["message"] as Record<string, unknown> | undefined)?.["content"]).toContain("ANALYSIS_INCOMPLETE");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2885-    expect((done?.["message"] as Record<string, unknown> | undefined)?.["content"]).not.toContain("NO_VERIFIED_FINDING");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2886-    expect((done?.["message"] as Record<string, unknown> | undefined)?.["sources"]).toBe("[]");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2887-
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2904-    const replayed = (historyResponse.body as Array<Record<string, unknown>>)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2905-      .find((message) => message["role"] === "assistant");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2906-    expect(replayed).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2907:    expect(replayed?.["content"]).toContain("ANALYSIS_INCOMPLETE");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2908-    expect(replayed?.["content"]).not.toContain("NO_VERIFIED_FINDING");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2909-    expect(replayed?.["content"]).not.toMatch(/\bFinding\b/i);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2910-    expect(JSON.parse((replayed?.["sources"] as string | undefined) ?? "[]")).toEqual([]);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2936-  it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2937-    const projectId = await insertProject();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2938-    projectIds.push(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2939:    const source = "src/execution-tools.ts";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2940:    const question = "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2941-    const evidence = [{
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2942-      source,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-2943-      excerpt: 'return partialFromCollectedEvidence("provider timeout");',
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3043-    const events = parseSseEvents(streamResponse.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3044-    const types = events.map((event) => event["type"]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3045-    const indexOf = (type: string) => types.indexOf(type);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3046:    expect(indexOf("execution_started")).toBeGreaterThanOrEqual(0);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3047:    expect(indexOf("intent")).toBeGreaterThan(indexOf("execution_started"));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3048-    expect(indexOf("tool_call")).toBeGreaterThan(indexOf("intent"));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3049-    expect(indexOf("tool_result")).toBeGreaterThan(indexOf("tool_call"));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3050-    expect(indexOf("evidence_integrity")).toBeGreaterThan(indexOf("tool_result"));
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3131-      activeTaskState?: { taskType?: string; scope?: { projectId?: string } } | null;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3132-      turnIntent?: {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3133-        kind?: string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3134:        executionTaskType?: string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3135-        requiresTools?: boolean;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3136-        requiresEvidence?: boolean;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3137-      };
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3203-      .where(eq(aiChatSessionsTable.id, sessionId));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3204-    expect(JSON.parse(persistedAfterFirst[0]!.activeTaskState!)).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3205-      taskType: "FULL_FORENSIC_AUDIT",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3206:      executionPlan: {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3207-        readiness: "READY",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3208-        phases: [{ findingId: "F-1", files: ["src/unsafe.ts"] }],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3209-        boundaries: {
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3244-    expect(seenInputs[2]?.activeTaskState).toBeNull();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3245-    expect(seenInputs[2]?.turnIntent).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3246-      kind: "CHAT",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3247:      executionTaskType: "chat",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3248-      requiresTools: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3249-      requiresEvidence: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3250-    });
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3408-      .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3409-      .where(eq(aiChatSessionsTable.id, sessionId));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3410-    expect(JSON.parse(persisted[0]!.activeTaskState!)).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3411:      executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3412-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3413-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3414:    const continuationInputs: Array<{ activeTaskState?: { executionPlan?: { phases?: Array<{ files?: string[] }> } } | null }> = [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3415-    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3416-      continuationInputs.push(args[1] as typeof continuationInputs[number]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3417-      return {
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3425-      .send({ projectId, sessionId, message: "continue" });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3426-    expect(continuation.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3427-    expect(continuationInputs[0]?.activeTaskState).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3428:      executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3429-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3430-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3431-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3432:  it("should carry the persisted audit report into a same-session execution follow-up", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3433-    const projectId = await insertProject();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3434-    projectIds.push(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3435-    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3460-    expect(auditRes.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3461-    expect(typeof sessionId).toBe("string");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3462-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3463:    const executionRes = await request(app)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3464-      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3465-      .set("Content-Type", "application/json")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3466-      .send({ projectId, sessionId, message: "نفذ Repair Plan" });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3467:    const executionEvents = parseSseEvents(executionRes.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3468:    const executionDone = executionEvents.find((e) => e["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3469-    const calls = vi.mocked(chatWithFallback).mock.calls;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3470:    const executionCall = calls[calls.length - 1];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3471:    const executionInput = executionCall?.[1] as { history: Array<{ role: string; content: string }> };
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3472-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3473:    expect(executionRes.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3474:    expect(executionDone?.["message"]).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3475:    expect(executionInput.history).toContainEqual({ role: "assistant", content: auditReport });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3476:    expect(executionInput.history.some((entry) => entry.content === "نفذ Repair Plan")).toBe(false);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3477-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3478-    const handoffTrace = infoSpy.mock.calls
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3479-      .map(([payload]) => payload)
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3482-          typeof payload === "object" &&
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3483-          payload !== null &&
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3484-          (payload as Record<string, unknown>).action === "pre_stream_trace" &&
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3485:          typeof (payload as Record<string, unknown>).executionHandoff === "object" &&
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3486:          ((payload as Record<string, unknown>).executionHandoff as Record<string, unknown>).requested === true,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3487-      );
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3488-    expect(handoffTrace).toBeDefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3489:    const handoff = handoffTrace!.executionHandoff as Record<string, unknown>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3490-    expect(handoff.requested).toBe(true);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3491-    expect(handoff.sessionId).toBe(sessionId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3492-    expect(handoff.historyMessageCount).toBeGreaterThanOrEqual(2);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3493-    expect(handoff.repairPlanCandidateCount).toBe(1);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3494-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3495-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3496:  it("keeps execution trace separate from the persisted SSE report content", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3497-    const projectId = await insertProject();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3498-    projectIds.push(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3499-
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3506-    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3507-    const message = done?.["message"] as { content?: string; toolTrace?: string | null } | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3508-    const trace = message?.toolTrace ? JSON.parse(message.toolTrace) as Array<Record<string, unknown>> : [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3509:    const execution = done?.["execution"] as {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3510-      iterations?: number;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3511-      maxIterations?: number;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3512-      toolCalls?: number;
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3519-    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3520-    expect(message?.content).toBe("Hello world");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3521-    expect(message?.content).not.toContain("read_file");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3522:    expect(execution).toEqual({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3523-      iterations: 2,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3524-      maxIterations: 24,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3525-      toolCalls: 1,
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3565-    const projectId = await insertProject();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3566-    projectIds.push(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3567-    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3568:    const report = "ANALYSIS_INCOMPLETE — final synthesis timed out before a verified report was accepted.";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3569-    const timeoutStep = {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3570-      kind: "done" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3571-      iterations: 3,
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3623-      : [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3624-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3625-    expect(streamed.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3626:    expect(streamMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3627-    expect(streamMessage?.content).not.toContain("provider timeout");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3628-    expect(streamed.text).not.toContain("fixture provider diagnostic");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3629:    expect(streamDone?.["execution"]).toEqual(expect.objectContaining({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3630-      stopReason: "provider_timeout",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3631-      synthesisAttempts: 1,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3632-      synthesisMaxAttempts: 2,
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3654-      .set("Content-Type", "application/json")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3655-      .send({ projectId, message: "forensic audit" });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3656-    expect(nonStreamed.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3657:    expect(nonStreamed.body.message?.content ?? nonStreamed.body.response).toContain("ANALYSIS_INCOMPLETE");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3658-    expect(JSON.stringify(nonStreamed.body)).not.toContain("fixture provider diagnostic");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3659-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3660-
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3703-      .send({ projectId, message: "راجع الكود" });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3704-    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3705-    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3706:    const diagnostic = events.find((event) => event["type"] === "execution_diagnostic");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3707-    const message = done?.["message"] as { content?: string; toolTrace?: string | null } | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3708-    const trace = message?.toolTrace ? JSON.parse(message.toolTrace) as Array<Record<string, unknown>> : [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3709:    const execution = done?.["execution"] as Record<string, unknown> | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3710-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3711-    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3712-    expect(message?.content).toBe("Safe fallback report");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3713-    expect(message?.content).not.toContain("missing current source record");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3714-    expect(diagnostic).toEqual({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3715:      type: "execution_diagnostic",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3716-      code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3717-      details: ["Evidence Map: missing current source record"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3718-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3719:    expect(execution?.["diagnosticDetails"]).toEqual(["Evidence Map: missing current source record"]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3720-    expect(trace).toEqual(expect.arrayContaining([
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3721-      expect.objectContaining({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3722-        kind: "diagnostic",
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3731-    ]));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3732-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3733-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3734:  it("hides provider and recovery diagnostic details from evidence-required SSE", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3735-    const projectId = await insertProject();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3736-    projectIds.push(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3737-    const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3780-          prefetched: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3781-        });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3782-        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3783:          kind: "recovery_model_call",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3784:          model: "recovery-provider-model",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3785:          provider: "recovery-provider",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3786-          attempt: 2,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3787-        });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3788-        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3789-          kind: "diagnostic",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3790-          code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3791-          details: [
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3792:            "provider recovery-provider returned an unusable response",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3793:            "recovery attempt 2 failed with provider timeout",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3794-          ],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3795-        });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3796-        onStep?.({
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3820-      .set("Content-Type", "application/json")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3821-      .send({ projectId, message: "forensic audit" });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3822-    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3823:    const diagnostic = events.find((event) => event["type"] === "execution_diagnostic");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3824-    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3825-    const message = done?.["message"] as { content?: string; toolTrace?: string | null } | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3826:    const execution = done?.["execution"] as Record<string, unknown> | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3827-    const persisted = await db
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3828-      .select({ role: aiChatMessagesTable.role, toolTrace: aiChatMessagesTable.toolTrace })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3829-      .from(aiChatMessagesTable)
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3833-    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3834-    expect(message?.content).toBe("Evidence-backed report");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3835-    expect(diagnostic).toEqual({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3836:      type: "execution_diagnostic",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3837-      code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3838-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3839-    expect(diagnostic).not.toHaveProperty("details");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3840:    expect(execution?.["diagnosticDetails"]).toEqual([
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3841:      "provider recovery-provider returned an unusable response",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3842:      "recovery attempt 2 failed with provider timeout",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3843-    ]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3844-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3845-    const trace = assistant?.toolTrace ? JSON.parse(assistant.toolTrace) as Array<Record<string, unknown>> : [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3846-    expect(trace).toEqual(expect.arrayContaining([
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3847-      expect.objectContaining({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3848:        kind: "recovery_model_call",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3849:        model: "recovery-provider-model",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3850:        provider: "recovery-provider",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3851-      }),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3852-      expect.objectContaining({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3853-        kind: "diagnostic",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3854-        code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3855-        details: [
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3856:          "provider recovery-provider returned an unusable response",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3857:          "recovery attempt 2 failed with provider timeout",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3858-        ],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3859-      }),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3860-    ]));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3861-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3862-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3863:  it("keeps a streamed forensic cancellation incomplete after recovery retains partial evidence", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3864-    const projectId = await insertProject();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3865-    projectIds.push(projectId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3866-    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3867-    const report = [
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3868-      "## 1) Executive Verdict",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3869:      "ANALYSIS_INCOMPLETE — cancellation stopped the audit before evidence coverage was complete.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3870-      "",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3871-      "## 2) Evidence Map",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3872:      "One source read was retained before cancellation.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3873-      "",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3874-      "## 3) Findings",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3875-      "No verified finding identified from the retained evidence.",
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3881-      "No executable validation scenario is authorized for this incomplete audit.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3882-      "",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3883-      "## 6) Final Judgment",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3884:      "ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3885-    ].join("\n");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3886:    const recoveryStarted = new Promise<void>((resolve, reject) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3887-      void (async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3888:        let execution: { id: string } | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3889:        for (let attempt = 0; attempt < 50 && !execution; attempt += 1) {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3890:          [execution] = await db
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3891-            .select({ id: aiExecutionsTable.id })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3892-            .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3893-            .where(eq(aiExecutionsTable.projectId, projectId));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3894:          if (!execution) await new Promise((wait) => setTimeout(wait, 10));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3895-        }
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3896:        if (!execution) {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3897:          reject(new Error("SSE cancellation fixture could not find its running execution."));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3898-          return;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3899-        }
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3900:        const cancel = await request(app)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3901:          .post(`/api/ai/executions/${execution.id}/cancel`)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3902-          .set("Content-Type", "application/json");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3903:        expect(cancel.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3904-        resolve();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3905-      })().catch(reject);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3906-    });
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3925-          outputLength: 256,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3926-          prefetched: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3927-        });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3928:        onStep?.({ kind: "forensic_recovery_start", attempt: 1 });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3929-        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3930:          kind: "recovery_model_call",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3931:          model: "recovery-provider-model",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3932:          provider: "recovery-provider",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3933-          attempt: 1,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3934-        });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3935:        await recoveryStarted;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3936-        await new Promise<void>((resolve) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3937-          if (signal?.aborted) {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3938-            resolve();
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3944-          kind: "diagnostic",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3945-          code: "FORENSIC_CONTRACT_RECOVERY_FAILED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3946-          details: [
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3947:            "AbortError: recovery provider request was cancelled",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3948:            "provider recovery-provider diagnostic: cancellation requested by user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3949-            "telemetry.internalAttemptId=secret-fixture-value",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3950-          ],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3951-        });
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3994-    ]) {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3995-      expect(message?.content).toContain(heading);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3996-    }
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3997:    expect(message?.content).toContain("ANALYSIS_INCOMPLETE");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3998-    expect(message?.content).not.toContain("NO_VERIFIED_FINDING");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3999-    expect(res.text).not.toContain("AbortError");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4000:    expect(res.text).not.toContain("recovery-provider diagnostic");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4001-    expect(res.text).not.toContain("secret-fixture-value");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4002-    expect(publicToolTrace).not.toContain("AbortError");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4003:    expect(publicToolTrace).not.toContain("recovery-provider diagnostic");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4004-    expect(publicToolTrace).not.toContain("secret-fixture-value");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4005-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4006-    const persisted = await db
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4024-        kind: "tool_result",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4025-        tool: "query_knowledge_graph",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4026-        resultKind: "unavailable",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4027:        diagnosticCode: "TOOL_UNAVAILABLE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4028-        resultSummary: "Analysis tool query_knowledge_graph was unavailable; the operation did not complete.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4029-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4030-      onStep?.({

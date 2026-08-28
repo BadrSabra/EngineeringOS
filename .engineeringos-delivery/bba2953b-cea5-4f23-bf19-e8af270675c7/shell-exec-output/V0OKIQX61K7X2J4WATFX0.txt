@@ -1,0 +1,210 @@
+   935 * Streaming chat completion against any OpenAI-compatible endpoint.
+   936 * Yields content deltas in the same way as groq-client's `completeStream()`.
+   937 */
+   938export async function* oacCompleteStream(
+   939  messages: RawMessage[],
+   940  opts: OpenAICompatibleStreamOptions,
+   941): AsyncGenerator<string> {
+   942  const {
+   943    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
+   944    temperature = 0.2,
+   945    maxTokens = 4096,
+   946    timeoutMs = DEFAULT_TIMEOUT_MS,
+   947    apiKey,
+   948    baseUrl,
+   949    providerName,
+   950    extraHeaders = {},
+   951    signal,
+   952  } = opts;
+   953
+   954  const body: Record<string, unknown> = {
+   955    model,
+   956    messages,
+   957    temperature,
+   958    max_tokens: maxTokens,
+   959    stream: true,
+   960  };
+   961
+   962  const controller = new AbortController();
+   963  const timer = setTimeout(() => controller.abort(), timeoutMs);
+   964  const onAbort = () => controller.abort(signal?.reason);
+   965  if (signal?.aborted) onAbort();
+   966  else signal?.addEventListener("abort", onAbort, { once: true });
+   967  const cleanup = () => {
+   968    clearTimeout(timer);
+   969    signal?.removeEventListener("abort", onAbort);
+   970  };
+   971
+   972  let response: Response;
+   973  try {
+   974    response = await fetch(`${baseUrl}/chat/completions`, {
+   975      method: "POST",
+   976      headers: {
+   977        "Content-Type": "application/json",
+   978        Authorization: `Bearer ${apiKey}`,
+   979        ...extraHeaders,
+   980      },
+   981      body: JSON.stringify(body),
+   982      signal: controller.signal,
+   983    });
+   984  } catch (err) {
+   985    cleanup();
+   986    if (controller.signal.aborted) {
+   987      throw new GroqClientError("TIMEOUT", `${providerName} streaming request timed out`, { cause: err });
+   988    }
+   989    throw new GroqClientError(
+   990      "NETWORK_ERROR",
+   991      err instanceof Error ? err.message : `Network error contacting ${providerName}`,
+   992      { cause: err },
+   993    );
+   994  }
+   995
+   996  if (!response.ok) {
+   997    const text = await response.text().catch(() => "");
+   998    cleanup();
+   999    throw classifyStatus(response.status, text, providerName, model, response.headers);
+  1000  }
+  1001
+  1002  const reader = response.body?.getReader();
+  1003  if (!reader) {
+  1004    cleanup();
+  1005    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream has no body`);
+  1006  }
+  1007
+  1008  const decoder = new TextDecoder();
+  1009  let buffer = "";
+  1010  let hadContent = false;
+  1011  let xmlStreamBuf = "";
+  1012
+  1013  try {
+  1014    while (true) {
+  1015      const { done, value } = await reader.read();
+  1016      if (done) break;
+  1017
+  1018      buffer += decoder.decode(value, { stream: true });
+  1019      const lines = buffer.split("\n");
+  1020      buffer = lines.pop() ?? "";
+  1021
+  1022      for (const line of lines) {
+  1023        const trimmed = line.trim();
+  1024        if (!trimmed || trimmed === "data: [DONE]") continue;
+  1025        if (!trimmed.startsWith("data: ")) continue;
+  1026
+  1027        try {
+  1028          const json = JSON.parse(trimmed.slice(6)) as {
+  1029            choices?: Array<{ delta?: { content?: string | null } }>;
+  1030          };
+  1031          const delta = json.choices?.[0]?.delta?.content;
+  1032          if (delta) {
+  1033            hadContent = true;
+  1034            xmlStreamBuf += delta;
+  1035          }
+  1036        } catch {
+  1037          // Ignore malformed SSE frames.
+  1038        }
+  1039      }
+  1040
+  1041      // Flush safe prefix — everything before any open <tool_call> tag.
+  1042      const openIdx = xmlStreamBuf.indexOf("<tool_call>");
+  1043      const closeIdx = xmlStreamBuf.indexOf("</tool_call>");
+  1044      if (openIdx === -1) {
+  1045        if (xmlStreamBuf) { yield xmlStreamBuf; xmlStreamBuf = ""; }
+  1046      } else if (closeIdx !== -1 && closeIdx > openIdx) {
+  1047        const before = xmlStreamBuf.slice(0, openIdx);
+  1048        const after  = xmlStreamBuf.slice(closeIdx + "</tool_call>".length);
+  1049        xmlStreamBuf = after;
+  1050        if (before) yield before;
+  1051      } else {
+  1052        const before = xmlStreamBuf.slice(0, openIdx);
+  1053        xmlStreamBuf = xmlStreamBuf.slice(openIdx);
+  1054        if (before) yield before;
+  1055      }
+  1056    }
+  1057  } catch (err) {
+  1058    if (err instanceof GroqClientError) throw err;
+  1059    if (controller.signal.aborted) {
+  1060      throw new GroqClientError("TIMEOUT", `${providerName} streaming response timed out`, {
+  1061        cause: err,
+  1062        context: { providerName, providerModel: model },
+  1063      });
+  1064    }
+  1065    throw new GroqClientError(
+  1066      "NETWORK_ERROR",
+  1067      err instanceof Error ? err.message : `Network error reading ${providerName} stream`,
+  1068      { cause: err, context: { providerName, providerModel: model } },
+  1069    );
+  1070  } finally {
+  1071    cleanup();
+  1072    reader.releaseLock();
+  1073  }
+  1074
+  1075  if (xmlStreamBuf) {
+  1076    const clean = stripXmlToolCalls(xmlStreamBuf);
+  1077    if (clean) yield clean;
+  1078  }
+  1079
+  1080  if (!hadContent) {
+  1081    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream returned no content`);
+  1082  }
+  1083}
+  1084
+  1085// ── Pre-built OpenRouter client functions ─────────────────────────────────────
+  1086
+  1087const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+  1088const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
+  1089
+  1090/**
+
+-- exported symbols --
+9: * The returned types (`RawGroqResponse`) are intentionally identical to those
+19:import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
+32:export type OpenAICompatibleOptions = {
+46:  tools?: ToolDefinition[];
+59:export type OpenAICompatibleStreamOptions = Omit<
+115:function groupMessages(messages: RawMessage[]): MessageGroup[] {
+164:function sanitizeOutboundMessages(messages: RawMessage[]): RawMessage[] {
+166:  let activeToolCallIds = new Set<string>();
+175:        activeToolCallIds = new Set<string>();
+179:      activeToolCallIds = new Set(
+190:      if (toolCallId && !activeToolCallIds.has(toolCallId)) continue;
+195:    activeToolCallIds = new Set<string>();
+219:function trimMessagesForOpenRouter(messages: RawMessage[]): RawMessage[] {
+262:export const _trimMessagesForOpenRouter = trimMessagesForOpenRouter;
+268:export const _groupMessages = groupMessages;
+274:function asString(value: unknown): string | undefined {
+282:function isTransientError(err: unknown): err is GroqClientError {
+292:export type OpenRouterFailureAction =
+299:export type OpenRouterFailureDisposition = {
+310:export function classifyOpenRouterFailure(
+345:function isModelUnavailableError(err: unknown): err is GroqClientError {
+360:function extractProviderError(body: string): { code?: string; message?: string } {
+392:function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?: string): boolean {
+415:function parseRetryAfterMs(headers?: Headers): number | undefined {
+428:function classifyStatus(
+610:// Normalize at ingestion so every ToolCall we ever store/replay carries a
+612:function normalizeToolCallArguments(
+613:  calls: ToolCall[],
+616:): ToolCall[] {
+662:function stripXmlToolCalls(text: string): string {
+673:function parseXmlToolCalls(content: string): ToolCall[] | null {
+677:  const calls: ToolCall[] = [];
+719: * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
+721:export async function oacCompleteRaw(
+724:): Promise<RawGroqResponse> {
+832:        tool_calls?: ToolCall[];
+878:  let toolCalls: ToolCall[] | null = hasCalls
+879:    ? normalizeToolCallArguments(msg!.tool_calls as ToolCall[], providerName, model)
+886:      const xmlCalls = parseXmlToolCalls(content);
+892:    content = stripXmlToolCalls(content) || null;
+915:      hasToolCalls: hasCalls,
+938:export async function* oacCompleteStream(
+1076:    const clean = stripXmlToolCalls(xmlStreamBuf);
+1099:export async function openrouterCompleteRaw(
+1102:): Promise<RawGroqResponse> {
+1163:export type OpenRouterFallbackOptions = Omit<
+1187:export async function openrouterCompleteWithFallback(
+1190:): Promise<RawGroqResponse> {
+1328:export async function* openrouterCompleteStream(
+1449:export function geminiCompleteRaw(
+1452:): Promise<RawGroqResponse> {
+1464:export function geminiCompleteStream(

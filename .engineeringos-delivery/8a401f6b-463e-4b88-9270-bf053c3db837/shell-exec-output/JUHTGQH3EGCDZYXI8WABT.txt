@@ -1,0 +1,381 @@
+   560      normalizedBody.includes("credits") ||
+   561      normalizedBody.includes("billing")
+   562    ) {
+   563      return new GroqClientError(
+   564        "PLAN_RESTRICTED",
+   565        `OpenRouter rejected the request because the selected model requires a paid plan or free-tier credits (400). ${body.slice(0, 200)}`,
+   566        { context: ctx },
+   567      );
+   568    }
+   569
+   570    if (looksLikeRecoverableOpenRouterRequestError(body, providerCode)) {
+   571      return new GroqClientError(
+   572        "MODEL_UNAVAILABLE",
+   573        `OpenRouter rejected a request feature or parameter (400) — the selected model cannot satisfy this request shape. ${body.slice(0, 200)}`,
+   574        { context: ctx },
+   575      );
+   576    }
+   577  }
+   578
+   579  // PR-003 / PR-008: 410 Gone = model retired; 422 Unprocessable = model
+   580  // temporarily offline or being retired. Both are MODEL_UNAVAILABLE (not
+   581  // MODEL_NOT_FOUND) — the distinction is useful for dashboards (temporary
+   582  // vs. permanent), but both are fallback-worthy.
+   583  if (
+   584    providerName === "OpenRouter" &&
+   585    (status === 410 || status === 422)
+   586  ) {
+   587    return new GroqClientError(
+   588      "MODEL_UNAVAILABLE",
+   589      `OpenRouter model unavailable (${status}) — the model is temporarily offline or being retired. ${body.slice(0, 200)}`,
+   590      { context: ctx },
+   591    );
+   592  }
+   593
+   594  return new GroqClientError(
+   595    "NON_200",
+   596    `${providerName} API responded with status ${status}: ${body.slice(0, 200)}`,
+   597    { context: ctx },
+   598  );
+   599}
+   600
+   601// ── XML tool-call helpers ─────────────────────────────────────────────────────
+   602// Some free models (e.g. InclusionAI Ling) output tool calls as XML text in
+   603// their content field instead of (or in addition to) the standard OpenAI
+   604// ── Tool-call argument normalization ────────────────────────────────────────
+   605// Some free-tier models return `function.arguments` as a raw object, an empty
+   606// string, or otherwise-invalid JSON. If we echo such a tool_call back into the
+   607// message history on the next iteration, strict providers (e.g. Cohere via
+   608// OpenRouter) reject the WHOLE request with 400:
+   609//   "tool arguments must be a stringified JSON object"
+   610// Normalize at ingestion so every ToolCall we ever store/replay carries a
+   611// stringified JSON *object* in `arguments`.
+   612function normalizeToolCallArguments(
+   613  calls: ToolCall[],
+   614  providerName: string,
+   615  model: string,
+   616): ToolCall[] {
+   617  return calls.map((tc) => {
+   618    const raw: unknown = tc.function?.arguments;
+   619    let fixed: string | null = null;
+   620
+   621    if (typeof raw === "string") {
+   622      const trimmed = raw.trim();
+   623      if (trimmed === "") {
+   624        fixed = "{}";
+   625      } else {
+   626        try {
+   627          const parsed: unknown = JSON.parse(trimmed);
+   628          fixed =
+   629            parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+   630              ? trimmed === raw ? null : trimmed // valid object — keep (trim only if needed)
+   631              : "{}"; // valid JSON but not an object (number/array/string)
+   632        } catch {
+   633          fixed = "{}"; // unparseable string
+   634        }
+   635      }
+   636    } else if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+   637      fixed = JSON.stringify(raw); // model returned a raw object
+   638    } else {
+   639      fixed = "{}"; // undefined / null / array / number
+   640    }
+   641
+   642    if (fixed === null) return tc;
+   643
+   644    console.warn(
+   645      JSON.stringify({
+   646        scope: "openai-compatible-client",
+   647        code: "TOOL_ARGS_NORMALIZED",
+   648        providerName,
+   649        model,
+   650        tool: tc.function?.name,
+   651        rawType: typeof raw,
+   652      }),
+   653    );
+   654    return { ...tc, function: { ...tc.function, arguments: fixed } };
+   655  });
+   656}
+   657
+   658// `tool_calls` JSON array.  These helpers normalise both cases so the rest of
+   659// the codebase never sees raw XML.
+   660
+   661/** Strip all <tool_call>…</tool_call> blocks from a content string. */
+   662function stripXmlToolCalls(text: string): string {
+   663  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+   664}
+   665
+   666/**
+   667 * Attempt to parse XML-style tool calls from content.
+   668 * Handles two common formats:
+   669 *   1. JSON inside tags:  <tool_call>{"name":"fn","arguments":{…}}</tool_call>
+   670 *   2. Attribute syntax:  <tool_call> <function=fn> <parameter=k>v</parameter> </function> </tool_call>
+   671 * Returns null when the content contains no recognisable tool-call XML.
+   672 */
+   673function parseXmlToolCalls(content: string): ToolCall[] | null {
+   674  const blocks = [...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)];
+   675  if (blocks.length === 0) return null;
+   676
+   677  const calls: ToolCall[] = [];
+   678  for (const [, inner] of blocks) {
+   679    const trimmed = inner.trim();
+   680
+   681    // Format 1 — JSON inside <tool_call>
+   682    if (trimmed.startsWith("{")) {
+   683      try {
+   684        const parsed = JSON.parse(trimmed) as { name?: string; arguments?: unknown };
+   685        if (parsed.name) {
+   686          calls.push({
+   687            id: `xml_${Math.random().toString(36).slice(2, 9)}`,
+   688            type: "function",
+   689            function: {
+   690              name: parsed.name,
+   691              arguments: JSON.stringify(parsed.arguments ?? {}),
+   692            },
+   693          });
+   694        }
+   695      } catch { /* ignore malformed JSON */ }
+   696      continue;
+   697    }
+   698
+   699    // Format 2 — attribute syntax  <function=NAME> <parameter=KEY>VALUE</parameter>
+   700    const fnMatch = trimmed.match(/<function=([^\s>]+)/);
+   701    if (!fnMatch) continue;
+   702    const fnName = fnMatch[1];
+   703
+   704    const args: Record<string, string> = {};
+   705    for (const [, key, val] of trimmed.matchAll(/<parameter=([^\s>]+)>([\s\S]*?)<\/parameter>/g)) {
+   706      args[key] = val.trim();
+   707    }
+   708    calls.push({
+   709      id: `xml_${Math.random().toString(36).slice(2, 9)}`,
+   710      type: "function",
+   711      function: { name: fnName, arguments: JSON.stringify(args) },
+   712    });
+   713  }
+   714  return calls.length > 0 ? calls : null;
+   715}
+   716
+   717/**
+   718 * Non-streaming chat completion against any OpenAI-compatible endpoint.
+   719 * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
+   720 */
+   721export async function oacCompleteRaw(
+   722  messages: RawMessage[],
+   723  opts: OpenAICompatibleOptions,
+   724): Promise<RawGroqResponse> {
+   725  const {
+   726    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
+   727    temperature = 0.2,
+   728    maxTokens = opts.outputPhase ? getPhaseBudget(opts.outputPhase).maxOutputTokens : 4096,
+   729    timeoutMs = DEFAULT_TIMEOUT_MS,
+   730    apiKey,
+   731    tools,
+   732    baseUrl,
+   733    providerName,
+   734    extraHeaders = {},
+   735    signal,
+   736  } = opts;
+   737
+   738  const body: Record<string, unknown> = {
+   739    model,
+   740    messages,
+   741    temperature,
+   742    max_tokens: maxTokens,
+   743  };
+   744
+   745  const isGemini = providerName === "Gemini";
+   746  const hasTools = !isGemini && Array.isArray(tools) && tools.length > 0;
+   747  if (hasTools) {
+   748    body.tools = tools;
+   749    body.tool_choice = opts.toolChoice ?? "auto";
+   750  } else if (!isGemini && opts.responseFormat) {
+   751    body.response_format = opts.responseFormat;
+   752  }
+   753
+   754  const controller = new AbortController();
+   755  const timer = setTimeout(() => controller.abort(), timeoutMs);
+   756  const onAbort = () => controller.abort(signal?.reason);
+   757  if (signal?.aborted) onAbort();
+   758  else signal?.addEventListener("abort", onAbort, { once: true });
+   759  const cleanup = () => {
+   760    clearTimeout(timer);
+   761    signal?.removeEventListener("abort", onAbort);
+   762  };
+   763
+   764  // Capture raw payload for diagnostics before the request is sent.
+   765  console.info(
+   766    JSON.stringify({
+   767      scope: "openai-compatible-client",
+   768      action: "pre_fetch",
+   769      providerName,
+   770      model,
+   771      baseUrl,
+   772      messageCount: messages.length,
+   773      hasTools: hasTools,
+   774      toolCount: hasTools && Array.isArray(tools) ? tools.length : 0,
+   775      responseFormatRequested: opts.responseFormat?.type ?? null,
+   776      responseFormatApplied: !hasTools && opts.responseFormat?.type
+   777        ? opts.responseFormat.type
+   778        : null,
+   779      maxTokens,
+   780      temperature,
+   781    }),
+   782  );
+   783
+   784  let response: Response;
+   785  try {
+   786    response = await fetch(`${baseUrl}/chat/completions`, {
+   787      method: "POST",
+   788      headers: {
+   789        "Content-Type": "application/json",
+   790        Authorization: `Bearer ${apiKey}`,
+   791        ...extraHeaders,
+   792      },
+   793      body: JSON.stringify(body),
+   794      signal: controller.signal,
+   795    });
+   796  } catch (err) {
+   797    cleanup();
+   798    if (controller.signal.aborted) {
+   799      throw new GroqClientError("TIMEOUT", `${providerName} request timed out`, {
+   800        cause: err,
+   801        context: { providerName, providerModel: model },
+   802      });
+   803    }
+   804    throw new GroqClientError(
+   805      "NETWORK_ERROR",
+   806      err instanceof Error ? err.message : `Network error contacting ${providerName}`,
+   807      { cause: err, context: { providerName, providerModel: model } },
+   808    );
+   809  }
+   810  if (!response.ok) {
+   811    const text = await response.text().catch(() => "");
+   812    cleanup();
+   813    // Log the raw response before classifying so we never lose context.
+   814    console.warn(
+   815      JSON.stringify({
+   816        scope: "openai-compatible-client",
+   817        action: "non_ok_response",
+   818        providerName,
+   819        model,
+   820        status: response.status,
+   821        bodyPreview: text.slice(0, 400),
+   822      }),
+   823    );
+   824    throw classifyStatus(response.status, text, providerName, model, response.headers);
+   825  }
+   826
+   827  let data: {
+   828    choices: Array<{
+   829      finish_reason?: string | null;
+   830      message?: {
+   831        content?: string | null;
+   832        tool_calls?: ToolCall[];
+   833        reasoning_content?: string | null;
+   834        reasoning?: string | null;
+   835      };
+   836    }>;
+   837    model: string;
+   838    output_text?: string | null;
+   839    usage?: {
+   840      prompt_tokens?: number;
+   841      completion_tokens?: number;
+   842      reasoning_tokens?: number;
+   843      completion_tokens_details?: { reasoning_tokens?: number };
+   844    };
+   845  };
+   846  try {
+   847    // Keep the request timer active until the response body has been fully
+   848    // consumed. Fetch can resolve headers before a slow provider finishes
+   849    // sending the JSON body.
+   850    data = (await response.json()) as typeof data;
+   851  } catch (err) {
+   852    cleanup();
+   853    if (controller.signal.aborted) {
+   854      throw new GroqClientError("TIMEOUT", `${providerName} response body timed out`, {
+   855        cause: err,
+   856        context: { providerName, providerModel: model },
+   857      });
+   858    }
+   859    throw err;
+   860  }
+   861  cleanup();
+   862
+   863  const choice = data.choices[0];
+   864  const msg = choice?.message;
+   865  const outputText = data.output_text ?? null;
+   866  if (!msg && !outputText) {
+   867    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} returned an empty response`, {
+   868      context: { providerName, providerModel: model },
+   869    });
+   870  }
+   871
+   872  let content = msg?.content ?? outputText;
+   873  const reasoningContent = msg?.reasoning_content ?? msg?.reasoning ?? null;
+   874  const reasoningTokens =
+   875    data.usage?.reasoning_tokens ??
+   876    data.usage?.completion_tokens_details?.reasoning_tokens;
+   877  let hasCalls = Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0;
+   878  let toolCalls: ToolCall[] | null = hasCalls
+   879    ? normalizeToolCallArguments(msg!.tool_calls as ToolCall[], providerName, model)
+   880    : null;
+   881
+   882  // Some free models (e.g. Ling-3.0-flash) embed tool calls as XML text in
+   883  // content instead of using the standard tool_calls JSON field.
+   884  if (content && content.includes("<tool_call>")) {
+   885    if (!hasCalls) {
+   886      const xmlCalls = parseXmlToolCalls(content);
+   887      if (xmlCalls) {
+   888        toolCalls = xmlCalls;
+   889        hasCalls = true;
+   890      }
+   891    }
+   892    content = stripXmlToolCalls(content) || null;
+   893  }
+   894
+   895  if (!content && !hasCalls) {
+   896    throw new GroqClientError(
+   897      "EMPTY_RESPONSE",
+   898      `${providerName} returned neither content nor tool calls`,
+   899      { context: { providerName, providerModel: model } },
+   900    );
+   901  }
+   902
+   903  console.info(
+   904    JSON.stringify({
+   905      scope: "openai-compatible-client",
+   906      action: "response_received",
+   907      providerName,
+   908      requestedModel: model,
+   909      actualModel: data.model,
+   910      finishReason: choice?.finish_reason ?? null,
+   911      contentLength: content?.length ?? 0,
+   912      outputTextLength: outputText?.length ?? 0,
+   913      reasoningContentLength: reasoningContent?.length ?? 0,
+   914      reasoningTokens: reasoningTokens ?? 0,
+   915      hasToolCalls: hasCalls,
+   916    }),
+   917  );
+   918
+   919  return {
+   920    content,
+   921    toolCalls,
+   922    model: data.model,
+   923    usage: {
+   924      promptTokens: data.usage?.prompt_tokens ?? 0,
+   925      completionTokens: data.usage?.completion_tokens ?? 0,
+   926    },
+   927    finishReason: choice?.finish_reason ?? null,
+   928    reasoningContent,
+   929    outputText,
+   930    reasoningTokens,
+   931  };
+   932}
+   933
+   934/**
+   935 * Streaming chat completion against any OpenAI-compatible endpoint.
+   936 * Yields content deltas in the same way as groq-client's `completeStream()`.
+   937 */
+   938export async function* oacCompleteStream(
+   939  messages: RawMessage[],
+   940  opts: OpenAICompatibleStreamOptions,

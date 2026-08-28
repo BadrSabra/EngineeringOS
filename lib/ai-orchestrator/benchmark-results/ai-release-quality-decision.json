@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-28T03:57:09.685Z",
+  "generatedAt": "2026-08-28T04:18:01.364Z",
   "status": "passed",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -25,7 +25,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 24319
+      "durationMs": 27890
     },
     {
       "id": "dashboard-typecheck",
@@ -37,7 +37,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 19845
+      "durationMs": 4128
     },
     {
       "id": "openapi-client-parity",
@@ -50,7 +50,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 10293
+      "durationMs": 5899
     },
     {
       "id": "truth-flow-parity",
@@ -62,7 +62,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1323
+      "durationMs": 1383
     },
     {
       "id": "ai-contract-and-json",
@@ -77,7 +77,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 38998
+      "durationMs": 35749
     },
     {
       "id": "ai-structured-review-fallback",
@@ -93,7 +93,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1402
+      "durationMs": 1315
     },
     {
       "id": "ai-sse-and-redaction",
@@ -108,7 +108,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 18370
+      "durationMs": 18638
     },
     {
       "id": "ai-operational-safety",
@@ -124,7 +124,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 60489
+      "durationMs": 46838
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -139,7 +139,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 657
+      "durationMs": 616
     },
     {
       "id": "benchmark-baseline-regression",
@@ -152,7 +152,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 956
+      "durationMs": 995
     },
     {
       "id": "dashboard-preview-contract",

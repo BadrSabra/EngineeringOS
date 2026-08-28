@@ -1,0 +1,260 @@
+lib/ai-orchestrator/src/agents/chat-agent.ts:96:  executeToolLoop,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1654:          (recoverySignal) => opts.strategy.call(
+lib/ai-orchestrator/src/agents/chat-agent.ts:3436:   * Forwarded directly to executeToolLoop; never throws.
+lib/ai-orchestrator/src/agents/chat-agent.ts:5147:        const childLoop = await executeToolLoop({
+lib/ai-orchestrator/src/agents/chat-agent.ts:5467:  const loopResult = await executeToolLoop({
+lib/ai-orchestrator/src/agents/chat-agent.ts:5492:    toolCallsDisabledAfter: structuredOutputMode
+lib/ai-orchestrator/src/agents/chat-agent.ts:5936:        toolCalls: null,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6082:  //      tool_calls messages but no `tools` parameter.
+lib/ai-orchestrator/src/agents/chat-agent.ts:6088:    if (directContent && !strategy.supportsNativeStream) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:6331:      const streamGen = strategy.stream(streamMessages, {
+lib/ai-orchestrator/src/agents/chat-agent.ts:6700:      const retry = await strategy.call(
+lib/ai-orchestrator/src/agents/chat-agent.ts:7241:          let recovery: Awaited<ReturnType<typeof strategy.call>>;
+lib/ai-orchestrator/src/agents/chat-agent.ts:7249:                strategy.call(recoveryRoundMessages, recoveryOptions),
+lib/ai-orchestrator/src/agents/chat-agent.ts:7257:                Array.isArray(recovery.toolCalls) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7258:                recovery.toolCalls.length > 0 &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7261:                const executableCalls = recovery.toolCalls.filter(
+lib/ai-orchestrator/src/agents/chat-agent.ts:7293:                  tool_calls: recovery.toolCalls,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8310:      const recovery = await strategy.call(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8389:        (recoverySignal) => strategy.call(
+lib/ai-orchestrator/src/groq-client.ts:251:  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+lib/ai-orchestrator/src/groq-client.ts:256:  toolCalls: ToolCall[] | null;
+lib/ai-orchestrator/src/groq-client.ts:273:      message?: { content?: string | null; tool_calls?: ToolCall[] };
+lib/ai-orchestrator/src/groq-client.ts:291:  const hasCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+lib/ai-orchestrator/src/groq-client.ts:297:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/forensic-output-guard.ts:85:  tool_calls?: Array<{
+lib/ai-orchestrator/src/forensic-output-guard.ts:1827:    if (message.role === "assistant" && Array.isArray(message.tool_calls)) {
+lib/ai-orchestrator/src/forensic-output-guard.ts:1828:      for (const toolCall of message.tool_calls) {
+lib/ai-orchestrator/src/deepseek-client.ts:263:      message?: { content?: string | null; tool_calls?: ToolCall[] };
+lib/ai-orchestrator/src/deepseek-client.ts:278:  const hasCalls  = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+lib/ai-orchestrator/src/deepseek-client.ts:286:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:9: *   executeToolLoop(opts)    — runs the loop until a non-tool response or the
+lib/ai-orchestrator/src/tool-execution-engine.ts:870: * `tool_calls` array. When the provider truncates the context server-side it
+lib/ai-orchestrator/src/tool-execution-engine.ts:881:  // IDs advertised by the most recent assistant turn that carried tool_calls.
+lib/ai-orchestrator/src/tool-execution-engine.ts:888:      // Refresh the set from this assistant turn's tool_calls.
+lib/ai-orchestrator/src/tool-execution-engine.ts:890:      if (Array.isArray(m.tool_calls)) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:891:        for (const tc of m.tool_calls) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:981:   * The loop appends assistant (with tool_calls) and tool-result messages.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1002:  /** Optional per-user API key forwarded to every strategy.call(). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1044:   * first iteration (the model never emits tool_calls without definitions).
+lib/ai-orchestrator/src/tool-execution-engine.ts:1095:  toolCallsDisabledAfter?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1216:      /** Raw model response — contains content but no tool_calls. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1365: * Discriminated union of observable events emitted during executeToolLoop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1545:      toolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1577: *   2. If the model returns tool_calls: for each call —
+lib/ai-orchestrator/src/tool-execution-engine.ts:1583: *   3. If the model returns no tool_calls: return kind:"response".
+lib/ai-orchestrator/src/tool-execution-engine.ts:1589:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1605:    toolCallsDisabledAfter,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1673:    toolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1677:    toolCalls: prefetchToolCalls + loopToolCalls,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1991:      return { result: await strategy.call(callMessages, callOptions), attemptCount: 1 };
+lib/ai-orchestrator/src/tool-execution-engine.ts:2014:          result: await strategy.call(callMessages, callOptions),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2066:        return await strategy.call(callMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2093:   * Some OpenRouter models return tool_calls even when the request contains no
+lib/ai-orchestrator/src/tool-execution-engine.ts:2109:      !first.result.toolCalls?.length ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2122:        reason: "provider returned tool_calls during a no-tools synthesis request",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2377:          toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2441:      (toolCallsDisabledAfter !== undefined && iter >= toolCallsDisabledAfter);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2534:          : await strategy.call(outboundMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2598:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2670:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2731:                toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2799:      (!result.toolCalls || result.toolCalls.length === 0)
+lib/ai-orchestrator/src/tool-execution-engine.ts:2815:        const retry = await strategy.call(retryMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2853:    if (!result.toolCalls || result.toolCalls.length === 0) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2930:          // tool_calls payload. Never feed those calls back into the normal
+lib/ai-orchestrator/src/tool-execution-engine.ts:2975:    // Some providers still emit tool_calls after the tool schema has been
+lib/ai-orchestrator/src/tool-execution-engine.ts:2983:      const terminalResult: RawGroqResponse = { ...result, toolCalls: null };
+lib/ai-orchestrator/src/tool-execution-engine.ts:3004:          toolCalls: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3015:    // ── Append assistant turn with tool_calls ────────────────────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:3021:    const safeToolCalls = result.toolCalls.map((tc) => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3039:      tool_calls: safeToolCalls,
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark-deterministic.ts:37:    toolCalls: blocked ? 2 : 4,
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:171:  const toolCalls = response.toolCalls ?? [];
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:172:  if (toolCalls.length === 0) {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:179:  if (toolCalls.length !== 1 || toolCalls[0]?.function.name !== PROBE_TOOL_NAME) {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:188:    const parsed: unknown = JSON.parse(toolCalls[0].function.arguments);
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:269:    return parseProbeArguments(await strategy.call(messages, callOptions), options, startedAt);
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:13:function response(toolCalls: RawGroqResponse["toolCalls"]): RawGroqResponse {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:16:    toolCalls,
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:25:    supportsNativeStream: false,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:14: * `supportsNativeStream: false` — OpenRouter free-tier models often
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:43:  supportsNativeStream: false,
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:188:    toolCalls: steps.filter((step) => step.kind === "tool_call").length,
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:249:        toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:405:        toolCalls: steps.filter((step) => step.kind === "tool_call").length,
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:18:  supportsNativeStream: true,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:33:  /** Supports native OpenAI tool_calls protocol. */
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:124:  "toolCalls",
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:325:    toolCalls: integerField(value.toolCalls, `${path}.toolCalls`, 0, 10_000),
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:7: * `supportsNativeStream: false` — the Gemini shim strips tools and
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:28:  supportsNativeStream: false,
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.test.ts:45:        toolCalls: 2,
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:23:  supportsNativeStream: true,
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.test.ts:23:    toolCalls: 1,
+lib/ai-orchestrator/src/openai-compatible-client.ts:107: *   - An assistant message that carries `tool_calls` opens a tool_group and
+lib/ai-orchestrator/src/openai-compatible-client.ts:124:      Array.isArray(m.tool_calls) &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:125:      m.tool_calls.length > 0
+lib/ai-orchestrator/src/openai-compatible-client.ts:129:        m.tool_calls.map((tc) => tc.id).filter((id): id is string => !!id),
+lib/ai-orchestrator/src/openai-compatible-client.ts:172:      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+lib/ai-orchestrator/src/openai-compatible-client.ts:174:      if (!hasContent && toolCalls.length === 0) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:180:        toolCalls
+lib/ai-orchestrator/src/openai-compatible-client.ts:658:// `tool_calls` JSON array.  These helpers normalise both cases so the rest of
+lib/ai-orchestrator/src/openai-compatible-client.ts:832:        tool_calls?: ToolCall[];
+lib/ai-orchestrator/src/openai-compatible-client.ts:877:  let hasCalls = Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0;
+lib/ai-orchestrator/src/openai-compatible-client.ts:878:  let toolCalls: ToolCall[] | null = hasCalls
+lib/ai-orchestrator/src/openai-compatible-client.ts:879:    ? normalizeToolCallArguments(msg!.tool_calls as ToolCall[], providerName, model)
+lib/ai-orchestrator/src/openai-compatible-client.ts:883:  // content instead of using the standard tool_calls JSON field.
+lib/ai-orchestrator/src/openai-compatible-client.ts:888:        toolCalls = xmlCalls;
+lib/ai-orchestrator/src/openai-compatible-client.ts:921:    toolCalls,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:37:  toolCalls: number;
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:210:      tool_calls: [{
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:280:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:359:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:392:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:435:    toolCalls: steps.filter((step) => step.kind === "tool_call").length,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:628:    averageToolCalls: average(results.map((result) => result.trace.toolCalls)),
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:763:      `| ${result.caseId} | ${result.status} | ${result.rawContractValid ? "yes" : "no"} | ${result.finalContractValid ? "yes" : "no"} | ${(result.evidenceCitationAccuracy * 100).toFixed(0)}% | ${result.recoverySucceeded ? "yes" : "no"} | ${result.repairPlanBlocked ? "yes" : "no"} | ${result.trace.toolCalls} | ${result.trace.sourceReads} |`,
+lib/ai-orchestrator/src/provider-strategy.ts:100:  readonly supportsNativeStream: boolean;
+lib/ai-orchestrator/src/benchmark/contract-oracle.test.ts:21:    toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:70:    toolCalls: 3,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:86:    toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:373:              toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:400:              toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:444:          toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:127:  toolCalls: number;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:154:  toolCalls: number;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:751:    toolCalls: Math.max(0, telemetry.toolCalls),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:880:        toolCalls: 0,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:1020:    averageToolCalls: average(qualityResults.map((result) => result.toolCalls)),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:44:    toolCalls: 4,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:184:        toolCalls: 3,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:203:        toolCalls: 3,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:226:      toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:308:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:335:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:348:      toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:372:        toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:416:        toolCalls: 8,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:439:        toolCalls: 3,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:464:        toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:497:          toolCalls: 1,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:528:        toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/behavioral-oracle-gate.test.ts:18:    toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:44:  toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:80:    const toolCalls = qualityObserved.reduce((sum, observation) => sum + observation.toolCalls, 0);
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:86:      toolEfficiency: rate(qualityObserved.reduce((sum, observation) => sum + observation.filesRead, 0), toolCalls),
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:40:  toolCalls: 2,
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts:67:  toolCalls: 2,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:6: *   - executeToolLoop:   budget exhaustion, cache hits, tool dispatch, exhausted iterations
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:9: * executeSingleTool and executeToolLoop never touch the real filesystem.  The
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:54:  toolCalls?: RawGroqResponse["toolCalls"],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:59:    toolCalls: toolCalls ?? null,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:74:    supportsNativeStream: false,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:345:// ── executeToolLoop ───────────────────────────────────────────────────────────
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:347:describe("executeToolLoop", () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:359:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:361:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:376:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:385:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:415:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:420:      supportsNativeStream: false,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:431:    const pending = executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:454:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:460:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:491:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:497:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:524:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:550:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:590:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:637:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:678:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:731:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:765:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:769:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:802:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:806:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:831:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:837:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:853:    expect(strategy.call).toHaveBeenCalledTimes(2);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:854:    expect(strategy.call).toHaveBeenLastCalledWith(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:861:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:874:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:911:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:924:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:958:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:968:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:988:    expect(strategy.call).toHaveBeenCalledTimes(2);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:989:    const synthesisOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:997:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1006:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1027:    expect(strategy.call).toHaveBeenCalledTimes(3);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1028:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[2]?.[1] as Record<string, unknown>;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1059:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1068:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1085:    expect(strategy.call).toHaveBeenCalledTimes(2);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1089:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1091:    (strategy.call as ReturnType<typeof vi.fn>)
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1097:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1113:    expect(strategy.call).toHaveBeenCalledTimes(2);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1117:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1119:    (strategy.call as ReturnType<typeof vi.fn>)
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1127:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1150:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1152:    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1157:    await expect(executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1182:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1184:    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1188:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1204:    expect(strategy.call).toHaveBeenCalledTimes(2);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1208:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1210:    (strategy.call as ReturnType<typeof vi.fn>)
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1218:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1229:      toolCallsDisabledAfter: 1,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1240:    expect(strategy.call).toHaveBeenCalledTimes(3);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1244:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1246:    (strategy.call as ReturnType<typeof vi.fn>)
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1254:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1275:    expect(strategy.call).toHaveBeenCalledTimes(3);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1279:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1281:    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1286:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1305:    expect(strategy.call).toHaveBeenCalledTimes(2);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1309:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1318:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1335:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1341:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1353:    const calls = vi.mocked(strategy.call).mock.calls;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1359:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1371:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1393:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1413:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1434:    const calls = vi.mocked(strategy.call).mock.calls;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1451:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1468:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1494:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1510:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1538:    expect(vi.mocked(strategy.call).mock.calls
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1544:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1560:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1582:    expect(vi.mocked(strategy.call).mock.calls
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1588:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1602:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1626:    expect(vi.mocked(strategy.call).mock.calls
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1632:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1650:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1674:    expect(vi.mocked(strategy.call).mock.calls
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1680:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1699:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1724:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1731:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1747:    const secondCallTools = vi.mocked(strategy.call).mock.calls[1]?.[1].tools;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1752:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1762:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1784:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1797:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1819:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1829:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1842:    const calls = vi.mocked(strategy.call).mock.calls;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1848:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1852:    (strategy.call as ReturnType<typeof vi.fn>).mockImplementation(async () => {

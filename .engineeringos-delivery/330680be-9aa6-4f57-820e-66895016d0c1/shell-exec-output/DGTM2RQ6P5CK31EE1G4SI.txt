@@ -1,0 +1,260 @@
+artifacts/api-server/src/scripts/seed-provenance.ts:7: *  - ..._linked_*.json  → authoritative upstream/downstream/decision/evidence
+artifacts/api-server/src/scripts/seed-provenance.ts:8: *                          refs and authority levels (source of truth for
+artifacts/api-server/src/scripts/seed-provenance.ts:59:  authority_level: "A" | "B" | "C" | "D";
+artifacts/api-server/src/scripts/seed-provenance.ts:116:        authorityLevel: rec.authority_level,
+artifacts/api-server/src/scripts/seed-provenance.ts:194:        ownerId: "system",
+artifacts/api-server/src/types/express.d.ts:4: * Unified authentication context. Every middleware/route that needs to know
+artifacts/api-server/src/types/express.d.ts:6: * individual fields off `req` or reaching into `@clerk/express`'s `getAuth`
+artifacts/api-server/src/types/express.d.ts:7: * directly — that keeps the auth provider an implementation detail confined
+artifacts/api-server/src/types/express.d.ts:13: * without another pass over every call site that consumes auth context.
+artifacts/api-server/src/types/express.d.ts:16:  userId: string;
+artifacts/api-server/src/types/express.d.ts:23: * Authentication/authorization context primitives attached to `Request` by
+artifacts/api-server/src/types/express.d.ts:26: * - `userId` and `authContext` are set by `requireAuth`/`optionalAuth` (see
+artifacts/api-server/src/types/express.d.ts:27: *   middlewares/requireAuth.ts) — purely *authentication* primitives: "who
+artifacts/api-server/src/types/express.d.ts:28: *   is making this request". `userId` is kept alongside `authContext` (a
+artifacts/api-server/src/types/express.d.ts:29: *   duplicate of `authContext.userId`) because existing routes already read
+artifacts/api-server/src/types/express.d.ts:30: *   `req.userId` directly; new code should prefer `req.authContext`.
+artifacts/api-server/src/types/express.d.ts:32: *   (see middlewares/requireProjectAccess.ts) — an *authorization*
+artifacts/api-server/src/types/express.d.ts:44:      userId: string;
+artifacts/api-server/src/types/express.d.ts:45:      authContext?: AuthContext;
+artifacts/api-server/src/app.ts:6:import { clerkMiddleware } from "@clerk/express";
+artifacts/api-server/src/app.ts:7:import { publishableKeyFromHost } from "@clerk/shared/keys";
+artifacts/api-server/src/app.ts:14:  clerkProxyMiddleware,
+artifacts/api-server/src/app.ts:16:} from "./middlewares/clerkProxyMiddleware.js";
+artifacts/api-server/src/app.ts:79:  // Cookie-authenticated requests without browser provenance headers are
+artifacts/api-server/src/app.ts:104:// and only activates in production (see clerkProxyMiddleware.ts).
+artifacts/api-server/src/app.ts:105:app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+artifacts/api-server/src/app.ts:167:// clerkMiddleware will throw "Missing Clerk Secret Key" if it intercepts any
+artifacts/api-server/src/app.ts:170:// respond 200 regardless of auth/Clerk configuration state.
+artifacts/api-server/src/app.ts:181:// Skipped in the vitest test environment (NODE_ENV=test): Clerk requires
+artifacts/api-server/src/app.ts:184:// "test-user" identity when NODE_ENV=test, so skipping clerkMiddleware here
+artifacts/api-server/src/app.ts:186:// authContext shape that production code sees.
+artifacts/api-server/src/app.ts:189:    clerkMiddleware((req) => ({
+artifacts/api-server/src/app.ts:199:// authentication: "who is this"). Per-project ownership authorization
+artifacts/api-server/src/config.ts:21:  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+artifacts/api-server/src/config.ts:151:    nodeEnv: parsed.data.NODE_ENV,
+artifacts/api-server/src/config.ts:152:    isProduction: parsed.data.NODE_ENV === "production",
+artifacts/api-server/src/config.ts:156:      parsed.data.NODE_ENV === "production",
+artifacts/api-server/src/routes/workflows.ts:43:  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:58:  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:78:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:95:  const ownerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:111:  const ownerProject = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:128:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:146:  const ownerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:227:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:235:        userId: req.userId,
+artifacts/api-server/src/routes/workflows.ts:267:  const stopOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:354:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:370:  const execOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:413:  const advanceOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:550:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:560:        userId: req.userId,
+artifacts/api-server/src/routes/workflows.ts:593:  const failOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:651:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:667:  const retryOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:729:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:757:  const rollbackOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:915:    actor: req.userId,
+artifacts/api-server/src/services/task-service.ts:6: * authentication, DB claim/update, event/audit emission, and HTTP response.
+artifacts/api-server/src/routes/ai/workflows.ts:65:  const ownerProject = await loadProjectByIdForUser(workflow.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/workflows.ts:80:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/workflows.ts:130:      userId: req.userId,
+artifacts/api-server/src/routes/ai/workflows.ts:151:        userId: req.userId,
+artifacts/api-server/src/routes/workflows.test.ts:20:    ownerId: "test-user",
+artifacts/api-server/src/routes/git.ts:12: * the authenticated URL.
+artifacts/api-server/src/routes/git.ts:48:const TEST_FIXTURE_REMOTE = "https://fixture.local/engineeringos.git";
+artifacts/api-server/src/routes/git.ts:85:async function getGithubToken(userId: string): Promise<string | null> {
+artifacts/api-server/src/routes/git.ts:87:    eq(aiProviderCredentialsTable.ownerId, userId),
+artifacts/api-server/src/routes/git.ts:127:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/git.ts:149:      ownerId: req.userId,
+artifacts/api-server/src/routes/git.ts:157:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+artifacts/api-server/src/routes/git.ts:170:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/git.ts:266:        const [hash, shortHash, date, author, subject] = line.split("\x1f");
+artifacts/api-server/src/routes/git.ts:267:        return { hash, shortHash, date, author, subject };
+artifacts/api-server/src/routes/git.ts:556:    && (project.gitRemoteUrl === TEST_FIXTURE_REMOTE || Boolean(process.env.ENGINEERINGOS_TEST_PUSH_REMOTE));
+artifacts/api-server/src/routes/git.ts:643:      const token = await getGithubToken(req.userId);
+artifacts/api-server/src/routes/git.ts:644:      if (!token) return res.status(428).json({ error: "GitHub authentication is not configured." });
+artifacts/api-server/src/routes/git.ts:775:        error: "GitHub integration authentication failed or is unavailable. Reconnect GitHub and retry.",
+artifacts/api-server/src/routes/ai/analysis.ts:93:  userId: string;
+artifacts/api-server/src/routes/ai/analysis.ts:162:  userId: string,
+artifacts/api-server/src/routes/ai/analysis.ts:171:  const resolved = await resolveProvider(userId, options);
+artifacts/api-server/src/routes/ai/analysis.ts:176:    userId,
+artifacts/api-server/src/routes/ai/analysis.ts:280:  params: { projectId: string; userId: string; task: StructuredTask; sessionId?: string },
+artifacts/api-server/src/routes/ai/analysis.ts:333:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:358:      req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:371:        userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:419:      actor: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:477:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:490:      req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:503:        userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:549:      actor: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:576:    req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:587:      userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:618:      req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:640:        userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:672:        actor: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:701:      userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:741:    req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:752:      userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:783:      req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:805:        userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:837:        actor: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:866:      userId: req.userId,
+artifacts/api-server/src/routes/ai/tasks.ts:68:  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/tasks.ts:77:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/tasks.ts:94:      userId: req.userId,
+artifacts/api-server/src/routes/ai/tasks.ts:244:      req.userId,
+artifacts/api-server/src/routes/ai/tasks.ts:427:export function scheduleAiTaskExecution(taskId: string, userId: string): void {
+artifacts/api-server/src/routes/ai/tasks.ts:447:      const resolved = await resolveProvider(userId, {
+artifacts/api-server/src/routes/ai/tasks.ts:476:        userId,
+artifacts/api-server/src/routes/ai/tasks.ts:573:          userId,
+artifacts/api-server/src/routes/git.test.ts:47:    ownerId: "test-user",
+artifacts/api-server/src/routes/git.test.ts:230:      ownerId: "test-user",
+artifacts/api-server/src/routes/git.test.ts:237:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+artifacts/api-server/src/routes/git.test.ts:248:        eq(aiProviderCredentialsTable.ownerId, "test-user"),
+artifacts/api-server/src/routes/upload.ts:78:    // PR-D2: registerUpload is now async (DB-backed). Pass the authenticated
+artifacts/api-server/src/routes/upload.ts:79:    // userId so the row can be owner-scoped for future access-control checks.
+artifacts/api-server/src/routes/upload.ts:80:    await registerUpload(uploadId, extractDir, originalname, req.userId!);
+artifacts/api-server/src/routes/ai/providers.ts:54:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/ai/providers.ts:79:      error: `${label} API key is invalid or unauthorized`,
+artifacts/api-server/src/routes/ai/providers.ts:99:      ownerId: req.userId,
+artifacts/api-server/src/routes/ai/providers.ts:107:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+artifacts/api-server/src/routes/ai/providers.ts:120:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/ai/providers.ts:163:  const resolved = await resolveProvider(req.userId);
+artifacts/api-server/src/routes/ai/providers.ts:188:    .where(eq(aiProviderCredentialsTable.ownerId, req.userId));
+artifacts/api-server/src/routes/events.ts:17: * the authenticated user when projectId is omitted. Ownership is verified
+artifacts/api-server/src/routes/events.ts:49:    const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/events.ts:58:      .where(eq(projectsTable.ownerId, req.userId));
+artifacts/api-server/src/routes/ai.test.ts:407:    ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:713:  it("rejects hostile origins before an authenticated mutation runs", async () => {
+artifacts/api-server/src/routes/ai.test.ts:903:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:1468:      userId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:1524:      userId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:1639:      .set({ userId: "different-user" })
+artifacts/api-server/src/routes/ai.test.ts:2143:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2219:    // is readable) — that fallback would let any project-authorized user pull in
+artifacts/api-server/src/routes/ai.test.ts:2226:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2880:    await db.update(projectsTable).set({ ownerId: "another-user" })
+artifacts/api-server/src/routes/ai.test.ts:3001:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3048:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3110:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3195:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3247:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3312:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3358:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3408:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3484:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3538:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3603:    // authorizeChangeSubset must accept this as a valid subset.
+artifacts/api-server/src/routes/ai.test.ts:3629:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3676:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3719:  it("rejects a partial-apply submission that duplicates an authorized hunk (multiset bypass attempt)", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3723:      id, ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3770:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3771:      name: `apply-unauthorized-hunk-${id.slice(0, 8)}`,
+artifacts/api-server/src/routes/ai.test.ts:3780:    const fileName = `apply-unauthorized-${randomUUID().slice(0, 8)}.ts`;
+artifacts/api-server/src/routes/ai.test.ts:3800:    // authorizeChangeSubset must reject this and return PROPOSAL_MISMATCH.
+artifacts/api-server/src/routes/ai.test.ts:3820:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3918:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:4203:    scheduleAiTaskExecution(taskId, "test-user");
+artifacts/api-server/src/routes/ai.test.ts:4243:    scheduleAiTaskExecution(taskId, "test-user");
+artifacts/api-server/src/routes/ai.test.ts:4369:      name: "authentication",
+artifacts/api-server/src/routes/ai.test.ts:4374:      expectedAvailability: "authentication_failed",
+artifacts/api-server/src/routes/ai.test.ts:4543:      const resolved = await resolveProvider("test-user", { requireTools: true });
+artifacts/api-server/src/routes/events.test.ts:18:    ownerId: "test-user",
+artifacts/api-server/src/routes/events.test.ts:70:  it("returns events from all projects owned by the authenticated user when projectId is omitted", async () => {
+artifacts/api-server/src/routes/events.test.ts:85:  it("returns an empty array when the authenticated user owns no projects", async () => {
+artifacts/api-server/src/routes/events.test.ts:263:      ownerId: "other-user",
+artifacts/api-server/src/routes/events.test.ts:284:      ownerId: "other-user",
+artifacts/api-server/src/routes/ai/chat.ts:607: * and dashboard reloads must not turn an old plan into write authorization.
+artifacts/api-server/src/routes/ai/chat.ts:643:  // authorize edits against bytes that were not part of the inspected snapshot.
+artifacts/api-server/src/routes/ai/chat.ts:707:  // use the exact manifest that authorized this planning attempt.
+artifacts/api-server/src/routes/ai/chat.ts:983: * Verify that every submitted change is a value-exact authorized subset of the
+artifacts/api-server/src/routes/ai/chat.ts:988: * Returns an error string describing the first violation, or null if authorized.
+artifacts/api-server/src/routes/ai/chat.ts:990:function authorizeChangeSubset(
+artifacts/api-server/src/routes/ai/chat.ts:1045:    // stored change is an authorization bypass: the apply loop falls through to
+artifacts/api-server/src/routes/ai/chat.ts:1055:    // twice and bypass the authorization boundary.
+artifacts/api-server/src/routes/ai/chat.ts:1184:    // A repair proposal is a delivery authorization, not merely a model
+artifacts/api-server/src/routes/ai/chat.ts:1358:  verdictScope?: "PRODUCTION" | "FIXTURE_LOCAL" | "TEST_LOCAL" | "SPEC_LOCAL" | "MIXED" | "NOT_PROVEN";
+artifacts/api-server/src/routes/ai/chat.ts:1359:  scopedFindingStatus?: "PRODUCTION_PROVEN" | "FIXTURE_PROVEN" | "TEST_PROVEN" | "MIXED_EVIDENCE" | "NOT_PROVEN";
+artifacts/api-server/src/routes/ai/chat.ts:1826:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:1955:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:2011:        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2222:          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+artifacts/api-server/src/routes/ai/chat.ts:2329:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:2552:  // Provider/model routing must use the same authoritative intent as the
+artifacts/api-server/src/routes/ai/chat.ts:2555:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:2687:      ? await getAiExecutionForUser(effectiveExecutionId, req.userId)
+artifacts/api-server/src/routes/ai/chat.ts:2773:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2791:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2804:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3566:        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3776:            err.code === "AUTH_ERROR" ? "authentication_failed" :
+artifacts/api-server/src/routes/ai/chat.ts:3832:              message: "AI provider key is invalid or unauthorized.",
+artifacts/api-server/src/routes/ai/chat.ts:4127:          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+artifacts/api-server/src/routes/ai/chat.ts:4362:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4374:      eq(aiExecutionsTable.userId, req.userId),
+artifacts/api-server/src/routes/ai/chat.ts:4438:  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4555:  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4713:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4735:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4744:  const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4756:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4759:    const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4779:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4862:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4985:    const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5061:  const project = await loadProjectByIdForUser(row.session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5176:// quoted. Project-authorized (loadProjectByIdForUser) and path-guarded against
+artifacts/api-server/src/routes/ai/chat.ts:5184:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:5206:  // project root is inaccessible. Such a fallback would let a user authorized
+artifacts/api-server/src/routes/ai/chat.ts:5209:  // Here the project's own configured rootPath is the ONLY authorization
+artifacts/api-server/src/routes/ai/chat.ts:5280:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5350:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:5425:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5519:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5591:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5851:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5933:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6010:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6027:      const subsetError = authorizeChangeSubset(changes, approvedChanges);
+artifacts/api-server/src/routes/ai/chat.ts:6030:          error: `Submitted changes are not an authorized subset of the proposal: ${subsetError}`,
+artifacts/api-server/src/routes/ai/chat.ts:6035:      // The authoritative validation below reports malformed stored proposals.
+artifacts/api-server/src/routes/ai/chat.ts:6106:    // Each submitted change must be a value-exact authorized subset of the
+artifacts/api-server/src/routes/ai/chat.ts:6112:    const subsetError = authorizeChangeSubset(changes, approvedChanges);
+artifacts/api-server/src/routes/ai/chat.ts:6115:        error: `Submitted changes are not an authorized subset of the proposal: ${subsetError}`,
+artifacts/api-server/src/routes/ai/chat.ts:6676:        actor: req.userId,
+artifacts/api-server/src/routes/tasks.ts:73:  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:94:  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:110:      projectId: body.projectId, actor: req.userId, correlationId,
+artifacts/api-server/src/routes/tasks.ts:130:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:142:  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:167:        actor: req.userId,
+artifacts/api-server/src/routes/tasks.ts:206:        projectId: before[0].projectId, actor: req.userId, correlationId,
+artifacts/api-server/src/routes/tasks.ts:222:    scheduleAiTaskExecution(taskId, req.userId);
+artifacts/api-server/src/routes/tasks.ts:236:  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:268:      projectId: before[0].projectId, actor: req.userId, correlationId,
+artifacts/api-server/src/routes/tasks.ts:305:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:497:    scheduleAiTaskExecution(taskId, req.userId);
+artifacts/api-server/src/routes/tasks.ts:516:  const project = await loadProjectByIdForUser(task.projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:618:        actor: req.userId,
+artifacts/api-server/src/routes/tasks.ts:710:        actor: req.userId,
+artifacts/api-server/src/routes/tasks.ts:751:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:837:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:937:  const _project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:960:  const _project = await loadProjectByIdForUser(task.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:68:    userId: "test-user",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:322:  ownerId: "test-user",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:601:      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:702:      async (_userId, _params, _provider, onDelta) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:730:      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:776:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:821:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:878:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:920:      async (_userId, params) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:944:      "test-user",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:973:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:999:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1022:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1046:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {

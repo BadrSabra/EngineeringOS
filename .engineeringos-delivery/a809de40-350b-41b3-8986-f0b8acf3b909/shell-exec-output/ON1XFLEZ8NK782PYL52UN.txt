@@ -1,0 +1,98 @@
+lib/ai-orchestrator/src/groq-client.ts:251:  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+lib/ai-orchestrator/src/groq-client.ts:273:      message?: { content?: string | null; tool_calls?: ToolCall[] };
+lib/ai-orchestrator/src/groq-client.ts:297:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/forensic-output-guard.ts:311:function normalizeToolEvidence(content: string): string {
+lib/ai-orchestrator/src/forensic-output-guard.ts:1816:    const content = normalizeToolEvidence(rawContent);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1865:    const content = normalizeToolEvidence(rawContent);
+lib/ai-orchestrator/src/quality/execution-phases.ts:49:  patch_proposal: { maxModelCalls: 2, maxToolCalls: 8, maxOutputTokens: 1_536 },
+lib/ai-orchestrator/src/quality/execution-phases.ts:51:  repair_recovery: { maxModelCalls: 2, maxToolCalls: 10, maxOutputTokens: 1_024 },
+lib/ai-orchestrator/src/deepseek-client.ts:263:      message?: { content?: string | null; tool_calls?: ToolCall[] };
+lib/ai-orchestrator/src/deepseek-client.ts:286:    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:208:    : FREE_MODELS.filter((m) => !requireTools || m.supportsTools) as OpenRouterFreeModel[];
+lib/ai-orchestrator/src/openai-compatible-client.ts:612:function normalizeToolCallArguments(
+lib/ai-orchestrator/src/openai-compatible-client.ts:662:function stripXmlToolCalls(text: string): string {
+lib/ai-orchestrator/src/openai-compatible-client.ts:673:function parseXmlToolCalls(content: string): ToolCall[] | null {
+lib/ai-orchestrator/src/openai-compatible-client.ts:832:        tool_calls?: ToolCall[];
+lib/ai-orchestrator/src/openai-compatible-client.ts:879:    ? normalizeToolCallArguments(msg!.tool_calls as ToolCall[], providerName, model)
+lib/ai-orchestrator/src/openai-compatible-client.ts:886:      const xmlCalls = parseXmlToolCalls(content);
+lib/ai-orchestrator/src/openai-compatible-client.ts:892:    content = stripXmlToolCalls(content) || null;
+lib/ai-orchestrator/src/openai-compatible-client.ts:938:export async function* oacCompleteStream(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1076:    const clean = stripXmlToolCalls(xmlStreamBuf);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1328:export async function* openrouterCompleteStream(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1371:        for await (const delta of oacCompleteStream(trimmed, { ...fullOpts, model })) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1470:  return oacCompleteStream(messages, {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:4: * Wraps `openrouterCompleteWithFallback` and `openrouterCompleteStream` from
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:21:  openrouterCompleteStream,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:207:      yield* openrouterCompleteStream(messages, { ...requestOpts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/tool-execution-engine.ts:41:import { FILE_TOOL_DEFINITIONS, executeFileTool } from "./tools/file-tools.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:42:import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:78:  tool_chat:      { maxIterations: 96, maxToolCalls: 300 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:80:  task_execution: { maxIterations: 192, maxToolCalls: 720 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:81:  code_review:    { maxIterations: 96, maxToolCalls: 300 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:671: *   - Names in GIT_TOOL_NAMES   → executeGitTool
+lib/ai-orchestrator/src/tool-execution-engine.ts:672: *   - Names in FILE_TOOL_NAMES  → executeFileTool
+lib/ai-orchestrator/src/tool-execution-engine.ts:875: * @internal - exported for unit tests only (_stripOrphanedToolMessages)
+lib/ai-orchestrator/src/tool-execution-engine.ts:928:export const _stripOrphanedToolMessages = stripOrphanedToolMessages;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3039:      tool_calls: safeToolCalls,
+lib/ai-orchestrator/src/task-contracts.ts:154:  CODE_EXTRACTION: { maxIterations: 16, maxToolCalls: 12 },
+lib/ai-orchestrator/src/task-contracts.ts:155:  BEHAVIOR_QUERY: { maxIterations: 120, maxToolCalls: 260 },
+lib/ai-orchestrator/src/task-contracts.ts:156:  FINDING_ANALYSIS: { maxIterations: 128, maxToolCalls: 320 },
+lib/ai-orchestrator/src/task-contracts.ts:157:  FULL_FORENSIC_AUDIT: { maxIterations: 120, maxToolCalls: 480 },
+lib/ai-orchestrator/src/task-contracts.ts:158:  WORKSPACE_REVIEW: { maxIterations: 144, maxToolCalls: 480 },
+lib/ai-orchestrator/src/task-contracts.ts:159:  REPAIR_ANALYSIS: { maxIterations: 128, maxToolCalls: 320 },
+lib/ai-orchestrator/src/tools/analysis-tools.ts:27:export const ANALYSIS_TOOL_DEFINITIONS: ToolDefinition[] = [
+lib/ai-orchestrator/src/tool-policy.ts:8:import { FILE_TOOL_DEFINITIONS, type ToolDefinition } from "./tools/file-tools.js";
+lib/ai-orchestrator/src/tool-policy.ts:9:import { GIT_TOOL_DEFINITIONS, type GitToolDefinition } from "./tools/git-tools.js";
+lib/ai-orchestrator/src/tool-policy.ts:47:const ALL_TOOL_DEFINITIONS: ToolDefinitionLike[] = [
+lib/ai-orchestrator/src/tools/execution-tools.ts:153:export const EXECUTION_TOOL_DEFINITIONS: ToolDefinition[] = [
+lib/ai-orchestrator/src/tools/file-tools.ts:91:export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:15:const PROBE_TOOL: ToolDefinition = {
+lib/ai-orchestrator/src/tools/git-tools.ts:32:export const GIT_TOOL_DEFINITIONS: GitToolDefinition[] = [
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts:282:      tool_calls: syntheticToolCalls,
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts:392:      tool_calls: syntheticToolCalls,
+lib/ai-orchestrator/src/agents/chat-agent.ts:4877:            : BUDGET_BY_SCOPE.task_execution.maxToolCalls
+lib/ai-orchestrator/src/agents/chat-agent.ts:7232:          // round to a bounded MAX_RECOVERY_TOOL_ROUNDS loop via executeFileTool.
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:102:  it("dispatches read_file to executeFileTool and returns source", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:138:  it("dispatches list_directory to executeFileTool and produces directory source label", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:154:  it("dispatches search_code to executeFileTool and produces search source label", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:169:  it("dispatches git_status to executeGitTool and produces git source label", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:187:  it("dispatches git_diff to executeGitTool with path-qualified source label", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:202:  it("dispatches git_log to executeGitTool with git:log source label", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4014:  it("returns kind:partial/provider_timeout when primary model times out after a tool call (totalToolCalls > 0)", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4135:// ── _stripOrphanedToolMessages ────────────────────────────────────────────────
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4137:describe("_stripOrphanedToolMessages", () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4139:    const { _stripOrphanedToolMessages } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4146:        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4151:    const result = _stripOrphanedToolMessages(messages);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4157:    const { _stripOrphanedToolMessages } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4165:    const result = _stripOrphanedToolMessages(messages);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4171:    const { _stripOrphanedToolMessages } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4178:        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4185:        tool_calls: [makeToolCall("id-2", "read_file", { path: "b.ts" })],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4192:    const result = _stripOrphanedToolMessages(messages);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4199:    const { _stripOrphanedToolMessages } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4204:        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4211:    const result = _stripOrphanedToolMessages(messages);
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:623:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:663:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2713:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2982:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3004:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3059:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3131:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:24:  openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:55:      capBudgetForTask("CODE_EXTRACTION", { maxIterations: 150, maxToolCalls: 500 }),
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:58:      capBudgetForTask("BEHAVIOR_QUERY", { maxIterations: 150, maxToolCalls: 500 }),
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:61:      capBudgetForTask("FULL_FORENSIC_AUDIT", { maxIterations: 220, maxToolCalls: 800 }),
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:64:      capBudgetForTask("WORKSPACE_REVIEW", { maxIterations: 150, maxToolCalls: 500 }),
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:285:      openrouterCompleteStream: vi.fn(),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:38:  openrouterCompleteStream,
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:539:describe("openrouterCompleteStream — bounded retry and disconnect safety", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:557:      for await (const chunk of openrouterCompleteStream(
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:581:    for await (const chunk of openrouterCompleteStream(
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:611:      for await (const chunk of openrouterCompleteStream(
+lib/ai-orchestrator/src/__tests__/quality-engine.test.ts:12:    const ordered = sortProviderIdsByQuality(["gemini", "groq", "openrouter"], "tool_chat", { requireTools: true });
+lib/ai-orchestrator/src/__tests__/quality-engine.test.ts:49:    const plan = buildQualityPlan("capability_probe", { requireTools: true });
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:965:      ...Array.from({ length: 25 }, (_, i) => makeToolResult(`id-${i}`)),
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:37:    tool_chat:      { maxIterations: 48, maxToolCalls: 140 },
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:39:    task_execution: { maxIterations: 96, maxToolCalls: 300 },

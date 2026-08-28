@@ -1,0 +1,273 @@
+artifacts/api-server/src/routes/git.test.ts:13:  aiChatMessagesTable,
+artifacts/api-server/src/routes/git.test.ts:62:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/git.test.ts:107:    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, projectId)).catch(() => undefined);
+artifacts/api-server/src/routes/git.test.ts:110:      await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, session.id)).catch(() => undefined);
+artifacts/api-server/src/routes/git.test.ts:13:  aiChatMessagesTable,
+artifacts/api-server/src/routes/git.test.ts:62:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/git.test.ts:107:    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, projectId)).catch(() => undefined);
+artifacts/api-server/src/routes/git.test.ts:110:      await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, session.id)).catch(() => undefined);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:17:  aiChatMessagesTable,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:226:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:280:          .delete(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:281:          .where(eq(aiChatMessagesTable.sessionId, session.id))
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:393:      .select({ role: aiChatMessagesTable.role, toolTrace: aiChatMessagesTable.toolTrace })
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:394:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:395:      .where(eq(aiChatMessagesTable.sessionId, plan.sessionId));
+artifacts/api-server/src/routes/ai.test.ts:22:  aiChatMessagesTable,
+artifacts/api-server/src/routes/ai.test.ts:457:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:573:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:637:    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId));
+artifacts/api-server/src/routes/ai.test.ts:1040:    // GET /messages so a reloaded session keeps the source anchors too.
+artifacts/api-server/src/routes/ai.test.ts:1170:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai.test.ts:1171:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+artifacts/api-server/src/routes/ai.test.ts:1721:    await db.insert(aiChatMessagesTable).values([
+artifacts/api-server/src/routes/ai.test.ts:1777:    await db.insert(aiChatMessagesTable).values([
+artifacts/api-server/src/routes/ai.test.ts:1815:    await db.insert(aiChatMessagesTable).values([
+artifacts/api-server/src/routes/ai.test.ts:1841:// ─── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+artifacts/api-server/src/routes/ai.test.ts:1843:describe("GET /api/ai/chat/:sessionId/messages", () => {
+artifacts/api-server/src/routes/ai.test.ts:1883:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:1932:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:1980:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:2044:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:2074:    await db.insert(aiChatMessagesTable).values([
+artifacts/api-server/src/routes/ai.test.ts:2117:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:2355:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai.test.ts:2356:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+artifacts/api-server/src/routes/ai.test.ts:2386:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai.test.ts:2387:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+artifacts/api-server/src/routes/ai.test.ts:2639:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai.test.ts:2640:      .where(eq(aiChatMessagesTable.id, messageId))
+artifacts/api-server/src/routes/ai.test.ts:2671:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai.test.ts:2672:      .where(eq(aiChatMessagesTable.id, messageId))
+artifacts/api-server/src/routes/ai.test.ts:2677:      .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai.test.ts:2679:      .where(eq(aiChatMessagesTable.id, messageId));
+artifacts/api-server/src/routes/ai.test.ts:2689:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai.test.ts:2690:      .where(eq(aiChatMessagesTable.id, messageId))
+artifacts/api-server/src/routes/ai/chat.ts:7: * GET  /api/ai/chat/:sessionId/messages
+artifacts/api-server/src/routes/ai/chat.ts:18:  aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:855:          .select({ id: aiChatMessagesTable.id })
+artifacts/api-server/src/routes/ai/chat.ts:856:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:858:            eq(aiChatMessagesTable.sessionId, params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:859:            eq(aiChatMessagesTable.executionId, params.executionId),
+artifacts/api-server/src/routes/ai/chat.ts:860:            eq(aiChatMessagesTable.role, "user"),
+artifacts/api-server/src/routes/ai/chat.ts:865:      await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:876:    await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:1893:  // messages reuse the verified contract stored on the session.
+artifacts/api-server/src/routes/ai/chat.ts:1949:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:1950:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:1951:          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:2167:      await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:2177:        .insert(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2384:        message: aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:2387:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2390:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:2392:      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
+artifacts/api-server/src/routes/ai/chat.ts:3005:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:3006:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:3007:          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:4059:        await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:4071:        .insert(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4795:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4796:      sessionId: aiChatMessagesTable.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4797:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4798:      content: aiChatMessagesTable.content,
+artifacts/api-server/src/routes/ai/chat.ts:4799:      toolTrace: aiChatMessagesTable.toolTrace,
+artifacts/api-server/src/routes/ai/chat.ts:4800:      createdAt: aiChatMessagesTable.createdAt,
+artifacts/api-server/src/routes/ai/chat.ts:4802:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4803:    .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
+artifacts/api-server/src/routes/ai/chat.ts:4804:    .orderBy(desc(aiChatMessagesTable.createdAt), desc(aiChatMessagesTable.id));
+artifacts/api-server/src/routes/ai/chat.ts:4846:// ── POST /api/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate
+artifacts/api-server/src/routes/ai/chat.ts:4850:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4867:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4868:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4869:      missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport,
+artifacts/api-server/src/routes/ai/chat.ts:4870:      executionId: aiChatMessagesTable.executionId,
+artifacts/api-server/src/routes/ai/chat.ts:4872:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4874:      eq(aiChatMessagesTable.id, messageId),
+artifacts/api-server/src/routes/ai/chat.ts:4875:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4891:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4892:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4893:      sources: aiChatMessagesTable.sources,
+artifacts/api-server/src/routes/ai/chat.ts:4894:      toolTrace: aiChatMessagesTable.toolTrace,
+artifacts/api-server/src/routes/ai/chat.ts:4895:      behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+artifacts/api-server/src/routes/ai/chat.ts:4896:      taskResult: aiChatMessagesTable.taskResult,
+artifacts/api-server/src/routes/ai/chat.ts:4897:      outcome: aiChatMessagesTable.outcome,
+artifacts/api-server/src/routes/ai/chat.ts:4898:      errorCode: aiChatMessagesTable.errorCode,
+artifacts/api-server/src/routes/ai/chat.ts:4900:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4901:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4902:    .orderBy(aiChatMessagesTable.createdAt)
+artifacts/api-server/src/routes/ai/chat.ts:4957:    .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4960:      eq(aiChatMessagesTable.id, messageId),
+artifacts/api-server/src/routes/ai/chat.ts:4961:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4963:    .returning({ id: aiChatMessagesTable.id, missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport });
+artifacts/api-server/src/routes/ai/chat.ts:4971:// ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts:4973:router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4991:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4992:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4993:    .orderBy(aiChatMessagesTable.createdAt);
+artifacts/api-server/src/routes/ai/chat.ts:5046:      message: aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:5049:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:5052:      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:5054:    .where(eq(aiChatMessagesTable.id, req.params.messageId))
+artifacts/api-server/src/routes/ai/chat.ts:5133:    .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:5136:      eq(aiChatMessagesTable.id, row.message.id),
+artifacts/api-server/src/routes/ai/chat.ts:5137:      eq(aiChatMessagesTable.taskResult, originalTaskResult),
+artifacts/api-server/src/routes/ai/chat.ts:5139:    .returning({ id: aiChatMessagesTable.id });
+artifacts/api-server/src/routes/ai/chat.ts:7: * GET  /api/ai/chat/:sessionId/messages
+artifacts/api-server/src/routes/ai/chat.ts:18:  aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:855:          .select({ id: aiChatMessagesTable.id })
+artifacts/api-server/src/routes/ai/chat.ts:856:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:858:            eq(aiChatMessagesTable.sessionId, params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:859:            eq(aiChatMessagesTable.executionId, params.executionId),
+artifacts/api-server/src/routes/ai/chat.ts:860:            eq(aiChatMessagesTable.role, "user"),
+artifacts/api-server/src/routes/ai/chat.ts:865:      await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:876:    await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:1893:  // messages reuse the verified contract stored on the session.
+artifacts/api-server/src/routes/ai/chat.ts:1949:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:1950:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:1951:          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:2167:      await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:2177:        .insert(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2384:        message: aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:2387:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2390:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:2392:      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
+artifacts/api-server/src/routes/ai/chat.ts:3005:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:3006:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:3007:          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:4059:        await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:4071:        .insert(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4795:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4796:      sessionId: aiChatMessagesTable.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4797:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4798:      content: aiChatMessagesTable.content,
+artifacts/api-server/src/routes/ai/chat.ts:4799:      toolTrace: aiChatMessagesTable.toolTrace,
+artifacts/api-server/src/routes/ai/chat.ts:4800:      createdAt: aiChatMessagesTable.createdAt,
+artifacts/api-server/src/routes/ai/chat.ts:4802:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4803:    .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
+artifacts/api-server/src/routes/ai/chat.ts:4804:    .orderBy(desc(aiChatMessagesTable.createdAt), desc(aiChatMessagesTable.id));
+artifacts/api-server/src/routes/ai/chat.ts:4846:// ── POST /api/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate
+artifacts/api-server/src/routes/ai/chat.ts:4850:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4867:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4868:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4869:      missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport,
+artifacts/api-server/src/routes/ai/chat.ts:4870:      executionId: aiChatMessagesTable.executionId,
+artifacts/api-server/src/routes/ai/chat.ts:4872:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4874:      eq(aiChatMessagesTable.id, messageId),
+artifacts/api-server/src/routes/ai/chat.ts:4875:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4891:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4892:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4893:      sources: aiChatMessagesTable.sources,
+artifacts/api-server/src/routes/ai/chat.ts:4894:      toolTrace: aiChatMessagesTable.toolTrace,
+artifacts/api-server/src/routes/ai/chat.ts:4895:      behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+artifacts/api-server/src/routes/ai/chat.ts:4896:      taskResult: aiChatMessagesTable.taskResult,
+artifacts/api-server/src/routes/ai/chat.ts:4897:      outcome: aiChatMessagesTable.outcome,
+artifacts/api-server/src/routes/ai/chat.ts:4898:      errorCode: aiChatMessagesTable.errorCode,
+artifacts/api-server/src/routes/ai/chat.ts:4900:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4901:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4902:    .orderBy(aiChatMessagesTable.createdAt)
+artifacts/api-server/src/routes/ai/chat.ts:4957:    .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4960:      eq(aiChatMessagesTable.id, messageId),
+artifacts/api-server/src/routes/ai/chat.ts:4961:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4963:    .returning({ id: aiChatMessagesTable.id, missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport });
+artifacts/api-server/src/routes/ai/chat.ts:4971:// ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts:4973:router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4991:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4992:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4993:    .orderBy(aiChatMessagesTable.createdAt);
+artifacts/api-server/src/routes/ai/chat.ts:5046:      message: aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:5049:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:5052:      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:5054:    .where(eq(aiChatMessagesTable.id, req.params.messageId))
+artifacts/api-server/src/routes/ai/chat.ts:5133:    .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:5136:      eq(aiChatMessagesTable.id, row.message.id),
+artifacts/api-server/src/routes/ai/chat.ts:5137:      eq(aiChatMessagesTable.taskResult, originalTaskResult),
+artifacts/api-server/src/routes/ai/chat.ts:5139:    .returning({ id: aiChatMessagesTable.id });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:33:  aiChatMessagesTable,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:331:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:404:        .delete(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:405:        .where(eq(aiChatMessagesTable.sessionId, s.id))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1571:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1572:      .where(eq(aiChatMessagesTable.sessionId, plan.sessionId));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1721:      .select({ taskResult: aiChatMessagesTable.taskResult })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1722:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1723:      .where(eq(aiChatMessagesTable.id, plan.messageId))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2237:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2238:      .where(eq(aiChatMessagesTable.id, doneMessage.id))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2759:        content: aiChatMessagesTable.content,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2760:        sources: aiChatMessagesTable.sources,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2761:        behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2762:        taskResult: aiChatMessagesTable.taskResult,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2764:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2765:      .where(eq(aiChatMessagesTable.id, assistantMessageId as string))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3219:      .select({ id: aiChatMessagesTable.id, role: aiChatMessagesTable.role })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3220:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3221:      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3225:      .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3227:      .where(eq(aiChatMessagesTable.id, assistantMessage!.id));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3557:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3558:      .where(eq(aiChatMessagesTable.sessionId, done?.["sessionId"] as string));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3647:      .select({ toolTrace: aiChatMessagesTable.toolTrace })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3648:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3649:      .where(eq(aiChatMessagesTable.sessionId, streamDone?.["sessionId"] as string));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3828:      .select({ role: aiChatMessagesTable.role, toolTrace: aiChatMessagesTable.toolTrace })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3829:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3830:      .where(eq(aiChatMessagesTable.sessionId, done?.["sessionId"] as string));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4007:      .select({ toolTrace: aiChatMessagesTable.toolTrace })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4008:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4009:      .where(eq(aiChatMessagesTable.sessionId, done?.["sessionId"] as string));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4070:        role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4071:        outcome: aiChatMessagesTable.outcome,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4072:        errorCode: aiChatMessagesTable.errorCode,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4073:        errorMessage: aiChatMessagesTable.errorMessage,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4075:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4076:      .where(eq(aiChatMessagesTable.sessionId, String(sessionId)));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4167:        role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4168:        content: aiChatMessagesTable.content,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4169:        executionId: aiChatMessagesTable.executionId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4170:        outcome: aiChatMessagesTable.outcome,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4172:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4173:      .where(eq(aiChatMessagesTable.sessionId, String(sessionStarted?.sessionId)));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4384:      .select({ content: aiChatMessagesTable.content, sources: aiChatMessagesTable.sources })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4385:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4386:      .where(eq(aiChatMessagesTable.sessionId, String(done?.sessionId)))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4387:      .orderBy(aiChatMessagesTable.createdAt);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4458:      .select({ content: aiChatMessagesTable.content, sources: aiChatMessagesTable.sources })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4459:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4460:      .where(eq(aiChatMessagesTable.sessionId, String(sessionId)))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4461:      .orderBy(aiChatMessagesTable.createdAt);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:128:              if ((table as { _tag?: string })._tag === "aiChatMessagesTable") {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:134:              limit: () => (table as { _tag?: string })._tag === "aiChatMessagesTable"
+lib/ai-orchestrator/src/tool-execution-engine.ts:468:      diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:703:        diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/tool-execution-engine.ts:719:        diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/tool-execution-engine.ts:727:        diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/tool-execution-engine.ts:735:          diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:855:      diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+lib/ai-orchestrator/src/tool-execution-engine.ts:1260:      diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1369:export type AgentStep =
+lib/ai-orchestrator/src/tool-execution-engine.ts:1550:      stopReason:
+lib/ai-orchestrator/src/tool-execution-engine.ts:2285:        stopReason: "cancelled",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2303:    diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2313:        resultKind: failureKind === "execution" ? "failed" : failureKind,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2322:        stopReason: "tool_failure",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2388:            stopReason: "soft_limit",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2580:                stopReason: "provider_timeout",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2652:                stopReason: "provider_timeout",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2699:                stopReason: "empty_response",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2721:                stopReason: "empty_response",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2748:              stopReason: "empty_response",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2959:          stopReason: "response",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2991:          stopReason: result.content?.trim() ? "response" : "empty_response",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3611:              stopReason: "repeated_tool_call",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4263:        stopReason: "soft_limit",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4279:      stopReason: "iteration_budget",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:283:      stopReason: "response",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:362:      stopReason: "response",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:395:      stopReason: "empty_response",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:442:    stopReason: done?.stopReason,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:286:      diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:314:      diagnosticCode: "TOOL_EXECUTION_FAILED",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2551:      stopReason: "tool_failure",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3923:        stopReason: "provider_timeout",
+lib/ai-orchestrator/src/agents/chat-agent.ts:99:  type AgentStep,

@@ -1,0 +1,596 @@
+     1import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+     2
+     3const originalApiKey = process.env.GROQ_API_KEY;
+     4
+     5describe("groq-client", () => {
+     6  beforeEach(() => {
+     7    vi.resetModules();
+     8    process.env.GROQ_API_KEY = "test-key";
+     9  });
+    10
+    11  afterEach(() => {
+    12    vi.doUnmock("groq-sdk");
+    13    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+    14    else process.env.GROQ_API_KEY = originalApiKey;
+    15  });
+    16
+    17  it("throws INVALID_CONFIG when GROQ_API_KEY is not set", async () => {
+    18    delete process.env.GROQ_API_KEY;
+    19    const { complete } = await import("../groq-client.js");
+    20    await expect(complete([{ role: "user", content: "hi" }])).rejects.toMatchObject({ code: "INVALID_CONFIG" });
+    21  });
+    22
+    23  it("returns structured content/model/usage on success", async () => {
+    24    vi.doMock("groq-sdk", () => ({
+    25      default: class {
+    26        chat = {
+    27          completions: {
+    28            create: vi.fn().mockResolvedValue({
+    29              choices: [{ message: { content: '{"ok":true}' } }],
+    30              model: "llama-3.3-70b-versatile",
+    31              usage: { prompt_tokens: 10, completion_tokens: 5 },
+    32            }),
+    33          },
+    34        };
+    35      },
+    36    }));
+    37    const { complete } = await import("../groq-client.js");
+    38    const result = await complete([{ role: "user", content: "hi" }]);
+    39    expect(result).toEqual({
+    40      content: '{"ok":true}',
+    41      model: "llama-3.3-70b-versatile",
+    42      usage: { promptTokens: 10, completionTokens: 5 },
+    43    });
+    44  });
+    45
+    46  it("throws EMPTY_RESPONSE when the model returns no content", async () => {
+    47    vi.doMock("groq-sdk", () => ({
+    48      default: class {
+    49        chat = {
+    50          completions: {
+    51            create: vi.fn().mockResolvedValue({ choices: [{ message: {} }], model: "m", usage: {} }),
+    52          },
+    53        };
+    54      },
+    55    }));
+    56    const { complete } = await import("../groq-client.js");
+    57    await expect(complete([{ role: "user", content: "hi" }])).rejects.toMatchObject({ code: "EMPTY_RESPONSE" });
+    58  });
+    59
+    60  it("classifies an SDK error with a numeric status as NON_200", async () => {
+    61    vi.doMock("groq-sdk", () => ({
+    62      default: class {
+    63        chat = {
+    64          completions: {
+    65            create: vi.fn().mockRejectedValue(Object.assign(new Error("bad request"), { status: 400 })),
+    66          },
+    67        };
+    68      },
+    69    }));
+    70    const { complete } = await import("../groq-client.js");
+    71    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 0 })).rejects.toMatchObject({
+    72      code: "NON_200",
+    73    });
+    74  });
+    75
+    76  it("classifies a Groq 404 as MODEL_NOT_FOUND so the lane can be repaired", async () => {
+    77    vi.doMock("groq-sdk", () => ({
+    78      default: class {
+    79        chat = {
+    80          completions: {
+    81            create: vi.fn().mockRejectedValue(
+    82              Object.assign(new Error("model not found"), {
+    83                status: 404,
+    84                error: { error: { message: "The model does not exist" } },
+    85              }),
+    86            ),
+    87          },
+    88        };
+    89      },
+    90    }));
+    91    const { complete } = await import("../groq-client.js");
+    92    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 0 })).rejects.toMatchObject({
+    93      code: "MODEL_NOT_FOUND",
+    94      providerStatus: 404,
+    95      providerName: "Groq",
+    96    });
+    97  });
+    98
+    99  it("retries a transient network error up to maxRetries, then succeeds", async () => {
+   100    const create = vi
+   101      .fn()
+   102      .mockRejectedValueOnce(new Error("ECONNRESET"))
+   103      .mockResolvedValueOnce({
+   104        choices: [{ message: { content: '{"ok":true}' } }],
+   105        model: "m",
+   106        usage: {},
+   107      });
+   108    vi.doMock("groq-sdk", () => ({
+   109      default: class {
+   110        chat = { completions: { create } };
+   111      },
+   112    }));
+   113    const { complete } = await import("../groq-client.js");
+   114    const result = await complete([{ role: "user", content: "hi" }], { maxRetries: 1 });
+   115    expect(result.content).toBe('{"ok":true}');
+   116    expect(create).toHaveBeenCalledTimes(2);
+   117  });
+   118
+   119  it("gives up after maxRetries transient failures with NETWORK_ERROR", async () => {
+   120    const create = vi.fn().mockRejectedValue(new Error("ECONNRESET"));
+   121    vi.doMock("groq-sdk", () => ({
+   122      default: class {
+   123        chat = { completions: { create } };
+   124      },
+   125    }));
+   126    const { complete } = await import("../groq-client.js");
+   127    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 2 })).rejects.toMatchObject({
+   128      code: "NETWORK_ERROR",
+   129    });
+   130    expect(create).toHaveBeenCalledTimes(3);
+   131  });
+   132
+   133  it("classifies a 401 status as AUTH_ERROR and does not retry", async () => {
+   134    const create = vi.fn().mockRejectedValue(Object.assign(new Error("Unauthorized"), { status: 401 }));
+   135    vi.doMock("groq-sdk", () => ({
+   136      default: class {
+   137        chat = { completions: { create } };
+   138      },
+   139    }));
+   140    const { complete } = await import("../groq-client.js");
+   141    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 3 })).rejects.toMatchObject({
+   142      code: "AUTH_ERROR",
+   143    });
+   144    // Auth failures are not retried — the credential error is deterministic.
+   145    expect(create).toHaveBeenCalledTimes(1);
+   146  });
+   147
+   148  it("classifies a 403 status as AUTH_ERROR without retry", async () => {
+   149    const create = vi.fn().mockRejectedValue(Object.assign(new Error("Forbidden"), { status: 403 }));
+   150    vi.doMock("groq-sdk", () => ({
+   151      default: class {
+   152        chat = { completions: { create } };
+   153      },
+   154    }));
+   155    const { complete } = await import("../groq-client.js");
+   156    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 3 })).rejects.toMatchObject({
+   157      code: "AUTH_ERROR",
+   158    });
+   159    expect(create).toHaveBeenCalledTimes(1);
+   160  });
+   161
+   162  it("retries a 429 rate-limit error up to maxRetries", async () => {
+   163    // Pin Math.random to 0 so retryDelayMs always returns 0 ms regardless of
+   164    // the RATE_LIMITED base (2 000 ms × jitter).  Without this the test is
+   165    // flaky: at attempt 1 the jitter window is [0, 4 000 ms] and the default
+   166    // test timeout is 5 000 ms — a bad roll causes a spurious timeout failure.
+   167    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+   168    try {
+   169      const create = vi.fn().mockRejectedValue(Object.assign(new Error("Too Many Requests"), { status: 429 }));
+   170      vi.doMock("groq-sdk", () => ({
+   171        default: class {
+   172          chat = { completions: { create } };
+   173        },
+   174      }));
+   175      const { complete } = await import("../groq-client.js");
+   176      await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 2 })).rejects.toBeDefined();
+   177      // Should have retried (called more than once).
+   178      expect(create.mock.calls.length).toBeGreaterThan(1);
+   179    } finally {
+   180      randomSpy.mockRestore();
+   181    }
+   182  });
+   183
+   184  it("retries a 5xx server error up to maxRetries", async () => {
+   185    const create = vi
+   186      .fn()
+   187      .mockRejectedValueOnce(Object.assign(new Error("Internal Server Error"), { status: 500 }))
+   188      .mockRejectedValueOnce(Object.assign(new Error("Bad Gateway"), { status: 502 }))
+   189      .mockResolvedValueOnce({
+   190        choices: [{ message: { content: "recovered" } }],
+   191        model: "m",
+   192        usage: {},
+   193      });
+   194    vi.doMock("groq-sdk", () => ({
+   195      default: class {
+   196        chat = { completions: { create } };
+   197      },
+   198    }));
+   199    const { complete } = await import("../groq-client.js");
+   200    const result = await complete([{ role: "user", content: "hi" }], { maxRetries: 2 });
+   201    expect(result.content).toBe("recovered");
+   202    expect(create).toHaveBeenCalledTimes(3);
+   203  });
+   204
+   205  it("uses per-user apiKey over env var when both are present", async () => {
+   206    let capturedKey: string | undefined;
+   207    vi.doMock("groq-sdk", () => ({
+   208      default: class {
+   209        constructor(opts: { apiKey?: string }) {
+   210          capturedKey = opts.apiKey;
+   211        }
+   212        chat = {
+   213          completions: {
+   214            create: vi.fn().mockResolvedValue({
+   215              choices: [{ message: { content: "ok" } }],
+   216              model: "m",
+   217              usage: {},
+   218            }),
+   219          },
+   220        };
+   221      },
+   222    }));
+   223    process.env.GROQ_API_KEY = "env-key";
+   224    const { complete } = await import("../groq-client.js");
+   225    await complete([{ role: "user", content: "hi" }], { apiKey: "per-user-key" });
+   226    expect(capturedKey).toBe("per-user-key");
+   227  });
+   228
+   229  it("falls back to env GROQ_API_KEY when no per-user key is provided", async () => {
+   230    let capturedKey: string | undefined;
+   231    vi.doMock("groq-sdk", () => ({
+   232      default: class {
+   233        constructor(opts: { apiKey?: string }) {
+   234          capturedKey = opts.apiKey;
+   235        }
+   236        chat = {
+   237          completions: {
+   238            create: vi.fn().mockResolvedValue({
+   239              choices: [{ message: { content: "ok" } }],
+   240              model: "m",
+   241              usage: {},
+   242            }),
+   243          },
+   244        };
+   245      },
+   246    }));
+   247    process.env.GROQ_API_KEY = "env-fallback-key";
+   248    const { complete } = await import("../groq-client.js");
+   249    await complete([{ role: "user", content: "hi" }]);
+   250    expect(capturedKey).toBe("env-fallback-key");
+   251  });
+   252});
+
+-- strategy tests --
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+4: * Strategy: mock groq-sdk to return a canned final response (no tool calls),
+6: * invalid-absolutePath test we mock file-tools to inject a malformed
+16:import type { AgentStep } from "../tool-execution-engine.js";
+98:      choices: [{ message: { content: null }, finish_reason: "stop" }],
+104:      candidates: [{ content: { parts: [] }, finishReason: "STOP" }],
+111:): { content: string; toolCalls: [] } {
+113:    expect(fixture.payload.choices[0]?.message.content).toBeNull();
+115:    expect(fixture.payload.candidates[0]?.content.parts).toEqual([]);
+117:  return { content: "", toolCalls: [] };
+128:    vi.doUnmock("../tools/file-tools.js");
+145:    // Mock Groq to return a plain text final response with no tool calls.
+151:              choices: [{ message: { content: '{"response":"done","sources":[]}' } }],
+173:  it("keeps an Arabic greeting out of the tool loop when a project root is present", async () => {
+197:              choices: [{ message: { content: '{"response":"أهلًا بك!","sources":[]}' } }],
+218:    expect(steps.filter((step) => step.kind === "tool_call")).toHaveLength(0);
+219:    expect(steps.find((step) => step.kind === "done")).toMatchObject({ toolCalls: 0 });
+226:  it("keeps a project-orientation question tool-free and hides raw provenance sources", async () => {
+227:    const toolCalls: AgentStep[] = [];
+250:                  content: JSON.stringify({
+270:      onStep: (step) => toolCalls.push(step),
+273:    expect(toolCalls.filter((step) => step.kind === "tool_call")).toHaveLength(0);
+284:              choices: [{ message: { content: '{"response":"done","sources":[]}' } }],
+353:                  content: JSON.stringify({
+396:    // Mock Groq: first call emits a write_file tool call, second is the final response.
+407:                      content: "",
+408:                      tool_calls: [
+412:                          function: { name: "write_file", arguments: '{"path":"src/foo.ts","content":"x"}' },
+422:                choices: [{ message: { content: '{"response":"done","sources":[]}' } }],
+432:    vi.doMock("../tools/file-tools.js", async () => {
+433:      const actual = await vi.importActual<typeof import("../tools/file-tools.js")>("../tools/file-tools.js");
+512:              content: "",
+513:              toolCalls: [{
+532:        stream: vi.fn(),
+577:              step.kind === "tool_result" &&
+578:              step.tool === "read_file" &&
+590:// ── AI-03: OpenRouter streaming normalisation ─────────────────────────────────
+591:// These tests verify that the OpenRouter direct-content path (AI-01) never
+595:describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
+613:  it("strips JSON envelope from OpenRouter direct-content response", async () => {
+615:    // final content instead of plain prose. The AI-01 fix must normalise
+621:      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: envelope, toolCalls: [] }),
+622:      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: envelope, toolCalls: [] }),
+649:    // The clean text must have been streamed.
+661:      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: plainProse, toolCalls: [] }),
+662:      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: plainProse, toolCalls: [] }),
+697:          return { content: "not valid JSON at first", toolCalls: [], model: "m", usage: {} };
+699:        return { content: '{"response":"corrected","sources":[]}', toolCalls: [], model: "m", usage: {} };
+701:      stream: vi.fn(),
+736:    const calls: Array<{ tools?: unknown; timeoutMs?: number; maxTokens?: number }> = [];
+773:      call: vi.fn(async (_messages: unknown, opts: { tools?: unknown; timeoutMs?: number; maxTokens?: number }) => {
+774:        calls.push({ tools: opts.tools, timeoutMs: opts.timeoutMs, maxTokens: opts.maxTokens });
+776:          content: calls.length === 1
+779:          toolCalls: [],
+784:      stream: vi.fn(),
+844:      stream: vi.fn(),
+924:        content: JSON.stringify({ response: validForensic, sources: [] }),
+925:        toolCalls: [],
+929:      stream: vi.fn(),
+979:    const calls: Array<{ tools?: unknown; timeoutMs?: number; maxTokens?: number }> = [];
+1002:        opts: { tools?: unknown; timeoutMs?: number; maxTokens?: number },
+1005:          tools: opts.tools,
+1010:          content:
+1016:          toolCalls: [],
+1021:      stream: vi.fn(),
+1060:    expect(calls[1]?.tools).toBeUndefined();
+1074:    const calls: Array<{ tools?: unknown; maxTokens?: number; model?: string }> = [];
+1081:        opts: { tools?: Array<{ function: { name: string } }>; maxTokens?: number; model?: string },
+1083:        calls.push({ tools: opts.tools, maxTokens: opts.maxTokens, model: opts.model });
+1086:            content: "",
+1087:            toolCalls: [{
+1100:          return { content: "not valid JSON", toolCalls: [], model: "m", usage: {} };
+1103:          throw new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls");
+1111:            content: [
+1125:            toolCalls: [],
+1135:        throw new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls");
+1137:      stream: vi.fn(),
+1230:    const calls: Array<{ tools?: unknown; model?: string }> = [];
+1243:        opts: { tools?: unknown; model?: string },
+1245:        calls.push({ tools: opts.tools, model: opts.model });
+1248:            content: JSON.stringify({
+1252:            toolCalls: [],
+1261:          content: JSON.stringify({
+1278:          toolCalls: [],
+1283:      stream: vi.fn(),
+1398:            content: JSON.stringify({
+1402:            toolCalls: [],
+1409:          content: JSON.stringify({
+1436:          toolCalls: [],
+1441:      stream: vi.fn(),
+1559:    const calls: Array<{ tools?: unknown; model?: string }> = [];
+1567:        opts: { tools?: unknown; model?: string },
+1569:        calls.push({ tools: opts.tools, model: opts.model });
+1573:            content: JSON.stringify({
+1577:            toolCalls: [],
+1585:            content: JSON.stringify({
+1602:            toolCalls: [],
+1607:        // Packet 1 (root-b) recovery — returns unparseable content.
+1611:          content: "not valid JSON for packet 1",
+1612:          toolCalls: [],
+1617:      stream: vi.fn(),
+1720:            content: JSON.stringify({
+1724:            toolCalls: [],
+1731:            content: JSON.stringify({
+1748:            toolCalls: [],
+1756:          content: "not valid JSON for the partial packet",
+1757:          toolCalls: [],
+1762:      stream: vi.fn(),
+1843:    const calls: Array<{ tools?: unknown; model?: string }> = [];
+1851:        opts: { tools?: unknown; model?: string },
+1853:        calls.push({ tools: opts.tools, model: opts.model });
+1856:            content: JSON.stringify({
+1860:            toolCalls: [],
+1866:          content: JSON.stringify({
+1872:          toolCalls: [],
+1877:      stream: vi.fn(),
+1971:    const calls: Array<{ tools?: unknown; model?: string }> = [];
+1974:        content: "",
+1975:        toolCalls: [{
+1987:        content: JSON.stringify({ response: initialReport, sources: ["lib/ai-orchestrator/src/__tests__/fixtures/known-defect.ts"] }),
+1988:        toolCalls: [],
+1993:        content: JSON.stringify({
+1999:        toolCalls: [],
+2010:        opts: { tools?: unknown; model?: string },
+2012:        calls.push({ tools: opts.tools, model: opts.model });
+2015:      stream: vi.fn(),
+2126:          content: JSON.stringify({ response: initialReport, sources: ["__tests__/fixtures/known-defect.ts"] }),
+2127:          toolCalls: [],
+2132:      stream: vi.fn(),
+2256:        content: JSON.stringify({
+2263:        toolCalls: [],
+2267:      stream: vi.fn(),
+2373:        content: JSON.stringify({ response: report, sources: ["src/query.ts"] }),
+2374:        toolCalls: [],
+2378:      stream: vi.fn(),
+2448:      tools?: unknown;
+2499:        opts: { tools?: unknown; model?: string; maxTokens?: number },
+2502:          tools: opts.tools,
+2509:            content: "",
+2510:            toolCalls: [{
+2524:            content: staleSynthesis,
+2525:            toolCalls: [],
+2532:            content: JSON.stringify({
+2554:            toolCalls: [],
+2560:          content: [
+2564:          toolCalls: [],
+2569:      stream: vi.fn(),
+2619:      expect(calls[0]?.tools).toBeDefined();
+2620:      expect(calls[1]?.tools).toBeDefined();
+2622:      // source to ground a disputed claim, so it is supplied read tools (never
+2623:      // write_file / replace_text). This replaces the old no-tools formatting pass.
+2625:        Array.isArray(call?.tools)
+2626:          ? call.tools.map((tool) => (tool as { function?: { name?: string } }).function?.name)
+2629:      expect(calls[2]?.tools).toBeDefined();
+2630:      expect(calls[3]?.tools).toBeDefined();
+2653:    // Groq provider should still go through the SSE streaming path (Strategy 2),
+2657:    let streamCalled = false;
+2662:            create: vi.fn().mockImplementation(async (opts: { stream?: boolean }) => {
+2663:              if (opts.stream) {
+2664:                streamCalled = true;
+2667:                  yield { choices: [{ delta: { content: "Groq " } }] };
+2668:                  yield { choices: [{ delta: { content: "answer" } }] };
+2671:              return { choices: [{ message: { content: envelope } }], model: "llama3", usage: {} };
+2689:    // Groq must have used the streaming path.
+2690:    expect(streamCalled).toBe(true);
+2695:  it("disables tool payloads for Gemini and still returns a response from context", async () => {
+2700:    const mockGemini = vi.fn(async (_messages: unknown, opts: { tools?: unknown[] }) => {
+2701:      capturedTools = opts.tools;
+2703:        content: "Gemini context-only answer",
+2704:        toolCalls: [],
+2730:  it("keeps git tool schemas non-empty so stricter providers can accept them", async () => {
+2731:    const { GIT_TOOL_DEFINITIONS } = await import("../tools/git-tools.js");
+2732:    const statusTool = GIT_TOOL_DEFINITIONS.find((tool) => tool.function.name === "git_status");
+2733:    const logTool = GIT_TOOL_DEFINITIONS.find((tool) => tool.function.name === "git_log");
+2788:              choices: [{ message: { content: '{"response":"تم","sources":[]}' } }],
+2813:      choices: [{ message: { content: "The provider stopped before producing JSON." } }],
+2836:    // One call is the bounded query planner; the second is the tool-loop
+2876:              choices: [{ message: { content: '{"response":"execution ready","sources":[]}' } }],
+2889:        { role: "user", content: "راجع الكود" },
+2892:          content: [
+2948:          content: [
+2960:    expect(result.response).toMatch(/لم تُشغّل أدوات|No tools were run/i);
+2980:      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: "```text\n  Hello   world  \n```", toolCalls: [] }),
+2981:      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: "```text\n  Hello   world  \n```", toolCalls: [] }),
+3000:    const malformed = { content: "The provider stopped before producing JSON.", toolCalls: [] };
+3042:    vi.doUnmock("../tool-execution-engine.js");
+3052:    // Simulate the engine having collected evidence (tool calls ran) but then
+3064:    vi.doMock("../tool-execution-engine.js", async () => {
+3065:      const actual = await vi.importActual("../tool-execution-engine.js") as Record<string, unknown>;
+3072:            content: "",
+3073:            toolCalls: null,
+3077:          toolSources: ["src/index.ts"],
+3127:    // WITH prior text content in result (lastTextSeen was captured before timeout).
+3136:    vi.doMock("../tool-execution-engine.js", async () => {
+3137:      const actual = await vi.importActual("../tool-execution-engine.js") as Record<string, unknown>;
+3144:            content: "Here is some partial analysis of the codebase.",
+3145:            toolCalls: null,
+3149:          toolSources: [],
+
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts
+13:function response(toolCalls: RawGroqResponse["toolCalls"]): RawGroqResponse {
+15:    content: null,
+16:    toolCalls,
+26:    async call() {
+29:    async *stream() {
+36:  it("accepts the exact required tool call and structured arguments", async () => {
+49:      toolCalling: true,
+64:  it("classifies malformed tool arguments as provider unavailable", async () => {
+85:  it("classifies transport errors as U without leaking raw provider content", async () => {
+88:      async call() {
+117:      async call() {
+154:      toolCalling: false,
+
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts
+2: * Regression tests for provider-aware tool gating in the chat agent.
+28:      content: '{"response":"ok","sources":[]}',
+29:      toolCalls: null,
+49:describe("chat agent provider tool gating", () => {
+59:  it("does not pass tools to Gemini when the provider is tools-disabled", async () => {
+63:      // Keep this test focused on provider tool gating. Broad workspace-review
+76:    expect(capturedCalls[0]?.opts).not.toHaveProperty("tools");
+
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+30:        ["src/execution-tools.ts", "if (timedOut) return partial;"],
+36:    expect(response).toContain("src/execution-tools.ts");
+56:  it("keeps Arabic behavior answers in Arabic when the question mentions tools", () => {
+117:      { role: "user", content: repeatedQuestion },
+118:      { role: "assistant", content: priorAnswer },
+119:      { role: "user", content: "السؤال التالي" },
+126:      { role: "assistant", content: "ما السؤال الذي تريد طرحه؟" },
+229:  it("sends a bounded evidence-only context instead of replaying tool history", () => {
+231:      toolSources: ["src/a.ts", "src/b.ts"],
+249:      .map((message) => typeof message.content === "string" ? message.content : "")
+260:    expect(serialized).not.toContain("tool_call_id");
+267:      toolSources: [],
+284:      .map((message) => typeof message.content === "string" ? message.content : "")
+338:      { role: "user", content: "راجع الكود" },
+339:      { role: "assistant", content: auditResponse },
+346:    const history: ChatMessage[] = [{ role: "assistant", content: arabic }];
+352:      { role: "assistant", content: auditResponse },
+353:      { role: "user", content: "Repair Plan? what is that" },
+354:      { role: "assistant", content: "Hello! How can I help?" },
+361:      { role: "user", content: "hi" },
+362:      { role: "assistant", content: "Hello! How can I help?" },
+369:    const out = extractPriorRepairPlan([{ role: "assistant", content: big }]);
+384:      { role: "assistant", content: "old report", repairPlan: plan },
+385:      { role: "assistant", content: "new report", repairPlan: plan },
+391:      { role: "assistant", content: "## Repair Plan\nFix `src/known.ts`." },
+453:      "Phase 1 (F-01): Fix tool-execution-engine budget exhaustion logic to validate content before returning partial/exhausted responses — lib/ai-orchestrator/src/tool-execution-engine.ts Phase 2 (F-02): Fix groq-client circuit breaker logic to properly handle transient vs final-call failures — lib/ai-orchestrator/src/groq-client.ts";
+456:      "lib/ai-orchestrator/src/tool-execution-engine.ts",
+519:      "Phase 1 (F-01): Implement stricter path canonicalization in git-tools.ts — `lib/ai-orchestrator/src/tools/git-tools.ts`",
+541:      "Phase 1 (F-01): Update the verified guard — `lib/ai-orchestrator/src/tools/git-tools.ts`",
+545:      "Patch صغير — the containment guard in git-tools.ts rejects escaped paths.",
+549:      "lib/ai-orchestrator/src/tools/git-tools.ts",
+579:        [change("lib/ai-orchestrator/src/tool-execution-engine.ts"), change("lib/ai-orchestrator/src/tools/git-tools.ts")],
+580:        ["lib/ai-orchestrator/src/tool-execution-engine.ts"],
+582:    ).toEqual(["lib/ai-orchestrator/src/tool-execution-engine.ts"]);
+
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts
+43:  it("starts a proposed analysis with a read and never exposes write tools", async () => {
+58:            content: "",
+59:            tool_calls: [{
+72:            content: JSON.stringify({
+103:      const steps: Array<{ kind: string; tool?: string }> = [];
+111:          content: "سأقترح نطاق التحليل أولًا، ثم أبدأ بقراءة المصدر عند موافقتك.",
+120:          if (step.kind === "tool_call") steps.push({ kind: step.kind, tool: step.tool });
+125:      expect(steps.map((step) => step.tool)).toEqual(["read_file"]);
+127:        .map((call) => call[0] as { tools?: Array<{ function?: { name?: string } }> })
+129:          candidate.tools?.some((tool) => tool.function?.name === "read_file"),
+132:      const exposedTools = (request!.tools ?? []).map((tool) => tool.function?.name);
+156:            content: "",
+157:            tool_calls: [{
+170:            content: "",
+171:            tool_calls: [{
+190:        choices: [{ message: { content: '{"response":"Change queued for approval.","sources":[]}' } }],
+203:      const steps: Array<{ kind: string; tool?: string; cached?: boolean }> = [];
+207:          { role: "user", content: "راجع الكود" },
+210:            content: [
+226:          if (step.kind === "tool_call") {
+227:            steps.push({ kind: step.kind, tool: step.tool, cached: step.cached });
+233:      // loop. The execution tool list therefore starts at the edit step and
+235:      expect(steps.map((step) => step.tool)).toEqual(["replace_text"]);
+245:          tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>;
+247:        tools?: Array<{ function?: { name?: string } }>;
+249:      const exposedTools = (firstRequest.tools ?? []).map((tool) => tool.function?.name);
+258:        .flatMap((message) => message.tool_calls ?? [])
+259:        .map((toolCall) => {
+261:            return JSON.parse(toolCall.function?.arguments ?? "{}").path;
+285:            content: "",
+286:            tool_calls: [{
+299:            content: "",
+300:            tool_calls: [{
+319:        choices: [{ message: { content: '{"response":"Build proposal ready.","sources":[]}' } }],
+344:          if (step.kind === "tool_call") steps.push(step.tool);
+370:            content: "",
+371:            tool_calls: [{
+392:            content: "",
+393:            tool_calls: [{
+407:        choices: [{ message: { content: '{"response":"Validated change queued for review.","sources":[]}' } }],
+446:        history: [{ role: "user", content: "Audit the target" }],
+497:              content: "",
+498:              tool_calls: [{
+521:              content: "",
+522:              tool_calls: [{
+537:        choices: [{ message: { content: '{"response":"Validated change queued for review.","sources":[]}' } }],
+580:        history: [{ role: "user", content: "Audit the target" }],
+629:      messages?: Array<{ role?: string; content?: unknown }>;
+634:          typeof message.content === "string" &&
+635:          message.content.includes("[EXECUTION NODE"),
+636:      )?.content;
+648:              content: "",
+649:              tool_calls: [{
+672:              content: "",
+673:              tool_calls: [{
+689:          message: { content: '{"response":"Validated phase queued for review.","sources":[]}' },
+738:        history: [{ role: "user", content: "Audit both targets" }],
+792:      messages?: Array<{ role?: string; content?: unknown }>;
+797:          typeof message.content === "string" &&
+798:          message.content.includes("[EXECUTION NODE"),
+799:      )?.content;
+819:              content: "",
+820:              tool_calls: [{
+843:              content: "",
+844:              tool_calls: [{
+860:          message: { content: '{"response":"Validation result recorded.","sources":[]}' },
+921:        history: [{ role: "user", content: "Audit both targets" }],
+973:  it("blocks a fixture-local repair plan via the Repair Scope Gate before any tool runs", async () => {
+983:        choices: [{ message: { content: '{"response":"should never be reached","sources":[]}' } }],
+996:      const steps: Array<{ kind: string; tool?: string }> = [];
+1000:          { role: "user", content: "راجع الكود" },
+1003:            content: [
+1019:          if (step.kind === "tool_call") {
+1020:            steps.push({ kind: step.kind, tool: step.tool });
+1026:      // must block it BEFORE the tool loop. No tools, no writes, no changes.
+1032:      // the machine reason code and the "no tools run" promise are asserted.
+1058:        choices: [{ message: { content: '{"response":"should never be reached","sources":[]}' } }],
+1071:      const steps: Array<{ kind: string; tool?: string }> = [];
+1075:          { role: "user", content: "راجع الكود" },
+1078:            content: [
+1105:          if (step.kind === "tool_call") {
+1106:            steps.push({ kind: step.kind, tool: step.tool });
+1113:      // blocks before the tool loop. No tools, no writes, no changes.

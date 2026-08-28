@@ -1,0 +1,158 @@
+--- root ---
+total 352
+-rw-r--r-- 1 runner runner    419 Aug 28 03:44 ''$'\r'
+-rw-r--r-- 1 runner runner    419 Aug 28 03:44 ''$'\r\r'
+drwxr-xr-x 1 runner runner    686 Aug 28 03:57  .
+drwxr-xr-x 1 runner runner     96 Aug 28 03:50  ..
+drwxr-xr-x 1 runner runner     76 Aug 28 03:46  .agents
+drwxr-xr-x 1 runner runner     66 Aug 28 03:45  artifacts
+drwxr-xr-x 1 runner runner   1220 Aug 28 04:09  attached_assets
+drwxr-xr-x 1 runner runner     40 Aug 28 03:50  .cache
+drwx------ 1 runner runner     32 Aug 28 03:50  .config
+drwxr-xr-x 1 runner runner   1698 Aug 28 03:45  docs
+drwxr-xr-x 1 runner runner  48024 Aug 28 03:58  .engineeringos-delivery
+drwxr-xr-x 1 runner runner      0 Aug 28 03:57  .engineeringos-projects
+drwxr-xr-x 1 runner runner    140 Aug 28 03:59  .git
+-rw-r--r-- 1 runner runner    170 Aug 28 03:45  .gitattributes
+drwxr-xr-x 1 runner runner     94 Aug 28 03:45  .github
+-rw-r--r-- 1 runner runner   1143 Aug 28 03:45  .gitignore
+drwxr-xr-x 1 runner runner    142 Aug 28 03:45  lib
+drwxr-xr-x 1 runner runner    160 Aug 28 03:49  .local
+drwxr-xr-x 1 runner runner  12516 Aug 28 03:48  node_modules
+-rw-r--r-- 1 runner runner     78 Aug 28 03:45  .npmrc
+-rw-r--r-- 1 runner runner   3822 Aug 28 03:45  package.json
+-rw-r--r-- 1 runner runner 287279 Aug 28 03:45  pnpm-lock.yaml
+-rw-r--r-- 1 runner runner   6579 Aug 28 03:45  pnpm-workspace.yaml
+-rw-r--r-- 1 runner runner    105 Aug 28 03:44 ''$'\r\r''.pub'
+-rw-r--r-- 1 runner runner    105 Aug 28 03:44 ''$'\r''.pub'
+drwxr-xr-x 1 runner runner     58 Aug 28 03:45  release-evidence
+-rw-r--r-- 1 runner runner   3392 Aug 28 03:45  .replit
+-rw-r--r-- 1 runner runner    201 Aug 28 03:45  .replitignore
+-rw-r--r-- 1 runner runner   1689 Aug 28 03:45  replit.md
+drwxr-xr-x 1 runner runner   1304 Aug 28 03:47  scripts
+drwxr-xr-x 1 runner runner     52 Aug 28 03:57  test-results
+drwxr-xr-x 1 runner runner      0 Aug 28 03:58  .test-roots
+-rw-r--r-- 1 runner runner    691 Aug 28 03:45  tsconfig.base.json
+-rw-r--r-- 1 runner runner    692 Aug 28 03:45  tsconfig.base.json.bak
+-rw-r--r-- 1 runner runner    382 Aug 28 03:45  tsconfig.json
+--- likely source dirs ---
+.
+./.agents
+./.agents/memory
+./.agents/skills
+./artifacts
+./artifacts/api-server
+./artifacts/dashboard
+./artifacts/mockup-sandbox
+./attached_assets
+./.cache
+./.cache/fontconfig
+./.cache/pnpm
+./.cache/replit
+./.config
+./.config/chromium
+./.config/glib-2.0
+./docs
+./docs/governance
+./.engineeringos-delivery
+./.engineeringos-delivery/0009850e-a2f6-4191-8f7e-95e9596d9a45
+./.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf
+./.engineeringos-delivery/00ac2c5f-28f4-44b1-ab60-034da906a53b
+./.engineeringos-delivery/00b0a4ea-5e7c-489c-8dc2-9a165e2fe653
+./.engineeringos-delivery/00f67d5f-6bee-405b-8e66-a4e081a3f300
+./.engineeringos-delivery/01cee733-d615-40a8-9838-c07ff5b00d0f
+./.engineeringos-delivery/01d9cdc5-4df1-4557-8d20-7a5c7491127f
+./.engineeringos-delivery/01e773df-3173-4599-8652-b66acd0c2134
+./.engineeringos-delivery/0214b0fc-5d59-4f5f-8754-e68598eb8b18
+./.engineeringos-delivery/02248914-6891-4b40-89d8-bc404abc121c
+./.engineeringos-delivery/0226a59c-f574-4de0-9acb-af397bc85eb8
+./.engineeringos-delivery/02278bfa-da65-4e9d-8b04-9f357c437406
+./.engineeringos-delivery/0314b892-6286-445e-8c9d-38233e29e13f
+./.engineeringos-delivery/031742c2-85d1-4ff2-9739-5403808a4e10
+./.engineeringos-delivery/0386fabb-567f-4c34-b28a-0eacff7a7000
+./.engineeringos-delivery/0387ff4a-f2de-459c-b40f-0e94afccbc1f
+./.engineeringos-delivery/03ad4be0-52f3-4c1a-b27b-4dd0c45f0786
+./.engineeringos-delivery/03bc8a19-1050-481e-8785-10177c132c3a
+./.engineeringos-delivery/04252628-ad19-4611-8542-f60707e5255c
+./.engineeringos-delivery/05bbf40f-2954-46b2-b111-2d45f0c012ae
+./.engineeringos-delivery/05e9d5b3-f1ff-4028-be75-4bec2ca98179
+./.engineeringos-delivery/063a4b47-24ac-4d95-a4f2-bae0ed8c0e62
+./.engineeringos-delivery/06b01c5f-8501-4bd2-9112-422a506924e9
+./.engineeringos-delivery/0711ae8d-7d99-4e5c-b9f1-dff38f8d3d0e
+./.engineeringos-delivery/07316eba-a6ec-4090-8117-b774c2b2996d
+./.engineeringos-delivery/075ec0c0-01ba-4628-a382-a3d5113dbd9a
+./.engineeringos-delivery/076b3d85-c516-46e2-b360-13e64ba7c06c
+./.engineeringos-delivery/078d033b-ec4b-4906-9b3e-d5e51b2b595c
+./.engineeringos-delivery/07ed469b-859e-440b-96d2-e2a8e54cad0a
+./.engineeringos-delivery/07f7bb47-daf5-4211-aa5b-d061dc335ddc
+./.engineeringos-delivery/0813bed1-1286-4deb-a4db-3bdffe85ff8d
+./.engineeringos-delivery/08819afe-c658-4a70-987b-117b2b2d1122
+./.engineeringos-delivery/089fe379-7954-4009-b0cb-232126cfafa7
+./.engineeringos-delivery/08ccfb8f-c021-49a0-9d51-1e79b90c96a5
+./.engineeringos-delivery/08d732db-d02d-4296-ae14-0eb56522e424
+./.engineeringos-delivery/08f8d990-43aa-4e7f-b16e-d0ea68215961
+./.engineeringos-delivery/092d7208-d23c-43b5-9c11-ec5eceff8e56
+./.engineeringos-delivery/0a08a6fb-d0df-496a-91fc-5f9f067312d2
+./.engineeringos-delivery/0ab173aa-9374-4ef5-8419-9f7c85d48862
+./.engineeringos-delivery/0b582649-af29-4fd2-be11-1f8af817bdbd
+./.engineeringos-delivery/0b92f0bd-6a00-435b-aff9-d314d2138568
+./.engineeringos-delivery/0bd8fbbe-68b8-479a-b18f-6d66efffc93c
+./.engineeringos-delivery/0c42ade6-e29b-49b7-b5b3-4a958137c211
+./.engineeringos-delivery/0c807ea9-d7a8-4379-b9c0-47b2a631d6f1
+./.engineeringos-delivery/0cc09dc4-3b0a-4ed6-9740-c67edb6f593e
+./.engineeringos-delivery/0d00d1e6-a139-4a74-97dd-5d0c31c3f406
+./.engineeringos-delivery/0d193d57-bf84-4183-b493-b68256dad89c
+./.engineeringos-delivery/0dabcf82-7eba-4f4a-b3df-b90d3da6541f
+./.engineeringos-delivery/0ee3f678-4430-4bbf-b28b-d213e0b32530
+./.engineeringos-delivery/0fbe26de-9d0e-458c-af06-f3697b0da04c
+./.engineeringos-delivery/0ffd7ab4-f755-41b1-b8e5-a369ba169c2d
+./.engineeringos-delivery/10adc381-27a5-4fb6-adad-62f2bc537289
+./.engineeringos-delivery/11c9e0d2-480f-4496-a996-6af427f90654
+./.engineeringos-delivery/11e14fe1-32aa-45e6-9663-9e410bfd7a3b
+./.engineeringos-delivery/126ed667-01fa-486b-81c1-13f7c285035f
+./.engineeringos-delivery/1271bd99-371d-407f-af68-0ecc33517a1d
+./.engineeringos-delivery/12be88ef-0342-4f4a-8174-72dd5aa05238
+./.engineeringos-delivery/12f4d3da-20ea-4b4f-a8e3-0283605d2676
+./.engineeringos-delivery/14e49068-4f9a-4508-9e8d-115a76956e56
+./.engineeringos-delivery/15e9ae15-dce0-4f1f-b388-3d3df83d3596
+./.engineeringos-delivery/1604fa30-5e64-4924-b6bf-d1ed2a8ac94e
+./.engineeringos-delivery/1689bf9a-2c5d-4787-8b71-12b9d6fdce0d
+./.engineeringos-delivery/16e8f4c9-69d6-48c2-a566-b5e8bc526be4
+./.engineeringos-delivery/1700fe90-18fb-4cff-9476-17e3cf975da5
+./.engineeringos-delivery/17295878-8b74-45d9-9e9f-2fb41c989b56
+./.engineeringos-delivery/174fe95b-0290-42d4-a44a-22447b7167bd
+./.engineeringos-delivery/18212d82-6356-42a5-b644-63f092b3308a
+./.engineeringos-delivery/18d70702-f051-491c-81ae-4c9344ba873b
+./.engineeringos-delivery/193a1e3c-8530-4683-8421-3660fd262914
+./.engineeringos-delivery/19538131-c9ab-4d72-a7e5-a854291aa6e2
+./.engineeringos-delivery/19a0d657-3a69-4691-b57a-8ec9e6e94665
+./.engineeringos-delivery/1a467ec4-f52f-485e-b172-cc41bddbefc6
+./.engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c
+./.engineeringos-delivery/1a737965-b730-4f3c-ae31-f39e0db48f45
+./.engineeringos-delivery/1b72ca4f-154f-4893-a1c3-410fd701715f
+./.engineeringos-delivery/1b845bd8-de6a-4f10-8b6a-29641c6b9983
+./.engineeringos-delivery/1babb364-bc2a-478b-bdca-65e07201c39d
+./.engineeringos-delivery/1c4141f5-2454-4514-9d61-eaeec66c9ecc
+./.engineeringos-delivery/1c43b019-c06b-4b46-96e8-88d19fa113ab
+./.engineeringos-delivery/1c730914-4aa8-4df7-bc1f-31b8d1796581
+./.engineeringos-delivery/1c89427a-1d8b-465d-b40f-b257adf57ff5
+./.engineeringos-delivery/1c946e6e-63f7-426b-a858-08014943aebe
+./.engineeringos-delivery/1d307c6e-258a-459a-abad-924d9e62ff00
+./.engineeringos-delivery/1d655e46-e969-4e77-9189-d4944fbd4d5b
+./.engineeringos-delivery/1e037fa6-a766-4858-b61b-df92ffe53dd6
+./.engineeringos-delivery/1e2deb80-04fa-47f6-8c8b-20751715a16a
+./.engineeringos-delivery/1eddc4c4-4a2a-4426-8d23-45b0c15f266b
+./.engineeringos-delivery/1f606372-6cf6-4527-92e5-1843af031a67
+./.engineeringos-delivery/1f8d7489-a2c0-4966-a2a3-e7d8012ba051
+./.engineeringos-delivery/1f9c235f-f0ce-42ff-981a-9cc3488933f1
+./.engineeringos-delivery/1fcf7cea-6712-430a-9bb1-d4de28af8b3c
+./.engineeringos-delivery/20de8801-b4f9-4f74-b5ab-bdd013844512
+./.engineeringos-delivery/20f4b613-9a66-45f0-825d-c4c24f811463
+./.engineeringos-delivery/215f1651-16df-4949-b68c-fe76df705ae8
+./.engineeringos-delivery/21b0c834-b6e2-4ee8-aa03-184bb23a6742
+./.engineeringos-delivery/227019dc-e46d-4d69-8e2f-ba9c45fc697d
+./.engineeringos-delivery/2274e8cc-3088-448e-88af-cb39f5643b92
+./.engineeringos-delivery/2296e6c1-d077-454f-a858-f9a61d8f5db2
+./.engineeringos-delivery/22c24ec3-24d7-43a0-88c2-3a0a97cc1cab
+./.engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276
+./.engineeringos-delivery/24711817-93fb-4be6-9600-f72561e4b76d
