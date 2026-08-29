@@ -537,7 +537,7 @@ export async function readApplicationSchemaSnapshot(
   const enums = await client.query<EnumRow>(
     `
       SELECT t.typname AS enum_name,
-             array_agg(e.enumlabel ORDER BY e.enumsortorder) AS enum_labels
+             array_agg(e.enumlabel::text ORDER BY e.enumsortorder)::text[] AS enum_labels
       FROM pg_type t
       JOIN pg_enum e ON e.enumtypid = t.oid
       JOIN pg_namespace n ON n.oid = t.typnamespace
