@@ -309,6 +309,61 @@ export type {
   ExecutionPlanBoundaries,
   ExecutionNode,
 } from "./task-session-state.js";
+export {
+  RECIPE_CONTRACT_VERSION,
+  RecipeIdSchema,
+  RecipeNodeIdSchema,
+  RecipeOutputNameSchema,
+  EvidencePredicateSchema,
+  CompiledEvidencePredicateSchema,
+  RecipeTargetSchema,
+  CapabilityRecipeNodeSchema,
+  RecipeTransitionSchema,
+  RecipeOutcomeOutputSchema,
+  RecipeOutcomeContractSchema,
+  CapabilityRecipeSchema,
+  RecipeExecutionPolicySchema,
+  RecipeContextSchema,
+  CompiledRecipeTransitionSchema,
+  RecipeStateSchema,
+  recipeVersionIsSupported,
+} from "./recipe-contract.js";
+export type {
+  RecipeId,
+  RecipeNodeId,
+  RecipeOutputName,
+  EvidencePredicate,
+  RecipeTarget,
+  CapabilityRecipeNode,
+  RecipeTransition,
+  RecipeOutcomeOutput,
+  RecipeOutcomeContract,
+  CapabilityRecipe,
+  RecipeExecutionPolicy,
+  RecipeContext,
+  CompiledRecipeTransition,
+  RecipeState,
+  RecipeEvidenceNode,
+  RecipeEvidence,
+} from "./recipe-contract.js";
+export {
+  DEFAULT_RECIPE_EXECUTION_POLICY,
+  RecipeCompilationError,
+  compileCapabilityRecipe,
+  compileCapabilityRecipeOrThrow,
+  compileSafeRecipe,
+  compileRecipe,
+  evaluateRecipeEvidencePredicate,
+  advanceCompiledRecipeTransition,
+} from "./recipe-compiler.js";
+export type {
+  RecipeCompilationDiagnosticCode,
+  RecipeCompilationDiagnostic,
+  RecipeCompilationResult,
+  RecipeCompilationContext,
+  CompileCapabilityRecipeOptions,
+  RecipeTransitionAdvanceResult,
+} from "./recipe-compiler.js";
 
 // Wave 2: context lifetime management
 export { applyLifetime, DEFAULT_LIFETIME_POLICY } from "./context-runtime/context-lifetime.js";

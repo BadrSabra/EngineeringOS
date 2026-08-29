@@ -1,0 +1,105 @@
+lib/ai-orchestrator/src/schemas/chat.schema.ts:15:export const ValidationProfileSchema = z.enum([
+lib/ai-orchestrator/src/schemas/chat.schema.ts:22:export type ValidationProfile = z.infer<typeof ValidationProfileSchema>;
+lib/ai-orchestrator/src/schemas/chat.schema.ts:91:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts:170:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/index.ts:330:  ValidationProfileSchema,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3059:      const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3061:        ? (validationAttempts.get(validationProfile ?? "") ?? 0) + 1
+lib/ai-orchestrator/src/tool-execution-engine.ts:3064:        validationAttempts.set(validationProfile ?? "", validationAttempt!);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3102:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3107:            `Validation attempt limit reached for "${validationProfile || "the selected profile"}". ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3115:              validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3122:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3140:        && failedValidationFingerprints.get(validationProfile ?? "") === validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts:3149:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3159:            result: syntheticValidationResult(validationProfile ?? "", detail),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3164:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3850:            detail: validationProfile
+lib/ai-orchestrator/src/tool-execution-engine.ts:3851:              ? `Running registered validation profile "${validationProfile}".`
+lib/ai-orchestrator/src/tool-execution-engine.ts:3858:        const previousPatch = validationAttemptPatches.get(validationProfile ?? "");
+lib/ai-orchestrator/src/tool-execution-engine.ts:3871:        validationAttemptPatches.set(validationProfile ?? "", currentPatch);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3969:            profile: validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4022:            failedValidationFingerprints.set(validationProfile ?? "", validationFingerprint);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4031:          failedValidationFingerprints.delete(validationProfile ?? "");
+lib/ai-orchestrator/src/tools/file-tools.ts:658:        validationProfile: args.validation_profile as PendingChange["validationProfile"],
+lib/ai-orchestrator/src/tools/file-tools.ts:725:        validationProfile: args.validation_profile as PendingChange["validationProfile"],
+lib/ai-orchestrator/src/task-session-state.ts:11:  ValidationProfileSchema,
+lib/ai-orchestrator/src/task-session-state.ts:81:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/task-session-state.ts:181:    validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/task-session-state.ts:212:      validationProfile: phase.validationProfile,
+lib/ai-orchestrator/src/forensic-recovery.ts:10:  ValidationProfileSchema,
+lib/ai-orchestrator/src/forensic-recovery.ts:48:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/forensic-recovery.ts:279:function validationProfileForFiles(
+lib/ai-orchestrator/src/forensic-recovery.ts:340:  return [...new Set(plans.map((plan) => plan.validationProfile))]
+lib/ai-orchestrator/src/forensic-recovery.ts:414:    const profile = validationProfileForFiles(phaseFiles);
+lib/ai-orchestrator/src/forensic-recovery.ts:419:    if (phase.validationProfile && profile && phase.validationProfile !== profile) {
+lib/ai-orchestrator/src/forensic-recovery.ts:428:      validationProfile: profile,
+lib/ai-orchestrator/src/forensic-recovery.ts:546:        const profile = validationProfileForFiles(files);
+lib/ai-orchestrator/src/schemas/index.ts:8:  ValidationProfileSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts:15:export const ValidationProfileSchema = z.enum([
+lib/ai-orchestrator/src/schemas/chat.schema.ts:22:export type ValidationProfile = z.infer<typeof ValidationProfileSchema>;
+lib/ai-orchestrator/src/schemas/chat.schema.ts:91:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts:170:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:34:  validationProfileForCase?: (testCase: CodeAgentBenchmarkCase) => string | undefined;
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:150:  const validationProfile = validation?.result.profile ?? "";
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:151:  const typecheckPassed = validationProfile.toLowerCase().includes("typecheck")
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:154:  const testsPassed = validationProfile.toLowerCase().includes("test")
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:306:      const validationProfile = opts.validationProfileForCase?.(testCase);
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:309:        validationProfile &&
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:315:            { profile: validationProfile },
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:11:  validationProfile?: ValidationProfile;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:231:  const validationProfile = scenario.profile;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:236:    validationProfile,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:246:      validationProfile
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:247:        ? `Registered validation profile: ${validationProfile}.`
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:435:function validationProfileForCase(testCase: CodeAgentBenchmarkCase): ValidationProfile | undefined {
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:456:  const validationProfile = validationProfileForCase(testCase);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:457:  const validationInstruction = validationProfile
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:458:    ? `Registered validation profile: ${validationProfile}.`
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:464:    validationProfile,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:85:        expect(fixture.validationProfile, testCase.id).toBeDefined();
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:127:    expect(fixture.validationProfile).toBe("workspace-typecheck");
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:157:    expect(fixture.validationProfile).toBe("workspace-typecheck");
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:185:    expect(fixture.validationProfile).toBe("ai-orchestrator-tests");
+lib/ai-orchestrator/src/agents/chat-agent.ts:3784:    if (running && (!args.profile || running.validationProfile === args.profile) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:3790:      (!args.profile || node.validationProfile === args.profile) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:5143:              `Validation profile: ${node.validationProfile}\n` +
+lib/ai-orchestrator/src/agents/chat-agent.ts:5164:              `then run validation profile "${node.validationProfile}". Do not claim completion without a passed result.`,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5250:              { profile: node.validationProfile },
+lib/ai-orchestrator/src/agents/chat-agent.ts:5273:              profile: node.validationProfile,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5334:            step.result.profile === node.validationProfile,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5365:            step.result.profile === node.validationProfile &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:6967:          'Or, when a defect is directly proven: {"verdict":"FINDING_PROVEN","findings":[{"id":"F-01","title":"...","files":["path/to/read-file.ts"],"evidence":"`exact source fragment`","whyItMatters":"...","rootCause":"...","fix":"..."}],"repairPlan":[{"findingId":"F-01","files":["path/to/read-file.ts"],"steps":["Replace the unsafe behavior in the cited file."],"validationProfile":"ai-orchestrator-tests"}],"validationChecklist":["Run the focused regression test that proves the cited behavior is corrected."]}',
+lib/ai-orchestrator/src/agents/chat-agent.ts:6968:        "Use an empty findings array when no Finding is directly proven. Use an empty repairPlan only when no Finding is accepted. Every proven Finding must have exactly one linked phase with concrete project-relative files, an actionable source change, and a registered validationProfile.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6970:        "Never invent Finding IDs, citations, failures, test results, scores, or repair phases. A repair phase is valid only when its findingId exists in findings, names a registered validationProfile, and the checklist describes the behavior-specific regression it must verify.",
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts:65:    validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:381:      validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:29:    validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:425:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:557:          validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:709:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:880:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:1095:                validationProfile: "knowledge-engine-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:226:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:241:      validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:263:            validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:359:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:420:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:20:    validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:128:        validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:177:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:183:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:189:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:251:        validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:449:      validationProfile: "ai-orchestrator-tests" as const,
+./lib/ai-orchestrator/src/index.ts:287:  ExecutionNodeSchema,
+./lib/ai-orchestrator/src/task-session-state.ts:75:export const ExecutionNodeSchema = z.object({
+./lib/ai-orchestrator/src/task-session-state.ts:92:export type ExecutionNode = z.infer<typeof ExecutionNodeSchema>;
+./lib/ai-orchestrator/src/task-session-state.ts:98:  nodes: z.array(ExecutionNodeSchema).max(24).default([]),
+./lib/ai-orchestrator/src/task-session-state.ts:172:  return executableSteps.map((step) => ExecutionNodeSchema.parse({
+./lib/ai-orchestrator/src/task-session-state.ts:206:    return ExecutionNodeSchema.parse({
+./lib/ai-orchestrator/src/task-session-state.ts:285:    ? ExecutionNodeSchema.parse({ ...candidate, status: nextStatus, attempts })
+./lib/ai-orchestrator/src/execution-node-coordinator.ts:2:  ExecutionNodeSchema,
+./lib/ai-orchestrator/src/execution-node-coordinator.ts:102:    ? ExecutionNodeSchema.parse({
+./lib/ai-orchestrator/src/execution-node-coordinator.ts:118:    return ExecutionNodeSchema.parse(withoutFailure);
+./lib/ai-orchestrator/src/execution-node-coordinator.ts:142:    ? ExecutionNodeSchema.parse({

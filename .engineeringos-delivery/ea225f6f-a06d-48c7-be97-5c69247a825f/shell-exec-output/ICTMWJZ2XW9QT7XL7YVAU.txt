@@ -1,0 +1,259 @@
+lib/ai-orchestrator/src/index.ts:294:  transitionExecutionNode,
+lib/ai-orchestrator/src/capability-contract.ts:26: * not an execution recipe: command names, argv, cwd, environment, profiles,
+lib/ai-orchestrator/src/capability-contract.ts:97:    /** Empty means all projects; values are never emitted in catalog output. */
+lib/ai-orchestrator/src/capability-contract.ts:189:        message: "supported recipe versions must be unique",
+lib/ai-orchestrator/src/capability-contract.ts:198:        message: "registration includes a recipe version unsupported by this contract",
+lib/ai-orchestrator/src/capability-contract.ts:248:  /** Server-owned approval state; model output cannot satisfy this gate. */
+lib/ai-orchestrator/src/capability-contract.ts:255:  outputSchema: z.ZodType<Output>;
+lib/ai-orchestrator/src/capability-contract.ts:276:  recipeVersion: number;
+lib/ai-orchestrator/src/capability-contract.ts:289:      recipeVersion: RecipeVersion;
+lib/ai-orchestrator/src/capability-contract.ts:290:      output: Output;
+lib/ai-orchestrator/src/capability-contract.ts:296:  recipeVersion: number,
+lib/ai-orchestrator/src/capability-contract.ts:300:  return { ok: false, capabilityId, recipeVersion, code, detail };
+lib/ai-orchestrator/src/capability-contract.ts:355:  if (adapter.inputSchema === undefined || adapter.outputSchema === undefined || typeof adapter.execute !== "function") {
+lib/ai-orchestrator/src/capability-contract.ts:360:      "A capability requires input and output schemas plus an implementation.",
+lib/ai-orchestrator/src/capability-contract.ts:364:      typeof adapter.outputSchema.safeParse !== "function") {
+lib/ai-orchestrator/src/capability-contract.ts:369:      "A capability requires runtime-valid input and output schemas.",
+lib/ai-orchestrator/src/capability-contract.ts:406: * validate the opaque ID, recipe version, input, operation, and output before
+lib/ai-orchestrator/src/capability-contract.ts:443:      .map(({ inputSchema: _inputSchema, outputSchema: _outputSchema, execute: _execute, ...descriptor }) => descriptor);
+lib/ai-orchestrator/src/capability-contract.ts:448:    recipeVersion: number,
+lib/ai-orchestrator/src/capability-contract.ts:452:    if (!id.success) return failure(capabilityId, recipeVersion, "CAPABILITY_UNKNOWN_ID", "The capability ID is not registered.");
+lib/ai-orchestrator/src/capability-contract.ts:455:    if (!adapter) return failure(id.data, recipeVersion, "CAPABILITY_UNKNOWN_ID", "The capability ID is not registered.");
+lib/ai-orchestrator/src/capability-contract.ts:456:    if (!RecipeVersionSchema.safeParse(recipeVersion).success ||
+lib/ai-orchestrator/src/capability-contract.ts:457:        !adapter.supportedRecipeVersions.includes(recipeVersion as RecipeVersion)) {
+lib/ai-orchestrator/src/capability-contract.ts:458:      return failure(id.data, recipeVersion, "CAPABILITY_RECIPE_VERSION_UNSUPPORTED", "The recipe version is not supported by this capability.");
+lib/ai-orchestrator/src/capability-contract.ts:463:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input must be JSON-serializable.");
+lib/ai-orchestrator/src/capability-contract.ts:466:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_TOO_LARGE", "Capability input exceeds the server input limit.");
+lib/ai-orchestrator/src/capability-contract.ts:469:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input contains a server-owned execution control.");
+lib/ai-orchestrator/src/capability-contract.ts:476:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input could not be validated.");
+lib/ai-orchestrator/src/capability-contract.ts:479:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input does not match the registered input schema.");
+lib/ai-orchestrator/src/capability-contract.ts:486:    recipeVersion: number,
+lib/ai-orchestrator/src/capability-contract.ts:490:    const validation = this.validateInput(capabilityId, recipeVersion, input);
+lib/ai-orchestrator/src/capability-contract.ts:495:      return failure(capability.id, recipeVersion, "CAPABILITY_APPROVAL_REQUIRED", "The capability requires server approval before execution.");
+lib/ai-orchestrator/src/capability-contract.ts:498:      return failure(capability.id, recipeVersion, "CAPABILITY_OPERATION_NOT_ALLOWED", "The capability is not approved for this operation.");
+lib/ai-orchestrator/src/capability-contract.ts:503:      return failure(capability.id, recipeVersion, "CAPABILITY_PROFILE_NOT_APPROVED", "The capability requires a server-approved command profile.");
+lib/ai-orchestrator/src/capability-contract.ts:506:    let output: unknown;
+lib/ai-orchestrator/src/capability-contract.ts:508:      output = await capability.execute(validation.input, context);
+lib/ai-orchestrator/src/capability-contract.ts:510:      return failure(capability.id, recipeVersion, "CAPABILITY_EXECUTION_FAILED", "The registered capability failed during execution.");
+lib/ai-orchestrator/src/capability-contract.ts:513:    let parsedOutput: ReturnType<typeof capability.outputSchema.safeParse>;
+lib/ai-orchestrator/src/capability-contract.ts:515:      parsedOutput = capability.outputSchema.safeParse(output);
+lib/ai-orchestrator/src/capability-contract.ts:517:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_INVALID", "Capability output could not be validated.");
+lib/ai-orchestrator/src/capability-contract.ts:520:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_INVALID", "The capability produced output outside its registered schema.");
+lib/ai-orchestrator/src/capability-contract.ts:522:    const outputBytes = jsonByteLength(parsedOutput.data);
+lib/ai-orchestrator/src/capability-contract.ts:523:    if (outputBytes === undefined || outputBytes > capability.policy.maxOutputBytes) {
+lib/ai-orchestrator/src/capability-contract.ts:524:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_TOO_LARGE", "Capability output exceeds the server output limit.");
+lib/ai-orchestrator/src/capability-contract.ts:529:      recipeVersion: recipeVersion as RecipeVersion,
+lib/ai-orchestrator/src/capability-contract.ts:530:      output: parsedOutput.data,
+lib/ai-orchestrator/src/capability-contract.ts:551:  allowedOperations: ["recipe"],
+lib/ai-orchestrator/src/capability-catalog.ts:98:    recipeVersion: RecipeVersionSchema,
+lib/ai-orchestrator/src/capability-catalog.ts:132:    recipeVersion: z.number().int().min(1).max(100),
+lib/ai-orchestrator/src/capability-catalog.ts:142:  recipeVersion: number;
+lib/ai-orchestrator/src/capability-catalog.ts:163:  expectedEvidence: ["A server-owned capability result matching the registered output schema."],
+lib/ai-orchestrator/src/capability-catalog.ts:220:  const operation = request.operation ?? "recipe";
+lib/ai-orchestrator/src/capability-catalog.ts:349:        recipeVersion: entry.supportedRecipeVersions[0],
+lib/ai-orchestrator/src/capability-catalog.ts:394:  recipeVersion: number,
+lib/ai-orchestrator/src/capability-catalog.ts:403:    recipeVersion: Number.isInteger(recipeVersion) ? Math.max(1, Math.min(100, recipeVersion)) : 1,
+lib/ai-orchestrator/src/capability-catalog.ts:413: * recipe binding and invocation remain separate server-owned operations.
+lib/ai-orchestrator/src/capability-catalog.ts:422:      recipeVersion: z.number().int().min(1).max(100).optional(),
+lib/ai-orchestrator/src/capability-catalog.ts:427:  if (!parsed.success || !parsed.data.capabilityId || parsed.data.recipeVersion === undefined) {
+lib/ai-orchestrator/src/capability-catalog.ts:433:      typeof (rawRequest as Record<string, unknown> | null)?.recipeVersion === "number"
+lib/ai-orchestrator/src/capability-catalog.ts:434:        ? Number((rawRequest as Record<string, unknown>).recipeVersion)
+lib/ai-orchestrator/src/capability-catalog.ts:437:      "Provide only a capability ID, a supported recipe version, and server-owned discovery context.",
+lib/ai-orchestrator/src/capability-catalog.ts:445:      parsed.data.recipeVersion,
+lib/ai-orchestrator/src/capability-catalog.ts:452:  if (!adapter || !adapter.supportedRecipeVersions.includes(parsed.data.recipeVersion as never)) {
+lib/ai-orchestrator/src/capability-catalog.ts:456:      parsed.data.recipeVersion,
+lib/ai-orchestrator/src/capability-catalog.ts:457:      "The requested recipe version is not supported by this capability.",
+lib/ai-orchestrator/src/capability-catalog.ts:458:      "Choose one of the supported recipe versions shown in the current catalog.",
+lib/ai-orchestrator/src/capability-catalog.ts:474:      parsed.data.recipeVersion,
+lib/ai-orchestrator/src/capability-catalog.ts:515:      `- ${suggestion.capabilityId} v${suggestion.recipeVersion}: ${suggestion.reason} (confidence ${suggestion.confidence})`,
+lib/ai-orchestrator/src/capability-catalog.ts:520:    "Capability IDs and recipe versions are opaque request identifiers. This catalog is not a tool manifest and does not grant execution authority.",
+lib/ai-orchestrator/src/capability-catalog.ts:524:    "To request a capability, name only its capability ID, recipe version, and business input. Never provide commands, argv, cwd, environment, profiles, or process settings.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2202:  // target dispatch predicate: "first source read" and the FEG-008 progress
+lib/ai-orchestrator/src/tool-execution-engine.ts:3543:        // usable+novel predicate the fresh path uses). An identical cached
+lib/ai-orchestrator/src/task-session-state.ts:265: * Apply one server-owned node transition and increment the attempt only when a
+lib/ai-orchestrator/src/task-session-state.ts:266: * queued node actually starts running. Invalid transitions fail closed.
+lib/ai-orchestrator/src/task-session-state.ts:268:export function transitionExecutionNode(
+lib/ai-orchestrator/src/task-session-state.ts:276:    throw new Error(`Invalid execution node transition: ${node.status} -> ${nextStatus}`);
+lib/ai-orchestrator/src/task-contracts.ts:726: * the behavioral-proof predicate.
+lib/ai-orchestrator/src/schemas/workflow.schema.ts:84:/** complete — workflow finished; no further transition is possible. */
+lib/ai-orchestrator/src/quality/execution-phases.ts:80:export function transitionExecutionPhase(
+lib/ai-orchestrator/src/quality/execution-phases.ts:95:      reason: `Cannot transition from ${state.phase} to ${nextPhase}; phases must advance in order.`,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:379:          "This is an explicit fixture/capability audit. You may prove a defect locally from completed test or fixture source evidence, but do not claim production reachability, deployment exposure, or untrusted-input flow unless separate source evidence proves it. Label the result FIXTURE-LOCAL and keep production reachability NOT PROVEN when it was not inspected. Do not modify the fixture.",
+lib/ai-orchestrator/src/prompts/capability-probe.ts:17:with evidence grounded in the ACTUAL source files. Do NOT infer, guess, or
+lib/ai-orchestrator/src/prompts/capability-probe.ts:19:evidence: read_file, read_file_range, search_code, list_directory, and the
+lib/ai-orchestrator/src/prompts/capability-probe.ts:68:repeat the individual labels in the output so all seven labels are present.
+lib/ai-orchestrator/src/prompts/capability-probe.ts:80: * be promoted from an evidence inventory to a completed probe.
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:14: *   • Logs every open/close transition as a structured JSON line.
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:41: * skipped.  Automatically transitions to half-open after the cooldown.
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:84: * exceeded; logs the transition.
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:112: * counter; logs the transition if the circuit was open.
+lib/ai-orchestrator/src/model-selection/execution-plan.ts:28:  transitionExecutionPhase,
+lib/ai-orchestrator/src/execution-node-coordinator.ts:4:  transitionExecutionNode,
+lib/ai-orchestrator/src/execution-node-coordinator.ts:132:  return transitionExecutionNode(nodes, nodeId, nextStatus);
+lib/ai-orchestrator/src/execution-node-coordinator.ts:152:function transitionToBlocked(
+lib/ai-orchestrator/src/execution-node-coordinator.ts:183:        nodes = transitionToBlocked(nodes, node.id, opts, "recovered node exhausted its attempt budget");
+lib/ai-orchestrator/src/execution-node-coordinator.ts:190:        nodes = transitionToBlocked(nodes, node.id, opts, "failed node exhausted its attempt budget");
+lib/ai-orchestrator/src/execution-node-coordinator.ts:217:        nodes = transitionToBlocked(
+lib/ai-orchestrator/src/execution-node-coordinator.ts:237:      nodes = transitionToBlocked(
+lib/ai-orchestrator/src/execution-node-coordinator.ts:253: * node transitions, retries, dependency blocking, and progress snapshots.
+lib/ai-orchestrator/src/execution-node-coordinator.ts:369:          nodes = transitionToBlocked(
+docs/ai-orchestrator-forensic-analysis.md:50:- **Services:** `workflow-orchestrator.ts` (Phase transition logic), `context-builder.ts` (Aggregates DB entities into prompts).
+docs/ai-orchestrator-forensic-analysis.md:73:- **Audit/Events:** Events are read in `context-builder.ts` (L61) to inform agents of recent activity. State transitions in `workflow-orchestrator.ts` (L136-185) return new state for callers to persist.
+docs/ai-orchestrator-forensic-analysis.md:420:- lib/ai-orchestrator/src/agents/workflow-orchestrator.ts: `validateDecision` and metrics gate. Blocks illegal state transitions. Complete.
+docs/replit-agent-parity-gaps.md:26:The evidence baseline is [`actual-capability-baseline-v1.md`](actual-capability-baseline-v1.md).
+docs/replit-agent-parity-gaps.md:58:- **Partial** — the path exists, but an important transition, prerequisite, or
+docs/replit-agent-parity-gaps.md:82:| Git delivery | Status/log/commit/push/export endpoints are separate and protected by project access/write middleware; release artifacts bind candidate evidence to a server-observed source revision ([Git routes](../artifacts/api-server/src/routes/git.ts#L180-L786)). | **Partial** | Isolated route tests prove scoped Apply → commit → push and operation/commit binding. Clerk-authenticated live delivery against a disposable remote is still blocked, so this is an operational proof gap, not a missing Git capability. |
+docs/replit-agent-parity-gaps.md:232:| Usable internal tool | Prototype gates plus green provider-free API subset, green R1–R3 contracts, and one controlled authenticated journey covering chat or analysis and a persisted terminal result. | **Not established** | Targeted release contracts pass, but the required controlled authenticated journey is still missing; Git push, discovery breadth, and all delivery transitions remain unproven. |
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:93:    prompt: "Run the EngineeringOS capability probe and report only capabilities proven by the collected evidence.",
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:99:      requiredFields: ["capability", "evidence", "limitation"],
+lib/ai-orchestrator/src/agents/chat-agent.ts:202:  transitionExecutionNode,
+lib/ai-orchestrator/src/agents/chat-agent.ts:833: * the capability/evidence validators remain authoritative after normalization.
+lib/ai-orchestrator/src/agents/chat-agent.ts:3480:  /** Emits server-owned execution-node transitions for the active repair plan. */
+lib/ai-orchestrator/src/agents/chat-agent.ts:3657:  // A fixture capability audit is itself an evidence-grounded behavioral
+lib/ai-orchestrator/src/agents/chat-agent.ts:3801:  const transitionExecutionNodeSafe = (
+lib/ai-orchestrator/src/agents/chat-agent.ts:3806:      executionNodeStates = transitionExecutionNode(executionNodeStates, nodeId, nextStatus);
+lib/ai-orchestrator/src/agents/chat-agent.ts:3820:    if (node.status === "queued") transitionExecutionNodeSafe(node.id, "running");
+lib/ai-orchestrator/src/agents/chat-agent.ts:3847:        transitionExecutionNodeSafe(node.id, "passed");
+lib/ai-orchestrator/src/agents/chat-agent.ts:3849:        transitionExecutionNodeSafe(node.id, "failed");
+lib/ai-orchestrator/src/agents/chat-agent.ts:3852:          transitionExecutionNodeSafe(node.id, "queued");
+lib/ai-orchestrator/src/agents/chat-agent.ts:3854:          transitionExecutionNodeSafe(node.id, "blocked");
+lib/ai-orchestrator/src/agents/chat-agent.ts:3857:        transitionExecutionNodeSafe(node.id, "blocked");
+lib/ai-orchestrator/src/agents/chat-agent.ts:3864:      if (running) transitionExecutionNodeSafe(running.id, "blocked");
+lib/ai-orchestrator/src/agents/chat-agent.ts:4551:               ? "\n- Fixture/capability mode: a direct defect may be proven locally, but production reachability remains NOT PROVEN unless separately evidenced; do not modify the fixture."
+lib/ai-orchestrator/src/agents/chat-agent.ts:6342:          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: contextProfile, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: suppressHistoricalSessionMemory, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+lib/ai-orchestrator/src/agents/chat-agent.ts:8591:          details: ["bounded capability-specific recovery did not close the C1–C7 evidence gate"],
+lib/ai-orchestrator/src/agents/chat-agent.ts:8930:      ? "ANALYSIS_INCOMPLETE — the capability probe retained both named source bodies, but strict evidence validation could not close every C1–C7 claim."
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts:8: *   executeDecision()  — apply a state transition; validates internally so
+lib/ai-orchestrator/src/agents/workflow-engine/executor.ts:3:import { applyWorkflowTransition } from "./transition.js";
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:37:  allowedPhases: ["evidence"],
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:40:  expectedEvidence: ["A server-owned source evidence record."],
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:54:    outputSchema: z.object({ ok: z.boolean() }).strict(),
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:84:    const result = buildCapabilityCatalog(registry, { phase: "evidence" });
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:122:      phase: "evidence",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:139:      phase: "evidence",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:153:          purpose: "Produce a behavior report from verified evidence.",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:163:      phase: "evidence",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:186:      recipeVersion: 1,
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:193:      recipeVersion: 1,
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:201:      recipeVersion: 1,
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:202:      discovery: { phase: "evidence" },
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:206:  it("rejects malformed catalog requests and keeps prompt output bounded to safe fields", () => {
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:20:    outputSchema: z.object({ message: z.string() }).strict(),
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:57:  it("fails closed for unknown IDs, malformed input, and unsupported recipe versions", async () => {
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:59:    const context = { rootPath: "/server/project", operation: "recipe" };
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:78:    const context = { rootPath: "/server/project", operation: "recipe" };
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:123:    })).resolves.toMatchObject({ ok: true, output: { message: "ok" } });
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:130:    const context = { rootPath: "/server/project", operation: "recipe" };
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:142:  it("bounds output and rejects output outside the registered schema", async () => {
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:145:      execute: () => ({ message: "this output is too long" }),
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:149:      operation: "recipe",
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:157:      operation: "recipe",
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:20: *   C2    — the evidence tool was read_file / read_file_range, never list_directory.
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:39:  { kind: "evidence_integrity" }
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:146:/** True when any evidence step ran a stateful WRITE tool (C5 violation). */
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:227:      // The terminal forensic_status + evidence_integrity steps bound the read
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:229:      // ── C2: the only evidence instrument was the read tool. In this forensic
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:231:      // performed zero non-read tool invocations and reported 2 evidence reads.
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:238:        (s): s is EvidenceIntegrityStep => s.kind === "evidence_integrity",
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:240:      expect(integrity?.kind).toBe("evidence_integrity");
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:241:      if (integrity?.kind === "evidence_integrity") {
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:242:        // Exactly the two scoped files were read as evidence — no off-scope reads.
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:244:        expect(integrity.evidenceFileCount).toBe(2);
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:338:  it("recovers from a synthesis timeout using the retained two-file evidence", async () => {
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:182:      // still be the first transition to a different model.
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts:43:  it("rejects advance to the already-current phase (no-op transition)", () => {
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts:109:    it("rejects a backward advance (build → plan) — linear ordering blocks non-successive transitions", () => {
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:205:  it("propagates provider failure without inventing an executable transition", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1395:    // usable+novel predicate the fresh path uses, so a planner cannot sidestep
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3790:    // coupled to the stricter forced-target dispatch predicate.
+docs/actual-capability-baseline-v1.md:7:**Status:** evidence report; controlled authenticated browser/API checks were run
+docs/actual-capability-baseline-v1.md:23:  transition, prerequisite, or integration remains unverified or failed.
+docs/actual-capability-baseline-v1.md:48:  evidence (`.local/tasks/bind-releases-source-revision-v2.md`);
+docs/actual-capability-baseline-v1.md:57:into passing evidence.
+docs/actual-capability-baseline-v1.md:62:dashboard, API, persistence model, tool-using AI loop, evidence gates, durable
+docs/actual-capability-baseline-v1.md:63:execution state, source-bound release evidence, and an approval-controlled
+docs/actual-capability-baseline-v1.md:73:   `rolloutAllowed: false`; that artifact is not live quality evidence.
+docs/actual-capability-baseline-v1.md:98:| Execution history and Flight Deck | `GET /api/ai/executions/history`, detail, audit export; `FlightDeck.tsx` renders operation/checkpoint/evidence/validation state | **Verified by code** | `ai-execution-state.test.ts` and dashboard Flight Deck tests exist; no real browser/API journey |
+docs/actual-capability-baseline-v1.md:99:| Mission Control/correlation | Mission Control page consumes execution history; chat route can regenerate a redacted correlation report solely from retained durable evidence | **Verified by automated test** | Dashboard Mission Control/correlation tests passed (part of 101 dashboard tests) |
+docs/actual-capability-baseline-v1.md:100:| Cancellation and recovery | Chat route exposes cancel/recovery/resume-capability; `ai-execution-state.ts` owns leases, resume-token hashing, checkpoint recovery, restart reconciliation, cancellation terminalization | **Verified by automated test** | Latest AI SSE and operational-safety release checks pass; browser reload/restart evidence is still absent |
+docs/actual-capability-baseline-v1.md:108:| Audit export | Execution audit export and project export routes project allowlisted/redacted durable evidence | **Verified by code** | Export path is present; no downloaded artifact/API smoke check in this baseline |
+docs/actual-capability-baseline-v1.md:122:4. Reads become provenance/evidence candidates. `evidence-integrity.ts`
+docs/actual-capability-baseline-v1.md:123:   requires same-run, direct, source-scoped evidence for accepted claims;
+docs/actual-capability-baseline-v1.md:124:   fixture/test evidence cannot silently become production proof.
+docs/actual-capability-baseline-v1.md:128:   Structured outcomes, tool traces, evidence, pending changes, and active task
+docs/actual-capability-baseline-v1.md:157:- Git commit/push are separate API transitions and require project write access
+docs/actual-capability-baseline-v1.md:165:### Controlled authenticated journey evidence (2026-08-26)
+docs/actual-capability-baseline-v1.md:189:Therefore this is authenticated operational evidence plus isolated Git route
+docs/actual-capability-baseline-v1.md:190:evidence, not a complete end-to-end discovery-to-push receipt. The missing
+docs/actual-capability-baseline-v1.md:199:| Untrusted-content separation | `formatUntrustedContent` on tool output; redaction helpers at AI route persistence/SSE | Code-backed; no live journey |
+docs/actual-capability-baseline-v1.md:202:| Evidence lineage | Run IDs/read attempts/source scopes and final claim validation in `evidence-integrity.ts` | Code-backed; capability evidence boundary requires complete named reads |
+docs/actual-capability-baseline-v1.md:207:| Fixture scope | Fixture/test/spec evidence maps to local verdicts and blocks production repair | Code-backed; deterministic benchmark remains contract evidence, not production proof |
+docs/actual-capability-baseline-v1.md:221:| API subset failure detail | Same command | See retained test output | Historical failures remain part of the audit record; they are not the latest release-gate result. The latest targeted AI contract/SSE/operational-safety checks pass. Discovery async-contract and live Git smoke are still unproven. |
+docs/actual-capability-baseline-v1.md:252:  still need their own evidence.
+docs/actual-capability-baseline-v1.md:264:3. Structured analyze/review stream with persisted audit/event output.
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:16:  transitionExecutionNode,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:444:  it("tracks attempts and rejects invalid or exhausted node transitions", () => {
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:452:    const running = transitionExecutionNode([node], node.id, "running");
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:454:    const failed = transitionExecutionNode(running, node.id, "failed");
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:455:    const retry = transitionExecutionNode(failed, node.id, "queued");
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:458:    expect(() => transitionExecutionNode([node], node.id, "passed")).toThrow(/Invalid/);
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:460:    expect(() => transitionExecutionNode([exhausted], node.id, "running")).toThrow(/exhausted/);
+docs/architecture.md:303:- Every claim, heartbeat, terminal write, and recovery transition is fenced by
+docs/architecture.md:304:  the current worker identity and status/lease predicate. A stale worker's
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:3:**Evidence standard.** This assessment is based on current source call chains and side effects. File names, schemas, routes, dashboard affordances, test names, and older reports are discovery aids, not proof by themselves. “Cannot Verify From Current Source” is used where the claim requires deployment, live-provider, or long-horizon runtime evidence that is not retained in the repository. Recommendations are not current capability claims.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:39:`requireProvider`/`runAgentWithFallback`/`chatWithFallback` resolve a configured provider, classify failures, and provide bounded fallback behavior. `lib/ai-orchestrator/src/agents/chat-agent.ts` constructs the agent prompt and invokes `executeToolLoop`; execution-plan requests use `executeExecutionNodePlan`. `execution-node-coordinator.ts` schedules dependency-aware waves, disjoint file scopes, bounded attempts, and legal node transitions. A node is not accepted as passed merely because a model says so: the caller must report observed validation.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:41:The orchestration boundary still depends on model-produced plans and bounded callbacks. The server owns allowed files, profiles, and state transitions, but the source does not establish that every provider call has an equivalent durable per-tool receipt or that all semantic claims are independently rechecked. Provider output is treated as untrusted at public boundaries, while raw diagnostics remain logs.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:67:Workflow CRUD and execution transitions are transactional. `/advance`, failure, retry, and rollback use an advisory lock and atomic state guards. AI workflow orchestration chooses a decision but does not itself constitute an autonomous phase worker; actual advancement remains an explicit endpoint/state transition. Therefore workflows are a coordination substrate, not evidence of a complete autonomous agent loop.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:93:| Planning and dependency-aware execution / partial capability | `chat-agent.ts` → execution plan; `execution-node-coordinator.ts` → `executeExecutionNodePlan` | Server-owned scopes/dependencies/profile and bounded waves exist. Planning still stops for approval and cannot prove every cross-file semantic edge. | high | Make plan a durable operation artifact with revision, claims, evidence, and executable repair transitions. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:96:| Validation and browser proof / partial capability | `ai-repair-validation.ts` → `runRepairValidation`; `browser-preview-verification.ts` → preview contract | Fixed profiles and bounded browser evidence are implemented; unavailable/failed cannot become passed. | high | Validate the exact immutable operation workspace and bind evidence to its content hash. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:99:| Provider fallback and model output / partial capability | `ai-route-helpers.ts`; `chat-agent.ts`; route parse gates | Fallback and structured parse errors are bounded and surfaced. Live provider behavior, latency, and model quality are not source-verifiable. | medium | Add durable attempt receipts and explicit provider/model capability contracts. | cannot verify |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:102:| Audit, events, and retention / partial capability | `audit.ts` → outbox; `startup-migrations.ts` → retention; route journals/events | Durable audit retries and bounded redacted retention exist. Retention intentionally removes old operational traces, so an old audit is not a complete transcript. | medium | Bind receipts/evidence to operation/revision and export explicit completeness/retention status. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:103:| Memory and history / partial capability | `chat.ts` → memory enrichment/write; persisted messages/executions | Conversation and selected memories exist; durable operational history is bounded and split across messages, executions, task logs, events, and audit. | medium | Introduce an operation-centric evidence index over existing records; do not duplicate raw transcripts. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:104:| Workflow autonomy / missing capability | `routes/workflows.ts` → start/advance/fail/retry/rollback; `routes/ai/workflows.ts` → orchestrate | State machine transitions are guarded, but orchestration only returns a decision; no autonomous worker executes all phases and repairs. | high | Add durable workflow-operation linkage and worker-driven phase execution using existing leases and profiles. | missing |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:105:| Git commit/push delivery / partial capability | `routes/git.ts` → AI commit/push guards; `git-tools.ts` read-only tools | Guarded user/API delivery exists and checks content/evidence/HEAD. The model cannot independently commit/push, and production success is not source-verifiable. | high | Treat commit/push as terminal operation nodes with durable receipts, explicit policy, and resumable recovery. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:120:11. **Workflow → execution:** Workflow transitions are serialized and safe, but AI orchestration returns a decision rather than driving a durable worker. Manual endpoints remain the continuation mechanism; Task #52 improves ledger visibility without changing that boundary.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:130:Current source implements many of the verbs, but they are split across chat, task, workflow, proposal/apply, validation, and Git routes. The model can propose pending changes; the apply route can promote them after a separate request; workflows can advance only through explicit endpoints; task restart recovery does not automatically resume provider work. There is no single state machine that owns all these transitions and proves that the validated bytes are the bytes delivered.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:189:* Link workflow phases to AI executions without bypassing workflow transition locks.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:215:| Workflow visibility | Workflow transitions are locked and transactional; AI workflow routes still return decisions rather than executing durable phases. | Task #52 owns durable-ledger visibility for workflow orchestration. The phase-worker capability remains an intentional gap for Task #46. | Ledger visibility must not be mistaken for autonomous phase execution. |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:216:| Autonomous operation loop | `AutonomousOperationContract`, state transitions, bounded node representation, checkpoint parsing, and the dependency-aware coordinator are current primitives. No route yet owns the uninterrupted loop. | Task #46 is the sole owner, after P0 integrity prerequisites and with Task #52 as a visibility dependency. | No second forensic report, agent service, coordinator, or delivery protocol. |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:233:| P0-3 | task lifecycle, provider fallback, execution controller | No task AbortSignal → owned cancellation propagation (merged baseline) | Every downstream operation must honor the same cancellation fence | Task #46 integration; unit abort; provider/tool/validation cancellation; concurrent cancel/finalize | Cancellation stops owned work and no later success transition is published |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:236:| P1-1 | execution node coordinator, task service, chat plan | Split route lifecycle → one durable operation graph | Enables repair without duplicate subsystem | Unit transitions; integration multi-file plan; provider/tool/build/test failure; concurrency | One operation links plan, nodes, evidence, candidate, and terminal receipt |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:238:| P1-3 | workflows routes/execution state | Decision-only orchestration → leased phase worker | Removes manual continuation gap | Unit safe transitions; integration phase crash/retry; E2E workflow repair | Phase execution has operation ID, lease, evidence, and exactly-once transition |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:244:Migration strategy for all additive fields is nullable/backward-compatible. Backfill only when the existing correlation and ownership are unambiguous. On rollback, disable new transitions, preserve existing terminal rows, and mark in-flight candidate/promotion operations blocked rather than guessing. No schema or application changes are part of this report.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:254:* State machines: every execution/node/proposal/workflow transition, stale worker, duplicate idempotency key, token CAS, monotonic checkpoint, cancellation.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:436:The report therefore identifies **19 primary capability findings**, including **3 critical**, **8 high**, **8 medium**, and **0 low**. Compared with the original snapshot, two findings moved from unsafe to partial because Task #45 promotion recovery and owned task cancellation are now present in source; this does not claim those areas are complete. The report does not claim parity, production reliability, or successful external delivery without retained execution evidence.
+lib/ai-orchestrator/src/__tests__/forensic-prompt-safety.test.ts:125:  it("can suppress memory for a read-only capability probe without enabling forensic output", () => {
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:7:  transitionExecutionPhase,
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:33:      next: Parameters<typeof transitionExecutionPhase>[1],
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:34:      evidence?: Parameters<typeof transitionExecutionPhase>[2],
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:36:      const result = transitionExecutionPhase(state, next, evidence);
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:44:    expect(transitionExecutionPhase(state, "report", "failed").ok).toBe(false);
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:61:  it("rejects skipped, backward, and evidence-free transitions", () => {
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:63:    expect(transitionExecutionPhase(initial, "patch_proposal").ok).toBe(false);
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:64:    const evidence = transitionExecutionPhase(initial, "evidence");
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:67:    expect(transitionExecutionPhase(evidence.state, "localization").ok).toBe(false);
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:68:    const validation = transitionExecutionPhase(
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:69:      transitionExecutionPhase(evidence.state, "patch_proposal").ok
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:70:        ? transitionExecutionPhase(evidence.state, "patch_proposal").state
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:76:      expect(transitionExecutionPhase(validation.state, "report").ok).toBe(false);
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:83:      const result = transitionExecutionPhase(state, phase);
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:89:    expect(transitionExecutionPhase(state, "repair_recovery", "passed").ok).toBe(false);
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:90:    const recovery = transitionExecutionPhase(state, "repair_recovery", "failed");
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:93:    expect(transitionExecutionPhase(recovery.state, "report", "passed").ok).toBe(false);
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:94:    expect(transitionExecutionPhase(recovery.state, "validation").ok).toBe(true);
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:32:  it("runs independent disjoint nodes in parallel and records every transition", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:360:  it("transitions a persisted execution node only after server-owned validation passes", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:361:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-node-transition-"));
+docs/PR_BACKLOG.md:41:- `artifacts/api-server/src/routes/tasks.ts` — task state transitions (`running → verifying`, `verifying → completed`, etc.) emit `TaskStatusChanged` events — verify each transition emits; add any that are missing
+docs/PR_BACKLOG.md:46:- Every task state transition produces a `TaskStatusChanged` event with `before`/`after` in payload
+docs/PR_BACKLOG.md:57:**Risk:** Low-medium — a background fire-and-forget; the task already transitions to `verifying` correctly; adding the trigger only adds the auto-execute side-effect
+docs/PR_BACKLOG.md:60:- `artifacts/api-server/src/routes/tasks.ts` — after any state transition that sets `status = 'verifying'` AND `task.prompt` is non-null, enqueue a call to `heavyJobQueue.enqueue(() => executeTaskWithAI(taskId))` (or an equivalent direct call)
+docs/pr-backlog-ai-orchestrator.md:18:`validateDecision()` (lines 74-105 of `workflow-orchestrator.ts`) rejects transitions to unknown phases and no-op transitions, but **does not enforce sequential ordering**. A model that proposes `{ action: "advance", nextPhase: "verify" }` while the current phase is `"plan"` (with `"build"` in between) is silently accepted.
+docs/ai-model-capability-probe-prompt.md:27:with evidence grounded in the ACTUAL source files. Do NOT infer, guess, or
+docs/ai-model-capability-probe-prompt.md:29:evidence: read_file, read_file_range, search_code, list_directory, and the
+docs/ai-model-capability-probe-prompt.md:78:repeat the individual labels in the output so all seven labels are present.
+docs/ai-orchestrator-gap-analysis.md:29:| G-07 | Workflow → Phase name | `workflow-orchestrator.ts` | `validateDecision` | Rejects advance to out-of-order or non-existent phase index | **`nextPhase` string from the model is not validated against actual phase names** in the DB record before the "advance" transition. The model can hallucinate a phase name that looks valid but doesn't match the stored value; this passes `validateDecision` (which checks index order) but stores a mismatched string | **Medium** |
+docs/fact-record.md:6:> For the current AI capability, provider, streaming, execution, and evidence
+docs/fact-record.md:223:| lib/db/src/schema/tasks.ts | جدول المهام وحالاتها وأولوياتها. | يعتمد على سلامة transitions والارتباطات. | محور التشغيل والتنفيذ. | High | lib/db/src/schema/tasks.ts |
+docs/completion-plan.md:6:> For the current AI capability and evidence posture, see
+docs/completion-plan.md:61:  wrap the execution-row transition + event emission in one transaction, so a workflow can't end up

@@ -16,6 +16,15 @@ import {
   ImplementationPlanSchema,
   type ImplementationPlan,
 } from "./schemas/implementation-plan.schema.js";
+import { CapabilityIdSchema, RecipeVersionSchema } from "./capability-contract.js";
+import {
+  CapabilityRecipeSchema,
+  CompiledEvidencePredicateSchema,
+  CompiledRecipeTransitionSchema,
+  RecipeContextSchema,
+  RecipeExecutionPolicySchema,
+  RecipeStateSchema,
+} from "./recipe-contract.js";
 
 const RESUMABLE_TASK_TYPES = [
   "FINDING_ANALYSIS",
@@ -63,6 +72,7 @@ export type ExecutionPlanClaim = z.infer<typeof ExecutionPlanClaimSchema>;
 export const ExecutionPlanBoundariesSchema = z.object({
   projectId: z.string().min(1),
   rootPath: z.string().min(1).nullable(),
+  revision: z.string().min(1).max(240).optional(),
   allowedWriteFiles: z.array(z.string().min(1).max(500)).max(48),
   sourceRoots: z.array(z.string().min(1).max(500)).max(24),
   verdictScopes: z.array(
@@ -81,6 +91,14 @@ export const ExecutionNodeSchema = z.object({
   validationProfile: ValidationProfileSchema,
   attempts: z.number().int().min(0).max(3),
   validationAttempts: z.number().int().min(0).max(3).default(0),
+  /** Present only on compiler-produced capability nodes. */
+  capabilityId: CapabilityIdSchema.optional(),
+  recipeVersion: RecipeVersionSchema.optional(),
+  capabilityInput: z.unknown().optional(),
+  declaredOutputs: z.array(z.string().min(1).max(80)).max(16).optional(),
+  executionTimeoutMs: z.number().int().min(1).max(120_000).optional(),
+  maxAttempts: z.number().int().min(1).max(3).optional(),
+  executionContext: RecipeContextSchema.optional(),
   lastFailure: z.object({
     status: z.enum(["failed", "blocked"]),
     attempt: z.number().int().min(1).max(3),
@@ -103,6 +121,20 @@ export const ActiveTaskExecutionPlanSchema = z.object({
   planFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
   stepFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
   planningAttempts: z.number().int().min(0).max(2).default(0),
+  /** Capability recipe fields are nullable for legacy forensic plans. */
+  recipe: CapabilityRecipeSchema.nullable().default(null),
+  outcomeContract: z.object({
+    success: CompiledEvidencePredicateSchema,
+    outputs: z.array(z.object({
+      name: z.string().min(1).max(80),
+      nodeId: z.string().min(1).max(180),
+      output: z.string().min(1).max(80),
+    }).strict()).max(24),
+  }).strict().nullable().default(null),
+  transitions: z.array(CompiledRecipeTransitionSchema).max(48).default([]),
+  executionPolicy: RecipeExecutionPolicySchema.nullable().default(null),
+  recipeContext: RecipeContextSchema.nullable().default(null),
+  recipeState: RecipeStateSchema.nullable().default(null),
 }).strict();
 
 export type ActiveTaskExecutionPlan = z.infer<typeof ActiveTaskExecutionPlanSchema>;

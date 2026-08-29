@@ -71,6 +71,10 @@ const DEFAULT_MAX_PARALLEL_NODES = 3;
 const MAX_PARALLEL_NODES = 8;
 const TERMINAL_STATUSES = new Set<ExecutionNode["status"]>(["passed", "blocked"]);
 
+function attemptLimit(node: ExecutionNode): number {
+  return node.maxAttempts ?? MAX_REPAIR_ATTEMPTS;
+}
+
 function emit(
   opts: ExecutionNodeCoordinatorOptions,
   nodes: ExecutionNode[],
@@ -176,14 +180,14 @@ function recoverInterruptedNodes(
     if (node.status === "running") {
       nodes = updateNode(nodes, node.id, "failed");
       emit(opts, nodes, "recovered", node.id, "running node recovered after interruption");
-       if (node.attempts < MAX_REPAIR_ATTEMPTS) {
+       if (node.attempts < attemptLimit(node)) {
         nodes = updateNode(nodes, node.id, "queued");
         emit(opts, nodes, "retry_queued", node.id, "recovered node returned to the queue");
       } else {
         nodes = transitionToBlocked(nodes, node.id, opts, "recovered node exhausted its attempt budget");
       }
     } else if (node.status === "failed") {
-       if (node.attempts < MAX_REPAIR_ATTEMPTS) {
+       if (node.attempts < attemptLimit(node)) {
         nodes = updateNode(nodes, node.id, "queued");
         emit(opts, nodes, "retry_queued", node.id, "failed node returned to the queue");
       } else {
@@ -355,7 +359,7 @@ export async function executeExecutionNodePlan(
         const failed = nodes.find((candidate) => candidate.id === node.id);
         if (
           failed &&
-          failed.attempts < MAX_REPAIR_ATTEMPTS &&
+          failed.attempts < attemptLimit(failed) &&
           failed.validationAttempts < MAX_REPAIR_ATTEMPTS &&
           !opts.signal?.aborted
         ) {

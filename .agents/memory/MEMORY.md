@@ -73,3 +73,4 @@
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
 - [Browser readiness fixture boundary](browser-readiness-fixture-boundary.md) — fixture mode validates a non-empty authenticated project response; live mode validates its explicit disposable project ID.
 - [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.
+- [Recipe contract schemas](recipe-contract-schemas.md) — required recipe values need explicit guards, and compiled predicates need wider namespaced-ID validation than source recipes.
