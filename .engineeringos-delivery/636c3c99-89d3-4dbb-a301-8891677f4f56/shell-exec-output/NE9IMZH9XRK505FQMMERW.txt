@@ -1,0 +1,500 @@
+scripts/run-dashboard-journey.mjs:10:} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+scripts/run-dashboard-journey.mjs:80:const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
+scripts/run-dashboard-journey.mjs:140:    reason: redact(String(reason)).replaceAll(workspaceRoot, "[PROJECT_ROOT]"),
+scripts/run-dashboard-journey.mjs:235:    cwd: workspaceRoot,
+scripts/run-dashboard-journey.mjs:256:    ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
+scripts/run-dashboard-journey.mjs:585:    console.log(`Release teardown artifact: ${teardownArtifactPath}`);
+scripts/run-dashboard-journey.mjs:589:      }; retained artifact ${teardownArtifactPath}.`,
+scripts/run-dashboard-journey.mjs:604:        `Unable to write release teardown artifact ${teardownArtifactPath}: ${
+scripts/run-dashboard-journey.mjs:681:    ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
+scripts/run-dashboard-journey.mjs:919:      workspaceRoot,
+scripts/run-dashboard-journey.mjs:1009:        cwd: workspaceRoot,
+scripts/run-dashboard-journey.mjs:1030:            workspaceRoot,
+.replit:21:args = "artifacts/api-server: API Server"
+.replit:25:args = "artifacts/dashboard: web"
+.replit:29:args = "artifacts/mockup-sandbox: Component Preview Server"
+.replit:34:name = "artifacts/api-server: API Server"
+.replit:46:name = "artifacts/dashboard: web"
+.replit:58:name = "artifacts/mockup-sandbox: Component Preview Server"
+artifacts/api-server/src/app.ts:37:  // The development dashboard may run on a local port or a Replit preview
+artifacts/api-server/src/app.ts:165:// Health checks must be registered BEFORE Clerk middleware — the deployment
+artifacts/api-server/src/services/task-service.ts:115: *   1. If the task has a `ruleId` with a pattern → scan the project rootPath
+artifacts/api-server/src/scripts/seed-provenance.ts:197:        rootPath: PROJECT_ROOT_PATH,
+artifacts/api-server/src/routes/ai.test.ts:409:    rootPath: `/tmp/ai-test-${id}`,
+artifacts/api-server/src/routes/ai.test.ts:489:): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+artifacts/api-server/src/routes/ai.test.ts:504:  let workspaceRoot: string | null = null;
+artifacts/api-server/src/routes/ai.test.ts:510:      rootPath: sourceRoot,
+artifacts/api-server/src/routes/ai.test.ts:515:    workspaceRoot = workspace.workspaceRoot;
+artifacts/api-server/src/routes/ai.test.ts:516:    deliveryWorkspaceRoots.push(workspaceRoot);
+artifacts/api-server/src/routes/ai.test.ts:521:    workspaceRoot,
+artifacts/api-server/src/routes/ai.test.ts:527:  return { proposalId, operationId, workspaceRoot, change };
+artifacts/api-server/src/routes/ai.test.ts:672:  for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
+artifacts/api-server/src/routes/ai.test.ts:673:    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+artifacts/api-server/src/routes/ai.test.ts:892:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:2136:      rootPath: root,
+artifacts/api-server/src/routes/ai.test.ts:2219:      rootPath: goneRoot,
+artifacts/api-server/src/routes/ai.test.ts:2719:      operation.workspaceRoot,
+artifacts/api-server/src/routes/ai.test.ts:2797:    expect(res.body.operations[0]).not.toHaveProperty("workspaceRoot");
+artifacts/api-server/src/routes/ai.test.ts:2830:    expect(JSON.stringify(res.body)).not.toContain("workspaceRoot");
+artifacts/api-server/src/routes/ai.test.ts:2840:      operation.workspaceRoot,
+artifacts/api-server/src/routes/ai.test.ts:2886:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(true);
+artifacts/api-server/src/routes/ai.test.ts:2893:    await fs.rm(operation.workspaceRoot!, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai.test.ts:2920:        evidence: { evidenceId: randomUUID(), observedAt: new Date().toISOString(), artifactRef: "test" },
+artifacts/api-server/src/routes/ai.test.ts:2940:    expect(await fs.readFile(`${operation.workspaceRoot}/${operation.change.path}`, "utf8"))
+artifacts/api-server/src/routes/ai.test.ts:2962:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(false);
+artifacts/api-server/src/routes/ai.test.ts:2986:    // Use /tmp as the project rootPath but point the change outside the root so
+artifacts/api-server/src/routes/ai.test.ts:2994:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3033:    // Use /tmp as the project rootPath. The registered validation profile is
+artifacts/api-server/src/routes/ai.test.ts:3041:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3103:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3188:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3240:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3305:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3351:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3401:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3477:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3531:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3556:          artifactRef: "stub",
+artifacts/api-server/src/routes/ai.test.ts:3622:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3669:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3716:      rootPath: "/tmp", language: "typescript", status: "active",
+artifacts/api-server/src/routes/ai.test.ts:3763:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3813:      rootPath: "/tmp",
+artifacts/api-server/src/routes/ai.test.ts:3911:      rootPath: "/tmp",
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:40:// Import after mocks are registered.
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:67:  registerAiExecutionController,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:68:  unregisterAiExecutionController,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:93:  rootPath: string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:278:// route still runs the real validation gate, but the registered workspace
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:286:    runRepairValidation: vi.fn(async (_rootPath: string, profile: string) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:302:  rootPath = `/tmp/stream-test-${randomUUID()}`,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:311:    rootPath,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:367:const rootPaths: string[] = [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:450:  for (const rootPath of rootPaths.splice(0)) {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:451:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:466:      await fs.access(fixture.rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:467:      leaks.push(`root ${fixture.rootPath}`);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:470:        leaks.push(`root ${fixture.rootPath} could not be verified`);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:666:        const rootPath = await fs.mkdtemp("/tmp/stream-real-process-recovery-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:667:        rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:669:        const absolutePath = path.join(rootPath, relativePath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:673:        const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:675:        const recoveryFixture: RecoveryTeardownFixture = { projectId, rootPath, childPids: [] };
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:836:    const rootPath = await fs.mkdtemp("/tmp/stream-forensic-restart-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:837:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:839:    const absolutePath = path.join(rootPath, relativePath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:843:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1015:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1016:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1017:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1139:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-queued-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1140:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1141:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1179:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-running-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1180:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1181:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1205:    registerAiExecutionController(created.execution.id, controller);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1222:    unregisterAiExecutionController(created.execution.id, controller);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1237:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-drift-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1238:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1240:    const absolutePath = path.join(rootPath, relativePath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1247:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1392:    const rootPath = await fs.mkdtemp("/tmp/stream-non-build-correlation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1393:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1394:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1408:      absolutePath: path.join(rootPath, "src/non-build.ts"),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1438:            artifactRef: "non-build-validation",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1525:    const rootPath = await fs.mkdtemp("/tmp/stream-build-plan-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1526:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1527:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1545:    const rootPath = await fs.mkdtemp("/tmp/stream-build-empty-scope-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1546:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1547:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1565:    const rootPath = await fs.mkdtemp("/tmp/stream-build-read-only-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1566:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1567:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1588:    const rootPath = await fs.mkdtemp("/tmp/stream-build-scope-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1589:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1590:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1600:          absolutePath: `${rootPath}/src/outside.ts`,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1632:    const rootPath = await fs.mkdtemp("/tmp/stream-build-validation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1633:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1634:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1644:          absolutePath: `${rootPath}/src/approved.ts`,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1676:    const rootPath = await fs.mkdtemp("/tmp/stream-hostile-release-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1677:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1678:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1680:    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1682:      path.join(rootPath, "README.md"),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1727:            absolutePath: path.join(rootPath, "README.md"),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1798:    const rootPath = await fs.mkdtemp(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1803:    rootPaths.push(rootPath, remotePath, wrapperDir);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1806:    await execFileAsync(realGit, ["-C", rootPath, "init", "-q", "-b", "main"]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1808:      path.join(rootPath, "package.json"),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1812:    await fs.writeFile(path.join(rootPath, "README.md"), "agent-cycle fixture\n", "utf8");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1813:    await execFileAsync(realGit, ["-C", rootPath, "add", "."]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1815:      "-C", rootPath,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1827:        sourceConfig: { path: rootPath },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1898:      absolutePath: path.join(rootPath, "src/approved.ts"),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1926:        artifactRef: "validation-result:agent-cycle-validation",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2024:    const statusAfterCommit = await execFileAsync(realGit, ["-C", rootPath, "status", "--short"]);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2027:      "-C", rootPath, "show", "--format=", "--name-only", "HEAD",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2205:    const rootPath = await fs.mkdtemp("/tmp/stream-arabic-persistence-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2206:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2207:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2210:    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2212:      path.join(rootPath, relativePath),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2476:   * The barrier is intentionally request-owned: a completion is registered by
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2483:    const registered = new Set<string>();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2501:      register(key: string) {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2502:        registered.add(key);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2503:        if (registered.size === 2) readyResolve?.();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2571:      barrier.register(key);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2640:      barrier.register(key);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4379:    const rootPath = await fs.mkdtemp("/tmp/stream-native-reset-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4380:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4383:    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4384:    await fs.writeFile(path.join(rootPath, source), sourceBody, "utf8");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4385:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4447:    expect(await fs.readFile(path.join(rootPath, source), "utf8")).toBe(sourceBody);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4463:    const rootPath = await fs.mkdtemp("/tmp/stream-provider-failover-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4464:    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4467:    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4468:    await fs.writeFile(path.join(rootPath, source), sourceBody, "utf8");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4469:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4549:    expect(await fs.readFile(path.join(rootPath, source), "utf8")).toBe(sourceBody);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4709:      rootPath?: string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4718:    expect(input.rootPath).toBe("/tmp");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:199:async function insertProject(rootPath: string): Promise<string> {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:206:    rootPath,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:294:    const workspaceRoot = path.resolve(process.cwd(), "../..");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:295:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:296:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:297:    await fs.symlink(workspaceRoot, rootPath, "dir");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:298:    rootAliases.push(rootPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:299:    const targetPath = "artifacts/dashboard/src/App.tsx";
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:300:    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:303:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:410:          artifactRef: expect.any(String),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:417:    const workspaceRoot = path.resolve(process.cwd(), "../..");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:418:    const targetPath = "artifacts/dashboard/src/App.tsx";
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:419:    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:423:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:424:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:425:    await fs.symlink(workspaceRoot, rootPath, "dir");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:426:    rootAliases.push(rootPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:427:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:523:          artifactRef: expect.any(String),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:543:    const workspaceRoot = path.resolve(process.cwd(), "../..");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:544:    const targetPath = "artifacts/dashboard/src/App.tsx";
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:545:    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:548:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:549:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:550:    await fs.symlink(workspaceRoot, rootPath, "dir");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:551:    rootAliases.push(rootPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:552:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:626:    const workspaceRoot = path.resolve(process.cwd(), "../..");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:627:    const targetPath = "artifacts/dashboard/src/App.tsx";
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:628:    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:631:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:632:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:633:    await fs.symlink(workspaceRoot, rootPath, "dir");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:634:    rootAliases.push(rootPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:635:    const projectId = await insertProject(rootPath);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:649:      detail: "The registered validator is unavailable in the isolated environment.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:653:        artifactRef: "validation-result:unavailable-validator-evidence",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:664:      harness.finalResponse("BLOCKED: the registered validator is unavailable; no repair can be approved."),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:699:      detail: "The registered validator is unavailable in the isolated environment.",
+artifacts/api-server/src/routes/discovery.ts:71:      rootPath: discoverySessionsTable.rootPath,
+artifacts/api-server/src/routes/discovery.ts:96:      .returning({ rootPath: discoverySessionsTable.rootPath });
+artifacts/api-server/src/routes/discovery.ts:99:      await removeManagedProjectRoot(retired[0].rootPath).catch((err) => {
+artifacts/api-server/src/routes/discovery.ts:101:          { err, rootPath: retired[0].rootPath },
+artifacts/api-server/src/routes/discovery.ts:145:    description: "Re-scan an already registered project",
+artifacts/api-server/src/routes/discovery.ts:195:  // ever touching that resource's rootPath — see discovery-adapters.ts.
+artifacts/api-server/src/routes/discovery.ts:202:  let scanRootPath = resolved.rootPath;
+artifacts/api-server/src/routes/discovery.ts:211:    const rootError = await verifyProjectRoot(resolved.rootPath);
+artifacts/api-server/src/routes/discovery.ts:267:      rootPath: scanRootPath,
+artifacts/api-server/src/routes/discovery.ts:401:  const rootResult = await establishProjectRoot(session.rootPath, {
+artifacts/api-server/src/routes/discovery.ts:440:          rootPath: rootResult.canonicalPath,
+artifacts/api-server/src/routes/discovery.test.ts:103:  rootPathOverride?: string,
+artifacts/api-server/src/routes/discovery.test.ts:110:    rootPath: rootPathOverride ?? makeSessionRootDir(),
+artifacts/api-server/src/routes/discovery.test.ts:290:        .where(eq(discoverySessionsTable.rootPath, forgedPath));
+artifacts/api-server/src/routes/discovery.test.ts:447:    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `stale-${discoveryId}`);
+artifacts/api-server/src/routes/discovery.test.ts:448:    await mkdir(rootPath, { recursive: true });
+artifacts/api-server/src/routes/discovery.test.ts:449:    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
+artifacts/api-server/src/routes/discovery.test.ts:454:      rootPath,
+artifacts/api-server/src/routes/discovery.test.ts:469:    await expect(access(rootPath)).rejects.toThrow();
+artifacts/api-server/src/routes/discovery.test.ts:473:    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `imported-${randomUUID()}`);
+artifacts/api-server/src/routes/discovery.test.ts:474:    await mkdir(rootPath, { recursive: true });
+artifacts/api-server/src/routes/discovery.test.ts:475:    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
+artifacts/api-server/src/routes/discovery.test.ts:476:    const discoveryId = await insertReadySession(fakeResult(), rootPath);
+artifacts/api-server/src/routes/discovery.test.ts:495:    await expect(access(rootPath)).resolves.toBeUndefined();
+artifacts/api-server/src/routes/discovery.test.ts:502:    await removeManagedProjectRoot(rootPath);
+artifacts/api-server/src/routes/discovery.test.ts:506:    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `race-${randomUUID()}`);
+artifacts/api-server/src/routes/discovery.test.ts:507:    await mkdir(rootPath, { recursive: true });
+artifacts/api-server/src/routes/discovery.test.ts:508:    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
+artifacts/api-server/src/routes/discovery.test.ts:509:    const discoveryId = await insertReadySession(fakeResult(), rootPath);
+artifacts/api-server/src/routes/discovery.test.ts:524:      await expect(access(rootPath)).resolves.toBeUndefined();
+artifacts/api-server/src/routes/discovery.test.ts:532:        .where(eq(projectsTable.rootPath, rootPath));
+artifacts/api-server/src/routes/discovery.test.ts:534:      await expect(access(rootPath)).rejects.toThrow();
+artifacts/api-server/src/routes/discovery.test.ts:651:    expect(session[0]?.rootPath).toMatch(/^\/tmp\/eos-git-/);
+artifacts/api-server/src/routes/discovery.test.ts:684:        rootPath: cloneDir,
+artifacts/api-server/src/routes/discovery.test.ts:697:      expect(res.body.rootPath).toBe(cloneDir);
+artifacts/api-server/src/routes/discovery.test.ts:792://  • Two different sessions that share the same rootPath cannot both succeed.
+artifacts/api-server/src/routes/discovery.test.ts:1001:  // ── rootPath uniqueness — two different sessions, same rootPath ───────────
+artifacts/api-server/src/routes/discovery.test.ts:1003:  it("rejects a second import when another project already occupies the same rootPath", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:1012:      rootPath: sharedRoot,
+artifacts/api-server/src/routes/discovery.test.ts:1022:    // Session B — different session, same rootPath
+artifacts/api-server/src/routes/discovery.test.ts:1028:      rootPath: sharedRoot,
+artifacts/api-server/src/routes/discovery.test.ts:1042:    // Importing B must fail — same rootPath already has a project.
+artifacts/api-server/src/routes/discovery.test.ts:1107:    let session: { status: string; rootPath: string } | undefined;
+artifacts/api-server/src/routes/discovery.test.ts:1118:      .select({ rootPath: discoverySessionsTable.rootPath })
+artifacts/api-server/src/routes/discovery.test.ts:1122:    expect(storedSession?.rootPath.startsWith(`${MANAGED_PROJECT_ROOTS_DIR}/`)).toBe(true);
+artifacts/api-server/src/routes/discovery.test.ts:1123:    await expect(access(storedSession!.rootPath)).resolves.toBeUndefined();
+artifacts/api-server/src/routes/discovery.test.ts:1132:    expect(imported.body.rootPath).toBe(storedSession!.rootPath);
+artifacts/api-server/src/routes/discovery.test.ts:1133:    expect(imported.body.rootPath).toContain(MANAGED_PROJECT_ROOTS_DIR);
+artifacts/api-server/src/routes/discovery.test.ts:1152:    await expect(access(storedSession!.rootPath)).rejects.toThrow();
+artifacts/api-server/src/routes/tasks.ts:291: * 1. If task has a ruleId with a pattern → scan the project's rootPath and
+artifacts/api-server/src/routes/tasks.ts:337:      projectRoot: project.rootPath,
+artifacts/api-server/src/routes/tasks.ts:356:    verification = await runTaskVerification(task[0], project.rootPath);
+artifacts/api-server/src/routes/tasks.test.ts:34:    rootPath: "/tmp/task-test",
+artifacts/api-server/src/routes/tasks.test.ts:426:      rootPath: "/tmp/other-user-tasks",
+artifacts/api-server/src/routes/workflows.ts:244:         rootPath: ownerProject.rootPath,
+artifacts/api-server/src/routes/workflows.ts:569:        rootPath: advanceOwnerProject.rootPath,
+artifacts/api-server/src/routes/workflows.test.ts:22:    rootPath: "/tmp/wf-test",
+artifacts/api-server/src/routes/upload.ts:21:import { registerUpload } from "../lib/upload-store.js";
+artifacts/api-server/src/routes/upload.ts:78:    // PR-D2: registerUpload is now async (DB-backed). Pass the authenticated
+artifacts/api-server/src/routes/upload.ts:80:    await registerUpload(uploadId, extractDir, originalname, req.userId!);
+artifacts/api-server/src/routes/rules.ts:236:    ({ files } = await walkProject(project.rootPath));
+.github/workflows/ci.yml:43:              - 'artifacts/dashboard/src/components/GitPanel.tsx'
+.github/workflows/ci.yml:44:              - 'artifacts/dashboard/src/pages/AiChat.tsx'
+.github/workflows/ci.yml:45:              - 'artifacts/dashboard/src/pages/Dashboard.tsx'
+.github/workflows/ci.yml:46:              - 'artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx'
+.github/workflows/ci.yml:47:              - 'artifacts/dashboard/src/pages/Events.tsx'
+.github/workflows/ci.yml:48:              - 'artifacts/dashboard/src/pages/FlightDeck.tsx'
+.github/workflows/ci.yml:49:              - 'artifacts/dashboard/src/pages/Graph.tsx'
+.github/workflows/ci.yml:50:              - 'artifacts/dashboard/src/pages/Metrics.tsx'
+.github/workflows/ci.yml:51:              - 'artifacts/dashboard/src/pages/MissionControl.tsx'
+.github/workflows/ci.yml:52:              - 'artifacts/dashboard/src/pages/ProjectDetail.tsx'
+.github/workflows/ci.yml:53:              - 'artifacts/dashboard/src/pages/Projects.tsx'
+.github/workflows/ci.yml:54:              - 'artifacts/dashboard/src/pages/Rules.tsx'
+.github/workflows/ci.yml:55:              - 'artifacts/dashboard/src/pages/Tasks.tsx'
+.github/workflows/ci.yml:56:              - 'artifacts/dashboard/src/pages/Workflows.tsx'
+.github/workflows/ci.yml:241:        uses: actions/upload-artifact@v4
+.github/workflows/ci.yml:250:        uses: actions/upload-artifact@v4
+.github/workflows/ci.yml:255:            artifacts/dashboard/test-results/**
+.github/workflows/ci.yml:271:            echo "Retained teardown evidence: [$TEARDOWN_ARTIFACT_NAME](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)"
+artifacts/api-server/src/middlewares/requireAuth.ts:70: * the surface is here so a future public/preview route doesn't have to
+artifacts/api-server/src/routes/rules.test.ts:45:    rootPath: `/tmp/rules-test-project-${id}`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:370:    rootPath: string | undefined;
+artifacts/api-server/src/routes/projects.ts:45:} from "../lib/browser-preview-verification.js";
+artifacts/api-server/src/routes/projects.ts:125:// server-side; callers can only register the bounded, declarative steps.
+artifacts/api-server/src/routes/projects.ts:186:  // The client-supplied rootPath is only a candidate — it must exist, be a
+artifacts/api-server/src/routes/projects.ts:189:  const rootResult = await establishProjectRoot(body.rootPath, { requireMarkers: true });
+artifacts/api-server/src/routes/projects.ts:205:      rootPath: rootResult.canonicalPath, status: "active",
+artifacts/api-server/src/routes/projects.ts:210:      severity: "info", message: `Project "${body.name}" registered`, correlationId,
+artifacts/api-server/src/routes/projects.ts:311:    const removed = await removeManagedProjectRoot(before.rootPath);
+artifacts/api-server/src/routes/projects.ts:314:        { projectId, rootPath: before.rootPath },
+artifacts/api-server/src/routes/projects.ts:320:      { err, projectId, rootPath: before.rootPath },
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:18:  | "preview";
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:41:  previewChecks: "disabled" | "enabled";
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:132:    id: "dashboard-preview-contract",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:133:    kind: "preview",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:148:    enabled: check.kind !== "preview" || enablePreview,
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:203:    previewChecks: options.enablePreview ? "enabled" : "disabled",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:222:    // persisted release artifacts.
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:271:  const workspaceRoot = path.resolve(process.cwd(), "../..");
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:280:      cwd: workspaceRoot,
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:284:        path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+.github/dashboard-contract-trigger-policy.json:10:    "artifacts/dashboard/src/components/GitPanel.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:11:    "artifacts/dashboard/src/pages/AiChat.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:12:    "artifacts/dashboard/src/pages/Dashboard.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:13:    "artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:14:    "artifacts/dashboard/src/pages/Events.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:15:    "artifacts/dashboard/src/pages/FlightDeck.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:16:    "artifacts/dashboard/src/pages/Graph.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:17:    "artifacts/dashboard/src/pages/Metrics.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:18:    "artifacts/dashboard/src/pages/MissionControl.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:19:    "artifacts/dashboard/src/pages/ProjectDetail.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:20:    "artifacts/dashboard/src/pages/Projects.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:21:    "artifacts/dashboard/src/pages/Rules.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:22:    "artifacts/dashboard/src/pages/Tasks.tsx": "trigger",
+.github/dashboard-contract-trigger-policy.json:23:    "artifacts/dashboard/src/pages/Workflows.tsx": "trigger"
+artifacts/api-server/src/routes/projects.test.ts:56:async function insertProject(rootPath: string, ownerId = "test-user"): Promise<string> {
+artifacts/api-server/src/routes/projects.test.ts:63:    rootPath,
+artifacts/api-server/src/routes/projects.test.ts:380:      .send({ name: `audit-test-${randomUUID()}`, rootPath: rootDir, language: "typescript" });
+artifacts/api-server/src/routes/projects.test.ts:382:    expect(res.body.rootPath).toBe(rootDir);
+artifacts/api-server/src/routes/projects.test.ts:566:        rootPath: rootDir,
+artifacts/api-server/src/routes/projects.test.ts:576:  it("rejects a rootPath that does not exist with 422 root_not_found", async () => {
+artifacts/api-server/src/routes/projects.test.ts:581:        rootPath: `/home/runner/workspace/.test-roots/missing-${randomUUID()}`,
+artifacts/api-server/src/routes/projects.test.ts:593:      .send({ name: `bare-root-${randomUUID()}`, rootPath: dir, language: "typescript" });
+artifacts/api-server/src/routes/projects.test.ts:602:      .send({ name: `sys-root-${randomUUID()}`, rootPath: "/etc", language: "typescript" });
+artifacts/api-server/src/routes/projects.test.ts:719:  it("fails the scan with root_unavailable when the project root was deleted, without changing rootPath", async () => {
+artifacts/api-server/src/routes/projects.test.ts:741:    expect(project[0]?.rootPath).toBe(scanDir);
+artifacts/api-server/src/routes/projects.test.ts:775:    expect(project[0]?.rootPath).toBe(deadGitRoot);
+artifacts/api-server/src/routes/projects.test.ts:803:    expect(project[0]?.rootPath).toBe(forgedRoot);
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:23:  it("keeps preview and live-provider lanes opt-in", () => {
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:25:    expect(checks.find((check) => check.id === "dashboard-preview-contract")?.enabled).toBe(false);
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:61:  it("reports skipped preview cases while preserving a deterministic decision", () => {
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:63:    const preview = checks.find((check) => check.id === "dashboard-preview-contract")!;
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:65:      result({ ...preview, status: "skipped" }),
+artifacts/api-server/src/lib/benchmark-release-gate.ts:104: * The runner measures a campaign; this gate proves that the campaign artifacts
+artifacts/api-server/src/lib/benchmark-release-gate.ts:118:  for (const [artifact, revision] of revisions) {
+artifacts/api-server/src/lib/benchmark-release-gate.ts:119:    if (!revision) addBlocker(blockers, `${artifact} artifact is missing a server-owned source revision`);
+artifacts/api-server/src/lib/benchmark-release-gate.ts:120:    else if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(revision)) addBlocker(blockers, `${artifact} artifact contains a malformed source revision`);
+artifacts/api-server/src/lib/benchmark-release-gate.ts:121:    else if (revision !== APPROVED_BENCHMARK_SOURCE_REVISION) addBlocker(blockers, `${artifact} artifact contains a stale source revision`);
+artifacts/api-server/src/lib/benchmark-release-gate.ts:142:    addBlocker(blockers, "release artifacts use incompatible benchmark suites");
+artifacts/api-server/src/lib/benchmark-release-gate.ts:145:    addBlocker(blockers, "targeted benchmark artifact is missing targeted diagnostic metadata");
+artifacts/api-server/src/lib/benchmark-release-gate.ts:187:    addBlocker(blockers, "release benchmark artifacts are missing a server-owned candidate hash");
+artifacts/api-server/src/lib/benchmark-release-gate.ts:192:    addBlocker(blockers, "release benchmark artifacts contain a malformed candidate hash");
+artifacts/api-server/src/routes/health.test.ts:27:    // /api/healthz is registered before requireAuth in app.ts —
+artifacts/api-server/src/routes/git.test.ts:25:const rootPaths: string[] = [];
+artifacts/api-server/src/routes/git.test.ts:28:async function git(rootPath: string, args: string[]) {
+artifacts/api-server/src/routes/git.test.ts:29:  return execFileAsync("git", ["-C", rootPath, ...args], { maxBuffer: 1_000_000 });
+artifacts/api-server/src/routes/git.test.ts:33:  const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-git-"));
+artifacts/api-server/src/routes/git.test.ts:34:  rootPaths.push(rootPath);
+artifacts/api-server/src/routes/git.test.ts:35:  await git(rootPath, ["init", "-q"]);
+artifacts/api-server/src/routes/git.test.ts:36:  await writeFile(path.join(rootPath, "README.md"), "fixture\n");
+artifacts/api-server/src/routes/git.test.ts:37:  await git(rootPath, ["add", "README.md"]);
+artifacts/api-server/src/routes/git.test.ts:38:  await git(rootPath, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "fixture"]);
+artifacts/api-server/src/routes/git.test.ts:49:    rootPath,
+artifacts/api-server/src/routes/git.test.ts:76:      absolutePath: path.join(rootPath, "verified.ts"),
+artifacts/api-server/src/routes/git.test.ts:101:  return { projectId, proposalId, rootPath };
+artifacts/api-server/src/routes/git.test.ts:120:  for (const rootPath of rootPaths.splice(0)) {
+artifacts/api-server/src/routes/git.test.ts:121:    await rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/git.test.ts:132:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:148:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:149:    await writeFile(path.join(fixture.rootPath, "unrelated.ts"), "export const unrelated = true;\n");
+artifacts/api-server/src/routes/git.test.ts:164:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:165:    await writeFile(path.join(fixture.rootPath, "unrelated.ts"), "export const unrelated = true;\n");
+artifacts/api-server/src/routes/git.test.ts:166:    await git(fixture.rootPath, ["add", "unrelated.ts"]);
+artifacts/api-server/src/routes/git.test.ts:180:    rootPaths.push(remoteRoot);
+artifacts/api-server/src/routes/git.test.ts:183:    await git(fixture.rootPath, ["branch", "-M", "main"]);
+artifacts/api-server/src/routes/git.test.ts:188:    rootPaths.push(wrapperDir);
+artifacts/api-server/src/routes/git.test.ts:259:      await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:191:    expect(missing.blockers).toContain("targeted benchmark artifact is missing a server-owned source revision");
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:197:    expect(malformed.blockers).toContain("targeted benchmark artifact contains a malformed source revision");
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:203:    expect(stale.blockers).toContain("targeted benchmark artifact contains a stale source revision");
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:209:    expect(mismatched.blockers).toContain("clean-witness benchmark artifact contains a stale source revision");
+artifacts/api-server/src/routes/metrics.test.ts:15:    rootPath: "/tmp/metrics-test",
+artifacts/api-server/src/routes/metrics.test.ts:103:      rootPath: "/tmp/other-user-metrics",
+artifacts/api-server/src/routes/graph.test.ts:20:    rootPath: `/tmp/graph-test-${id}`,
+artifacts/api-server/src/routes/graph.test.ts:456:      rootPath: "/tmp/other",
+artifacts/api-server/src/routes/graph.test.ts:516:      rootPath: "/tmp/other-nbr",
+artifacts/api-server/src/routes/graph.test.ts:594:      rootPath: "/tmp/other-ev",
+artifacts/api-server/src/routes/graph.test.ts:689:      rootPath: "/tmp/other-rt",
+artifacts/api-server/src/routes/graph.test.ts:925:      rootPath: "/tmp/other-user-graph",
+artifacts/api-server/src/routes/graph.test.ts:975:      rootPath: `/tmp/graph-foreign-${foreignProjectId}`,
+artifacts/api-server/src/lib/job-recovery.test.ts:43:    rootPath: `/tmp/recovery-${id}`,
+artifacts/api-server/src/lib/job-recovery.test.ts:121:      rootPath: `/tmp/discovery-${sessionId}`,
+artifacts/api-server/src/lib/job-recovery.test.ts:173:      rootPath: `/tmp/discovery-${sessionId}`,
+artifacts/api-server/src/lib/task-execution-service.ts:23:  registerAiExecutionController,
+artifacts/api-server/src/lib/task-execution-service.ts:24:  unregisterAiExecutionController,
+artifacts/api-server/src/lib/task-execution-service.ts:291:  registerAiExecutionController(executionId, executionAbortController);
+artifacts/api-server/src/lib/task-execution-service.ts:551:    unregisterAiExecutionController(executionId, executionAbortController);
+artifacts/api-server/src/lib/scan-runner.ts:53:    readonly rootPath: string,
+artifacts/api-server/src/lib/scan-runner.ts:65:  rootPath: string;
+artifacts/api-server/src/lib/scan-runner.ts:268:  const rootResult = await establishProjectRoot(project[0].rootPath);
+artifacts/api-server/src/lib/scan-runner.ts:270:    throw new ScanRootUnavailableError(project[0].rootPath, rootResult.reason, rootResult.error);
+artifacts/api-server/src/lib/scan-runner.ts:644:      rootPath: walkResult.rootPath,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:95:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-live-review-"));
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:97:    await fs.mkdir(path.dirname(path.join(rootPath, selectedFile)), { recursive: true });
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:98:    await fs.writeFile(path.join(rootPath, selectedFile), fixtureContents, "utf8");
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:154:    // discards child diagnostics so provider bodies cannot become artifacts.
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:164:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/lib/job-reconciliation.ts:18: *                                  started; rootPath is in the DB row)
+artifacts/api-server/src/lib/job-reconciliation.ts:28: * sessions whose rootPath no longer exists (e.g. a git clone in /tmp that
+artifacts/api-server/src/lib/job-reconciliation.ts:87:      workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+artifacts/api-server/src/lib/job-reconciliation.ts:111:        .select({ rootPath: projectsTable.rootPath })
+artifacts/api-server/src/lib/job-reconciliation.ts:136:            rootPath: project.rootPath,
+artifacts/api-server/src/lib/job-reconciliation.ts:156:          workspaceRoot: proposal.workspaceRoot,
+artifacts/api-server/src/lib/job-reconciliation.ts:351: *   "pending"     → re-enqueue (never started; rootPath is in the DB row)
+artifacts/api-server/src/lib/job-reconciliation.ts:400:  // slot in heavyJobQueue and never actually started. rootPath is persisted
+artifacts/api-server/src/lib/job-reconciliation.ts:403:  // rootPath no longer exists (e.g. a git-clone temp dir that was cleaned up
+artifacts/api-server/src/lib/job-reconciliation.ts:406:    .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
+artifacts/api-server/src/lib/job-reconciliation.ts:411:    const { id: sessionId, rootPath } = session;
+artifacts/api-server/src/lib/job-reconciliation.ts:416:        await runDiscovery(sessionId, rootPath);
+artifacts/api-server/src/lib/job-reconciliation.ts:562:      .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
+artifacts/api-server/src/lib/job-reconciliation.ts:732:        .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
+artifacts/api-server/src/lib/job-reconciliation.ts:751:            await runDiscovery(session.id, session.rootPath);
+artifacts/api-server/src/lib/discovery-runner.ts:139:function detectProjectName(files: ScannedFile[], rootPath: string): string {
+artifacts/api-server/src/lib/discovery-runner.ts:165:  // Fallback: last segment of rootPath
+artifacts/api-server/src/lib/discovery-runner.ts:166:  const parts = rootPath.replace(/\/$/, "").split("/");
+artifacts/api-server/src/lib/discovery-runner.ts:329:export async function runDiscovery(sessionId: string, rootPath: string): Promise<void> {
+artifacts/api-server/src/lib/discovery-runner.ts:395:      const s = await stat(rootPath);
+artifacts/api-server/src/lib/discovery-runner.ts:396:      if (!s.isDirectory()) throw new Error(`Path exists but is not a directory: ${rootPath}`);
+artifacts/api-server/src/lib/discovery-runner.ts:406:    const walkResult = await walkProject(rootPath);
+artifacts/api-server/src/lib/discovery-runner.ts:488:    const detectedName = detectProjectName(files, walkResult.rootPath);
+artifacts/api-server/src/lib/job-reconciliation.test.ts:46:    rootPath: `/tmp/reconcile-test-${id}`,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:240:      rootPath: "/tmp/reconcile-discovery-test",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:270:      rootPath: "/tmp/reconcile-pending-discovery",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:306:      rootPath: "/tmp/reconcile-expired-discovery",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:397:      rootPath: "/tmp/reconcile-discovery-ready",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:708:      rootPath: `/tmp/reconcile-discovery-${sessionId}`,
+artifacts/api-server/src/lib/delivery-workspace.ts:33:  rootPath: string;
+artifacts/api-server/src/lib/delivery-workspace.ts:39:    const target = path.resolve(params.rootPath, change.path);
+artifacts/api-server/src/lib/delivery-workspace.ts:40:    if (target !== path.resolve(params.rootPath) && !target.startsWith(`${path.resolve(params.rootPath)}${path.sep}`)) {
+artifacts/api-server/src/lib/delivery-workspace.ts:65:  rootPath: string;
+artifacts/api-server/src/lib/delivery-workspace.ts:66:  workspaceRoot: string;
+artifacts/api-server/src/lib/delivery-workspace.ts:90:export async function hashDeliveryWorkspace(workspaceRoot: string): Promise<string> {
+artifacts/api-server/src/lib/delivery-workspace.ts:95:      if (directory === workspaceRoot && entry.name === MARKER) continue;
+artifacts/api-server/src/lib/delivery-workspace.ts:97:      const relative = path.relative(workspaceRoot, absolute).replaceAll("\\", "/");
+artifacts/api-server/src/lib/delivery-workspace.ts:108:  await visit(workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:113:  rootPath: string,
+artifacts/api-server/src/lib/delivery-workspace.ts:121:      newContent: (await readFile(path.resolve(rootPath, relative))).toString(),
+artifacts/api-server/src/lib/delivery-workspace.ts:132:  rootPath: string;
+artifacts/api-server/src/lib/delivery-workspace.ts:137:  const workspaceRoot = deliveryWorkspacePath(input.operationId);
+artifacts/api-server/src/lib/delivery-workspace.ts:144:      if ((await readFile(path.join(workspaceRoot, MARKER), "utf8")) === `${input.operationId}\n`) {
+artifacts/api-server/src/lib/delivery-workspace.ts:145:        await rm(workspaceRoot, { recursive: true, force: true });
+artifacts/api-server/src/lib/delivery-workspace.ts:150:    const resolvedInputRoot = path.resolve(input.rootPath);
+artifacts/api-server/src/lib/delivery-workspace.ts:151:    const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:156:      : workspaceRoot;
+artifacts/api-server/src/lib/delivery-workspace.ts:158:    await cp(input.rootPath, copyDestination, {
+artifacts/api-server/src/lib/delivery-workspace.ts:198:    if (copyDestination !== workspaceRoot) {
+artifacts/api-server/src/lib/delivery-workspace.ts:199:      await rename(copyDestination, workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:201:    await writeFile(path.join(workspaceRoot, MARKER), `${input.operationId}\n`, { flag: "wx", mode: 0o600 });
+artifacts/api-server/src/lib/delivery-workspace.ts:204:      const target = path.resolve(workspaceRoot, relative);
+artifacts/api-server/src/lib/delivery-workspace.ts:205:      if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`)) {
+artifacts/api-server/src/lib/delivery-workspace.ts:213:      rootPath: input.rootPath,
+artifacts/api-server/src/lib/delivery-workspace.ts:214:      workspaceRoot,
+artifacts/api-server/src/lib/delivery-workspace.ts:220:    await rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+artifacts/api-server/src/lib/delivery-workspace.ts:225:export async function discardDeliveryWorkspace(workspaceRoot: string, operationId: string): Promise<boolean> {
+artifacts/api-server/src/lib/delivery-workspace.ts:226:  const candidate = path.resolve(workspaceRoot);
+artifacts/api-server/src/lib/delivery-workspace.ts:238:export async function deliveryWorkspaceExists(workspaceRoot: string | null, operationId: string): Promise<boolean> {
+artifacts/api-server/src/lib/delivery-workspace.ts:239:  if (!workspaceRoot) return false;
+artifacts/api-server/src/lib/delivery-workspace.ts:240:  const candidate = path.resolve(workspaceRoot);
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:37:          file: "/home/runner/workspace/artifacts/api-server/src/routes/ai/analysis.ts",
+artifacts/api-server/src/lib/discovery-adapters.ts:5: * async resolution to a local rootPath, and optional cleanup of temporary
+artifacts/api-server/src/lib/discovery-adapters.ts:11: *   SupportedAdapter.resolve(config)  → rootPath | error  (async)
+artifacts/api-server/src/lib/discovery-adapters.ts:93:  rootPath: string;
+artifacts/api-server/src/lib/discovery-adapters.ts:129:  /** Resolve config to a local rootPath; may perform async work (e.g. git clone). */
+artifacts/api-server/src/lib/discovery-adapters.ts:158:    return { rootPath: normalized };
+artifacts/api-server/src/lib/discovery-adapters.ts:246:        rootPath: tempDir,
+artifacts/api-server/src/lib/discovery-adapters.ts:278:  // another user's projectId and have discovery walk that user's rootPath
+artifacts/api-server/src/lib/discovery-adapters.ts:299:    return { rootPath: rows[0].rootPath };
+artifacts/api-server/src/lib/discovery-adapters.ts:346:      rootPath: entry.extractedDir,
+artifacts/api-server/src/lib/discovery-adapters.ts:388: * Resolves a source type + config to a local filesystem rootPath.
+artifacts/api-server/src/lib/discovery-adapters.ts:444:  return result.materializeTo ? result.materializeTo(sessionId) : result.rootPath;
+artifacts/api-server/src/lib/discovery-adapters.test.ts:32:    expect(isResolveError({ rootPath: "/home/runner/workspace/foo" })).toBe(false);
+artifacts/api-server/src/lib/discovery-adapters.test.ts:36:    expect(isResolveError({ rootPath: "/tmp/eos-git-abc", tempDir: "/tmp/eos-git-abc" })).toBe(false);
+artifacts/api-server/src/lib/discovery-adapters.test.ts:116:      expect(result.rootPath).toBe("/home/runner/workspace/foo");
+artifacts/api-server/src/lib/discovery-adapters.test.ts:124:      expect(result.rootPath).toBe("/home/runner/workspace/foo");
+artifacts/api-server/src/lib/discovery-adapters.test.ts:293:      rootPath: "/home/runner/workspace/other-" + randomUUID(),
+artifacts/api-server/src/lib/discovery-adapters.test.ts:315:    const rootPath = "/home/runner/workspace/own-" + randomUUID();
+artifacts/api-server/src/lib/discovery-adapters.test.ts:320:      rootPath,
+artifacts/api-server/src/lib/discovery-adapters.test.ts:330:        expect(result.rootPath).toBe(rootPath);
+artifacts/api-server/src/lib/discovery-adapters.test.ts:422:  it("resolves LOCAL_FOLDER to a rootPath when path is provided", async () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:426:      expect(result.rootPath).toBe("/home/runner/workspace/x");
+artifacts/api-server/src/lib/discovery-adapters.test.ts:440:    await cleanupResolveResult({ rootPath: "/home/runner/workspace/foo" });
+artifacts/api-server/src/lib/discovery-adapters.test.ts:445:      rootPath: "/tmp/eos-git-nonexistent",
+artifacts/api-server/src/lib/discovery-adapters.test.ts:459:      rootPath: sourcePath,
+artifacts/api-server/src/lib/job-lease.test.ts:31:    rootPath: `/tmp/lease-test-${id}`,
+artifacts/api-server/src/lib/job-lease.test.ts:195:      rootPath: `/tmp/discovery-${sessionId}`,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:33:  rootPath: string;
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:69:  const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:81:        detail: `Validation profile "${profile}" is not registered.`,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:86:      opts.rootPath,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:95:    rootPath: opts.rootPath,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:104:    behavioralProofForCase: async ({ rootPath, testCase, pendingChanges, signal }) => {
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:108:          rootPath,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:116:      return fixture.behavioralOracle({ rootPath, pendingChanges });

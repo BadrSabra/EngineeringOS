@@ -1,0 +1,335 @@
+artifacts/api-server/scripts/release-lock.test.mjs:2:import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/scripts/release-lock.test.mjs:9:  const root = await mkdtemp(path.join(os.tmpdir(), "engineeringos-release-lock-"));
+artifacts/api-server/scripts/run-release-ai-stream.mjs:198:        "Run the test through @workspace/api-server instead of a historical artifact copy so mutable database fixtures remain isolated.",
+artifacts/api-server/scripts/run-release-fixture-collision-check.mjs:71:        "Run the test through @workspace/api-server instead of a historical artifact copy so mutable database fixtures remain isolated.",
+artifacts/api-server/src/index.ts:65:// sibling processes immediately evict their in-process copy instead of
+artifacts/api-server/src/index.ts:154:// directory (e.g. a legacy GitHub import clone under /tmp/eos-git-*). Roots
+artifacts/api-server/src/lib/ai-repair-validation.ts:147:  // test fixtures). Resolve the source before copying: fs.cp treats a symlink
+artifacts/api-server/src/lib/ai-repair-validation.ts:151:  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-validation-"));
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:59:  // The public terminal contract needs a stable explanation, not a copy of
+artifacts/api-server/src/lib/archive-safety.test.ts:3:import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/archive-safety.test.ts:4:import { tmpdir } from "node:os";
+artifacts/api-server/src/lib/archive-safety.test.ts:24:  const root = await mkdtemp(join(tmpdir(), "eos-archive-test-"));
+artifacts/api-server/src/lib/archive-safety.test.ts:30:  const source = await mkdtemp(join(tmpdir(), "eos-tar-source-"));
+artifacts/api-server/src/lib/archive-safety.test.ts:76:    const source = await mkdtemp(join(tmpdir(), "eos-tar-link-"));
+artifacts/api-server/src/lib/delivery-workspace.test.ts:15:  it("creates an operation-owned copy and overlays only the approved change set", async () => {
+artifacts/api-server/src/lib/delivery-workspace.ts:154:    const copyDestination = workspaceIsInsideSource
+artifacts/api-server/src/lib/delivery-workspace.ts:157:    await rm(copyDestination, { recursive: true, force: true });
+artifacts/api-server/src/lib/delivery-workspace.ts:158:    await cp(input.rootPath, copyDestination, {
+artifacts/api-server/src/lib/delivery-workspace.ts:165:        // not copyable by fs.cp.
+artifacts/api-server/src/lib/delivery-workspace.ts:198:    if (copyDestination !== workspaceRoot) {
+artifacts/api-server/src/lib/delivery-workspace.ts:199:      await rename(copyDestination, workspaceRoot);
+artifacts/api-server/src/lib/discovery-adapters.test.ts:6: * project). The happy-path git clone and DB lookups are covered by route-level
+artifacts/api-server/src/lib/discovery-adapters.test.ts:176:  it("rejects file:// URLs (could clone local filesystem paths)", () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:200:// PR-04: Credential redaction in git clone errors
+artifacts/api-server/src/lib/discovery-adapters.test.ts:215:  it("resolveSource returns 400 for GIT_REPOSITORY with a file:// URL before any clone attempt", async () => {
+artifacts/api-server/src/lib/discovery-adapters.ts:31: * written to logs — git clone errors include the full command, which may
+artifacts/api-server/src/lib/discovery-adapters.ts:32: * contain a token-injected clone URL in plain text.
+artifacts/api-server/src/lib/discovery-adapters.ts:43: * exercising URL validation, clone resolution, materialization, and cleanup.
+artifacts/api-server/src/lib/discovery-adapters.ts:56: * Replace the Git clone command for a test and return a restoration callback.
+artifacts/api-server/src/lib/discovery-adapters.ts:129:  /** Resolve config to a local rootPath; may perform async work (e.g. git clone). */
+artifacts/api-server/src/lib/discovery-adapters.ts:131:  /** Clean up any temporary resources created by resolve (e.g. a cloned repo dir). */
+artifacts/api-server/src/lib/discovery-adapters.ts:174:    // paths which could be used to clone local filesystem paths or bypass
+artifacts/api-server/src/lib/discovery-adapters.ts:207:    const cloneArgs: string[] = ["clone", "--depth", "1"];
+artifacts/api-server/src/lib/discovery-adapters.ts:209:    if (config.branch) cloneArgs.push("-b", config.branch);
+artifacts/api-server/src/lib/discovery-adapters.ts:212:    let cloneUrl = url;
+artifacts/api-server/src/lib/discovery-adapters.ts:218:        cloneUrl = parsed.toString();
+artifacts/api-server/src/lib/discovery-adapters.ts:227:            hint: "Credential injection skipped; clone will proceed without authentication.",
+artifacts/api-server/src/lib/discovery-adapters.ts:233:    cloneArgs.push(cloneUrl, tempDir);
+artifacts/api-server/src/lib/discovery-adapters.ts:236:    // a hook on ResolveSuccess) and the failure path (partial clone) share the
+artifacts/api-server/src/lib/discovery-adapters.ts:242:      await gitCloneExecutor(cloneArgs, { timeout: 120_000 });
+artifacts/api-server/src/lib/discovery-adapters.ts:252:      // Clean up the partial clone before returning the error — same fn.
+artifacts/api-server/src/lib/discovery-adapters.ts:256:      // which may contain the token-injected clone URL in plain text.
+artifacts/api-server/src/lib/discovery-adapters.ts:259:      return { error: `Git clone failed: ${msg}`, status: 422, reason: "resolution_failed" };
+artifacts/api-server/src/lib/discovery-adapters.ts:366:    "available in this deployment. To scan a container's source code, clone " +
+artifacts/api-server/src/lib/discovery-adapters.ts:421: * resolution (e.g. a git clone directory). Safe to call on any ResolveResult.
+artifacts/api-server/src/lib/github-connector.test.ts:4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/github-connector.test.ts:5:import { tmpdir } from "node:os";
+artifacts/api-server/src/lib/github-connector.test.ts:29:    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-"));
+artifacts/api-server/src/lib/github-connector.test.ts:99:    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-drift-"));
+artifacts/api-server/src/lib/job-reconciliation.ts:28: * sessions whose rootPath no longer exists (e.g. a git clone in /tmp that
+artifacts/api-server/src/lib/job-reconciliation.ts:403:  // rootPath no longer exists (e.g. a git-clone temp dir that was cleaned up
+artifacts/api-server/src/lib/path-validation.test.ts:7: *  - verifyProjectRoot: real temp-dir with a project marker (valid clone),
+artifacts/api-server/src/lib/path-validation.test.ts:12:import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+artifacts/api-server/src/lib/path-validation.test.ts:13:import { tmpdir } from "node:os";
+artifacts/api-server/src/lib/path-validation.test.ts:131:    workDir = await mkdtemp(join(tmpdir(), "eos-symlink-test-"));
+artifacts/api-server/src/lib/path-validation.test.ts:200:describe("verifyProjectRoot — valid clone (project root present)", () => {
+artifacts/api-server/src/lib/path-validation.test.ts:208:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:215:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:222:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:229:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:236:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:243:describe("verifyProjectRoot — invalid clone (no project root)", () => {
+artifacts/api-server/src/lib/path-validation.test.ts:251:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-empty-"));
+artifacts/api-server/src/lib/path-validation.test.ts:258:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-empty-"));
+artifacts/api-server/src/lib/path-validation.test.ts:268:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-unknown-"));
+artifacts/api-server/src/lib/path-validation.ts:42:   * Allows a canonical, existing legacy Git clone root. This must only be
+artifacts/api-server/src/lib/path-validation.ts:82:  // A legacy Git clone is allowed only after the caller has explicitly
+artifacts/api-server/src/lib/path-validation.ts:88:      `Temporary discovery clone paths cannot be scanned without verified Git ` +
+artifacts/api-server/src/lib/path-validation.ts:143: * Used for GIT_REPOSITORY clones to fail fast with a useful message when the
+artifacts/api-server/src/lib/path-validation.ts:156:    `No project root detected in the cloned repository. ` +
+artifacts/api-server/src/lib/project-materialization.ts:5: * Durable roots created from Git clones and archive uploads.
+artifacts/api-server/src/lib/project-root.test.ts:59:  it("rejects a dead eos-git temp clone with root_unavailable and 409", async () => {
+artifacts/api-server/src/lib/project-root.ts:36:   * When true, canonical paths under the managed git-clone temp prefix
+artifacts/api-server/src/lib/project-root.ts:56: * Dead temporary git-clone roots (/tmp/eos-git-*) are rejected with an
+artifacts/api-server/src/lib/project-root.ts:76:  // 1. Existence — the directory must exist NOW. A missing managed git-clone
+artifacts/api-server/src/lib/project-root.ts:77:  // temp dir means the clone was cleaned up; require a fresh discovery run
+artifacts/api-server/src/lib/project-root.ts:89:          "The temporary clone directory for this discovery session no longer exists. " +
+artifacts/api-server/src/lib/project-root.ts:137:  // 4. Managed temp-clone prefix is only provenance in the discovery-import
+artifacts/api-server/src/lib/project-root.ts:146:        "Temporary discovery clone directories cannot be registered directly. " +
+artifacts/api-server/src/lib/project-root.ts:152:  // workspace boundary, temp-clone allowance).
+artifacts/api-server/src/lib/rootpath-validator.ts:40: * 2. If it is inaccessible (e.g. a deleted /tmp git clone), return
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:156:      await fs.copyFile(sourcePath, isolatedPath);
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:176:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-airlock-"));
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:64:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-"));
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:95:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-live-review-"));
+artifacts/api-server/src/lib/scan-runner.ts:253:  // and a legacy /tmp/eos-git-* clone is gone after discovery cleanup. The
+artifacts/api-server/src/lib/startup-migrations.ts:75: * Projects imported via a legacy temporary git clone (GitHub discovery before
+artifacts/api-server/src/lib/startup-migrations.ts:116:      `${dead.length} project(s) point at dead temporary clone roots — scans will fail with root_unavailable until they are re-imported via discovery`,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:295:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:423:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:548:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:631:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:666:        const rootPath = await fs.mkdtemp("/tmp/stream-real-process-recovery-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:836:    const rootPath = await fs.mkdtemp("/tmp/stream-forensic-restart-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1015:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1139:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-queued-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1179:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-running-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1237:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-drift-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1392:    const rootPath = await fs.mkdtemp("/tmp/stream-non-build-correlation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1525:    const rootPath = await fs.mkdtemp("/tmp/stream-build-plan-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1545:    const rootPath = await fs.mkdtemp("/tmp/stream-build-empty-scope-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1565:    const rootPath = await fs.mkdtemp("/tmp/stream-build-read-only-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1588:    const rootPath = await fs.mkdtemp("/tmp/stream-build-scope-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1632:    const rootPath = await fs.mkdtemp("/tmp/stream-build-validation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1676:    const rootPath = await fs.mkdtemp("/tmp/stream-hostile-release-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1798:    const rootPath = await fs.mkdtemp(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1801:    const remotePath = await fs.mkdtemp("/tmp/agent-cycle-remote-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1802:    const wrapperDir = await fs.mkdtemp("/tmp/agent-cycle-git-bin-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2205:    const rootPath = await fs.mkdtemp("/tmp/stream-arabic-persistence-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4379:    const rootPath = await fs.mkdtemp("/tmp/stream-native-reset-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4463:    const rootPath = await fs.mkdtemp("/tmp/stream-provider-failover-");
+artifacts/api-server/src/routes/ai/benchmark.test.ts:9:const outputDir = path.join(os.tmpdir(), `engineeringos-benchmark-route-${process.pid}`);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:571:    const { tmpdir } = await import("node:os");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:573:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-server-session-"));
+artifacts/api-server/src/routes/ai/chat.ts:951:    // create a second copy of the user's request.
+artifacts/api-server/src/routes/ai/chat.ts:1256:      // Work against a mutable copy so each stored slot is consumed at most once.
+artifacts/api-server/src/routes/discovery.test.ts:634:  it("returns 409 root_unavailable when the session root is a dead temporary git clone", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:675:  it("allows a GIT_REPOSITORY session whose managed clone directory still exists", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:676:    const cloneDir = `/tmp/eos-git-${randomUUID()}`;
+artifacts/api-server/src/routes/discovery.test.ts:677:    mkdirSync(cloneDir, { recursive: true });
+artifacts/api-server/src/routes/discovery.test.ts:684:        rootPath: cloneDir,
+artifacts/api-server/src/routes/discovery.test.ts:697:      expect(res.body.rootPath).toBe(cloneDir);
+artifacts/api-server/src/routes/discovery.test.ts:700:      rmSync(cloneDir, { recursive: true, force: true });
+artifacts/api-server/src/routes/discovery.test.ts:1073:  it("materializes the clone before temp cleanup and removes it with the project", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:1085:    await execFileAsync("git", ["clone", "--bare", "-q", worktree, bareRepo]);
+artifacts/api-server/src/routes/discovery.test.ts:1087:    restoreGitClone = setGitCloneExecutorForTests(async (cloneArgs, options) => {
+artifacts/api-server/src/routes/discovery.test.ts:1088:      expect(cloneArgs.slice(0, 3)).toEqual(["clone", "--depth", "1"]);
+artifacts/api-server/src/routes/discovery.test.ts:1089:      expect(cloneArgs[3]).toBe(approvedRemoteUrl);
+artifacts/api-server/src/routes/discovery.test.ts:1090:      tempClonePath = cloneArgs[4];
+artifacts/api-server/src/routes/discovery.test.ts:1091:      if (!tempClonePath) throw new Error("Git clone destination was not provided");
+artifacts/api-server/src/routes/discovery.test.ts:1094:      await execFileAsync("git", ["clone", "--depth", "1", bareRepo, tempClonePath], options);
+artifacts/api-server/src/routes/discovery.ts:136:    description: "Clone a remote Git repo and scan the clone",
+artifacts/api-server/src/routes/discovery.ts:205:  // Git clones and archive extractions initially live in adapter-owned temp
+artifacts/api-server/src/routes/discovery.ts:206:  // directories. Verify the source before copying it, then materialize it
+artifacts/api-server/src/routes/discovery.ts:208:  // temporary source is still cleaned up after the scan; the durable copy is
+artifacts/api-server/src/routes/discovery.ts:295:  // temp directory created by the resolver (e.g. a GIT_REPOSITORY clone) is
+artifacts/api-server/src/routes/discovery.ts:297:  // git clone dirs would accumulate in /tmp on every successful discovery.
+artifacts/api-server/src/routes/discovery.ts:395:  // have been deleted since (temporary git clones are cleaned up after the
+artifacts/api-server/src/routes/discovery.ts:400:  // session pointing at such a path is a forged prefix, not a managed clone.
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:47:      const rootPath = await fs.mkdtemp("/tmp/empty-model-response-live-");
+artifacts/api-server/src/routes/git.test.ts:4:import { chmod, mkdtemp, writeFile, rm } from "node:fs/promises";
+artifacts/api-server/src/routes/git.test.ts:5:import { tmpdir } from "node:os";
+artifacts/api-server/src/routes/git.test.ts:33:  const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-git-"));
+artifacts/api-server/src/routes/git.test.ts:179:    const remoteRoot = await mkdtemp(path.join(tmpdir(), "engineeringos-git-remote-"));
+artifacts/api-server/src/routes/git.test.ts:187:    const wrapperDir = await mkdtemp(path.join(tmpdir(), "engineeringos-git-wrapper-"));
+artifacts/api-server/src/routes/projects.test.ts:27: * plain os.tmpdir() path would be rejected as root_unsafe.
+artifacts/api-server/src/routes/upload.ts:74:       await fs.copyFile(uploadedPath, tarPath);
+lib/ai-orchestrator/_dbg2.mts:3:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:20:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-chat-"));
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:240:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-proven-"));
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:315:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-responsebound-"));
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:26: * the tmpdir is real so reads are genuine.
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:32:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:304:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj014-bench-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:10:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:44:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-analysis-start-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:145:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:274:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-build-handoff-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:361:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-node-transition-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:486:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-proof-retry-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:615:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-coordinated-handoff-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:777:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-coordinated-retry-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:974:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-gate-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:1049:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-restore-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:12:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:492:      const rootPath = await fs.mkdtemp(path.join(tmpdir(), `eos-empty-final-${fixture.provider}-`));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:829:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-forensic-cancel-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:899:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-first-evidence-unavailable-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1067:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-recovery-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1216:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-recovery-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1366:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-processing-crash-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1545:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-surviving-packet-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1689:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-partial-scope-finding-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1829:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-no-finding-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1941:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-behavioral-recovery-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2081:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-fixture-local-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2209:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-mixed-read-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2335:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-prod-no-reach-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2440:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-map-recovery-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:26:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:84:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-grounded-behavior-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:18:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:79:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-behavior-span-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:185:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-timeout-behavior-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:307:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-behavior-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:387:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-empty-response-"));
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:30:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:134:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-"));
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:397:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-partial-"));
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:36:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:101:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-recon-"));
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:12:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:42:  const root = await fs.mkdtemp(path.join(tmpdir(), "eos-failure-after-read-"));
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:23:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:95:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-required-claim-"));
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:26:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:154:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-scoped-verdict-fx-"));
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:197:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-scoped-verdict-py-"));
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:14:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:62:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-workspace-review-"));
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts:41:      const root = await fs.mkdtemp(path.join(os.tmpdir(), "ei017-siblings-"));
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:34:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:296:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei017-chat-"));
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:31:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:161:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei041-chat-"));
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:24:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei045-chat-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:22:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-chat-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:238:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-proseroot-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:291:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-dotted-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:375:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-detverdict-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:447:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-unground-"));
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:11: * drive the WHOLE chat() pipeline (mocked provider registry + a real tmpdir)
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:30:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:117:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-feg018-bench-"));
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts:28:    const root = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-forensic-"));
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:4:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:538:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-five-file-"));
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:651:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-complete-"));
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:720:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-partial-"));
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:796:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-truncated-"));
+lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts:22:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts:153:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-terminal-kind-"));
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts:3:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts:67:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-manifest-"));
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts:89:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-prompt-manifest-"));
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts:138:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-plan-grounding-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:21:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:291:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s1-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:346:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s2-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:405:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s4-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:450:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s5-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:496:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s6-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:563:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s7-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:635:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s3-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:685:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s8-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:737:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s10-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:782:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s11-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:843:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s12-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:922:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s13-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:1006:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s14-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:1090:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s15-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:1171:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s9-"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2258:      // tool-result guard instead of another copy of the cached file.
+lib/ai-orchestrator/src/agents/chat-agent.ts:305: * for context, but explicitly tell the provider not to copy it verbatim.
+lib/ai-orchestrator/src/agents/chat-agent.ts:337:      "Do not copy the previous answer verbatim or repeat its generic explanation. " +
+lib/ai-orchestrator/src/agents/chat-agent.ts:1216:    ? `\n\nUNTRUSTED PRIOR CANDIDATE (repair only; do not copy unsupported claims):\n${priorCandidate.slice(0, MAX_RECOVERY_CANDIDATE_CHARS)}`
+lib/ai-orchestrator/src/agents/chat-agent.ts:1314:        "UNTRUSTED PRIOR CANDIDATE (repair its evidence only; do not copy unsupported claims):",
+lib/ai-orchestrator/src/agents/chat-agent.ts:1363:         "Choose one or more candidate windows below. Cite the exact file path and copy one contiguous fragment verbatim; do not join separate lines from different candidates. The candidate labels and line coordinates are guidance, not evidence.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7224:                "Return only the corrected report. Do not repeat the rejected section or copy the correction instructions.",
+lib/ai-orchestrator/src/agents/query-planner.ts:159:- originalIntent: copy the user query exactly`;
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:18:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:43:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-budget-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:71:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-dedup-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:109:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-discovery-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:154:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-coverage-complete-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:190:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-coverage-budget-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:227:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-large-scope-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:259:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-boundary-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:282:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-source-policy-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:320:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-generated-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:95:        rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:111:        rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:122:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:151:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:178:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:222:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:238:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:271:      rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:291:      rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:311:      rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:789:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-check-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:839:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-mutation-"));
+lib/ai-orchestrator/src/benchmark/contract-oracle.test.ts:32:  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-contract-oracle-"));
+lib/ai-orchestrator/src/capability-contract.ts:375:function cloneRegistration(adapter: CapabilityAdapter): CapabilityAdapter {
+lib/ai-orchestrator/src/capability-contract.ts:428:    this.adapters.set(id, cloneRegistration(adapter));
+lib/ai-orchestrator/src/context-compressor.ts:66:  // Work on a mutable copy so callers get a new object.
+lib/ai-orchestrator/src/execution-kernel.test.ts:2:import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+lib/ai-orchestrator/src/execution-kernel.test.ts:3:import { tmpdir } from "node:os";
+lib/ai-orchestrator/src/execution-kernel.test.ts:14:  const root = await mkdtemp(path.join(tmpdir(), "ai-execution-kernel-"));
+lib/ai-orchestrator/src/execution-kernel.test.ts:68:    const outside = await mkdtemp(path.join(tmpdir(), "ai-execution-outside-"));
+lib/ai-orchestrator/src/filesystem-manifest.ts:66:    name === "artifact.toml" ||
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:87:   - **Section headers — verbatim copy**: Reproduce every section header EXACTLY as the user wrote it — including the ## prefix, numbering style, and exact wording. NEVER rephrase "## 1) Executive Verdict" as "Section 1 (Executive Verdict)" or any other variant. Copy the characters the user typed, nothing else.`;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:195: * have a tendency to copy literal template placeholders into the answer.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:202:**Step 2 — WRITE ONCE:** After all reads are done, produce exactly these six sections. Do not copy instructional wording into the report.
+lib/ai-orchestrator/src/tool-execution-engine.ts:936: * This only transforms the outbound copy. `messages` remains untouched so
+lib/ai-orchestrator/src/tool-execution-engine.ts:3459:      // to replace_text/write_file instead of receiving another copy of the
+lib/ai-orchestrator/src/tools/file-tools.ts:705:        return `Error: old_text was not found exactly in "${relForCheck}". Read the current file and copy the exact text, including whitespace.`;
+lib/db/src/schema/ai_change_proposals.ts:25: * The dashboard may display and submit a copy of the changes, but the API
+lib/db/src/schema/discovery.ts:23: * GIT_REPOSITORY    — clone a remote Git repo, then scan the clone
+lib/scanner/src/__tests__/file-walker.test.ts:4:import { tmpdir } from "node:os";
+lib/scanner/src/__tests__/file-walker.test.ts:7:const TEST_DIR = join(tmpdir(), `scanner-test-${process.pid}`);
+lib/scanner/src/python-extractor.ts:2:import { mkdtempSync, writeFileSync } from "node:fs";
+lib/scanner/src/python-extractor.ts:3:import { tmpdir } from "node:os";
+lib/scanner/src/python-extractor.ts:41:  const dir = mkdtempSync(path.join(tmpdir(), "scanner-py-"));
+scripts/check-codegen-drift.ts:20:  copyFileSync,
+scripts/check-codegen-drift.ts:22:  mkdtempSync,
+scripts/check-codegen-drift.ts:28:import { tmpdir } from "os";
+scripts/check-codegen-drift.ts:60:const generatedRoot = mkdtempSync(join(tmpdir(), "api-codegen-drift-"));
+scripts/check-codegen-drift.ts:66:copyFileSync(
+scripts/mission-correlation-report.test.mjs:4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+scripts/mission-correlation-report.test.mjs:5:import { tmpdir } from "node:os";
+scripts/mission-correlation-report.test.mjs:122:  const directory = await mkdtemp(resolve(tmpdir(), "mission-report-"));
+scripts/patch-generated-zod.test.ts:2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/patch-generated-zod.test.ts:3:import { tmpdir } from "node:os";
+scripts/patch-generated-zod.test.ts:13:  const directory = await mkdtemp(join(tmpdir(), "patch-generated-zod-"));
+scripts/patch-generated-zod.test.ts:65:  const directory = await mkdtemp(
+scripts/patch-generated-zod.test.ts:66:    join(tmpdir(), "patch-generated-zod-missing-"),
+scripts/post-merge.sh:3:# Also run manually after a fresh import or clone to bring the environment up.
+scripts/release-configuration.test.ts:3:import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/release-configuration.test.ts:5:import { tmpdir } from "node:os";
+scripts/release-configuration.test.ts:124:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:125:    resolve(tmpdir(), "release-step-failure-"),
+scripts/release-configuration.test.ts:174:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:175:    resolve(tmpdir(), "deployment-step-failure-"),
+scripts/release-configuration.test.ts:227:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:228:    resolve(tmpdir(), "deployment-success-"),
+scripts/release-configuration.test.ts:425:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:426:    resolve(tmpdir(), "release-typecheck-failure-"),
+scripts/validate-benchmark-baseline.ts:33:      `    Do not copy values from the Truth Flow baseline or historical/runtime output.\n` +
+scripts/validate-github-workflows.test.mjs:2:import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+scripts/validate-github-workflows.test.mjs:3:import { tmpdir } from "node:os";
+scripts/validate-github-workflows.test.mjs:10:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:44:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:85:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:125:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:167:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:208:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:271:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:316:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/verify-benchmark-rollout.test.mjs:2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/verify-benchmark-rollout.test.mjs:3:import { tmpdir } from "node:os";
+scripts/verify-benchmark-rollout.test.mjs:23:  const directory = await mkdtemp(path.join(tmpdir(), "benchmark-rollout-"));

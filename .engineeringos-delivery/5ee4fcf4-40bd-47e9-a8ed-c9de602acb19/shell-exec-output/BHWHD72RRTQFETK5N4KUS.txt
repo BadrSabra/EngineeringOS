@@ -1,0 +1,161 @@
+replit.md
+19:| API server | `artifacts/api-server: API Server` |
+20:| Dashboard | `artifacts/dashboard: web` |
+21:| Mockup sandbox | `artifacts/mockup-sandbox: Component Preview Server` |
+
+package.json
+19:    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+35:    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+
+artifacts/api-server/scripts/run-release-fixture-collision-check.mjs
+12:const artifactRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+13:const vitestConfig = path.join(artifactRoot, "vitest.config.ts");
+14:// Keep every suite that writes shared AI fixture state in this repeated run.
+15:// The explicit owning-artifact paths and release lock make this a useful
+18:  path.join(artifactRoot, "src", "routes", "ai.test.ts"),
+19:  path.join(artifactRoot, "src", "routes", "ai-stream-integration.test.ts"),
+20:  path.join(artifactRoot, "src", "routes", "git.test.ts"),
+38:        cwd: artifactRoot,
+47:        console.error(`API fixture collision validation stopped by ${signal}.`);
+59:      "Skipping API fixture collision validation because DATABASE_URL is not configured; repeated database-backed runs cannot be checked.",
+65:  const expectedRoot = await realpath(artifactRoot);
+69:        "API fixture collision validation stopped: duplicate artifact path detected.",
+70:        `Expected the owning API artifact at ${expectedRoot}, but Vitest was started from ${actualRoot}.`,
+71:        "Run the test through @workspace/api-server instead of a historical artifact copy so mutable database fixtures remain isolated.",
+88:      console.log(`API fixture collision validation run ${run}/2`);
+98:      "API fixture collision validation failed; repeated route-suite runs exposed a fixture or database-isolation failure.",
+
+artifacts/api-server/scripts/run-live-provider-review-campaign.mjs
+127:    console.error(`Live provider review receipt failed validation: ${error.message}.`);
+
+artifacts/api-server/scripts/run-release-ai-stream.mjs
+8:const artifactRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+10:  artifactRoot,
+114:        "API stream release validation stopped: database isolation collision; the existing lock owner is unreadable or unverifiable.",
+124:        "API stream release validation stopped: database isolation collision; the existing lock owner is malformed or unverifiable.",
+132:          "API stream release validation stopped: database isolation collision.",
+133:          `Another release worker or artifact path already holds ${targetPath}.`,
+134:          "Do not run duplicate API artifact copies against the same DATABASE_URL; serialize the release check or isolate its database.",
+136:          : "API stream release validation stopped: database isolation collision; the existing lock owner is unverifiable.",
+156:        "API stream release validation stopped: database isolation collision; stale lock reclamation could not be verified.",
+186:      "Skipping API stream release validation because DATABASE_URL is not configured; database isolation cannot be checked.",
+192:  const expectedRoot = await realpath(artifactRoot);
+196:        "API stream release validation stopped: duplicate artifact path detected.",
+197:        `Expected the owning API artifact at ${expectedRoot}, but Vitest was started from ${actualRoot}.`,
+198:        "Run the test through @workspace/api-server instead of a historical artifact copy so mutable database fixtures remain isolated.",
+252:          console.error(`API stream release validation stopped by ${signal}.`);
+257:  let validation = await runValidation();
+258:  if (validation.code !== 0 && validation.retryable) {
+259:    console.error("API stream release validation retrying once after a transient infrastructure failure.");
+260:    validation = await runValidation();
+263:  if (validation.code !== 0) {
+264:    console.error("API stream release validation failed; inspect the test output for a fixture or database-isolation failure.");
+266:  return validation.code;
+
+artifacts/api-server/scripts/run-live-empty-model-response.mjs
+28:    "SKIP: live empty-model-response validation is opt-in. Set RUN_LIVE_EMPTY_MODEL_RESPONSE=1 to run it.",
+35:    `Live empty-model-response validation requires provider/database configuration: ${missingEnvironment.join(", ")}.`,
+83:  console.error(`Unable to start live empty-model-response validation: ${redact(error.message)}`);
+89:    console.error(`Live empty-model-response validation stopped by ${signal}.`);
+94:    console.error(`Live empty-model-response validation failed (exit code ${code ?? "unknown"}).`);
+98:  console.log("Live empty-model-response validation completed successfully.");
+
+artifacts/api-server/scripts/run-real-process-recovery.mjs
+19:    "SKIP: real process-recovery validation is opt-in. Set RUN_REAL_API_PROCESS_RECOVERY=1 to run it.",
+26:    `Real process-recovery validation requires provider/database configuration: ${missingEnvironment.filter(Boolean).join(", ")}.`,
+29:    "This check is intentionally opt-in; run it only in a controlled release-validation environment.",
+97:  console.error(`Unable to start real process-recovery validation: ${redact(error.message)}`);
+104:    console.error(`Real process-recovery validation timed out after ${timeoutMs}ms.`);
+109:    console.error(`Real process-recovery validation stopped by ${signal}.`);
+114:    console.error(`Real process-recovery validation failed (exit code ${code ?? "unknown"}).`);
+118:  console.log("Real process-recovery validation completed successfully.");
+
+artifacts/api-server/scripts/stop-old-api.test.mjs
+25:test("stops only a stale API process in this artifact", async () => {
+26:  const fixture = procFixture({
+56:    list: fixture.list,
+57:    read: fixture.read,
+58:    resolvePath: fixture.resolvePath,
+69:  const fixture = procFixture({
+94:    list: fixture.list,
+95:    read: fixture.read,
+96:    resolvePath: fixture.resolvePath,
+
+artifacts/api-server/scripts/release-lock.test.mjs
+9:  const root = await mkdtemp(path.join(os.tmpdir(), "engineeringos-release-lock-"));
+10:  const lockPath = path.join(root, "release.lock");
+13:  return { root, lockPath };
+24:  const { root, lockPath } = await lockFixture(owner);
+40:    await rm(root, { recursive: true, force: true });
+45:  const { root, lockPath } = await lockFixture(owner);
+52:      reclaimPath: path.join(root, "reclaimed-lock"),
+66:    await rm(root, { recursive: true, force: true });
+71:  const { root, lockPath } = await lockFixture({ pid: 1234 });
+86:    await rm(root, { recursive: true, force: true });
+
+artifacts/api-server/scripts/live-empty-model-response.md
+1:# Controlled empty model response validation
+3:Run this check only in a disposable validation environment:
+27:validation, deployment, or dashboard checks. The model must be configured by
+31:The scenario uses a temporary project root and removes it in the test
+36:nondeterminism should be treated as a failed validation, not silently retried
+39:Provider-shaped empty-final fixtures for both OpenRouter and Gemini run in the
+42:temporary-root cleanup contract without contacting either provider.
+
+artifacts/api-server/scripts/run-release-synthesis-telemetry.mjs
+30:    "Skipping API synthesis telemetry assertion because DATABASE_URL is not configured; engine validation remains provider-free.",
+50:      console.error(`Release synthesis telemetry validation could not start: ${result.error.message}`);
+65:console.log("Release synthesis telemetry validation completed successfully.");
+
+artifacts/api-server/scripts/stop-old-api.mjs
+16: * Only match the process started by this artifact's `start` script. In
+
+scripts/release-configuration.test.ts
+5:import { tmpdir } from "node:os";
+42:    diagnostic: "dashboard journey contract fixture failed: expected route was missing",
+45:      "--filter @workspace/api-server run test:release-fixture-collisions",
+53:    diagnostic: "mission correlation report fixture failed: operation revision mismatched",
+55:      "--filter @workspace/api-server run test:release-fixture-collisions",
+61:    name: "release fixture collision check",
+62:    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+63:    diagnostic: "release fixture collision check failed: duplicate fixture identity",
+87:    name: "application schema delivery",
+89:    diagnostic: "application schema delivery failed: task contract was incomplete",
+100:    diagnostic: "benchmark rollout tests failed: rollout fixture was incomplete",
+114:    name: "release validation",
+116:    diagnostic: "release validation failed: process recovery did not complete",
+125:    resolve(tmpdir(), "release-step-failure-"),
+175:    resolve(tmpdir(), "deployment-step-failure-"),
+228:    resolve(tmpdir(), "deployment-success-"),
+268:test("keeps release recovery validation before deployment cleanup", async () => {
+285:    "release recovery validation must run before pnpm store prune",
+307:    "deployments must report the post-build validation command as their result",
+343:      `controlled release validation must complete after recovery succeeds:\n${output}`,
+347:      /Real process-recovery validation completed successfully\./,
+353:test("runs deployment checks in order and prunes only after successful release validation", async () => {
+358:  const fixture = await runSuccessfulDeploymentFixture();
+362:      fixture.status,
+364:      `successful deployment fixture must remain zero:\n${fixture.output}`,
+366:    assert.deepEqual(fixture.trace.trim().split("\n"), [
+375:      fixture.trace.indexOf("run validate:release") <
+376:        fixture.trace.indexOf("store prune"),
+377:      "pnpm store prune must start only after release validation succeeds",
+380:    await rm(fixture.temporaryDirectory, { recursive: true, force: true });
+390:    "temporary deployment fixtures must leave no working-tree changes",
+415:    "deployment output must identify the release validation command",
+424:test("stops release validation after an API typecheck diagnostic", async () => {
+426:    resolve(tmpdir(), "release-typecheck-failure-"),
+469:      `release validation must fail when the API typecheck fails:\n${output}`,
+484:      "later fixture and browser checks must not start after the API typecheck fails",
+492:  test(`stops release validation after a ${scenario.name} diagnostic`, async () => {
+498:      `${scenario.name} failure must keep release validation non-zero`,
+508:      `${scenario.name} must start before release validation stops`,
+550:test("keeps the local Project workflow and release validation separate", async () => {
+591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+617:  const releaseJobStart = workflow.indexOf("  release-validation:");
+618:  assert.ok(releaseJobStart >= 0, "release-validation job must remain configured");
+633:    "release validation must run the controlled dashboard journey",
+638:    "release validation must configure the teardown report path",
+642:    /name:\s*release-validation-\$\{\{\s*github\.run_id\s*\}\}-teardown/,
+643:    "release teardown evidence must use a run-specific artifact name",
+648:    "release teardown evidence must upload even after validation fails",

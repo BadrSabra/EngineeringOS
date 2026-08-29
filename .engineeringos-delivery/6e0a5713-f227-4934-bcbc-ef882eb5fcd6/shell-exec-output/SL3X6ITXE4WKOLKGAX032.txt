@@ -1,0 +1,431 @@
+./scripts/release-configuration.test.ts
+3:import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+124:  const temporaryDirectory = await mkdtemp(
+174:  const temporaryDirectory = await mkdtemp(
+227:  const temporaryDirectory = await mkdtemp(
+425:  const temporaryDirectory = await mkdtemp(
+
+./scripts/patch-generated-zod.test.ts
+2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+13:  const directory = await mkdtemp(join(tmpdir(), "patch-generated-zod-"));
+65:  const directory = await mkdtemp(
+
+./scripts/mission-correlation-report.test.mjs
+4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+122:  const directory = await mkdtemp(resolve(tmpdir(), "mission-report-"));
+
+./scripts/check-codegen-drift.ts
+22:  mkdtempSync,
+60:const generatedRoot = mkdtempSync(join(tmpdir(), "api-codegen-drift-"));
+
+./scripts/validate-github-workflows.test.mjs
+2:import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+10:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+44:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+85:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+125:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+167:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+208:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+271:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+316:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+
+./scripts/verify-benchmark-rollout.test.mjs
+2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+23:  const directory = await mkdtemp(path.join(tmpdir(), "benchmark-rollout-"));
+
+./lib/scanner/src/python-extractor.ts
+2:import { mkdtempSync, writeFileSync } from "node:fs";
+41:  const dir = mkdtempSync(path.join(tmpdir(), "scanner-py-"));
+
+./artifacts/dashboard/src/pages/AiChat.tsx
+3849:    queryKey: ['browser-validation-profiles', projectId, browserProfileName],
+3852:      const response = await fetch(`/api/projects/${encodeURIComponent(projectId!)}/browser-validation-profiles`);
+
+./lib/api-client-react/src/generated/api.schemas.ts
+122: * Canonical registered-validation result shared by the validator, repair loop, API trace/SSE, and dashboard. Evidence metadata identifies the bounded validation artifact that can be inspected again.
+
+./artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx
+2762:    mocks.serverProposal = { proposalId: 'flight-recorder-validation-details', changes: [] };
+2779:            evidenceId: 'validation-evidence-1',
+2781:            artifactRef: 'validation-attempt:1',
+
+./lib/api-zod/src/generated/types/validationResult.ts
+14: * Canonical registered-validation result shared by the validator, repair loop, API trace/SSE, and dashboard. Evidence metadata identifies the bounded validation artifact that can be inspected again.
+
+./artifacts/dashboard/src/pages/ProjectDetail.tsx
+81:    queryKey: ['browser-validation-profiles', projectId],
+84:      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/browser-validation-profiles`);
+
+./lib/ai-orchestrator/src/index.ts
+169:} from "./validation-result.js";
+177:} from "./validation-result.js";
+
+./lib/ai-orchestrator/src/tool-execution-engine.ts
+63:import type { ValidationResult } from "./validation-result.js";
+112:      artifactRef: `validation-attempt:${evidenceId}`,
+3981:              artifactRef: `validation-attempt:${evidenceId}`,
+
+./artifacts/dashboard/e2e/README.md
+10:and API workflows. Those workflows use the registered artifact paths and ports:
+
+./lib/ai-orchestrator/src/execution-kernel.test.ts
+2:import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+14:  const root = await mkdtemp(path.join(tmpdir(), "ai-execution-kernel-"));
+68:    const outside = await mkdtemp(path.join(tmpdir(), "ai-execution-outside-"));
+
+./lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts
+14:import type { ValidationResult } from "../validation-result.js";
+
+./lib/ai-orchestrator/src/prompts/chat.prompt.ts
+215:List only concrete source-change phases for findings that are proven. Each phase must name its finding ID and the exact affected source file. Do not include investigation-only or validation-only phases.
+
+./lib/ai-orchestrator/src/tools/execution-tools.ts
+8:} from "../validation-result.js";
+111:      artifactRef: `validation-attempt:${evidenceId}`,
+147:      artifactRef: `validation-result:${evidenceId}`,
+
+./lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+789:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-check-"));
+839:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-mutation-"));
+
+./lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+122:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+151:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+178:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+222:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+238:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+
+./lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts
+28:        evidenceId: "validation-test",
+30:        artifactRef: "validation-test",
+
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts
+666:        const rootPath = await fs.mkdtemp("/tmp/stream-real-process-recovery-");
+836:    const rootPath = await fs.mkdtemp("/tmp/stream-forensic-restart-");
+1015:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-");
+1139:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-queued-");
+1179:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-running-");
+1237:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-drift-");
+1392:    const rootPath = await fs.mkdtemp("/tmp/stream-non-build-correlation-");
+1525:    const rootPath = await fs.mkdtemp("/tmp/stream-build-plan-");
+1545:    const rootPath = await fs.mkdtemp("/tmp/stream-build-empty-scope-");
+1565:    const rootPath = await fs.mkdtemp("/tmp/stream-build-read-only-");
+1588:    const rootPath = await fs.mkdtemp("/tmp/stream-build-scope-");
+1632:    const rootPath = await fs.mkdtemp("/tmp/stream-build-validation-");
+1676:    const rootPath = await fs.mkdtemp("/tmp/stream-hostile-release-");
+1798:    const rootPath = await fs.mkdtemp(
+1801:    const remotePath = await fs.mkdtemp("/tmp/agent-cycle-remote-");
+1802:    const wrapperDir = await fs.mkdtemp("/tmp/agent-cycle-git-bin-");
+1926:        artifactRef: "validation-result:agent-cycle-validation",
+2205:    const rootPath = await fs.mkdtemp("/tmp/stream-arabic-persistence-");
+4379:    const rootPath = await fs.mkdtemp("/tmp/stream-native-reset-");
+4463:    const rootPath = await fs.mkdtemp("/tmp/stream-provider-failover-");
+
+./lib/ai-orchestrator/src/benchmark/contract-oracle.test.ts
+32:  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-contract-oracle-"));
+
+./lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts
+42:  { name: "validation-and-repair", categories: ["test-failure-repair", "typecheck-failure-repair"], action: "Reduce failed or repeated validation attempts with server-owned repair evidence." },
+
+./lib/ai-orchestrator/src/agents/chat-agent.ts
+116:import type { ValidationResult } from "../validation-result.js";
+
+./lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts
+18:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-"));
+43:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-budget-"));
+71:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-dedup-"));
+109:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-discovery-"));
+154:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-coverage-complete-"));
+190:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-coverage-budget-"));
+227:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-large-scope-"));
+259:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-boundary-"));
+282:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-source-policy-"));
+320:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-generated-"));
+
+./artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts
+295:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+423:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+548:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+631:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+653:        artifactRef: "validation-result:unavailable-validator-evidence",
+
+./artifacts/api-server/src/routes/discovery.test.ts
+442:describe("Discovery cleanup ownership and races", () => {
+
+./lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts
+143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-chat-"));
+238:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-proseroot-"));
+291:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-dotted-"));
+375:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-detverdict-"));
+447:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-unground-"));
+
+./lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts
+143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei045-chat-"));
+
+./lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts
+161:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei041-chat-"));
+
+./lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts
+296:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei017-chat-"));
+
+./artifacts/api-server/src/routes/projects.ts
+126:router.get("/projects/:projectId/browser-validation-profiles", requireProjectAccess, async (req, res) => {
+134:router.put("/projects/:projectId/browser-validation-profiles/:name", requireProjectWriteAccess, async (req, res) => {
+172:router.delete("/projects/:projectId/browser-validation-profiles/:name", requireProjectWriteAccess, async (req, res) => {
+
+./lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts
+41:      const root = await fs.mkdtemp(path.join(os.tmpdir(), "ei017-siblings-"));
+
+./artifacts/api-server/src/routes/projects.test.ts
+107:      .put(`/api/projects/${projectId}/browser-validation-profiles/smoke`)
+119:    const listed = await request(app).get(`/api/projects/${projectId}/browser-validation-profiles`);
+130:      .put(`/api/projects/${projectId}/browser-validation-profiles/smoke`)
+136:      .delete(`/api/projects/${projectId}/browser-validation-profiles/smoke`);
+138:    const afterDelete = await request(app).get(`/api/projects/${projectId}/browser-validation-profiles`);
+156:    expect((await request(app).get(`/api/projects/${projectId}/browser-validation-profiles`)).status).toBe(403);
+157:    expect((await request(app).put(`/api/projects/${projectId}/browser-validation-profiles/private`)
+159:    expect((await request(app).delete(`/api/projects/${projectId}/browser-validation-profiles/private`)).status).toBe(403);
+169:      `/api/projects/${projectId}/browser-validation-profiles/${name}`;
+186:        .put(`/api/projects/${projectId}/browser-validation-profiles/p${i}`)
+190:    expect((await request(app).put(`/api/projects/${projectId}/browser-validation-profiles/overflow`)
+192:    expect((await request(app).put(`/api/projects/${projectId}/browser-validation-profiles/p0`)
+
+./lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts
+62:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-workspace-review-"));
+
+./lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts
+154:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-scoped-verdict-fx-"));
+197:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-scoped-verdict-py-"));
+
+./lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts
+95:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-required-claim-"));
+
+./lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts
+42:  const root = await fs.mkdtemp(path.join(tmpdir(), "eos-failure-after-read-"));
+
+./lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts
+101:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-recon-"));
+
+./artifacts/api-server/src/routes/git.test.ts
+4:import { chmod, mkdtemp, writeFile, rm } from "node:fs/promises";
+33:  const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-git-"));
+179:    const remoteRoot = await mkdtemp(path.join(tmpdir(), "engineeringos-git-remote-"));
+187:    const wrapperDir = await mkdtemp(path.join(tmpdir(), "engineeringos-git-wrapper-"));
+
+./lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts
+79:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-behavior-span-"));
+185:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-timeout-behavior-"));
+307:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-behavior-"));
+387:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-empty-response-"));
+
+./lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts
+84:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-grounded-behavior-"));
+
+./artifacts/api-server/src/routes/empty-model-response-live.test.ts
+47:      const rootPath = await fs.mkdtemp("/tmp/empty-model-response-live-");
+
+./lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+492:      const rootPath = await fs.mkdtemp(path.join(tmpdir(), `eos-empty-final-${fixture.provider}-`));
+829:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-forensic-cancel-"));
+899:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-first-evidence-unavailable-"));
+1067:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-recovery-"));
+1216:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-recovery-"));
+1366:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-processing-crash-"));
+1545:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-surviving-packet-"));
+1689:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-partial-scope-finding-"));
+1829:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-no-finding-"));
+1941:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-behavioral-recovery-"));
+2081:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-fixture-local-"));
+2209:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-mixed-read-"));
+2335:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-prod-no-reach-"));
+2440:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-map-recovery-"));
+2934:  it("does not execute a recovered Repair Plan that contains validation-only phases", async () => {
+
+./lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+489:  it("does not extract Evidence Map or Findings paths for a validation-only plan", () => {
+
+./lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts
+44:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-analysis-start-"));
+145:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-"));
+274:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-build-handoff-"));
+361:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-node-transition-"));
+486:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-proof-retry-"));
+615:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-coordinated-handoff-"));
+777:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-coordinated-retry-"));
+974:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-gate-"));
+1049:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-restore-"));
+
+./artifacts/api-server/src/routes/ai/chat.ts
+1433:  const evidenceId = `validation-attempt:${randomUUID()}`;
+
+./lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts
+304:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj014-bench-"));
+
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts
+413:      evidenceId: "validation-result:sensitive-test",
+415:      artifactRef: "validation-result:sensitive-test",
+573:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-server-session-"));
+
+./lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts
+143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-chat-"));
+240:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-proven-"));
+315:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-responsebound-"));
+
+./lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.md
+15:| validation-and-repair | 8 | 8 | n/a | n/a |
+
+./docs/replit-agent-parity-gaps.md
+69:| Project understanding | Discovery/import has durable, owner-scoped materialization and the dashboard wizard; source discovery, scan, and import are separate stages ([discovery route](../artifacts/api-server/src/routes/discovery.ts), [baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Controlled API path verified; browser path open** | The approved GitHub URL fixture now proves the asynchronous session, durable materialization, import, cleanup, owner boundaries, and retry/idempotency behavior. This is not a production/provider or full browser claim. |
+194:  owner boundaries, durable-root cleanup, missing roots, concurrent cleanup,
+
+./lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.json
+69:      "dimension": "validation-and-repair",
+
+./lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.md
+112:| validation-and-repair | 8 | 8 | n/a | n/a |
+
+./docs/architecture.md
+247:| Context cache: TTL is perf, not correctness | `context-cache-invalidation-rule.md` | Any DB write to context tables must bust the cache immediately |
+
+./lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json
+2284:        "dimension": "validation-and-repair",
+
+./docs/gap-analysis-2026-07-27.md
+152:- `artifacts/api-server/src/routes/ai/providers.ts:121–173` — both patterns registered
+
+./docs/actual-capability-baseline-v1.md
+90:| Project discovery/import | `artifacts/api-server/src/routes/discovery.ts`: source listing, discovery start/session/summary, import; durable materialization and owner-scoped cleanup; `DiscoverProjectWizard.tsx` calls generated discovery/import/scan hooks | **Partial** | Discovery route tests exist; selected run failed a durable Git fixture with HTTP 400 rather than expected 202 |
+219:| Dashboard AI/operations components | `pnpm --filter @workspace/dashboard exec vitest run src/pages/AiChat.authenticated.test.tsx src/pages/MissionControl.test.tsx src/pages/FlightDeck.test.tsx src/lib/mission-correlation-report.test.ts src/lib/validation-sse-contract.test.ts` | jsdom/component fixtures | **PASS**: 5 files, 101 tests |
+249:  cancellation-stream, discovery-fixture, and validation-timeout issues. The
+
+./artifacts/api-server/src/lib/run-live-provider-review-campaign.ts
+95:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-live-review-"));
+
+./lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts
+134:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-"));
+397:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-partial-"));
+
+./artifacts/api-server/src/lib/delivery-workspace.ts
+74:  ".engineeringos-delivery",
+76:const MARKER = ".engineeringos-delivery-workspace";
+155:      ? path.join("/tmp", `engineeringos-delivery-${input.operationId}`)
+172:        if (source.includes(".engineeringos-delivery")) return false;
+189:          ".engineeringos-delivery",
+195:          && !normalized.includes("/.engineeringos-delivery/");
+
+./docs/runtime-coverage-matrix.md
+16:| Browser reload, reconnect, stream EOF/abort, stale callbacks | `dashboard/src/pages/AiChat.authenticated.test.tsx`, `dashboard/src/lib/validation-sse-contract.test.ts`, dashboard journey contracts | rendered saved state is asserted after reload/reconnect; stale callbacks cannot claim completion |
+
+./lib/ai-orchestrator/src/__tests__/validation-result.test.ts
+2:import { hasValidationEvidence, isProvenValidation, toPublicValidationResult } from "../validation-result.js";
+3:import type { ValidationResult } from "../validation-result.js";
+17:      evidenceId: "validation-result:test",
+19:      artifactRef: "validation-result:test",
+29:      evidence: { evidenceId: "", observedAt: "2026-08-18T12:00:00.000Z", artifactRef: "validation-result:test" },
+32:      evidence: { evidenceId: "validation-result:test", observedAt: "", artifactRef: "validation-result:test" },
+44:      evidence: { evidenceId: "validation-result:test", observedAt: "2026-08-18T12:00:00.000Z", artifactRef: "" },
+
+./artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+50:const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", ".engineeringos-delivery", ".engineeringos-projects", "docs", "coverage", "dist", ".vite"]);
+176:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-airlock-"));
+
+./artifacts/api-server/src/lib/ai-execution-state.test.ts
+179:      evidenceRefs: ["validation-result:1"],
+189:      evidenceRefs: ["validation-result:1"],
+207:      evidenceRefs: ["validation-result:1"],
+
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md
+9:The most consequential verified break remains in `artifacts/api-server/src/routes/ai/chat.ts`: apply creates an operation-scoped delivery workspace (`createDeliveryWorkspace`), but the behavioral validation call uses the resolved live project root (`runRepairValidation(resolvedRoot, ...)`). The isolated artifact is therefore not the behavioral test target. Promotion hardening now uses durable promotion intent, atomic per-file replacement, and startup recovery (`delivery-workspace.ts` and `job-reconciliation.ts`), but a multi-file promotion is still a recoverable protocol rather than an atomic whole-tree swap. The validation-root mismatch remains an integrity failure, not merely missing convenience.
+174:Task #45 completed the promotion protocol baseline: promotion intent, atomic per-file writes, persisted journal outcomes, and startup recovery classification are now source evidence. The remaining P0 work is validation-root integrity, conservative recovery verification, cancellation/checkpoint/token races, root policy, command TOCTOU, and graph/auth boundary hardening. These are prerequisites, not autonomous-loop behavior.
+
+./artifacts/api-server/src/lib/ai-repair-validation.ts
+108:  ".engineeringos-delivery",
+151:  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-validation-"));
+270:      artifactRef: `validation-result:${evidenceId}`,
+
+./lib/ai-orchestrator/benchmark-results/paid-openrouter-auto-validation/code-agent-benchmark-airlock.run.json
+6:  "runId": "paid-openrouter-auto-validation-final",
+
+./artifacts/api-server/src/lib/startup-migrations.test.ts
+106:          evidenceId: "validation-result:1",
+108:          artifactRef: "validation-result:1",
+124:          evidenceId: "validation-result:1",
+126:          artifactRef: "validation-result:1",
+213:          evidence: { evidenceId: "validation-result:old", artifactRef: "validation-result:old" },
+225:        evidence: { evidenceId: "validation-result:old", artifactRef: "validation-result:old" },
+
+./artifacts/api-server/src/lib/run-code-agent-benchmark.ts
+64:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-"));
+
+./docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md
+448:| **Truth Governance / ETV** | **مفقود كطبقة تنفيذية** | 0.93 | بناء خدمة Engineering Truth Verification كطبقة تشغيلية فعلية: rules, runs, findings, drift register, verification snapshots. | `docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md`, `docs/fact-record.md`, `docs/completion-plan.md`, truth registry artifacts |
+
+./artifacts/api-server/src/lib/path-validation.test.ts
+12:import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+131:    workDir = await mkdtemp(join(tmpdir(), "eos-symlink-test-"));
+208:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+215:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+222:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+229:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+236:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+251:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-empty-"));
+258:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-empty-"));
+268:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-unknown-"));
+
+./artifacts/api-server/src/lib/operational-readiness-gate.ts
+99:  checks.push(check("required-validation-nodes", nodesPassed,
+
+./lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts
+28:    const root = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-forensic-"));
+
+./lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts
+67:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-manifest-"));
+89:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-prompt-manifest-"));
+138:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-plan-grounding-"));
+
+./lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts
+153:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-terminal-kind-"));
+
+./lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts
+538:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-five-file-"));
+651:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-complete-"));
+720:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-partial-"));
+796:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-truncated-"));
+
+./lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts
+117:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-feg018-bench-"));
+
+./artifacts/api-server/src/lib/github-connector.test.ts
+4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+29:    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-"));
+99:    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-drift-"));
+
+./lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts
+291:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s1-"));
+346:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s2-"));
+405:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s4-"));
+450:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s5-"));
+496:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s6-"));
+563:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s7-"));
+635:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s3-"));
+685:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s8-"));
+737:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s10-"));
+782:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s11-"));
+843:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s12-"));
+922:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s13-"));
+1006:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s14-"));
+1090:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s15-"));
+1171:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s9-"));
+
+./artifacts/api-server/src/lib/archive-safety.test.ts
+3:import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+24:  const root = await mkdtemp(join(tmpdir(), "eos-archive-test-"));
+30:  const source = await mkdtemp(join(tmpdir(), "eos-tar-source-"));
+76:    const source = await mkdtemp(join(tmpdir(), "eos-tar-link-"));
+
+./artifacts/api-server/src/lib/ai-execution-state.ts
+322:        id: "validation-passed",
+
+./artifacts/api-server/scripts/release-lock.test.mjs
+2:import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+9:  const root = await mkdtemp(path.join(os.tmpdir(), "engineeringos-release-lock-"));

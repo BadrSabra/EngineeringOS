@@ -1,0 +1,182 @@
+scripts/release-configuration.test.ts
+9:const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+14:  return readFile(resolve(workspaceRoot, fileName), "utf8");
+152:      cwd: workspaceRoot,
+202:      cwd: workspaceRoot,
+250:    cwd: workspaceRoot,
+330:      cwd: workspaceRoot,
+355:    cwd: workspaceRoot,
+384:    cwd: workspaceRoot,
+399:      cwd: workspaceRoot,
+453:        cwd: workspaceRoot,
+
+scripts/run-dashboard-journey.mjs
+80:const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
+140:    reason: redact(String(reason)).replaceAll(workspaceRoot, "[PROJECT_ROOT]"),
+235:    cwd: workspaceRoot,
+919:      workspaceRoot,
+1009:        cwd: workspaceRoot,
+1030:            workspaceRoot,
+
+scripts/validate-benchmark-baseline.ts
+20:const workspaceRoot = resolve(import.meta.dirname, "..");
+22:  workspaceRoot,
+
+artifacts/api-server/src/routes/ai.test.ts
+40:import { createDeliveryWorkspace, deliveryWorkspaceExists } from "../lib/delivery-workspace.js";
+489:): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+504:  let workspaceRoot: string | null = null;
+509:    const workspace = await createDeliveryWorkspace({
+515:    workspaceRoot = workspace.workspaceRoot;
+516:    deliveryWorkspaceRoots.push(workspaceRoot);
+521:    workspaceRoot,
+527:  return { proposalId, operationId, workspaceRoot, change };
+672:  for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
+673:    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+2719:      operation.workspaceRoot,
+2797:    expect(res.body.operations[0]).not.toHaveProperty("workspaceRoot");
+2830:    expect(JSON.stringify(res.body)).not.toContain("workspaceRoot");
+2840:      operation.workspaceRoot,
+2886:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(true);
+2893:    await fs.rm(operation.workspaceRoot!, { recursive: true, force: true });
+2909:    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+2940:    expect(await fs.readFile(`${operation.workspaceRoot}/${operation.change.path}`, "utf8"))
+2962:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(false);
+3541:    // runRepairValidation returns ValidationResult — supply every required field.
+3542:    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+286:    runRepairValidation: vi.fn(async (_rootPath: string, profile: string) => {
+
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts
+164:    runRepairValidation: vi.fn(async (...args: unknown[]) => {
+175:      return actual.runRepairValidation(...(
+176:        args as Parameters<typeof actual.runRepairValidation>
+294:    const workspaceRoot = path.resolve(process.cwd(), "../..");
+297:    await fs.symlink(workspaceRoot, rootPath, "dir");
+300:    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+417:    const workspaceRoot = path.resolve(process.cwd(), "../..");
+419:    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+425:    await fs.symlink(workspaceRoot, rootPath, "dir");
+543:    const workspaceRoot = path.resolve(process.cwd(), "../..");
+545:    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+550:    await fs.symlink(workspaceRoot, rootPath, "dir");
+626:    const workspaceRoot = path.resolve(process.cwd(), "../..");
+628:    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+633:    await fs.symlink(workspaceRoot, rootPath, "dir");
+
+artifacts/api-server/src/routes/git.ts
+335:        proposal.workspaceRoot
+
+artifacts/api-server/src/routes/ai/chat.ts
+103:  runRepairValidation,
+105:  createValidationWorkspace,
+150:  createDeliveryWorkspace,
+151:  discardDeliveryWorkspace,
+3723:            return runRepairValidation(
+3768:          const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
+5606:        || proposal.workspaceRoot
+5651:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+5717:    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+5721:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+5744:  const workspaceRoot = proposal.workspaceRoot!;
+5746:  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+5758:    const result = await runRepairValidation(
+5759:      workspaceRoot,
+5815:  if (updated && proposal.workspaceRoot && proposal.operationId) {
+5816:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+6232:  if (proposal.workspaceRoot && proposal.operationId) {
+6233:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+6438:    const deliveryWorkspace = await createDeliveryWorkspace({
+6447:        workspaceRoot: deliveryWorkspace.workspaceRoot,
+6657:      const candidatePath = path.resolve(deliveryWorkspace.workspaceRoot, change.path);
+6658:      if (candidatePath !== deliveryWorkspace.workspaceRoot
+6659:        && !candidatePath.startsWith(`${deliveryWorkspace.workspaceRoot}${path.sep}`)) {
+6665:    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+6688:      const validation = await runRepairValidation(
+6689:        deliveryWorkspace.workspaceRoot,
+6702:    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+6749:        candidateWorkspace: deliveryWorkspace.workspaceRoot,
+6806:      ? await hashDeliveryFiles(deliveryWorkspace.workspaceRoot, candidateChanges)
+
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+271:  const workspaceRoot = path.resolve(process.cwd(), "../..");
+280:      cwd: workspaceRoot,
+284:        path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+
+lib/db/src/schema/ai_executions.ts
+61:  workspaceRoot: text("workspace_root"),
+
+lib/db/src/schema/ai_change_proposals.ts
+49:  workspaceRoot: text("workspace_root"),
+
+artifacts/api-server/src/lib/delivery-workspace.ts
+66:  workspaceRoot: string;
+90:export async function hashDeliveryWorkspace(workspaceRoot: string): Promise<string> {
+95:      if (directory === workspaceRoot && entry.name === MARKER) continue;
+97:      const relative = path.relative(workspaceRoot, absolute).replaceAll("\\", "/");
+108:  await visit(workspaceRoot);
+126:export function deliveryWorkspacePath(operationId: string): string {
+131:export async function createDeliveryWorkspace(input: {
+137:  const workspaceRoot = deliveryWorkspacePath(input.operationId);
+144:      if ((await readFile(path.join(workspaceRoot, MARKER), "utf8")) === `${input.operationId}\n`) {
+145:        await rm(workspaceRoot, { recursive: true, force: true });
+151:    const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+156:      : workspaceRoot;
+198:    if (copyDestination !== workspaceRoot) {
+199:      await rename(copyDestination, workspaceRoot);
+201:    await writeFile(path.join(workspaceRoot, MARKER), `${input.operationId}\n`, { flag: "wx", mode: 0o600 });
+204:      const target = path.resolve(workspaceRoot, relative);
+205:      if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`)) {
+214:      workspaceRoot,
+220:    await rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+225:export async function discardDeliveryWorkspace(workspaceRoot: string, operationId: string): Promise<boolean> {
+226:  const candidate = path.resolve(workspaceRoot);
+227:  if (candidate !== deliveryWorkspacePath(operationId)) return false;
+238:export async function deliveryWorkspaceExists(workspaceRoot: string | null, operationId: string): Promise<boolean> {
+239:  if (!workspaceRoot) return false;
+240:  const candidate = path.resolve(workspaceRoot);
+241:  if (candidate !== deliveryWorkspacePath(operationId)) return false;
+
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+27:  runRepairValidation,
+85:    return runRepairValidation(
+209:    return runRepairValidation(
+
+artifacts/api-server/src/lib/job-reconciliation.ts
+87:      workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+156:          workspaceRoot: proposal.workspaceRoot,
+
+artifacts/api-server/src/lib/ai-repair-validation.ts
+25: * New validation results returned by runRepairValidation are always canonical.
+138:export async function createValidationWorkspace(
+151:  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-validation-"));
+153:    await fs.cp(sourceRoot, workspaceRoot, {
+164:    const overlayModules = path.join(workspaceRoot, "node_modules");
+176:          ? path.join(workspaceRoot, "artifacts/api-server")
+178:            ? path.join(workspaceRoot, "artifacts/dashboard")
+179:            : path.join(workspaceRoot, "lib", workspacePackage.name);
+186:      const target = path.resolve(workspaceRoot, relative);
+187:      if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`)) {
+195:      rootPath: workspaceRoot,
+197:        await fs.rm(workspaceRoot, { recursive: true, force: true });
+201:    await fs.rm(workspaceRoot, { recursive: true, force: true });
+302:async function runRepairValidationCore(
+326:    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+446:  const operation = runRepairValidationCore(
+474:export async function runRepairValidation(
+511:    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+
+artifacts/api-server/src/lib/ai-repair-validation.test.ts
+7:  runRepairValidation,
+54:    const result = await runRepairValidation("/tmp", "ai-orchestrator-tests", [
+70:    const result = await runRepairValidation(
+
+artifacts/api-server/src/lib/delivery-workspace.test.ts
+6:  createDeliveryWorkspace,
+7:  discardDeliveryWorkspace,
+21:      const workspace = await createDeliveryWorkspace({
+28:      expect(workspace.workspaceRoot).not.toBe(fixture);
+29:      await expect(readFile(join(workspace.workspaceRoot, "app.ts"), "utf8"))
+33:      await expect(discardDeliveryWorkspace(workspace.workspaceRoot, operationId)).resolves.toBe(true);
+41:    await expect(discardDeliveryWorkspace("/tmp/not-owned", operationId)).resolves.toBe(false);

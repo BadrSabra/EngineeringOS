@@ -1,7 +1,9 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  createValidationWorkspace,
   getRepairValidationProfile,
   runRepairRuntimeOracle,
   runRepairValidation,
@@ -60,6 +62,38 @@ describe("AI repair validation registry", () => {
     expect(result.overallBudgetMs).toBeGreaterThanOrEqual(result.processBudgetMs ?? 0);
     expect(result.terminalState).toBe("unavailable");
     expect(result.nextAction).toMatch(/profile|workspace|validation/i);
+  });
+
+  it("keeps validation workspaces outside a redirected TMPDIR and cleans them up", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-source-"));
+    const hostileTmpDir = path.join(sourceRoot, ".engineeringos-delivery", "validation-tmp");
+    await fs.mkdir(path.join(sourceRoot, "node_modules"), { recursive: true });
+    await fs.writeFile(path.join(sourceRoot, "package.json"), '{"name":"validation-source"}\n', "utf8");
+    await fs.writeFile(path.join(sourceRoot, "src.ts"), "export const value = 1;\n", "utf8");
+    await fs.mkdir(hostileTmpDir, { recursive: true });
+
+    const previousTmpDir = process.env.TMPDIR;
+    process.env.TMPDIR = hostileTmpDir;
+    let workspace: Awaited<ReturnType<typeof createValidationWorkspace>> | undefined;
+    try {
+      workspace = await createValidationWorkspace(sourceRoot, [
+        { path: "src.ts", newContent: "export const value = 2;\n" },
+      ]);
+
+      expect(path.dirname(workspace.rootPath)).toBe("/tmp");
+      expect(workspace.rootPath).not.toContain(".engineeringos-delivery");
+      expect(await fs.readFile(path.join(workspace.rootPath, "src.ts"), "utf8")).toBe(
+        "export const value = 2;\n",
+      );
+    } finally {
+      await workspace?.cleanup();
+      if (previousTmpDir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previousTmpDir;
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+    }
+
+    expect(workspace).toBeDefined();
+    await expect(fs.access(workspace!.rootPath)).rejects.toThrow();
   });
 
   it("runs validation against pending content in an isolated workspace", async () => {

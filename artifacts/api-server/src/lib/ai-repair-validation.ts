@@ -1,5 +1,4 @@
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -98,6 +97,11 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
 
 const VALIDATION_OUTPUT_LIMIT = 12_000;
 const VALIDATION_DETAIL_LIMIT = 4_000;
+// Validation workspaces are disposable execution sandboxes, not durable
+// project roots. Do not use os.tmpdir() here: TMPDIR can be redirected into
+// .engineeringos-delivery, where the host discovers copied artifact metadata
+// and registers every validation copy as a workflow.
+const VALIDATION_TMP_ROOT = "/tmp";
 const VALIDATION_COPY_OMIT = new Set([
   ".git",
   "node_modules",
@@ -148,7 +152,7 @@ export async function createValidationWorkspace(
   // passed as the directory source as a non-directory when the destination
   // already exists, which would fail closed before the overlay is materialized.
   const sourceRoot = await fs.realpath(rootPath);
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-validation-"));
+  const workspaceRoot = await fs.mkdtemp(path.join(VALIDATION_TMP_ROOT, "engineeringos-validation-"));
   try {
     await fs.cp(sourceRoot, workspaceRoot, {
       recursive: true,
