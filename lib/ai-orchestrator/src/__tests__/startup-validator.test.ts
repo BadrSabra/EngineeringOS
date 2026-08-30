@@ -78,4 +78,49 @@ describe("validateAiProvidersAtStartup", () => {
       modelCheck: "passed",
     });
   });
+
+  it("publishes one safe callback per missing model role", async () => {
+    process.env.GROQ_API_KEY = "valid-groq-key";
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        models = {
+          list: vi.fn().mockResolvedValue({
+            object: "list",
+            data: [],
+          }),
+        };
+      },
+    }));
+
+    const onDrift = vi.fn();
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    await validateAiProvidersAtStartup({ onGroqModelCatalogDrift: onDrift });
+
+    expect(onDrift).toHaveBeenCalledTimes(2);
+    expect(onDrift).toHaveBeenCalledWith({
+      role: "fast",
+      modelId: "openai/gpt-oss-20b",
+    });
+    expect(onDrift).toHaveBeenCalledWith({
+      role: "powerful",
+      modelId: "openai/gpt-oss-120b",
+    });
+    expect(JSON.stringify(onDrift.mock.calls)).not.toContain("valid-groq-key");
+  });
+
+  it("keeps healthy and unconfigured Groq checks quiet", async () => {
+    const onDrift = vi.fn();
+    const onHealthy = vi.fn();
+    const onNotConfigured = vi.fn();
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    await validateAiProvidersAtStartup({
+      onGroqModelCatalogDrift: onDrift,
+      onGroqModelCatalogHealthy: onHealthy,
+      onGroqModelCatalogNotConfigured: onNotConfigured,
+    });
+
+    expect(onDrift).not.toHaveBeenCalled();
+    expect(onHealthy).not.toHaveBeenCalled();
+    expect(onNotConfigured).toHaveBeenCalledTimes(1);
+  });
 });

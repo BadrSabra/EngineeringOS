@@ -17,7 +17,9 @@ import { heavyJobQueue } from "./lib/job-queue";
 import {
   ApplicationSchemaError,
   AuditSchemaError,
+  OperatorAlertSchemaError,
   assertAuditOutboxSchema,
+  assertOperatorAlertSchema,
   pool,
 } from "@workspace/db";
 import {
@@ -30,6 +32,10 @@ import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
 import { drainPendingAudits, loadPendingAudits } from "./lib/audit";
 import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
 import { assertDatabaseApplicationSchema } from "./lib/database-schema-preflight";
+import {
+  recordGroqModelCatalogDrift,
+  resolveGroqModelCatalogAlerts,
+} from "./lib/operator-alerts";
 
 /**
  * DB-07: Bootstrap guard — verify the release-critical task contract before
@@ -124,6 +130,22 @@ try {
   );
   process.exit(1);
 }
+try {
+  await assertOperatorAlertSchema();
+} catch (err) {
+  const alertIssue =
+    err instanceof OperatorAlertSchemaError
+      ? err.message
+      : "schema contract unavailable";
+  logger.error(
+    {
+      alertIssue,
+      fix: "pnpm --filter @workspace/db run schema:apply",
+    },
+    "OPERATOR ALERT SCHEMA CHECK FAILED — apply the Drizzle schema before starting the API",
+  );
+  process.exit(1);
+}
 
 // Start the background free-model catalog refresh scheduler.  Runs every 5
 // minutes so the resolver always has a fresh live list of free-tier models —
@@ -136,7 +158,12 @@ const { stop: stopCatalogRefresh } = startCatalogRefreshScheduler();
 // the dynamic OpenRouter catalog. The validator returns actionable provider
 // results instead of throwing for expected provider failures.
 try {
-  await validateAiProvidersAtStartup();
+  await validateAiProvidersAtStartup({
+    onGroqModelCatalogDrift: ({ role, modelId }) =>
+      recordGroqModelCatalogDrift(role, modelId),
+    onGroqModelCatalogHealthy: () => resolveGroqModelCatalogAlerts(),
+    onGroqModelCatalogNotConfigured: () => resolveGroqModelCatalogAlerts(),
+  });
 } catch (err: unknown) {
   logger.warn(
     { err },

@@ -7,7 +7,7 @@
     "codegen": "pnpm --filter @workspace/api-spec run codegen",
     "codegen:check": "pnpm --filter @workspace/scripts run check-codegen-drift",
     "db:schema:apply": "pnpm --filter @workspace/db run schema:apply && pnpm run db:schema:check",
-    "db:schema:check": "pnpm --filter @workspace/db run schema:check && pnpm --filter @workspace/db run check-audit-schema",
+    "db:schema:check": "pnpm --filter @workspace/db run schema:check && pnpm --filter @workspace/db run check-audit-schema && pnpm --filter @workspace/db run check-operator-alert-schema",
     "verify:benchmark-rollout": "node scripts/verify-benchmark-rollout.mjs",
     "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
     "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",

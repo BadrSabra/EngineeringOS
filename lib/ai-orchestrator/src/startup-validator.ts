@@ -37,6 +37,32 @@ export type ProviderValidationResult = {
   modelCheck?: "passed" | "missing" | "unavailable";
 };
 
+export type StartupValidatorOptions = {
+  onGroqModelCatalogDrift?: (input: {
+    role: GroqDefaultModelValidation["missing"][number];
+    modelId: string;
+  }) => void | Promise<void>;
+  onGroqModelCatalogHealthy?: () => void | Promise<void>;
+  onGroqModelCatalogNotConfigured?: () => void | Promise<void>;
+};
+
+async function notifyStartupValidator(
+  callback: (() => void | Promise<void>) | undefined,
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback();
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        scope: "startup-validator",
+        status: "alert_persistence_failed",
+        error: error instanceof Error ? error.message : "unknown error",
+      }),
+    );
+  }
+}
+
 /** Environment variable names for each provider's API key. */
 const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
   openrouter: "OPENROUTER_API_KEY",
@@ -50,7 +76,9 @@ const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
  * Results are logged at INFO/WARN level; the array is returned for
  * callers that want to surface the status in /api/healthz or /api/ai/providers.
  */
-export async function validateAiProvidersAtStartup(): Promise<ProviderValidationResult[]> {
+export async function validateAiProvidersAtStartup(
+  options: StartupValidatorOptions = {},
+): Promise<ProviderValidationResult[]> {
   const results: ProviderValidationResult[] = [];
 
   // Track whether any provider is usable at all.
@@ -62,6 +90,9 @@ export async function validateAiProvidersAtStartup(): Promise<ProviderValidation
     const keyValue = process.env[keyEnv];
 
     if (!keyValue) {
+      if (providerId === "groq") {
+        await notifyStartupValidator(options.onGroqModelCatalogNotConfigured);
+      }
       results.push({
         provider: providerId,
         valid: false,
@@ -150,9 +181,18 @@ export async function validateAiProvidersAtStartup(): Promise<ProviderValidation
             reason,
           }),
         );
+        for (const role of modelValidation.missing) {
+          await notifyStartupValidator(() =>
+            options.onGroqModelCatalogDrift?.({
+              role,
+              modelId: modelValidation.checkedModels[role],
+            }),
+          );
+        }
         continue;
       }
 
+      await notifyStartupValidator(options.onGroqModelCatalogHealthy);
       results.push({
         provider: providerId,
         valid: true,

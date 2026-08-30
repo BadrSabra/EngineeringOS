@@ -1,6 +1,8 @@
 import React from 'react';
 import {
   getGetHealthQueryKey,
+  getListOperatorAlertsQueryKey,
+  useListOperatorAlerts,
   useGetDashboard,
   useGetHealth,
 } from '@workspace/api-client-react';
@@ -21,6 +23,105 @@ function formatHealthTimestamp(value: Date | string | null | undefined): string 
   if (!value) return 'Not recorded';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString();
+}
+
+function OperatorAlertsCard() {
+  const { data, error, isLoading, isFetching, refetch } = useListOperatorAlerts(
+    { activeOnly: true, limit: 50 },
+    {
+      query: {
+        queryKey: getListOperatorAlertsQueryKey({ activeOnly: true, limit: 50 }),
+        refetchInterval: 30_000,
+        retry: 1,
+      },
+    },
+  );
+  const alerts = data?.alerts ?? [];
+
+  return (
+    <section
+      aria-label="Operator alerts"
+      className={`rounded-xl border p-4 shadow-sm ${
+        alerts.length > 0
+          ? 'border-amber-500/30 bg-amber-500/5'
+          : 'border-emerald-500/20 bg-emerald-500/5'
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+            alerts.length > 0
+              ? 'bg-amber-500/10 text-amber-300'
+              : 'bg-emerald-500/10 text-emerald-500'
+          }`}
+        >
+          {alerts.length > 0 ? (
+            <AlertTriangle className="h-4 w-4" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold">Operator alerts</h2>
+            {alerts.length > 0 && (
+              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-300">
+                {alerts.length} open
+              </span>
+            )}
+          </div>
+          {isLoading ? (
+            <p className="mt-1 text-xs text-muted-foreground">Checking provider health…</p>
+          ) : error ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive/80">
+              <span>Could not load operator alerts.</span>
+              <button
+                type="button"
+                className="font-medium text-primary hover:underline"
+                onClick={() => void refetch()}
+              >
+                Retry
+              </button>
+            </div>
+          ) : alerts.length === 0 ? (
+            <p className="mt-1 text-xs text-emerald-200/80">
+              No active provider alerts. Groq defaults are either healthy or not configured.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {alerts.map((alert) => (
+                <div key={alert.id} className="rounded-lg border border-amber-500/20 bg-background/30 p-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="text-sm font-medium text-amber-100">{alert.title}</h3>
+                    <span className="text-[10px] text-muted-foreground">
+                      Seen {formatHealthTimestamp(alert.lastSeenAt)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{alert.message}</p>
+                  <p className="mt-2 text-xs leading-5 text-amber-200/90">
+                    <span className="font-medium">Remediation:</span> {alert.remediation}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                    <span>Role: {alert.modelRole === 'fast' ? 'Fast' : 'Powerful'}</span>
+                    <span className="font-mono break-all">{alert.modelId}</span>
+                    {alert.occurrenceCount > 1 && <span>Observed {alert.occurrenceCount} times</span>}
+                    <Link href="/ai" className="text-primary hover:underline">
+                      Open provider settings
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {isFetching && !isLoading && (
+          <span className="text-[10px] text-muted-foreground" aria-label="Refreshing operator alerts">
+            Updating…
+          </span>
+        )}
+      </div>
+    </section>
+  );
 }
 
 export default function Dashboard() {
@@ -93,6 +194,8 @@ export default function Dashboard() {
           </span>
         </div>
       </div>
+
+      <OperatorAlertsCard />
 
       {/* Retention health is deliberately limited to content-free sweep metadata. */}
       <section

@@ -617,6 +617,58 @@ export interface GroqKeyStatus {
   updatedAt?: string | null;
 }
 
+export type OperatorAlertKind = typeof OperatorAlertKind[keyof typeof OperatorAlertKind];
+
+
+export const OperatorAlertKind = {
+  groq_model_catalog_drift: 'groq_model_catalog_drift',
+} as const;
+
+export type OperatorAlertStatus = typeof OperatorAlertStatus[keyof typeof OperatorAlertStatus];
+
+
+export const OperatorAlertStatus = {
+  open: 'open',
+  resolved: 'resolved',
+} as const;
+
+export type OperatorAlertProvider = typeof OperatorAlertProvider[keyof typeof OperatorAlertProvider];
+
+
+export const OperatorAlertProvider = {
+  groq: 'groq',
+} as const;
+
+export type OperatorAlertModelRole = typeof OperatorAlertModelRole[keyof typeof OperatorAlertModelRole];
+
+
+export const OperatorAlertModelRole = {
+  fast: 'fast',
+  powerful: 'powerful',
+} as const;
+
+export interface OperatorAlert {
+  id: string;
+  fingerprint: string;
+  kind: OperatorAlertKind;
+  status: OperatorAlertStatus;
+  provider: OperatorAlertProvider;
+  modelRole: OperatorAlertModelRole;
+  modelId: string;
+  title: string;
+  message: string;
+  remediation: string;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  /** @nullable */
+  resolvedAt: string | null;
+}
+
+export interface OperatorAlertsResponse {
+  alerts: OperatorAlert[];
+}
+
 export interface SaveGroqKeyInput {
   /**
      * The Groq API key to save. Must not be logged or returned.
@@ -3459,5 +3511,18 @@ export type GetAiMetrics200MetricsItem = { [key: string]: unknown };
 export type GetAiMetrics200 = {
   metrics: GetAiMetrics200MetricsItem[];
   behavioralScorecards: BehavioralModelScorecard[];
+};
+
+export type ListOperatorAlertsParams = {
+/**
+ * Return only currently open alerts unless set to false.
+ */
+activeOnly?: boolean;
+/**
+ * Maximum number of alerts to return.
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };
 

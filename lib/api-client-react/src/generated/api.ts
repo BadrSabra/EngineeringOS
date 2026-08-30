@@ -102,6 +102,7 @@ import type {
   ListGraphEntitiesParams,
   ListGraphRelationshipsParams,
   ListMetricsParams,
+  ListOperatorAlertsParams,
   ListProjectsParams,
   ListRecoverableAiDeliveries200,
   ListRecoverableAiDeliveriesParams,
@@ -110,6 +111,7 @@ import type {
   ListWorkflowsParams,
   MetricRecord,
   OpenRouterKeyStatus,
+  OperatorAlertsResponse,
   Plugin,
   PluginProjectRequest,
   Project,
@@ -8199,6 +8201,90 @@ export function useGetAiMetrics<TData = Awaited<ReturnType<typeof getAiMetrics>>
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAiMetricsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListOperatorAlertsUrl = (params?: ListOperatorAlertsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/operator-alerts?${stringifiedParams}` : `/api/ai/operator-alerts`
+}
+
+/**
+ * @summary List durable deployment-wide operator alerts
+ */
+export const listOperatorAlerts = async (params?: ListOperatorAlertsParams, options?: RequestInit): Promise<OperatorAlertsResponse> => {
+
+  return customFetch<OperatorAlertsResponse>(getListOperatorAlertsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListOperatorAlertsQueryKey = (params?: ListOperatorAlertsParams,) => {
+    return [
+    `/api/ai/operator-alerts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListOperatorAlertsQueryOptions = <TData = Awaited<ReturnType<typeof listOperatorAlerts>>, TError = ErrorType<void>>(params?: ListOperatorAlertsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOperatorAlerts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListOperatorAlertsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listOperatorAlerts>>> = ({ signal }) => listOperatorAlerts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listOperatorAlerts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListOperatorAlertsQueryResult = NonNullable<Awaited<ReturnType<typeof listOperatorAlerts>>>
+export type ListOperatorAlertsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List durable deployment-wide operator alerts
+ */
+
+export function useListOperatorAlerts<TData = Awaited<ReturnType<typeof listOperatorAlerts>>, TError = ErrorType<void>>(
+ params?: ListOperatorAlertsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOperatorAlerts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListOperatorAlertsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

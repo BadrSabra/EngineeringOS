@@ -15,6 +15,7 @@ import analysisRouter from "./analysis.js";
 import workflowsRouter from "./workflows.js";
 import tasksRouter from "./tasks.js";
 import benchmarkRouter from "./benchmark.js";
+import operatorAlertsRouter from "./operator-alerts.js";
 
 export { scheduleAiTaskExecution } from "./tasks.js";
 
@@ -26,5 +27,6 @@ router.use(analysisRouter);
 router.use(workflowsRouter);
 router.use(tasksRouter);
 router.use(benchmarkRouter);
+router.use(operatorAlertsRouter);
 
 export default router;

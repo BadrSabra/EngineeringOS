@@ -5249,6 +5249,40 @@ export const GetAiMetricsResponse = zod.object({
 
 
 /**
+ * @summary List durable deployment-wide operator alerts
+ */
+export const listOperatorAlertsQueryActiveOnlyDefault = true;
+export const listOperatorAlertsQueryLimitDefault = 50;
+export const listOperatorAlertsQueryLimitMax = 100;
+
+
+
+export const ListOperatorAlertsQueryParams = zod.object({
+  "activeOnly": zod.coerce.boolean().default(listOperatorAlertsQueryActiveOnlyDefault).describe('Return only currently open alerts unless set to false.'),
+  "limit": zod.coerce.number().min(1).max(listOperatorAlertsQueryLimitMax).default(listOperatorAlertsQueryLimitDefault).describe('Maximum number of alerts to return.')
+})
+
+export const ListOperatorAlertsResponse = zod.object({
+  "alerts": zod.array(zod.object({
+  "id": zod.string(),
+  "fingerprint": zod.string(),
+  "kind": zod.enum(['groq_model_catalog_drift']),
+  "status": zod.enum(['open', 'resolved']),
+  "provider": zod.enum(['groq']),
+  "modelRole": zod.enum(['fast', 'powerful']),
+  "modelId": zod.string(),
+  "title": zod.string(),
+  "message": zod.string(),
+  "remediation": zod.string(),
+  "occurrenceCount": zod.number(),
+  "firstSeenAt": zod.coerce.date(),
+  "lastSeenAt": zod.coerce.date(),
+  "resolvedAt": zod.coerce.date().nullable()
+}))
+})
+
+
+/**
  * @summary Get which AI provider will be used for the authenticated user
  */
 export const GetActiveProviderResponse = zod.object({

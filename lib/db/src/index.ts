@@ -19,6 +19,10 @@ export {
   assertAuditOutboxSchema,
 } from "./audit-schema-check.js";
 export {
+  OperatorAlertSchemaError,
+  assertOperatorAlertSchema,
+} from "./operator-alert-schema-check.js";
+export {
   APPLICATION_SCHEMA_CONTRACT,
   ApplicationSchemaError,
   applicationSchemaDeliveryCommand,

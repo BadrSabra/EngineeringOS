@@ -753,7 +753,10 @@ export {
 
 // PR-006: startup validator
 export { validateAiProvidersAtStartup } from "./startup-validator.js";
-export type { ProviderValidationResult } from "./startup-validator.js";
+export type {
+  ProviderValidationResult,
+  StartupValidatorOptions,
+} from "./startup-validator.js";
 
 // PR-004/PR-007/PR-008: extended error types
 export type { ProviderErrorContext } from "./errors.js";
