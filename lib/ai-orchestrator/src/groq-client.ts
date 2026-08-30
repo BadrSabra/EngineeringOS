@@ -89,16 +89,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * llama-3.3-70b-versatile — confirmed working on Groq free tier.
- *
- * DeepSeek-R1 (deepseek-r1-distill-llama-70b) returns AUTH_ERROR (403) on
- * free-tier Groq keys — it requires a paid Groq plan. Reverted to Llama
- * until the user upgrades Groq or switches to DeepSeek's own API directly
- * (api.deepseek.com), which has a generous free tier.
+ * Current production Groq models. Keep these aligned with provider-registry.ts
+ * so provider selection never routes a valid credential to a retired model.
  */
-export const MODEL_POWERFUL = "llama-3.3-70b-versatile";
-/** Same as MODEL_POWERFUL — both confirmed on free Groq tier. */
-export const MODEL_FAST = "llama-3.3-70b-versatile";
+export const MODEL_POWERFUL = "openai/gpt-oss-120b";
+export const MODEL_FAST = "openai/gpt-oss-20b";
 
 // Singleton for the env-var key; per-key cache for user-provided keys.
 let _envClient: Groq | null = null;

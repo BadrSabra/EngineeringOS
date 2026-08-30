@@ -150,11 +150,11 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     supportsTools: true,
     supportsJsonMode: true,
     defaultModels: {
-      // Keep the resolver aligned with groq-client.ts. The older 8B slug can
-      // return 404 on current Groq accounts, which otherwise turns a valid
-      // Groq fallback lane into a hard provider failure.
-      fast: "llama-3.3-70b-versatile",
-      powerful: "llama-3.3-70b-versatile",
+      // Keep the resolver aligned with groq-client.ts. Groq retires model
+      // slugs periodically, so stale defaults turn valid credentials into
+      // MODEL_NOT_FOUND failures.
+      fast: "openai/gpt-oss-20b",
+      powerful: "openai/gpt-oss-120b",
     },
     capabilities: {
       supportsStreaming: true,

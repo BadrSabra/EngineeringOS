@@ -27,7 +27,7 @@ describe("groq-client", () => {
           completions: {
             create: vi.fn().mockResolvedValue({
               choices: [{ message: { content: '{"ok":true}' } }],
-              model: "llama-3.3-70b-versatile",
+              model: "openai/gpt-oss-20b",
               usage: { prompt_tokens: 10, completion_tokens: 5 },
             }),
           },
@@ -38,7 +38,7 @@ describe("groq-client", () => {
     const result = await complete([{ role: "user", content: "hi" }]);
     expect(result).toEqual({
       content: '{"ok":true}',
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-20b",
       usage: { promptTokens: 10, completionTokens: 5 },
     });
   });
