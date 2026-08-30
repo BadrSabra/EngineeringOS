@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { db, aiExecutionsTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import type { ExecutionNode, FlightDeckEvidenceVerdict } from "@workspace/ai-orchestrator";
@@ -56,6 +56,245 @@ export type AutonomousOperationNode = {
   evidenceRefs: string[];
 };
 
+export const RECIPE_OPERATION_PHASES = [
+  "planned",
+  "queued",
+  "running",
+  "mutating",
+  "validating",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+export type RecipeOperationPhase = (typeof RECIPE_OPERATION_PHASES)[number];
+
+export type RecipeOperationBudget = {
+  maxNodes: number;
+  maxParallelNodes: number;
+  maxTotalTimeoutMs: number;
+  maxProcessCount: number;
+  maxOutputBytes: number;
+};
+
+export type RecipeOperationBinding = {
+  projectId: string;
+  operationId: string;
+  sourceRevision: string;
+  candidateIdentity: string | null;
+  candidateWorkspace: string | null;
+  approvedPaths: string[];
+  phase: RecipeOperationPhase;
+  leaseOwner: string | null;
+  leaseUntil: string | null;
+  missionBudget: RecipeOperationBudget;
+  concurrencyBudget: {
+    maxInFlightNodes: number;
+    maxProcesses: number;
+  };
+};
+
+export type RecipeBindingExpectation = {
+  projectId?: string;
+  operationId?: string;
+  sourceRevision?: string;
+  candidateIdentity?: string | null;
+  candidateWorkspace?: string | null;
+  leaseOwner?: string | null;
+  phase?: RecipeOperationPhase;
+  now?: Date;
+  requireLease?: boolean;
+  approvedPaths?: readonly string[];
+};
+
+export type RecipeBindingCheck = {
+  allowed: boolean;
+  reason:
+    | "allowed"
+    | "invalid_binding"
+    | "project_mismatch"
+    | "operation_mismatch"
+    | "revision_mismatch"
+    | "candidate_mismatch"
+    | "workspace_mismatch"
+    | "scope_mismatch"
+    | "phase_mismatch"
+    | "lease_owner_mismatch"
+    | "lease_expired"
+    | "budget_exceeded";
+  detail: string;
+};
+
+const RECIPE_PATH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!\.\.?$).+$/;
+
+function normalizedRecipePath(value: string): string {
+  return value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+}
+
+function validRecipeBudget(value: unknown): value is RecipeOperationBudget {
+  if (!value || typeof value !== "object") return false;
+  const budget = value as Partial<RecipeOperationBudget>;
+  return Number.isInteger(budget.maxNodes) && budget.maxNodes! >= 1 && budget.maxNodes! <= AI_EXECUTION_NODE_LIMIT
+    && Number.isInteger(budget.maxParallelNodes) && budget.maxParallelNodes! >= 1 && budget.maxParallelNodes! <= 8
+    && Number.isInteger(budget.maxTotalTimeoutMs) && budget.maxTotalTimeoutMs! >= 1 && budget.maxTotalTimeoutMs! <= 900_000
+    && Number.isInteger(budget.maxProcessCount) && budget.maxProcessCount! >= 1 && budget.maxProcessCount! <= 24
+    && Number.isInteger(budget.maxOutputBytes) && budget.maxOutputBytes! >= 1 && budget.maxOutputBytes! <= 8 * 1024 * 1024;
+}
+
+function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<RecipeOperationBinding> & {
+    concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
+  };
+  const approvedPaths = Array.isArray(candidate.approvedPaths)
+    ? candidate.approvedPaths.filter((item): item is string => typeof item === "string").map(normalizedRecipePath)
+    : [];
+  const leaseUntil = candidate.leaseUntil;
+  const concurrencyBudget = candidate.concurrencyBudget;
+  if (
+    typeof candidate.projectId !== "string" || candidate.projectId.length < 1 || candidate.projectId.length > 160
+    || typeof candidate.operationId !== "string" || candidate.operationId.length < 1 || candidate.operationId.length > 160
+    || typeof candidate.sourceRevision !== "string" || candidate.sourceRevision.length < 1 || candidate.sourceRevision.length > 240
+    || candidate.sourceRevision === "unbound"
+    || (candidate.candidateIdentity !== null && typeof candidate.candidateIdentity !== "string")
+    || (candidate.candidateWorkspace !== null && typeof candidate.candidateWorkspace !== "string")
+    || !RECIPE_OPERATION_PHASES.includes(candidate.phase as RecipeOperationPhase)
+    || (candidate.leaseOwner !== null && typeof candidate.leaseOwner !== "string")
+    || (leaseUntil !== null && typeof leaseUntil !== "string")
+    || (leaseUntil !== null && Number.isNaN(Date.parse(leaseUntil)))
+    || approvedPaths.length > 48
+    || approvedPaths.some((item) => !RECIPE_PATH_PATTERN.test(item))
+    || !validRecipeBudget(candidate.missionBudget)
+    || !concurrencyBudget
+    || !Number.isInteger(concurrencyBudget.maxInFlightNodes)
+    || concurrencyBudget.maxInFlightNodes < 1 || concurrencyBudget.maxInFlightNodes > 8
+    || !Number.isInteger(concurrencyBudget.maxProcesses)
+    || concurrencyBudget.maxProcesses < 1 || concurrencyBudget.maxProcesses > 24
+  ) return undefined;
+  return {
+    projectId: candidate.projectId,
+    operationId: candidate.operationId,
+    sourceRevision: candidate.sourceRevision,
+    candidateIdentity: candidate.candidateIdentity ?? null,
+    candidateWorkspace: candidate.candidateWorkspace ?? null,
+    approvedPaths: [...new Set(approvedPaths)],
+    phase: candidate.phase as RecipeOperationPhase,
+    leaseOwner: candidate.leaseOwner ?? null,
+    leaseUntil: leaseUntil ?? null,
+    missionBudget: { ...candidate.missionBudget },
+    concurrencyBudget: {
+      maxInFlightNodes: concurrencyBudget.maxInFlightNodes,
+      maxProcesses: concurrencyBudget.maxProcesses,
+    },
+  };
+}
+
+export function createRecipeOperationBinding(params: {
+  projectId: string;
+  operationId: string;
+  sourceRevision: string;
+  candidateIdentity?: string | null;
+  candidateWorkspace?: string | null;
+  approvedPaths?: readonly string[];
+  phase?: RecipeOperationPhase;
+  leaseOwner?: string | null;
+  leaseUntil?: Date | string | null;
+  missionBudget?: Partial<RecipeOperationBudget>;
+  concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
+}): RecipeOperationBinding {
+  const binding = parseRecipeOperationBinding({
+    projectId: params.projectId,
+    operationId: params.operationId,
+    sourceRevision: params.sourceRevision,
+    candidateIdentity: params.candidateIdentity ?? null,
+    candidateWorkspace: params.candidateWorkspace ?? null,
+    approvedPaths: (params.approvedPaths ?? []).map(normalizedRecipePath),
+    phase: params.phase ?? "planned",
+    leaseOwner: params.leaseOwner ?? null,
+    leaseUntil: params.leaseUntil instanceof Date ? params.leaseUntil.toISOString() : params.leaseUntil ?? null,
+    missionBudget: {
+      maxNodes: params.missionBudget?.maxNodes ?? AI_EXECUTION_NODE_LIMIT,
+      maxParallelNodes: params.missionBudget?.maxParallelNodes ?? 3,
+      maxTotalTimeoutMs: params.missionBudget?.maxTotalTimeoutMs ?? 900_000,
+      maxProcessCount: params.missionBudget?.maxProcessCount ?? 24,
+      maxOutputBytes: params.missionBudget?.maxOutputBytes ?? 8 * 1024 * 1024,
+    },
+    concurrencyBudget: {
+      maxInFlightNodes: params.concurrencyBudget?.maxInFlightNodes ?? 3,
+      maxProcesses: params.concurrencyBudget?.maxProcesses ?? 8,
+    },
+  });
+  if (!binding) throw new Error("Invalid server-owned recipe operation binding.");
+  return binding;
+}
+
+export function checkRecipeOperationBinding(
+  binding: RecipeOperationBinding,
+  expected: RecipeBindingExpectation = {},
+): RecipeBindingCheck {
+  const parsed = parseRecipeOperationBinding(binding);
+  if (!parsed) return { allowed: false, reason: "invalid_binding", detail: "Recipe operation binding is invalid." };
+  if (expected.projectId !== undefined && parsed.projectId !== expected.projectId) {
+    return { allowed: false, reason: "project_mismatch", detail: "Recipe operation belongs to a different project." };
+  }
+  if (expected.operationId !== undefined && parsed.operationId !== expected.operationId) {
+    return { allowed: false, reason: "operation_mismatch", detail: "Recipe operation identity does not match the durable execution." };
+  }
+  if (expected.sourceRevision !== undefined && parsed.sourceRevision !== expected.sourceRevision) {
+    return { allowed: false, reason: "revision_mismatch", detail: "Recipe source revision is stale." };
+  }
+  if (expected.candidateIdentity !== undefined && parsed.candidateIdentity !== expected.candidateIdentity) {
+    return { allowed: false, reason: "candidate_mismatch", detail: "Recipe candidate identity does not match the durable execution." };
+  }
+  if (expected.candidateWorkspace !== undefined && parsed.candidateWorkspace !== expected.candidateWorkspace) {
+    return { allowed: false, reason: "workspace_mismatch", detail: "Recipe candidate workspace does not match the durable execution." };
+  }
+  if (expected.phase !== undefined && parsed.phase !== expected.phase) {
+    return { allowed: false, reason: "phase_mismatch", detail: "Recipe operation is not in the required phase." };
+  }
+  if (expected.leaseOwner !== undefined && parsed.leaseOwner !== expected.leaseOwner) {
+    return { allowed: false, reason: "lease_owner_mismatch", detail: "Recipe worker does not own the operation lease." };
+  }
+  if (expected.approvedPaths !== undefined) {
+    const approved = new Set(parsed.approvedPaths);
+    const outside = expected.approvedPaths.map(normalizedRecipePath).find((item) => !approved.has(item));
+    if (outside) return { allowed: false, reason: "scope_mismatch", detail: "Recipe action is outside the approved path scope." };
+  }
+  if (expected.requireLease && (!parsed.leaseOwner || !parsed.leaseUntil
+    || Date.parse(parsed.leaseUntil) <= (expected.now ?? new Date()).getTime())) {
+    return { allowed: false, reason: "lease_expired", detail: "Recipe operation lease is missing or expired." };
+  }
+  if (parsed.missionBudget.maxParallelNodes > parsed.concurrencyBudget.maxInFlightNodes
+    || parsed.missionBudget.maxProcessCount > parsed.concurrencyBudget.maxProcesses) {
+    return { allowed: false, reason: "budget_exceeded", detail: "Recipe mission budget exceeds its concurrency budget." };
+  }
+  return { allowed: true, reason: "allowed", detail: "Recipe operation binding is authorized." };
+}
+
+export function assertRecipeOperationBinding(binding: RecipeOperationBinding, expected: RecipeBindingExpectation = {}): void {
+  const result = checkRecipeOperationBinding(binding, expected);
+  if (!result.allowed) throw new Error(`Recipe operation binding rejected: ${result.reason}`);
+}
+
+export function assertRecipeNodeBinding(
+  binding: RecipeOperationBinding,
+  node: Pick<ExecutionNode, "allowedFiles" | "validationProfile" | "executionContext">,
+  expected: RecipeBindingExpectation = {},
+): void {
+  assertRecipeOperationBinding(binding, expected);
+  const approved = new Set(binding.approvedPaths);
+  if (node.allowedFiles.map(normalizedRecipePath).some((file) => !approved.has(file))) {
+    throw new Error("Recipe node is outside the approved path scope.");
+  }
+  if (node.executionContext) {
+    if (node.executionContext.projectId !== binding.projectId) throw new Error("Recipe node belongs to a different project.");
+    if (node.executionContext.revision !== binding.sourceRevision) throw new Error("Recipe node belongs to a stale source revision.");
+    if (node.executionContext.scope.paths.map(normalizedRecipePath).some((file) => !approved.has(file))) {
+      throw new Error("Recipe node context is outside the approved path scope.");
+    }
+  }
+  if (!node.validationProfile.trim()) throw new Error("Recipe node has no registered validation profile.");
+}
+
 export type AutonomousAcceptanceCheck = {
   id: string;
   kind: "scope" | "behavior" | "validation" | "evidence";
@@ -78,6 +317,7 @@ export type AutonomousOperationContract = {
   retryBudget: number;
   repairAttempts: number;
   evidenceRefs: string[];
+  binding?: RecipeOperationBinding;
   updatedAt: string;
 };
 
@@ -272,6 +512,7 @@ export type AiExecutionCheckpoint = {
   proofRequired?: boolean;
   detail?: string;
   operation?: AutonomousOperationContract;
+  recipeBinding?: RecipeOperationBinding;
   updatedAt: string;
 };
 
@@ -306,8 +547,12 @@ export function createAutonomousOperationContract(params: {
   expectedBehavior?: string;
   acceptanceChecks?: AutonomousAcceptanceCheck[];
   nodes?: AutonomousOperationNode[];
+  binding?: RecipeOperationBinding;
 }): AutonomousOperationContract {
   const objective = params.objective.slice(0, 2_000);
+  if (params.binding && params.binding.operationId !== params.operationId) {
+    throw new Error("Recipe operation binding identity does not match the operation.");
+  }
   return {
     operationId: params.operationId,
     objective,
@@ -336,6 +581,7 @@ export function createAutonomousOperationContract(params: {
     retryBudget: 3,
     repairAttempts: 0,
     evidenceRefs: [],
+    ...(params.binding ? { binding: params.binding } : {}),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -447,6 +693,12 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       ? parseAutonomousOperation(value.operation)
       : undefined;
     if (value.operation !== undefined && !operation) return undefined;
+    const recipeBinding = value.recipeBinding === undefined
+      ? operation?.binding
+      : parseRecipeOperationBinding(value.recipeBinding);
+    if (value.recipeBinding !== undefined && !recipeBinding) return undefined;
+    if (recipeBinding && operation?.binding
+      && JSON.stringify(recipeBinding) !== JSON.stringify(operation.binding)) return undefined;
     return {
       stage: value.stage as AiExecutionCheckpoint["stage"],
       sequence: value.sequence,
@@ -476,6 +728,7 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       ...(typeof value.proofRequired === "boolean" ? { proofRequired: value.proofRequired } : {}),
       ...(typeof value.detail === "string" ? { detail: value.detail.slice(0, 500) } : {}),
       ...(operation ? { operation } : {}),
+      ...(recipeBinding ? { recipeBinding } : {}),
       updatedAt: value.updatedAt,
     };
   } catch {
@@ -546,6 +799,9 @@ function parseAutonomousOperation(value: unknown): AutonomousOperationContract |
     || (candidate.acceptanceChecks && acceptanceChecks.length !== candidate.acceptanceChecks.length)
     || retryBudget < 0 || repairAttempts < 0
     || repairAttempts > retryBudget) return undefined;
+  const binding = candidate.binding === undefined ? undefined : parseRecipeOperationBinding(candidate.binding);
+  if (candidate.binding !== undefined && !binding) return undefined;
+  if (binding && binding.operationId !== candidate.operationId) return undefined;
   return {
     operationId: candidate.operationId.slice(0, 160),
     objective: candidate.objective.slice(0, 2_000),
@@ -561,6 +817,7 @@ function parseAutonomousOperation(value: unknown): AutonomousOperationContract |
     retryBudget: Math.min(retryBudget, 8),
     repairAttempts: Math.min(repairAttempts, 8),
     evidenceRefs: candidate.evidenceRefs.filter((v): v is string => typeof v === "string").slice(0, 48),
+    ...(binding ? { binding } : {}),
     updatedAt: candidate.updatedAt,
   };
 }
@@ -689,7 +946,15 @@ export async function createAiExecution(params: {
   sessionId?: string;
   linkedTaskId?: string;
   buildPlanMessageId?: string;
+  recipeBinding?: RecipeOperationBinding;
 }): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+  if (params.recipeBinding) {
+    assertRecipeOperationBinding(params.recipeBinding, {
+      projectId: params.projectId,
+      operationId: params.request.operationId,
+      sourceRevision: params.request.workspaceRevision,
+    });
+  }
   const existing = await db
     .select()
     .from(aiExecutionsTable)
@@ -719,6 +984,7 @@ export async function createAiExecution(params: {
     revisionManifest: params.request.workspaceRevision,
     targetPaths: params.request.validationTargetPaths,
     expectedBehavior: params.request.message,
+    ...(params.recipeBinding ? { binding: params.recipeBinding } : {}),
   });
   const [execution] = await db
     .insert(aiExecutionsTable)
@@ -739,6 +1005,7 @@ export async function createAiExecution(params: {
         stage: "queued",
         sequence: 0,
         operation,
+        ...(params.recipeBinding ? { recipeBinding: params.recipeBinding } : {}),
         updatedAt: now.toISOString(),
       } satisfies AiExecutionCheckpoint),
       status: "queued",
@@ -841,6 +1108,15 @@ function mergeTerminalCheckpoint(
   const now = new Date().toISOString();
   const operation = params.operation
     ?? previous?.operation;
+  const previousBinding = previous?.recipeBinding ?? operation?.binding;
+  const terminalBinding = previousBinding
+    ? {
+        ...previousBinding,
+        phase: params.cancelled ? "cancelled" as const : "failed" as const,
+        leaseOwner: null,
+        leaseUntil: null,
+      }
+    : undefined;
   return {
     ...(previous ?? {}),
     stage: params.cancelled ? "cancelled" : "failed",
@@ -848,10 +1124,11 @@ function mergeTerminalCheckpoint(
     ...(operation
       ? {
           operation: params.cancelled
-            ? { ...operation, state: "cancelled", updatedAt: now }
-            : operation,
+            ? { ...operation, state: "cancelled", ...(terminalBinding ? { binding: terminalBinding } : {}), updatedAt: now }
+            : { ...operation, ...(terminalBinding ? { binding: terminalBinding } : {}) },
         }
       : {}),
+    ...(terminalBinding ? { recipeBinding: terminalBinding } : {}),
     ...(params.streamedPreview
       ? { streamedPreview: params.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) }
       : {}),
@@ -953,23 +1230,61 @@ export async function claimAiExecution(params: {
   userId: string;
   workerId: string;
   resumeToken?: string;
+  recipeBinding?: RecipeOperationBinding;
 }): Promise<AiExecution | undefined> {
   const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+  const existing = params.recipeBinding
+    ? await getAiExecutionForUser(params.executionId, params.userId)
+    : undefined;
+  if (params.recipeBinding) {
+    if (!existing) return undefined;
+    const storedBinding = parseAiExecutionCheckpoint(existing.checkpoint)?.recipeBinding;
+    if (!storedBinding || JSON.stringify(storedBinding) !== JSON.stringify(params.recipeBinding)) return undefined;
+    try {
+      assertRecipeOperationBinding(params.recipeBinding, {
+        projectId: existing.projectId,
+        operationId: existing.operationId ?? undefined,
+        sourceRevision: parseExecutionRequest(existing.request)?.workspaceRevision,
+      });
+    } catch {
+      return undefined;
+    }
+  }
+  const claimTime = new Date();
+  const claimLeaseUntil = new Date(claimTime.getTime() + AI_EXECUTION_LEASE_MS);
+  const claimCheckpoint = existing && params.recipeBinding ? parseAiExecutionCheckpoint(existing.checkpoint) : undefined;
+  const claimedBinding = params.recipeBinding
+    ? { ...params.recipeBinding, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
+    : undefined;
   const [claimed] = await db
     .update(aiExecutionsTable)
     .set({
       status: "running",
       workerId: params.workerId,
-      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
-      lastHeartbeatAt: new Date(),
-      startedAt: new Date(),
-      updatedAt: new Date(),
+      leaseUntil: claimLeaseUntil,
+      lastHeartbeatAt: claimTime,
+      startedAt: claimTime,
+      updatedAt: claimTime,
       error: null,
       cancelRequestedAt: null,
+      ...(claimedBinding && claimCheckpoint ? {
+        checkpoint: JSON.stringify({
+          ...claimCheckpoint,
+          recipeBinding: claimedBinding,
+          ...(claimCheckpoint.operation ? { operation: { ...claimCheckpoint.operation, binding: claimedBinding } } : {}),
+          sequence: claimCheckpoint.sequence + 1,
+          updatedAt: claimTime.toISOString(),
+        } satisfies AiExecutionCheckpoint),
+        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      } : {}),
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.userId, params.userId),
+      ...(params.recipeBinding ? [
+        eq(aiExecutionsTable.projectId, params.recipeBinding.projectId),
+        eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
+      ] : []),
       inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
       ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
     ))
@@ -981,6 +1296,7 @@ export async function checkpointAiExecution(params: {
   executionId: string;
   workerId: string;
   checkpoint: AiExecutionCheckpoint;
+  recipeBinding?: RecipeOperationBinding;
 }): Promise<boolean> {
   // Keep this update atomic: the worker lease and checkpoint version are the
   // concurrency boundary. Callers that advance an operation include its
@@ -989,9 +1305,27 @@ export async function checkpointAiExecution(params: {
   const durableOperation = params.checkpoint.operation
     ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
     : undefined;
+  const checkpointBinding = params.checkpoint.recipeBinding ?? durableOperation?.binding;
+  if (params.recipeBinding) {
+    if (!checkpointBinding) return false;
+    try {
+      assertRecipeOperationBinding(checkpointBinding, {
+        projectId: params.recipeBinding.projectId,
+        operationId: params.recipeBinding.operationId,
+        sourceRevision: params.recipeBinding.sourceRevision,
+        candidateIdentity: params.recipeBinding.candidateIdentity,
+        candidateWorkspace: params.recipeBinding.candidateWorkspace,
+        leaseOwner: params.workerId,
+        requireLease: true,
+      });
+    } catch {
+      return false;
+    }
+    if (JSON.stringify(checkpointBinding) !== JSON.stringify(params.recipeBinding)) return false;
+  }
   const durableCheckpoint = durableOperation
-    ? { ...params.checkpoint, operation: durableOperation }
-    : params.checkpoint;
+    ? { ...params.checkpoint, operation: durableOperation, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) }
+    : { ...params.checkpoint, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) };
   const [updated] = await db
     .update(aiExecutionsTable)
     .set({
@@ -1005,6 +1339,7 @@ export async function checkpointAiExecution(params: {
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
       // A stale worker must not overwrite a newer durable checkpoint.
       lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
     ))
@@ -1043,11 +1378,15 @@ export async function completeAiExecution(params: {
   evidenceReason?: string;
   proofRequired?: boolean;
   evidenceRefs?: readonly string[];
+  recipeBinding?: RecipeOperationBinding;
 }): Promise<boolean> {
   const [current] = await db
     .select({
+      projectId: aiExecutionsTable.projectId,
+      operationId: aiExecutionsTable.operationId,
       request: aiExecutionsTable.request,
       checkpoint: aiExecutionsTable.checkpoint,
+      leaseUntil: aiExecutionsTable.leaseUntil,
     })
     .from(aiExecutionsTable)
     .where(and(
@@ -1058,6 +1397,21 @@ export async function completeAiExecution(params: {
     .limit(1);
   const request = current ? parseExecutionRequest(current.request) : undefined;
   const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+  if (params.recipeBinding) {
+    if (!current?.leaseUntil || current.leaseUntil <= new Date()) return false;
+    try {
+      assertRecipeOperationBinding(params.recipeBinding, {
+        projectId: current.projectId,
+        operationId: current.operationId ?? undefined,
+        sourceRevision: request?.workspaceRevision,
+        leaseOwner: params.workerId,
+        requireLease: true,
+      });
+    } catch {
+      return false;
+    }
+    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+  }
   const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
   const operation = params.operation ?? checkpoint?.operation;
   if (requiresProof) {
@@ -1111,6 +1465,7 @@ export async function completeAiExecution(params: {
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
     ))
     .returning({ id: aiExecutionsTable.id });
   return Boolean(updated);
@@ -1125,6 +1480,7 @@ export async function failAiExecution(params: {
   recentSteps?: Array<Record<string, unknown>>;
   streamedPreview?: string;
   operation?: AutonomousOperationContract;
+  recipeBinding?: RecipeOperationBinding;
 }): Promise<boolean> {
   const status = params.cancelled ? "cancelled" : "failed";
   const [current] = await db
@@ -1133,6 +1489,7 @@ export async function failAiExecution(params: {
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.workerId, params.workerId),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
       inArray(
         aiExecutionsTable.status,
         params.cancelled ? ["running", "cancelling"] : ["running"],
@@ -1142,6 +1499,22 @@ export async function failAiExecution(params: {
   const terminalCheckpoint = current
     ? mergeTerminalCheckpoint(current, { ...params, cancelled: params.cancelled ?? false })
     : undefined;
+  if (params.recipeBinding && current) {
+    const request = parseExecutionRequest(current.request);
+    const checkpoint = parseAiExecutionCheckpoint(current.checkpoint);
+    try {
+      assertRecipeOperationBinding(params.recipeBinding, {
+        projectId: current.projectId,
+        operationId: current.operationId ?? undefined,
+        sourceRevision: request?.workspaceRevision,
+        leaseOwner: params.workerId,
+        requireLease: true,
+      });
+    } catch {
+      return false;
+    }
+    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+  }
   const [updated] = await db
     .update(aiExecutionsTable)
     .set({
@@ -1157,6 +1530,7 @@ export async function failAiExecution(params: {
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.workerId, params.workerId),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
       params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
     ))
     .returning({ id: aiExecutionsTable.id });

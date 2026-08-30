@@ -33,6 +33,12 @@ export type ExecutionNodeRunContext = {
   };
 };
 
+export type ExecutionNodeAuthorizationPhase = "start" | "completion" | "retry";
+export type ExecutionNodeAuthorization = {
+  allowed: boolean;
+  reason?: string;
+};
+
 export type ExecutionNodeCoordinatorEvent =
   | "recovered"
   | "started"
@@ -50,6 +56,15 @@ export type ExecutionNodeCoordinatorOptions = {
   ) => Promise<ExecutionNodeOutcome>;
   maxParallelNodes?: number;
   signal?: AbortSignal;
+  /**
+   * Server-owned lifecycle fence for recipe nodes. The callback must re-check
+   * the durable operation, lease, cancellation, revision, workspace, and scope.
+   */
+  authorizeNodeExecution?: (args: {
+    node: ExecutionNode;
+    phase: ExecutionNodeAuthorizationPhase;
+    attempt: number;
+  }) => Promise<ExecutionNodeAuthorization> | ExecutionNodeAuthorization;
   onChange?: (args: {
     nodes: ExecutionNode[];
     event: ExecutionNodeCoordinatorEvent;
@@ -134,6 +149,46 @@ function updateNode(
   nextStatus: ExecutionNode["status"],
 ): ExecutionNode[] {
   return transitionExecutionNode(nodes, nodeId, nextStatus);
+}
+
+function isRecipeNode(node: ExecutionNode): boolean {
+  return Boolean(node.capabilityId || node.executionContext);
+}
+
+async function authorizeNode(
+  opts: ExecutionNodeCoordinatorOptions,
+  node: ExecutionNode,
+  phase: ExecutionNodeAuthorizationPhase,
+  attempt: number,
+): Promise<ExecutionNodeAuthorization> {
+  if (opts.signal?.aborted) return { allowed: false, reason: "execution cancellation requested" };
+  if (!opts.authorizeNodeExecution) {
+    return isRecipeNode(node)
+      ? { allowed: false, reason: "recipe node has no server-owned operation authorization" }
+      : { allowed: true };
+  }
+  try {
+    const result = await opts.authorizeNodeExecution({ node, phase, attempt });
+    return result?.allowed
+      ? { allowed: true }
+      : { allowed: false, reason: result?.reason ?? "server-owned operation authorization rejected the node" };
+  } catch (error) {
+    return {
+      allowed: false,
+      reason: error instanceof Error ? error.message : "server-owned operation authorization failed",
+    };
+  }
+}
+
+function blockUnauthorizedNode(
+  nodes: ExecutionNode[],
+  nodeId: string,
+  opts: ExecutionNodeCoordinatorOptions,
+  reason: string,
+): ExecutionNode[] {
+  let next = transitionToBlocked(nodes, nodeId, opts, reason);
+  next = setLastFailure(next, nodeId, "blocked", reason);
+  return next;
 }
 
 function recordValidationAttempts(
@@ -294,11 +349,17 @@ export async function executeExecutionNodePlan(
 
     const wave = runnable.slice(0, maxParallelNodes);
     for (const node of wave) {
+      const authorization = await authorizeNode(opts, node, "start", node.attempts + 1);
+      if (!authorization.allowed) {
+        nodes = blockUnauthorizedNode(nodes, node.id, opts, authorization.reason ?? "node authorization rejected");
+        continue;
+      }
       nodes = updateNode(nodes, node.id, "running");
       emit(opts, nodes, "started", node.id);
     }
 
-    const outcomes = await Promise.all(wave.map(async (node) => {
+    const activeWave = wave.filter((node) => nodes.find((candidate) => candidate.id === node.id)?.status === "running");
+    const outcomes = await Promise.all(activeWave.map(async (node) => {
       try {
         return {
           node,
@@ -338,6 +399,11 @@ export async function executeExecutionNodePlan(
     for (const { node, outcome } of outcomes) {
       const current = nodes.find((candidate) => candidate.id === node.id);
       if (!current || current.status !== "running") continue;
+      const completionAuthorization = await authorizeNode(opts, current, "completion", current.attempts);
+      if (!completionAuthorization.allowed) {
+        nodes = blockUnauthorizedNode(nodes, node.id, opts, completionAuthorization.reason ?? "node authorization rejected");
+        continue;
+      }
       nodes = recordValidationAttempts(nodes, node.id, outcome.validationAttempts);
 
       if (outcome.status === "passed") {
@@ -363,6 +429,11 @@ export async function executeExecutionNodePlan(
           failed.validationAttempts < MAX_REPAIR_ATTEMPTS &&
           !opts.signal?.aborted
         ) {
+          const retryAuthorization = await authorizeNode(opts, failed, "retry", failed.attempts + 1);
+          if (!retryAuthorization.allowed) {
+            nodes = blockUnauthorizedNode(nodes, node.id, opts, retryAuthorization.reason ?? "node authorization rejected");
+            continue;
+          }
           previousFailures.set(node.id, {
             attempt: failed.attempts,
             detail: (outcome.detail ?? "The previous execution attempt failed.").slice(0, 4_000),

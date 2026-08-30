@@ -36,7 +36,7 @@ export type EvidenceGap = {
 };
 
 export type OperationReceipt = {
-  kind: "process" | "provider" | "validation" | "promotion" | "commit" | "push";
+  kind: "process" | "provider" | "recipe" | "validation" | "promotion" | "commit" | "push";
   status: "started" | "passed" | "failed" | "blocked" | "cancelled" | "unknown";
   attempt: number;
   timestamp: string;
@@ -118,6 +118,7 @@ function status(value: unknown): OperationReceipt["status"] {
 
 function receiptKind(value: string): OperationReceipt["kind"] {
   const normalized = value.toLowerCase();
+  if (/recipe|capability|node/.test(normalized)) return "recipe";
   if (/provider|model|fallback|llm/.test(normalized)) return "provider";
   if (/validat|test|check/.test(normalized)) return "validation";
   if (/promot|apply|rollback|recovery|delivery/.test(normalized)) return "promotion";
@@ -162,6 +163,27 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
   };
 
   pushReceipt("process", "started", execution.startedAt ?? execution.createdAt, execution.attempt);
+  const recipeBinding = record(checkpoint.recipeBinding);
+  const recipeNodes = Array.isArray(checkpoint.nodeStates) ? checkpoint.nodeStates : [];
+  if (Object.keys(recipeBinding).length > 0) {
+    pushReceipt("recipe", "started", execution.createdAt, execution.attempt, "Server-owned recipe operation binding retained.");
+    for (const node of recipeNodes) {
+      const nodeRecord = record(node);
+      pushReceipt(
+        "recipe",
+        nodeRecord.status ?? "unknown",
+        String(nodeRecord.updatedAt ?? execution.completedAt?.toISOString?.() ?? execution.createdAt.toISOString()),
+        Number(nodeRecord.attempts ?? 0),
+        nodeRecord.evidenceRefs ? "Recipe node evidence reference retained." : "Recipe node evidence reference is missing.",
+      );
+    }
+    if (execution.status === "completed" && recipeNodes.some((node) => {
+      const refs = record(node).evidenceRefs;
+      return !Array.isArray(refs) || refs.length === 0;
+    })) {
+      addGap(gaps, { kind: "missing", source: "checkpoint", detail: "A completed recipe node has no retained evidence reference." });
+    }
+  }
   for (const event of events) {
     const payload = record(event.payload);
     const kind = receiptKind(event.type);

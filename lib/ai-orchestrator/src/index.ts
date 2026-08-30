@@ -92,6 +92,8 @@ export type {
   ExecutionNodeCoordinatorResult,
   ExecutionNodeOutcome,
   ExecutionNodeRunContext,
+  ExecutionNodeAuthorization,
+  ExecutionNodeAuthorizationPhase,
 } from "./execution-node-coordinator.js";
 
 export { buildQualityHints, buildQualityPlan, assessStructuredOutput, sortProviderIdsByQuality } from "./quality-engine.js";
@@ -197,6 +199,7 @@ export {
   CapabilityRegistryError,
   DEFAULT_CAPABILITY_POLICY,
 } from "./capability-contract.js";
+export { READ_PROJECT_FILE_CAPABILITY, createServerCapabilityRegistry } from "./recipe-capabilities.js";
 export {
   CAPABILITY_CATALOG_VERSION,
   MAX_CATALOG_ENTRIES,

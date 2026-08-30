@@ -84,6 +84,8 @@ vi.mock("@workspace/db", () => {
 import {
   createAiExecution,
   createAutonomousOperationContract,
+  createRecipeOperationBinding,
+  checkRecipeOperationBinding,
   parseAiExecutionCheckpoint,
   transitionAutonomousOperation,
   validateAutonomousOperationCompletion,
@@ -156,6 +158,30 @@ describe("autonomous operation contract", () => {
       operation: { ...operation, retryBudget: 1, repairAttempts: 2 },
       updatedAt: new Date().toISOString(),
     }))).toBeUndefined();
+  });
+
+  it("fails closed for stale identity, scope, phase, and lease ownership", () => {
+    const binding = createRecipeOperationBinding({
+      projectId: "project-1",
+      operationId: "recipe-operation-1",
+      sourceRevision: "revision-1",
+      candidateIdentity: "candidate-1",
+      candidateWorkspace: "/tmp/candidate-1",
+      approvedPaths: ["src/parser.ts"],
+      phase: "running",
+      leaseOwner: "worker-1",
+      leaseUntil: "2026-01-01T00:05:00.000Z",
+    });
+    expect(checkRecipeOperationBinding(binding, { projectId: "project-2" }).reason).toBe("project_mismatch");
+    expect(checkRecipeOperationBinding(binding, { sourceRevision: "revision-2" }).reason).toBe("revision_mismatch");
+    expect(checkRecipeOperationBinding(binding, { approvedPaths: ["src/other.ts"] }).reason).toBe("scope_mismatch");
+    expect(checkRecipeOperationBinding(binding, { phase: "queued" }).reason).toBe("phase_mismatch");
+    expect(checkRecipeOperationBinding(binding, { leaseOwner: "worker-2" }).reason).toBe("lease_owner_mismatch");
+    expect(checkRecipeOperationBinding(binding, {
+      leaseOwner: "worker-1",
+      requireLease: true,
+      now: new Date("2026-01-01T00:06:00.000Z"),
+    }).reason).toBe("lease_expired");
   });
 
   it("blocks completion when acceptance evidence is missing or bound to stale bytes", () => {
