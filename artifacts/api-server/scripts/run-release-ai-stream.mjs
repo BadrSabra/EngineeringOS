@@ -17,6 +17,10 @@ export const lockPath = path.join(
   RELEASE_LOCK_ROOT,
   "engineeringos-api-stream-release.lock",
 );
+export const validationLockPath = path.join(
+  RELEASE_LOCK_ROOT,
+  "engineeringos-release-validation.lock",
+);
 
 const ownerFile = (directory) => path.join(directory, "owner.json");
 const ownerToken = () =>

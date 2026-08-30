@@ -301,7 +301,7 @@ router.post("/projects/discover", async (req, res) => {
   // would race on the "discovering" status update — this prevents that entirely.
   heavyJobQueue.enqueueWithId(id, async () => {
     try {
-      await runDiscovery(id, scanRootPath);
+      await runDiscovery(id, scanRootPath, () => cleanupResolveResult(resolved));
     } catch (err) {
       logger.error({ err, sessionId: id }, "Unhandled discovery error");
     } finally {

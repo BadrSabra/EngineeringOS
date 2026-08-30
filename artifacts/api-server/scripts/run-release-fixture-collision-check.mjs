@@ -33,6 +33,9 @@ function runVitest() {
         ...credentialFixtureTests,
         "--pool",
         "forks",
+        "--no-file-parallelism",
+        "--maxWorkers",
+        "1",
       ],
       {
         cwd: artifactRoot,

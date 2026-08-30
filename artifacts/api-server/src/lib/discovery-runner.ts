@@ -326,7 +326,11 @@ function computeConfidence(result: Partial<DiscoveryResultData>, fileCount: numb
  *
  * Never throws — all errors are recorded on the session row.
  */
-export async function runDiscovery(sessionId: string, rootPath: string): Promise<void> {
+export async function runDiscovery(
+  sessionId: string,
+  rootPath: string,
+  beforeReady?: () => Promise<void>,
+): Promise<void> {
   // PR-3: Acquire a PostgreSQL advisory lock keyed on this sessionId before
   // starting execution. In a multi-instance deployment the reconciliation layer
   // on both instances may re-enqueue the same pending session; the lock ensures
@@ -556,6 +560,11 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
     };
     await setStep(8, "done", Date.now() - t8);
 
+    // Adapter-owned temporary roots must be retired before the session becomes
+    // ready. A ready Git/archive session is observable immediately by import
+    // callers, so cleanup only in the route's outer finally leaves a race in
+    // which the temporary clone is still reachable after readiness is stored.
+    await beforeReady?.();
     await updateSession(sessionId, {
       status: "ready",
       progress: 100,

@@ -14,3 +14,14 @@ Browser release checks should be judged from the release runner's own service po
 **Why:** Concurrent validation artifacts can leave healthy but stale dashboard servers running; probing one of those servers can produce failures that do not match the current source.
 
 **How to apply:** Use the controlled release wrapper for the final browser result and treat direct checks against copied artifact ports as diagnostic only.
+
+Provider-free release recovery and the dashboard journey must share a broader
+validation lock, while the AI stream lock remains narrower and independent.
+
+**Why:** The completion validator starts these checks concurrently; without one
+shared boundary, database-backed discovery cleanup and other mutable fixtures
+can race even when each command passes alone.
+
+**How to apply:** Have both managed validation entrypoints acquire the same
+bounded lock when database-backed checks are enabled, and release it in a
+finally path before reporting teardown complete.

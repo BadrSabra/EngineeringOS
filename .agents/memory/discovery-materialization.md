@@ -19,3 +19,13 @@ assertion is not evidence of a runtime regression.
 **How to apply:** use an approved disposable remote or an explicit adapter seam
 for materialization tests, and keep policy-rejection coverage separate from
 async clone/import coverage.
+
+Publish a discovery session's ready state only after adapter-owned temporary
+source cleanup has completed.
+
+**Why:** Consumers can import or inspect a ready session immediately; cleanup
+performed only after the background job reports readiness creates a reachable
+clone race under load.
+
+**How to apply:** Put the pre-ready cleanup hook inside the discovery runner
+and retain an idempotent outer finally cleanup as a last-resort safety net.

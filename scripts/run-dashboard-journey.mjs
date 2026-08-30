@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import {
   acquireReleaseLock,
   lockPath,
+  validationLockPath,
 } from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
 import {
   formatMissionCorrelationSummary,
@@ -91,6 +92,7 @@ const originDiagnosticsPath = resolve(
 );
 const services = [];
 let releaseLockCleanup;
+let validationLockCleanup;
 const releasePorts = [apiPort, dashboardPort];
 const controlPort = Number(
   process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
@@ -637,6 +639,7 @@ async function readOriginDiagnostics() {
 
 async function startReleaseServices() {
   if (process.env.DATABASE_URL) {
+    validationLockCleanup = await acquireReleaseLock(validationLockPath);
     releaseLockCleanup = await acquireReleaseLock(lockPath);
   }
   await mkdir(outputDir, { recursive: true });
@@ -1063,4 +1066,5 @@ try {
 } finally {
   await stopServices();
   if (releaseLockCleanup) await releaseLockCleanup();
+  if (validationLockCleanup) await validationLockCleanup();
 }

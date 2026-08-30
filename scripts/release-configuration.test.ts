@@ -578,7 +578,7 @@ test("keeps the local Project workflow and release validation separate", async (
     "[workflows.workflow.metadata]",
   );
   assert.deepEqual(releaseWorkflowCommands, [
-    'args = "APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"',
+    'args = "APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs"',
   ]);
 
   const normalTestCommand = packageJson.scripts?.test;

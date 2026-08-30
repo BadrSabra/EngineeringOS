@@ -3535,11 +3535,12 @@ describe("POST /api/ai/chat/apply-changes", () => {
   it("applies a partial hunk selection — only accepted hunks are written via rebase", async () => {
     const id = randomUUID();
     const now = new Date();
+    const projectRoot = await fs.mkdtemp("/tmp/apply-partial-project-");
     await db.insert(projectsTable).values({
       id,
       ownerId: "test-user",
       name: `apply-partial-hunks-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
+      rootPath: projectRoot,
       language: "typescript",
       status: "active",
       createdAt: now,
@@ -3547,7 +3548,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
     });
     projectIds.push(id);
 
-    // Stub behavioral verification so the /tmp project root (no package.json)
+    // Stub behavioral verification so the isolated project root (no package.json)
     // doesn't cause "unavailable" → rollback in the apply route.
     // runRepairValidation returns ValidationResult — supply every required field.
     const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
@@ -3572,7 +3573,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
     // File has two independent replaceable regions — lets us store a 2-hunk
     // proposal and prove only the first (accepted) hunk is written.
     const fileName = `apply-partial-hunks-${randomUUID().slice(0, 8)}.ts`;
-    const absolutePath = `/tmp/${fileName}`;
+    const absolutePath = `${projectRoot}/${fileName}`;
     const original = "const a = 1;\nconst b = 2;\nconst c = 3;\n";
     await fs.writeFile(absolutePath, original, "utf-8");
 
@@ -3620,6 +3621,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
     } finally {
       validationSpy.mockRestore();
       await fs.rm(absolutePath, { force: true });
+      await fs.rm(projectRoot, { recursive: true, force: true });
     }
   });
 
