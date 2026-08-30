@@ -9382,8 +9382,9 @@ export default function AiChat() {
           </div>
         </div>
 
-        <ScrollArea className="flex-1">
-          <div className="p-2 flex flex-col gap-1">
+        <div className="drawer-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain md:flex md:flex-col md:overflow-hidden">
+          <div className="sessions-history shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
+            <div className="p-2 flex flex-col gap-1">
             {sessions.map((s) => (
               <button
                 key={s.id}
@@ -9504,15 +9505,16 @@ export default function AiChat() {
                 </div>
               )}
             </div>
+            </div>
           </div>
-        </ScrollArea>
 
-        {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
-        <div className="provider-key-cards min-h-0 shrink-0 max-h-[45%] overflow-y-auto overscroll-contain border-t border-border pt-2 md:max-h-none md:overflow-visible">
-          <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
-          <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
-          <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />
-          <GroqKeyCard      runtimeMetric={metricsMap.get('groq')} />
+          {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
+          <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">
+            <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
+            <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
+            <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />
+            <GroqKeyCard      runtimeMetric={metricsMap.get('groq')} />
+          </div>
         </div>
       </div>
 

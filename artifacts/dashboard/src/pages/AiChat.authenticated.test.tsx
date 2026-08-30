@@ -890,7 +890,8 @@ it('shows Groq model readiness without requiring a personal key when the server 
     const drawer = screen.getByTestId('sessions-drawer');
     expect(await within(drawer).findByRole('button', { name: 'Existing session' })).toBeInTheDocument();
     expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
-    expect(drawer.querySelector('.provider-key-cards')).toHaveClass('max-h-[45%]', 'overflow-y-auto', 'overscroll-contain');
+    expect(drawer.querySelector('.drawer-scroll-region')).toHaveClass('overflow-y-auto', 'overscroll-contain', 'md:overflow-hidden');
+    expect(drawer.querySelector('.provider-key-cards')).not.toHaveClass('overflow-y-auto');
     expect(drawer.querySelectorAll('.provider-key-card')).toHaveLength(4);
     expect(document.querySelectorAll('input[type="password"]')).toHaveLength(4);
     expect(document.body.style.overflow).toBe('hidden');
