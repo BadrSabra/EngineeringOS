@@ -1,0 +1,307 @@
+   115      return;
+   116    default:
+   117      // groq — uses high-level client with 10s timeout for the probe
+   118      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000, model: probeModelDecision.model });
+   119      return;
+   120  }
+   121}
+   122
+   123/**
+   124 * Validates an API key by sending a minimal 1-token probe to the provider.
+   125 *
+   126 * Returns `{ valid: true }` on success.
+   127 * Returns `{ valid: false, reason }` only on AUTH_ERROR — the key is definitively
+   128 * rejected by the provider.
+   129 * On any transient error (NETWORK_ERROR, TIMEOUT, SERVER_ERROR, NON_200) returns
+   130 * `{ valid: true }` so a connectivity blip never prevents the user from saving a
+   131 * key that might be perfectly valid.
+   132 */
+   133export async function validateProviderKey(
+   134  provider: ProviderId,
+   135  apiKey: string,
+   136): Promise<{ valid: boolean; reason?: string }> {
+   137  const config = loadProvider(provider);
+   138  try {
+   139    await probeProviderKey(config, apiKey);
+   140    return { valid: true };
+   141  } catch (err) {
+   142    if (err instanceof GroqClientError && err.code === "AUTH_ERROR") {
+   143      return { valid: false, reason: err.message };
+   144    }
+   145    // Transient error — allow the save; the next real request has provider fallback.
+   146    return { valid: true };
+   147  }
+   148}
+   149
+   150/**
+   151 * Send a single-shot chat completion to the configured provider.
+   152 *
+   153 * Always returns `{ content: string }` — content is guaranteed non-empty.
+   154 * Throws `GroqClientError` on any provider error so callers handle the same
+   155 * error union regardless of which provider is active.
+   156 */
+   157export async function agentComplete(
+   158  messages: Message[],
+   159  opts: AgentCompleteOpts,
+   160): Promise<{ content: string }> {
+   161  const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile) : undefined);
+   162  const executionScope = inferExecutionScope(opts.qualityProfile, qualityHints);
+   163  const executionPlan = resolveExecutionDecision(executionScope, {
+   164    hasTools: !!qualityHints?.requireTools,
+   165    requireTools: !!qualityHints?.requireTools,
+   166    qualityProfile: opts.qualityProfile ?? executionScope,
+   167  });
+   168  const providerDecision = resolveExecutionProvider(executionPlan, opts.provider);
+   169  const providerId = providerDecision.providerId;
+   170  const provider = loadProvider(providerId);
+   171  const apiKey = requireApiKey(provider, opts.apiKey);
+   172
+   173  switch (provider.providerId) {
+   174    case "deepseek": {
+   175      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+   176      const result = await deepseekCompleteRaw(messages, {
+   177        model: modelDecision.model,
+   178        apiKey,
+   179        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+   180        signal: opts.signal,
+   181      });
+   182      return { content: assertContent(provider, result.content) };
+   183    }
+   184
+   185    case "openrouter": {
+   232export async function validateGroqDefaultModels(
+   233  apiKey: string,
+   234  defaults: { fast: string; powerful: string } = {
+   235    fast: MODEL_FAST,
+   236    powerful: MODEL_POWERFUL,
+   237  },
+   238  timeoutMs = 10_000,
+   239): Promise<GroqDefaultModelValidation> {
+   240  const client = getClient(apiKey);
+   241  const controller = new AbortController();
+   242  const timer = setTimeout(() => controller.abort(), timeoutMs);
+   243
+   244  try {
+   245    const response = await client.models.list({ signal: controller.signal });
+   246    const modelIds = new Set(
+   247      (response.data ?? [])
+   248        .map((model) => model?.id)
+   249        .filter((modelId): modelId is string => typeof modelId === "string"),
+   250    );
+   251    const missing = (["fast", "powerful"] as const).filter(
+   252      (role) => !modelIds.has(defaults[role]),
+   253    );
+   254
+   255    if (missing.length > 0) {
+   256      const missingDescription = missing
+   257        .map((role) => `${role}="${defaults[role]}"`)
+   258        .join(", ");
+   259      return {
+   260        valid: false,
+   261        missing,
+   262        checkedModels: { ...defaults },
+   263        reason:
+   264          `Groq model catalog is missing the configured ${missingDescription}. ` +
+   265          "Update the Groq default model IDs and restart before accepting AI traffic.",
+   266      };
+   267    }
+   268
+   269    return {
+   270      valid: true,
+   271      missing: [],
+   272      checkedModels: { ...defaults },
+   273    };
+   274  } catch (error) {
+   275    throw classifySdkError(error, controller.signal.aborted);
+   276  } finally {
+   277    clearTimeout(timer);
+   278  }
+   279}
+   280
+   281type ChatRequest = {
+   282  messages: Message[];
+   283  model: string;
+   284  temperature: number;
+   285  max_tokens: number;
+  2910              schema:
+  2911                $ref: "#/components/schemas/ProviderKeyStatus"
+  2912        "400":
+  2913          description: Unknown provider or invalid key
+  2914        "401":
+  2915          description: Not authenticated
+  2916        "422":
+  2917          description: Key rejected by the provider's API
+  2918        "500":
+  2919          description: Encryption not configured
+  2920    delete:
+  2921      operationId: deleteProviderKey
+  2922      summary: Remove a saved API key for any provider
+  2923      tags: [AI]
+  2924      responses:
+  2925        "200":
+  2926          description: Key removed
+  2927          content:
+  2928            application/json:
+  2929              schema:
+  2930                type: object
+  2931                required: [configured]
+  2932                properties:
+  2933                  configured:
+  2934                    type: boolean
+  2935        "400":
+  2936          description: Unknown provider
+  2937        "401":
+  2938          description: Not authenticated
+  2939
+  2940  /api/ai/metrics:
+  2941    get:
+  2942      operationId: getAiMetrics
+  2943      summary: Get per-provider request metrics and circuit-breaker state
+  2944      tags: [AI]
+  2945      responses:
+  2946        "200":
+  2947          description: Provider metrics array
+  2948          content:
+  2949            application/json:
+  2950              schema:
+  2951                type: object
+  2952                required: [metrics, behavioralScorecards]
+  2953                properties:
+  2954                  metrics:
+  2955                    type: array
+  2956                    items:
+  2957                      type: object
+  2958                  behavioralScorecards:
+  2959                    type: array
+  2960                    items:
+  2961                      $ref: "#/components/schemas/BehavioralModelScorecard"
+  2962
+  2963  /api/ai/active-provider:
+  2964    get:
+  2965      operationId: getActiveProvider
+  2966      summary: Get which AI provider will be used for the authenticated user
+  2967      tags: [AI]
+  2968      responses:
+  2969        "200":
+  2970          description: Active provider
+  2971          content:
+  2972            application/json:
+  2973              schema:
+  2974                $ref: "#/components/schemas/ActiveProviderStatus"
+  2975        "401":
+  2976          description: Not authenticated
+  2977
+  2978  /api/ai/github-token:
+  2979    get:
+  2980      operationId: getGitHubTokenStatus
+  2981      summary: Get GitHub PAT configuration status (never returns the token itself)
+  2982      tags: [Git]
+  2983      responses:
+  2984        "200":
+  2985          description: Token status
+  2986          content:
+  2987            application/json:
+  2988              schema:
+  2989                $ref: "#/components/schemas/GitHubTokenStatus"
+  2990        "401":
+  8125 */
+  8126export const useDeleteProviderKey = <TError = ErrorType<void>,
+  8127    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}, TContext>, request?: SecondParameter<typeof customFetch>}
+  8128 ): UseMutationResult<
+  8129        Awaited<ReturnType<typeof deleteProviderKey>>,
+  8130        TError,
+  8131        {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'},
+  8132        TContext
+  8133      > => {
+  8134      return useMutation(getDeleteProviderKeyMutationOptions(options));
+  8135    }
+  8136
+  8137export const getGetAiMetricsUrl = () => {
+  8138
+  8139
+  8140
+  8141
+  8142  return `/api/ai/metrics`
+  8143}
+  8144
+  8145/**
+  8146 * @summary Get per-provider request metrics and circuit-breaker state
+  8147 */
+  8148export const getAiMetrics = async ( options?: RequestInit): Promise<GetAiMetrics200> => {
+  8149
+  8150  return customFetch<GetAiMetrics200>(getGetAiMetricsUrl(),
+  8151  {
+  8152    ...options,
+  8153    method: 'GET'
+  8154
+  8155
+  8156  }
+  8157);}
+  8158
+  8159
+  8160
+  8161
+  8162
+  8163export const getGetAiMetricsQueryKey = () => {
+  8164    return [
+  8165    `/api/ai/metrics`
+  8166    ] as const;
+  8167    }
+  8168
+  8169
+  8170export const getGetAiMetricsQueryOptions = <TData = Awaited<ReturnType<typeof getAiMetrics>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+  8171) => {
+  8172
+  8173const {query: queryOptions, request: requestOptions} = options ?? {};
+  8174
+  8175  const queryKey =  queryOptions?.queryKey ?? getGetAiMetricsQueryKey();
+  8176
+  8177
+  8178
+  8179    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiMetrics>>> = ({ signal }) => getAiMetrics({ signal, ...requestOptions });
+  8180
+  8181
+  8182
+  8183
+  8184
+  8185   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData> & { queryKey: QueryKey }
+  8186}
+  8187
+  8188export type GetAiMetricsQueryResult = NonNullable<Awaited<ReturnType<typeof getAiMetrics>>>
+  8189export type GetAiMetricsQueryError = ErrorType<unknown>
+  8190
+  8191
+  8192/**
+  8193 * @summary Get per-provider request metrics and circuit-breaker state
+  8194 */
+  8195
+  8196export function useGetAiMetrics<TData = Awaited<ReturnType<typeof getAiMetrics>>, TError = ErrorType<unknown>>(
+  8197  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+  8198
+  8199 ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  8200
+  8201  const queryOptions = getGetAiMetricsQueryOptions(options)
+  8202
+  8203  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  8204
+  8205  return withQueryKey(query, queryOptions.queryKey);
+  8206}
+  8207
+  8208
+  8209
+  8210
+  8211
+  8212
+  8213
+  8214export const getGetActiveProviderUrl = () => {
+  8215
+  8216
+  8217
+  8218
+  8219  return `/api/ai/active-provider`
+  8220}
+  8221
+  8222/**
+  8223 * @summary Get which AI provider will be used for the authenticated user
+  8224 */
+  8225export const getActiveProvider = async ( options?: RequestInit): Promise<ActiveProviderStatus> => {

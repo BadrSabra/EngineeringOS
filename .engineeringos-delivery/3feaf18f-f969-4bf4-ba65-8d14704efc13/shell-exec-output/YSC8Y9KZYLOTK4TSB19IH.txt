@@ -1,0 +1,185 @@
+669:beforeAll(async () => {
+673:afterAll(() => {
+3982:  beforeAll(() => {
+3986:  afterAll(() => {
+   610  return messageId;
+   611}
+   612
+   613const projectIds: string[] = [];
+   614const workflowIds: string[] = [];
+   615const deliveryWorkspaceRoots: string[] = [];
+   616
+   617async function cleanupProjectFixture(projectId: string): Promise<void> {
+   618  const sessions = await db
+   619    .select({ id: aiChatSessionsTable.id })
+   620    .from(aiChatSessionsTable)
+   621    .where(eq(aiChatSessionsTable.projectId, projectId));
+   622  const sessionIds = sessions.map(({ id }) => id);
+   623
+   624  const tasks = await db
+   625    .select({ id: tasksTable.id })
+   626    .from(tasksTable)
+   627    .where(eq(tasksTable.projectId, projectId));
+   628  const taskIds = tasks.map(({ id }) => id);
+   629
+   630  const workflows = await db
+   631    .select({ id: workflowsTable.id })
+   632    .from(workflowsTable)
+   633    .where(eq(workflowsTable.projectId, projectId));
+   634  const workflowIdsForProject = workflows.map(({ id }) => id);
+   635
+   636  // Keep this order explicit rather than relying on the database's cascade
+   637  // configuration. Release fixture cleanup must remain reliable if a test
+   638  // process is interrupted between schema changes or while a row is leased.
+   639  await db.delete(aiApplyJournalTable).where(eq(aiApplyJournalTable.projectId, projectId));
+   640  await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, projectId));
+   641  await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+   642  await db.delete(aiSessionMemoriesTable).where(eq(aiSessionMemoriesTable.projectId, projectId));
+   643  await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+   644  await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, projectId));
+   645  await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, projectId));
+   646
+   647  for (const sessionId of sessionIds) {
+   648    await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId));
+   649  }
+   650  await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+   651
+   652  for (const taskId of taskIds) {
+   653    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+   654  }
+   655  await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId));
+   656
+   657  for (const workflowId of workflowIdsForProject) {
+   658    await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.workflowId, workflowId));
+   659  }
+   660  await db.delete(workflowsTable).where(eq(workflowsTable.projectId, projectId));
+   661  await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+   662}
+   663
+   664// All AI routes require a Groq API key. Set a dummy env key for the entire
+   665// test file — every AI orchestrator call is mocked so the real key is never
+   666// used.  Individual tests that want to verify the 428 path remove the key
+   667// themselves and restore it in a finally block.
+   668let _savedGroqKeyFileLevel: string | undefined;
+   669beforeAll(async () => {
+   670  _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
+   671  process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+   672});
+   673afterAll(() => {
+   674  if (_savedGroqKeyFileLevel !== undefined) {
+   675    process.env.GROQ_API_KEY = _savedGroqKeyFileLevel;
+   676  } else {
+   677    delete process.env.GROQ_API_KEY;
+   678  }
+   679});
+   680
+   681afterEach(async () => {
+   682  vi.restoreAllMocks();
+   683  for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
+   684    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+   685  }
+   686  for (const pid of projectIds.splice(0)) {
+   687    await cleanupProjectFixture(pid);
+   688  }
+   689  // Also clear any lingering workflow ids
+   690  for (const wid of workflowIds.splice(0)) {
+   691    await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.workflowId, wid));
+   692    await db.delete(workflowsTable).where(eq(workflowsTable.id, wid));
+   693  }
+   694});
+   695
+   696// ─── POST /api/ai/chat ────────────────────────────────────────────────────────
+   697
+   698describe("POST /api/ai/chat", () => {
+   699  it("allows same-origin mutations to reach normal request validation", async () => {
+   700    const res = await request(app)
+     1import express, { type Express, type Request, type Response, type NextFunction } from "express";
+     2import cors from "cors";
+     3import helmet from "helmet";
+     4import rateLimit from "express-rate-limit";
+     5import pinoHttp from "pino-http";
+     6import { clerkMiddleware } from "@clerk/express";
+     7import { publishableKeyFromHost } from "@clerk/shared/keys";
+     8import router from "./routes/index.js";
+     9import healthRouter from "./routes/health.js";
+    10import { logger } from "./lib/logger.js";
+    11import { config } from "./config.js";
+    12import {
+    13  CLERK_PROXY_PATH,
+    14  clerkProxyMiddleware,
+    15  getClerkProxyHost,
+    16} from "./middlewares/clerkProxyMiddleware.js";
+    17import { requireAuth } from "./middlewares/requireAuth.js";
+    18
+    19const app: Express = express();
+    20
+    21function isAllowedApplicationOrigin(origin: string, req: Request): boolean {
+    22  let parsed: URL;
+    23  try {
+    24    parsed = new URL(origin);
+    25  } catch {
+    26    return false;
+    27  }
+    28  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+    29    return false;
+    30  }
+    31
+    32  const normalizedOrigin = parsed.origin;
+    33  const requestOrigin = `${req.protocol}://${req.get("host")}`;
+    34  if (normalizedOrigin === requestOrigin) return true;
+    35  if (config.applicationOrigins.includes(normalizedOrigin)) return true;
+    36
+    37  // The development dashboard may run on a local port or a Replit preview
+    38  // domain. These are intentionally not accepted in production.
+    39  if (!config.isProduction) {
+    40    const hostname = parsed.hostname.toLowerCase();
+    41    if (
+    42      hostname === "localhost" ||
+    43      hostname === "127.0.0.1" ||
+    44      hostname === "::1" ||
+    45      hostname.endsWith(".replit.dev") ||
+    46      hostname.endsWith(".repl.co")
+    47    ) {
+    48      return true;
+    49    }
+    50  }
+    51  return false;
+    52}
+    53
+    54function rejectCrossOriginMutations(
+    55  req: Request,
+    56  res: Response,
+    57  next: NextFunction,
+    58): void {
+    59  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+    60    next();
+    61    return;
+    62  }
+    63
+    64  const origin = req.get("origin");
+    65  const fetchSite = req.get("sec-fetch-site");
+    66  const hasCookies = Boolean(req.get("cookie"));
+    67  const csrfCookie = req.get("cookie")?.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    68  const csrfHeader = req.get("x-csrf-token");
+    69  if (
+    70    (origin && !isAllowedApplicationOrigin(origin, req)) ||
+    71    (!origin && fetchSite === "cross-site")
+    72  ) {
+    73    res.status(403).json({
+    74      error: "Cross-origin state-changing requests are not allowed",
+    75      code: "cross_origin_request",
+    76    });
+    77    return;
+    78  }
+    79  // Cookie-authenticated requests without browser provenance headers are
+    80  // accepted only with a matching double-submit CSRF token. Same-origin
+    81  // browser requests retain their normal Fetch Metadata path.
+    82  if (hasCookies && !origin && fetchSite !== "same-origin"
+    83    && (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader)) {
+    84    res.status(403).json({
+    85      error: "CSRF validation failed",
+    86      code: "csrf_failed",
+    87    });
+    88    return;
+    89  }
+    90  next();

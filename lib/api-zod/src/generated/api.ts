@@ -5165,7 +5165,18 @@ export const GetProviderKeyStatusParams = zod.object({
 export const GetProviderKeyStatusResponse = zod.object({
   "configured": zod.boolean(),
   "last4": zod.string().nullish().describe('Last 4 characters of the saved key'),
-  "updatedAt": zod.coerce.date().nullish()
+  "updatedAt": zod.coerce.date().nullish(),
+  "modelAvailability": zod.object({
+  "status": zod.enum(['available', 'unavailable', 'check_unavailable', 'invalid_credential', 'not_configured']),
+  "source": zod.enum(['personal', 'server', 'none']),
+  "checkedModels": zod.object({
+  "fast": zod.string(),
+  "powerful": zod.string()
+}),
+  "unavailableRoles": zod.array(zod.enum(['fast', 'powerful'])),
+  "checkedAt": zod.coerce.date(),
+  "reason": zod.string().optional()
+}).optional().describe('Credential-safe availability of the configured Groq default models.')
 }).describe('Generic key status response for any AI provider.')
 
 
@@ -5187,7 +5198,18 @@ export const SaveProviderKeyBody = zod.object({
 export const SaveProviderKeyResponse = zod.object({
   "configured": zod.boolean(),
   "last4": zod.string().nullish().describe('Last 4 characters of the saved key'),
-  "updatedAt": zod.coerce.date().nullish()
+  "updatedAt": zod.coerce.date().nullish(),
+  "modelAvailability": zod.object({
+  "status": zod.enum(['available', 'unavailable', 'check_unavailable', 'invalid_credential', 'not_configured']),
+  "source": zod.enum(['personal', 'server', 'none']),
+  "checkedModels": zod.object({
+  "fast": zod.string(),
+  "powerful": zod.string()
+}),
+  "unavailableRoles": zod.array(zod.enum(['fast', 'powerful'])),
+  "checkedAt": zod.coerce.date(),
+  "reason": zod.string().optional()
+}).optional().describe('Credential-safe availability of the configured Groq default models.')
 }).describe('Generic key status response for any AI provider.')
 
 

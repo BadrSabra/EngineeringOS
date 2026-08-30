@@ -4093,6 +4093,38 @@ components:
         updatedAt:
           type: ["string", "null"]
           format: date-time
+        modelAvailability:
+          $ref: "#/components/schemas/GroqModelAvailability"
+
+    GroqModelAvailability:
+      type: object
+      required: [status, source, checkedModels, unavailableRoles, checkedAt]
+      description: Credential-safe availability of the configured Groq default models.
+      properties:
+        status:
+          type: string
+          enum: [available, unavailable, check_unavailable, invalid_credential, not_configured]
+        source:
+          type: string
+          enum: [personal, server, none]
+        checkedModels:
+          type: object
+          required: [fast, powerful]
+          properties:
+            fast:
+              type: string
+            powerful:
+              type: string
+        unavailableRoles:
+          type: array
+          items:
+            type: string
+            enum: [fast, powerful]
+        checkedAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
 
     ActiveProviderStatus:
       type: object

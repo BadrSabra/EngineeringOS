@@ -16,7 +16,7 @@ import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
 import { aiProviderCredentialsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { encryptApiKey } from "../../lib/credentials-crypto.js";
+import { decryptApiKey, encryptApiKey } from "../../lib/credentials-crypto.js";
 import { logger } from "../../lib/logger.js";
 import { resolveProvider } from "../../lib/ai-route-helpers.js";
 import {
@@ -26,6 +26,8 @@ import {
   getProviderMetrics,
   getBehavioralScorecards,
   getCircuitState,
+  validateGroqDefaultModels,
+  GroqClientError,
 } from "@workspace/ai-orchestrator";
 import { getDynamicCatalogStatus } from "@workspace/ai-orchestrator";
 import type { ProviderId } from "@workspace/ai-orchestrator";
@@ -41,10 +43,71 @@ function isValidProvider(p: string): p is ProviderId {
   return VALID_PROVIDERS.has(p);
 }
 
+type GroqModelAvailability = {
+  status: "available" | "unavailable" | "check_unavailable" | "invalid_credential" | "not_configured";
+  source: "personal" | "server" | "none";
+  checkedModels: { fast: string; powerful: string };
+  unavailableRoles: Array<"fast" | "powerful">;
+  checkedAt: string;
+  reason?: string;
+};
+
+/**
+ * Check Groq's configured defaults without returning a credential or raw
+ * provider error. A valid key and an available model are separate concerns:
+ * Groq can accept the key while retiring one of the configured model IDs.
+ */
+async function getGroqModelAvailability(
+  apiKey: string | undefined,
+  source: GroqModelAvailability["source"],
+): Promise<GroqModelAvailability> {
+  const checkedModels = PROVIDER_REGISTRY.groq.defaultModels;
+  const checkedAt = new Date().toISOString();
+
+  if (!apiKey) {
+    return {
+      status: source === "none" ? "not_configured" : "check_unavailable",
+      source,
+      checkedModels,
+      unavailableRoles: [],
+      checkedAt,
+      ...(source !== "none"
+        ? { reason: "Groq model availability could not be checked. Save the Groq API key again, then retry." }
+        : {}),
+    };
+  }
+
+  try {
+    const validation = await validateGroqDefaultModels(apiKey, checkedModels);
+    return {
+      status: validation.valid ? "available" : "unavailable",
+      source,
+      checkedModels: validation.checkedModels,
+      unavailableRoles: validation.missing,
+      checkedAt,
+      ...(validation.reason ? { reason: validation.reason } : {}),
+    };
+  } catch (error) {
+    const isInvalidCredential =
+      error instanceof GroqClientError && error.code === "AUTH_ERROR";
+    return {
+      status: isInvalidCredential ? "invalid_credential" : "check_unavailable",
+      source,
+      checkedModels,
+      unavailableRoles: [],
+      checkedAt,
+      reason: isInvalidCredential
+        ? "Groq rejected this credential while checking the configured models. Replace the Groq API key."
+        : "Groq model availability could not be confirmed. Retry shortly; if this persists, check Groq status.",
+    };
+  }
+}
+
 /** Shared GET handler — return key status (never the key itself). */
 async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
   const [row] = await db
     .select({
+      encryptedApiKey: aiProviderCredentialsTable.encryptedApiKey,
       last4: aiProviderCredentialsTable.last4,
       updatedAt: aiProviderCredentialsTable.updatedAt,
     })
@@ -57,8 +120,45 @@ async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
     )
     .limit(1);
 
-  if (!row) return res.json({ configured: false, last4: null, updatedAt: null });
-  return res.json({ configured: true, last4: row.last4, updatedAt: row.updatedAt });
+  if (!row) {
+    if (provider !== "groq") {
+      return res.json({ configured: false, last4: null, updatedAt: null });
+    }
+    const modelAvailability = await getGroqModelAvailability(
+      process.env.GROQ_API_KEY,
+      process.env.GROQ_API_KEY ? "server" : "none",
+    );
+    return res.json({
+      configured: false,
+      last4: null,
+      updatedAt: null,
+      modelAvailability,
+    });
+  }
+
+  if (provider !== "groq") {
+    return res.json({ configured: true, last4: row.last4, updatedAt: row.updatedAt });
+  }
+
+  let apiKey: string | undefined;
+  let source: GroqModelAvailability["source"] = "personal";
+  try {
+    apiKey = decryptApiKey(row.encryptedApiKey);
+  } catch (error) {
+    logger.error({ err: error, provider }, "Failed to decrypt stored provider key for readiness check");
+    apiKey = process.env.GROQ_API_KEY;
+    source = apiKey ? "server" : "none";
+  }
+  const modelAvailability = await getGroqModelAvailability(
+    apiKey,
+    source,
+  );
+  return res.json({
+    configured: true,
+    last4: row.last4,
+    updatedAt: row.updatedAt,
+    modelAvailability,
+  });
 }
 
 /** Shared PUT handler — validate and persist the API key. */
@@ -108,7 +208,9 @@ async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
       set: { encryptedApiKey, last4, updatedAt: now },
     });
 
-  return res.json({ configured: true, last4, updatedAt: now });
+  // Return the same readiness shape as GET so the settings card can show
+  // model availability immediately, then refresh it on the next query read.
+  return handleGetKey(req, res, provider);
 }
 
 /** Shared DELETE handler — remove the saved key. */

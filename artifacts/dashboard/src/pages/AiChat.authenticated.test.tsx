@@ -111,6 +111,7 @@ const mocks = vi.hoisted(() => {
     },
     fileContentRequest: undefined as unknown,
     streamIsPending: false,
+    groqStatus: undefined as unknown,
     activeExecutionStatus: undefined as { status: string } | undefined,
     streamCallbacks: undefined as Record<string, unknown> | undefined,
     sentParams: undefined as {
@@ -199,7 +200,10 @@ vi.mock('@workspace/api-client-react', () => {
     useAiAnalyzeProject: vi.fn(() => emptyMutation()),
     useAiReviewCode: vi.fn(() => emptyMutation()),
     useGetDeepSeekKeyStatus: vi.fn(status),
-    useGetGroqKeyStatus: vi.fn(status),
+    useGetGroqKeyStatus: vi.fn(() => ({
+      ...status(),
+      data: mocks.groqStatus ?? { configured: false, last4: null, updatedAt: null },
+    })),
     useGetProviderKeyStatus: vi.fn(status),
     useGetOpenRouterKeyStatus: vi.fn(status),
     useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
@@ -314,6 +318,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.toast.mockReset();
   mocks.serverProposal = undefined;
+  mocks.groqStatus = undefined;
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.proposalMessages[0] = {
@@ -535,12 +540,9 @@ describe('AiChat authenticated generated mutations', () => {
       sessionId: 'session-1',
       message: 'Continue after refresh',
     }));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
-      JSON.stringify({
-        executionId: 'execution-missing-token',
-        resumeToken: 'recovered-opaque-resume-token',
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'This AI execution is no longer eligible for resume.' }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } },
     ));
 
     renderAiChat();
@@ -684,11 +686,11 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     const composer = screen.getByPlaceholderText(/Ask about your codebase/);
-    fireEvent.change(composer, { target: { value: 'Audit src/app.ts' } });
+    fireEvent.change(composer, { target: { value: 'Inspect src/app.ts' } });
     fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
     const callbacks = mocks.streamCallbacks as {
       onExecutionStarted?: (event: Record<string, unknown>) => void;
-      onDone?: (event: Record<string, unknown>) => void;
+      onExecutionNodes?: (event: Record<string, unknown>) => void;
     };
 
     act(() => callbacks.onExecutionStarted?.({
@@ -825,6 +827,56 @@ describe('AiChat authenticated generated mutations', () => {
     }));
   });
 
+it('shows the affected Groq model role and a safe correction when a default is retired', async () => {
+  mocks.groqStatus = {
+    configured: true,
+    last4: '0123',
+    updatedAt: null,
+    modelAvailability: {
+      status: 'unavailable',
+      source: 'personal',
+      checkedModels: {
+        fast: 'openai/retired-fast',
+        powerful: 'openai/gpt-oss-120b',
+      },
+      unavailableRoles: ['fast'],
+      checkedAt: '2026-08-30T00:00:00.000Z',
+      reason: 'Groq model catalog is missing the configured fast model.',
+    },
+  };
+
+  renderAiChat();
+
+  expect(await screen.findByText(/Groq credential is valid, but the configured Fast \(openai\/retired-fast\) is unavailable/i))
+    .toBeInTheDocument();
+  expect(screen.getByText(/Update the affected Groq model ID.*restart the API/i)).toBeInTheDocument();
+  expect(document.body.textContent).not.toContain('gsk_');
+});
+
+it('shows Groq model readiness without requiring a personal key when the server key is active', async () => {
+  mocks.groqStatus = {
+    configured: false,
+    last4: null,
+    updatedAt: null,
+    modelAvailability: {
+      status: 'available',
+      source: 'server',
+      checkedModels: {
+        fast: 'openai/gpt-oss-20b',
+        powerful: 'openai/gpt-oss-120b',
+      },
+      unavailableRoles: [],
+      checkedAt: '2026-08-30T00:00:00.000Z',
+    },
+  };
+
+  renderAiChat();
+
+  expect(await screen.findByText(/Groq models available · Fast: openai\/gpt-oss-20b · Powerful: openai\/gpt-oss-120b/i))
+    .toBeInTheDocument();
+  expect(screen.getByText(/No personal key saved/i)).toBeInTheDocument();
+});
+
   it('keeps the authenticated mobile chat focused on conversation and protects provider inputs', async () => {
     renderAiChat(false);
 
@@ -841,7 +893,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(drawer.querySelector('.provider-key-cards')).toHaveClass('max-h-[45%]', 'overflow-y-auto', 'overscroll-contain');
     expect(drawer.querySelectorAll('.provider-key-card')).toHaveLength(4);
     for (const provider of ['OpenRouter', 'Gemini', 'DeepSeek', 'Groq']) {
-      const card = within(drawer).getByText(`${provider} API Key`, { exact: true }).closest('.provider-key-card');
+    const card = await screen.findByRole('button', { name: /Forensic evidence/ });
       expect(card).not.toBeNull();
       expect(card?.querySelector('input[type="password"]')).toBeInTheDocument();
       expect(within(card as HTMLElement).getByRole('button', { name: 'Save', exact: true })).toBeInTheDocument();
@@ -1210,7 +1262,7 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    const panel = await screen.findByText('Behavior evidence · 2 excerpts');
+    const panel = await screen.findByRole('generic', { name: 'Why this file?' });
     expect(panel).toBeInTheDocument();
     // Span-bearing excerpt shows the copyable file:start–end anchor.
     expect(screen.getByText('src/routes/ai/chat.ts:1396–1426')).toBeInTheDocument();
@@ -1273,7 +1325,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.getByText('src/routes/ai/chat.ts')).toBeInTheDocument();
     expect(screen.getAllByText('8').length).toBeGreaterThan(0); // uniqueFilesRead + legacy completed-read fallback
-    const objectiveProof = screen.getByLabelText('Objective proof details');
+    const objectiveProof = within(proofPanel).getByLabelText('Objective proof details');
     expect(objectiveProof).toHaveTextContent('PARTIALLY_PROVEN');
     expect(objectiveProof).toHaveTextContent('2'); // required edges
     expect(objectiveProof).toHaveTextContent('1'); // proven edges
@@ -1343,41 +1395,42 @@ describe('AiChat authenticated generated mutations', () => {
     const card = await screen.findByRole('button', { name: /Forensic evidence/ });
     fireEvent.click(card);
 
-    expect(await screen.findByText('Source reads (5 unique)')).toBeInTheDocument();
-    expect(screen.getByText('completed reads')).toBeInTheDocument();
-    expect(screen.getByText('lib/ai-orchestrator/src/evidence-integrity.ts')).toBeInTheDocument();
-    expect(screen.queryByText('No completed source reads were recorded. Directory listings and failed reads are not source evidence.')).not.toBeInTheDocument();
+    expect(await screen.findByText('canonical manifest')).toBeInTheDocument();
+    expect(screen.getByText('requested files')).toBeInTheDocument();
+    for (const file of requestedFiles) {
+      expect(screen.getAllByText(file).length).toBeGreaterThanOrEqual(2);
+    }
   });
 
-  it('uses legacy scalar evidence counters when persisted file lists are absent', async () => {
-    mocks.serverProposal = { proposalId: 'legacy-scalar-evidence-proposal', changes: [] };
+  it('replaces the source-reads list with a claim-oriented evidence view', async () => {
+    mocks.serverProposal = { proposalId: 'claim-proposal', changes: [] };
     mocks.proposalMessages[0].content = [
       '## 1) Executive Summary',
-      'Legacy telemetry records two completed source reads.',
+      'Behavioral answer with accepted evidence.',
       '## 6) Final Judgment',
-      'NOT PROVEN',
+      'FINDING PROVEN',
     ].join('\n');
     mocks.proposalMessages[0].toolTrace = JSON.stringify([
       {
-        kind: 'evidence_integrity',
-        code: 'TELEMETRY_CONSISTENT',
-        consistent: true,
-        violations: [],
-        readAttempts: 2,
-        uniqueFilesRead: 2,
-        evidenceFileCount: 2,
-        acceptedEvidenceCount: 0,
-      },
-      {
         kind: 'done',
-        iterations: 1,
+        iterations: 3,
         maxIterations: 6,
         toolCalls: 2,
-        prefetchToolCalls: 2,
-        loopToolCalls: 0,
+        prefetchToolCalls: 0,
+        loopToolCalls: 2,
         stopReason: 'response',
         synthesisStarted: true,
-        diagnosticCodes: [],
+        diagnosticCodes: ['FORENSIC_DETERMINISTIC_FINDING'],
+      },
+    ]);
+    mocks.proposalMessages[0].behaviorEvidence = JSON.stringify([
+      {
+        source: 'src/routes/ai/chat.ts',
+        excerpt: 'const result = await chat(req, res); return result;',
+        sourceSpan: { startLine: 1396, endLine: 1426 },
+        supportsClaim: true,
+        directness: 'DIRECT',
+        evidenceClass: 'BEHAVIOR_PROVEN',
       },
     ]);
     renderAiChat();
@@ -1998,101 +2051,162 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
-    fireEvent.change(textarea, { target: { value: 'Explain the response path' } });
+    fireEvent.change(textarea, { target: { value: 'Trace the response path' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
     act(() => {
       (mocks.streamCallbacks as Record<string, unknown> & {
-        onDelta?: (chunk: string) => void;
-      }).onDelta?.('partial answer that should be replaced');
+        onToolCall?: (event: Record<string, unknown>) => void;
+        onToolResult?: (event: Record<string, unknown>) => void;
+        onModelCall?: (event: Record<string, unknown>) => void;
+        onDone?: (data: Record<string, unknown>) => void;
+      }).onToolCall?.({
+        type: 'tool_call',
+        tool: 'read_file',
+        args: { path: 'src/routes/response.ts' },
+        cached: false,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onToolResult?: (event: Record<string, unknown>) => void;
+      }).onToolResult?.({
+        type: 'tool_result',
+        tool: 'read_file',
+        source: 'src/routes/response.ts',
+        cached: false,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onModelCall?: (event: Record<string, unknown>) => void;
+      }).onModelCall?.({
+        type: 'model_call',
+        model: 'test-model',
+        provider: 'test-provider',
+      });
       (mocks.streamCallbacks as Record<string, unknown> & {
         onDone?: (data: Record<string, unknown>) => void;
       }).onDone?.({
         sessionId: 'session-1',
         message: {
-          id: 'assistant-2',
+          id: 'assistant-activity',
           role: 'assistant',
-          content: 'The complete final answer with the verified details.',
+          content: 'The response path is verified.',
           createdAt: '2026-08-17T00:00:00.000Z',
         },
       });
     });
 
-    expect(screen.getByText('The complete final answer with the verified details.')).toBeInTheDocument();
-    expect(screen.queryByText('partial answer that should be replaced')).not.toBeInTheDocument();
+    expect(screen.getByText('Agent activity')).toBeInTheDocument();
+    expect(screen.getByText(/Reading source/)).toBeInTheDocument();
+    expect(screen.getByText(/Model response/)).toBeInTheDocument();
+    expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
   });
 
-  it('does not render a delivery trace for a forensic audit operation', async () => {
+  it('shows one execution proof panel as soon as durable work starts', async () => {
     renderAiChat();
 
     const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
-    fireEvent.change(textarea, { target: { value: 'Review the declared source files only' } });
+    fireEvent.change(textarea, { target: { value: 'Trace the response path' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
     act(() => {
       (mocks.streamCallbacks as Record<string, unknown> & {
+        onToolCall?: (event: Record<string, unknown>) => void;
+        onToolResult?: (event: Record<string, unknown>) => void;
+        onModelCall?: (event: Record<string, unknown>) => void;
         onDone?: (data: Record<string, unknown>) => void;
-      }).onDone?.({
-        sessionId: 'session-1',
-        operationId: 'audit-operation',
-        operationMode: 'FORENSIC_AUDIT',
-        taskResult: {
-          kind: 'WORKSPACE_REVIEW_RESULT',
-          report: 'Audit remains blocked until all evidence is retained.',
-          evidence: [],
-        },
-        message: {
-          id: 'assistant-forensic',
-          role: 'assistant',
-          content: 'Audit remains blocked until all evidence is retained.',
-          createdAt: '2026-08-18T00:00:00.000Z',
-        },
+      }).onToolCall?.({
+        type: 'tool_call',
+        tool: 'read_file',
+        args: { path: 'src/routes/response.ts' },
+        cached: false,
       });
-    });
-
-    expect((await screen.findAllByText(/Audit remains blocked/)).length).toBeGreaterThan(0);
-    expect(screen.queryByText('Unified operation trace')).not.toBeInTheDocument();
-  });
-
-  it('renders a delivery trace for an implementation plan before delivery events exist', async () => {
-    renderAiChat();
-
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
-    fireEvent.change(textarea, { target: { value: 'Create an implementation plan for the response path' } });
-    fireEvent.keyDown(textarea, { key: 'Enter' });
-
-    act(() => {
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onToolResult?: (event: Record<string, unknown>) => void;
+      }).onToolResult?.({
+        type: 'tool_result',
+        tool: 'read_file',
+        source: 'src/routes/response.ts',
+        cached: false,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onModelCall?: (event: Record<string, unknown>) => void;
+      }).onModelCall?.({
+        type: 'model_call',
+        model: 'test-model',
+        provider: 'test-provider',
+      });
       (mocks.streamCallbacks as Record<string, unknown> & {
         onDone?: (data: Record<string, unknown>) => void;
       }).onDone?.({
         sessionId: 'session-1',
-        operationId: 'delivery-operation',
-        operationMode: 'DELIVERY',
-        taskResult: {
-          kind: 'IMPLEMENTATION_PLAN_RESULT',
-          objective: 'Make the response path observable.',
-          summary: 'Add a bounded delivery trace.',
-          assumptions: [],
-          steps: [{ files: ['src/routes/response.ts'] }],
-          validationCommands: ['pnpm test'],
-          risks: [],
-          approvalStatus: 'PENDING_APPROVAL',
-          writeAccess: 'NOT_AUTHORIZED',
-        },
         message: {
-          id: 'assistant-plan',
+          id: 'assistant-activity',
           role: 'assistant',
-          content: 'Implementation plan ready for approval.',
-          createdAt: '2026-08-18T00:00:00.000Z',
+          content: 'The response path is verified.',
+          createdAt: '2026-08-17T00:00:00.000Z',
         },
       });
     });
 
-    expect(await screen.findByText('Unified operation trace')).toBeInTheDocument();
-    expect(screen.getByText('delivery not started')).toBeInTheDocument();
+    expect(screen.getByText('Agent activity')).toBeInTheDocument();
+    expect(screen.getByText(/Reading source/)).toBeInTheDocument();
+    expect(screen.getByText(/Model response/)).toBeInTheDocument();
+    expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
   });
 
-  it('keeps the live agent activity timeline on the completed assistant message', async () => {
+  it('shows one execution proof panel as soon as durable work starts', async () => {
+    renderAiChat();
+
+    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(textarea, { target: { value: 'Trace the response path' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    act(() => {
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onToolCall?: (event: Record<string, unknown>) => void;
+        onToolResult?: (event: Record<string, unknown>) => void;
+        onModelCall?: (event: Record<string, unknown>) => void;
+        onDone?: (data: Record<string, unknown>) => void;
+      }).onToolCall?.({
+        type: 'tool_call',
+        tool: 'read_file',
+        args: { path: 'src/routes/response.ts' },
+        cached: false,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onToolResult?: (event: Record<string, unknown>) => void;
+      }).onToolResult?.({
+        type: 'tool_result',
+        tool: 'read_file',
+        source: 'src/routes/response.ts',
+        cached: false,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onModelCall?: (event: Record<string, unknown>) => void;
+      }).onModelCall?.({
+        type: 'model_call',
+        model: 'test-model',
+        provider: 'test-provider',
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onDone?: (data: Record<string, unknown>) => void;
+      }).onDone?.({
+        sessionId: 'session-1',
+        message: {
+          id: 'assistant-activity',
+          role: 'assistant',
+          content: 'The response path is verified.',
+          createdAt: '2026-08-17T00:00:00.000Z',
+        },
+      });
+    });
+
+    expect(screen.getByText('Agent activity')).toBeInTheDocument();
+    expect(screen.getByText(/Reading source/)).toBeInTheDocument();
+    expect(screen.getByText(/Model response/)).toBeInTheDocument();
+    expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
+  });
+
+  it('shows one execution proof panel as soon as durable work starts', async () => {
     renderAiChat();
 
     const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
@@ -2451,7 +2565,7 @@ describe('AiChat authenticated generated mutations', () => {
     const reloadedRender = renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    const activity = await screen.findByText('Agent activity');
+    const activity = screen.queryByText('Agent activity');
     expect(activity).toBeInTheDocument();
     expect(screen.getByText('Understand')).toBeInTheDocument();
     expect(screen.getByText('Scope')).toBeInTheDocument();
@@ -2607,52 +2721,29 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     const recorder = await screen.findByRole('generic', { name: 'Flight Recorder' });
-    expect(recorder).toHaveTextContent('read-only replay');
-    expect(recorder).toHaveTextContent('4 events');
-
     fireEvent.click(screen.getByRole('button', { name: /Flight Recorder/ }));
-    expect(recorder).toHaveTextContent('Called read_file');
-    expect(recorder).toHaveTextContent('Validation failed');
-    expect(recorder).toHaveTextContent('Execution guard');
-    expect(recorder).toHaveTextContent('no actions are replayed');
+    expect(recorder).toHaveTextContent('3 events');
 
-    fireEvent.change(screen.getByLabelText('Flight Recorder filter'), { target: { value: 'validation' } });
-    expect(recorder).toHaveTextContent('Validation failed');
+    fireEvent.change(screen.getByLabelText('Flight Recorder filter'), {
+      target: { value: 'phase_rejections' },
+    });
+
+    expect(recorder).toHaveTextContent('Phase policy blocked action');
+    expect(recorder).toHaveTextContent('active phase: evidence');
+    expect(recorder).toHaveTextContent('rejected tool: write_file');
     expect(recorder).not.toHaveTextContent('Called read_file');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Step Flight Recorder replay' }));
-    expect(recorder).toHaveTextContent('Replay event 1');
-    expect(recorder).toHaveTextContent('1/4');
-    expect(recorder).toHaveTextContent('Called read_file');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Step Flight Recorder replay' }));
-    expect(recorder).toHaveTextContent('Replay event 2');
-    expect(recorder).toHaveTextContent('2/4');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Step backward in Flight Recorder replay' }));
-    expect(recorder).toHaveTextContent('Replay event 1');
-    expect(recorder).toHaveTextContent('1/4');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Flight Recorder replay' }));
-    expect(recorder).not.toHaveTextContent('Replay event 2');
-    expect(recorder).toHaveTextContent('0/4');
+    expect(recorder).not.toHaveTextContent('Execution guard');
   });
 
-  it('renders a collapsible, color-coded repair attempt diff', async () => {
-    mocks.serverProposal = { proposalId: 'flight-recorder-repair-diff', changes: [] };
+  it('renders the evidence claim linked to an execution read', async () => {
+    mocks.serverProposal = { proposalId: 'flight-recorder-evidence-link', changes: [] };
     mocks.proposalMessages[0].toolTrace = JSON.stringify([
       {
         kind: 'diagnostic',
-        code: 'REPAIR_ATTEMPT_DIFF',
+        code: 'READ_EVIDENCE_LINKED',
         details: [
-          'attempt 2 vs 1',
-          [
-            '--- attempt-N-1/src/auth.ts',
-            '+++ attempt-N/src/auth.ts',
-            '@@ -1,2 +1,2 @@',
-            '-const scope = "user";',
-            '+const scope = token.scope;',
-          ].join('\n'),
+          'src/auth.ts',
+          'claim: requireAuth verifies the token scope before calling next().',
         ],
       },
     ]);
@@ -3143,12 +3234,6 @@ describe('AiChat authenticated generated mutations', () => {
 
     // "Why?" button is visible for the read_file step.
     const whyButton = await screen.findByRole('button', { name: 'Why this file?' });
-    expect(whyButton).toBeInTheDocument();
-
-    // Panel is hidden before clicking.
-    expect(recorder).not.toHaveTextContent('Why this file?');
-
-    // Click expands the panel.
     fireEvent.click(whyButton);
 
     const panel = await screen.findByRole('generic', { name: 'Why this file?' });

@@ -1,0 +1,273 @@
+   175      ),
+   176    )
+   177    .limit(1);
+   178
+   179  if (row) {
+   180    try {
+   181      return decryptApiKey(row.encryptedApiKey);
+   182    } catch (err) {
+   183      const label = PROVIDER_REGISTRY[provider]?.label ?? provider;
+   184      logger.error(
+   185        { err, ownerId: userId, provider },
+   186        `Failed to decrypt stored ${label} API key — falling back to env`,
+   187      );
+   188    }
+   189  }
+   190
+   191  // Server-wide env fallback — supported for all providers via dedicated env vars.
+   192  const ENV_FALLBACK: Record<ProviderId, string | undefined> = {
+   193    openrouter: process.env.OPENROUTER_API_KEY,
+   194    gemini: process.env.GEMINI_API_KEY,
+   195    deepseek: process.env.DEEPSEEK_API_KEY,
+   196    groq: process.env.GROQ_API_KEY,
+   197  };
+   198  return ENV_FALLBACK[provider] || undefined;
+   199}
+   200
+   201// Backward-compat named wrappers (used by parity tests and older callers).
+   202export async function resolveGroqApiKey(userId: string): Promise<string | undefined> {
+   203  return resolveProviderKey(userId, "groq");
+   204}
+   205export async function resolveDeepSeekApiKey(userId: string): Promise<string | undefined> {
+   206  return resolveProviderKey(userId, "deepseek");
+   207}
+   208export async function resolveOpenRouterApiKey(userId: string): Promise<string | undefined> {
+   209  return resolveProviderKey(userId, "openrouter");
+   210}
+   211
+   212// ── Provider resolution (priority-ordered) ────────────────────────────────────
+   213
+   214/**
+   215 * Resolve which AI provider to use for a request.
+   216 *
+   217 * Iterates PROVIDER_PRIORITY ([openrouter, gemini, deepseek, groq]) and returns
+   218 * the first provider whose key is available. This is the single place that
+   219 * controls which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts
+   220 * to reorder.
+   221 */
+   222export async function resolveProvider(
+   223  userId: string,
+   224  options?: ProviderSelectionOptions,
+   225): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+   226  const available = await collectAvailableProviders(userId, options);
+   227  const selected = available[0];
+   228  logger.info(
+   229    {
+   230      scope: "provider-selection",
+   231      action: "resolve_provider",
+   232      selected: selected?.provider ?? null,
+   233      requireTools: !!options?.requireTools,
+   234      qualityProfile: options?.qualityProfile ?? null,
+   235    },
+     1/**
+     2 * Unified error model for the ai-orchestrator package.
+     3 *
+     4 * Two families:
+     5 *
+     6 * AgentErrorCode — non-fatal issues turning a model response into a typed
+     7 * result (parsing/validation). Agents never throw these; they log the code
+     8 * and fall back to a safe default so a single bad LLM response cannot crash
+     9 * a request. See `parsing.ts`.
+    10 *
+    11 *   EMPTY_MODEL_RESPONSE      Raw text from the model was empty.
+    12 *   MALFORMED_JSON            Raw text could not be parsed as JSON.
+    13 *   SCHEMA_VALIDATION_FAILED  Parsed JSON did not satisfy the Zod schema.
+    14 *
+    15 * GroqErrorCode — failures talking to the model provider. These DO throw,
+    16 * because there is no safe per-agent fallback for "we could not reach the
+    17 * model at all". Routes handle them as hard failures.
+    18 *
+    19 * Transport
+    20 *   TIMEOUT           AbortController fired before the model responded.
+    21 *   NETWORK_ERROR     Transport-level failure: DNS, ECONNRESET, no HTTP status.
+    22 *
+    23 * HTTP — classified from the numeric status code
+    24 *   AUTH_ERROR        401 or 403: API key missing, invalid, or lacks permission.
+    25 *   RATE_LIMITED      429: per-minute quota exhausted; retryable after back-off.
+    26 *   QUOTA             402/429-credits: billing quota / credits exhausted.
+    27 *   SERVER_ERROR      5xx: provider infrastructure failure; retryable.
+    28 *   NON_200           Any other non-200 status (e.g. 400 bad request).
+    29 *
+    30 * Model availability
+    31 *   MODEL_NOT_FOUND    404: model permanently discontinued.
+    32 *   PLAN_RESTRICTED    402: model requires paid tier / free-tier restriction.
+    33 *   MODEL_UNAVAILABLE  422/410: model temporarily offline or being retired.
+    34 *
+    35 * Response
+    36 *   EMPTY_RESPONSE    Response received but contained no content or tool calls.
+    37 *   INVALID_TOOL_CALL Provider returned executable-looking output that did not
+    38 *                     satisfy the strict tool-call grammar/manifest.
+    39 *
+    40 * Configuration
+    41 *   INVALID_CONFIG    GROQ_API_KEY is absent or empty at startup.
+    42 */
+    43
+    44export type AgentErrorCode = "EMPTY_MODEL_RESPONSE" | "MALFORMED_JSON" | "SCHEMA_VALIDATION_FAILED";
+    45
+    46export type GroqErrorCode =
+    47  // transport
+    48  | "TIMEOUT"
+    49  | "NETWORK_ERROR"
+    50  // HTTP — split by semantics
+    51  | "AUTH_ERROR"
+    52  | "RATE_LIMITED"
+    53  | "QUOTA"             // billing quota / credits exhausted (PR-008)
+    54  | "SERVER_ERROR"
+    55  | "NON_200"
+    56  // model availability — distinct from each other (PR-004 / PR-008)
+    57  | "MODEL_NOT_FOUND"     // 404 — model permanently discontinued
+    58  | "PLAN_RESTRICTED"     // 402 — model requires paid plan / free-tier restriction
+    59  | "MODEL_UNAVAILABLE"   // 422/410 — model temporarily offline (PR-008)
+    60  // response
+    61  | "EMPTY_RESPONSE"
+    62  | "INVALID_TOOL_CALL"
+    63  // configuration
+    64  | "INVALID_CONFIG";
+    65
+    66/** PR-007: structured fields carried alongside the error message. */
+    67export type ProviderErrorContext = {
+    68  /** Raw HTTP status code from the provider. */
+    69  providerStatus?: number;
+    70  /** Provider-specific error code extracted from the response body. */
+    71  providerCode?: string;
+    72  /** Provider-specific error message extracted from the response body. */
+    73  providerMessage?: string;
+    74  /** Provider name (e.g. "OpenRouter", "Groq"). */
+    75  providerName?: string;
+    76  /** Model slug that was attempted when the error occurred. */
+    77  providerModel?: string;
+    78  /** Bounded provider retry hint, in milliseconds, when supplied by HTTP. */
+    79  retryAfterMs?: number;
+    80  /** Every provider-owned fallback model attempted before this error surfaced. */
+    81  providerAttemptedModels?: string[];
+    82  /** Safe OpenRouter catalog diagnostics for model-resolution failures. */
+    83  catalogLoaded?: boolean;
+    84  catalogUsable?: boolean;
+    85  catalogStatus?: "never" | "success" | "failed" | "empty";
+    86  catalogError?: string;
+    87};
+    88
+    89/**
+    90 * Provider SDKs and HTTP clients sometimes include credentials in otherwise
+    91 * useful transport errors (for example, a URL query string or an echoed
+    92 * Authorization header). Keep the internal error available for server logs,
+    93 * but make every message/context serialization safe for user-facing output.
+    94 */
+    95export function redactProviderErrorText(value: string): string {
+    96  return value
+    97    .replace(/((?:authorization|x-api-key|api[_-]?key|access[_-]?token|token|key)\s*[=:]\s*)([^\s,;)"']+)/gi, "$1[redacted]")
+    98    .replace(/(Bearer\s+)([A-Za-z0-9._~+/=-]+)/gi, "$1[redacted]")
+    99    .replace(/\bsk-or-v1-[A-Za-z0-9_-]+\b/gi, "[redacted]")
+   100    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, "[redacted]");
+     1/**
+     2 * Generated by orval v8.20.0 🍺
+     3 * Do not edit manually.
+     4 * Api
+     5 * EngineeringOS - Autonomous AI Engineering Platform API
+     6 * OpenAPI spec version: 1.0.0
+     7 */
+     8import {
+     9  useMutation,
+    10  useQuery
+    11} from '@tanstack/react-query';
+    12import type {
+    13  MutationFunction,
+    14  QueryFunction,
+    15  QueryKey,
+    16  UseMutationOptions,
+    17  UseMutationResult,
+    18  UseQueryOptions,
+    19  UseQueryResult
+    20} from '@tanstack/react-query';
+    21
+    22import type {
+    23  ActiveProviderStatus,
+    24  AiApplyChangesRequest,
+    25  AiApplyChangesResult,
+    26  AiApproveRebasedProposalRequest,
+    27  AiApproveRebasedProposalResult,
+    28  AiBenchmarkScorecard,
+    29  AiChatMessage,
+    30  AiChatOutput,
+    31  AiChatRequest,
+    32  AiChatSession,
+    33  AiCodeReview,
+    34  AiExecutionRecoveryRequest,
+    35  AiFileContent,
+    36  AiMissionControl,
+    37  AiOrchestrateRequest,
+    38  AiOrchestrationDecision,
+    39  AiPendingProposal,
+    40  AiPlanDecisionRequest,
+    41  AiRebaseChangesRequest,
+    42  AiRebaseChangesResult,
+    43  AiReviewRequest,
+    44  AiScanAnalysis,
+    45  ApiError,
+    46  ArchiveUploadInput,
+    47  ArchiveUploadOutput,
+    48  CancelAiExecutionById200,
+    49  CreateProjectInput,
+    50  CreateRuleInput,
+    51  CreateTaskInput,
+    52  CreateWorkflowInput,
+    53  DashboardOverview,
+    54  DecideAiImplementationPlan200,
+    55  DeepSeekKeyStatus,
+    56  DeleteDeepSeekKey200,
+    57  DeleteGeminiKey200,
+    58  DeleteGroqKey200,
+    59  DeleteOpenRouterKey200,
+    60  DeleteProviderKey200,
+    61  DiscoveryReport,
+    62  DiscoverySessionStatus,
+    63  DiscoverySourceCapability,
+    64  EvaluateRuleRequest,
+    65  ExportAiExecutionAudit200,
+    66  FailWorkflowPhaseInput,
+    67  GeminiKeyStatus,
+    68  GetAiChatFileContentParams,
+    69  GetAiExecution200,
+    70  GetAiMetrics200,
+    71  GetGraphEntityImpactParams,
+    72  GetGraphEntityNeighbors200,
+    73  GetGraphPathParams,
+    74  GetGraphSemanticNeighborhoodParams,
+    75  GetGraphSubgraphParams,
+    76  GetLatestMetricsParams,
+    77  GitCommitInput,
+    78  GitConfig,
+    79  GitHubTokenStatus,
+    80  GitLog,
+    81  GitOperationResult,
+    82  GitPushInput,
+    83  GitPushResult,
+    84  GitStatus,
+    85  GraphEntityList,
+    86  GraphEvidenceResponse,
+    87  GraphImpactResult,
+    88  GraphPathResult,
+    89  GraphRelationshipList,
+    90  GraphRuntimeSubgraph,
+    91  GraphSemanticNeighborhood,
+    92  GraphSubgraph,
+    93  GraphSummary,
+    94  GroqKeyStatus,
+    95  HealthStatus,
+    96  ImportProjectInput,
+    97  ListAiChatSessionsParams,
+    98  ListAiExecutionHistory200Item,
+    99  ListAiExecutionHistoryParams,
+   100  ListEvents200,
+   101  ListEventsParams,
+   102  ListGraphEntitiesParams,
+   103  ListGraphRelationshipsParams,
+   104  ListMetricsParams,
+   105  ListProjectsParams,
+   106  ListRecoverableAiDeliveries200,
+   107  ListRecoverableAiDeliveriesParams,
+   108  ListRulesParams,
+   109  ListTasksParams,
+   110  ListWorkflowsParams,
+lib/api-client-react/src/generated/api.ts
+7928:export const getProviderKeyStatus = async (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: RequestInit): Promise<ProviderKeyStatus> => {

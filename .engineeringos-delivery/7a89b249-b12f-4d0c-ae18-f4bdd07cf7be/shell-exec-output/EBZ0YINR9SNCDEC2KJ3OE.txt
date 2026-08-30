@@ -1,0 +1,662 @@
+   360      validationCommands: string[];
+   361       browserValidationProfile?: string;
+   362      risks: string[];
+   363      approvalStatus: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+   364      writeAccess: 'NOT_AUTHORIZED' | 'APPROVED_FOR_BUILD';
+   365    };
+   366
+   367function hasSafeImplementationPlanFileScope(
+   368  plan: Extract<AiTaskResult, { kind: 'IMPLEMENTATION_PLAN_RESULT' }>,
+   369): boolean {
+   370  return plan.steps.some((rawStep) => {
+   371    if (!rawStep || typeof rawStep !== 'object' || !Array.isArray(rawStep.files)) return false;
+   372    return rawStep.files.some((file) => {
+   373      if (typeof file !== 'string') return false;
+   374      const normalized = file.trim().replaceAll('\\', '/');
+   375      return normalized.length > 0 &&
+   376        normalized !== '.' &&
+   377        !normalized.startsWith('/') &&
+   378        !normalized.startsWith('../') &&
+   379        !normalized.includes('/../');
+   380    });
+   381  });
+   382}
+   383type Session = {
+   384  id: string;
+   385  title: string;
+   386  updatedAt: string;
+   387  forensicStatus?: 'INCOMPLETE' | 'NO_FINDING' | 'FINDING_PROVEN' | 'NOT_PROVEN';
+   388};
+   389
+   390function sessionForensicStatusLabel(status: Session['forensicStatus']): string | null {
+   391  switch (status) {
+   392    case 'INCOMPLETE': return 'Incomplete';
+   393    case 'NO_FINDING': return 'No finding';
+   394    case 'FINDING_PROVEN': return 'Finding proven';
+   395    case 'NOT_PROVEN': return 'Not proven';
+   396    default: return null;
+   397  }
+   398}
+   399type ProviderKeyStatus  = { configured: boolean; last4: string | null; updatedAt: string | null };
+   400type GroqKeyStatus      = ProviderKeyStatus;
+   401type DeepSeekKeyStatus  = ProviderKeyStatus;
+   402type OpenRouterKeyStatus = ProviderKeyStatus;
+   403type GeminiKeyStatus    = ProviderKeyStatus;
+   404type ActiveProvider     = { provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini' | null; configured: boolean };
+   405
+   406/** PR-06: runtime health snapshot returned by /api/ai/metrics */
+   407type ProviderRuntimeMetric = {
+   408  provider: string;
+   409  requests: number;
+   410  failures: number;
+   411  successRate: number | null;
+   412  lastSuccessAt: string | null;
+   413  lastFailureAt: string | null;
+   414  consecutiveFailures: number;
+   415  avgLatencyMs: number | null;
+   416  circuitOpen: boolean;
+   417  circuitHalfOpen: boolean;
+   418  cooldownRemainingMs: number | null;
+   419  configured?: boolean;
+   420  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'incompatible_model' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'circuit_open' | 'provider_outage' | 'degraded' | 'healthy' | 'unknown';
+   421  operatorAction?: string | null;
+   422  correlationId?: string;
+   423};
+   424type MetricsResponse = { metrics: ProviderRuntimeMetric[] };
+   425type PendingChange = {
+   426  path: string;
+   427  absolutePath: string;
+   428  newContent: string;
+   429  originalContent: string | null;
+   430  baseHash?: string;
+   431  hunks?: Array<{
+   432    startLine: number;
+   433    endLine: number;
+   434    expectedText: string;
+   435    replacementText: string;
+   436    reason: string;
+   437    risk?: 'low' | 'medium' | 'high';
+   438    evidence?: Array<{
+   439      kind: 'finding' | 'source' | 'validation';
+   440      id: string;
+   441      label: string;
+   442      file?: string;
+   443      line?: number;
+   444    }>;
+   445  }>;
+   446  reason: string;
+   447  validationProfile?: 'ai-orchestrator-tests' | 'knowledge-engine-tests' | 'api-ai-tests' | 'workspace-typecheck';
+   448  risk?: 'low' | 'medium' | 'high';
+   449  evidence?: Array<{
+   450    kind: 'finding' | 'source' | 'validation';
+   451    id: string;
+   452    label: string;
+   453    file?: string;
+   454    line?: number;
+   455  }>;
+   456};
+   457type ApprovedPendingChange = PendingChange & {
+   458  validationProfile: NonNullable<PendingChange['validationProfile']>;
+   459};
+   460
+   461function hasValidationProfile(change: PendingChange): change is ApprovedPendingChange {
+   462  return Boolean(change.validationProfile);
+   463}
+   464
+   465function validationProfileLabel(profile: PendingChange['validationProfile']): string {
+   466  switch (profile) {
+   467    case 'workspace-typecheck':
+   468      return 'Workspace typecheck (failed changes are rolled back)';
+   469    case 'ai-orchestrator-tests':
+   470      return 'AI orchestrator tests (failed changes are rolled back)';
+   471    case 'knowledge-engine-tests':
+   472      return 'Knowledge engine tests (failed changes are rolled back)';
+   473    case 'api-ai-tests':
+   474      return 'AI API tests (failed changes are rolled back)';
+   475    default:
+   476      return 'No registered validation';
+   477  }
+   478}
+   479
+   480type BehavioralVerification = {
+   481  status: 'passed' | 'failed' | 'skipped' | 'unavailable' | 'blocked';
+   482  profile?: string;
+   483  scenario?: string;
+   484  detail?: string;
+   485  conflict?: {
+   486    kind?: 'base_hash_mismatch' | 'hunk_mismatch';
+   487    expectedHash?: string;
+   488    actualHash?: string;
+   489    hunkIndex?: number;
+   490  };
+   491};
+   492
+   493// PR-06: AiApiError replaced by the shared ApiError from lib/api-fetch.
+   494// Alias retained only to avoid renaming the one remaining internal reference.
+   495const AiApiError = ApiError;
+   496
+   497/**
+   498 * PR-06: Compact runtime status badge for a provider card.
+   499 * Shows circuit state, consecutive failures, last success, and avg latency.
+   500 */
+   501function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | undefined }) {
+   502  if (!metric) return null;
+   503
+   504  const cooldownSec = metric.cooldownRemainingMs != null
+   505    ? Math.ceil(metric.cooldownRemainingMs / 1000)
+   506    : null;
+   507
+   508  const lastSuccessLabel = metric.lastSuccessAt
+   509    ? (() => {
+   510        const secs = Math.floor((Date.now() - new Date(metric.lastSuccessAt).getTime()) / 1000);
+   511        if (secs < 60)   return `${secs}s ago`;
+   512        if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+   513        return `${Math.floor(secs / 3600)}h ago`;
+   514      })()
+   515    : null;
+   516
+   517  const stateLabels: Record<string, string> = {
+   518    missing_credentials: 'Not configured',
+   519    authentication_failed: 'Authentication failed',
+   520    incompatible_model: 'Model incompatible',
+   521    no_compatible_free_model: 'No compatible model',
+   522    catalog_stale: 'Model catalog stale',
+   523    quota_exhausted: 'Quota exhausted',
+   524    rate_limited: 'Rate limited',
+   525    circuit_open: 'Circuit open',
+   526    provider_outage: 'Provider unavailable',
+   527    degraded: 'Degraded',
+   528    healthy: 'Healthy',
+   529    unknown: 'Ready',
+   530  };
+   531  const state = metric.availabilityState ?? (
+   532    metric.circuitOpen ? 'circuit_open' :
+   533      metric.requests === 0 ? 'unknown' :
+   534        metric.consecutiveFailures > 0 ? 'degraded' : 'healthy'
+   535  );
+   536  const isActionable = !['healthy', 'unknown'].includes(state);
+   537
+   538  if (state === 'circuit_open' || metric.circuitOpen) {
+   539    return (
+   540      <div className="mt-1.5 space-y-0.5 text-[10px] text-red-400">
+   541        <div className="flex items-center gap-1.5">
+   542        <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+   543          <span>{stateLabels[state]}{cooldownSec != null ? ` · ${cooldownSec}s cooldown` : ''}</span>
+   544        </div>
+   545        {metric.operatorAction && <div className="pl-3 text-red-300/80">{metric.operatorAction}</div>}
+   546      </div>
+   547    );
+   548  }
+   549
+   550  const isHealthy = metric.consecutiveFailures === 0 && metric.successRate != null && metric.successRate > 0.8;
+   551  const isDegraded = metric.consecutiveFailures > 0 || (metric.successRate != null && metric.successRate < 0.8);
+   552
+   553  return (
+   554    <div className={`mt-1.5 space-y-0.5 text-[10px] ${isActionable ? 'text-amber-300' : 'text-muted-foreground'}`}>
+   555      <div className="flex items-center gap-1.5">
+   556      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isHealthy ? 'bg-green-400' : isDegraded ? 'bg-yellow-400' : 'bg-muted-foreground'}`} />
+   557      <span className="flex-1 truncate">
+   558        {isActionable
+   559          ? stateLabels[state] ?? state.replace(/_/g, ' ')
+   560          : metric.consecutiveFailures > 0
+   561          ? `${metric.consecutiveFailures} consecutive fail${metric.consecutiveFailures > 1 ? 's' : ''}`
+   562          : lastSuccessLabel
+   563            ? `OK · ${lastSuccessLabel}`
+   564            : 'Active'}
+   565        {metric.avgLatencyMs != null ? ` · ${metric.avgLatencyMs}ms` : ''}
+   566      </span>
+   567      </div>
+   568      {metric.operatorAction && <div className="pl-3 text-amber-200/80">{metric.operatorAction}</div>}
+   569      {isActionable && metric.correlationId && <div className="pl-3 text-muted-foreground">Reference: {metric.correlationId}</div>}
+   570    </div>
+   571  );
+   572}
+   573
+   574function ProviderReadinessNotice({
+   575  activeProvider,
+   576  metric,
+   577}: {
+   578  activeProvider: ActiveProvider | undefined;
+   579  metric: ProviderRuntimeMetric | undefined;
+   580}) {
+   581  if (!activeProvider) {
+   582    return (
+   583      <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-2 text-[11px] text-muted-foreground" role="status">
+   584        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+   585        <span>Checking AI provider health…</span>
+   586      </div>
+   587    );
+   588  }
+   589
+   590  if (!activeProvider.configured || !activeProvider.provider) {
+   591    return (
+   592      <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="alert">
+   593        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+   594        <span>No AI provider is ready. Save an API key in the provider cards before sending a message.</span>
+   595      </div>
+   596    );
+   597  }
+   598
+   599  if (metric?.circuitOpen) {
+   600    const cooldown = metric.cooldownRemainingMs != null
+   601      ? ` Retry in ${Math.ceil(metric.cooldownRemainingMs / 1000)}s.`
+   602      : '';
+   603    return (
+   604      <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="status">
+   605        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+   606        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+   607      </div>
+   608    );
+   609  }
+   610
+   611  return (
+   612    <div className="mb-2 flex items-center gap-2 px-1 text-[11px] text-emerald-600 dark:text-emerald-400" role="status">
+   613      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+   614      <span>AI ready · {activeProvider.provider}</span>
+   615    </div>
+   616  );
+   617}
+   618
+   619/**
+   620 * Maps an AiApiError (or any error) to a concise, user-facing string.
+   621 * Status codes align with what ai.ts returns after handleOrchestratorError.
+   622 */
+   623/**
+   624 * Keep implementation details useful to the agent out of the normal chat
+   625 * transcript. Absolute runtime paths and opaque UUIDs can disclose deployment
+   626 * internals without helping the user understand the result.
+   627 */
+   628function redactInternalDetails(value: string): string {
+   629  return value
+   630    .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, '[project path]')
+   631    .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, '[runtime path]')
+   632    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal id]');
+   633}
+   634
+   635function availabilitySuffix(err: unknown): string {
+   636  const value = err as { data?: unknown; availabilityState?: unknown; operatorAction?: unknown; correlationId?: unknown };
+   637  const data = value.data && typeof value.data === 'object' ? value.data as Record<string, unknown> : {};
+   638  const state = data.availabilityState ?? value.availabilityState;
+   639  const action = data.operatorAction ?? value.operatorAction;
+   640  const correlationId = data.correlationId ?? value.correlationId;
+   641  const parts = [
+   642    typeof state === 'string' ? `Status: ${state.replace(/_/g, ' ')}` : '',
+   643    typeof action === 'string' ? `Next step: ${action}` : '',
+   644    typeof correlationId === 'string' ? `Reference: ${correlationId}` : '',
+   645  ].filter(Boolean);
+   646  return parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+   647}
+   648
+   649function describeAiError(err: unknown): string {
+   650  if (err instanceof AiApiError) {
+   651    const suffix = availabilitySuffix(err);
+   652    switch (err.status) {
+   653      case 400: return err.errorMessage + suffix;
+   654      case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
+   655      case 403: return 'Access denied — you may not have permission on this project.';
+   656      case 429: return (err.errorMessage || err.hint || 'AI rate limit reached — wait 30–60 seconds before retrying.') + suffix;
+   657      case 422:
+   658        if (err.code === 'model_output_invalid') {
+   659          return 'The AI returned an unexpected response format — try rephrasing your message.';
+   660        }
+  4480            {onRegenerateReport && (
+  4481              <Button
+  4482                type="button"
+  4483                size="sm"
+  4484                variant="outline"
+  4485                className="h-7 shrink-0 px-2 text-[11px]"
+  4486                onClick={() => onRegenerateReport(msg.id)}
+  4487                disabled={reportRegenerationPending}
+  4488              >
+  4489                {reportRegenerationPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
+  4490                {reportRegenerationPending ? 'Regenerating…' : 'Regenerate report'}
+  4491              </Button>
+  4492            )}
+  4493          </div>
+  4494        )}
+  4495        {reportGeneratedAt && (
+  4496          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+  4497            <Clock3 className="h-3 w-3" aria-hidden="true" />
+  4498            <span>Report regenerated at </span>
+  4499            <time dateTime={reportGeneratedAt}>
+  4500              {new Date(reportGeneratedAt).toLocaleString()}
+  4501            </time>
+  4502          </div>
+  4503        )}
+  4504        {isForensicFallback
+  4505          ? <ForensicFallbackBanner
+  4506              evidenceOnly={isEvidenceOnlyFallback}
+  4507              noFinding={isNoFindingFallback}
+  4508            />
+  4509          : incompleteBeforeEvidence
+  4510            ? null
+  4511           : <ExecutionSummaryBanner summary={executionSummary} operatorTraceId={`operator-trace-${msg.id}`} />}
+  4512        {isEngineeringExecution && repairRadar && <RepairRadar trace={toolTrace} />}
+  4513        {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (
+  4514          <PersistedExecutionProof
+  4515            summary={executionSummary}
+  4516            trace={toolTrace}
+  4517            evidence={forensicEvidence}
+  4518            finalVerdict={finalVerdict}
+  4519            behaviorEvidenceCount={parseBehaviorEvidence(msg.behaviorEvidence).length}
+  4520            traceId={`operator-trace-${msg.id}`}
+  4521          />
+  4522        )}
+  4523        <CompletedActivityTimeline
+  4524          events={activityEvents}
+  4525          defaultOpen={false}
+  4526        />
+  4527        <SemanticTraceCard
+  4528          productionTrace={productionTrace}
+  4529          crossFileTraces={crossFileTraces}
+  4530        />
+  4531        {forensicEvidence && (
+  4532          <ForensicEvidenceCard
+  4533            evidence={forensicEvidence}
+  4534            // Task #43: keep the forensic card expanded by default whenever the
+  4535            // audit is fixture-local, so the FIXTURE-LOCAL / NOT PROVEN
+  4536            // separation is never hidden behind a collapsed card.
+  4537            defaultExpanded={isForensicFallback || forensicEvidence.forensicStatus?.auditScope === 'FIXTURE_LOCAL'}
+  4538            finalVerdict={finalVerdict}
+  4539            // NI-35: ship the claim-bound behavioral evidence so the card can
+  4540            // render "these lines prove this behavior" instead of just the
+  4541            // raw list of files that were read.
+  4542            claimEvidence={parseBehaviorEvidence(msg.behaviorEvidence)}
+  4543          />
+  4544        )}
+  4545        {isEngineeringExecution && <FlightRecorder trace={toolTrace} />}
+  4546      </div>
+  4547    </div>
+  4548  );
+  4549}
+  4550
+  4551function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  4552  const { toast } = useToast();
+  4553  const qc = useQueryClient();
+  4554  const [keyInput, setKeyInput] = useState('');
+  4555  const [showInput, setShowInput] = useState(false);
+  4556
+  4557  const { data: status, isLoading } = useGetDeepSeekKeyStatus<DeepSeekKeyStatus>({
+  4558    query: {
+  4559      queryKey: ['deepseek-key-status'],
+  4560    },
+  4561  });
+  4562
+  4563  const saveMutation = useSaveDeepSeekKey({
+  4564    mutation: {
+  4565      onSuccess: (data) => {
+  4566        void qc.setQueryData(['deepseek-key-status'], data);
+  4567        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+  4568        setKeyInput('');
+  4569        setShowInput(false);
+  4570        toast({ title: 'DeepSeek key saved', description: `Ends in ···${data.last4}` });
+  4571      },
+  4572      onError: (err) => {
+  4573        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+  4574      },
+  4575    },
+  4576  });
+  4577
+  4578  const deleteMutation = useDeleteDeepSeekKey({
+  4579    mutation: {
+  4580      onSuccess: () => {
+  4581        void qc.setQueryData(['deepseek-key-status'], { configured: false, last4: null, updatedAt: null });
+  4582        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+  4583        toast({ title: 'DeepSeek key removed' });
+  4584      },
+  4585      onError: (err) => {
+  4586        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+  4587      },
+  4588    },
+  4589  });
+  4590
+  4591  function handleSave() {
+  4592    const trimmed = keyInput.trim();
+  4593    if (trimmed.length < 10) {
+  4594      toast({ title: 'Key too short', description: 'Enter a valid DeepSeek API key.', variant: 'destructive' });
+  4595      return;
+  4596    }
+  4597    saveMutation.mutate({ data: { apiKey: trimmed } });
+  4598  }
+  4599
+  4600  return (
+  4601    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+  4602      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+  4603        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+  4604        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
+  4605        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Optional</span>
+  4606      </div>
+  4607
+  4608      {isLoading ? (
+  4609        <p className="text-muted-foreground">Loading…</p>
+  4610      ) : status?.configured ? (
+  4611        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+  4612          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+  4613            <Check className="w-3 h-3" />
+  4614            <span className="break-all">···{status.last4}</span>
+  4615          </div>
+  4616          <div className="flex shrink-0 gap-1">
+  4617            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
+  4618              Change
+  4619            </Button>
+  4620            <Button
+  4621              size="sm" variant="ghost"
+  4622              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+  4623              onClick={() => deleteMutation.mutate()}
+  4624              disabled={deleteMutation.isPending}
+  4625            >
+  4626              <Trash2 className="w-3 h-3" />
+  4627            </Button>
+  4628          </div>
+  4629        </div>
+  4630      ) : (
+  4631        <p className="mb-2 break-words text-muted-foreground">
+  4632          Get a free API key at <span className="font-mono break-all">platform.deepseek.com</span> to use DeepSeek as your AI provider.
+  4633        </p>
+  4634      )}
+  4635
+  4636      <ProviderRuntimeBadge metric={runtimeMetric} />
+  4637
+  4638      {(showInput || !status?.configured) && (
+  4639        <div className="flex min-w-0 gap-1 mt-2">
+  4640          <Input
+  4641            type="password"
+  4642            value={keyInput}
+  4643            onChange={(e) => setKeyInput(e.target.value)}
+  4644            placeholder="sk-…"
+  4645            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+  4646            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+  4647            autoComplete="new-password"
+  4648          />
+  4649          <Button
+  4650            size="sm" className="h-7 px-2 text-xs"
+  4651            onClick={handleSave}
+  4652            disabled={saveMutation.isPending || !keyInput.trim()}
+  4653          >
+  4654            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+  4655          </Button>
+  4656        </div>
+  4657      )}
+  4658    </div>
+  4659  );
+  4660}
+  4661
+  4662function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  4663  const { toast } = useToast();
+  4664  const qc = useQueryClient();
+  4665  const [keyInput, setKeyInput] = useState('');
+  4666  const [showInput, setShowInput] = useState(false);
+  4667
+  4668  const { data: status, isLoading } = useGetGroqKeyStatus<GroqKeyStatus>({
+  4669    query: {
+  4670      queryKey: ['groq-key-status'],
+  4671    },
+  4672  });
+  4673
+  4674  const saveMutation = useSaveGroqKey({
+  4675    mutation: {
+  4676      onSuccess: (data) => {
+  4677        void qc.setQueryData(['groq-key-status'], data);
+  4678        setKeyInput('');
+  4679        setShowInput(false);
+  4680        toast({ title: 'Groq key saved', description: `Ends in ···${data.last4}` });
+  4681      },
+  4682      onError: (err) => {
+  4683        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+  4684      },
+  4685    },
+  4686  });
+  4687
+  4688  const deleteMutation = useDeleteGroqKey({
+  4689    mutation: {
+  4690      onSuccess: () => {
+  4691        void qc.setQueryData(['groq-key-status'], { configured: false, last4: null, updatedAt: null });
+  4692        toast({ title: 'Groq key removed', description: 'Falling back to server default.' });
+  4693      },
+  4694      onError: (err) => {
+  4695        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+  4696      },
+  4697    },
+  4698  });
+  4699
+  4700  function handleSave() {
+  4701    const trimmed = keyInput.trim();
+  4702    if (trimmed.length < 10) {
+  4703      toast({ title: 'Key too short', description: 'Enter a valid Groq API key.', variant: 'destructive' });
+  4704      return;
+  4705    }
+  4706    saveMutation.mutate({ data: { apiKey: trimmed } });
+  4707  }
+  4708
+  4709  return (
+  4710    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+  4711      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+  4712        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+  4713        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Groq API Key</span>
+  4714      </div>
+  4715
+  4716      {isLoading ? (
+  4717        <p className="text-muted-foreground">Loading…</p>
+  4718      ) : status?.configured ? (
+  4719        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+  4720          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+  4721            <Check className="w-3 h-3" />
+  4722            <span className="break-all">···{status.last4}</span>
+  4723          </div>
+  4724          <div className="flex shrink-0 gap-1">
+  4725            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
+  4726              Change
+  4727            </Button>
+  4728            <Button
+  4729              size="sm"
+  4730              variant="ghost"
+  4731              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+  4732              onClick={() => deleteMutation.mutate()}
+  4733              disabled={deleteMutation.isPending}
+  4734            >
+  4735              <Trash2 className="w-3 h-3" />
+  4736            </Button>
+  4737          </div>
+  4738        </div>
+  4739      ) : (
+  4740        <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
+  4741      )}
+  4742
+  4743      <ProviderRuntimeBadge metric={runtimeMetric} />
+  4744
+  4745      {(showInput || !status?.configured) && (
+  4746        <div className="flex min-w-0 gap-1 mt-2">
+  4747          <Input
+  4748            type="password"
+  4749            value={keyInput}
+  4750            onChange={(e) => setKeyInput(e.target.value)}
+  4751            placeholder="gsk_…"
+  4752            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+  4753            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+  4754            autoComplete="new-password"
+  4755          />
+  4756          <Button
+  4757            size="sm"
+  4758            className="h-7 px-2 text-xs"
+  4759            onClick={handleSave}
+  4760            disabled={saveMutation.isPending || !keyInput.trim()}
+  4761          >
+  4762            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+  4763          </Button>
+  4764        </div>
+  4765      )}
+  4766    </div>
+  4767  );
+  4768}
+  4769
+  4770function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  4771  const { toast } = useToast();
+  4772  const qc = useQueryClient();
+  4773  const [keyInput, setKeyInput] = useState('');
+  4774  const [showInput, setShowInput] = useState(false);
+  4775
+  4776  const { data: status, isLoading } = useGetProviderKeyStatus<GeminiKeyStatus>('gemini', {
+  4777    query: {
+  4778      queryKey: ['gemini-key-status'],
+  4779    },
+  4780  });
+  4781
+  4782  const saveMutation = useSaveGeminiKey({
+  4783    mutation: {
+  4784      onSuccess: (data) => {
+  4785        void qc.setQueryData(['gemini-key-status'], data);
+  4786        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+  4787        setKeyInput('');
+  4788        setShowInput(false);
+  4789        toast({ title: 'Gemini key saved', description: `Ends in ···${data.last4}` });
+  4790      },
+  4791      onError: (err) => {
+  4792        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+  4793      },
+  4794    },
+  4795  });
+  4796
+  4797  const deleteMutation = useDeleteGeminiKey({
+  4798    mutation: {
+  4799      onSuccess: () => {
+  4800        void qc.setQueryData(['gemini-key-status'], { configured: false, last4: null, updatedAt: null });
+  4801        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+  4802        toast({ title: 'Gemini key removed' });
+  4803      },
+  4804      onError: (err) => {
+  4805        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+  4806      },
+  4807    },
+  4808  });
+  4809
+  4810  function handleSave() {
+  4811    const trimmed = keyInput.trim();
+  4812    if (trimmed.length < 10) {
+  4813      toast({ title: 'Key too short', description: 'Enter a valid Gemini API key.', variant: 'destructive' });
+  4814      return;
+  4815    }
+  4816    saveMutation.mutate({ data: { apiKey: trimmed } });
+  4817  }
+  4818
+  4819  return (
+  4820    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+  4821      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+  4822        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+  4823        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Gemini API Key</span>
+  4824        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Free · Priority</span>
+  4825      </div>
+  4826
+  4827      {isLoading ? (
+  4828        <p className="text-muted-foreground">Loading…</p>
+  4829      ) : status?.configured ? (
+  4830        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+  4831          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+  4832            <Check className="w-3 h-3" />
+  4833            <span className="break-all">···{status.last4}</span>
+  4834          </div>
+  4835          <div className="flex shrink-0 gap-1">
+  4836            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
+  4837              Change
+  4838            </Button>
+  4839            <Button
+  4840              size="sm" variant="ghost"

@@ -682,6 +682,51 @@ export interface SaveGeminiKeyInput {
   apiKey: string;
 }
 
+export type GroqModelAvailabilityStatus = typeof GroqModelAvailabilityStatus[keyof typeof GroqModelAvailabilityStatus];
+
+
+export const GroqModelAvailabilityStatus = {
+  available: 'available',
+  unavailable: 'unavailable',
+  check_unavailable: 'check_unavailable',
+  invalid_credential: 'invalid_credential',
+  not_configured: 'not_configured',
+} as const;
+
+export type GroqModelAvailabilitySource = typeof GroqModelAvailabilitySource[keyof typeof GroqModelAvailabilitySource];
+
+
+export const GroqModelAvailabilitySource = {
+  personal: 'personal',
+  server: 'server',
+  none: 'none',
+} as const;
+
+export type GroqModelAvailabilityUnavailableRolesItem = typeof GroqModelAvailabilityUnavailableRolesItem[keyof typeof GroqModelAvailabilityUnavailableRolesItem];
+
+
+export const GroqModelAvailabilityUnavailableRolesItem = {
+  fast: 'fast',
+  powerful: 'powerful',
+} as const;
+
+export type GroqModelAvailabilityCheckedModels = {
+  fast: string;
+  powerful: string;
+};
+
+/**
+ * Credential-safe availability of the configured Groq default models.
+ */
+export interface GroqModelAvailability {
+  status: GroqModelAvailabilityStatus;
+  source: GroqModelAvailabilitySource;
+  checkedModels: GroqModelAvailabilityCheckedModels;
+  unavailableRoles: GroqModelAvailabilityUnavailableRolesItem[];
+  checkedAt: string;
+  reason?: string;
+}
+
 /**
  * Generic key status response for any AI provider.
  */
@@ -694,6 +739,7 @@ export interface ProviderKeyStatus {
   last4?: string | null;
   /** @nullable */
   updatedAt?: string | null;
+  modelAvailability?: GroqModelAvailability;
 }
 
 /**

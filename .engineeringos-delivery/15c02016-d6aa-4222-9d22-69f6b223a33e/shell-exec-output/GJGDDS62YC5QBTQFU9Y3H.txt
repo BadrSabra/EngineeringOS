@@ -1,0 +1,360 @@
+function retryDelayMs(attempt: number, code: GroqErrorCode): number {
+  const base = code === "RATE_LIMITED" ? 8_000 : 1_000;
+  const exponential = base * Math.pow(2, attempt);
+  // full jitter: uniform random in [0, exponential]
+  return Math.floor(Math.random() * exponential);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Current production Groq models. Keep these aligned with provider-registry.ts
+ * so provider selection never routes a valid credential to a retired model.
+ */
+export const MODEL_POWERFUL = "openai/gpt-oss-120b";
+export const MODEL_FAST = "openai/gpt-oss-20b";
+
+export type GroqDefaultModelRole = "fast" | "powerful";
+
+export type GroqDefaultModelValidation = {
+  valid: boolean;
+  missing: GroqDefaultModelRole[];
+  checkedModels: { fast: string; powerful: string };
+  reason?: string;
+};
+
+// Singleton for the env-var key; per-key cache for user-provided keys.
+let _envClient: Groq | null = null;
+const _keyedClients = new Map<string, Groq>();
+
+/**
+ * Maximum number of per-user Groq clients held in the keyed cache.
+ * Each `Groq` instance is lightweight (holds a base URL + headers), but an
+ * unbounded cache grows silently with the number of distinct user-provided
+ * keys — a concern in long-running processes with many active users.
+ * When the limit is reached the oldest entry (Map insertion order) is evicted
+ * before adding the new one, bounding memory to at most MAX_KEYED_CLIENTS
+ * instances at any point in time.
+ */
+const MAX_KEYED_CLIENTS = 50;
+
+// ── Circuit Breaker ──────────────────────────────────────────────────────────
+// Protects against cascade failures and Groq quota exhaustion during outages.
+// Each distinct API key gets its own independent breaker so a single broken
+// user key cannot trip the shared env-var client.
+//
+// State machine:
+//   CLOSED    — normal operation; consecutive failure count is tracked.
+//   OPEN      — calls fail immediately (no network round-trip) after
+//               CIRCUIT_FAILURE_THRESHOLD consecutive final-call failures
+//               (i.e. after all retries are spent).
+//   HALF_OPEN — one probe call allowed after CIRCUIT_RESET_MS has elapsed;
+//               success → CLOSED; failure → OPEN (timeout resets).
+const CIRCUIT_FAILURE_THRESHOLD = 5;
+const CIRCUIT_RESET_MS = 60_000; // 1-minute cooldown before probing
+
+type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
+interface CircuitEntry {
+  state: CircuitState;
+  failures: number; // consecutive final-call failures (after all retries spent)
+  openedAt: number; // epoch ms when the circuit last opened
+}
+const _circuits = new Map<string, CircuitEntry>();
+
+function getCircuit(key: string): CircuitEntry {
+  let cb = _circuits.get(key);
+  if (!cb) {
+    cb = { state: "CLOSED", failures: 0, openedAt: 0 };
+    _circuits.set(key, cb);
+  }
+  return cb;
+}
+
+/**
+ * Returns "allow" if the call should proceed; "reject" if the circuit is OPEN.
+ * Transitions OPEN → HALF_OPEN when the cooldown period has elapsed.
+ */
+function circuitCheck(key: string): "allow" | "reject" {
+  const cb = getCircuit(key);
+  if (cb.state === "CLOSED" || cb.state === "HALF_OPEN") return "allow";
+  if (Date.now() - cb.openedAt >= CIRCUIT_RESET_MS) {
+    cb.state = "HALF_OPEN";
+    return "allow";
+  }
+  return "reject";
+}
+
+/**
+ * Record the outcome of one complete()/completeRaw() call (after all retries).
+ * A success resets the breaker; a failure increments the counter and may open it.
+ */
+function circuitRecord(key: string, success: boolean): void {
+  const cb = getCircuit(key);
+  if (success) {
+    if (cb.state !== "CLOSED") {
+      console.info(
+        JSON.stringify({ scope: "groq-client", event: "circuit_closed", key: key === "env" ? key : "user" }),
+      );
+    }
+    cb.state = "CLOSED";
+    cb.failures = 0;
+  } else {
+    cb.failures++;
+    if (cb.state === "HALF_OPEN" || cb.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+      cb.state = "OPEN";
+      cb.openedAt = Date.now();
+      console.warn(
+        JSON.stringify({
+          scope: "groq-client",
+          event: "circuit_open",
+          key: key === "env" ? key : "user",
+          failures: cb.failures,
+        }),
+      );
+    }
+  }
+}
+
+function getClient(apiKey?: string): Groq {
+  if (apiKey) {
+    let client = _keyedClients.get(apiKey);
+    if (!client) {
+      if (_keyedClients.size >= MAX_KEYED_CLIENTS) {
+        // Map preserves insertion order; `.keys().next().value` is the oldest.
+        const oldest = _keyedClients.keys().next().value;
+        if (oldest !== undefined) _keyedClients.delete(oldest);
+      }
+      client = new Groq({ apiKey });
+      _keyedClients.set(apiKey, client);
+    }
+    return client;
+  }
+  if (!_envClient) {
+    const envKey = process.env.GROQ_API_KEY;
+    if (!envKey) {
+      throw new GroqClientError("INVALID_CONFIG", "GROQ_API_KEY environment variable is not set");
+    }
+    _envClient = new Groq({ apiKey: envKey });
+  }
+  return _envClient;
+}
+
+/**
+ * Verify that the models selected by the provider registry are still exposed
+ * by Groq. Credential validity and model availability are independent: a key
+ * can remain valid after Groq retires a model slug.
+ *
+ * This intentionally uses the authenticated models endpoint rather than a
+ * completion request. It is bounded, does not consume tokens, and never
+ * includes the API key in its result or error message.
+ */
+export async function validateGroqDefaultModels(
+  apiKey: string,
+  defaults: { fast: string; powerful: string } = {
+    fast: MODEL_FAST,
+    powerful: MODEL_POWERFUL,
+  },
+  timeoutMs = 10_000,
+): Promise<GroqDefaultModelValidation> {
+  const client = getClient(apiKey);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await client.models.list({ signal: controller.signal });
+    const modelIds = new Set(
+      (response.data ?? [])
+        .map((model) => model?.id)
+        .filter((modelId): modelId is string => typeof modelId === "string"),
+    );
+    const missing = (["fast", "powerful"] as const).filter(
+      (role) => !modelIds.has(defaults[role]),
+    );
+
+    if (missing.length > 0) {
+      const missingDescription = missing
+        .map((role) => `${role}="${defaults[role]}"`)
+        .join(", ");
+      return {
+        valid: false,
+        missing,
+        checkedModels: { ...defaults },
+        reason:
+          `Groq model catalog is missing the configured ${missingDescription}. ` +
+          "Update the Groq default model IDs and restart before accepting AI traffic.",
+      };
+    }
+
+    return {
+      valid: true,
+
+--- registry groq ---
+      powerful: "gemini-2.0-flash",
+    },
+    capabilities: {
+      supportsStreaming: true,
+      supportsTools: false,
+      supportsJsonMode: true,
+      supportsVision: true,
+      supportsReasoning: true,
+      supportsFunctionCalling: false,
+      supportsThinking: false,
+      maxContext: 128_000,
+      maxOutput: 8_192,
+      costTier: "medium",
+    },
+  },
+  groq: {
+    providerId: "groq",
+    label: "Groq",
+    consoleUrl: "console.groq.com",
+    statusUrl: "status.groq.com",
+    supportsStreaming: true,
+    supportsTools: true,
+    supportsJsonMode: true,
+    defaultModels: {
+      // Keep the resolver aligned with groq-client.ts. Groq retires model
+      // slugs periodically, so stale defaults turn valid credentials into
+      // MODEL_NOT_FOUND failures.
+      fast: MODEL_FAST,
+      powerful: MODEL_POWERFUL,
+    },
+    capabilities: {
+      supportsStreaming: true,
+      supportsTools: true,
+      supportsJsonMode: true,
+      supportsVision: false,
+      supportsReasoning: true,
+      supportsFunctionCalling: true,
+      supportsThinking: false,
+      maxContext: 128_000,
+      maxOutput: 8_192,
+      costTier: "low",
+    },
+  },
+};
+
+const PROVIDER_CATALOG = new Map<ProviderId, ProviderConfig>(
+
+--- startup rest ---
+        JSON.stringify({
+          scope: "startup-validator",
+          provider: providerId,
+          status: "invalid",
+          reason: `${keyEnv} value is suspiciously short`,
+        }),
+      );
+      continue;
+    }
+
+    if (providerId === "groq") {
+      let modelValidation: GroqDefaultModelValidation;
+      try {
+        modelValidation = await validateGroqDefaultModels(
+          keyValue,
+          loadProvider("groq").defaultModels,
+        );
+      } catch (error) {
+        const code = error instanceof GroqClientError ? error.code : "UNKNOWN";
+        const reason =
+          code === "AUTH_ERROR"
+            ? "GROQ_API_KEY was rejected while checking the live model catalog — verify the key."
+            : `Groq model catalog could not be checked (${code}) — rerun startup or release validation before relying on Groq.`;
+        results.push({
+          provider: providerId,
+          valid: code === "AUTH_ERROR" ? false : true,
+          modelCheck: "unavailable",
+          reason,
+        });
+        console.warn(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: code === "AUTH_ERROR" ? "invalid" : "degraded",
+            modelCheck: "unavailable",
+            reason,
+          }),
+        );
+        if (code === "AUTH_ERROR") continue;
+        anyValid = true;
+        continue;
+      }
+
+      if (!modelValidation.valid) {
+        const reason =
+          modelValidation.reason ??
+          "Groq model catalog is missing one or more configured default models.";
+        results.push({
+          provider: providerId,
+          valid: false,
+          modelCheck: "missing",
+          reason,
+        });
+        console.warn(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: "invalid",
+            modelCheck: "missing",
+            missing: modelValidation.missing,
+            reason,
+          }),
+        );
+        continue;
+      }
+
+      results.push({
+        provider: providerId,
+        valid: true,
+        modelCheck: "passed",
+      });
+    } else {
+      results.push({ provider: providerId, valid: true });
+    }
+    anyValid = true;
+
+    console.info(
+      JSON.stringify({
+        scope: "startup-validator",
+        provider: providerId,
+        status: "ok",
+        keyEnv,
+        ...(providerId === "groq" ? { modelCheck: "passed" } : {}),
+      }),
+    );
+  }
+
+  // PR-002 integration: refresh the dynamic OpenRouter catalog at startup so
+  // the resolver knows which models are currently available.
+  const openrouterKey = process.env["OPENROUTER_API_KEY"];
+  if (openrouterKey) {
+    try {
+      await refreshDynamicCatalog(openrouterKey);
+      // Audit the static catalog — log any stale model IDs.
+      auditStaticCatalog(FREE_MODELS.map((m) => m.id));
+    } catch {
+      // refreshDynamicCatalog never throws — this is defensive only.
+    }
+  }
+
+  if (!anyValid) {
+    const status = anyConfigured
+      ? "NO_USABLE_PROVIDERS"
+      : "NO_PROVIDERS_CONFIGURED";
+    console.warn(
+      JSON.stringify({
+        scope: "startup-validator",
+        status,
+        hint:
+          status === "NO_USABLE_PROVIDERS"
+            ? "Configured AI provider credentials failed startup checks. Review the preceding provider reason and correct the key or model defaults before relying on AI."
+            : "No AI provider API keys are configured. " +
+              "AI features will return 428 until at least one provider key is saved via the dashboard.",
+      }),
+    );
+  }
+
+  return results;
+}

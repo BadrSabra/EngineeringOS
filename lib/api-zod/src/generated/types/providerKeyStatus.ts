@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { GroqModelAvailability } from './groqModelAvailability';
 
 /**
  * Generic key status response for any AI provider.
@@ -18,4 +19,5 @@ export interface ProviderKeyStatus {
   last4?: string | null;
   /** @nullable */
   updatedAt?: Date | null;
+  modelAvailability?: GroqModelAvailability;
 }

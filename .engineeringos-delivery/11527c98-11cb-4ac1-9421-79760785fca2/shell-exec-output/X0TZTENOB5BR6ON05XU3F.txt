@@ -1,0 +1,225 @@
+lib/ai-orchestrator/src/startup-validator.ts
+20:  validateGroqDefaultModels,
+30:export type ProviderValidationResult = {
+53:export async function validateAiProvidersAtStartup(): Promise<ProviderValidationResult[]> {
+103:        modelValidation = await validateGroqDefaultModels(
+
+lib/ai-orchestrator/src/index.ts
+7:  validateGroqDefaultModels,
+37:export { agentComplete, validateProviderKey } from "./agent-complete.js";
+755:export { validateAiProvidersAtStartup } from "./startup-validator.js";
+
+artifacts/api-server/src/index.ts
+26:  validateAiProvidersAtStartup,
+139:  await validateAiProvidersAtStartup();
+
+lib/ai-orchestrator/src/groq-client.ts
+232:export async function validateGroqDefaultModels(
+
+artifacts/api-server/src/routes/ai/providers.ts
+23:  validateProviderKey,
+76:  const validation = await validateProviderKey(provider, trimmed);
+
+artifacts/api-server/src/routes/ai.test.ts
+267:  // providers.ts imports PROVIDER_REGISTRY and validateProviderKey at module
+287:  validateProviderKey: vi.fn(async () => ({ valid: true })),
+
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+123:  validateProviderKey:      vi.fn(async () => ({ valid: true })),
+
+lib/ai-orchestrator/src/agent-complete.ts
+133:export async function validateProviderKey(
+
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts
+13:describe("validateAiProvidersAtStartup", () => {
+41:    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+42:    const results = await validateAiProvidersAtStartup();
+71:    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+72:    const results = await validateAiProvidersAtStartup();
+
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts
+59:    const { validateGroqDefaultModels } = await import("../groq-client.js");
+62:      validateGroqDefaultModels("test-key", {
+88:    const { validateGroqDefaultModels } = await import("../groq-client.js");
+89:    const result = await validateGroqDefaultModels("secret-key", {
+   220  return _envClient;
+   221}
+   222
+   223/**
+   224 * Verify that the models selected by the provider registry are still exposed
+   225 * by Groq. Credential validity and model availability are independent: a key
+   226 * can remain valid after Groq retires a model slug.
+   227 *
+   228 * This intentionally uses the authenticated models endpoint rather than a
+   229 * completion request. It is bounded, does not consume tokens, and never
+   230 * includes the API key in its result or error message.
+   231 */
+   232export async function validateGroqDefaultModels(
+   233  apiKey: string,
+   234  defaults: { fast: string; powerful: string } = {
+   235    fast: MODEL_FAST,
+   236    powerful: MODEL_POWERFUL,
+   237  },
+   238  timeoutMs = 10_000,
+   239): Promise<GroqDefaultModelValidation> {
+   240  const client = getClient(apiKey);
+   241  const controller = new AbortController();
+   242  const timer = setTimeout(() => controller.abort(), timeoutMs);
+   243
+   244  try {
+   245    const response = await client.models.list({ signal: controller.signal });
+   246    const modelIds = new Set(
+   247      (response.data ?? [])
+   248        .map((model) => model?.id)
+   249        .filter((modelId): modelId is string => typeof modelId === "string"),
+   250    );
+   251    const missing = (["fast", "powerful"] as const).filter(
+   252      (role) => !modelIds.has(defaults[role]),
+   253    );
+   254
+   255    if (missing.length > 0) {
+   256      const missingDescription = missing
+   257        .map((role) => `${role}="${defaults[role]}"`)
+   258        .join(", ");
+   259      return {
+   260        valid: false,
+   261        missing,
+   262        checkedModels: { ...defaults },
+   263        reason:
+   264          `Groq model catalog is missing the configured ${missingDescription}. ` +
+   265          "Update the Groq default model IDs and restart before accepting AI traffic.",
+   266      };
+   267    }
+   268
+   269    return {
+   270      valid: true,
+   271      missing: [],
+   272      checkedModels: { ...defaults },
+   273    };
+   274  } catch (error) {
+   275    throw classifySdkError(error, controller.signal.aborted);
+   276  } finally {
+   277    clearTimeout(timer);
+   278  }
+   279}
+   280
+   281type ChatRequest = {
+   282  messages: Message[];
+   283  model: string;
+   284  temperature: number;
+   285  max_tokens: number;
+     1export {
+     2  complete,
+     3  completeRaw,
+     4  completeStream,
+     5  MODEL_POWERFUL,
+     6  MODEL_FAST,
+     7  validateGroqDefaultModels,
+     8} from "./groq-client.js";
+     9export type { AgentStep, AgentDiagnosticCode, SourceRetrievalTelemetry, ReadStatus } from "./tool-execution-engine.js";
+    10export {
+    11  buildProjectFileManifest,
+    12  buildProjectFileSources,
+    13  formatProjectFileManifest,
+    14  formatProjectFileSources,
+    15  ProjectFileManifestSchema,
+    16  ProjectFileSourceSchema,
+    17  ProjectFileSourcesSchema,
+    18} from "./filesystem-manifest.js";
+    19export type {
+    20  ProjectFileManifest,
+    21  ProjectFileSource,
+    22  ProjectFileSources,
+    23} from "./filesystem-manifest.js";
+    24export { classifyReadStatus, EMPTY_SOURCE_RETRIEVAL_TELEMETRY, ReadStatusSchema } from "./tool-execution-engine.js";
+    25export {
+    26  ContextManifestSchema,
+    27  RepositoryRevisionManifestSchema,
+    28  ScanCompletenessSchema,
+    29  contextManifestMatches,
+    30  contextManifestAllowsExecution,
+    31} from "./context-manifest.js";
+    32export type { ContextManifest, ScanCompleteness, RepositoryRevisionManifest } from "./context-manifest.js";
+    33export { buildForensicEvidencePackets } from "./forensic-evidence-packets.js";
+    34export type { ForensicEvidencePacket } from "./forensic-evidence-packets.js";
+    35export { mergeForensicRecoveryEnvelopes } from "./forensic-recovery.js";
+    36export type { ForensicRecoveryEnvelope } from "./forensic-recovery.js";
+    37export { agentComplete, validateProviderKey } from "./agent-complete.js";
+    38export type { AgentCompleteOpts, ProviderId } from "./agent-complete.js";
+    39export {
+    40  CODE_REVIEW_CAMPAIGN_SCENARIOS,
+    41  buildCodeReviewCampaignReceipt,
+    42  type CodeReviewCampaignReceipt,
+    43  type CodeReviewCampaignScenario,
+    44} from "./agents/code-reviewer.js";
+    45export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities, getStrategy } from "./provider-registry.js";
+    46export {
+    47  probeProviderHealth,
+    48  PROBE_TOOL_NAME,
+    49  type ProviderHealthProbeOptions,
+    50  type ProviderHealthProbeResult,
+    51  type ProviderHealthReport,
+    52  type ProviderHealthFailureCategory,
+    53  type ProviderHealthStatus,
+    54  type ProviderHealthFailureCode,
+    55} from "./benchmark/provider-health-probe.js";
+    56export {
+    57  BENCHMARK_AIRLOCK_VERSION,
+    58  runCodeAgentBenchmarkAirlock,
+    59  type BenchmarkAirlockProvider,
+    60  type BenchmarkAirlockObservation,
+    61  type BenchmarkAirlockRun,
+    62} from "./benchmark/benchmark-airlock.js";
+    63export {
+    64  getBenchmarkCampaignStatus,
+    65  getBenchmarkRecoveryCaseIds,
+    66  isCleanWitnessScorecard,
+    67  summarizeBenchmarkCampaign,
+    68  type BenchmarkCampaignCaseRecord,
+    69  type BenchmarkCampaignMode,
+    70  type BenchmarkCampaignSummary,
+    71} from "./benchmark/benchmark-campaign.js";
+    72export {
+    73  BENCHMARK_PARITY_REPORT_VERSION,
+    74  buildBenchmarkParityReport,
+    75  benchmarkParityReportToMarkdown,
+    76  type BenchmarkParityGap,
+    77  type BenchmarkParityReport,
+    78} from "./benchmark/benchmark-parity-report.js";
+    79export type { ProviderConfig } from "./provider-registry.js";
+    80export type { ProviderStrategy, StrategyCallOptions, StrategyStreamOptions } from "./provider-strategy.js";
+    81export type { ProviderCapabilityHints, ProviderCapabilitySummary, ProviderCostTier } from "./provider-capabilities.js";
+    82export type {
+    83  Message,
+    84  GroqResponse,
+    85  CompleteOptions,
+    86  RawMessage,
+    87  ToolCall,
+    88  ToolDefinition,
+    89  RawGroqResponse,
+    90  GroqDefaultModelRole,
+    91  GroqDefaultModelValidation,
+    92} from "./groq-client.js";
+    93
+    94export type { PendingChange } from "./tools/file-tools.js";
+    95export { buildPatchHunks, hashPatchBase, rebasePatchHunks } from "./patch-contract.js";
+    96export type { FilePatchHunk, PatchRebaseResult } from "./patch-contract.js";
+    97export {
+    98  deriveFlightDeckState,
+    99  type FlightDeckState,
+   100  type FlightDeckStateInput,
+   101  type FlightDeckEvidenceVerdict,
+   102} from "./flight-deck-state.js";
+   103export {
+   104  executeExecutionNodePlan,
+   105} from "./execution-node-coordinator.js";
+   106export type {
+   107  ExecutionNodeCoordinatorEvent,
+   108  ExecutionNodeCoordinatorOptions,
+   109  ExecutionNodeCoordinatorResult,
+   110  ExecutionNodeOutcome,
+   111  ExecutionNodeRunContext,
+   112  ExecutionNodeAuthorization,
+   113  ExecutionNodeAuthorizationPhase,
+   114} from "./execution-node-coordinator.js";
+   115

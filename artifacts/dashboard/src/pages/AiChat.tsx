@@ -396,8 +396,16 @@ function sessionForensicStatusLabel(status: Session['forensicStatus']): string |
     default: return null;
   }
 }
+type GroqModelAvailability = {
+  status: 'available' | 'unavailable' | 'check_unavailable' | 'invalid_credential' | 'not_configured';
+  source: 'personal' | 'server' | 'none';
+  checkedModels: { fast: string; powerful: string };
+  unavailableRoles: Array<'fast' | 'powerful'>;
+  checkedAt: string;
+  reason?: string;
+};
 type ProviderKeyStatus  = { configured: boolean; last4: string | null; updatedAt: string | null };
-type GroqKeyStatus      = ProviderKeyStatus;
+type GroqKeyStatus      = ProviderKeyStatus & { modelAvailability?: GroqModelAvailability };
 type DeepSeekKeyStatus  = ProviderKeyStatus;
 type OpenRouterKeyStatus = ProviderKeyStatus;
 type GeminiKeyStatus    = ProviderKeyStatus;
@@ -567,6 +575,61 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
       </div>
       {metric.operatorAction && <div className="pl-3 text-amber-200/80">{metric.operatorAction}</div>}
       {isActionable && metric.correlationId && <div className="pl-3 text-muted-foreground">Reference: {metric.correlationId}</div>}
+    </div>
+  );
+}
+
+function GroqModelAvailabilityNotice({
+  availability,
+}: {
+  availability: GroqModelAvailability | undefined;
+}) {
+  if (!availability || availability.status === 'not_configured') return null;
+
+  if (availability.status === 'available') {
+    return (
+      <div className="mt-1.5 flex min-w-0 items-start gap-1.5 text-[10px] text-green-500">
+        <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0" />
+        <span className="min-w-0 break-words">
+          Groq models available · Fast: {availability.checkedModels.fast} · Powerful: {availability.checkedModels.powerful}
+        </span>
+      </div>
+    );
+  }
+
+  const affectedRoles = availability.unavailableRoles
+    .map((role) => `${role === 'fast' ? 'Fast' : 'Powerful'} (${availability.checkedModels[role]})`)
+    .join(' and ');
+
+  if (availability.status === 'unavailable') {
+    return (
+      <div className="mt-1.5 space-y-0.5 text-[10px] text-amber-300">
+        <div className="flex min-w-0 items-start gap-1.5">
+          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span className="min-w-0 break-words">
+            Groq credential is valid, but the configured {affectedRoles || 'model'} is unavailable.
+          </span>
+        </div>
+        <div className="pl-4 break-words text-amber-200/80">
+          Update the affected Groq model ID in the provider configuration, then restart the API.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 space-y-0.5 text-[10px] text-amber-300">
+      <div className="flex min-w-0 items-start gap-1.5">
+        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+        <span className="min-w-0 break-words">
+          {availability.status === 'invalid_credential'
+            ? 'Groq credential could not be verified.'
+            : 'Groq model availability could not be confirmed.'}
+        </span>
+      </div>
+      <div className="pl-4 break-words text-amber-200/80">
+        {availability.reason ?? 'Retry shortly; replace the Groq key if verification continues to fail.'}
+      </div>
     </div>
   );
 }
@@ -4675,6 +4738,9 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
     mutation: {
       onSuccess: (data) => {
         void qc.setQueryData(['groq-key-status'], data);
+        void qc.invalidateQueries({ queryKey: ['groq-key-status'] });
+        void qc.invalidateQueries({ queryKey: ['ai-metrics'] });
+        void qc.invalidateQueries({ queryKey: ['active-provider'] });
         setKeyInput('');
         setShowInput(false);
         toast({ title: 'Groq key saved', description: `Ends in ···${data.last4}` });
@@ -4689,6 +4755,9 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
     mutation: {
       onSuccess: () => {
         void qc.setQueryData(['groq-key-status'], { configured: false, last4: null, updatedAt: null });
+        void qc.invalidateQueries({ queryKey: ['groq-key-status'] });
+        void qc.invalidateQueries({ queryKey: ['ai-metrics'] });
+        void qc.invalidateQueries({ queryKey: ['active-provider'] });
         toast({ title: 'Groq key removed', description: 'Falling back to server default.' });
       },
       onError: (err) => {
@@ -4740,6 +4809,7 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
         <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
       )}
 
+      <GroqModelAvailabilityNotice availability={status?.modelAvailability} />
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (

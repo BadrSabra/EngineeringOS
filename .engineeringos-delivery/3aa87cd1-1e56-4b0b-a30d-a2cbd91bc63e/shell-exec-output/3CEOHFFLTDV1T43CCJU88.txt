@@ -1,0 +1,573 @@
+     1import { useState, useRef, useEffect } from 'react';
+     2import ReactMarkdown from 'react-markdown';
+     3import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+     4import { useUser } from '@clerk/react';
+     5import { Bot, Send, Plus, ChevronDown, Loader2, User, Zap, Search, Code2, GitMerge, Key, Trash2, Check, FileCode2, ChevronRight, X, Menu, Activity, ShieldAlert, ShieldCheck, CheckCircle2, FileSearch, RotateCcw, Square, Eye, Play, Pause, SkipBack, StepForward, ExternalLink, Clock3, Download, AlertCircle } from 'lucide-react';
+     6import { Link } from 'wouter';
+     7import { Button } from '@/components/ui/button';
+     8import { Textarea } from '@/components/ui/textarea';
+     9import { Badge } from '@/components/ui/badge';
+    10import { ScrollArea } from '@/components/ui/scroll-area';
+    11import { Input } from '@/components/ui/input';
+    12import { useToast } from '@/hooks/use-toast';
+    13import {
+    14  useListProjects,
+    15  getListProjectsQueryKey,
+    16  classifyProjectError,
+    17  isRetryableProjectError,
+    18  emitProjectLoadFailed,
+    19  useAiChatStream,
+    20  useAiTaskStream,
+    21  useGetDeepSeekKeyStatus,
+    22  useGetGroqKeyStatus,
+    23  useGetProviderKeyStatus,
+    24  useGetOpenRouterKeyStatus,
+    25  useGetActiveProvider,
+    26  useGetAiMetrics,
+    27  useGetAiExecution,
+    28  useListAiExecutionHistory,
+    29  useListAiChatSessions,
+    30  useListAiChatMessages,
+    31  useGetAiPendingProposal,
+    32  useListEvents,
+    33  useGetAiChatFileContent,
+    34  getGetAiChatFileContentQueryKey,
+    35  useSaveDeepSeekKey,
+    36  useDeleteDeepSeekKey,
+    37  useSaveGroqKey,
+    38  useDeleteGroqKey,
+    39  useSaveGeminiKey,
+    40  useDeleteGeminiKey,
+    41  useSaveOpenRouterKey,
+    42  useDeleteOpenRouterKey,
+    43  useAiApplyChanges,
+    44  useAiRebaseChanges,
+    45  useApproveAiRebasedProposal,
+    46  useRejectAiChangeProposal,
+    47  useGitCommit,
+    48  useGitPush,
+    49} from '@workspace/api-client-react';
+    50// Canonical AI Model Capability Probe prompt — no manual paste of the probe
+    51// body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
+    52// not pull server-only deps (groq-sdk, db) into the client.
+    53import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-probe';
+    54import type {
+    55  AiStreamErrorEvent,
+    56  AiExecutionNodeSnapshot,
+    57  AiScanAnalysis,
+    58  AiCodeReview,
+    59  AiStreamExecutionSummary,
+    60  AiCrossFileSemanticTrace,
+    61  AiProductionReachabilityTrace,
+    62  AiBehaviorEvidence,
+    63  MissionCorrelationReport,
+    64  Event as ApiEvent,
+    65  ExportAiExecutionAudit200,
+    66} from '@workspace/api-client-react';
+    67import type { BrowserValidationBlockReason, PublicValidationResult } from '@workspace/ai-orchestrator';
+    68// Keep the shared structured error type for translating SSE failures into
+    69// the same user-facing error format as regular API requests.
+    70import { ApiError } from '@/lib/api-fetch';
+   490  };
+   491};
+   492
+   493// PR-06: AiApiError replaced by the shared ApiError from lib/api-fetch.
+   494// Alias retained only to avoid renaming the one remaining internal reference.
+   495const AiApiError = ApiError;
+   496
+   497/**
+   498 * PR-06: Compact runtime status badge for a provider card.
+   499 * Shows circuit state, consecutive failures, last success, and avg latency.
+   500 */
+   501function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | undefined }) {
+   502  if (!metric) return null;
+   503
+   504  const cooldownSec = metric.cooldownRemainingMs != null
+   505    ? Math.ceil(metric.cooldownRemainingMs / 1000)
+   506    : null;
+   507
+   508  const lastSuccessLabel = metric.lastSuccessAt
+   509    ? (() => {
+   510        const secs = Math.floor((Date.now() - new Date(metric.lastSuccessAt).getTime()) / 1000);
+   511        if (secs < 60)   return `${secs}s ago`;
+   512        if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+   513        return `${Math.floor(secs / 3600)}h ago`;
+   514      })()
+   515    : null;
+   516
+   517  const stateLabels: Record<string, string> = {
+   518    missing_credentials: 'Not configured',
+   519    authentication_failed: 'Authentication failed',
+   520    incompatible_model: 'Model incompatible',
+   521    no_compatible_free_model: 'No compatible model',
+   522    catalog_stale: 'Model catalog stale',
+   523    quota_exhausted: 'Quota exhausted',
+   524    rate_limited: 'Rate limited',
+   525    circuit_open: 'Circuit open',
+   526    provider_outage: 'Provider unavailable',
+   527    degraded: 'Degraded',
+   528    healthy: 'Healthy',
+   529    unknown: 'Ready',
+   530  };
+   531  const state = metric.availabilityState ?? (
+   532    metric.circuitOpen ? 'circuit_open' :
+   533      metric.requests === 0 ? 'unknown' :
+   534        metric.consecutiveFailures > 0 ? 'degraded' : 'healthy'
+   535  );
+   536  const isActionable = !['healthy', 'unknown'].includes(state);
+   537
+   538  if (state === 'circuit_open' || metric.circuitOpen) {
+   539    return (
+   540      <div className="mt-1.5 space-y-0.5 text-[10px] text-red-400">
+   541        <div className="flex items-center gap-1.5">
+   542        <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+   543          <span>{stateLabels[state]}{cooldownSec != null ? ` · ${cooldownSec}s cooldown` : ''}</span>
+   544        </div>
+   545        {metric.operatorAction && <div className="pl-3 text-red-300/80">{metric.operatorAction}</div>}
+   546      </div>
+   547    );
+   548  }
+   549
+   550  const isHealthy = metric.consecutiveFailures === 0 && metric.successRate != null && metric.successRate > 0.8;
+   551  const isDegraded = metric.consecutiveFailures > 0 || (metric.successRate != null && metric.successRate < 0.8);
+   552
+   553  return (
+   554    <div className={`mt-1.5 space-y-0.5 text-[10px] ${isActionable ? 'text-amber-300' : 'text-muted-foreground'}`}>
+   555      <div className="flex items-center gap-1.5">
+   556      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isHealthy ? 'bg-green-400' : isDegraded ? 'bg-yellow-400' : 'bg-muted-foreground'}`} />
+   557      <span className="flex-1 truncate">
+   558        {isActionable
+   559          ? stateLabels[state] ?? state.replace(/_/g, ' ')
+   560          : metric.consecutiveFailures > 0
+   561          ? `${metric.consecutiveFailures} consecutive fail${metric.consecutiveFailures > 1 ? 's' : ''}`
+   562          : lastSuccessLabel
+   563            ? `OK · ${lastSuccessLabel}`
+   564            : 'Active'}
+   565        {metric.avgLatencyMs != null ? ` · ${metric.avgLatencyMs}ms` : ''}
+   566      </span>
+   567      </div>
+   568      {metric.operatorAction && <div className="pl-3 text-amber-200/80">{metric.operatorAction}</div>}
+   569      {isActionable && metric.correlationId && <div className="pl-3 text-muted-foreground">Reference: {metric.correlationId}</div>}
+   570    </div>
+   571  );
+   572}
+   573
+   574function ProviderReadinessNotice({
+   575  activeProvider,
+   576  metric,
+   577}: {
+   578  activeProvider: ActiveProvider | undefined;
+   579  metric: ProviderRuntimeMetric | undefined;
+   580}) {
+   581  if (!activeProvider) {
+   582    return (
+   583      <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-2 text-[11px] text-muted-foreground" role="status">
+   584        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+   585        <span>Checking AI provider health…</span>
+   586      </div>
+   587    );
+   588  }
+   589
+   590  if (!activeProvider.configured || !activeProvider.provider) {
+   591    return (
+   592      <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="alert">
+   593        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+   594        <span>No AI provider is ready. Save an API key in the provider cards before sending a message.</span>
+   595      </div>
+   596    );
+   597  }
+   598
+   599  if (metric?.circuitOpen) {
+   600    const cooldown = metric.cooldownRemainingMs != null
+   601      ? ` Retry in ${Math.ceil(metric.cooldownRemainingMs / 1000)}s.`
+   602      : '';
+   603    return (
+   604      <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="status">
+   605        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+   606        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+   607      </div>
+   608    );
+   609  }
+   610
+   611  return (
+   612    <div className="mb-2 flex items-center gap-2 px-1 text-[11px] text-emerald-600 dark:text-emerald-400" role="status">
+   613      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+   614      <span>AI ready · {activeProvider.provider}</span>
+   615    </div>
+   616  );
+   617}
+   618
+   619/**
+   620 * Maps an AiApiError (or any error) to a concise, user-facing string.
+   621 * Status codes align with what ai.ts returns after handleOrchestratorError.
+   622 */
+   623/**
+   624 * Keep implementation details useful to the agent out of the normal chat
+   625 * transcript. Absolute runtime paths and opaque UUIDs can disclose deployment
+   626 * internals without helping the user understand the result.
+   627 */
+   628function redactInternalDetails(value: string): string {
+   629  return value
+   630    .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, '[project path]')
+   631    .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, '[runtime path]')
+   632    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal id]');
+   633}
+   634
+   635function availabilitySuffix(err: unknown): string {
+  4530        />
+  4531        {forensicEvidence && (
+  4532          <ForensicEvidenceCard
+  4533            evidence={forensicEvidence}
+  4534            // Task #43: keep the forensic card expanded by default whenever the
+  4535            // audit is fixture-local, so the FIXTURE-LOCAL / NOT PROVEN
+  4536            // separation is never hidden behind a collapsed card.
+  4537            defaultExpanded={isForensicFallback || forensicEvidence.forensicStatus?.auditScope === 'FIXTURE_LOCAL'}
+  4538            finalVerdict={finalVerdict}
+  4539            // NI-35: ship the claim-bound behavioral evidence so the card can
+  4540            // render "these lines prove this behavior" instead of just the
+  4541            // raw list of files that were read.
+  4542            claimEvidence={parseBehaviorEvidence(msg.behaviorEvidence)}
+  4543          />
+  4544        )}
+  4545        {isEngineeringExecution && <FlightRecorder trace={toolTrace} />}
+  4546      </div>
+  4547    </div>
+  4548  );
+  4549}
+  4550
+  4551function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  4552  const { toast } = useToast();
+  4553  const qc = useQueryClient();
+  4554  const [keyInput, setKeyInput] = useState('');
+  4555  const [showInput, setShowInput] = useState(false);
+  4556
+  4557  const { data: status, isLoading } = useGetDeepSeekKeyStatus<DeepSeekKeyStatus>({
+  4558    query: {
+  4559      queryKey: ['deepseek-key-status'],
+  4560    },
+  4561  });
+  4562
+  4563  const saveMutation = useSaveDeepSeekKey({
+  4564    mutation: {
+  4565      onSuccess: (data) => {
+  4566        void qc.setQueryData(['deepseek-key-status'], data);
+  4567        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+  4568        setKeyInput('');
+  4569        setShowInput(false);
+  4570        toast({ title: 'DeepSeek key saved', description: `Ends in ···${data.last4}` });
+  4571      },
+  4572      onError: (err) => {
+  4573        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+  4574      },
+  4575    },
+  4576  });
+  4577
+  4578  const deleteMutation = useDeleteDeepSeekKey({
+  4579    mutation: {
+  4580      onSuccess: () => {
+  4581        void qc.setQueryData(['deepseek-key-status'], { configured: false, last4: null, updatedAt: null });
+  4582        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+  4583        toast({ title: 'DeepSeek key removed' });
+  4584      },
+  4585      onError: (err) => {
+  4586        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+  4587      },
+  4588    },
+  4589  });
+  4590
+  4591  function handleSave() {
+  4592    const trimmed = keyInput.trim();
+  4593    if (trimmed.length < 10) {
+  4594      toast({ title: 'Key too short', description: 'Enter a valid DeepSeek API key.', variant: 'destructive' });
+  4595      return;
+  4596    }
+  4597    saveMutation.mutate({ data: { apiKey: trimmed } });
+  4598  }
+  4599
+  4600  return (
+  4601    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+  4602      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+  4603        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+  4604        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
+  4605        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Optional</span>
+  4606      </div>
+  4607
+  4608      {isLoading ? (
+  4609        <p className="text-muted-foreground">Loading…</p>
+  4610      ) : status?.configured ? (
+  4611        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+  4612          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+  4613            <Check className="w-3 h-3" />
+  4614            <span className="break-all">···{status.last4}</span>
+  4615          </div>
+  4616          <div className="flex shrink-0 gap-1">
+  4617            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
+  4618              Change
+  4619            </Button>
+  4620            <Button
+  4621              size="sm" variant="ghost"
+  4622              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+  4623              onClick={() => deleteMutation.mutate()}
+  4624              disabled={deleteMutation.isPending}
+  4625            >
+  4626              <Trash2 className="w-3 h-3" />
+  4627            </Button>
+  4628          </div>
+  4629        </div>
+  4630      ) : (
+  4631        <p className="mb-2 break-words text-muted-foreground">
+  4632          Get a free API key at <span className="font-mono break-all">platform.deepseek.com</span> to use DeepSeek as your AI provider.
+  4633        </p>
+  4634      )}
+  4635
+  4636      <ProviderRuntimeBadge metric={runtimeMetric} />
+  4637
+  4638      {(showInput || !status?.configured) && (
+  4639        <div className="flex min-w-0 gap-1 mt-2">
+  4640          <Input
+  4641            type="password"
+  4642            value={keyInput}
+  4643            onChange={(e) => setKeyInput(e.target.value)}
+  4644            placeholder="sk-…"
+  4645            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+  4646            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+  4647            autoComplete="new-password"
+  4648          />
+  4649          <Button
+  4650            size="sm" className="h-7 px-2 text-xs"
+  4651            onClick={handleSave}
+  4652            disabled={saveMutation.isPending || !keyInput.trim()}
+  4653          >
+  4654            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+  4655          </Button>
+  4656        </div>
+  4657      )}
+  4658    </div>
+  4659  );
+  4660}
+  4661
+  4662function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  4663  const { toast } = useToast();
+  4664  const qc = useQueryClient();
+  4665  const [keyInput, setKeyInput] = useState('');
+  4666  const [showInput, setShowInput] = useState(false);
+  4667
+  4668  const { data: status, isLoading } = useGetGroqKeyStatus<GroqKeyStatus>({
+  4669    query: {
+  4670      queryKey: ['groq-key-status'],
+  4671    },
+  4672  });
+  4673
+  4674  const saveMutation = useSaveGroqKey({
+  4675    mutation: {
+  4676      onSuccess: (data) => {
+  4677        void qc.setQueryData(['groq-key-status'], data);
+  4678        setKeyInput('');
+  4679        setShowInput(false);
+  4680        toast({ title: 'Groq key saved', description: `Ends in ···${data.last4}` });
+  4681      },
+  4682      onError: (err) => {
+  4683        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+  4684      },
+  4685    },
+  4686  });
+  4687
+  4688  const deleteMutation = useDeleteGroqKey({
+  4689    mutation: {
+  4690      onSuccess: () => {
+  4691        void qc.setQueryData(['groq-key-status'], { configured: false, last4: null, updatedAt: null });
+  4692        toast({ title: 'Groq key removed', description: 'Falling back to server default.' });
+  4693      },
+  4694      onError: (err) => {
+  4695        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+  4696      },
+  4697    },
+  4698  });
+  4699
+  4700  function handleSave() {
+  4701    const trimmed = keyInput.trim();
+  4702    if (trimmed.length < 10) {
+  4703      toast({ title: 'Key too short', description: 'Enter a valid Groq API key.', variant: 'destructive' });
+  4704      return;
+  4705    }
+  4706    saveMutation.mutate({ data: { apiKey: trimmed } });
+  4707  }
+  4708
+  4709  return (
+  4710    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+  4711      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+  4712        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+  4713        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Groq API Key</span>
+  4714      </div>
+  4715
+  4716      {isLoading ? (
+  4717        <p className="text-muted-foreground">Loading…</p>
+  4718      ) : status?.configured ? (
+  4719        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+  4720          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+  4721            <Check className="w-3 h-3" />
+  4722            <span className="break-all">···{status.last4}</span>
+  4723          </div>
+  4724          <div className="flex shrink-0 gap-1">
+  4725            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
+  4726              Change
+  4727            </Button>
+  4728            <Button
+  4729              size="sm"
+  4730              variant="ghost"
+  4731              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+  4732              onClick={() => deleteMutation.mutate()}
+  4733              disabled={deleteMutation.isPending}
+  4734            >
+  4735              <Trash2 className="w-3 h-3" />
+  4736            </Button>
+  4737          </div>
+  4738        </div>
+  4739      ) : (
+  4740        <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
+  4741      )}
+  4742
+  4743      <ProviderRuntimeBadge metric={runtimeMetric} />
+  4744
+  4745      {(showInput || !status?.configured) && (
+  4746        <div className="flex min-w-0 gap-1 mt-2">
+  4747          <Input
+  4748            type="password"
+  4749            value={keyInput}
+  4750            onChange={(e) => setKeyInput(e.target.value)}
+  4751            placeholder="gsk_…"
+  4752            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+  4753            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+  4754            autoComplete="new-password"
+  4755          />
+  4756          <Button
+  4757            size="sm"
+  4758            className="h-7 px-2 text-xs"
+  4759            onClick={handleSave}
+  4760            disabled={saveMutation.isPending || !keyInput.trim()}
+  4761          >
+  4762            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+  4763          </Button>
+  4764        </div>
+  4765      )}
+  4766    </div>
+  4767  );
+  4768}
+  4769
+  4770function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  7700            id: `${task}-failed-${Date.now()}`,
+  7701            role: 'assistant' as const,
+  7702            content: failure.reason,
+  7703            outcome: err.outcome ?? 'FAILED',
+  7704            errorCode: err.code,
+  7705            errorMessage: failure.reason,
+  7706            failureKind: err.failureKind,
+  7707            retryable: err.retryable ?? err.failureKind !== 'CONFIGURATION',
+  7708            structuredTask: task,
+  7709            activityEvents: failureEvents,
+  7710            createdAt: new Date().toISOString(),
+  7711          },
+  7712        ]);
+  7713      },
+  7714      onStreamReset: () => {
+  7715        const failureEvents = agentActivityEventsRef.current;
+  7716        const failure = safeStructuredFailure(
+  7717          { type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' },
+  7718          task,
+  7719        );
+  7720        resetStructuredTaskState();
+  7721        setStructuredRetryMessageId(null);
+  7722        setLocalMessages((prev) => [
+  7723          ...prev.filter((message) => message.id !== placeholderId),
+  7724          {
+  7725            id: `${task}-interrupted-${Date.now()}`,
+  7726            role: 'assistant' as const,
+  7727            content: failure.reason,
+  7728            outcome: 'INTERRUPTED',
+  7729            errorCode: 'transport_interrupted',
+  7730            errorMessage: failure.reason,
+  7731            failureKind: 'TRANSPORT',
+  7732            retryable: true,
+  7733            structuredTask: task,
+  7734            activityEvents: failureEvents,
+  7735            createdAt: new Date().toISOString(),
+  7736          },
+  7737        ]);
+  7738      },
+  7739    });
+  7740  }
+  7741
+  7742  function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
+  7743    const run = structuredTaskRunRef.current;
+  7744    if (structuredRetryMessageId || isTaskSending || !run || run.task !== task) return;
+  7745    setStructuredRetryMessageId(messageId);
+  7746    startStructuredTask(task, run.prompt, messageId);
+  7747  }
+  7748
+  7749  const { data: activeProvider } = useGetActiveProvider<ActiveProvider>({
+  7750    query: {
+  7751      queryKey: ['active-provider'],
+  7752      staleTime: 30_000,
+  7753    },
+  7754  });
+  7755
+  7756  // PR-06: poll runtime health metrics so provider cards show live state
+  7757  const { data: metricsData } = useGetAiMetrics<MetricsResponse>({
+  7758    query: {
+  7759      queryKey: ['ai-metrics'],
+  7760      staleTime: 15_000,
+  7761      refetchInterval: 30_000,
+  7762      enabled: isLoaded,
+  7763    },
+  7764  });
+  7765  const metricsMap = new Map(
+  7766    (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
+  7767  );
+  7768
+  7769  // G-06 fix: pending changes are stored with a timestamp so stale entries
+  7770  // (from a crashed/closed tab after the server wrote the files but before
+  7771  // onSuccess could clear them) expire automatically after 24 hours instead
+  7772  // of becoming permanent phantom items.
+  7773  const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  7774  type StoredPending = { changes: PendingChange[]; savedAt: number };
+  7775  const pendingKey = sessionId ? `eos_pending_${sessionId}` : undefined;
+  7776  const verificationKey = sessionId ? `eos_verification_${sessionId}` : undefined;
+  7777
+  7778  useEffect(() => {
+  7779    if (!pendingKey || !verificationKey) return;
+  7780    if (pendingChanges.length > 0) {
+  7781      const payload: StoredPending = { changes: pendingChanges, savedAt: Date.now() };
+  7782      localStorage.setItem(pendingKey, JSON.stringify(payload));
+  7783    } else {
+  7784      localStorage.removeItem(pendingKey);
+  7785    }
+  7786    if (Object.keys(verificationResults).length > 0) {
+  7787      localStorage.setItem(verificationKey, JSON.stringify(verificationResults));
+  7788    } else {
+  7789      localStorage.removeItem(verificationKey);
+  7790    }
+  7791  }, [pendingChanges, pendingKey, verificationKey, verificationResults]);
+  7792
+  7793  useEffect(() => {
+  7794    if (!sessionId) {
+  7795      setPendingChanges([]);
+  7796      setVerificationResults({});
+  7797      return;
+  7798    }
+  7799    if (!pendingKey || !verificationKey) return;
+  7800    const storedVerification = localStorage.getItem(verificationKey);
+  7801    if (storedVerification) {
+  7802      try {
+  7803        setVerificationResults(JSON.parse(storedVerification) as Record<string, BehavioralVerification>);
+  7804      } catch {
+  7805        localStorage.removeItem(verificationKey);
+  7806        setVerificationResults({});
+  7807      }
+  7808    } else {
+  7809      setVerificationResults({});
+  7810    }
+  7811    const raw = localStorage.getItem(pendingKey);
+  7812    if (!raw) { setPendingChanges([]); return; }
+  7813    try {
+  7814      const stored = JSON.parse(raw) as StoredPending | PendingChange[];
+  7815      // Handle both the old format (plain array) and the new format ({ changes, savedAt }).

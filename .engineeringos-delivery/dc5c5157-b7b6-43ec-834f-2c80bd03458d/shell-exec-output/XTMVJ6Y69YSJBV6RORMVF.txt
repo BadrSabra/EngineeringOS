@@ -1,0 +1,236 @@
+  4535            // audit is fixture-local, so the FIXTURE-LOCAL / NOT PROVEN
+  4536            // separation is never hidden behind a collapsed card.
+  4537            defaultExpanded={isForensicFallback || forensicEvidence.forensicStatus?.auditScope === 'FIXTURE_LOCAL'}
+  4538            finalVerdict={finalVerdict}
+  4539            // NI-35: ship the claim-bound behavioral evidence so the card can
+  4540            // render "these lines prove this behavior" instead of just the
+  4541            // raw list of files that were read.
+  4542            claimEvidence={parseBehaviorEvidence(msg.behaviorEvidence)}
+  4543          />
+  4544        )}
+  4545        {isEngineeringExecution && <FlightRecorder trace={toolTrace} />}
+  4546      </div>
+  4547    </div>
+  4548  );
+  4549}
+  4550
+  4551function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  4552  const { toast } = useToast();
+  4553  const qc = useQueryClient();
+  4554  const [keyInput, setKeyInput] = useState('');
+  4555  const [showInput, setShowInput] = useState(false);
+  4556
+  4557  const { data: status, isLoading } = useGetDeepSeekKeyStatus<DeepSeekKeyStatus>({
+  4558    query: {
+  4559      queryKey: ['deepseek-key-status'],
+  4560    },
+  4561  });
+  4562
+  4563  const saveMutation = useSaveDeepSeekKey({
+  4564    mutation: {
+  4565      onSuccess: (data) => {
+  4566        void qc.setQueryData(['deepseek-key-status'], data);
+  4567        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+  4568        setKeyInput('');
+  4569        setShowInput(false);
+  4570        toast({ title: 'DeepSeek key saved', description: `Ends in ···${data.last4}` });
+  4571      },
+  4572      onError: (err) => {
+  4573        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+  4574      },
+  4575    },
+  4576  });
+  4577
+  4578  const deleteMutation = useDeleteDeepSeekKey({
+  4579    mutation: {
+  4580      onSuccess: () => {
+  4581        void qc.setQueryData(['deepseek-key-status'], { configured: false, last4: null, updatedAt: null });
+  4582        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+  4583        toast({ title: 'DeepSeek key removed' });
+  4584      },
+  4585      onError: (err) => {
+  4586        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+  4587      },
+  4588    },
+  4589  });
+  4590
+  4591  function handleSave() {
+  4592    const trimmed = keyInput.trim();
+  4593    if (trimmed.length < 10) {
+  4594      toast({ title: 'Key too short', description: 'Enter a valid DeepSeek API key.', variant: 'destructive' });
+  4595      return;
+  4596    }
+  4597    saveMutation.mutate({ data: { apiKey: trimmed } });
+  4598  }
+  4599
+  4600  return (
+  4601    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+  4602      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+  4603        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+  4604        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
+  4605        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Optional</span>
+  4606      </div>
+  4607
+  4608      {isLoading ? (
+  4609        <p className="text-muted-foreground">Loading…</p>
+  4610      ) : status?.configured ? (
+  4611        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+  4612          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+  4613            <Check className="w-3 h-3" />
+  4614            <span className="break-all">···{status.last4}</span>
+  4615          </div>
+  4616          <div className="flex shrink-0 gap-1">
+  4617            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
+  4618              Change
+  4619            </Button>
+  4620            <Button
+  4621              size="sm" variant="ghost"
+  4622              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+  4623              onClick={() => deleteMutation.mutate()}
+  4624              disabled={deleteMutation.isPending}
+  4625            >
+  4626              <Trash2 className="w-3 h-3" />
+  4627            </Button>
+  4628          </div>
+  4629        </div>
+  4630      ) : (
+  4631        <p className="mb-2 break-words text-muted-foreground">
+  4632          Get a free API key at <span className="font-mono break-all">platform.deepseek.com</span> to use DeepSeek as your AI provider.
+  4633        </p>
+  4634      )}
+  4635
+  4636      <ProviderRuntimeBadge metric={runtimeMetric} />
+  4637
+  4638      {(showInput || !status?.configured) && (
+  4639        <div className="flex min-w-0 gap-1 mt-2">
+  4640          <Input
+  4641            type="password"
+  4642            value={keyInput}
+  4643            onChange={(e) => setKeyInput(e.target.value)}
+  4644            placeholder="sk-…"
+  4645            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+  4646            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+  4647            autoComplete="new-password"
+  4648          />
+  4649          <Button
+  4650            size="sm" className="h-7 px-2 text-xs"
+  4651            onClick={handleSave}
+  4652            disabled={saveMutation.isPending || !keyInput.trim()}
+  4653          >
+  4654            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+  4655          </Button>
+  4656        </div>
+  4657      )}
+  4658    </div>
+  4659  );
+  4660}
+  4661
+  4662function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  4663  const { toast } = useToast();
+  4664  const qc = useQueryClient();
+  4665  const [keyInput, setKeyInput] = useState('');
+  4666  const [showInput, setShowInput] = useState(false);
+  4667
+  4668  const { data: status, isLoading } = useGetGroqKeyStatus<GroqKeyStatus>({
+  4669    query: {
+  4670      queryKey: ['groq-key-status'],
+  4671    },
+  4672  });
+  4673
+  4674  const saveMutation = useSaveGroqKey({
+  4675    mutation: {
+  4676      onSuccess: (data) => {
+  4677        void qc.setQueryData(['groq-key-status'], data);
+  4678        setKeyInput('');
+  4679        setShowInput(false);
+  4680        toast({ title: 'Groq key saved', description: `Ends in ···${data.last4}` });
+  4681      },
+  4682      onError: (err) => {
+  4683        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+  4684      },
+  4685    },
+  4686  });
+  4687
+  4688  const deleteMutation = useDeleteGroqKey({
+  4689    mutation: {
+  4690      onSuccess: () => {
+  4691        void qc.setQueryData(['groq-key-status'], { configured: false, last4: null, updatedAt: null });
+  4692        toast({ title: 'Groq key removed', description: 'Falling back to server default.' });
+  4693      },
+  4694      onError: (err) => {
+  4695        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+  4696      },
+  4697    },
+  4698  });
+  4699
+  4700  function handleSave() {
+  4701    const trimmed = keyInput.trim();
+  4702    if (trimmed.length < 10) {
+  4703      toast({ title: 'Key too short', description: 'Enter a valid Groq API key.', variant: 'destructive' });
+  4704      return;
+  4705    }
+  4706    saveMutation.mutate({ data: { apiKey: trimmed } });
+  4707  }
+  4708
+  4709  return (
+  4710    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+  4711      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+  4712        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+  4713        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Groq API Key</span>
+  4714      </div>
+  4715
+  4716      {isLoading ? (
+  4717        <p className="text-muted-foreground">Loading…</p>
+  4718      ) : status?.configured ? (
+  4719        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+  4720          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+  4721            <Check className="w-3 h-3" />
+  4722            <span className="break-all">···{status.last4}</span>
+  4723          </div>
+  4724          <div className="flex shrink-0 gap-1">
+  4725            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
+  4726              Change
+  4727            </Button>
+  4728            <Button
+  4729              size="sm"
+  4730              variant="ghost"
+  4731              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+  4732              onClick={() => deleteMutation.mutate()}
+  4733              disabled={deleteMutation.isPending}
+  4734            >
+  4735              <Trash2 className="w-3 h-3" />
+  4736            </Button>
+  4737          </div>
+  4738        </div>
+  4739      ) : (
+  4740        <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
+  4741      )}
+  4742
+  4743      <ProviderRuntimeBadge metric={runtimeMetric} />
+  4744
+  4745      {(showInput || !status?.configured) && (
+  4746        <div className="flex min-w-0 gap-1 mt-2">
+  4747          <Input
+  4748            type="password"
+  4749            value={keyInput}
+  4750            onChange={(e) => setKeyInput(e.target.value)}
+  4751            placeholder="gsk_…"
+  4752            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+  4753            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+  4754            autoComplete="new-password"
+  4755          />
+  4756          <Button
+  4757            size="sm"
+  4758            className="h-7 px-2 text-xs"
+  4759            onClick={handleSave}
+  4760            disabled={saveMutation.isPending || !keyInput.trim()}
+  4761          >
+  4762            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+  4763          </Button>
+  4764        </div>
+  4765      )}
+  4766    </div>
+  4767  );
+  4768}
+  4769
+  4770function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {

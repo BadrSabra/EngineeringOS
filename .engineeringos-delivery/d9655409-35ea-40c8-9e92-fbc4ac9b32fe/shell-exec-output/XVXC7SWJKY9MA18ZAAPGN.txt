@@ -1,0 +1,202 @@
+   230        validation: 0,
+   231        correlatedEvents: 0,
+   232      },
+   233      agreement: {
+   234        execution: false,
+   235        messages: true,
+   236        sse: true,
+   237        checkpoints: true,
+   238        dashboard: true,
+   239        evidence: true,
+   240        proposals: true,
+   241        validation: true,
+   242      },
+   243    };
+   244
+   245    expect(projectMissionCorrelationReportForExport(report)).toEqual({
+   246      ...report,
+   247      operationId: "[internal id]",
+   248      projectId: "[internal id]",
+   249      sessionId: "[internal id]",
+   250    });
+   251  });
+   252});
+   253
+   254// ─── Orchestrator mock ────────────────────────────────────────────────────────
+   255// Every export from @workspace/ai-orchestrator is replaced with a stub that
+   256// returns a predictable, shape-correct response. Tests that need different
+   257// behaviour override individual functions via vi.mocked(...).mockResolvedValue.
+   258
+   259vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
+   260  const actual = await importOriginal<Record<string, unknown>>();
+   261  return {
+   262  // Spread the real module first so schemas the routes import at runtime
+   263  // (EvidenceReferenceSchema, RepairPlanMetadataSchema, etc.) remain real.
+   264  // The override keys below then replace the callables/registry as before.
+   265  ...actual,
+   266  // ── Provider registry ──────────────────────────────────────────────────────
+   267  // providers.ts imports PROVIDER_REGISTRY and validateProviderKey at module
+   268  // load time to build VALID_PROVIDERS. Without these the mock throws
+   269  // "No PROVIDER_REGISTRY export defined" before any test runs.
+   270  PROVIDER_REGISTRY: {
+   271    groq: { providerId: "groq", label: "Groq", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "console.groq.com", statusUrl: "status.groq.com", defaultModels: { fast: "llama-3.1-8b-instant", powerful: "llama-3.3-70b-versatile" } },
+   272    deepseek: { providerId: "deepseek", label: "DeepSeek", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "platform.deepseek.com", statusUrl: "platform.deepseek.com", defaultModels: { fast: "deepseek-chat", powerful: "deepseek-chat" } },
+   273    gemini: { providerId: "gemini", label: "Gemini", supportsStreaming: true, supportsTools: false, supportsJsonMode: true, consoleUrl: "aistudio.google.com/apikey", statusUrl: "status.cloud.google.com", defaultModels: { fast: "gemini-2.0-flash", powerful: "gemini-2.0-flash" } },
+   274    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "openrouter.ai/keys", statusUrl: "openrouter.ai", defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+   275  },
+   276  PROVIDER_PRIORITY: ["openrouter", "gemini", "deepseek", "groq"],
+   277  getProvider: vi.fn((id: string) => {
+   278    const registry: Record<string, { providerId: string; label: string }> = {
+   279      groq: { providerId: "groq", label: "Groq" },
+   280      deepseek: { providerId: "deepseek", label: "DeepSeek" },
+   281      gemini: { providerId: "gemini", label: "Gemini" },
+   282      openrouter: { providerId: "openrouter", label: "OpenRouter" },
+   283    };
+   284    if (!registry[id]) throw new Error(`Unknown provider: ${id}`);
+   285    return registry[id];
+   286  }),
+   287  validateProviderKey: vi.fn(async () => ({ valid: true })),
+   288  // ── Context + cache ────────────────────────────────────────────────────────
+   289  buildProjectContext: vi.fn(async () => "mocked project context string"),
+   290  // invalidateContextCache is a synchronous cache-bust helper called after
+   291  // every mutating AI operation (Gap-2 fix). Must be in the mock so routes
+   292  // that call it don't throw "undefined is not a function" in tests.
+   293  invalidateContextCache: vi.fn(),
+   294  // Gap-4 fix: chat mock now includes pendingChanges so the response shape
+   295  // matches ChatOutput and the pendingChanges contract test below passes.
+   296  chat: vi.fn(async () => ({
+   297    response: "AI response text",
+   298    sources: ["metrics", "tasks"],
+   299    pendingChanges: [],
+   300  })),
+   301  // Gap-4 fix: analyzeScan mock updated to match ScanSummarySchema.
+   302  // Removed stale fields: overallHealthAssessment, immediateActions, longTermRecommendations.
+   303  // Added correct fields: overallAssessment, topPriority, estimatedImpact.
+   304  // Insight shape uses `severity` (not `priority`) per ScanInsightSchema.
+   305  analyzeScan: vi.fn(async () => ({
+   306    summary: "Analysis complete",
+   307    overallAssessment: "The codebase is in good overall health",
+   308    insights: [{
+   309      category: "security",
+   310      severity: "high",
+   311      title: "Mock insight",
+   312      description: "desc",
+   313      recommendation: "fix it",
+   314    }],
+   315    topPriority: "Address security vulnerabilities",
+   316    estimatedImpact: "High — reduces attack surface significantly",
+   317  })),
+   318  // Gap-4 fix: reviewCode mock updated to match CodeReviewResultSchema.
+   319  // Removed stale fields: criticalIssues, highIssues, mediumIssues, lowIssues.
+   320  // Added correct fields: refactoringOpportunities, securityConcerns.
+   321  reviewCode: vi.fn(async () => ({
+   322    verdict: "approved",
+   323    overallScore: 85,
+   324    summary: "Looks good",
+   325    issues: [],
+   326    strengths: ["Clean code"],
+   327    refactoringOpportunities: [],
+   328    securityConcerns: [],
+   329  })),
+   330  // Gap-4 fix: orchestrateWorkflow mock updated to match WorkflowDecisionSchema.
+   420}
+   421
+   422function lastSseEvent(text: string): Record<string, unknown> {
+   423  const dataLine = text
+   424    .split("\n")
+   425    .filter((line) => line.startsWith("data: "))
+   426    .at(-1);
+   427  expect(dataLine).toBeDefined();
+   428  return JSON.parse(dataLine!.slice("data: ".length)) as Record<string, unknown>;
+   429}
+   430
+   431async function insertChangeProposal(
+   432  projectId: string,
+   433  changes: Array<{
+   434    path: string;
+   435    absolutePath: string;
+   436    newContent: string;
+   437    originalContent?: string | null;
+   438    baseHash?: string;
+   439    hunks?: Array<{
+   440      startLine: number;
+   441      endLine: number;
+   442      expectedText: string;
+   443      replacementText: string;
+   444      reason: string;
+   445    }>;
+   446    reason?: string;
+   447    validationProfile?: "ai-orchestrator-tests" | "knowledge-engine-tests" | "api-ai-tests" | "workspace-typecheck";
+   448  }>,
+   449): Promise<string> {
+   450  const sessionId = randomUUID();
+   451  const messageId = randomUUID();
+   452  const proposalId = randomUUID();
+   453  const now = new Date();
+   454  await db.insert(aiChatSessionsTable).values({
+   455    id: sessionId,
+   456    projectId,
+   457    title: "Test repair proposal",
+   458    createdAt: now,
+   459    updatedAt: now,
+   460  });
+   461  await db.insert(aiChatMessagesTable).values({
+   462    id: messageId,
+   463    sessionId,
+   464    role: "assistant",
+   465    content: "Test repair proposal",
+   466    createdAt: now,
+   467  });
+   468  await db.insert(aiChangeProposalsTable).values({
+   469    id: proposalId,
+   470    projectId,
+   471    sessionId,
+   472    messageId,
+   473    changes: JSON.stringify(changes.map((change) => ({
+   474      path: change.path,
+   475      absolutePath: change.absolutePath,
+   476      newContent: change.newContent,
+   477      originalContent: change.originalContent ?? null,
+   478      ...(change.baseHash ? { baseHash: change.baseHash } : {}),
+   479      ...(change.hunks ? { hunks: change.hunks } : {}),
+   480      reason: change.reason ?? "Test proposal",
+   481      ...(change.validationProfile ? { validationProfile: change.validationProfile } : {}),
+   482    }))),
+   483    status: "pending",
+   484    createdAt: now,
+   485  });
+   486  return proposalId;
+   487}
+   488
+   489async function makeRecoverableProposal(
+   490  projectId: string,
+   491  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+   492  options: { withWorkspace?: boolean; conflictReason?: string } = {},
+   493): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+   494  path: string;
+   495  absolutePath: string;
+   496  newContent: string;
+   497  validationProfile: "api-ai-tests";
+   498} }> {
+   499  const operationId = randomUUID();
+   500  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+   501  const change = {
+   502    path: fileName,
+   503    absolutePath: `/tmp/${fileName}`,
+   504    newContent: "export const recovered = true;\n",
+   505    validationProfile: "api-ai-tests" as const,
+   506  };
+   507  const proposalId = await insertChangeProposal(projectId, [change]);
+   508  let workspaceRoot: string | null = null;
+   509  let baseTreeHash: string | null = null;
+   510  let candidateTreeHash: string | null = null;
+   511  if (options.withWorkspace !== false) {
+   512    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+   513    await fs.mkdir(sourceRoot, { recursive: true });
+   514    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+   515    const workspace = await createDeliveryWorkspace({
+   516      rootPath: sourceRoot,
+   517      operationId,
+   518      baseRevision: "base-revision",
+   519      changes: [change],
+   520    });

@@ -27,8 +27,13 @@ import {
   taskLogsTable,
   auditLogsTable,
   scanJobsTable,
+  aiProviderCredentialsTable,
 } from "@workspace/db";
-import { buildPatchHunks, hashPatchBase } from "@workspace/ai-orchestrator";
+import {
+  buildPatchHunks,
+  hashPatchBase,
+  validateGroqDefaultModels,
+} from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import {
   canCreateProposal,
@@ -285,6 +290,11 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
     return registry[id];
   }),
   validateProviderKey: vi.fn(async () => ({ valid: true })),
+  validateGroqDefaultModels: vi.fn(async (_apiKey: string, defaults: { fast: string; powerful: string }) => ({
+    valid: true,
+    missing: [],
+    checkedModels: defaults,
+  })),
   // ── Context + cache ────────────────────────────────────────────────────────
   buildProjectContext: vi.fn(async () => "mocked project context string"),
   // invalidateContextCache is a synchronous cache-bust helper called after
@@ -691,6 +701,57 @@ afterEach(async () => {
     await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.workflowId, wid));
     await db.delete(workflowsTable).where(eq(workflowsTable.id, wid));
   }
+});
+
+describe("GET /api/ai/providers/:provider/key", () => {
+  it("reports Groq model availability without exposing the server credential", async () => {
+    await db.delete(aiProviderCredentialsTable).where(eq(aiProviderCredentialsTable.ownerId, "test-user"));
+    vi.mocked(validateGroqDefaultModels).mockResolvedValueOnce({
+      valid: false,
+      missing: ["fast"],
+      checkedModels: {
+        fast: "openai/retired-fast",
+        powerful: "openai/gpt-oss-120b",
+      },
+      reason: "Groq model catalog is missing the configured fast model.",
+    });
+
+    const res = await request(app).get("/api/ai/providers/groq/key");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      configured: false,
+      modelAvailability: {
+        status: "unavailable",
+        source: "server",
+        checkedModels: {
+          fast: "openai/retired-fast",
+          powerful: "openai/gpt-oss-120b",
+        },
+        unavailableRoles: ["fast"],
+      },
+    });
+    expect(JSON.stringify(res.body)).not.toContain("test-dummy-key-for-mocked-tests");
+  });
+
+  it("returns a usable not-configured state when Groq is absent", async () => {
+    const savedGroqKey = process.env.GROQ_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    try {
+      await db.delete(aiProviderCredentialsTable).where(eq(aiProviderCredentialsTable.ownerId, "test-user"));
+      const res = await request(app).get("/api/ai/providers/groq/key");
+
+      expect(res.status).toBe(200);
+      expect(res.body.modelAvailability).toMatchObject({
+        status: "not_configured",
+        source: "none",
+        unavailableRoles: [],
+      });
+    } finally {
+      if (savedGroqKey === undefined) delete process.env.GROQ_API_KEY;
+      else process.env.GROQ_API_KEY = savedGroqKey;
+    }
+  });
 });
 
 // ─── POST /api/ai/chat ────────────────────────────────────────────────────────
