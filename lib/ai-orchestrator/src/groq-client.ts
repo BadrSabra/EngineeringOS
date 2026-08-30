@@ -95,6 +95,15 @@ function sleep(ms: number): Promise<void> {
 export const MODEL_POWERFUL = "openai/gpt-oss-120b";
 export const MODEL_FAST = "openai/gpt-oss-20b";
 
+export type GroqDefaultModelRole = "fast" | "powerful";
+
+export type GroqDefaultModelValidation = {
+  valid: boolean;
+  missing: GroqDefaultModelRole[];
+  checkedModels: { fast: string; powerful: string };
+  reason?: string;
+};
+
 // Singleton for the env-var key; per-key cache for user-provided keys.
 let _envClient: Groq | null = null;
 const _keyedClients = new Map<string, Groq>();
@@ -209,6 +218,64 @@ function getClient(apiKey?: string): Groq {
     _envClient = new Groq({ apiKey: envKey });
   }
   return _envClient;
+}
+
+/**
+ * Verify that the models selected by the provider registry are still exposed
+ * by Groq. Credential validity and model availability are independent: a key
+ * can remain valid after Groq retires a model slug.
+ *
+ * This intentionally uses the authenticated models endpoint rather than a
+ * completion request. It is bounded, does not consume tokens, and never
+ * includes the API key in its result or error message.
+ */
+export async function validateGroqDefaultModels(
+  apiKey: string,
+  defaults: { fast: string; powerful: string } = {
+    fast: MODEL_FAST,
+    powerful: MODEL_POWERFUL,
+  },
+  timeoutMs = 10_000,
+): Promise<GroqDefaultModelValidation> {
+  const client = getClient(apiKey);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await client.models.list({ signal: controller.signal });
+    const modelIds = new Set(
+      (response.data ?? [])
+        .map((model) => model?.id)
+        .filter((modelId): modelId is string => typeof modelId === "string"),
+    );
+    const missing = (["fast", "powerful"] as const).filter(
+      (role) => !modelIds.has(defaults[role]),
+    );
+
+    if (missing.length > 0) {
+      const missingDescription = missing
+        .map((role) => `${role}="${defaults[role]}"`)
+        .join(", ");
+      return {
+        valid: false,
+        missing,
+        checkedModels: { ...defaults },
+        reason:
+          `Groq model catalog is missing the configured ${missingDescription}. ` +
+          "Update the Groq default model IDs and restart before accepting AI traffic.",
+      };
+    }
+
+    return {
+      valid: true,
+      missing: [],
+      checkedModels: { ...defaults },
+    };
+  } catch (error) {
+    throw classifySdkError(error, controller.signal.aborted);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 type ChatRequest = {

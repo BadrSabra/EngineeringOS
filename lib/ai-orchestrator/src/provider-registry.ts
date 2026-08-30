@@ -19,6 +19,7 @@ import { groqStrategy } from "./strategies/groq.strategy.js";
 import { deepseekStrategy } from "./strategies/deepseek.strategy.js";
 import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
 import { geminiStrategy } from "./strategies/gemini.strategy.js";
+import { MODEL_FAST, MODEL_POWERFUL } from "./groq-client.js";
 import { FREE_MODELS } from "./openrouter/model-catalog.js";
 import { recordBehavioralModelCall } from "./behavioral-scorecard.js";
 // RC-03: avoid hardcoding a dead OpenRouter model ID at module-load time.
@@ -153,8 +154,8 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
       // Keep the resolver aligned with groq-client.ts. Groq retires model
       // slugs periodically, so stale defaults turn valid credentials into
       // MODEL_NOT_FOUND failures.
-      fast: "openai/gpt-oss-20b",
-      powerful: "openai/gpt-oss-120b",
+      fast: MODEL_FAST,
+      powerful: MODEL_POWERFUL,
     },
     capabilities: {
       supportsStreaming: true,

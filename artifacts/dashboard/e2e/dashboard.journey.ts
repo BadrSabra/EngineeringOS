@@ -1923,6 +1923,21 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         : undefined;
     if (!executionId)
       throw new Error("Live-provider stream did not emit execution_started.");
+    const terminalDone = sseEvents.find((event) => event.type === "done");
+    const terminalMessage =
+      terminalDone?.message &&
+      typeof terminalDone.message === "object" &&
+      !Array.isArray(terminalDone.message)
+        ? (terminalDone.message as Record<string, unknown>)
+        : undefined;
+    if (
+      !terminalDone ||
+      terminalMessage?.executionId !== executionId
+    ) {
+      throw new Error(
+        "Live-provider stream did not emit a terminal done event for its execution.",
+      );
+    }
 
     let execution: Record<string, any> = {};
     const deadline = Date.now() + liveTimeoutMs();

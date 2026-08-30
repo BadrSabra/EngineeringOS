@@ -11,7 +11,16 @@
  * actionable warning rather than blocking startup entirely.
  */
 
-import { PROVIDER_PRIORITY, type ProviderId } from "./provider-registry.js";
+import {
+  loadProvider,
+  PROVIDER_PRIORITY,
+  type ProviderId,
+} from "./provider-registry.js";
+import {
+  validateGroqDefaultModels,
+  type GroqDefaultModelValidation,
+} from "./groq-client.js";
+import { GroqClientError } from "./errors.js";
 import { FREE_MODELS } from "./openrouter/model-catalog.js";
 import {
   refreshDynamicCatalog,
@@ -24,6 +33,8 @@ export type ProviderValidationResult = {
   reason?: string;
   /** True when the key is absent but the provider is optional. */
   skipped?: boolean;
+  /** Whether Groq's configured defaults were confirmed by its live catalog. */
+  modelCheck?: "passed" | "missing" | "unavailable";
 };
 
 /** Environment variable names for each provider's API key. */
@@ -44,6 +55,7 @@ export async function validateAiProvidersAtStartup(): Promise<ProviderValidation
 
   // Track whether any provider is usable at all.
   let anyValid = false;
+  let anyConfigured = false;
 
   for (const providerId of PROVIDER_PRIORITY) {
     const keyEnv = PROVIDER_KEY_ENV[providerId];
@@ -67,6 +79,7 @@ export async function validateAiProvidersAtStartup(): Promise<ProviderValidation
       continue;
     }
 
+    anyConfigured = true;
     if (keyValue.trim().length < 10) {
       results.push({
         provider: providerId,
@@ -84,7 +97,70 @@ export async function validateAiProvidersAtStartup(): Promise<ProviderValidation
       continue;
     }
 
-    results.push({ provider: providerId, valid: true });
+    if (providerId === "groq") {
+      let modelValidation: GroqDefaultModelValidation;
+      try {
+        modelValidation = await validateGroqDefaultModels(
+          keyValue,
+          loadProvider("groq").defaultModels,
+        );
+      } catch (error) {
+        const code = error instanceof GroqClientError ? error.code : "UNKNOWN";
+        const reason =
+          code === "AUTH_ERROR"
+            ? "GROQ_API_KEY was rejected while checking the live model catalog — verify the key."
+            : `Groq model catalog could not be checked (${code}) — rerun startup or release validation before relying on Groq.`;
+        results.push({
+          provider: providerId,
+          valid: code === "AUTH_ERROR" ? false : true,
+          modelCheck: "unavailable",
+          reason,
+        });
+        console.warn(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: code === "AUTH_ERROR" ? "invalid" : "degraded",
+            modelCheck: "unavailable",
+            reason,
+          }),
+        );
+        if (code === "AUTH_ERROR") continue;
+        anyValid = true;
+        continue;
+      }
+
+      if (!modelValidation.valid) {
+        const reason =
+          modelValidation.reason ??
+          "Groq model catalog is missing one or more configured default models.";
+        results.push({
+          provider: providerId,
+          valid: false,
+          modelCheck: "missing",
+          reason,
+        });
+        console.warn(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: "invalid",
+            modelCheck: "missing",
+            missing: modelValidation.missing,
+            reason,
+          }),
+        );
+        continue;
+      }
+
+      results.push({
+        provider: providerId,
+        valid: true,
+        modelCheck: "passed",
+      });
+    } else {
+      results.push({ provider: providerId, valid: true });
+    }
     anyValid = true;
 
     console.info(
@@ -93,6 +169,7 @@ export async function validateAiProvidersAtStartup(): Promise<ProviderValidation
         provider: providerId,
         status: "ok",
         keyEnv,
+        ...(providerId === "groq" ? { modelCheck: "passed" } : {}),
       }),
     );
   }
@@ -111,13 +188,18 @@ export async function validateAiProvidersAtStartup(): Promise<ProviderValidation
   }
 
   if (!anyValid) {
+    const status = anyConfigured
+      ? "NO_USABLE_PROVIDERS"
+      : "NO_PROVIDERS_CONFIGURED";
     console.warn(
       JSON.stringify({
         scope: "startup-validator",
-        status: "NO_PROVIDERS_CONFIGURED",
+        status,
         hint:
-          "No AI provider API keys are configured. " +
-          "AI features will return 428 until at least one provider key is saved via the dashboard.",
+          status === "NO_USABLE_PROVIDERS"
+            ? "Configured AI provider credentials failed startup checks. Review the preceding provider reason and correct the key or model defaults before relying on AI."
+            : "No AI provider API keys are configured. " +
+              "AI features will return 428 until at least one provider key is saved via the dashboard.",
       }),
     );
   }

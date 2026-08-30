@@ -685,6 +685,19 @@ test("release journey gates browser work on one bounded readiness handshake", ()
   );
 });
 
+test("live provider journey requires a terminal done event for the started execution", () => {
+  assert.match(
+    journeySource,
+    /const terminalDone = sseEvents\.find\(\(event\) => event\.type === "done"\)/,
+    "The live provider smoke test must inspect the terminal SSE envelope.",
+  );
+  assert.match(
+    journeySource,
+    /terminalMessage\?\.executionId !== executionId/,
+    "The terminal SSE envelope must be correlated to the started execution.",
+  );
+});
+
 test("API readiness separates liveness from schema readiness", () => {
   assert.match(healthSource, /router\.get\("\/readiness"/);
   assert.match(healthSource, /schema_incomplete/);

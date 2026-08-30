@@ -43,6 +43,66 @@ describe("groq-client", () => {
     });
   });
 
+  it("confirms both configured defaults against Groq's live model catalog", async () => {
+    const list = vi.fn().mockResolvedValue({
+      object: "list",
+      data: [
+        { id: "fast-model" },
+        { id: "powerful-model" },
+      ],
+    });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        models = { list };
+      },
+    }));
+    const { validateGroqDefaultModels } = await import("../groq-client.js");
+
+    await expect(
+      validateGroqDefaultModels("test-key", {
+        fast: "fast-model",
+        powerful: "powerful-model",
+      }),
+    ).resolves.toMatchObject({
+      valid: true,
+      missing: [],
+      checkedModels: {
+        fast: "fast-model",
+        powerful: "powerful-model",
+      },
+    });
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports retired defaults without treating the credential as the failure", async () => {
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        models = {
+          list: vi.fn().mockResolvedValue({
+            object: "list",
+            data: [{ id: "fast-model" }],
+          }),
+        };
+      },
+    }));
+    const { validateGroqDefaultModels } = await import("../groq-client.js");
+    const result = await validateGroqDefaultModels("secret-key", {
+      fast: "fast-model",
+      powerful: "retired-model",
+    });
+
+    expect(result).toMatchObject({
+      valid: false,
+      missing: ["powerful"],
+      checkedModels: {
+        fast: "fast-model",
+        powerful: "retired-model",
+      },
+    });
+    expect(result.reason).toContain('powerful="retired-model"');
+    expect(result.reason).not.toContain("secret-key");
+  });
+
   it("throws EMPTY_RESPONSE when the model returns no content", async () => {
     vi.doMock("groq-sdk", () => ({
       default: class {

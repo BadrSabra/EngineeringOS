@@ -131,15 +131,18 @@ try {
 // fires immediately (before traffic arrives) so the catalog is pre-warmed.
 const { stop: stopCatalogRefresh } = startCatalogRefreshScheduler();
 
-// PR-006: validate AI providers before accepting traffic — checks key presence
-// and refreshes the dynamic OpenRouter model catalog so the resolver knows which
-// models are currently available. Never throws; logs actionable warnings.
-validateAiProvidersAtStartup().catch((err: unknown) => {
+// PR-006: validate AI providers before accepting traffic — checks key presence,
+// verifies Groq's configured defaults against its live catalog, and refreshes
+// the dynamic OpenRouter catalog. The validator returns actionable provider
+// results instead of throwing for expected provider failures.
+try {
+  await validateAiProvidersAtStartup();
+} catch (err: unknown) {
   logger.warn(
     { err },
     "AI provider startup validation failed — continuing without AI validation",
   );
-});
+}
 
 // Ensure the AI credential encryption key is available before accepting traffic.
 // Auto-generates and persists one if AI_CREDENTIALS_ENCRYPTION_KEY is not set.

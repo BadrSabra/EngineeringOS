@@ -1,4 +1,11 @@
-export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+export {
+  complete,
+  completeRaw,
+  completeStream,
+  MODEL_POWERFUL,
+  MODEL_FAST,
+  validateGroqDefaultModels,
+} from "./groq-client.js";
 export type { AgentStep, AgentDiagnosticCode, SourceRetrievalTelemetry, ReadStatus } from "./tool-execution-engine.js";
 export {
   buildProjectFileManifest,
@@ -72,7 +79,17 @@ export {
 export type { ProviderConfig } from "./provider-registry.js";
 export type { ProviderStrategy, StrategyCallOptions, StrategyStreamOptions } from "./provider-strategy.js";
 export type { ProviderCapabilityHints, ProviderCapabilitySummary, ProviderCostTier } from "./provider-capabilities.js";
-export type { Message, GroqResponse, CompleteOptions, RawMessage, ToolCall, ToolDefinition, RawGroqResponse } from "./groq-client.js";
+export type {
+  Message,
+  GroqResponse,
+  CompleteOptions,
+  RawMessage,
+  ToolCall,
+  ToolDefinition,
+  RawGroqResponse,
+  GroqDefaultModelRole,
+  GroqDefaultModelValidation,
+} from "./groq-client.js";
 
 export type { PendingChange } from "./tools/file-tools.js";
 export { buildPatchHunks, hashPatchBase, rebasePatchHunks } from "./patch-contract.js";
