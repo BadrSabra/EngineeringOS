@@ -604,6 +604,18 @@ export async function executeHierarchical(
       // Intentionally no `tools` — synthesis is text-only
     });
     synthesisText = synthesisResult.content ?? "";
+    if (!synthesisText.trim()) {
+      synthesisStatus = "failed";
+      synthesisText = [
+        "ANALYSIS_INCOMPLETE — synthesis returned no usable report.",
+        ...subResults
+          .filter((r) => r.status === "complete" || r.status === "partial")
+          .map((r) => [
+            `- ${r.intent}: ${r.status}; verified evidence windows: ${r.sourceEvidence.length}`,
+            r.text ? `  ${r.text}` : "",
+          ].filter(Boolean).join("\n")),
+      ].join("\n");
+    }
   } catch (err) {
     synthesisStatus = "failed";
     console.warn(
