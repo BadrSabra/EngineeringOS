@@ -1,0 +1,310 @@
+diff --git a/lib/ai-orchestrator/src/tool-execution-engine.ts b/lib/ai-orchestrator/src/tool-execution-engine.ts
+index a7a3cae8..0c78d359 100644
+--- a/lib/ai-orchestrator/src/tool-execution-engine.ts
++++ b/lib/ai-orchestrator/src/tool-execution-engine.ts
+@@ -975,6 +975,48 @@ export const _compactModelMessages = compactModelMessages;
+ 
+ // ── Tool loop ─────────────────────────
+ 
++export type AgentLoopPhase = "planning" | "evidence" | "reasoning" | "recovery" | "terminal";
++
++/**
++ * Server-owned objective input for callers that need the tool loop itself to
++ * enforce completion. Evidence paths are deliberately explicit; model prose
++ * can never close a claim.
++ */
++export type AgentLoopObjective = {
++  goal: string;
++  requiredEvidencePaths?: string[];
++  requiredClaims: Array<{
++    claimId: string;
++    requiredEvidencePaths?: string[];
++  }>;
++};
++
++export type AgentLoopClaimState = {
++  claimId: string;
++  status: "PENDING" | "PROVEN" | "BLOCKED";
++  evidenceRefs: string[];
++};
++
++export type AgentLoopState = {
++  goal?: string;
++  phase: AgentLoopPhase;
++  iterations: number;
++  progress: {
++    uniqueSourceReads: number;
++    toolCalls: number;
++    noProgressStreak: number;
++  };
++  claims: AgentLoopClaimState[];
++  missingEvidencePaths: string[];
++  terminalReason?:
++    | "goal_met"
++    | "claim_unclosed"
++    | "evidence_incomplete"
++    | "no_progress"
++    | "validation_incomplete"
++    | "cancelled";
++};
++
+ export type ToolLoopOpts = {
+   /**
+    * Conversation messages — mutated in place.
+@@ -1055,6 +1097,13 @@ export type ToolLoopOpts = {
+   pendingChanges: PendingChange[];
+   /** Server-owned phase; caps budgets and filters tools when provided. */
+   phase?: ExecutionPhase;
++  /**
++   * Optional server-owned completion contract. When present, a text response
++   * is only successful after its required evidence/claims are complete.
++   */
++  objective?: AgentLoopObjective;
++  /** Previously server-verified claim state, restored on resumable execution. */
++  claimState?: AgentLoopClaimState[];
+ 
+   /**
+    * Structured forensic mode: every uncached read_file call requests the
+@@ -1221,6 +1270,7 @@ export type ToolLoopResult =
+       fileContents?: Map<string, string>;
+       /** Source-retrieval read classification and telemetry (SR-008). */
+       sourceRetrieval?: SourceRetrievalTelemetry;
++       objectiveState?: AgentLoopState;
+     }
+   | {
+       /**
+@@ -1237,6 +1287,7 @@ export type ToolLoopResult =
+       /** Source-retrieval read classification and telemetry (SR-008). */
+       sourceRetrieval?: SourceRetrievalTelemetry;
+       reason?: "soft_limit" | "empty_response" | "provider_timeout";
++       objectiveState?: AgentLoopState;
+     }
+   | {
+       kind: "exhausted";
+@@ -1248,6 +1299,7 @@ export type ToolLoopResult =
+       sourceRetrieval?: SourceRetrievalTelemetry;
+       /** Why the loop could not produce a final response. */
+       reason?: "iteration_budget" | "empty_response";
++       objectiveState?: AgentLoopState;
+     }
+   | {
+       /** A required tool failed; no completed operation may be claimed. */
+@@ -1258,6 +1310,7 @@ export type ToolLoopResult =
+       tool: string;
+       failureKind: "execution" | "unavailable" | "cancelled";
+       diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
++       objectiveState?: AgentLoopState;
+     }
+   | {
+       /**
+@@ -1273,6 +1326,7 @@ export type ToolLoopResult =
+       reason: "repeated_tool_call";
+       tool: string;
+       iterations: number;
++       objectiveState?: AgentLoopState;
+     }
+   | {
+       /** Cancellation preserves evidence but never represents a completed audit. */
+@@ -1280,6 +1334,21 @@ export type ToolLoopResult =
+       toolSources: string[];
+       fileContents?: Map<string, string>;
+       sourceRetrieval?: SourceRetrievalTelemetry;
++       objectiveState?: AgentLoopState;
++     }
++  | {
++      /**
++       * The loop stopped with useful state but the server-owned objective could
++       * not be closed. This is intentionally distinct from provider failure,
++       * cancellation, and ordinary budget exhaustion.
++       */
++      kind: "incomplete";
++      reason: "claim_unclosed" | "evidence_incomplete" | "no_progress" | "validation_incomplete";
++      result?: RawGroqResponse;
++      toolSources: string[];
++      fileContents?: Map<string, string>;
++      sourceRetrieval?: SourceRetrievalTelemetry;
++      objectiveState?: AgentLoopState;
+     };
+ 
+ // ── Agent step events ──────────────────
+@@ -1555,6 +1624,10 @@ export type AgentStep =
+         | "empty_response"
+          | "provider_timeout"
+          | "tool_failure"
++         | "claim_unclosed"
++         | "evidence_incomplete"
++         | "no_progress"
++         | "validation_incomplete"
+         | "cancelled";
+       synthesisStarted: boolean;
+       /** Bounded final-synthesis telemetry for operator diagnostics. */
+@@ -1566,6 +1639,7 @@ export type AgentStep =
+       diagnosticCodes: AgentDiagnosticCode[];
+       /** Source-retrieval read classification and telemetry (SR-008). */
+       sourceRetrieval?: SourceRetrievalTelemetry;
++       objectiveState?: AgentLoopState;
+     };
+ 
+ /**
+@@ -1607,6 +1681,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
+     synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
+     executionMode,
+     executionTargetPaths = [],
++    objective,
++    claimState,
+     allowExecutionTools = false,
+     validationRunner,
+     browserValidationRunner,
+@@ -2327,11 +2403,102 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
+       });
+     } catch { /* ignore */ }
+   };
++  let currentIteration = 0;
++  let loopPhase: AgentLoopPhase = "planning";
++  const normalizedObjectivePath = (value: string): string =>
++    value.replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
++  const verifiedPathSet = (): Set<string> => new Set(
++    [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
++      .map(normalizedObjectivePath),
++  );
++  const buildObjectiveState = (
++    terminalReason?: AgentLoopState["terminalReason"],
++  ): AgentLoopState | undefined => {
++    if (!objective) return undefined;
++    const verifiedPaths = verifiedPathSet();
++    const missingEvidencePaths = (objective.requiredEvidencePaths ?? [])
++      .map(normalizedObjectivePath)
++      .filter((path) => !verifiedPaths.has(path));
++    const restored = new Map((claimState ?? []).map((claim) => [claim.claimId, claim]));
++    const claims = objective.requiredClaims.map((claim) => {
++      const prior = restored.get(claim.claimId);
++      if (prior?.status === "PROVEN" || prior?.status === "BLOCKED") {
++        return { ...prior, evidenceRefs: prior.evidenceRefs.slice(0, 12) };
++      }
++      const requiredPaths = (claim.requiredEvidencePaths ?? []).map(normalizedObjectivePath);
++      const evidenceRefs = requiredPaths.filter((path) => verifiedPaths.has(path));
++      return {
++        claimId: claim.claimId,
++        status: requiredPaths.length > 0 && evidenceRefs.length === requiredPaths.length
++          ? "PROVEN" as const
++          : "PENDING" as const,
++        evidenceRefs,
++      };
++    });
++    return {
++      goal: objective.goal,
++      phase: loopPhase,
++      iterations: currentIteration,
++      progress: {
++        uniqueSourceReads: sourceRetrieval.uniqueReads + sourceRetrieval.prefetchReads,
++        toolCalls: totalToolCalls,
++        noProgressStreak,
++      },
++      claims,
++      missingEvidencePaths,
++      ...(terminalReason ? { terminalReason } : {}),
++    };
++  };
++  const objectiveIncompleteReason = (): "claim_unclosed" | "evidence_incomplete" | "no_progress" | undefined => {
++    if (!objective) return undefined;
++    const state = buildObjectiveState();
++    if (state?.missingEvidencePaths.length) return "evidence_incomplete";
++    if (state?.claims.some((claim) => claim.status !== "PROVEN")) return "claim_unclosed";
++    return undefined;
++  };
++  const incompleteResult = (
++    reason: "claim_unclosed" | "evidence_incomplete" | "no_progress" | "validation_incomplete",
++    result?: RawGroqResponse,
++  ): ToolLoopResult => {
++    loopPhase = "terminal";
++    const state = buildObjectiveState(reason);
++    try {
++      onStep?.({
++        kind: "done",
++        iterations: currentIteration,
++        maxIterations,
++        ...executionCounts(),
++        stopReason: reason,
++        synthesisStarted,
++        synthesisAttempts,
++        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
++        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
++        ...(sourceRetrieval.synthesisElapsedMs !== undefined
++          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
++          : {}),
++        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
++        diagnosticCodes: [],
++        sourceRetrieval,
++        ...(state ? { objectiveState: state } : {}),
++      });
++    } catch { /* observers must not change terminal semantics */ }
++    return {
++      kind: "incomplete",
++      reason,
++      ...(result ? { result } : {}),
++      toolSources,
++      fileContents,
++      sourceRetrieval,
++      ...(state ? { objectiveState: state } : {}),
++    };
++  };
+   const cancelledResult = (): ToolLoopResult => {
++    loopPhase = "terminal";
++    currentIteration = Math.max(currentIteration, 0);
+     try {
+       onStep?.({
+         kind: "done",
+-        iterations: 0,
++        iterations: currentIteration,
+         maxIterations,
+         ...executionCounts(),
+         stopReason: "cancelled",
+@@ -2347,7 +2514,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
+         sourceRetrieval,
+       });
+     } catch { /* ignore */ }
+-    return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
++    return {
++      kind: "cancelled",
++      toolSources,
++      fileContents,
++      sourceRetrieval,
++      ...(buildObjectiveState("cancelled")
++        ? { objectiveState: buildObjectiveState("cancelled") }
++        : {}),
++    };
+   };
+   const failedToolResult = (
+     tool: string,
+@@ -2368,7 +2543,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
+       });
+369:  toolSources: string[],
+374:  const searchSources = [...new Set(toolSources.filter((source) => source.startsWith("search:")))].sort();
+1268:      toolSources: string[];
+1284:      toolSources: string[];
+1295:      toolSources: string[];
+1307:      toolSources: string[];
+1321:      toolSources: string[];
+1334:      toolSources: string[];
+1348:      toolSources: string[];
+1726:  const toolSources: string[] = [];
+2087:      toolSources,
+2489:      toolSources,
+2519:      toolSources,
+2557:      toolSources,
+2629:          toolSources,
+2843:              toolSources,
+2915:              toolSources,
+2946:            return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+2976:              toolSources,
+2995:          return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+3227:        toolSources,
+3273:          toolSources,
+3289:        toolSources,
+3901:            toolSources,
+4070:          fileContents.set(args.path, cached);
+4076:            content: duplicateSearchSynthesisSummary(args, cached, toolSources, fileContents),
+4372:        fileContents.set(args.path, toolResult.output);
+4386:        toolSources.push(toolResult.source);
+4559:    return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "soft_limit" };
+4583:  return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "iteration_budget" };

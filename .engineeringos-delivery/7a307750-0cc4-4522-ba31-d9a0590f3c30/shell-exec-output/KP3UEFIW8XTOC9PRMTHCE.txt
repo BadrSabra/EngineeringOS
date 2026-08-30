@@ -1,0 +1,408 @@
+attemptCount":1,"promptTokens":20,"completionTokens":10,"durationMs":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'T', \"The authen\"... is not valid JSON","action":"json_correction_retry"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage COMPLETE and keeps a Finding when the target is fully read
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/knowledge-engine/src/query.ts"],"orderedForensicRoots":[],"includeTestSources":true,"fixtureAuditMode":true,"taskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":true,"structuredOutputMode":true,"promptStructuredOutputMode":true,"forensicTaskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS","validator":"FindingValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage COMPLETE and keeps a Finding when the target is fully read
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-e2e-complete-zWrbtf","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/knowledge-engine/src/query.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"FINDING_ANALYSIS","executionTaskType":"analysis","selectedBudget":{"maxIterations":120,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":320},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage COMPLETE and keeps a Finding when the target is fully read
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"chat","taskType":"chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"chat","wantPowerful":false,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"chat","requireTools":false,"requireThinking":false,"requireReasoning":false,"minimumContext":0}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"chat","selectedBudget":{"maxIterations":64,"maxToolCalls":180},"appliedBudget":{"maxIterations":64,"maxToolCalls":180},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when the target is unread
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["src/query.ts"],"orderedForensicRoots":[],"includeTestSources":true,"fixtureAuditMode":true,"taskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":true,"structuredOutputMode":true,"promptStructuredOutputMode":true,"forensicTaskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS","validator":"FindingValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'D', \"Done.\" is not valid JSON","action":"json_correction_retry"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when the target is unread
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-e2e-partial-KngE4D","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["src/query.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"FINDING_ANALYSIS","executionTaskType":"analysis","selectedBudget":{"maxIterations":120,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":320},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when the target is unread
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when the target is unread
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_GATE","violations":["Evidence Map cites files without completed read evidence: src/query.ts"]}
+{"scope":"chat-agent","code":"FIRST_EVIDENCE_UNAVAILABLE","reason":"primary evidence target does not exist on disk","violationCount":1}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"chat","taskType":"chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"chat","wantPowerful":false,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"chat","requireTools":false,"requireThinking":false,"requireReasoning":false,"minimumContext":0}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"chat","selectedBudget":{"maxIterations":64,"maxToolCalls":180},"appliedBudget":{"maxIterations":64,"maxToolCalls":180},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":1,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":10,"completionTokens":5,"durationMs":4}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":20,"completionTokens":10,"durationMs":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'T', \"The authen\"... is not valid JSON","action":"json_correction_retry"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":["src/util"],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":true,"structuredOutputMode":true,"promptStructuredOutputMode":true,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-e2e-truncated-DcPt1f","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"ORDERED_FORENSIC_TOOL_SCOPE","allowedTools":["read_file","list_directory"],"blockedTools":["read_file_range","search_code","replace_text","write_file","git_status","git_diff","git_log"],"orderedRoots":["src/util"]}
+{"scope":"chat-agent","code":"ORDERED_FORENSIC_EFFECTIVE_MANIFEST","allowedRoots":["src/util"],"allowedTools":["read_file","list_directory"],"prefetch":false,"memoryPrefetch":false,"queryPlanner":false,"orderEnforced":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"plan-prefetch","code":"PLAN_PREFETCH_COMPLETE","files":["src/util/query.ts"],"bytesLoaded":512155}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"forensic-discovery","code":"FORENSIC_ROOT_DISCOVERY_COMPLETE","roots":["src/util"],"completedRootCount":1,"discoveredFiles":["src/util/query.ts"],"readFiles":["src/util/query.ts"],"rootCoverage":[{"root":"src/util","discoveredFiles":1,"readFiles":1,"unreadFiles":0,"status":"COMPLETE"}],"budgetExhausted":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":120,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"forensic-output-guard","code":"FORENSIC_EVIDENCE_GATE","violations":[{"findingId":"F-01","reasons":["the cited file/evidence was not verified by a completed read result"]}]}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":2}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":2}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > retains the ordered five-file manifest across forensic_status and evidence_integrity
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/flight-deck/src/mission.ts","lib/flight-deck/src/plan.ts","lib/flight-deck/src/explore.ts","lib/flight-deck/src/validate.ts","lib/flight-deck/src/repair.ts"],"orderedForensicRoots":[],"includeTestSources":true,"fixtureAuditMode":true,"taskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":true,"structuredOutputMode":true,"promptStructuredOutputMode":true,"forensicTaskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS","validator":"FindingValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > retains the ordered five-file manifest across forensic_status and evidence_integrity
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-e2e-five-file-aqo6rD","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/flight-deck/src/mission.ts","lib/flight-deck/src/plan.ts","lib/flight-deck/src/explore.ts","lib/flight-deck/src/validate.ts","lib/flight-deck/src/repair.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"FINDING_ANALYSIS","executionTaskType":"analysis","selectedBudget":{"maxIterations":120,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":320},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > retains the ordered five-file manifest across forensic_status and evidence_integrity
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > retains the ordered five-file manifest across forensic_status and evidence_integrity
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":2}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":2}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > fails closed when one of five manifest files is unavailable
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/flight-deck/src/mission.ts","lib/flight-deck/src/plan.ts","lib/flight-deck/src/explore.ts","lib/flight-deck/src/validate.ts","lib/flight-deck/src/repair.ts"],"orderedForensicRoots":[],"includeTestSources":true,"fixtureAuditMode":true,"taskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":true,"structuredOutputMode":true,"promptStructuredOutputMode":true,"forensicTaskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS","validator":"FindingValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > fails closed when one of five manifest files is unavailable
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-e2e-five-file-7xVZek","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/flight-deck/src/mission.ts","lib/flight-deck/src/plan.ts","lib/flight-deck/src/explore.ts","lib/flight-deck/src/validate.ts","lib/flight-deck/src/repair.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"FINDING_ANALYSIS","executionTaskType":"analysis","selectedBudget":{"maxIterations":120,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":320},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > fails closed when one of five manifest files is unavailable
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > fails closed when one of five manifest files is unavailable
+{"scope":"forensic-output-guard","code":"FORENSIC_EVIDENCE_GATE","violations":[{"findingId":"F-01","reasons":["Scoped forensic target was not read: lib/flight-deck/src/repair.ts"]}]}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > fails closed when one of five manifest files is unavailable
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":2}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":2}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage COMPLETE and keeps a Finding when the target is fully read
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["lib/knowledge-engine/src/query.ts"],"orderedForensicRoots":[],"includeTestSources":true,"fixtureAuditMode":true,"taskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":true,"structuredOutputMode":true,"promptStructuredOutputMode":true,"forensicTaskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS","validator":"FindingValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage COMPLETE and keeps a Finding when the target is fully read
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-e2e-complete-7kGKFL","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["lib/knowledge-engine/src/query.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"FINDING_ANALYSIS","executionTaskType":"analysis","selectedBudget":{"maxIterations":120,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":320},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage COMPLETE and keeps a Finding when the target is fully read
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when the target is unread
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":true,"singleFilePaths":["src/query.ts"],"orderedForensicRoots":[],"includeTestSources":true,"fixtureAuditMode":true,"taskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":true,"structuredOutputMode":true,"promptStructuredOutputMode":true,"forensicTaskType":"FINDING_ANALYSIS","analysisMode":"FORENSIC","outputContract":"FINDING_ANALYSIS","validator":"FindingValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when the target is unread
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-e2e-partial-YQUjUR","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_TOOL_SCOPE","allowedTools":["read_file"],"blockedTools":["read_file_range","list_directory","search_code","replace_text","write_file","git_status","git_diff","git_log"]}
+{"scope":"chat-agent","code":"SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST","allowedFiles":["src/query.ts"],"allowedTools":["read_file"],"completeReads":true,"queryPlanner":false,"memoryPrefetch":false}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"FINDING_ANALYSIS","executionTaskType":"analysis","selectedBudget":{"maxIterations":120,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":320},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when the target is unread
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when the target is unread
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_GATE","violations":["Evidence Map cites files without completed read evidence: src/query.ts"]}
+{"scope":"chat-agent","code":"FIRST_EVIDENCE_UNAVAILABLE","reason":"primary evidence target does not exist on disk","violationCount":1}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":["src/util"],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":true,"structuredOutputMode":true,"promptStructuredOutputMode":true,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-e2e-truncated-mKixqz","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"ORDERED_FORENSIC_TOOL_SCOPE","allowedTools":["read_file","list_directory"],"blockedTools":["read_file_range","search_code","replace_text","write_file","git_status","git_diff","git_log"],"orderedRoots":["src/util"]}
+{"scope":"chat-agent","code":"ORDERED_FORENSIC_EFFECTIVE_MANIFEST","allowedRoots":["src/util"],"allowedTools":["read_file","list_directory"],"prefetch":false,"memoryPrefetch":false,"queryPlanner":false,"orderEnforced":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"plan-prefetch","code":"PLAN_PREFETCH_COMPLETE","files":["src/util/query.ts"],"bytesLoaded":512155}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"forensic-discovery","code":"FORENSIC_ROOT_DISCOVERY_COMPLETE","roots":["src/util"],"completedRootCount":1,"discoveredFiles":["src/util/query.ts"],"readFiles":["src/util/query.ts"],"rootCoverage":[{"root":"src/util","discoveredFiles":1,"readFiles":1,"unreadFiles":0,"status":"COMPLETE"}],"budgetExhausted":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":120,"maxToolCalls":640},"appliedBudget":{"maxIterations":120,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"forensic-output-guard","code":"FORENSIC_EVIDENCE_GATE","violations":[{"findingId":"F-01","reasons":["the cited file/evidence was not verified by a completed read result"]}]}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file coverage gates through the full chat pipeline > emits sourceCoverage PARTIAL and blocks a Finding when a genuinely large file is capped by the production read truncation path
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":2}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":2}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"tool_chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"tool_calling","wantPowerful":true,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"tool_chat","requireTools":true,"requireThinking":true,"requireReasoning":true,"minimumContext":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/home/runner/workspace","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"tool_chat","selectedBudget":{"maxIterations":96,"maxToolCalls":300},"appliedBudget":{"maxIterations":96,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":1,"attempt":0,"outcome":"success"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":10,"completionTokens":5,"durationMs":2}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":20,"completionTokens":10,"durationMs":1}
+
+stderr | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'T', \"The authen\"... is not valid JSON","action":"json_correction_retry"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stderr | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_REJECTED","violations":["no completed source read is available for the behavior claim"]}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"tool_chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"tool_calling","wantPowerful":true,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"tool_chat","requireTools":true,"requireThinking":true,"requireReasoning":true,"minimumContext":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/home/runner/workspace","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"tool_chat","selectedBudget":{"maxIterations":96,"maxToolCalls":300},"appliedBudget":{"maxIterations":96,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'D', \"Done.\" is not valid JSON","action":"json_correction_retry"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stderr | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_REJECTED","violations":["no completed source read is available for the behavior claim"]}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"tool_chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"tool_calling","wantPowerful":true,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"tool_chat","requireTools":true,"requireThinking":true,"requireReasoning":true,"minimumContext":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/home/runner/workspace","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"tool_chat","selectedBudget":{"maxIterations":96,"maxToolCalls":300},"appliedBudget":{"maxIterations":96,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":10,"completionTokens":5,"durationMs":1}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":20,"completionTokens":10,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'T', \"The authen\"... is not valid JSON","action":"json_correction_retry"}
+
+stdout | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stderr | lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_REJECTED","violations":["no completed source read is available for the behavior claim"]}
+
+·····x·····x·········x·····x··········
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file forensic isolation > enforces ordered forensic roots and blocks outside or backward reads
+AssertionError: expected [ 'directory: lib/knowledge-engine' ] to include 'lib/knowledge-engine/src/queries.ts'
+ ❯ lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:127:32
+    125|     if (result.kind !== "response") return;
+    126|     expect(result.toolSources).toContain("directory: lib/knowledge-eng…
+    127|     expect(result.toolSources).toContain("lib/knowledge-engine/src/que…
+       |                                ^
+    128|     expect(result.toolSources).toContain("lib/ai-orchestrator/src/tool…
+    129|     expect(messages.some((message) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file forensic isolation > reads the known-defect fixture completely while blocking expansion to other files and tools
+AssertionError: expected [] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+- [
+-   "src/__tests__/fixtures/known-defect.ts",
+- ]
++ []
+
+ ❯ lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:307:32
+    305|     expect(result.kind).toBe("response");
+    306|     if (result.kind !== "response") return;
+    307|     expect(result.toolSources).toEqual([knownDefectPath]);
+       |                                ^
+    308|     expect([...result.fileContents?.keys() ?? []]).toEqual([knownDefec…
+    309|     expect(result.fileContents?.get(knownDefectPath)).toContain("retur…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file forensic isolation > enforces ordered forensic roots and blocks outside or backward reads
+AssertionError: expected [ 'directory: lib/knowledge-engine' ] to include 'lib/knowledge-engine/src/queries.ts'
+ ❯ .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:127:32
+    125|     if (result.kind !== "response") return;
+    126|     expect(result.toolSources).toContain("directory: lib/knowledge-eng…
+    127|     expect(result.toolSources).toContain("lib/knowledge-engine/src/que…
+       |                                ^
+    128|     expect(result.toolSources).toContain("lib/ai-orchestrator/src/tool…
+    129|     expect(messages.some((message) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file forensic isolation > reads the known-defect fixture completely while blocking expansion to other files and tools
+AssertionError: expected [] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+- [
+-   "src/__tests__/fixtures/known-defect.ts",
+- ]
++ []
+
+ ❯ .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:307:32
+    305|     expect(result.kind).toBe("response");
+    306|     if (result.kind !== "response") return;
+    307|     expect(result.toolSources).toEqual([knownDefectPath]);
+       |                                ^
+    308|     expect([...result.fileContents?.keys() ?? []]).toEqual([knownDefec…
+    309|     expect(result.fileContents?.get(knownDefectPath)).toContain("retur…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  4 failed | 34 passed (38)
+   Start at  15:45:59
+   Duration  4.54s (transform 4.58s, setup 0ms, import 1.00s, tests 10.03s, environment 0ms)
+

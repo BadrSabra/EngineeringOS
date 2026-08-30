@@ -1,0 +1,300 @@
+docs/ai-agent-improvement-plan.md:89:    return { kind: 'partial', result: lastTextSeen, toolSources }
+docs/ai-agent-improvement-plan.md:107:#### `lib/ai-orchestrator/src/agents/chat-agent.ts` — معالجة `kind:'partial'`
+docs/ai-agent-improvement-plan.md:110:if (loopResult.kind === 'exhausted' || loopResult.kind === 'partial') {
+docs/ai-agent-improvement-plan.md:112:  const partialText = loopResult.kind === 'partial'
+docs/ai-agent-improvement-plan.md:115:  return { response: partialText, sources: toolSources, pendingChanges, _partial: true };
+docs/ai-agent-improvement-plan.md:321:├── tool-execution-engine.ts       ← تعديل: BUDGET_BY_SCOPE، soft-limit، kind:'partial'
+docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md:337:export type VerificationState = "verified" | "partial" | "drifted" | "unknown";
+docs/PR_BACKLOG.md:259:| Old PR 05 (partial) | DiscoverProjectWizard 7 fixes | 2026-07-19 |
+docs/PR_BACKLOG.md:260:| Old PR 06 (partial) | AiChat error classification | 2026-07-15 |
+docs/PR_BACKLOG.md:261:| Old PR 09 (partial) | codegen:check + typecheck + test scripts | 2026-07-15 |
+docs/replit-agent-parity-gaps.md:70:| Grounded ordinary chat | Chat and SSE routes build context, classify intent, persist history, and expose read/list/search tools. `chat-agent.ts` records actual tool sources, caches repeated calls, and bounds iterations/calls ([chat agent](../lib/ai-orchestrator/src/agents/chat-agent.ts#L4-L40)). | **Specialized stronger, provider/browser partial** | Provider-free JSON/SSE, redaction, and false-success contracts pass. A configured-provider chat journey and authenticated browser proof are still absent. |
+docs/replit-agent-parity-gaps.md:71:| Broad multi-file analysis | Hierarchical execution gives subtasks bounded loops, disjoint write scopes, preserved partial results, and a no-tools synthesis pass ([hierarchical executor](../lib/ai-orchestrator/src/agents/hierarchical-executor.ts#L4-L22)). | **Specialized stronger** | Broad analysis is deliberately bounded and evidence-checked. Recursive nesting and per-subquery SSE are explicitly out of scope ([same source](../lib/ai-orchestrator/src/agents/hierarchical-executor.ts#L19-L22)); long or highly interactive investigations may feel less fluid than a general Agent. |
+docs/replit-agent-parity-gaps.md:74:| Bounded code changes | `write_file` queues pending changes; approval and proposal endpoints are distinct, and the API rechecks project context before authorizing writes ([chat agent](../lib/ai-orchestrator/src/agents/chat-agent.ts#L38-L42); [chat routes](../artifacts/api-server/src/routes/ai/chat.ts#L4960-L5884)). | **Specialized stronger, operationally partial** | Users get a safe proposal rather than an immediate mutation. The complete plan → approval → validation → apply browser path was not run. |
+docs/replit-agent-parity-gaps.md:76:| Apply/promotion | Delivery workspace and live roots share the versioned canonical tree digest; Apply materializes only the submitted approved subset, gates unrelated-root/candidate drift, verifies promoted bytes, and carries proof through journal, audit, event, and proposal state ([delivery workspace](../artifacts/api-server/src/lib/delivery-workspace.ts#L28-L220); [baseline §5](actual-capability-baseline-v1.md#5-change-delivery-trace)). | **Specialized stronger, deterministically verified; operationally partial** | Provider-free Apply integrity transitions and rollback blocking are covered; no authenticated promotion journey demonstrates the complete path. |
+docs/replit-agent-parity-gaps.md:77:| Conflict recovery | Rebase and apply paths hash the base, rebase hunks, preserve conflict metadata, and expose recovery/discard/resume-validation routes ([chat routes](../artifacts/api-server/src/routes/ai/chat.ts#L5274-L5470)). | **Specialized stronger, E2E partial** | A changed workspace can block promotion safely and offer a retry path. No complete user journey has demonstrated successful rebase and retry. |
+docs/replit-agent-parity-gaps.md:80:| Cancellation, resume, and restart recovery | Durable execution rows, leases, checkpoints, hashed resume tokens, cancellation terminalization, ownership fences, and recovery endpoints exist ([execution state](../artifacts/api-server/src/lib/ai-execution-state.ts#L8-L205); [chat routes](../artifacts/api-server/src/routes/ai/chat.ts#L4632-L4700)). | **Specialized stronger, browser partial** | Provider-free SSE and operational-safety checks pass. Reload-after-restart and live transport evidence remain open; incomplete results must continue to be shown as incomplete. |
+docs/replit-agent-parity-gaps.md:81:| Validation/evidence UX | Flight Deck renders operation, checkpoint, evidence, and validation state; Mission Control renders recovery actions and completeness; chat exposes validation attempts and proof details ([Flight Deck](../artifacts/dashboard/src/pages/FlightDeck.tsx#L1-L180); [Mission Control](../artifacts/dashboard/src/pages/MissionControl.tsx#L1-L225); [AiChat](../artifacts/dashboard/src/pages/AiChat.tsx#L2743-L2795)). | **Specialized stronger, browser partial** | The UI can explain blocked, incomplete, and unverified states rather than flattening them to success. No authenticated browser journey validated SSE rendering and refresh behavior. |
+docs/replit-agent-parity-gaps.md:82:| Git delivery | Status/log/commit/push/export endpoints are separate and protected by project access/write middleware; scoped AI commit/push require matching operation, canonical tree, change-set, Git identity, and post-commit proof while generic commits retain their existing behavior ([Git routes](../artifacts/api-server/src/routes/git.ts#L180-L786)). | **Specialized stronger, deterministically verified; operationally partial** | Isolated provider-free Apply → commit → push proof now includes matching base/candidate/promoted/committed tree digests and separate commit identity. Clerk-authenticated live delivery against a disposable remote is still blocked, so this is an operational proof gap, not a missing Git capability. |
+docs/replit-agent-parity-gaps.md:217:- **Affected surfaces:** hierarchical executor and chat SSE/UI.
+docs/actual-capability-baseline-v1.md:93:| Broad/hierarchical analysis | `hierarchical-executor.ts` schedules bounded waves, isolates write scopes, preserves partial sub-results, performs tool-free synthesis, and validates compound coverage | **Verified by code** | Explicit out-of-scope items remain: recursive nesting and per-subquery SSE |
+docs/actual-capability-baseline-v1.md:103:| Isolated delivery workspace | `delivery-workspace.ts` defines the versioned canonical tree digest shared by candidate/live roots, with common exclusions, normalized paths, file-kind records, byte encoding, and symlink targets; chat Apply records base/candidate/promoted proof | **Verified by automated test; operationally partial** | Deterministic workspace and Apply integrity checks pass; no full authenticated promotion journey |
+docs/actual-capability-baseline-v1.md:104:| Validation and repair | `ai-repair-validation.ts` provides server-owned profiles, isolated validation/runtime/preview runners and scope checks; public validation receipts are redacted at route boundary | **Verified by automated test; live journey partial** | Bounded validation and repair-loop checks pass; no live delivery workspace campaign |
+docs/actual-capability-baseline-v1.md:106:| Promotion/apply | Apply route checks owner/proposal state, root containment, duplicate paths, base hashes, candidate stability, complete-tree live drift, validation receipts, and full promoted-tree equality before atomically promoting files | **Verified by automated test; operationally partial** | Deterministic full/partial scope and integrity gates are code-backed; no authenticated E2E promotion journey |
+docs/actual-capability-baseline-v1.md:107:| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; scoped AI commit/push require matching operation, canonical tree, change-set, Git identity, and post-commit proof while generic commits retain their existing behavior | **Verified by automated test; operationally partial** | Isolated route proof passed Apply → commit → push with matching base/candidate/promoted/committed tree digests and separate commit identity; Clerk-authenticated live delivery and push against a real GitHub remote remain unrun |
+docs/actual-capability-baseline-v1.md:160:The entire sequence is **partial operationally** because the authenticated
+docs/architecture.md:33:may produce `NO_VERIFIED_FINDING`; zero or partial reads, stale or
+docs/architecture.md:255:| Apply/chat race lock (`_applyingProjects`) | (forensic G-04) | Chat context reads during an active file-write window see partial disk state |
+docs/architecture.md:451:- `incomplete` covers cancellation, restart/partial evidence, and other
+docs/runtime-coverage-matrix.md:32:evidence, and a terminal `PROVEN` verdict. Missing or partial proof therefore
+lib/ai-orchestrator/src/tool-execution-engine.ts:1229:       * returned here so the caller can surface a useful (if partial) answer
+lib/ai-orchestrator/src/tool-execution-engine.ts:1232:      kind: "partial";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1932:  // saves the last non-empty text response for the kind:"partial" return path.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2403:    // converting a silent "exhausted" into a useful partial answer.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2427:        const partialResult: RawGroqResponse = lastTextSeen ?? {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2447:          kind: "partial",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2448:          result: partialResult,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2616:          // partial report rather than a generic error message.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2631:                reason: "both primary and fallback timed out; returning partial from collected evidence",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2655:              kind: "partial",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2688:        // surface a partial report rather than a generic error message.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2703:                reason: "provider timed out; returning partial from collected evidence",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2727:              kind: "partial",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2747:        // synthesis, return a partial empty result instead of exhausted so the
+lib/ai-orchestrator/src/tool-execution-engine.ts:2766:            return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+lib/ai-orchestrator/src/tool-execution-engine.ts:2789:              kind: "partial",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2842:    // ── Track last text seen (for kind:"partial" fallback) ──────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:2856:    // the partial text.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3040:    // return a recoverable empty partial so the forensic caller can run its
+lib/ai-orchestrator/src/tool-execution-engine.ts:3062:        kind: "partial",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4314:  // synthesis hint fired), surface it as a kind:"partial" result so the caller
+lib/ai-orchestrator/src/tool-execution-engine.ts:4330:    return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "soft_limit" };
+docs/completion-plan.md:49:  late failure (e.g. graph extraction throwing) rolls back everything instead of leaving partial
+docs/completion-plan.md:62:  "running" with no execution row (or vice versa) after a partial failure or race.
+docs/completion-plan.md:66:Remaining lower-priority items for this phase, deferred: broader partial-success reporting (e.g.
+docs/completion-plan.md:69:requested by the source plan; can be revisited if partial results become a product requirement.
+docs/completion-plan.md:425:  - No partial writes after a concurrent 409 (session stays `"imported"`, exactly one project row).
+docs/objective-claim-completion-gate-plan.md:31:4. **Terminal and answer semantics** distinguish blocked, partial, insufficient-evidence, mismatch, and recovery-scope failures (AI-OBJ-010/012).
+docs/governance/discovery-scanner-origin-of-truth.md:77:| **Failure** | Soft-truncate at `MAX_FILES=5000` or `MAX_DEPTH=12`: returns partial result with `truncated: true` rather than failing |
+docs/ai-orchestrator-forensic-analysis.md:30:| Evidence acceptance | Cited files must be retained, complete, source-matching, and bound to the active scope/revision; partial coverage blocks a proven Finding. | `lib/ai-orchestrator/src/forensic-output-guard.ts`, `lib/ai-orchestrator/src/forensic-evidence-packets.ts` |
+docs/ai-orchestrator-forensic-analysis.md:31:| Incomplete analysis | Empty completed scope can render `NO_VERIFIED_FINDING`; zero/partial reads, cancellation, provider exhaustion, or failed recovery render `ANALYSIS_INCOMPLETE`. | `lib/ai-orchestrator/src/forensic-recovery.ts`, `lib/ai-orchestrator/src/task-execution-partial-report.ts` |
+docs/truth-flow-pr-checklist.md:19:- الحالات الصالحة للـ status: `complete` | `partial` | `missing` (من `TruthFlowNodeStatusSchema`).
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:78:6. A successful apply can be committed only through the guarded Git route; push is another explicit action. Promotion now records intent and uses atomic per-file replacement with restart classification, but it is not a whole-tree atomic swap, and a restarted task is not automatically re-executed because provider credentials and partial changes require a deliberate recovery decision.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:80:Thus autonomous inspection/planning and bounded repair are real partial capabilities. Autonomous end-to-end delivery is stopped at approval and, if approval is given, has a verified workspace/validation integrity break.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:84:Each row is a finding. Status values are limited to **implemented**, **partial**, **missing**, **unsafe**, and **cannot verify**.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:90:| Scanner and graph repository intelligence / partial capability | `file-walker.ts` → `walkProject`; `graph-extractor.ts` → `extractGraph`; `scan-runner.ts` → `performScan` | Bounded scan, metrics, graph, stale pruning, and provenance are implemented. Complete semantic understanding, incremental freshness, and legacy-row provenance are not established. | medium | Add revisioned incremental indexing and completeness signals consumed by planning; preserve legacy unknowns. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:91:| Context snapshot / state inconsistency | `context-loader.ts` → project context transaction; `buildProjectContext` callers | Reads are project-scoped and bounded, but context contains multiple derived sources and cache invalidation is call-site dependent. A plan can be built from a stale/mixed snapshot. | medium | Persist context revision/manifest with each operation and reject plans against stale revisions. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:92:| Task contract and objective binding / partial capability | `tasks.ts` schema; `task-execution-service.ts` → request construction; `chat.ts` → objective/plan gates | Tasks carry prompt, files, dependencies, retry and verification fields. The contract does not prove semantic acceptance criteria or complete test coverage for the requested defect. | high | Require machine-checkable objective, target paths, expected behavior, and acceptance checks before execution. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:93:| Planning and dependency-aware execution / partial capability | `chat-agent.ts` → execution plan; `execution-node-coordinator.ts` → `executeExecutionNodePlan` | Server-owned scopes/dependencies/profile and bounded waves exist. Planning still stops for approval and cannot prove every cross-file semantic edge. | high | Make plan a durable operation artifact with revision, claims, evidence, and executable repair transitions. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:96:| Validation and browser proof / partial capability | `ai-repair-validation.ts` → `runRepairValidation`; `browser-preview-verification.ts` → preview contract | Fixed profiles and bounded browser evidence are implemented; unavailable/failed cannot become passed. | high | Validate the exact immutable operation workspace and bind evidence to its content hash. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:98:| Apply crash consistency / state inconsistency | `delivery-workspace.ts` → `atomicallyPromoteFile`/`recoverPromotion`; `job-reconciliation.ts` → `reconcileInterruptedDeliveries`; apply journal | Task #45 added durable promotion intent, atomic per-file replacement, and restart classification. A kill can still interrupt a multi-file protocol, so whole-tree atomicity is not established; recovery must remain conservative. | critical | Keep recovery idempotent and prove every interruption is promoted, rolled back, or blocked; do not reopen the completed hardening or claim whole-tree atomicity. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:99:| Provider fallback and model output / partial capability | `ai-route-helpers.ts`; `chat-agent.ts`; route parse gates | Fallback and structured parse errors are bounded and surfaced. Live provider behavior, latency, and model quality are not source-verifiable. | medium | Add durable attempt receipts and explicit provider/model capability contracts. | cannot verify |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:100:| Cancellation / boundary failure | `ai-execution-state.ts` → `requestAiExecutionCancel`; `task-execution-service.ts` → owned controller and locked finalization | Task execution now propagates an owned abort signal through fallback/provider execution and refuses success after cancellation wins. Coverage of every downstream operation and restart continuation is not yet one unified loop. | high | Extend the existing signal and terminal-write fences through operation nodes, tools, validation, promotion, and recovery; do not create a second cancellation protocol. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:101:| Retry, lease, and checkpoint recovery / state inconsistency | `ai-execution-state.ts` → claim/checkpoint/recover; `job-reconciliation.ts` → restart handling | Durable leases and monotonic checkpoints exist. Resume-token rotation is last-writer-wins; chat checkpoint persistence can be best-effort; task crash recovery returns to verifying rather than autonomous continuation. | high | CAS token recovery, make checkpoint failure terminal/visible, and define one recovery state machine. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:102:| Audit, events, and retention / partial capability | `audit.ts` → outbox; `startup-migrations.ts` → retention; route journals/events | Durable audit retries and bounded redacted retention exist. Retention intentionally removes old operational traces, so an old audit is not a complete transcript. | medium | Bind receipts/evidence to operation/revision and export explicit completeness/retention status. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:103:| Memory and history / partial capability | `chat.ts` → memory enrichment/write; persisted messages/executions | Conversation and selected memories exist; durable operational history is bounded and split across messages, executions, task logs, events, and audit. | medium | Introduce an operation-centric evidence index over existing records; do not duplicate raw transcripts. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:105:| Git commit/push delivery / partial capability | `routes/git.ts` → AI commit/push guards; `git-tools.ts` read-only tools | Guarded user/API delivery exists and checks content/evidence/HEAD. The model cannot independently commit/push, and production success is not source-verifiable. | high | Treat commit/push as terminal operation nodes with durable receipts, explicit policy, and resumable recovery. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:263:* Apply partial patch, stale base, duplicate path, validation unavailable/failed, promotion kill, restart reconciliation, and cleanup failure.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:301:Anything else is classified as **partial**, **safely blocked**, **failed**,
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:310:| Inspect | Bounded file walker, graph provenance, project-root re-establishment, read-tool traces | **Partial / bounded** | Operation, revision, scope, complete retained reads; missing or partial reads remain incomplete |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:421:| Severity | implemented | partial | missing | unsafe | cannot verify | total |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:434:* **State inconsistency: 2** — multi-file promotion recovery and split execution/recovery semantics. These overlap the matrix’s partial/unsafe severity but are counted by classification, not added to the severity total.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:436:The report therefore identifies **19 primary capability findings**, including **3 critical**, **8 high**, **8 medium**, and **0 low**. Compared with the original snapshot, two findings moved from unsafe to partial because Task #45 promotion recovery and owned task cancellation are now present in source; this does not claim those areas are complete. The report does not claim parity, production reliability, or successful external delivery without retained execution evidence.
+lib/ai-orchestrator/src/execution-node-coordinator.ts:324:    // A cancelled child may reject or return a partial result after the
+docs/code-agent-benchmark-campaign.md:92:`partial: true`, `diagnosticOnly: true`, `baselineEligibility: "not-eligible"`,
+docs/code-agent-benchmark-campaign.md:148:- `recoveryOnly`: whether the run was a partial recovery pass
+docs/code-agent-benchmark-campaign.md:149:- `diagnosticOnly`, `targeted`, `partial`, and optional `targetProfile` for
+docs/code-agent-benchmark-campaign.md:150:  targeted/partial feedback runs
+docs/code-agent-benchmark-campaign.md:151:- `baselineEligibility`: targeted/partial artifacts are explicitly
+docs/ai-orchestrator-executive-table.md:12:| `lib/ai-orchestrator/src/context-builder.ts` | Context Aggregator + Cache — يبني صورة كاملة للمشروع من 8 جداول DB ويعيدها كنص منظم لكل agent. | (1) Cache مشترك على مستوى `projectId` فقط — مستخدمان على نفس المشروع يحصلان على نفس السياق بغض النظر عن صلاحياتهم. (2) TTL 5 دقائق — سياق يخدم بيانات قديمة بعد أي تغيير لا يستدعي `invalidateContextCache` صراحةً. (3) الـ cap: 60 entity + 40 relationship — في مشاريع كبيرة تُقطع حافات الجراف بشكل صامت. (4) عند فشل أي من 8 queries الـ parallel، `Promise.all` يرمي ويُعيد 500 بدون partial context. تحقق: هل يكفي الـ cap للمشاريع الكبيرة؟ هل يجب عزل Cache بحسب userId؟ |
+lib/ai-orchestrator/src/openai-compatible-client.ts:1261:        // answer. The caller must terminalize the partial stream instead.
+lib/ai-orchestrator/src/filesystem-manifest.ts:262:    `TRUNCATED: ${manifest.truncated ? "yes — this is a partial inventory" : "no"}`,
+docs/ai-orchestrator-gap-analysis.md:26:| G-04 | Apply ↔ Chat race | `routes/ai.ts` + `AiChat.tsx` | `applyChanges` / `sendMessage` | Apply writes files; chat builds context at start of next request | **No server-side lock during apply**. User can submit a new message while apply is still writing files. `buildProjectContext` will read DB state (old) while disk state is partially new — AI may see an inconsistent mix of old context and new file content if `read_file` tools are called | **High** |
+docs/ai-orchestrator-gap-analysis.md:103:No atomicity across multiple `write_file` calls within one tool session: if the user approves "apply all" and the second file fails, the first is already on disk. This is the scenario fixed in PR-04 (partial apply state), but the root cause — no transactional write — remains.
+lib/ai-orchestrator/src/task-contracts.ts:644: * Without stripping, a constant like `const RETURN_CODE = "return partial"`
+lib/ai-orchestrator/src/task-contracts.ts:737: * `DEFAULT_MAX_ITERATIONS = 30` cannot prove that a "partial" branch behaves
+lib/ai-orchestrator/src/task-contracts.ts:911:    "result", "code", "function", "statement", "when", "the", "branch", "partial",
+lib/ai-orchestrator/src/task-contracts.ts:1033:      //    testing for flow keywords, so `const RETURN_CODE = "return partial"`
+lib/ai-orchestrator/src/evidence-integrity.ts:187:  /** The behavior asserted in words (e.g. "partial returned when lastTextSeen exists"). */
+lib/ai-orchestrator/src/evidence-integrity.ts:2327:  // blocked regardless of partial progress.
+lib/ai-orchestrator/src/evidence-integrity.ts:2341:  // R2 with a partial claim proof → ANSWER_PARTIAL.
+lib/ai-orchestrator/src/tools/file-tools.ts:42: * Node's native error text can contain absolute project/runtime paths and is
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:56:  partial: boolean;
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:267:          "targeted or partial benchmark run is diagnostic only; run a full clean witness before baseline approval",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:273:        ...new Set([...scorecard.rolloutBlockers, "benchmark shard is partial; combine all shards before rollout"]),
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:287:       partial: diagnosticOnly,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:401:        "benchmark shard is partial; combine all shards before rollout",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:412:          "targeted or partial benchmark run is diagnostic only; run a full clean witness before baseline approval",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:429:    partial: diagnosticOnly,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:296:      "benchmark shard is partial; combine all shards before rollout",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:313:    expect(run.partial).toBe(true);
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:319:      "targeted or partial benchmark run is diagnostic only; run a full clean witness before baseline approval",
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.test.ts:89:  it("emits a partial envelope instead of treating one shard as a baseline", () => {
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.test.ts:103:  it("accepts a single-case rerun as a bounded partial shard", () => {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:10: * combines all partial results into one coherent answer.  No single loop
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:11: * ever runs out of budget, and partial results are preserved even if one
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:155:      loopResult.kind === "response" || loopResult.kind === "partial"
+lib/ai-orchestrator/src/forensic-recovery.ts:92:      // not leave partial data in the shared output arrays.  Only commit
+lib/ai-orchestrator/src/forensic-recovery.ts:700:    const partialScopeFinding =
+lib/ai-orchestrator/src/forensic-recovery.ts:703:    if (partialScopeFinding) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:124:} from "../task-execution-partial-report.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:1104: * seams, the hierarchical executor, and the deterministic degradation returns
+lib/ai-orchestrator/src/agents/chat-agent.ts:1105: * (deterministic-partial, stopped-loop, repair-partial, exhausted) — routes its
+lib/ai-orchestrator/src/agents/chat-agent.ts:1919:  // partial. Preserve that packet-local Finding through the final pass; the
+lib/ai-orchestrator/src/agents/chat-agent.ts:2320:    (loopResult.kind === "partial" &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:2326:    (loopResult.kind === "partial" || loopResult.kind === "exhausted") &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:3030:  // Score each entity: name matches worth 3×, partial matches worth 1×
+lib/ai-orchestrator/src/agents/chat-agent.ts:3435:   * client to discard any partial content before the full response arrives.
+lib/ai-orchestrator/src/agents/chat-agent.ts:3893:  // finalization seam — hierarchical executor, degradation returns, streaming
+lib/ai-orchestrator/src/agents/chat-agent.ts:4109:      // If source reads already completed, do not hide the truthful partial
+lib/ai-orchestrator/src/agents/chat-agent.ts:4147:  // execution non-streaming because its partial report is assembled locally.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4594:              "The requested forensic scope was only partially read: " +
+lib/ai-orchestrator/src/agents/chat-agent.ts:4939:  // hierarchical executor either.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4987:      // AI-OBJ-005/007: the hierarchical executor's final-synthesis response is
+lib/ai-orchestrator/src/agents/chat-agent.ts:5438:            (childLoop.kind === "partial"
+lib/ai-orchestrator/src/agents/chat-agent.ts:5615:        loopResult.kind === "response" || loopResult.kind === "partial"
+lib/ai-orchestrator/src/agents/chat-agent.ts:5681:  // changes are enough to produce an honest partial report.
+lib/ai-orchestrator/src/agents/chat-agent.ts:5689:      : loopResult.kind === "partial" && loopResult.reason === "provider_timeout"
+lib/ai-orchestrator/src/agents/chat-agent.ts:5691:        : loopResult.kind === "partial" && loopResult.reason === "soft_limit"
+lib/ai-orchestrator/src/agents/chat-agent.ts:5701:      // deterministic partial report.
+lib/ai-orchestrator/src/agents/chat-agent.ts:5703:        loopResult.kind === "response" || loopResult.kind === "partial"
+lib/ai-orchestrator/src/agents/chat-agent.ts:5709:    const partialReport = buildTaskExecutionPartialReport({
+lib/ai-orchestrator/src/agents/chat-agent.ts:5728:    // so a BLOCKED objective replaces the partial report and only the gated text
+lib/ai-orchestrator/src/agents/chat-agent.ts:5730:    const partialReportFinalized = finalizeObjectiveAndStream({
+lib/ai-orchestrator/src/agents/chat-agent.ts:5734:      response: partialReport,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5739:    const gatedPartialReport = partialReportFinalized.gatedResponse;
+lib/ai-orchestrator/src/agents/chat-agent.ts:5740:    // AI-008: build typed result for deterministic partial-report path.
+lib/ai-orchestrator/src/agents/chat-agent.ts:5741:    const partialReportTaskResult = buildTaskResult({
+lib/ai-orchestrator/src/agents/chat-agent.ts:5754:        loopResult.kind === "response" || loopResult.kind === "partial"
+lib/ai-orchestrator/src/agents/chat-agent.ts:5759:      ...(partialReportTaskResult ? { taskResult: partialReportTaskResult } : {}),
+lib/ai-orchestrator/src/agents/chat-agent.ts:5781:    // loop's partial text read as a completed answer.
+lib/ai-orchestrator/src/agents/chat-agent.ts:5817:  if (repairPlanExecution && loopResult.kind === "partial") {
+lib/ai-orchestrator/src/agents/chat-agent.ts:5829:    // unanswered objective is surfaced as BLOCKED, not as a partial "done".
+lib/ai-orchestrator/src/agents/chat-agent.ts:5839:    // AI-008: build typed result for repair partial degradation path.
+lib/ai-orchestrator/src/agents/chat-agent.ts:5857:  // kind:"partial" falls through to the normal result-processing path below —
+lib/ai-orchestrator/src/agents/chat-agent.ts:5953:  // ── Final response from model (kind:"response" or kind:"partial") ─────────
+lib/ai-orchestrator/src/agents/chat-agent.ts:6365:      // GAP-A2: If we already sent partial deltas to the caller, signal a
+lib/ai-orchestrator/src/agents/chat-agent.ts:7082:          // A partial audit may retain a Finding proven inside a complete
+lib/ai-orchestrator/src/agents/chat-agent.ts:7089:              "The requested forensic scope is partial; a global NO_FINDING verdict is not authorized.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7095:           // requested root is partial, but the merged report must not carry
+lib/ai-orchestrator/src/agents/chat-agent.ts:7145:              ? { plans: [], violations: ["partial forensic scope blocks repair execution"] }
+lib/ai-orchestrator/src/agents/chat-agent.ts:7476:          // if the crash occurs after a partial acceptance (e.g. push succeeded
+lib/ai-orchestrator/src/agents/chat-agent.ts:7516:                  ? { plans: [], violations: ["partial forensic scope blocks repair execution"] }
+lib/ai-orchestrator/src/agents/chat-agent.ts:7888:            // Roll back any partial acceptance that occurred before the
+lib/ai-orchestrator/src/agents/chat-agent.ts:7891:            // partially-processed envelope in the accepted set could cause
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:830:  it("retries a length-truncated final response before returning partial text", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1329:  it("returns a recoverable partial result when forensic synthesis is empty", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1355:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1356:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1390:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1391:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1422:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1423:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2323:      kind: "partial",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2524:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2525:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2534:  it("marks a text-bearing soft-limit stop as partial instead of success", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2559:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2560:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2593:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2594:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2826:      // Same model for both so the TIMEOUT reaches the partial branch directly
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2852:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4031:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4032:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4114:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4116:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4123:// ── TIMEOUT → kind:"partial"/"provider_timeout" degradation ──────────────────
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4136:  it("returns kind:partial/provider_timeout when primary model times out after a tool call (totalToolCalls > 0)", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4173:    // Engine must degrade to partial, not throw.
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4174:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4175:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4185:  it("returns kind:partial/provider_timeout when both primary and fallback time out after a tool call", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4220:    expect(result.kind).toBe("partial");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4221:    if (result.kind === "partial") {
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:6: * source file whose exact fragment `return "partial"` appears in TWO branches.
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:81:    // `return "partial"` appears on line 4 (flag) and line 7 (else). A blind
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:88:      '    return "partial";\n' +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:91:      '    return "partial";\n' +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:112:              'Evidence: `return "partial"`\n' +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:113:              "The function returns the partial result in the fallback.",
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:158:        const partialEvidence = answerEvidence.find(
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:159:          (item) => item.excerpt === 'return "partial"',
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:161:        expect(partialEvidence).toBeDefined();
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:162:        // The raw file has `return "partial"` on line 4 (flag) and line 7
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:168:        expect(partialEvidence?.sourceSpan).toEqual({ startLine: 7, endLine: 7 });
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:171:        expect(partialEvidence?.sourceSpan).not.toEqual({ startLine: 4, endLine: 4 });
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:172:        expect(partialEvidence?.supportsClaim).toBe(true);
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:173:        expect(partialEvidence?.evidenceClass).toBe("BEHAVIOR_PROVEN");
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:190:      '    return partialFromCollectedEvidence("provider timeout");\n' +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:207:              'الدليل: `return partialFromCollectedEvidence("provider timeout");`\n' +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:295:          excerpt: 'return partialFromCollectedEvidence("provider timeout");',
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:311:      '  if (!flag) return "partial";\n' +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:324:            'الدليل: `if (!flag) return "partial"`\n' +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:375:          excerpt: 'if (!flag) return "partial"',
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:391:      '  if (!flag) return "partial";\n' +
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:31: * EI-019: Known Behavioral Test — "what's the difference between partial and
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:32: * exhausted?" PASS requires Claim A→partial branch and Claim B→exhausted branch
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:36:describe("EI-019 known behavioral test (partial vs exhausted)", () => {
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:39:      "if (lastTextSeen !== undefined) return { kind: 'partial', text: lastTextSeen };";
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:46:    const partialRec = createEvidenceRecord({
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:49:      content: "if (lastTextSeen !== undefined) return { kind: 'partial', text: lastTextSeen };",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:69:      text: "partial returned when lastTextSeen exists",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:72:      evidenceIds: [partialRec.evidenceId, constantRec.evidenceId],
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:74:    const binding = bindClaimToEvidence(claimA, [partialRec, exhaustedRec, constantRec]);
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:76:    expect(binding?.evidenceIds).toContain(partialRec.evidenceId);
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:78:    const validation = validateClaim(claimA, [partialRec, exhaustedRec, constantRec], { runId: RUN });
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:79:    // constantRec is CONTEXT_ONLY; but partialRec is DIRECT, so claim is PROVEN.
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:349:      text: "partial returned when lastTextSeen exists",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:364:      content: "if (lastTextSeen !== undefined) return { kind: 'partial', text: lastTextSeen };",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:369:      text: "partial branch exists",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:376:    expect(lines[0]).toContain('"partial branch exists"');
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:398:      "src/target.ts:17:  return { kind: 'partial' };",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:421:    const symbol = "partialBranch";
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:422:    const contentWithSymbol = "function partialBranch() { return { kind: 'partial' }; }";
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:460:        content: "if (x) return { kind: 'partial' };",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:464:        symbol: "partial",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:481:    expect(targeted[0]!.symbol).toBe("partial");
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:248:      '    return "partial";',
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:258:      "Evidence: `  if (iterations >= MAX_ITERATIONS) {\n    return \"partial\";\n  }`\n" +
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:259:      "When the limit is reached, the loop returns the partial result.";
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:146:  it("fails closed for unknown pseudo-tools, partial markers, nested-invalid, and mixed-invalid output", () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1688:  it("keeps a complete packet Finding visible while blocking repair under partial global coverage", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1689:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-partial-scope-finding-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1698:    // than the raised budget make root-b partial while root-a remains complete.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1756:          content: "not valid JSON for the partial packet",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1818:      const partialDetails = diagnostics.find(
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1821:      expect(partialDetails).toContain("PARTIAL");
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1822:      expect(partialDetails).toContain("BLOCKED");
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2811:  it("returns a deterministic partial report for malformed task JSON without correction retry", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3032:// ── TIMEOUT degradation: partial report instead of generic error ──────────────
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3033:// These tests verify chat-agent.ts handles kind:"partial"/reason:"provider_timeout"
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3051:  it("returns a partial report for task messages when the loop returns provider_timeout", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3053:    // timing out during synthesis. The engine returns kind:"partial" with
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3054:    // reason:"provider_timeout". Chat-agent must build a deterministic partial
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3069:          kind: "partial",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3112:    // Must return a partial report, not throw.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3125:  it("surfaces partial text when the loop times out after producing prior text", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3126:    // Simulate the engine returning kind:"partial" / reason:"provider_timeout"
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3141:          kind: "partial",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3144:            content: "Here is some partial analysis of the codebase.",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3178:    expect(result.response).toContain("partial analysis");
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts:85:      finalResponse: "```ts\nreturn partial;\n```",
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts:91:      expect(result.extractedCode).toBe("```ts\nreturn partial;\n```");
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts:529:    // root is not incorrectly marked partial.
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:30:        ["src/execution-tools.ts", "if (timedOut) return partial;"],
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:453:      "Phase 1 (F-01): Fix tool-execution-engine budget exhaustion logic to validate content before returning partial/exhausted responses — lib/ai-orchestrator/src/tool-execution-engine.ts Phase 2 (F-02): Fix groq-client circuit breaker logic to properly handle transient vs final-call failures — lib/ai-orchestrator/src/groq-client.ts";
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:397:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-partial-"));
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts:60:      const symbolLine = `function ${symbol}() { return { kind: "partial" }; }`;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:37:    response: "```ts\nreturn partial;\n```",
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:274:        content: "Extracted code: return partial;",
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:280:        content: "Extracted code: return partial;",
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:364:                  "partial;",
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:378:                    content: JSON.stringify({ response: "Extracted code: return partial;", sources: [] }),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:363:              content: "partial",
+lib/ai-orchestrator/src/__tests__/ai-obj-objective-completion-gate.test.ts:99:    // The edge is proven but the required claim is not => partial.
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:235:      // returning the partial timeout result; it must never reread or loop.
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts:184:  it("T2 partial chain → PARTIALLY_PROVEN", () => {
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts:258:    const snippet = "if (lastTextSeen !== undefined) return { kind: 'partial', text: lastTextSeen };";
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts:360:  it("T2 partial: one claim proven, one unproven → ANSWER_PARTIAL", () => {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:90:        kind: "partial",
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:284:  it("preserves partial results even when one sub-loop is exhausted", async () => {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:297:    const strategy = makeStrategy("synthesis despite partial failure");
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:319:    expect(result.response).toBe("synthesis despite partial failure");
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts:2:import { buildTaskExecutionPartialReport } from "../task-execution-partial-report.js";
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts:4:describe("task execution deterministic partial report", () => {
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:69:    const evidence = [{ source: "src/loop.ts", excerpt: "return partial", supportsClaim: true }];
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:71:    expect(CodeExtractionSchema.safeParse({ extractedCode: "return partial;" }).success).toBe(true);
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:73:      finding: "The loop drops partial output",
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:78:      repairPlan: "Preserve the partial result",
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:176:      validateTaskResponse("CODE_EXTRACTION", "```ts\nreturn partial;\n```").valid,
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:190:      validateTaskResponse("BEHAVIOR_QUERY", "It returns the partial result.").valid,
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:238:      ["src/loop.ts", 'export function run() {\n  return "partial";\n}\n'],
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:242:      'Source: `src/loop.ts`\nEvidence: `return "partial"`\nThe function returns the partial result.',
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:250:        excerpt: 'return "partial"',
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:261:      "Source: `src/loop.ts`\nThe function returns the partial result.",
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:289:        '    return "partial";',
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:297:      "Source: `src/loop.ts`\nEvidence: `if (flag) {\n    return \"partial\";\n  }`\nThe flagged branch returns the partial result.",
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:310:    // what the code does when that limit is reached (partial branch ≠ exhausted branch).
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:315:      "  return 'partial';\n" +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:340:    // `const RETURN_CODE = "return partial"` would pass a naïve FLOW_MARKERS

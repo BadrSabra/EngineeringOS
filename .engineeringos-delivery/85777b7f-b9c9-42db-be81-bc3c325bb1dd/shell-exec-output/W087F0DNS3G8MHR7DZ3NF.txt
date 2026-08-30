@@ -1,0 +1,287 @@
+--- validation execution call sites ---
+artifacts/api-server/src/config.ts:32:  VALIDATION_PROCESS_TIMEOUT_MS: z.string().optional(),
+artifacts/api-server/src/config.ts:33:  VALIDATION_OVERALL_TIMEOUT_MS: z.string().optional(),
+artifacts/api-server/src/config.ts:39:export const VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS = 90_000;
+artifacts/api-server/src/config.ts:40:export const VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS = 110_000;
+artifacts/api-server/src/config.ts:41:export const VALIDATION_PROCESS_TIMEOUT_MIN_MS = 5_000;
+artifacts/api-server/src/config.ts:42:export const VALIDATION_PROCESS_TIMEOUT_MAX_MS = 600_000;
+artifacts/api-server/src/config.ts:43:export const VALIDATION_OVERALL_TIMEOUT_MIN_MS = 10_000;
+artifacts/api-server/src/config.ts:44:export const VALIDATION_OVERALL_TIMEOUT_MAX_MS = 900_000;
+artifacts/api-server/src/config.ts:129:  const validationProcessTimeoutMs = parseValidationBudget(parsed.data.VALIDATION_PROCESS_TIMEOUT_MS, {
+artifacts/api-server/src/config.ts:130:    name: "VALIDATION_PROCESS_TIMEOUT_MS",
+artifacts/api-server/src/config.ts:131:    defaultMs: VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS,
+artifacts/api-server/src/config.ts:132:    minMs: VALIDATION_PROCESS_TIMEOUT_MIN_MS,
+artifacts/api-server/src/config.ts:133:    maxMs: VALIDATION_PROCESS_TIMEOUT_MAX_MS,
+artifacts/api-server/src/config.ts:136:    parsed.data.VALIDATION_OVERALL_TIMEOUT_MS ?? parsed.data.VALIDATION_ATTEMPT_TIMEOUT_MS,
+artifacts/api-server/src/config.ts:138:      name: "VALIDATION_OVERALL_TIMEOUT_MS",
+artifacts/api-server/src/config.ts:139:      defaultMs: VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS,
+artifacts/api-server/src/config.ts:140:      minMs: VALIDATION_OVERALL_TIMEOUT_MIN_MS,
+artifacts/api-server/src/config.ts:141:      maxMs: VALIDATION_OVERALL_TIMEOUT_MAX_MS,
+artifacts/api-server/src/config.ts:146:      "VALIDATION_OVERALL_TIMEOUT_MS must be greater than or equal to VALIDATION_PROCESS_TIMEOUT_MS",
+artifacts/api-server/src/config.test.ts:5:  VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS,
+artifacts/api-server/src/config.test.ts:6:  VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS,
+artifacts/api-server/src/config.test.ts:54:      name: "VALIDATION_PROCESS_TIMEOUT_MS",
+artifacts/api-server/src/config.test.ts:55:      defaultMs: VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS,
+artifacts/api-server/src/config.test.ts:58:    })).toBe(VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS);
+artifacts/api-server/src/config.test.ts:60:      name: "VALIDATION_OVERALL_TIMEOUT_MS",
+artifacts/api-server/src/config.test.ts:61:      defaultMs: VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS,
+artifacts/api-server/src/config.test.ts:64:    })).toBe(VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS);
+artifacts/api-server/src/config.test.ts:69:      name: "VALIDATION_PROCESS_TIMEOUT_MS",
+artifacts/api-server/src/config.test.ts:73:    })).toThrow(/VALIDATION_PROCESS_TIMEOUT_MS/);
+artifacts/api-server/src/config.test.ts:78:      name: "VALIDATION_OVERALL_TIMEOUT_MS",
+lib/ai-orchestrator/src/tool-execution-engine.ts:292:    : name === "run_command" || name === "run_validation" || ANALYSIS_TOOL_NAMES.has(name)
+lib/ai-orchestrator/src/tool-execution-engine.ts:743:        : name === "run_validation"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1114:  /** Server-owned callback used by run_validation. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:3117:      const isValidationCall = tc.function.name === "run_validation";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3118:      const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3120:        ? (validationAttempts.get(validationProfile ?? "") ?? 0) + 1
+lib/ai-orchestrator/src/tool-execution-engine.ts:3123:        validationAttempts.set(validationProfile ?? "", validationAttempt!);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3161:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3166:            `Validation attempt limit reached for "${validationProfile || "the selected profile"}". ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3174:              validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3181:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3199:        && failedValidationFingerprints.get(validationProfile ?? "") === validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts:3208:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3218:            result: syntheticValidationResult(validationProfile ?? "", detail),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3223:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3909:            detail: validationProfile
+lib/ai-orchestrator/src/tool-execution-engine.ts:3910:              ? `Running registered validation profile "${validationProfile}".`
+lib/ai-orchestrator/src/tool-execution-engine.ts:3917:        const previousPatch = validationAttemptPatches.get(validationProfile ?? "");
+lib/ai-orchestrator/src/tool-execution-engine.ts:3930:        validationAttemptPatches.set(validationProfile ?? "", currentPatch);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4028:            profile: validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4081:            failedValidationFingerprints.set(validationProfile ?? "", validationFingerprint);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4090:          failedValidationFingerprints.delete(validationProfile ?? "");
+artifacts/api-server/src/routes/git.test.ts:46:    validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/task-session-state.ts:91:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/task-session-state.ts:213:    validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/task-session-state.ts:244:      validationProfile: phase.validationProfile,
+artifacts/api-server/src/routes/ai.test.ts:52:    validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:58:    validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:447:    validationProfile?: "ai-orchestrator-tests" | "knowledge-engine-tests" | "api-ai-tests" | "workspace-typecheck";
+artifacts/api-server/src/routes/ai.test.ts:481:      ...(change.validationProfile ? { validationProfile: change.validationProfile } : {}),
+artifacts/api-server/src/routes/ai.test.ts:497:  validationProfile: "api-ai-tests";
+artifacts/api-server/src/routes/ai.test.ts:505:    validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:833:          validationProfile: "api-ai-tests",
+artifacts/api-server/src/routes/ai.test.ts:849:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:882:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:917:      validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:1210:      validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:1329:        validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:1946:            validationProfile: "ai-orchestrator-tests",
+artifacts/api-server/src/routes/ai.test.ts:1966:      validationProfile: "ai-orchestrator-tests",
+artifacts/api-server/src/routes/ai.test.ts:2751:            validationProfile: "api-ai-tests",
+artifacts/api-server/src/routes/ai.test.ts:3018:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3068:      validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3130:      validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3222:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3275:        validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3283:        validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3333:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3383:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3440:        validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3450:        validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3514:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3600:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3656:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3703:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3747:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3797:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai.test.ts:3844:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai.test.ts:3942:      validationProfile: "api-ai-tests" as const,
+lib/ai-orchestrator/src/recipe-compiler.ts:97:  validationProfile?: ValidationProfile;
+lib/ai-orchestrator/src/recipe-compiler.ts:344:  const profile = context.validationProfile ?? "workspace-typecheck";
+lib/ai-orchestrator/src/recipe-compiler.ts:359:    validationProfile: profile,
+lib/ai-orchestrator/src/recipe-compiler.ts:588:  if (!ValidationProfileSchema.safeParse(context.validationProfile ?? "workspace-typecheck").success) {
+lib/ai-orchestrator/src/recipe-compiler.ts:589:    diagnostics.push(diagnostic("INVALID_VALIDATION_PROFILE", "context.validationProfile", "The server validation profile is not registered."));
+lib/ai-orchestrator/src/capability-contract.ts:508:      output = await capability.execute(validation.input, context);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:868:      validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:980:      validationProfile: "ai-orchestrator-tests",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1310:      validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1412:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1604:          validationProfile: "api-ai-tests",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1731:            validationProfile: "pnpm run reveal-secret" as never,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1902:      validationProfile: "workspace-typecheck" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3215:      validationProfile: "ai-orchestrator-tests" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3366:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/provider-tool-calls.ts:416:  "run_validation(",
+artifacts/api-server/src/routes/ai/chat.ts:909:  validationProfile?: ValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:1210:    validationProfile?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1237:    if ((change.validationProfile ?? null) !== (storedChange.validationProfile ?? null)) {
+artifacts/api-server/src/routes/ai/chat.ts:1238:      return `validationProfile mismatch for "${change.path}"`;
+artifacts/api-server/src/routes/ai/chat.ts:1314:    const validationProfile = change.validationProfile ?? phase.validationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:1321:      { ...change, validationProfile },
+artifacts/api-server/src/routes/ai/chat.ts:1333:            id: validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:1334:            label: `Validation profile: ${validationProfile}`,
+artifacts/api-server/src/routes/ai/chat.ts:1348:    const validationProfile = change.validationProfile ?? "workspace-typecheck";
+artifacts/api-server/src/routes/ai/chat.ts:1350:      { ...change, validationProfile },
+artifacts/api-server/src/routes/ai/chat.ts:1355:          id: validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:1356:          label: `Validation profile: ${validationProfile}`,
+artifacts/api-server/src/routes/ai/chat.ts:1411:    if (!change.validationProfile) return false;
+artifacts/api-server/src/routes/ai/chat.ts:1415:      phase.validationProfile === change.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:1568:  validationProfile?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1648:          validationProfile: step.result.profile,
+artifacts/api-server/src/routes/ai/chat.ts:3148:        validationProfile: node.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:3176:                  validationProfile: node.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:4438:          validationProfile: node.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:5749:  let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
+artifacts/api-server/src/routes/ai/chat.ts:5792:    if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
+artifacts/api-server/src/routes/ai/chat.ts:5793:    const group = groups.get(change.validationProfile) ?? [];
+artifacts/api-server/src/routes/ai/chat.ts:5795:    groups.set(change.validationProfile, group);
+artifacts/api-server/src/routes/ai/chat.ts:5892:    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]).optional(),
+artifacts/api-server/src/routes/ai/chat.ts:6308:    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]),
+artifacts/api-server/src/routes/ai/chat.ts:6445:    if (!changes.every((change) => change.validationProfile)) {
+artifacts/api-server/src/routes/ai/chat.ts:6546:      validationProfile?: ValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:6666:        if (change.validationProfile) {
+artifacts/api-server/src/routes/ai/chat.ts:6667:          const profileError = validateRepairValidationScope(change.validationProfile, [change.path]);
+artifacts/api-server/src/routes/ai/chat.ts:6674:                change.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:6676:                getRepairValidationProfile(change.validationProfile).scenario,
+artifacts/api-server/src/routes/ai/chat.ts:6689:          validationProfile: change.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts:6742:      if (!change.validationProfile) continue;
+artifacts/api-server/src/routes/ai/chat.ts:6743:      const pathsForProfile = profiles.get(change.validationProfile) ?? [];
+artifacts/api-server/src/routes/ai/chat.ts:6745:      profiles.set(change.validationProfile, pathsForProfile);
+artifacts/api-server/src/routes/ai/chat.ts:6924:      const verification = change?.validationProfile
+artifacts/api-server/src/routes/ai/chat.ts:6925:        ? verificationByProfile.get(change.validationProfile) ?? {
+artifacts/api-server/src/routes/ai/chat.ts:6927:              change.validationProfile,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:172:          + "Add a deterministic result before invoking run_validation, or explicitly enable real validation.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:235:      validationProfile: "workspace-typecheck",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:326:      harness.toolResponse("validate-1", "run_validation", { profile: "workspace-typecheck" }),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:375:    expect(harness.calls.some((call) => call.toolNames.includes("run_validation"))).toBe(true);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:404:      validationProfile: "workspace-typecheck",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:464:      harness.toolResponse("validate-1", "run_validation", { profile: "workspace-typecheck" }),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:471:      harness.toolResponse("validate-2", "run_validation", { profile: "workspace-typecheck" }),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:575:      harness.toolResponse("validate-1", "run_validation", { profile: "workspace-typecheck" }),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:576:      harness.toolResponse("validate-2", "run_validation", { profile: "workspace-typecheck" }),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:663:      harness.toolResponse("validate-1", "run_validation", { profile: "workspace-typecheck" }),
+lib/ai-orchestrator/src/tools/file-tools.ts:658:        validationProfile: args.validation_profile as PendingChange["validationProfile"],
+lib/ai-orchestrator/src/tools/file-tools.ts:725:        validationProfile: args.validation_profile as PendingChange["validationProfile"],
+lib/ai-orchestrator/src/tools/execution-tools.ts:157:      name: "run_validation",
+lib/ai-orchestrator/src/tools/execution-tools.ts:325:  if (name !== "run_validation") {
+lib/ai-orchestrator/src/tool-policy.ts:172:    if ((opts.toolName === "run_validation" || opts.toolName === "run_command" || opts.toolName === "run_browser_validation") &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:949:        /^(?:run|execute|perform|check|verify|validate|test)\s+(?:the\s+)?(?:focused|relevant|appropriate|requested)?\s*(?:test|tests|validation|scenario|suite)\.?$/i.test(
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1343:        validationProfile: "api-ai-tests",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1437:            validationProfile: "api-ai-tests",
+lib/ai-orchestrator/src/schemas/chat.schema.ts:91:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts:170:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/quality/execution-phases.ts:59:  validation: ["run_validation"],
+lib/ai-orchestrator/src/quality/execution-phases.ts:60:  repair_recovery: ["read_file", "read_file_range", "replace_text", "write_file", "run_validation"],
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:53:**Verified Repair Loop — active only when the run_validation tool is available:**
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:54: - After proposing a focused patch, call run_validation with the registered profile for the approved files.
+lib/ai-orchestrator/src/prompts/profile-classifier.ts:154:    /\b(?:implement|add|extend|modify|change|create|write|edit|patch|run|execute|test|tests|validation)\b|أضف|وسّع|عدّل|غيّر|أنشئ|اكتب|شغّل|نفّذ|اختبر|اختبارات|تحقق|تغييرات|ملفات\s+ذات\s+الصلة/i.test(
+lib/ai-orchestrator/src/forensic-recovery.ts:48:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/forensic-recovery.ts:279:function validationProfileForFiles(
+lib/ai-orchestrator/src/forensic-recovery.ts:323:    /^(?:run|execute|perform|check|verify|validate|test)\s+(?:the\s+)?(?:focused|relevant|appropriate|requested)?\s*(?:test|tests|validation|scenario|suite)\.?$/i.test(
+lib/ai-orchestrator/src/forensic-recovery.ts:340:  return [...new Set(plans.map((plan) => plan.validationProfile))]
+lib/ai-orchestrator/src/forensic-recovery.ts:414:    const profile = validationProfileForFiles(phaseFiles);
+lib/ai-orchestrator/src/forensic-recovery.ts:419:    if (phase.validationProfile && profile && phase.validationProfile !== profile) {
+lib/ai-orchestrator/src/forensic-recovery.ts:428:      validationProfile: profile,
+lib/ai-orchestrator/src/forensic-recovery.ts:546:        const profile = validationProfileForFiles(files);
+artifacts/api-server/src/lib/ai-execution-state.ts:55:  validationProfile: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:245:  | "validationProfile"
+artifacts/api-server/src/lib/ai-execution-state.ts:388:            typeof candidate.validationProfile !== "string" ||
+artifacts/api-server/src/lib/ai-execution-state.ts:426:            validationProfile: candidate.validationProfile as AiExecutionNodeCheckpoint["validationProfile"],
+artifacts/api-server/src/lib/ai-execution-state.ts:510:      || !Array.isArray(item.evidenceRefs) || typeof item.validationProfile !== "string"
+artifacts/api-server/src/lib/ai-execution-state.ts:523:      validationProfile: item.validationProfile.slice(0, 120),
+artifacts/api-server/src/lib/ai-execution-state.ts:632:      || planNode.validationProfile !== checkpointNode.validationProfile
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:34:  validationProfileForCase?: (testCase: CodeAgentBenchmarkCase) => string | undefined;
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:150:  const validationProfile = validation?.result.profile ?? "";
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:151:  const typecheckPassed = validationProfile.toLowerCase().includes("typecheck")
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:154:  const testsPassed = validationProfile.toLowerCase().includes("test")
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:306:      const validationProfile = opts.validationProfileForCase?.(testCase);
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:309:        validationProfile &&
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:314:            "run_validation",
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:315:            { profile: validationProfile },
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:11:  validationProfile?: ValidationProfile;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:231:  const validationProfile = scenario.profile;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:236:    validationProfile,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:246:      validationProfile
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:247:        ? `Registered validation profile: ${validationProfile}.`
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:435:function validationProfileForCase(testCase: CodeAgentBenchmarkCase): ValidationProfile | undefined {
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:456:  const validationProfile = validationProfileForCase(testCase);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:457:  const validationInstruction = validationProfile
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:458:    ? `Registered validation profile: ${validationProfile}.`
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:464:    validationProfile,
+artifacts/api-server/src/lib/startup-migrations.ts:207:        ["validationProfile", "profile"],
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:85:        expect(fixture.validationProfile, testCase.id).toBeDefined();
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:127:    expect(fixture.validationProfile).toBe("workspace-typecheck");
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:157:    expect(fixture.validationProfile).toBe("workspace-typecheck");
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:185:    expect(fixture.validationProfile).toBe("ai-orchestrator-tests");
+artifacts/api-server/src/lib/startup-migrations.test.ts:136:      validationProfile: "api-ai-tests",
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:103:    validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:236:        validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:379:      validationProfile: fixture.validationProfile ?? "workspace-typecheck",
+artifacts/api-server/src/lib/workflow-phase-execution.ts:99:    validationProfile: "api-ai-tests" as const,
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:106:const WRITE_TOOL_NAMES = new Set(["write_file", "replace_text", "run_validation"]);
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:109:      "run_validation",
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:120:      tool: "run_validation",
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:128:      "run_validation",
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:141:    const output = await executeValidationTool("run_validation", { profile: " " }, [], vi.fn());
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:152:      name: "run_validation",
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:174:      name: "run_validation",
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:186:      tool: "run_validation",
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts:26:    expect(isToolAllowedInPhase("validation", "run_validation")).toBe(true);
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:20:    validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2934:  it("does not execute a recovered Repair Plan that contains validation-only phases", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts:65:    validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:381:      validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:397:                name: "run_validation",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:425:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:526:                  name: "run_validation",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:557:          validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:677:                  name: "run_validation",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:709:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:848:                  name: "run_validation",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:880:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:1095:                validationProfile: "knowledge-engine-tests",
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:181:      { type: "function", function: { name: "run_validation", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:29:    validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:226:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:241:      validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:263:            validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:359:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:420:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/untrusted-content.test.ts:36:      toolName: "run_validation",
+lib/ai-orchestrator/src/__tests__/untrusted-content.test.ts:38:      allowedTools: new Set(["run_validation"]),
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:38:    expect(toolNames).not.toContain("run_validation");
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:51:    expect(toolNames).toContain("run_validation");
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:70:    expect(toolNames).not.toContain("run_validation");
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:128:        validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:177:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:183:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:189:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:251:        validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:449:      validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:526:      makeResponse("", [makeToolCall("validation-1", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:528:      makeResponse("", [makeToolCall("validation-2", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:530:      makeResponse("", [makeToolCall("validation-3", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:532:      makeResponse("", [makeToolCall("validation-4", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:556:      tools: [{ type: "function", function: { name: "run_validation", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:620:      makeResponse("", [makeToolCall("validation-1", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:646:        { type: "function", function: { name: "run_validation", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:704:      makeResponse("", [makeToolCall("validation-1", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:710:      makeResponse("", [makeToolCall("validation-2", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:739:        { type: "function", function: { name: "run_validation", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2013:      makeResponse("", [makeToolCall("validate-1", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2014:      makeResponse("", [makeToolCall("validate-2", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2036:        function: { name: "run_validation", description: "", parameters: {} },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2078:      makeResponse("", [makeToolCall("validate-1", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2084:      makeResponse("", [makeToolCall("validate-2", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2090:      makeResponse("", [makeToolCall("validate-3", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2096:      makeResponse("", [makeToolCall("validate-4", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2102:      makeResponse("", [makeToolCall("validate-5", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2103:      makeResponse("", [makeToolCall("validate-6", "run_validation", { profile: "workspace-typecheck" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2142:        { type: "function", function: { name: "run_validation", description: "", parameters: {} } },
+lib/ai-orchestrator/src/agents/chat-agent.ts:2924:            ...(allowValidationTools ? ["run_validation"] : []),
+lib/ai-orchestrator/src/agents/chat-agent.ts:3446:   * Server-authorized Build handoff gate for the registered run_validation tool.
+lib/ai-orchestrator/src/agents/chat-agent.ts:3784:    if (running && (!args.profile || running.validationProfile === args.profile) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:3790:      (!args.profile || node.validationProfile === args.profile) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:3827:      (step.tool === "write_file" || step.tool === "replace_text" || step.tool === "run_validation")) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:5143:              `Validation profile: ${node.validationProfile}\n` +
+lib/ai-orchestrator/src/agents/chat-agent.ts:5164:              `then run validation profile "${node.validationProfile}". Do not claim completion without a passed result.`,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5249:              "run_validation",
+lib/ai-orchestrator/src/agents/chat-agent.ts:5250:              { profile: node.validationProfile },
+lib/ai-orchestrator/src/agents/chat-agent.ts:5273:              profile: node.validationProfile,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5334:            step.result.profile === node.validationProfile,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5365:            step.result.profile === node.validationProfile &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:6967:          'Or, when a defect is directly proven: {"verdict":"FINDING_PROVEN","findings":[{"id":"F-01","title":"...","files":["path/to/read-file.ts"],"evidence":"`exact source fragment`","whyItMatters":"...","rootCause":"...","fix":"..."}],"repairPlan":[{"findingId":"F-01","files":["path/to/read-file.ts"],"steps":["Replace the unsafe behavior in the cited file."],"validationProfile":"ai-orchestrator-tests"}],"validationChecklist":["Run the focused regression test that proves the cited behavior is corrected."]}',
+lib/ai-orchestrator/src/agents/chat-agent.ts:6968:        "Use an empty findings array when no Finding is directly proven. Use an empty repairPlan only when no Finding is accepted. Every proven Finding must have exactly one linked phase with concrete project-relative files, an actionable source change, and a registered validationProfile.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6970:        "Never invent Finding IDs, citations, failures, test results, scores, or repair phases. A repair phase is valid only when its findingId exists in findings, names a registered validationProfile, and the checklist describes the behavior-specific regression it must verify.",
