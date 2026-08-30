@@ -7,4 +7,4 @@ Generated `.engineeringos-delivery/...` validation workflows can remain register
 
 **Why:** During imported-project startup, the application failures were initially masked by missing dependencies and then by resource exhaustion from stale validation copies. Stopping only the stale generated workflows restored reliable startup while preserving the real artifact services.
 
-**How to apply:** Before retrying a failed setup or restart, inspect workflow state and stop only running `.engineeringos-delivery/...` copies. Leave `artifacts/...` services running; do not replace their managed workflows.
+**How to apply:** Before retrying a failed setup or restart, inspect workflow state and stop/remove only `.engineeringos-delivery/...` copies. Leave `artifacts/...` services running; do not replace their managed workflows. The workflow registry may remain stale after removal, so verify real listeners and process counts before retrying.
