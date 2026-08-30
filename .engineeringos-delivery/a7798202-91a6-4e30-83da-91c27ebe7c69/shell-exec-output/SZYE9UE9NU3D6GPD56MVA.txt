@@ -1,0 +1,258 @@
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+          maxLength: 240
+        file:
+          type: string
+          minLength: 1
+        line:
+          type: integer
+          minimum: 1
+
+    AiApplyChangesResult:
+      type: object
+      required: [results, correlationId, applyStatus]
+      properties:
+        correlationId:
+          type: string
+          description: Logical operation identifier shared with the proposal's plan and later Git operations
+        applyStatus:
+          type: string
+          enum: [APPLIED, PARTIAL, BLOCKED, ROLLBACK_FAILED]
+        rollbackFailures:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              path: { type: string }
+              error: { type: string }
+        validationEvidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicValidationResult"
+        results:
+          type: array
+          items:
+            type: object
+            required: [path, ok]
+            properties:
+              path:
+                type: string
+              ok:
+                type: boolean
+              code:
+                type: string
+              error:
+                type: string
+              conflict:
+                type: object
+                additionalProperties: false
+                properties:
+                  kind:
+                    type: string
+                    enum: [base_hash_mismatch, hunk_mismatch]
+                  expectedHash:
+                    type: string
+                  actualHash:
+                    type: string
+                  hunkIndex:
+                    type: integer
+              writeStatus:
+                type: string
+                enum: [written, not_written]
+                description: "`not_written` also covers a guarded rollback when mandatory behavioral verification does not pass."
+              persistenceVerified:
+                type: boolean
+                description: True only when the new bytes remain persisted after the behavioral gate passes.
+              behavioralVerification:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [passed, failed, skipped, unavailable, blocked]
+                  profile:
+                    type: string
+                  scenario:
+                    type: string
+                  detail:
+                    type: string
+                description: Registered behavioral verification runs after the guarded write. Any status other than `passed` rolls the change back and leaves its approval proposal pending.
+
+    PublicValidationResult:
+      type: object
+      additionalProperties: false
+    executions: number;
+    checkpoints: number;
+    events: number;
+    audit: number;
+    taskLogs: number;
+    journal: number;
+    receipts: number;
+  };
+  receipts: OperationReceipt[];
+  gaps: EvidenceGap[];
+  readiness?: OperationalReadinessDecision;
+};
+
+export type EvidenceInput = {
+  execution: Pick<AiExecution, "id" | "projectId" | "operationId" | "correlationId" | "status" | "attempt" | "checkpoint" | "checkpointVersion" | "request" | "baseRevision" | "error" | "createdAt" | "startedAt" | "completedAt">;
+  events?: Array<{
+    id: string; type: string; severity: string; message: string; timestamp: Date; payload: Record<string, unknown> | null;
+  }>;
+  audits?: Array<{ id: string; action: string; entityType: string; timestamp: Date; reason: string | null }>;
+  taskLogs?: Array<{ id: string; level: string; message: string; timestamp: Date; metadata: Record<string, unknown> | null }>;
+  journal?: Array<{ id: string; stage: string; sequence: number; attemptId: string; createdAt: Date; payload: Record<string, unknown> }>;
+  proposal?: {
+    revision: number;
+    baseRevision: string | null;
+    baseTreeHash?: string | null;
+    candidateTreeHash?: string | null;
+    promotedTreeHash?: string | null;
+    committedTreeHash?: string | null;
+    commitHash?: string | null;
+    changeSetHash: string | null;
+    committedHash: string | null;
+  } | null;
+};
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function text(value: unknown, limit = 500): string | undefined {
+  return typeof value === "string" && value.trim() ? redactUserFacingText(value).slice(0, limit) : undefined;
+}
+
+function status(value: unknown): OperationReceipt["status"] {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized.includes("cancel")) return "cancelled";
+  if (normalized.includes("block")) return "blocked";
+  if (["passed", "success", "succeeded", "completed", "applied", "committed", "pushed"].includes(normalized)) return "passed";
+  if (["failed", "error", "rejected", "conflicted"].includes(normalized)) return "failed";
+  if (["started", "running", "queued", "pending"].includes(normalized)) return "started";
+  return "unknown";
+}
+
+function receiptKind(value: string): OperationReceipt["kind"] {
+  const normalized = value.toLowerCase();
+  if (/provider|model|fallback|llm/.test(normalized)) return "provider";
+  if (/validat|test|check/.test(normalized)) return "validation";
+  if (/promot|apply|rollback|recovery|delivery/.test(normalized)) return "promotion";
+  if (/commit/.test(normalized)) return "commit";
+  if (/push/.test(normalized)) return "push";
+  return "process";
+}
+
+function addGap(gaps: EvidenceGap[], gap: EvidenceGap): void {
+  if (gaps.some((item) => item.kind === gap.kind && item.source === gap.source && item.detail === gap.detail)) return;
+  if (gaps.length < OPERATION_EVIDENCE_LIMITS.gaps) gaps.push(gap);
+}
+
+export function buildOperationEvidenceProjection(input: EvidenceInput): OperationEvidenceProjection {
+  const execution = input.execution;
+  const checkpoint = record(parseJson(execution.checkpoint));
+  const request = record(parseJson(execution.request));
+  const request = record(parseJson(execution.request));
+  const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
+  const uniqueById = <T extends { id: string }>(items: T[], limit: number): T[] => {
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    }).slice(0, limit);
+  };
+  const events = uniqueById(input.events ?? [], OPERATION_EVIDENCE_LIMITS.events);
+  const audits = uniqueById(input.audits ?? [], OPERATION_EVIDENCE_LIMITS.audit);
+  const taskLogs = uniqueById(input.taskLogs ?? [], OPERATION_EVIDENCE_LIMITS.taskLogs);
+  const journal = uniqueById(input.journal ?? [], OPERATION_EVIDENCE_LIMITS.journal);
+  const gaps: EvidenceGap[] = [];
+  const receipts: OperationReceipt[] = [];
+  const pushReceipt = (kind: OperationReceipt["kind"], value: unknown, timestamp: Date | string, attempt = 0, diagnostic?: unknown) => {
+    receipts.push({
+      kind,
+      status: status(value),
+      attempt: Math.max(0, Math.min(100, Number.isInteger(attempt) ? attempt : 0)),
+      timestamp: new Date(timestamp).toISOString(),
+      ...(text(value) ? { detail: text(value) } : {}),
+      ...(text(diagnostic, 300) ? { diagnostic: text(diagnostic, 300) } : {}),
+    });
+  };
+
+  pushReceipt("process", "started", execution.startedAt ?? execution.createdAt, execution.attempt);
+  for (const event of events) {
+    const payload = record(event.payload);
+    const kind = receiptKind(event.type);
+    pushReceipt(
+      kind,
+      payload.status ?? event.type,
+      event.timestamp,
+      Number(payload.attempt ?? execution.attempt),
+      kind === "provider" ? "Provider diagnostic retained in server logs." : event.message,
+    );
+  }
+  for (const entry of journal) {
+    pushReceipt(receiptKind(entry.stage), entry.stage, entry.createdAt, Number(record(entry.payload).attempt ?? 0), record(entry.payload).reason);
+  }
+  if (execution.completedAt) pushReceipt("process", execution.status, execution.completedAt, execution.attempt, execution.error);
+
+  const revision = text(request.workspaceRevision, 200) ?? text(input.proposal?.baseRevision, 200) ?? text(execution.baseRevision, 200) ?? null;
+  if (!revision) addGap(gaps, { kind: "unrecorded", source: "revision", detail: "The operation revision was not retained." });
+  if (execution.checkpointVersion <= 0 || Object.keys(checkpoint).length === 0) {
+    addGap(gaps, { kind: "missing", source: "checkpoint", detail: "No durable checkpoint was retained." });
+  }
+  if (events.length === 0) addGap(gaps, { kind: "missing", source: "event", detail: "No correlated operational events were retained." });
+  if (execution.status === "completed" && receipts.every((receipt) => receipt.kind !== "validation")) {
+    addGap(gaps, { kind: "missing", source: "event", detail: "A completed execution has no retained validation receipt." });
+  }
+  if (execution.status === "completed" && !input.proposal && record(request.objective).type === "delivery") {
+    addGap(gaps, { kind: "missing", source: "proposal", detail: "The delivery proposal is no longer available." });
+  }
+  if (input.proposal?.baseRevision && revision && input.proposal.baseRevision !== revision) {
+    addGap(gaps, { kind: "mismatch", source: "revision", detail: "Evidence revisions do not agree." });
+  }
+  if (execution.error) addGap(gaps, { kind: "unrecorded", source: "execution", detail: "The execution retained a failure diagnostic." });
+
+  const terminalState = execution.status.toUpperCase();
+  let completeness: EvidenceCompleteness;
+  if (execution.status === "cancelled" || execution.status === "cancelling") completeness = "cancelled";
+  else if (execution.status === "failed") completeness = "failed";
+  else if (execution.status === "completed" && gaps.length === 0) completeness = "complete";
+  else if (execution.status === "completed" && gaps.some((gap) => gap.kind === "mismatch" || gap.source === "revision")) completeness = "uncertain";
+  else if (execution.status === "completed") completeness = "retained-with-gaps";
+  else if (["blocked", "paused"].includes(execution.status)) completeness = "blocked";
+  else completeness = gaps.length > 0 ? "partial" : "uncertain";
+
+  const projection: OperationEvidenceProjection = {
+    version: 1,
+    redacted: true,
+    operationId,
+    projectId: execution.projectId,
+    revision,
+    terminalState,
+    completeness,
+    verified: false,
+    hashes: {
+      changeSet: text(input.proposal?.changeSetHash, 128) ?? null,
+      baseTree: text(input.proposal?.baseTreeHash, 128) ?? null,
+      candidateTree: text(input.proposal?.candidateTreeHash, 128) ?? null,
+      promotedTree: text(input.proposal?.promotedTreeHash, 128) ?? null,
+      commitTree: text(input.proposal?.committedTreeHash, 128) ?? null,
+      committed: text(input.proposal?.commitHash, 128) ?? text(input.proposal?.committedHash, 128) ?? null,
+    },
+    counts: {
+      executions: 1,
+      checkpoints: execution.checkpointVersion > 0 ? 1 : 0,
+      events: events.length,
+      audit: audits.length,
+      taskLogs: taskLogs.length,
+      journal: journal.length,
+      receipts: Math.min(receipts.length, OPERATION_EVIDENCE_LIMITS.receipts),
+    },
+    receipts: receipts.slice(0, OPERATION_EVIDENCE_LIMITS.receipts),
+    gaps,
+  };
+  const operation = checkpoint.operation as { nodes?: Array<{

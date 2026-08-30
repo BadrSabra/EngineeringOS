@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   createDeliveryWorkspace,
   discardDeliveryWorkspace,
   hashChangeSet,
+  hashDeliveryTree,
+  DELIVERY_TREE_DIGEST_VERSION,
   transitionDeliveryLifecycle,
   atomicallyPromoteFile,
   recoverPromotion,
@@ -28,8 +30,37 @@ describe("delivery workspaces", () => {
       expect(workspace.workspaceRoot).not.toBe(fixture);
       await expect(readFile(join(workspace.workspaceRoot, "app.ts"), "utf8"))
         .resolves.toBe("export const value = 2;\n");
+      await expect(readFile(join(workspace.workspaceRoot, "proposal-omitted.ts"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
       expect(hashChangeSet([{ path: "app.ts", newContent: "x" }]))
         .toBe(hashChangeSet([{ path: "app.ts", newContent: "x" }]));
+      await expect(discardDeliveryWorkspace(workspace.workspaceRoot, operationId)).resolves.toBe(true);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("uses one deterministic tree contract for source and candidate roots", async () => {
+    const fixture = `/tmp/delivery-tree-${randomUUID()}`;
+    const operationId = randomUUID();
+    await mkdir(join(fixture, "empty"), { recursive: true });
+    await writeFile(join(fixture, "bytes.bin"), Buffer.from([0, 1, 255]));
+    await writeFile(join(fixture, "target.txt"), "target\n");
+    await symlink("target.txt", join(fixture, "link.txt"));
+    await writeFile(join(fixture, ".gitignore"), "ignored\n");
+    try {
+      const baseHash = await hashDeliveryTree(fixture);
+      const workspace = await createDeliveryWorkspace({
+        rootPath: fixture,
+        operationId,
+        baseRevision: "base-1",
+        changes: [],
+      });
+      expect(workspace.baseTreeHash).toBe(baseHash);
+      expect(workspace.candidateTreeHash).toBe(baseHash);
+      expect(DELIVERY_TREE_DIGEST_VERSION).toBe("delivery-tree-v1");
+      await writeFile(join(fixture, ".engineeringos-delivery-runtime.sock"), "ignored");
+      expect(await hashDeliveryTree(fixture)).toBe(baseHash);
       await expect(discardDeliveryWorkspace(workspace.workspaceRoot, operationId)).resolves.toBe(true);
     } finally {
       await rm(fixture, { recursive: true, force: true });

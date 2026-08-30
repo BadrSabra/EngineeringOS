@@ -1,0 +1,467 @@
+    projectIds.push(id);
+    const proposalChanges = [{
+      path: "escape.txt",
+      absolutePath: "/etc/escape.txt",
+      newContent: "// blocked",
+      originalContent: null,
+      reason: "Test proposal",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({
+        projectId: id,
+        proposalId,
+        changes: proposalChanges,
+      });
+    expect(res.status).toBe(207);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0].ok).toBe(false);
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, id));
+    const ev = events.find((e) => e.type === "AiChangesApplied");
+    expect(ev).toBeDefined();
+    expect(ev?.severity).toBe("warning");
+    expect((ev?.payload as { appliedFiles?: string[] })?.appliedFiles ?? []).toHaveLength(0);
+  });
+
+  it("does not promote a candidate when behavioral verification is unavailable", async () => {
+    // Use /tmp as the project rootPath. The registered validation profile is
+    // intentionally unavailable there, so the candidate must not be promoted.
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-test-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    const fileName = `lib/ai-orchestrator/apply-test-${randomUUID().slice(0, 8)}.ts`;
+    const absolutePath = `/tmp/${fileName}`;
+    const proposalChanges = [{
+      path: fileName,
+      absolutePath,
+      newContent: "// applied",
+      originalContent: null,
+      reason: "Test proposal",
+      validationProfile: "ai-orchestrator-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({
+        projectId: id,
+        proposalId,
+        changes: proposalChanges,
+      });
+    expect(res.status).toBe(207);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0]).toMatchObject({
+      ok: false,
+      writeStatus: "not_written",
+      persistenceVerified: false,
+      behavioralVerification: { status: "unavailable" },
+    });
+    expect(res.body.results[0].error).toContain("not promoted");
+    await expect(fs.access(absolutePath)).rejects.toThrow();
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, id));
+    const ev = events.find((e) => e.type === "AiChangesApplied");
+    expect(ev).toBeDefined();
+    expect(ev?.severity).toBe("warning");
+    expect(
+      (ev?.payload as { appliedFiles?: string[] })?.appliedFiles,
+    ).toEqual([]);
+    const [proposal] = await db
+      .select()
+      .from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId))
+      .limit(1);
+    expect(proposal?.status).toBe("pending");
+  });
+
+  it("fails closed before promotion when behavioral verification is unavailable", async () => {
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-rollback-failure-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    const fileName = `lib/ai-orchestrator/apply-rollback-failure-${randomUUID().slice(0, 8)}.ts`;
+    const absolutePath = `/tmp/${fileName}`;
+    const proposalChanges = [{
+      path: fileName,
+      absolutePath,
+      newContent: "export const rollbackFailure = true;",
+      originalContent: null,
+      reason: "Rollback failure test proposal",
+      validationProfile: "ai-orchestrator-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+    try {
+      const res = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({
+          projectId: id,
+          proposalId,
+          changes: proposalChanges,
+        });
+
+      expect(res.status).toBe(207);
+      expect(res.body).toMatchObject({
+        applyStatus: "BLOCKED",
+        rollbackFailures: [],
+      });
+      expect(res.body.results[0]).toMatchObject({
+        ok: false,
+        writeStatus: "not_written",
+        persistenceVerified: false,
+      });
+      expect(res.body.results[0].error).toContain("not promoted");
+      await expect(fs.access(absolutePath)).rejects.toThrow();
+
+      const [proposal] = await db
+        .select({
+          status: aiChangeProposalsTable.status,
+          messageId: aiChangeProposalsTable.messageId,
+        })
+        .from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId))
+        .limit(1);
+      expect(proposal?.status).toBe("pending");
+
+      const events = await db
+        .select()
+        .from(eventsTable)
+        .where(eq(eventsTable.projectId, id));
+      const event = events.find((candidate) => candidate.type === "AiChangesApplied");
+      expect(event?.severity).toBe("warning");
+      expect((event?.payload as { applyStatus?: string })?.applyStatus)
+        .toBe("BLOCKED");
+
+      const journal = await db
+        .select()
+        .from(aiApplyJournalTable)
+        .where(eq(aiApplyJournalTable.operationId, proposal?.messageId ?? proposalId));
+      expect(journal.length).toBeGreaterThanOrEqual(2);
+      expect(journal.at(-1)?.stage).toBe("BLOCKED");
+      expect(journal.at(-1)?.payload).toMatchObject({
+        appliedFiles: [],
+        failedFiles: [fileName],
+      });
+      expect(new Set(journal.map((entry) => entry.attemptId)).size).toBe(1);
+      expect(journal.map((entry) => entry.sequence))
+        .toEqual([...journal].sort((a, b) => a.sequence - b.sequence).map((entry) => entry.sequence));
+    } finally {
+      await fs.rm(absolutePath, { force: true });
+    }
+  });
+
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-stale-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    const fileName = `apply-stale-${randomUUID().slice(0, 8)}.ts`;
+    const absolutePath = `/tmp/${fileName}`;
+    await fs.writeFile(absolutePath, "export const current = true;\n", "utf-8");
+    const proposalChanges = [{
+      path: fileName,
+      absolutePath,
+      originalContent: "export const old = true;\n",
+      newContent: "export const next = true;\n",
+      reason: "Test proposal",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+    try {
+      const res = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({
+          projectId: id,
+          proposalId,
+          changes: [{
+            ...proposalChanges[0],
+          }],
+        });
+      expect(res.status).toBe(207);
+      expect(res.body.results[0].ok).toBe(false);
+      expect(res.body.results[0].error).toContain("changed after");
+      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const current = true;\n");
+    } finally {
+      await fs.rm(absolutePath, { force: true });
+    }
+  });
+
+  it("returns a base-hash conflict and never writes a stale patch", async () => {
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-hash-conflict-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    const fileName = `apply-hash-conflict-${randomUUID().slice(0, 8)}.ts`;
+    const absolutePath = `/tmp/${fileName}`;
+    const original = "export const before = true;\n";
+    const replacement = "export const after = true;\n";
+    await fs.writeFile(absolutePath, original, "utf-8");
+    const proposalChanges = [{
+      path: fileName,
+      absolutePath,
+      originalContent: original,
+      baseHash: hashPatchBase(original),
+      hunks: buildPatchHunks(original, replacement, "Replace the guarded value"),
+      newContent: replacement,
+      reason: "Replace the guarded value",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+
+    try {
+      await fs.writeFile(absolutePath, "export const userEdit = true;\n", "utf-8");
+      const res = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: proposalChanges });
+
+      expect(res.status).toBe(207);
+      expect(res.body.results[0]).toMatchObject({
+        ok: false,
+        code: "STALE_BASE",
+        conflict: { kind: "base_hash_mismatch" },
+      });
+      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const userEdit = true;\n");
+    } finally {
+      await fs.rm(absolutePath, { force: true });
+    }
+  });
+
+  it("aborts the whole batch when one accepted change has a stale base", async () => {
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-mixed-stale-base-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    const staleName = `apply-mixed-stale-${randomUUID().slice(0, 8)}.ts`;
+    const validName = `apply-mixed-valid-${randomUUID().slice(0, 8)}.ts`;
+    const stalePath = `/tmp/${staleName}`;
+    const validPath = `/tmp/${validName}`;
+    const staleOriginal = "export const stale = false;\n";
+    const validOriginal = "export const valid = false;\n";
+    await fs.writeFile(stalePath, staleOriginal, "utf-8");
+    await fs.writeFile(validPath, validOriginal, "utf-8");
+
+    const staleReplacement = "export const stale = true;\n";
+    const validReplacement = "export const valid = true;\n";
+    const proposalChanges = [
+      {
+        path: staleName,
+        absolutePath: stalePath,
+        originalContent: staleOriginal,
+        baseHash: hashPatchBase(staleOriginal),
+        hunks: buildPatchHunks(staleOriginal, staleReplacement, "Update stale file"),
+        newContent: staleReplacement,
+        reason: "Update stale file",
+        validationProfile: "api-ai-tests" as const,
+      },
+      {
+        path: validName,
+        absolutePath: validPath,
+        originalContent: validOriginal,
+        baseHash: hashPatchBase(validOriginal),
+        hunks: buildPatchHunks(validOriginal, validReplacement, "Update valid file"),
+        newContent: validReplacement,
+        reason: "Update valid file",
+        validationProfile: "api-ai-tests" as const,
+      },
+    ];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+
+    try {
+      await fs.writeFile(stalePath, "export const user_edit = true;\n", "utf-8");
+      const res = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: proposalChanges });
+
+      expect(res.status).toBe(207);
+      const staleResult = res.body.results.find((result: { path: string }) => result.path === staleName);
+      const validResult = res.body.results.find((result: { path: string }) => result.path === validName);
+      expect(staleResult).toMatchObject({
+        ok: false,
+        code: "STALE_BASE",
+        conflict: { kind: "base_hash_mismatch" },
+      });
+      expect(validResult).toMatchObject({
+        ok: false,
+        writeStatus: "not_written",
+      });
+      expect(await fs.readFile(stalePath, "utf-8")).toBe("export const user_edit = true;\n");
+      expect(await fs.readFile(validPath, "utf-8")).toBe(validOriginal);
+    } finally {
+      await fs.rm(stalePath, { force: true });
+      await fs.rm(validPath, { force: true });
+    }
+  });
+
+  it("returns a hunk conflict even when the submitted base hash is current", async () => {
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-hunk-conflict-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    const fileName = `apply-hunk-conflict-${randomUUID().slice(0, 8)}.ts`;
+    const absolutePath = `/tmp/${fileName}`;
+    const current = "export const current = true;\n";
+    await fs.writeFile(absolutePath, current, "utf-8");
+    const proposalChanges = [{
+      path: fileName,
+      absolutePath,
+      originalContent: current,
+      baseHash: hashPatchBase(current),
+      hunks: [{
+        startLine: 1,
+        endLine: 1,
+        expectedText: "export const stale = true;",
+        replacementText: "export const next = true;",
+        reason: "Test stale hunk",
+      }],
+      newContent: "export const next = true;\n",
+      reason: "Test stale hunk",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+
+    try {
+      const res = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: proposalChanges });
+
+      expect(res.status).toBe(207);
+      expect(res.body.results[0]).toMatchObject({
+        ok: false,
+        code: "PATCH_HUNK_MISMATCH",
+        conflict: { kind: "hunk_mismatch", hunkIndex: 0 },
+      });
+      expect(await fs.readFile(absolutePath, "utf-8")).toBe(current);
+    } finally {
+      await fs.rm(absolutePath, { force: true });
+    }
+  });
+
+  it("applies a partial hunk selection — only accepted hunks are written via rebase", async () => {
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-partial-hunks-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    // Stub behavioral verification so the /tmp project root (no package.json)
+    // doesn't cause "unavailable" → rollback in the apply route.
+    // runRepairValidation returns ValidationResult — supply every required field.
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValueOnce({
+        status: "passed",
+        profile: "workspace-typecheck",
+        exitCode: 0,
+        scenario: "Run the workspace TypeScript typecheck.",
+        command: "pnpm run typecheck",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: randomUUID(),
+          observedAt: new Date().toISOString(),
+          artifactRef: "stub",
+        },
+        detail: "Stubbed for partial-hunk apply test.",
+      });
+
+    // File has two independent replaceable regions — lets us store a 2-hunk
+    // proposal and prove only the first (accepted) hunk is written.
+    const fileName = `apply-partial-hunks-${randomUUID().slice(0, 8)}.ts`;
+    const absolutePath = `/tmp/${fileName}`;
+    const original = "const a = 1;\nconst b = 2;\nconst c = 3;\n";
+    await fs.writeFile(absolutePath, original, "utf-8");
+
+    const firstHunk = {
+      startLine: 1, endLine: 1,
+      expectedText: "const a = 1;",
+      replacementText: "const a = 10;",
+      reason: "Accepted: bump a",
+    };
+    const secondHunk = {
+      startLine: 2, endLine: 2,
+      expectedText: "const b = 2;",
+      replacementText: "const b = 20;",
+      reason: "Rejected by user: bump b",
+    };
+    // The stored proposal contains BOTH hunks (the full AI intent).
+    const storedChanges = [{
+      path: fileName,
+      absolutePath,
+      originalContent: original,
+      baseHash: hashPatchBase(original),

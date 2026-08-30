@@ -1,0 +1,321 @@
+
+function failClosedBeforeEvidenceResponse(message: string): string {
+  return /[\u0600-\u06FF]/.test(message)
+    ? "توقف التنفيذ قبل قراءة أي ملف مصدر، لذلك لا يمكن اعتبار النتيجة مكتملة أو مثبتة. أعد المحاولة مع هدف أو ملف واضح."
+    : "Execution stopped before the first source read, so the result is incomplete and not proven. Retry with a clear target file or objective.";
+}
+
+function getOutOfScopeImplementationChanges(
+  changes: ServerPendingChange[],
+  allowedFiles: Set<string>,
+  rootPath: string,
+): string[] {
+  return changes
+    .map((change) => normalizePlanFilePath(change.path, rootPath))
+    .filter((file) => !allowedFiles.has(file));
+}
+
+type ServerPendingChange = {
+  path: string;
+  absolutePath: string;
+  newContent: string;
+  originalContent: string | null;
+  baseHash?: string;
+  hunks?: FilePatchHunk[];
+  reason: string;
+  validationProfile?: ValidationProfile;
+  risk?: "low" | "medium" | "high";
+  evidence?: PatchEvidenceLink[];
+};
+
+async function persistFailedChatTurn(params: {
+  sessionId: string;
+  projectId: string;
+  message: string;
+  turnIntent: string;
+  linkedTaskId?: string;
+  createSessionIfMissing?: boolean;
+  executionId?: string;
+  outcome: "FAILED" | "INTERRUPTED";
+  errorCode: string;
+  errorMessage: string;
+  content?: string;
+  sources?: unknown;
+  taskResult?: unknown;
+  behaviorEvidence?: unknown;
+  repairPlanMetadata?: unknown;
+  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "retryable" | "recoveryState">;
+  createdAt: Date;
+  assistantAt: Date;
+  toolTrace?: AgentStep[];
+}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date }> {
+  return db.transaction(async (tx) => {
+    if (params.createSessionIfMissing) {
+      const [session] = await tx
+        .select({ id: aiChatSessionsTable.id })
+        .from(aiChatSessionsTable)
+        .where(eq(aiChatSessionsTable.id, params.sessionId))
+        .limit(1);
+      if (!session) {
+        await tx.insert(aiChatSessionsTable).values({
+          id: params.sessionId,
+          projectId: params.projectId,
+          linkedTaskId: params.linkedTaskId ?? null,
+          title: params.message.trim().slice(0, 60) || "AI chat",
+          createdAt: params.createdAt,
+          updatedAt: params.createdAt,
+        });
+      }
+    }
+    // A provider/network failure may already have persisted the user turn.
+    // Resuming that execution must only add the next assistant outcome, not
+    // create a second copy of the user's request.
+    const existingUserTurn = params.executionId
+      ? await (() => {
+          const query = tx
+            .select({ id: aiChatMessagesTable.id })
+            .from(aiChatMessagesTable)
+            .where(and(
+              eq(aiChatMessagesTable.sessionId, params.sessionId),
+              eq(aiChatMessagesTable.executionId, params.executionId),
+              eq(aiChatMessagesTable.role, "user"),
+            ));
+          // The production Drizzle builder supports limit(); the lightweight
+          // route fixture only exposes its terminal for() operation.
+          if (typeof (query as { limit?: unknown }).limit === "function") {
+            return (query as { limit: (count: number) => Promise<unknown[]> }).limit(1);
+          }
+          if (typeof (query as { for?: unknown }).for === "function") {
+            return (query as { for: (mode: string) => Promise<unknown[]> }).for("update");
+          }
+          return Promise.resolve([]);
+        })()
+      : [];
+    if (existingUserTurn.length === 0) {
+      await tx.insert(aiChatMessagesTable).values({
+        id: randomUUID(),
+        sessionId: params.sessionId,
+        role: "user",
+        content: params.message,
+        turnIntent: params.turnIntent,
+        executionId: params.executionId ?? null,
+  | "invalid_profile"
+  | "resource_limit"
+  | "stale_revision";
+
+export type ValidationFailure = {
+  name: string;
+  file?: string;
+  line?: number;
+  message: string;
+};
+
+export type ValidationEvidence = {
+  evidenceId: string;
+  observedAt: string;
+  /** Reference to the bounded command result carried by this validation record. */
+  artifactRef: string;
+  /** Safe browser proof metadata; never contains a local file path. */
+  profileName?: string;
+  permittedOrigin?: string;
+  revision?: string;
+  /** Integrity identifiers for delivery validation, when validating a candidate. */
+  operationId?: string;
+  projectRevision?: string;
+  candidateHash?: string;
+  changeSetHash?: string;
+  promotedHash?: string;
+  screenshotAvailable?: boolean;
+  consoleErrorCount?: number;
+};
+
+export type ValidationResult = {
+  profile: string;
+  status: ValidationStatus;
+  scenario: string;
+  exitCode: number | null;
+  command: string;
+  stdout: string;
+  stderr: string;
+  failedTests: ValidationFailure[];
+  changedFiles: string[];
+  evidence: ValidationEvidence;
+  detail?: string;
+  reasonCode?: BrowserValidationBlockReason;
+  /** Server-owned operator telemetry; never supplied by model output. */
+  processBudgetMs?: number;
+  overallBudgetMs?: number;
+  elapsedMs?: number;
+  remainingMs?: number;
+  terminalState?: ValidationTerminalState;
+  nextAction?: string;
+};
+
+/**
+ * The only validation data safe to persist in chat history or expose to a
+ * client. Command output and failure details can contain secrets, source
+ * excerpts, and environment data, so they must never cross that boundary.
+ */
+export type PublicValidationResult = Pick<
+  ValidationResult,
+  | "profile" | "status" | "scenario" | "exitCode" | "evidence" | "reasonCode"
+  | "processBudgetMs" | "overallBudgetMs" | "elapsedMs" | "remainingMs"
+  | "terminalState" | "nextAction"
+> & {
+  detail?: string;
+};
+
+function sanitizeValidationDetail(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/\/(?:home\/runner(?:\/workspace)?|workspace|tmp|app|srv|var\/task|mnt\/data)\/\S+/g, "[runtime path]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]")
+    .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted token]")
+    .slice(0, 240);
+}
+
+export function toPublicValidationResult(result: ValidationResult): PublicValidationResult {
+  const evidence = result.evidence;
+  return {
+    profile: result.profile,
+    status: result.status,
+    scenario: result.scenario,
+    exitCode: result.exitCode,
+    evidence: {
+      evidenceId: evidence.evidenceId,
+      observedAt: evidence.observedAt,
+      artifactRef: evidence.artifactRef,
+      ...(evidence.profileName ? { profileName: evidence.profileName } : {}),
+      ...(evidence.permittedOrigin ? { permittedOrigin: evidence.permittedOrigin } : {}),
+      ...(evidence.revision ? { revision: evidence.revision } : {}),
+      ...(evidence.operationId ? { operationId: evidence.operationId } : {}),
+      ...(evidence.projectRevision ? { projectRevision: evidence.projectRevision } : {}),
+      ...(evidence.candidateHash ? { candidateHash: evidence.candidateHash } : {}),
+      ...(evidence.changeSetHash ? { changeSetHash: evidence.changeSetHash } : {}),
+      ...(evidence.promotedHash ? { promotedHash: evidence.promotedHash } : {}),
+      ...(evidence.screenshotAvailable !== undefined ? { screenshotAvailable: evidence.screenshotAvailable } : {}),
+      ...(evidence.consoleErrorCount !== undefined ? { consoleErrorCount: evidence.consoleErrorCount } : {}),
+    },
+    ...(result.reasonCode ? { reasonCode: result.reasonCode } : {}),
+    ...(result.processBudgetMs !== undefined ? { processBudgetMs: result.processBudgetMs } : {}),
+    ...(result.overallBudgetMs !== undefined ? { overallBudgetMs: result.overallBudgetMs } : {}),
+    ...(result.elapsedMs !== undefined ? { elapsedMs: result.elapsedMs } : {}),
+    ...(result.remainingMs !== undefined ? { remainingMs: result.remainingMs } : {}),
+    ...(result.terminalState ? { terminalState: result.terminalState } : {}),
+    ...(result.nextAction ? { nextAction: sanitizeValidationDetail(result.nextAction) } : {}),
+    ...(result.detail ? { detail: sanitizeValidationDetail(result.detail) } : {}),
+  };
+}
+
+export function hasValidationEvidence(result: ValidationResult | null | undefined): boolean {
+  return Boolean(
+    result
+    && result.evidence.evidenceId.trim().length > 0
+    && result.evidence.observedAt.trim().length > 0
+    && result.evidence.artifactRef.trim().length > 0,
+  );
+}
+
+export function isProvenValidation(result: ValidationResult | null | undefined): boolean {
+  return result?.status === "passed" && hasValidationEvidence(result);
+}
+// PR-004/PR-007/PR-008: extended error types
+export type { ProviderErrorContext } from "./errors.js";
+
+// PR-05 / PR-011: provider metrics
+export {
+  recordRequest,
+  recordFailure,
+  recordSuccess,
+  recordFallbackSuccess,
+  recordInvalidModel,
+  recordLatency,
+  getProviderMetrics,
+} from "./provider-metrics.js";
+export type { ProviderMetricsSnapshot } from "./provider-metrics.js";
+
+// Behavioral model routing scorecards
+export {
+  getBehavioralScorecards,
+  getBehavioralScorecard,
+  isModelBehaviorallyDemoted,
+  recordBehavioralFailure,
+  recordBehavioralModelCall,
+} from "./behavioral-scorecard.js";
+export type {
+  BehavioralFailureKind,
+  BehavioralScorecard,
+} from "./behavioral-scorecard.js";
+
+// PR-07: circuit breaker
+export {
+  isCircuitOpen,
+  recordCircuitFailure,
+  recordCircuitSuccess,
+  getCircuitState,
+} from "./openrouter/circuit-breaker.js";
+
+// EI-001…EI-023: Evidence Integrity & Claim Verification
+export {
+  createEvidenceRecord,
+  validateEvidenceLineage,
+  classifyEvidenceStrength,
+  createClaim,
+  selectEvidenceForClaim,
+  rankEvidenceForClaim,
+  bindClaimToEvidence,
+  validateClaim,
+  guardFinalJudgment,
+  buildBehaviorFindingStatus,
+  buildRunLedger,
+  validateTelemetry,
+  buildEvidenceBackedAnswer,
+  buildClaimOrientedEvidenceMap,
+  planEvidenceRecovery,
+  tagRecoveredEvidence,
+  evidenceSpanFromContent,
+  classifySourceScope,
+  deriveVerdictScope,
+  deriveScopedFindingStatus,
+  evidenceScopeSupportsClaimScope,
+  scopedRepairGate,
+  extractClaimSymbol,
+  objectiveCompletionGate,
+  // AI-OBJ-007: evidence relevance gate
+  evidenceRelevanceGate,
+  // AI-OBJ-010: final answer validator
+  validateFinalAnswer,
+} from "./evidence-integrity.js";
+export type {
+  EvidenceReadType,
+  EvidenceSourceType,
+  EvidenceSourceScope,
+  VerdictScope,
+  ScopedFindingStatus,
+  EvidencePhase,
+  EvidenceRecord,
+  EvidenceStrength,
+  ClaimStatus,
+  ClaimRecord,
+  ClaimEvidenceBinding,
+  ClaimValidationResult,
+  ClaimValidation,
+  BehaviorStatus,
+  FindingStatus,
+  BehaviorFindingStatus,
+  RunLedger,
+  TelemetryReconciliation,
+  EvidenceBackedAnswer,
+  FinalJudgmentGuard,
+  ScopedRepairGate,
+  RepairBlockReason,
+  ObjectiveCompletionStatus,
+  ObjectiveEvidenceEdgeRef,
+  ObjectiveCompletionGateResult,
+  // AI-OBJ-007
+  ClaimCategory,
+  EvidenceRelevanceVerdict,
+  // AI-OBJ-010
+  FinalAnswerValidation,
+} from "./evidence-integrity.js";

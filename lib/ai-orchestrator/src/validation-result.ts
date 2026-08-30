@@ -40,9 +40,12 @@ export type ValidationEvidence = {
   /** Integrity identifiers for delivery validation, when validating a candidate. */
   operationId?: string;
   projectRevision?: string;
+  treeDigestVersion?: string;
+  baseTreeHash?: string;
   candidateHash?: string;
   changeSetHash?: string;
   promotedHash?: string;
+  committedTreeHash?: string;
   screenshotAvailable?: boolean;
   consoleErrorCount?: number;
 };
@@ -109,9 +112,12 @@ export function toPublicValidationResult(result: ValidationResult): PublicValida
       ...(evidence.revision ? { revision: evidence.revision } : {}),
       ...(evidence.operationId ? { operationId: evidence.operationId } : {}),
       ...(evidence.projectRevision ? { projectRevision: evidence.projectRevision } : {}),
+      ...(evidence.treeDigestVersion ? { treeDigestVersion: evidence.treeDigestVersion } : {}),
+      ...(evidence.baseTreeHash ? { baseTreeHash: evidence.baseTreeHash } : {}),
       ...(evidence.candidateHash ? { candidateHash: evidence.candidateHash } : {}),
       ...(evidence.changeSetHash ? { changeSetHash: evidence.changeSetHash } : {}),
       ...(evidence.promotedHash ? { promotedHash: evidence.promotedHash } : {}),
+      ...(evidence.committedTreeHash ? { committedTreeHash: evidence.committedTreeHash } : {}),
       ...(evidence.screenshotAvailable !== undefined ? { screenshotAvailable: evidence.screenshotAvailable } : {}),
       ...(evidence.consoleErrorCount !== undefined ? { consoleErrorCount: evidence.consoleErrorCount } : {}),
     },

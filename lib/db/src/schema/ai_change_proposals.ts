@@ -38,6 +38,8 @@ export const aiChangeProposalsTable = pgTable("ai_change_proposals", {
     .references(() => aiChatMessagesTable.id, { onDelete: "cascade" }),
   /** JSON-serialized server-produced PendingChange[] */
   changes: text("changes").notNull(),
+  /** Exact subset that passed Apply and was promoted; used by scoped Git. */
+  appliedChanges: text("applied_changes"),
   status: aiChangeProposalStatusEnum("status").notNull().default("pending"),
   /** Incremented whenever a stale patch is rebased onto new source content. */
   revision: integer("revision").notNull().default(0),
@@ -49,10 +51,22 @@ export const aiChangeProposalsTable = pgTable("ai_change_proposals", {
   workspaceRoot: text("workspace_root"),
   /** Git/tree revision from which this change set was produced. */
   baseRevision: text("base_revision"),
+  /** Canonical delivery-tree digest captured before candidate materialization. */
+  baseTreeHash: text("base_tree_hash"),
+  /** Canonical digest of the exact approved candidate validated by the server. */
+  candidateTreeHash: text("candidate_tree_hash"),
+  /** Version of the canonical tree digest contract used for every proof. */
+  treeDigestVersion: text("tree_digest_version"),
   changeSetHash: text("change_set_hash"),
   lifecycle: aiDeliveryLifecycleEnum("lifecycle").notNull().default("proposed"),
   conflictReason: text("conflict_reason"),
   validationEvidence: text("validation_evidence"),
+  /** Canonical digest of the live tree after successful promotion. */
+  promotedTreeHash: text("promoted_tree_hash"),
+  /** Git identity is intentionally separate from tree-content digests. */
+  commitHash: text("commit_hash"),
+  /** Canonical digest of the live tree after the Git commit. */
+  committedTreeHash: text("committed_tree_hash"),
   committedHash: text("committed_hash"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   consumedAt: timestamp("consumed_at"),

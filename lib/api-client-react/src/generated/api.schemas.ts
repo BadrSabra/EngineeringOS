@@ -111,9 +111,18 @@ export interface ValidationEvidence {
   revision?: string;
   operationId?: string;
   projectRevision?: string;
+  treeDigestVersion?: string;
   candidateHash?: string;
   changeSetHash?: string;
   promotedHash?: string;
+  /** Canonical complete-tree digest captured before Apply */
+  baseTreeHash?: string;
+  /** Canonical complete-tree digest of the validated candidate */
+  candidateTreeHash?: string;
+  /** Canonical complete-tree digest observed after promotion */
+  promotedTreeHash?: string;
+  /** Canonical complete-tree digest observed after the Git commit */
+  committedTreeHash?: string;
   screenshotAvailable?: boolean;
   consoleErrorCount?: number;
 }
@@ -1508,6 +1517,13 @@ export interface AiPendingProposal {
   lifecycle?: AiPendingProposalLifecycle;
   baseRevision?: string;
   changeSetHash?: string;
+  baseTreeHash?: string;
+  candidateTreeHash?: string;
+  promotedTreeHash?: string;
+  treeDigestVersion?: string;
+  appliedChanges?: AiPendingChange[];
+  commitHash?: string;
+  committedTreeHash?: string;
   conflictReason?: string;
   validationEvidence?: PublicValidationResult[];
 }
@@ -1520,6 +1536,16 @@ export const AiApplyChangesResultApplyStatus = {
   PARTIAL: 'PARTIAL',
   BLOCKED: 'BLOCKED',
   ROLLBACK_FAILED: 'ROLLBACK_FAILED',
+} as const;
+
+export type AiApplyChangesResultIntegrityOutcome = typeof AiApplyChangesResultIntegrityOutcome[keyof typeof AiApplyChangesResultIntegrityOutcome];
+
+
+export const AiApplyChangesResultIntegrityOutcome = {
+  verified: 'verified',
+  blocked: 'blocked',
+  mismatch: 'mismatch',
+  unknown: 'unknown',
 } as const;
 
 export type AiApplyChangesResultRollbackFailuresItem = {
@@ -1592,6 +1618,12 @@ export interface AiApplyChangesResult {
   /** Logical operation identifier shared with the proposal's plan and later Git operations */
   correlationId: string;
   applyStatus: AiApplyChangesResultApplyStatus;
+  integrityOutcome?: AiApplyChangesResultIntegrityOutcome;
+  baseTreeHash?: string;
+  candidateTreeHash?: string;
+  promotedTreeHash?: string;
+  changeSetHash?: string;
+  treeDigestVersion?: string;
   rollbackFailures?: AiApplyChangesResultRollbackFailuresItem[];
   validationEvidence?: PublicValidationResult[];
   results: AiApplyChangesResultResultsItem[];

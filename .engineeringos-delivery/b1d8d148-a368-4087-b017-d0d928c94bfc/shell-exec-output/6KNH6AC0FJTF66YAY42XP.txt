@@ -1,0 +1,232 @@
+  6620          const expected = change.originalContent ?? null;
+  6621          const actual = before?.toString("utf-8") ?? null;
+  6622          if (actual !== expected) {
+  6623            results.push({
+  6624              path: change.path,
+  6625              ok: false,
+  6626              error: "File changed after the AI proposal was created. Read it again and create a fresh focused change.",
+  6627            });
+  6628            continue;
+  6629          }
+  6630        }
+  6631        // When hunks are present, rebase them against the current file content
+  6632        // so that: (a) stale hunks are rejected, and (b) partial hunk selections
+  6633        // (only accepted hunks forwarded by the UI) are applied correctly.
+  6634        let resolvedContent = change.newContent;
+  6635        if (change.hunks && change.hunks.length > 0) {
+  6636          const currentContent = before?.toString("utf-8") ?? null;
+  6637          const rebaseResult = rebasePatchHunks(currentContent, change.hunks);
+  6638          if (!rebaseResult.ok) {
+  6639            results.push({
+  6640              path: change.path,
+  6641              ok: false,
+  6642              code: "PATCH_HUNK_MISMATCH",
+  6643              error: `Patch conflict: ${rebaseResult.reason}`,
+  6644              conflict: {
+  6645                kind: "hunk_mismatch" as const,
+  6646                ...(rebaseResult.hunkIndex !== undefined
+  6647                  ? { hunkIndex: rebaseResult.hunkIndex }
+  6648                  : {}),
+  6649              },
+  6650            });
+  6651            continue;
+  6652          }
+  6653          resolvedContent = rebaseResult.content;
+  6654        }
+  6655        const guard = inspectAiChange({
+  6656          filePath: change.path,
+  6657          before: before?.toString("utf-8") ?? null,
+  6658          after: resolvedContent,
+  6659        });
+  6660        if (!guard.allowed) {
+  6661          results.push({ path: change.path, ok: false, error: guard.error });
+  6662          continue;
+  6663        }
+  6664
+  6665        if (change.validationProfile) {
+  6666          const profileError = validateRepairValidationScope(change.validationProfile, [change.path]);
+  6667          if (profileError) {
+  6668            results.push({
+  6669              path: change.path,
+  6670              ok: false,
+  6671              error: profileError,
+  6672              behavioralVerification: makeSyntheticValidationResult(
+  6673                change.validationProfile,
+  6674                "unavailable",
+  6675                getRepairValidationProfile(change.validationProfile).scenario,
+  6676                profileError,
+  6677              ),
+  6678            });
+  6679            continue;
+  6680          }
+  6681        }
+  6682
+  6683        writableChanges.push({
+  6684          path: change.path,
+  6685          realPath: realResolved,
+  6686          newContent: resolvedContent,
+  6687          before,
+  6688          validationProfile: change.validationProfile,
+  6689        });
+  6690      } catch (e) {
+  6691        results.push({ path: change.path, ok: false, error: e instanceof Error ? e.message : String(e) });
+  6692      }
+  6693    }
+  6694
+  6695    const preflightFailures = results.filter((result) => !result.ok);
+  6696    await appendApplyJournal(
+  6697      preflightFailures.length > 0 ? "PREFLIGHT_FAILED" : "PREFLIGHT_PASSED",
+  6698      {
+  6699        failedFiles: preflightFailures.map((result) => result.path),
+  6700      },
+  6701    );
+  6702    if (preflightFailures.length > 0) {
+  6703      // A dangerous or invalid change aborts the whole batch. Do not allow a
+  6704      // valid-looking sibling change to slip through beside a blocked write.
+  6705      const batchError =
+  6706        "Apply aborted because at least one requested change failed preflight; no files were written.";
+  6707      for (const change of writableChanges) {
+  6708        results.push({ path: change.path, ok: false, error: batchError });
+  6709      }
+  6710    }
+  6711
+  6712    // Keep the candidate in lockstep with the bytes that passed preflight
+  6713    // (including rebased hunk content). Validation must observe these exact
+  6714    // bytes before any live-root file is promoted.
+  6715    const candidateChanges = writableChanges;
+  6716    for (const change of candidateChanges) {
+  6717      const candidatePath = path.resolve(deliveryWorkspace.workspaceRoot, change.path);
+  6718      if (candidatePath !== deliveryWorkspace.workspaceRoot
+  6719        && !candidatePath.startsWith(`${deliveryWorkspace.workspaceRoot}${path.sep}`)) {
+  6720        throw new Error("Delivery candidate path escapes isolated workspace");
+  6721      }
+  6722      await fs.mkdir(path.dirname(candidatePath), { recursive: true });
+  6723      await fs.writeFile(candidatePath, change.newContent, "utf8");
+  6724    }
+  6725    candidateTreeHash = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
+  6726    const candidateHash = candidateTreeHash;
+  6727    effectiveChangeSetHash = hashChangeSet(candidateChanges);
+  6728    await db.update(aiChangeProposalsTable)
+  6729      .set({
+  6730        changeSetHash: effectiveChangeSetHash,
+  6731        baseTreeHash: deliveryWorkspace.baseTreeHash,
+  6732        candidateTreeHash,
+  6733        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+  6734      })
+  6735      .where(and(
+  6736        eq(aiChangeProposalsTable.id, proposalId),
+  6737        eq(aiChangeProposalsTable.status, "pending"),
+  6738      ));
+  6739    const profiles = new Map<ValidationProfile, string[]>();
+  6740    for (const change of writableChanges) {
+  6741      if (!change.validationProfile) continue;
+  6742      const pathsForProfile = profiles.get(change.validationProfile) ?? [];
+  6743      pathsForProfile.push(change.path);
+  6744      profiles.set(change.validationProfile, pathsForProfile);
+  6745    }
+  6746
+  6747    const verificationByProfile = new Map<ValidationProfile, RepairVerificationResult>();
+  6748    if (profiles.size > 0) {
+  6749      await appendApplyJournal("VALIDATING", {
+  6750        profiles: [...profiles.entries()].map(([profile, paths]) => ({ profile, paths })),
+  6751      });
+  6752    }
+  6753    for (const [profile, profilePaths] of profiles) {
+  6754      const validation = await runRepairValidation(
+  6755        deliveryWorkspace.workspaceRoot,
+  6756        profile,
+  6757        profilePaths,
+  6758      );
+  6759      if ("evidence" in validation) {
+  6760        validation.evidence.operationId = applyCorrelationId;
+  6761        validation.evidence.projectRevision = deliveryWorkspace.baseRevision;
+  6762        validation.evidence.baseTreeHash = deliveryWorkspace.baseTreeHash;
+  6763        validation.evidence.treeDigestVersion = DELIVERY_TREE_DIGEST_VERSION;
+  6764        validation.evidence.candidateHash = candidateHash;
+  6765        validation.evidence.changeSetHash = effectiveChangeSetHash;
+  6766      }
+  6767      verificationByProfile.set(profile, validation);
+  6768    }
+  6769
+  6770    const candidateHashAfterValidation = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
+  6771    const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
+  6772    const liveRootHashBeforePromotion = await hashDeliveryTree(resolvedRoot);
+  6773    const liveRootChangedBeforePromotion = liveRootHashBeforePromotion !== deliveryWorkspace.baseTreeHash;
+  6774    const validationNeedsReview = candidateChangedDuringValidation || liveRootChangedBeforePromotion || [...verificationByProfile.values()].some((validation) =>
+  6775      validation.status === "failed" ||
+   510    // Commit with a fixed identity so git never fails on "user.email not set"
+   511    const { stdout, stderr } = await runGit(
+   512      [
+   513        "-c", "user.name=EngineeringOS",
+   514        "-c", "user.email=ai@engineeringos.local",
+   515        "commit", "-m", message.trim(),
+   516      ],
+   517      rootPath,
+   518    );
+   519    const { stdout: commitHash } = await runGit(["rev-parse", "HEAD"], rootPath);
+   520    const committedTreeHash = await hashDeliveryTree(rootPath);
+   521    if (scopedPaths) {
+   522      const [proposalProof] = await db
+   523        .select({
+   524          operationId: aiChangeProposalsTable.operationId,
+   525          lifecycle: aiChangeProposalsTable.lifecycle,
+   526          baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+   527          candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+   528          promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+   529          treeDigestVersion: aiChangeProposalsTable.treeDigestVersion,
+   530        })
+   531        .from(aiChangeProposalsTable)
+   532        .where(eq(aiChangeProposalsTable.id, proposalId!))
+   533        .limit(1);
+   534      if (
+   535        !proposalProof?.promotedTreeHash
+   536        || proposalProof.operationId !== correlationId
+   537        || proposalProof.lifecycle !== "applied"
+   538        || proposalProof.treeDigestVersion !== DELIVERY_TREE_DIGEST_VERSION
+   539        || committedTreeHash !== proposalProof.promotedTreeHash
+   540      ) {
+   541        await db.transaction(async (tx) => {
+   542          await tx.update(aiChangeProposalsTable)
+   543            .set({
+   544              lifecycle: "blocked",
+   545              commitHash,
+   546              committedTreeHash,
+   547              conflictReason: "The post-commit tree did not match the approved Apply proof.",
+   548            })
+   549            .where(and(
+   550              eq(aiChangeProposalsTable.id, proposalId!),
+   551              eq(aiChangeProposalsTable.lifecycle, "applied"),
+   552            ));
+   553          await tx.insert(auditLogsTable).values({
+   554            id: randomUUID(),
+   555            entityType: "project",
+   556            entityId: projectId,
+   557            action: "ai_executed",
+   558            projectId,
+   559            actor: req.userId,
+   560            stateBefore: {},
+   561            stateAfter: {
+   562              proposalId,
+   563              operationId: correlationId,
+   564              integrityOutcome: "mismatch",
+   565              commitHash,
+   566              committedTreeHash,
+   567              ...(deliveryProof ?? {}),
+   568            },
+   569            correlationId,
+   570          });
+   571          await tx.insert(eventsTable).values({
+   572            id: randomUUID(),
+   573            type: "GitCommitBlocked",
+   574            projectId,
+   575            severity: "error",
+   576            message: "AI commit was blocked because its complete tree did not match Apply proof",
+   577            correlationId,
+   578            payload: {
+   579              proposalId,
+   580              operationId: correlationId,
+   581              integrityOutcome: "mismatch",
+   582              commitHash,
+   583              committedTreeHash,
+   584              ...(deliveryProof ?? {}),
+   585            },

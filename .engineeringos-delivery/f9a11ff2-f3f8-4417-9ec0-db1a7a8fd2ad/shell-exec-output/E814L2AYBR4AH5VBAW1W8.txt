@@ -1,0 +1,523 @@
+
+    return res.json({ ok: true, output: stdout || stderr, correlationId, commitHash, committedPaths });
+  } catch (err) {
+    const e = err as { stderr?: string; stdout?: string; message?: string };
+    // "nothing to commit" is not an error from the user's perspective
+    const msg = e.stderr?.trim() || e.stdout?.trim() || e.message || "git commit failed";
+    if (msg.includes("nothing to commit")) {
+      return res.status(409).json({ error: "Nothing to commit — working tree is clean." });
+    }
+    return res.status(500).json({ error: redact(msg) });
+  }
+});
+
+/** POST /api/projects/:projectId/git/push — push through GitHub connector or legacy HTTPS token */
+router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (req, res) => {
+  const project = req.project!;
+  const body = (req.body ?? {}) as { proposalId?: unknown };
+  const proposalId = typeof body.proposalId === "string" ? body.proposalId : undefined;
+  const operationId = typeof (body as { operationId?: unknown }).operationId === "string"
+    ? (body as { operationId: string }).operationId
+    : undefined;
+  if (proposalId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(proposalId)) {
+    return res.status(400).json({ error: "proposalId must be a valid UUID" });
+  }
+  if (operationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    return res.status(400).json({ error: "operationId must be a valid UUID" });
+  }
+  const correlationId = operationId ?? proposalId ?? randomUUID();
+
+  if (!project.gitRemoteUrl) {
+    return res.status(400).json({
+      error: "No remote URL configured for this project. Add one in the Git settings panel.",
+    });
+  }
+
+  const allowLegacyFixture = config.nodeEnv === "test"
+    && (project.gitRemoteUrl === TEST_FIXTURE_REMOTE || Boolean(process.env.ENGINEERINGOS_TEST_PUSH_REMOTE));
+  if (!parseGitHubRemote(project.gitRemoteUrl) && !allowLegacyFixture) {
+    return res.status(400).json({
+      error: "Remote URL must be a credential-free HTTPS github.com repository URL.",
+      code: "UNSAFE_REMOTE_URL",
+    });
+  }
+
+  const branch = project.gitDefaultBranch ?? "main";
+  const githubRemote = parseGitHubRemote(project.gitRemoteUrl);
+
+  try {
+    await assertRootPathExists(project.rootPath);
+    let commitHash: string | undefined;
+    if (proposalId) {
+      const [proposal] = await db
+        .select({
+          lifecycle: aiChangeProposalsTable.lifecycle,
+          operationId: aiChangeProposalsTable.operationId,
+        })
+        .from(aiChangeProposalsTable)
+        .where(and(
+          eq(aiChangeProposalsTable.id, proposalId),
+          eq(aiChangeProposalsTable.projectId, project.id),
+        ))
+        .limit(1);
+      if (
+        !proposal
+        || (
+          proposal.operationId
+          && (proposal.operationId !== correlationId || proposal.lifecycle !== "committed")
+        )
+      ) {
+        return res.status(409).json({
+          error: "AI push requires the same committed delivery operation",
+          code: "AI_PUSH_LIFECYCLE_BLOCKED",
+          proposalId,
+          operationId: correlationId,
+          lifecycle: proposal?.lifecycle ?? null,
+        });
+      }
+      const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
+      commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
+      if (
+        !commitEvidence ||
+        commitEvidence.proposalId !== proposalId ||
+        commitEvidence.operationId !== correlationId ||
+        !commitHash
+      ) {
+        return res.status(409).json({
+          error: "AI push requires a recorded commit operation for this proposal and operation",
+          code: "AI_PUSH_REQUIRES_COMMIT_EVIDENCE",
+          proposalId,
+          operationId: correlationId,
+        });
+      }
+      const { stdout: currentHead } = await runGit(["rev-parse", "HEAD"], project.rootPath);
+      if (currentHead !== commitHash) {
+        return res.status(409).json({
+          error: "The repository changed after the recorded AI commit; commit again before pushing",
+          code: "AI_PUSH_COMMIT_DRIFT",
+          expectedCommit: commitHash,
+          actualCommit: currentHead,
+        });
+      }
+    } else {
+      commitHash = (await runGit(["rev-parse", "HEAD"], project.rootPath)).stdout;
+    }
+    let output = "";
+    let remoteCommitHash: string | undefined;
+    if (githubRemote) {
+      if (!commitHash) {
+        return res.status(409).json({
+          error: "A local commit is required before pushing through the GitHub integration",
+          code: "GITHUB_PUSH_REQUIRES_LOCAL_COMMIT",
+        });
+      }
+      const pushed = await pushLocalCommitToGitHub({
+        rootPath: project.rootPath,
+        remote: githubRemote,
+        branch,
+        commitHash,
+        message: `EngineeringOS: ${branch}`,
+      });
+      remoteCommitHash = pushed.remoteCommitHash;
+      output = `Pushed ${pushed.changedPaths.length} verified path(s) through GitHub integration`;
+    } else if (allowLegacyFixture) {
+      const token = await getGithubToken(req.userId);
+      if (!token) return res.status(428).json({ error: "GitHub authentication is not configured." });
+      const result = await runGit(
+        ["push", buildAuthUrl(project.gitRemoteUrl, token), branch],
+        project.rootPath,
+        { timeout: 60_000 },
+      );
+      output = result.stdout || result.stderr;
+      remoteCommitHash = commitHash;
+    } else {
+      return res.status(400).json({
+        error: "Only GitHub remotes can be pushed through this API.",
+        code: "UNSAFE_REMOTE_URL",
+      });
+    }
+
+    await recordAudit({
+      entityType: "project",
+      entityId: project.id,
+      action: "executed",
+      projectId: project.id,
+      stateBefore: {},
+      stateAfter: {
+        branch,
+        remoteUrl: project.gitRemoteUrl,
+        commitHash,
+        remoteCommitHash,
+        proposalId: proposalId ?? null,
+      },
+      correlationId,
+    });
+
+    // G-14: emit a high-level event so push appears in dashboard activity feed
+    // and in the AI context's recentEvents on the next chat request.
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "GitPushed",
+      projectId: project.id,
+      severity: "info",
+      message: `Pushed branch "${branch}" to ${project.gitRemoteUrl}`,
+      correlationId,
+      payload: {
+        ...(proposalId ? { proposalId } : {}),
+        operationId: correlationId,
+        commitHash,
+        remoteCommitHash,
+        branch,
+        remoteUrl: project.gitRemoteUrl,
+      },
+    });
+
+    invalidateContextCache(project.id);
+
+    // G-03: fire-and-forget post-push scan so the knowledge graph and metrics
+    // reflect the new code without requiring a manual scan click.  We run this
+    // after the response is sent to avoid blocking the push acknowledgement.
+    setImmediate(async () => {
+      const scanNow = new Date();
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+          description: Number of events to return per page.
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: One-based page number, ordered newest first.
+        - name: correlationId
+          in: query
+          schema:
+            type: string
+          description: Return only events belonging to one logical operation.
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [info, warning, error, success]
+          description: Return only events with this severity.
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Case-insensitive text search across message, type, and operation.
+      responses:
+        "200":
+          description: A bounded page of matching events and the total matching count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, total]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Event"
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: Total number of events matching the filters, before pagination.
+
+  # ─── Metrics ─────────────────────────────────────────────────────────────────
+  /api/metrics:
+    get:
+      operationId: listMetrics
+      summary: Get time-series quality metrics
+      tags: [Metrics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+            $ref: "#/components/schemas/AiFilePatchHunk"
+        reason:
+          type: string
+          description: One-sentence explanation of why this change is proposed
+        validationProfile:
+          type: string
+          enum: [ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, workspace-typecheck]
+          description: Registered behavioral validation profile when the change is eligible for approval
+        risk:
+          type: string
+          enum: [low, medium, high]
+          description: Server-derived change risk shown in Patch Lab
+        evidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/AiPatchEvidenceLink"
+
+    AiApplyChangesRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, proposalId, changes]
+      properties:
+        projectId:
+          type: string
+        proposalId:
+          type: string
+          description: Server-owned approval proposal that must match the submitted changes exactly
+        operationId:
+          type: string
+          description: Plan message ID used as the root of the end-to-end operation trace
+        changes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [path, absolutePath, newContent, originalContent, reason, validationProfile]
+            properties:
+              path:
+                type: string
+              absolutePath:
+                type: string
+              newContent:
+                type: string
+              originalContent:
+                type: string
+                nullable: true
+                description: Original content observed when the AI proposed the change; used to reject stale approvals
+              baseHash:
+                type: string
+                pattern: "^[a-f0-9]{64}$"
+                description: SHA-256 hash of the source content observed when the patch was generated
+              hunks:
+                type: array
+                maxItems: 100
+                items:
+                  $ref: "#/components/schemas/AiFilePatchHunk"
+              reason:
+                type: string
+                description: One-sentence explanation of why this change is proposed
+              validationProfile:
+                type: string
+                enum: [ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, workspace-typecheck]
+                description: Registered behavioral validation profile; arbitrary commands are not accepted
+              risk:
+                type: string
+                enum: [low, medium, high]
+              evidence:
+                type: array
+                maxItems: 4
+                items:
+                  $ref: "#/components/schemas/AiPatchEvidenceLink"
+
+    AiRebaseChangesRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, proposalId, changes]
+      properties:
+        projectId:
+          type: string
+        proposalId:
+          type: string
+          description: Server-owned pending proposal to rebase
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+
+    AiRebaseChangesResult:
+      type: object
+      required: [proposalId, changes, rebasedFiles, approvalRequired, revision]
+      properties:
+        proposalId:
+          type: string
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+        rebasedFiles:
+          type: array
+          items:
+            type: string
+        approvalRequired:
+          type: boolean
+          description: Always true because the rebased diff must be reviewed again
+        revision:
+          type: integer
+          minimum: 0
+          description: Server-owned proposal revision that must be approved before apply
+
+    AiApproveRebasedProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, revision]
+      properties:
+        projectId:
+          type: string
+        revision:
+          type: integer
+          minimum: 0
+
+    AiApproveRebasedProposalResult:
+      type: object
+      required: [proposalId, approvalRequired, revision]
+      properties:
+        proposalId:
+          type: string
+        approvalRequired:
+          type: boolean
+          description: False after the requested rebased revision is approved
+        revision:
+          type: integer
+          minimum: 0
+
+    AiPendingProposal:
+      type: object
+      required: [proposalId, operationId, changes, approvalRequired, revision]
+      properties:
+        proposalId:
+          type: string
+          nullable: true
+        operationId:
+          type: string
+          nullable: true
+          description: Plan message ID used as the root of the end-to-end operation trace
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+        approvalRequired:
+          type: boolean
+          description: True when a rebased proposal must be reviewed and approved again
+        revision:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Current server-owned proposal revision, or null when no pending proposal exists
+        lifecycle:
+          type: string
+          enum: [proposed, isolated, validated, applied, conflicted, committed, cancelled, abandoned, blocked]
+        baseRevision:
+          type: string
+        changeSetHash:
+          type: string
+        conflictReason:
+          type: string
+        validationEvidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicValidationResult"
+
+    AiFilePatchHunk:
+      type: object
+      additionalProperties: false
+      required: [startLine, endLine, expectedText, replacementText, reason]
+      properties:
+        startLine:
+          type: integer
+          minimum: 1
+        endLine:
+          type: integer
+          minimum: 1
+        expectedText:
+          type: string
+        replacementText:
+          type: string
+        reason:
+          type: string
+          minLength: 1
+        risk:
+          type: string
+          enum: [low, medium, high]
+        evidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/AiPatchEvidenceLink"
+
+    AiPatchEvidenceLink:
+      type: object
+      additionalProperties: false
+      required: [kind, id, label]
+      properties:
+        kind:
+          type: string
+          enum: [finding, source, validation]
+        id:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+          maxLength: 240
+        file:
+          type: string
+          minLength: 1
+        line:
+          type: integer
+          minimum: 1
+
+    AiApplyChangesResult:
+      type: object
+      required: [results, correlationId, applyStatus]
+      properties:
+        correlationId:
+          type: string
+          description: Logical operation identifier shared with the proposal's plan and later Git operations
+        applyStatus:
+          type: string
+          enum: [APPLIED, PARTIAL, BLOCKED, ROLLBACK_FAILED]
+        rollbackFailures:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              path: { type: string }
+              error: { type: string }
+        validationEvidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicValidationResult"
+        results:
+          type: array
+          items:
+            type: object
+            required: [path, ok]
+            properties:
+              path:
+                type: string
+              ok:
+                type: boolean
+              code:
+                type: string
+              error:
+                type: string
+              conflict:
+                type: object
+                additionalProperties: false

@@ -1,0 +1,207 @@
+      };
+    });
+    const verificationNeedsReviewAfterPromotion = responseResults.some((result) =>
+      result.behavioralVerification.status === "failed" ||
+      result.behavioralVerification.status === "unavailable" ||
+      result.behavioralVerification.status === "skipped" ||
+      result.behavioralVerification.status === "blocked",
+    );
+    if (verificationNeedsReviewAfterPromotion && responseResults.some((result) => result.ok)) {
+      // Behavioral verification is a correctness gate, not an advisory report.
+      // Never leave a persisted AI repair in place when its registered
+      // validation did not pass. Keeping the proposal pending allows the user
+      // to review the failure and retry with a fresh approved change.
+      rollbackFailures = await restoreApplySnapshots([...writtenChanges].reverse());
+      await appendApplyJournal(
+        rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK",
+        {
+          reason: "behavioral_validation",
+          failures: rollbackFailures,
+          writtenFiles: writtenChanges.map((change) => change.path),
+        },
+      );
+      for (const result of responseResults) {
+        if (!result.ok) continue;
+        result.ok = false;
+        result.writeStatus = rollbackFailures.length > 0 ? "unknown" : "not_written";
+        result.persistenceVerified = false;
+        result.error = rollbackFailures.length > 0
+          ? "Behavioral verification did not pass and rollback could not be verified; filesystem state is unknown."
+          : "Behavioral verification did not pass; the file change was rolled back.";
+      }
+    }
+
+    const appliedPaths = responseResults.filter((r) => r.ok).map((r) => r.path);
+    const failedPaths  = responseResults.filter((r) => !r.ok).map((r) => r.path);
+
+    if (appliedPaths.length > 0) {
+      invalidateContextCache(projectId);
+    }
+
+    const allOk = responseResults.every((r) => r.ok)
+      && !verificationNeedsReviewAfterPromotion
+      && !promotionMismatch
+      && promotedTreeHash === candidateHash;
+    const rollbackFailed = rollbackFailures.length > 0;
+    const applyStatus = rollbackFailed
+      ? "ROLLBACK_FAILED"
+      : allOk
+        ? "APPLIED"
+        : "BLOCKED";
+
+    // Do not record a successful AI execution event until the mandatory
+    // behavioral validation has passed. Persistence and behavior remain
+    // separate in the payload so a failed validator cannot hide a rollback.
+    // proposalId is the durable operation identity. Reusing it makes the
+    // plan/apply/commit/push lifecycle queryable as one trace instead of
+    // creating a new correlation for every write step.
+    const preview = appliedPaths.length > 0
+      ? appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "")
+      : failedPaths.slice(0, 3).join(", ") + (failedPaths.length > 3 ? ` +${failedPaths.length - 3} more` : "");
+    await db.transaction(async (tx) => {
+      journalSequence += 1;
+      await tx.insert(aiApplyJournalTable).values({
+        id: randomUUID(),
+        operationId: applyCorrelationId,
+        attemptId: applyAttemptId,
+        projectId,
+        proposalId,
+        stage: applyStatus,
+        sequence: journalSequence,
+        payload: {
+          appliedFiles: appliedPaths,
+          failedFiles: failedPaths,
+          rollbackFailures,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
+        },
+      });
+      await tx.insert(auditLogsTable).values({
+        // Each attempt gets its own audit row; correlationId remains stable
+        // across retries of the same plan/apply operation.
+        id: randomUUID(),
+        entityType: "project",
+        entityId: projectId,
+        action: "ai_executed",
+        projectId,
+        actor: req.userId,
+        stateBefore: {},
+        stateAfter: {
+          filesWritten: appliedPaths,
+          failedFiles: failedPaths,
+          applyStatus,
+          proposalId,
+          operationId: applyCorrelationId,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
+          rollbackFailures,
+          behavioralVerification: responseResults.map((result) => ({
+            path: result.path,
+            status: result.behavioralVerification.status,
+          })),
+        },
+        correlationId: applyCorrelationId,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiChangesApplied",
+        projectId,
+        severity: rollbackFailed
+          ? "error"
+          : appliedPaths.length > 0 && !verificationNeedsReviewAfterPromotion
+            ? (failedPaths.length > 0 ? "warning" : "success")
+            : "warning",
+        message: appliedPaths.length > 0
+          ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}${verificationNeedsReviewAfterPromotion ? " (behavioral verification needs review)" : ""}`
+          : rollbackFailed
+            ? `AI apply rollback failed; filesystem state is unknown: ${rollbackFailures.map((failure) => failure.path).join(", ")}`
+            : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+        correlationId: applyCorrelationId,
+        payload: {
+          proposalId,
+          operationId: applyCorrelationId,
+          appliedFiles: appliedPaths,
+          failedFiles: failedPaths,
+          applyStatus,
+          rollbackFailures,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
+          behavioralVerification: responseResults.map((result) => ({
+            path: result.path,
+            status: result.behavioralVerification.status,
+          })),
+        },
+      });
+      if (appliedPaths.length > 0) {
+        await tx
+          .update(aiChangeProposalsTable)
+          .set({
+            status: "applied",
+            lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
+            consumedAt: new Date(),
+            validationEvidence: JSON.stringify(validationEvidence),
+            baseTreeHash: deliveryWorkspace.baseTreeHash,
+            candidateTreeHash,
+            promotedTreeHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        treeDigestVersion: proposal.treeDigestVersion ?? DELIVERY_TREE_DIGEST_VERSION,
+      };
+
+      // Stage only the paths from the server-owned, already-verified proposal.
+      await runGit(["add", "--", ...scopedPaths], rootPath);
+    } else {
+      // Generic Git commits retain their existing behavior.
+      await runGit(["add", "-A"], rootPath);
+    }
+
+    // Commit with a fixed identity so git never fails on "user.email not set"
+    const { stdout, stderr } = await runGit(
+      [
+        "-c", "user.name=EngineeringOS",
+        "-c", "user.email=ai@engineeringos.local",
+        "commit", "-m", message.trim(),
+      ],
+      rootPath,
+    );
+    const { stdout: commitHash } = await runGit(["rev-parse", "HEAD"], rootPath);
+    const committedTreeHash = await hashDeliveryTree(rootPath);
+    if (scopedPaths) {
+      const [proposalProof] = await db
+        .select({ promotedTreeHash: aiChangeProposalsTable.promotedTreeHash })
+        .from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId!))
+        .limit(1);
+      if (!proposalProof?.promotedTreeHash || committedTreeHash !== proposalProof.promotedTreeHash) {
+        return res.status(409).json({
+          error: "The committed tree does not match the approved Apply proof",
+          code: "AI_COMMIT_TREE_MISMATCH",
+          commitHash,
+          committedTreeHash,
+        });
+      }
+    }
+    const committedPaths = scopedPaths ?? (await runGit(
+      ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+      rootPath,
+    )).stdout.split("\n").filter(Boolean);
+
+    await recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "executed",
+      projectId,

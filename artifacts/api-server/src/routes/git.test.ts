@@ -19,6 +19,7 @@ import {
   projectsTable,
 } from "@workspace/db";
 import { encryptApiKey } from "../lib/credentials-crypto.js";
+import { DELIVERY_TREE_DIGEST_VERSION, hashChangeSet, hashDeliveryTree } from "../lib/delivery-workspace.js";
 
 const execFileAsync = promisify(execFile);
 const projectIds: string[] = [];
@@ -36,6 +37,18 @@ async function createFixture() {
   await writeFile(path.join(rootPath, "README.md"), "fixture\n");
   await git(rootPath, ["add", "README.md"]);
   await git(rootPath, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "fixture"]);
+  const change = {
+    path: "verified.ts",
+    absolutePath: path.join(rootPath, "verified.ts"),
+    newContent: "export const verified = true;\n",
+    originalContent: null,
+    reason: "Verified implementation change",
+    validationProfile: "workspace-typecheck",
+  };
+  const baseTreeHash = await hashDeliveryTree(rootPath);
+  await writeFile(path.join(rootPath, "verified.ts"), change.newContent);
+  const promotedTreeHash = await hashDeliveryTree(rootPath);
+  const changeSetHash = hashChangeSet([change]);
 
   const projectId = randomUUID();
   const sessionId = randomUUID();
@@ -71,15 +84,19 @@ async function createFixture() {
     projectId,
     sessionId,
     messageId,
-    changes: JSON.stringify([{
-      path: "verified.ts",
-      absolutePath: path.join(rootPath, "verified.ts"),
-      newContent: "export const verified = true;\n",
-      originalContent: null,
-      reason: "Verified implementation change",
-      validationProfile: "workspace-typecheck",
-    }]),
+    changes: JSON.stringify([change]),
+    appliedChanges: JSON.stringify([change]),
     status: "applied",
+    lifecycle: "applied",
+    operationId: proposalId,
+    baseRevision: "fixture",
+    changeSetHash,
+    baseTreeHash,
+    candidateTreeHash: promotedTreeHash,
+    promotedTreeHash,
+    treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+    commitHash: null,
+    committedTreeHash: null,
     createdAt: now,
     consumedAt: now,
   });
@@ -95,10 +112,15 @@ async function createFixture() {
       operationId: proposalId,
       applyStatus: "APPLIED",
       appliedFiles: ["verified.ts"],
+      baseTreeHash,
+      candidateTreeHash: promotedTreeHash,
+      promotedTreeHash,
+      changeSetHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
     },
   });
   projectIds.push(projectId);
-  return { projectId, proposalId, rootPath };
+  return { projectId, proposalId, rootPath, baseTreeHash, promotedTreeHash, changeSetHash };
 }
 
 afterEach(async () => {
@@ -217,12 +239,20 @@ process.exit(result.status ?? 1);
           operationId,
           applyStatus: "APPLIED",
           appliedFiles: ["verified.ts"],
+          baseTreeHash: fixture.baseTreeHash,
+          candidateTreeHash: fixture.promotedTreeHash,
+          promotedTreeHash: fixture.promotedTreeHash,
+          changeSetHash: fixture.changeSetHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
         },
       })
       .where(and(
         eq(eventsTable.projectId, fixture.projectId),
         eq(eventsTable.type, "AiChangesApplied"),
       ));
+    await db.update(aiChangeProposalsTable)
+      .set({ operationId })
+      .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
     const credentialId = randomUUID();
     const encryptedApiKey = encryptApiKey("fixture-token");
     await db.insert(aiProviderCredentialsTable).values({
@@ -269,6 +299,10 @@ process.exit(result.status ?? 1);
       expect(commit.body).toMatchObject({
         correlationId: operationId,
         committedPaths: ["verified.ts"],
+        baseTreeHash: fixture.baseTreeHash,
+        candidateTreeHash: fixture.promotedTreeHash,
+        promotedTreeHash: fixture.promotedTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       });
 
       const wrongOperationPush = await request(app)
@@ -286,6 +320,11 @@ process.exit(result.status ?? 1);
         branch: "main",
         correlationId: operationId,
         commitHash: commit.body.commitHash,
+        baseTreeHash: fixture.baseTreeHash,
+        candidateTreeHash: fixture.promotedTreeHash,
+        promotedTreeHash: fixture.promotedTreeHash,
+        committedTreeHash: commit.body.committedTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       });
 
       const { stdout: remoteFiles } = await execFileAsync("git", [
@@ -313,6 +352,33 @@ process.exit(result.status ?? 1);
           proposalId: fixture.proposalId,
           operationId,
         });
+        if (event.type === "AiChangesApplied") {
+          expect(event.payload).toMatchObject({
+            baseTreeHash: fixture.baseTreeHash,
+            candidateTreeHash: fixture.promotedTreeHash,
+            promotedTreeHash: fixture.promotedTreeHash,
+            changeSetHash: fixture.changeSetHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          });
+        }
+        if (event.type === "GitCommitCreated") {
+          expect(event.payload).toMatchObject({
+            baseTreeHash: fixture.baseTreeHash,
+            candidateTreeHash: fixture.promotedTreeHash,
+            promotedTreeHash: fixture.promotedTreeHash,
+            committedTreeHash: commit.body.committedTreeHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          });
+        }
+        if (event.type === "GitPushed") {
+          expect(event.payload).toMatchObject({
+            baseTreeHash: fixture.baseTreeHash,
+            candidateTreeHash: fixture.promotedTreeHash,
+            promotedTreeHash: fixture.promotedTreeHash,
+            committedTreeHash: commit.body.committedTreeHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          });
+        }
       }
     } finally {
       if (originalPathEnv === undefined) delete process.env.PATH;

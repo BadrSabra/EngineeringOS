@@ -1,0 +1,239 @@
+      journalSequence += 1;
+      await tx.insert(aiApplyJournalTable).values({
+        id: randomUUID(),
+        operationId: applyCorrelationId,
+        attemptId: applyAttemptId,
+        projectId,
+        proposalId,
+        stage: applyStatus,
+        sequence: journalSequence,
+        payload: {
+          appliedFiles: appliedPaths,
+          failedFiles: failedPaths,
+          rollbackFailures,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          promotionMismatch,
+        },
+      });
+      await tx.insert(auditLogsTable).values({
+        // Each attempt gets its own audit row; correlationId remains stable
+        // across retries of the same plan/apply operation.
+        id: randomUUID(),
+        entityType: "project",
+        entityId: projectId,
+        action: "ai_executed",
+        projectId,
+        actor: req.userId,
+        stateBefore: {},
+        stateAfter: {
+          filesWritten: appliedPaths,
+          failedFiles: failedPaths,
+          applyStatus,
+          proposalId,
+          operationId: applyCorrelationId,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          promotionMismatch,
+          rollbackFailures,
+          behavioralVerification: responseResults.map((result) => ({
+            path: result.path,
+            status: result.behavioralVerification.status,
+          })),
+        },
+        correlationId: applyCorrelationId,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiChangesApplied",
+        projectId,
+        severity: rollbackFailed
+          ? "error"
+          : appliedPaths.length > 0 && !verificationNeedsReviewAfterPromotion
+            ? (failedPaths.length > 0 ? "warning" : "success")
+            : "warning",
+        message: appliedPaths.length > 0
+          ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}${verificationNeedsReviewAfterPromotion ? " (behavioral verification needs review)" : ""}`
+          : rollbackFailed
+            ? `AI apply rollback failed; filesystem state is unknown: ${rollbackFailures.map((failure) => failure.path).join(", ")}`
+            : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+        correlationId: applyCorrelationId,
+        payload: {
+          proposalId,
+          operationId: applyCorrelationId,
+          appliedFiles: appliedPaths,
+          failedFiles: failedPaths,
+          applyStatus,
+          rollbackFailures,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          promotionMismatch,
+          behavioralVerification: responseResults.map((result) => ({
+            path: result.path,
+            status: result.behavioralVerification.status,
+          })),
+        },
+      });
+      if (appliedPaths.length > 0) {
+        await tx
+          .update(aiChangeProposalsTable)
+          .set({
+            status: "applied",
+            lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
+            consumedAt: new Date(),
+            validationEvidence: JSON.stringify(validationEvidence),
+            baseTreeHash: deliveryWorkspace.baseTreeHash,
+            candidateTreeHash,
+            promotedTreeHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+            committedHash: null,
+            appliedChanges: allOk
+              ? JSON.stringify(writtenChanges.map((change) => ({
+                  path: change.path,
+                  newContent: change.newContent,
+                })))
+              : null,
+          })
+          .where(and(
+            eq(aiChangeProposalsTable.id, proposalId),
+            eq(aiChangeProposalsTable.status, "pending"),
+          ));
+      } else {
+        await tx.update(aiChangeProposalsTable)
+          .set({
+            lifecycle: rollbackFailed || failedPaths.length > 0 ? "conflicted" : "blocked",
+            conflictReason: rollbackFailed
+              ? "Apply rollback did not fully restore the working tree."
+              : failedPaths.length > 0
+                ? "One or more approved files could not be applied."
+                : "No approved files were applied.",
+            validationEvidence: JSON.stringify(validationEvidence),
+            baseTreeHash: deliveryWorkspace.baseTreeHash,
+            candidateTreeHash,
+            promotedTreeHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          })
+          .where(and(
+            eq(aiChangeProposalsTable.id, proposalId),
+            eq(aiChangeProposalsTable.status, "pending"),
+          ));
+      }
+    });
+
+    // Applying a pending change proves only that the guarded file write
+    // succeeded. It does not prove that the proposed repair is behaviorally
+    // correct, so make that distinction explicit in the response contract.
+    return res.status(rollbackFailed ? 500 : allOk ? 200 : 207).json({
+      results: responseResults,
+      correlationId: applyCorrelationId,
+      applyStatus,
+      integrityOutcome: rollbackFailed
+        ? "unknown"
+        : promotionMismatch
+          ? "mismatch"
+          : allOk
+            ? "verified"
+            : "blocked",
+      baseTreeHash: deliveryWorkspace.baseTreeHash,
+      candidateTreeHash,
+      promotedTreeHash,
+      rollbackFailures,
+      validationEvidence,
+    });
+  } finally {
+    await applyLock.release();
+  }
+});
+
+export default router;
+      additionalProperties: false
+      required: [evidenceId, observedAt, artifactRef]
+      properties:
+        evidenceId:
+          type: string
+        observedAt:
+          type: string
+          format: date-time
+        artifactRef:
+          type: string
+        profileName:
+          type: string
+        permittedOrigin:
+          type: string
+        revision:
+          type: string
+        operationId:
+          type: string
+        projectRevision:
+          type: string
+        candidateHash:
+          type: string
+        changeSetHash:
+          type: string
+        promotedHash:
+          type: string
+        baseTreeHash:
+          type: string
+          description: Canonical complete-tree digest captured before Apply
+        candidateTreeHash:
+          type: string
+          description: Canonical complete-tree digest of the validated candidate
+        promotedTreeHash:
+          type: string
+          description: Canonical complete-tree digest observed after promotion
+        committedTreeHash:
+          type: string
+          description: Canonical complete-tree digest observed after the Git commit
+        screenshotAvailable:
+          type: boolean
+        consoleErrorCount:
+          type: integer
+
+    AiBenchmarkScorecard:
+      type: object
+      additionalProperties: false
+      description: >
+        Bounded live Code Agent benchmark metadata. Rollout is allowed only
+        when the complete live run passes its explicit approved baseline gate.
+        Provider-unavailable cases remain visible as U and block rollout without
+        being counted as agent-quality failures.
+          description: Current server-owned proposal revision, or null when no pending proposal exists
+        lifecycle:
+          type: string
+          enum: [proposed, isolated, validated, applied, conflicted, committed, cancelled, abandoned, blocked]
+        baseRevision:
+          type: string
+        changeSetHash:
+          type: string
+        baseTreeHash:
+          type: string
+        candidateTreeHash:
+          type: string
+        promotedTreeHash:
+          type: string
+        treeDigestVersion:
+          type: string
+        appliedChanges:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+        commitHash:
+          type: string
+        committedTreeHash:
+          type: string
+        conflictReason:
+          type: string
+        validationEvidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicValidationResult"
+

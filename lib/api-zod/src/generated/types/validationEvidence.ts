@@ -15,9 +15,18 @@ export interface ValidationEvidence {
   revision?: string;
   operationId?: string;
   projectRevision?: string;
+  treeDigestVersion?: string;
   candidateHash?: string;
   changeSetHash?: string;
   promotedHash?: string;
+  /** Canonical complete-tree digest captured before Apply */
+  baseTreeHash?: string;
+  /** Canonical complete-tree digest of the validated candidate */
+  candidateTreeHash?: string;
+  /** Canonical complete-tree digest observed after promotion */
+  promotedTreeHash?: string;
+  /** Canonical complete-tree digest observed after the Git commit */
+  committedTreeHash?: string;
   screenshotAvailable?: boolean;
   consoleErrorCount?: number;
 }

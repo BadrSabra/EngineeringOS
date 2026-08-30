@@ -37,7 +37,11 @@ import {
 } from "./ai/chat.js";
 import { scheduleAiTaskExecution } from "./ai/tasks.js";
 import { createAiExecution } from "../lib/ai-execution-state.js";
-import { createDeliveryWorkspace, deliveryWorkspaceExists } from "../lib/delivery-workspace.js";
+import {
+  createDeliveryWorkspace,
+  deliveryWorkspaceExists,
+  DELIVERY_TREE_DIGEST_VERSION,
+} from "../lib/delivery-workspace.js";
 
 describe("verified repair proposal gate", () => {
   const change = {
@@ -502,6 +506,8 @@ async function makeRecoverableProposal(
   };
   const proposalId = await insertChangeProposal(projectId, [change]);
   let workspaceRoot: string | null = null;
+  let baseTreeHash: string | null = null;
+  let candidateTreeHash: string | null = null;
   if (options.withWorkspace !== false) {
     const sourceRoot = `/tmp/recovery-source-${operationId}`;
     await fs.mkdir(sourceRoot, { recursive: true });
@@ -513,6 +519,8 @@ async function makeRecoverableProposal(
       changes: [change],
     });
     workspaceRoot = workspace.workspaceRoot;
+    baseTreeHash = workspace.baseTreeHash;
+    candidateTreeHash = workspace.candidateTreeHash;
     deliveryWorkspaceRoots.push(workspaceRoot);
     await fs.rm(sourceRoot, { recursive: true, force: true });
   }
@@ -521,6 +529,9 @@ async function makeRecoverableProposal(
     workspaceRoot,
     baseRevision: "base-revision",
     changeSetHash: "change-set-hash",
+    baseTreeHash,
+    candidateTreeHash,
+    treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
     lifecycle,
     conflictReason: options.conflictReason ?? "Validation was interrupted before delivery completed.",
   }).where(eq(aiChangeProposalsTable.id, proposalId));

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiApplyChangesResultApplyStatus } from './aiApplyChangesResultApplyStatus';
+import type { AiApplyChangesResultIntegrityOutcome } from './aiApplyChangesResultIntegrityOutcome';
 import type { AiApplyChangesResultResultsItem } from './aiApplyChangesResultResultsItem';
 import type { AiApplyChangesResultRollbackFailuresItem } from './aiApplyChangesResultRollbackFailuresItem';
 import type { PublicValidationResult } from './publicValidationResult';
@@ -14,6 +15,12 @@ export interface AiApplyChangesResult {
   /** Logical operation identifier shared with the proposal's plan and later Git operations */
   correlationId: string;
   applyStatus: AiApplyChangesResultApplyStatus;
+  integrityOutcome?: AiApplyChangesResultIntegrityOutcome;
+  baseTreeHash?: string;
+  candidateTreeHash?: string;
+  promotedTreeHash?: string;
+  changeSetHash?: string;
+  treeDigestVersion?: string;
   rollbackFailures?: AiApplyChangesResultRollbackFailuresItem[];
   validationEvidence?: PublicValidationResult[];
   results: AiApplyChangesResultResultsItem[];

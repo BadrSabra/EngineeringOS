@@ -1,0 +1,432 @@
+
+/**
+ * Verify that every submitted change is a value-exact authorized subset of the
+ * stored proposal. The user may omit entire file changes (file-level reject)
+ * or omit individual hunks (hunk-level reject), but may not add new paths,
+ * alter any non-hunk field, or introduce hunks not present in the proposal.
+ *
+ * Returns an error string describing the first violation, or null if authorized.
+ */
+function authorizeChangeSubset(
+  submitted: Array<{
+    path: string;
+    absolutePath: string;
+    newContent: string;
+    originalContent: string | null;
+    baseHash?: string;
+    hunks?: Array<{
+      startLine: number;
+      endLine: number;
+      expectedText: string;
+      replacementText: string;
+      reason: string;
+      risk?: "low" | "medium" | "high";
+      evidence?: PatchEvidenceLink[];
+    }>;
+    reason: string;
+    validationProfile?: string;
+    risk?: "low" | "medium" | "high";
+    evidence?: PatchEvidenceLink[];
+  }>,
+  stored: ServerPendingChange[],
+): string | null {
+  const storedByPath = new Map(stored.map((c) => [c.path, c]));
+  for (const change of submitted) {
+    const storedChange = storedByPath.get(change.path);
+    if (!storedChange) {
+      return `Path "${change.path}" is not in the stored proposal`;
+    }
+    if (change.absolutePath !== storedChange.absolutePath) {
+      return `absolutePath mismatch for "${change.path}"`;
+    }
+    if (change.originalContent !== storedChange.originalContent) {
+      return `originalContent mismatch for "${change.path}"`;
+    }
+    if ((change.baseHash ?? null) !== (storedChange.baseHash ?? null)) {
+      return `baseHash mismatch for "${change.path}"`;
+    }
+    if (change.newContent !== storedChange.newContent) {
+      return `newContent mismatch for "${change.path}"`;
+    }
+    if (change.reason !== storedChange.reason) {
+      return `reason mismatch for "${change.path}"`;
+    }
+    if ((change.validationProfile ?? null) !== (storedChange.validationProfile ?? null)) {
+      return `validationProfile mismatch for "${change.path}"`;
+    }
+    if (serializeCanonical(change.risk ?? null) !== serializeCanonical(storedChange.risk ?? null)) {
+      return `risk mismatch for "${change.path}"`;
+    }
+    if (serializeCanonical(change.evidence ?? null) !== serializeCanonical(storedChange.evidence ?? null)) {
+      return `evidence mismatch for "${change.path}"`;
+    }
+    // When the stored change carries hunks the submitted change MUST also carry
+    // a non-empty hunk array.  An omitted or empty hunks field for a hunk-bearing
+    // stored change is an authorization bypass: the apply loop falls through to
+    // writing newContent (the complete file) instead of the selected subset.
+    const storedHasHunks = storedChange.hunks != null && storedChange.hunks.length > 0;
+    const submittedHunkCount = change.hunks?.length ?? 0;
+    if (storedHasHunks && submittedHunkCount === 0) {
+      return `Submitted change for "${change.path}" must include at least one accepted hunk (the stored proposal has ${storedChange.hunks!.length})`;
+    }
+    // Every submitted hunk must exist verbatim in the stored hunk list using
+    // multiset (one-to-one) matching: each stored entry can satisfy at most one
+    // submitted hunk.  Without this, a client could submit the same valid hunk
+    // twice and bypass the authorization boundary.
+    if (change.hunks && change.hunks.length > 0) {
+      // Work against a mutable copy so each stored slot is consumed at most once.
+      const remaining = [...(storedChange.hunks ?? [])];
+      for (const hunk of change.hunks) {
+        const matchIndex = remaining.findIndex(
+          (sh) =>
+            sh.startLine === hunk.startLine &&
+            sh.endLine === hunk.endLine &&
+            sh.expectedText === hunk.expectedText &&
+            sh.replacementText === hunk.replacementText &&
+            sh.reason === hunk.reason &&
+            sh.risk === hunk.risk &&
+            serializeCanonical(sh.evidence ?? null) === serializeCanonical(hunk.evidence ?? null),
+        );
+        if (matchIndex === -1) {
+          return `Hunk at lines ${hunk.startLine}–${hunk.endLine} in "${change.path}" is not in the stored proposal (or was submitted more than once)`;
+        }
+        remaining.splice(matchIndex, 1);
+      }
+    }
+  }
+  return null;
+}
+
+function serializeServerPendingChanges(changes: ServerPendingChange[]): string {
+  return JSON.stringify(changes);
+}
+
+function withPatchLabMetadata(
+  change: ServerPendingChange,
+  metadata: {
+    risk: "low" | "medium" | "high";
+    evidence: PatchEvidenceLink[];
+  },
+): ServerPendingChange {
+  return {
+    ...change,
+    risk: metadata.risk,
+    evidence: metadata.evidence,
+    hunks: change.hunks?.map((hunk) => ({
+      ...hunk,
+      risk: metadata.risk,
+      evidence: metadata.evidence,
+    })),
+  };
+}
+
+function bindPendingChangesToRepairPlan(
+  changes: ServerPendingChange[],
+  repairPlan: RepairPlanMetadata[] | undefined,
+): ServerPendingChange[] {
+  if (!repairPlan?.length) return changes;
+  return changes.map((change) => {
+    const phase = repairPlan.find((candidate) => candidate.files.includes(change.path));
+    if (!phase) return change;
+    const validationProfile = change.validationProfile ?? phase.validationProfile;
+    const risk = phase.verdictScope === "MIXED" || phase.verdictScope === "NOT_PROVEN"
+      ? "high"
+      : change.path.includes("/") && phase.files.length > 1
+        ? "medium"
+        : "low";
+      const subsetError = authorizeChangeSubset(changes, approvedChanges);
+      if (subsetError) {
+        return res.status(409).json({
+          error: `Submitted changes are not an authorized subset of the proposal: ${subsetError}`,
+          code: "PROPOSAL_MISMATCH",
+        });
+      }
+    } catch {
+      // The authoritative validation below reports malformed stored proposals.
+    }
+  }
+  const rootCheck = await resolveRootPath(project.rootPath, projectId);
+  if (!rootCheck.validRootPath) {
+    return res.status(409).json({
+      error: "project_root_unavailable",
+      code: "PROJECT_ROOT_UNAVAILABLE",
+      message: "The project working directory is unavailable; restore or rescan the project before applying changes.",
+    });
+  }
+  const resolvedRoot = path.resolve(project.rootPath);
+
+  const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+  if (!applyLock.acquired) {
+    return res.status(409).json({
+      error: "apply_in_progress",
+      hint: "An apply operation is already in progress for this project — wait for it to complete before starting another.",
+    });
+  }
+
+  let results: Array<{
+    path: string;
+    ok: boolean;
+    error?: string;
+      code?: string;
+    writeStatus?: "written" | "not_written" | "unknown";
+    persistenceVerified?: boolean;
+      conflict?: {
+        kind: "base_hash_mismatch" | "hunk_mismatch";
+        expectedHash?: string;
+        actualHash?: string;
+        hunkIndex?: number;
+      };
+    behavioralVerification?: RepairVerificationResult;
+  }>;
+  try {
+    // Read and validate the proposal after acquiring the project lock. This
+    // prevents two concurrent approvals from both observing "pending" and
+    // applying the same one-shot proposal.
+    const [proposal] = await db
+      .select()
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposalId),
+        eq(aiChangeProposalsTable.projectId, projectId),
+      ))
+      .limit(1);
+    if (!proposal) {
+      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+    }
+    if (proposal.status !== "pending") {
+      return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
+    }
+    if (proposal.approvalRequired) {
+      return res.status(409).json({
+        error: "The rebased patch must be reviewed and approved again before apply",
+        code: "PROPOSAL_REAPPROVAL_REQUIRED",
+        approvalRequired: true,
+        revision: proposal.revision,
+      });
+    }
+
+    let approvedChanges: ServerPendingChange[];
+    try {
+      approvedChanges = (typeof proposal.changes === "string"
+        ? JSON.parse(proposal.changes)
+        : proposal.changes) as ServerPendingChange[];
+    } catch {
+      return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
+    }
+    // Each submitted change must be a value-exact authorized subset of the
+    // stored proposal: same field values, and every submitted hunk must be
+    // present verbatim in the stored hunk list.  The user may omit entire
+    // files (file-level reject) or omit individual hunks (hunk-level reject)
+    // but cannot add new paths, alter any non-hunk field, or introduce hunks
+    // that were not part of the original proposal.
+    const subsetError = authorizeChangeSubset(changes, approvedChanges);
+    if (subsetError) {
+      return res.status(409).json({
+        error: `Submitted changes are not an authorized subset of the proposal: ${subsetError}`,
+        code: "PROPOSAL_MISMATCH",
+      });
+    }
+    if (!changes.every((change) => change.validationProfile)) {
+      return res.status(409).json({
+        error: "Approved repair changes must include a registered validation profile",
+        code: "PROPOSAL_VALIDATION_REQUIRED",
+      });
+    }
+
+    const [proposalExecution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        operationId: aiExecutionsTable.operationId,
+        buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.proposalId, proposal.id),
+        eq(aiExecutionsTable.projectId, projectId),
+      ))
+      .orderBy(desc(aiExecutionsTable.updatedAt))
+      .limit(1);
+    const canonicalOperationId = proposalExecution?.operationId
+      ?? proposalExecution?.buildPlanMessageId
+      ?? proposalExecution?.id
+      ?? proposal.messageId;
+    if (operationId && operationId !== canonicalOperationId) {
+      return res.status(409).json({
+        error: "Operation identity does not match the server-owned execution",
+        code: "OPERATION_ID_MISMATCH",
+      });
+    }
+    const applyCorrelationId = canonicalOperationId;
+    const applyAttemptId = randomUUID();
+    // Materialize the approved change set into an operation-owned workspace
+    // before touching the user's checkout. This workspace is retained as the
+    // recovery/proof artifact; the durable root is only written after all
+    // revision, path, and validation gates below pass.
+    const deliveryWorkspace = await createDeliveryWorkspace({
+      rootPath: project.rootPath,
+      operationId: applyCorrelationId,
+      baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
+      changes: approvedChanges,
+    });
+    await db.update(aiChangeProposalsTable)
+      .set({
+        operationId: applyCorrelationId,
+        workspaceRoot: deliveryWorkspace.workspaceRoot,
+        baseRevision: deliveryWorkspace.baseRevision,
+        changeSetHash: deliveryWorkspace.changeSetHash,
+        lifecycle: "isolated",
+        conflictReason: null,
+      })
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposalId),
+        eq(aiChangeProposalsTable.status, "pending"),
+      ));
+    let journalSequence = 0;
+    const appendApplyJournal = async (
+      stage: ApplyJournalStage,
+      payload: Record<string, unknown> = {},
+    ): Promise<void> => {
+      journalSequence += 1;
+      await db.insert(aiApplyJournalTable).values({
+        id: randomUUID(),
+        operationId: applyCorrelationId,
+        attemptId: applyAttemptId,
+        projectId,
+        proposalId,
+        stage,
+        sequence: journalSequence,
+        payload,
+      });
+    };
+    await appendApplyJournal("STARTED", {
+      changeCount: changes.length,
+      operationId: applyCorrelationId,
+    });
+
+    results = [];
+    const writableChanges: Array<{
+      path: string;
+      realPath: string;
+      newContent: string;
+      before: Buffer | null;
+      validationProfile?: ValidationProfile;
+    }> = [];
+    const writtenChanges: typeof writableChanges = [];
+    // Track every file whose write was attempted, including a file whose
+    // writeFile call mutates bytes and then throws before the success marker.
+    // Rollback must cover that file too.
+    const attemptedChanges: typeof writableChanges = [];
+    const seenRealPaths = new Set<string>();
+    let rollbackFailures: ApplyRollbackFailure[] = [];
+
+    await appendApplyJournal("PREFLIGHT_STARTED", {
+      fileCount: changes.length,
+    });
+    for (const change of changes) {
+      const BLOCKED_WRITE_EXTENSIONS =
+        /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+      // Check BOTH the client-supplied path and absolutePath — a mismatch between
+      // the two fields can bypass a check on path alone.
+      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {
+        results.push({
+          path: change.path,
+          ok: false,
+          error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+        });
+        continue;
+      }
+
+      const resolved = path.resolve(change.absolutePath);
+      if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+        results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+        continue;
+      }
+      try {
+        // Create parent dirs then realpath them to detect symlink escape — path.resolve()
+        // is purely lexical and does not follow symlinks.
+        const parentDir = path.dirname(resolved);
+        await fs.mkdir(parentDir, { recursive: true });
+        const realParent = await fs.realpath(parentDir);
+        const realResolved = path.join(realParent, path.basename(resolved));
+        if (realResolved !== resolvedRoot && !realResolved.startsWith(resolvedRoot + path.sep)) {
+          results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+          continue;
+        }
+
+        if (seenRealPaths.has(realResolved)) {
+          results.push({ path: change.path, ok: false, error: "Duplicate file path in apply request" });
+          continue;
+        }
+        seenRealPaths.add(realResolved);
+
+        let before: Buffer | null = null;
+        try {
+          before = await fs.readFile(realResolved);
+        } catch (readError) {
+          const code = (readError as NodeJS.ErrnoException).code;
+          if (code !== "ENOENT") throw readError;
+        }
+        if (change.baseHash) {
+          const actualHash = hashPatchBase(before?.toString("utf-8") ?? null);
+          if (actualHash !== change.baseHash) {
+            results.push({
+              path: change.path,
+              ok: false,
+              code: "STALE_BASE",
+              error: "Patch conflict: the file changed after the patch was generated. Read it again and create a fresh patch.",
+              conflict: {
+                kind: "base_hash_mismatch",
+                expectedHash: change.baseHash,
+                actualHash,
+              },
+            });
+            continue;
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(change, "originalContent")) {
+          const expected = change.originalContent ?? null;
+          const actual = before?.toString("utf-8") ?? null;
+          if (actual !== expected) {
+            results.push({
+              path: change.path,
+              ok: false,
+              error: "File changed after the AI proposal was created. Read it again and create a fresh focused change.",
+            });
+            continue;
+          }
+        }
+        // When hunks are present, rebase them against the current file content
+        // so that: (a) stale hunks are rejected, and (b) partial hunk selections
+        // (only accepted hunks forwarded by the UI) are applied correctly.
+        let resolvedContent = change.newContent;
+        if (change.hunks && change.hunks.length > 0) {
+          const currentContent = before?.toString("utf-8") ?? null;
+          const rebaseResult = rebasePatchHunks(currentContent, change.hunks);
+          if (!rebaseResult.ok) {
+            results.push({
+              path: change.path,
+              ok: false,
+              code: "PATCH_HUNK_MISMATCH",
+              error: `Patch conflict: ${rebaseResult.reason}`,
+              conflict: {
+                kind: "hunk_mismatch" as const,
+                ...(rebaseResult.hunkIndex !== undefined
+                  ? { hunkIndex: rebaseResult.hunkIndex }
+                  : {}),
+              },
+            });
+            continue;
+          }
+          resolvedContent = rebaseResult.content;
+        }
+        const guard = inspectAiChange({
+          filePath: change.path,
+          before: before?.toString("utf-8") ?? null,
+          after: resolvedContent,
+        });
+        if (!guard.allowed) {
+          results.push({ path: change.path, ok: false, error: guard.error });
+          continue;
+        }
+
+        if (change.validationProfile) {

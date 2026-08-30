@@ -1,0 +1,84 @@
+.engineeringos-delivery/0009850e-a2f6-4191-8f7e-95e9596d9a45/.engineeringos-delivery-workspace
+.engineeringos-delivery/0009850e-a2f6-4191-8f7e-95e9596d9a45/README.md
+.engineeringos-delivery/0009850e-a2f6-4191-8f7e-95e9596d9a45/src/approved.ts
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.X1-lock
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.engineeringos-delivery-workspace
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.pki/nssdb/cert9.db
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.pki/nssdb/key4.db
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.pki/nssdb/pkcs11.txt
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0039c547beeab0950f1d2115c45cc7b3f9da6189
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/004e5c70602582a6d28b5c65674859350f2e68ef
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/00540747e0b26ecb16495ca3aa7b050a677fc43c
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0171bd4809a7ccb71f0c5df714d610da13e3d340
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/01be581ebce802e99ec67b0a0b2d2253c96250b7
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/01f5314c05583ca6d5f4aee4ad28a6d7455c7b23
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/02096b930e979037fcfea6580de92c60703b2968
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/028744d5f122c200762bc63361038eb639ee9ff2
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/03dc3973caa8b30c42c939a590272c6a53e651b9
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/03fe12e3e1ee5e0d526be789bd70b749b58020aa
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/040a06335499fc11cec3dcfdb3eb5d8b5702f47f
+.engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0449045c57dd3dd4f0f302558a36524b34bdc1f6
+767
+rm: cannot remove '.engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d': Directory not empty
+rm: cannot remove '.engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5': Directory not empty
+Refresh index: 100% (693037/693037), done.
+ D .engineeringos-delivery/0009850e-a2f6-4191-8f7e-95e9596d9a45/.engineeringos-delivery-workspace
+ D .engineeringos-delivery/0009850e-a2f6-4191-8f7e-95e9596d9a45/README.md
+ D .engineeringos-delivery/0009850e-a2f6-4191-8f7e-95e9596d9a45/src/approved.ts
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.X1-lock
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.engineeringos-delivery-workspace
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.pki/nssdb/cert9.db
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.pki/nssdb/key4.db
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/.pki/nssdb/pkcs11.txt
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0039c547beeab0950f1d2115c45cc7b3f9da6189
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/004e5c70602582a6d28b5c65674859350f2e68ef
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/00540747e0b26ecb16495ca3aa7b050a677fc43c
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0171bd4809a7ccb71f0c5df714d610da13e3d340
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/01be581ebce802e99ec67b0a0b2d2253c96250b7
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/01f5314c05583ca6d5f4aee4ad28a6d7455c7b23
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/02096b930e979037fcfea6580de92c60703b2968
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/028744d5f122c200762bc63361038eb639ee9ff2
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/03dc3973caa8b30c42c939a590272c6a53e651b9
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/03fe12e3e1ee5e0d526be789bd70b749b58020aa
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/040a06335499fc11cec3dcfdb3eb5d8b5702f47f
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0449045c57dd3dd4f0f302558a36524b34bdc1f6
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/049388584e46929d26c0c3211e3d2db1d831c0aa
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/052fe06dbc4b755d83014c8f423458229d7a21c1
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0565eb6736b62f7a1423692032054788736bdf50
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/059681504b7ea63f4035a757df6471440ddec33c
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/05b3962a665a27fcbd9a8174d3db0e4686915a53
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/060b02fbf2a4d720e0836451ca8c2a928e204339
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/061cf30d997ee6003dadbddec5ace3f39202f46b
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/062b1ad309a29113120b64c308ffb712690ff25f
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/06675bfb4d5adc8e749583327cdc985bea179d84
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/06d258851fe316127472e523bc5663a508f6021e
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0751357b1fd44db308d3f9750f2d72e49526ac12
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/07b9189f381b5767a6e872ddfabd01736f1067d0
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/07d3255d4319217fac2049f7a516e08e644285e5
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/08945e9d07d4513d1420e14362f25b6d87ea8bae
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0938bc840ca9dbbaffae4aa65e26a336722d3854
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/09766b18b73d429d1df9b3f16a6ba16d38f2eaed
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0a18716e33ed8875bee772882faa107d4c8cd3b7
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0b532c084ab6bc6f16420629c58181621d0ab524
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0b70f64b3a2755320debb981f9488ec928d5edd2
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0b9ae7f01e64feb05aa9ef573145fac62b9c7a55
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0bba6cce8d788c0ffddee8ebd8247547b43e2ecf
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0bdb4979dc5faa585040fef116f4a92252be6fed
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0bf884da4948462d9b93f438e1fa7c01bfdf1392
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0c6315065936f01c0a0cbe59856e66f528153b23
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0d3f23fa6352a443a93967d8145d844bdf8040ff
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0dffed8b65c54324c83fe69f65cd86f3b8a09cc4
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0e9e47ebaa50736326b1daf1220a1485c53880d7
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0f52802b1320b78388d1540b33a23b95da68ab7f
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0f96af616ec53dc7f936fc82085234304085830c
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/0fa92020b74d3dbca4f4419906653aecece04a95
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/10a4f63957d14d72ddd82af6694e5dd6703850c5
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/10bd374db4b9ccd9f8a4bce8228614801121843a
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/11175d82befac3a79ab5b6d0389f4267cf9223e4
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/113691ac691d2949f5d266c58f39620d622a2692
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/119bba064f9b602bac6e33fd5cdea1ae10211487
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/11b2e3da2b4219587b5f5ac154b8c4313bd27927
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/11ff7d002fd5f1af40c30a7d2ffed7dc0e9d48e9
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/121cd68f4159db9550bb9730883ff987817aa9b6
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/123c9ca72cec4534d45310e3aeee9685e83105de
+ D .engineeringos-delivery/006b466f-3dd9-4c58-b2b6-41afd9bfbedf/0vM-gTUNKiv8nvWYHQX2l/ssr/12fb0d361d78ea1f44fce994e053bd33440f6f8e

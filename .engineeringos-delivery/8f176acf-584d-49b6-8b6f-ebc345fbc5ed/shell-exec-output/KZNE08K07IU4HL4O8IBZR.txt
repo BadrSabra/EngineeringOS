@@ -1,0 +1,282 @@
+   480      if (unrelatedWorkingTree.length > 0) {
+   481        return res.status(409).json({
+   482          error: "Scoped AI commit blocked by unrelated working-tree changes",
+   483          code: "AI_COMMIT_UNRELATED_WORKTREE_CHANGES",
+   484          paths: unrelatedWorkingTree,
+   485        });
+   486      }
+   487
+   488      // Stage only the paths from the server-owned, already-verified proposal.
+   489      await runGit(["add", "--", ...scopedPaths], rootPath);
+   490    } else {
+   491      // Generic Git commits retain their existing behavior.
+   492      await runGit(["add", "-A"], rootPath);
+   493    }
+   494
+   495    // Commit with a fixed identity so git never fails on "user.email not set"
+   496    const { stdout, stderr } = await runGit(
+   497      [
+   498        "-c", "user.name=EngineeringOS",
+   499        "-c", "user.email=ai@engineeringos.local",
+   500        "commit", "-m", message.trim(),
+   501      ],
+   502      rootPath,
+   503    );
+   504    const { stdout: commitHash } = await runGit(["rev-parse", "HEAD"], rootPath);
+   505    const committedTreeHash = await hashDeliveryTree(rootPath);
+   506    if (scopedPaths) {
+   507      const [proposalProof] = await db
+   508        .select({ promotedTreeHash: aiChangeProposalsTable.promotedTreeHash })
+   509        .from(aiChangeProposalsTable)
+   510        .where(eq(aiChangeProposalsTable.id, proposalId!))
+   511        .limit(1);
+   512      if (!proposalProof?.promotedTreeHash || committedTreeHash !== proposalProof.promotedTreeHash) {
+   513        return res.status(409).json({
+   514          error: "The committed tree does not match the approved Apply proof",
+   515          code: "AI_COMMIT_TREE_MISMATCH",
+   516          commitHash,
+   517          committedTreeHash,
+   518        });
+   519      }
+   520    }
+   521    const committedPaths = scopedPaths ?? (await runGit(
+   522      ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+   523      rootPath,
+   524    )).stdout.split("\n").filter(Boolean);
+   525
+   526    await recordAudit({
+   527      entityType: "project",
+   528      entityId: projectId,
+   529      action: "executed",
+   530      projectId,
+   531      stateBefore: {},
+   532      stateAfter: {
+   533        commitMessage: message.trim(),
+   534        commitHash,
+   535        committedTreeHash,
+   536        committedPaths,
+   537        proposalId: proposalId ?? null,
+   538      },
+   539      correlationId,
+   540    });
+   541
+   542    // G-14: emit a high-level event so commit appears in the dashboard
+   543    // activity feed and in the AI context's recentEvents.
+   544    await db.insert(eventsTable).values({
+   545      id: randomUUID(),
+   546      type: "GitCommitCreated",
+   547      projectId,
+   548      severity: "info",
+   549      message: `Git commit: ${message.trim().slice(0, 120)}`,
+   550      correlationId,
+   551      payload: {
+   552        ...(proposalId ? { proposalId } : {}),
+   553        operationId: correlationId,
+   554        commitHash,
+   555        committedTreeHash,
+   556        committedPaths,
+   557      },
+   558    });
+   559    if (proposalId) {
+   560      await db.update(aiChangeProposalsTable)
+   561        .set({
+   562          lifecycle: "committed",
+   563          commitHash,
+   564          committedTreeHash,
+   565          // Keep the legacy projection populated while new consumers use the
+   566          // explicitly typed Git identity and content digest fields.
+   567          committedHash: commitHash,
+   568        })
+   569        .where(and(
+   570          eq(aiChangeProposalsTable.id, proposalId),
+   620  const branch = project.gitDefaultBranch ?? "main";
+   621  const githubRemote = parseGitHubRemote(project.gitRemoteUrl);
+   622
+   623  try {
+   624    await assertRootPathExists(project.rootPath);
+   625    let commitHash: string | undefined;
+   626    let deliveryProof: {
+   627      baseTreeHash: string | null;
+   628      candidateTreeHash: string | null;
+   629      promotedTreeHash: string | null;
+   630      committedTreeHash: string | null;
+   631    } | undefined;
+   632    if (proposalId) {
+   633      const [proposal] = await db
+   634        .select({
+   635          lifecycle: aiChangeProposalsTable.lifecycle,
+   636          operationId: aiChangeProposalsTable.operationId,
+   637          baseRevision: aiChangeProposalsTable.baseRevision,
+   638          changeSetHash: aiChangeProposalsTable.changeSetHash,
+   639          baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+   640          candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+   641          promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+   642          committedTreeHash: aiChangeProposalsTable.committedTreeHash,
+   643          commitHash: aiChangeProposalsTable.commitHash,
+   644        })
+   645        .from(aiChangeProposalsTable)
+   646        .where(and(
+   647          eq(aiChangeProposalsTable.id, proposalId),
+   648          eq(aiChangeProposalsTable.projectId, project.id),
+   649        ))
+   650        .limit(1);
+   651      if (
+   652        !proposal
+   653        || (
+   654          proposal.operationId
+   655          && (proposal.operationId !== correlationId || proposal.lifecycle !== "committed")
+   656        )
+   657      ) {
+   658        return res.status(409).json({
+   659          error: "AI push requires the same committed delivery operation",
+   660          code: "AI_PUSH_LIFECYCLE_BLOCKED",
+   661          proposalId,
+   662          operationId: correlationId,
+   663          lifecycle: proposal?.lifecycle ?? null,
+   664        });
+   665      }
+   666      deliveryProof = {
+   667        baseTreeHash: proposal.baseTreeHash,
+   668        candidateTreeHash: proposal.candidateTreeHash,
+   669        promotedTreeHash: proposal.promotedTreeHash,
+   670        committedTreeHash: proposal.committedTreeHash,
+   671      };
+   672      const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
+   673      commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
+   674      const committedTreeHash = typeof commitEvidence?.committedTreeHash === "string"
+   675        ? commitEvidence.committedTreeHash
+   676        : undefined;
+   677      if (
+   678        !commitEvidence ||
+   679        commitEvidence.proposalId !== proposalId ||
+   680        commitEvidence.operationId !== correlationId ||
+   681        !commitHash ||
+   682        !committedTreeHash ||
+   683        commitHash !== proposal.commitHash ||
+   684        committedTreeHash !== proposal.committedTreeHash ||
+   685        committedTreeHash !== proposal.promotedTreeHash ||
+   686        !proposal.baseTreeHash ||
+   687        !proposal.candidateTreeHash ||
+   688        proposal.candidateTreeHash !== proposal.promotedTreeHash
+   689      ) {
+   690        return res.status(409).json({
+   691          error: "AI push requires a recorded commit operation for this proposal and operation",
+   692          code: "AI_PUSH_REQUIRES_COMMIT_EVIDENCE",
+   693          proposalId,
+   694          operationId: correlationId,
+   695        });
+   696      }
+   697      const liveTreeBeforePush = await hashDeliveryTree(project.rootPath);
+   698      if (liveTreeBeforePush !== committedTreeHash) {
+   699        return res.status(409).json({
+   700          error: "The repository changed after the recorded AI commit; commit again before pushing",
+   701          code: "AI_PUSH_COMMIT_TREE_DRIFT",
+   702          expectedTree: committedTreeHash,
+   703          actualTree: liveTreeBeforePush,
+   704        });
+   705      }
+   706      const { stdout: currentHead } = await runGit(["rev-parse", "HEAD"], project.rootPath);
+   707      if (currentHead !== commitHash) {
+   708        return res.status(409).json({
+   709          error: "The repository changed after the recorded AI commit; commit again before pushing",
+   710          code: "AI_PUSH_COMMIT_DRIFT",
+   711          expectedCommit: commitHash,
+   712          actualCommit: currentHead,
+   713        });
+   714      }
+   715    } else {
+   716      commitHash = (await runGit(["rev-parse", "HEAD"], project.rootPath)).stdout;
+   717    }
+   718    let output = "";
+   719    let remoteCommitHash: string | undefined;
+   720    if (githubRemote) {
+   721      if (!commitHash) {
+   722        return res.status(409).json({
+   723          error: "A local commit is required before pushing through the GitHub integration",
+   724          code: "GITHUB_PUSH_REQUIRES_LOCAL_COMMIT",
+   725        });
+   726      }
+   727      const pushed = await pushLocalCommitToGitHub({
+   728        rootPath: project.rootPath,
+   729        remote: githubRemote,
+   730        branch,
+   731        commitHash,
+   732        message: `EngineeringOS: ${branch}`,
+   733      });
+   734      remoteCommitHash = pushed.remoteCommitHash;
+   735      output = `Pushed ${pushed.changedPaths.length} verified path(s) through GitHub integration`;
+   736    } else if (allowLegacyFixture) {
+   737      const token = await getGithubToken(req.userId);
+   738      if (!token) return res.status(428).json({ error: "GitHub authentication is not configured." });
+   739      const result = await runGit(
+   740        ["push", buildAuthUrl(project.gitRemoteUrl, token), branch],
+   741        project.rootPath,
+   742        { timeout: 60_000 },
+   743      );
+   744      output = result.stdout || result.stderr;
+   745      remoteCommitHash = commitHash;
+   746    } else {
+   747      return res.status(400).json({
+   748        error: "Only GitHub remotes can be pushed through this API.",
+   749        code: "UNSAFE_REMOTE_URL",
+   750      });
+   751    }
+   752
+   753    await recordAudit({
+   754      entityType: "project",
+   755      entityId: project.id,
+   756      action: "executed",
+   757      projectId: project.id,
+   758      stateBefore: {},
+   759      stateAfter: {
+   760        branch,
+   761        remoteUrl: project.gitRemoteUrl,
+   762        commitHash,
+   763        ...(deliveryProof ? deliveryProof : {}),
+   764        remoteCommitHash,
+   765        proposalId: proposalId ?? null,
+   766      },
+   767      correlationId,
+   768    });
+   769
+   770    // G-14: emit a high-level event so push appears in dashboard activity feed
+   771    // and in the AI context's recentEvents on the next chat request.
+   772    await db.insert(eventsTable).values({
+   773      id: randomUUID(),
+   774      type: "GitPushed",
+   775      projectId: project.id,
+   776      severity: "info",
+   777      message: `Pushed branch "${branch}" to ${project.gitRemoteUrl}`,
+   778      correlationId,
+   779      payload: {
+   780        ...(proposalId ? { proposalId } : {}),
+   781        operationId: correlationId,
+   782        commitHash,
+   783        ...(deliveryProof ? deliveryProof : {}),
+   784        remoteCommitHash,
+   785        branch,
+   786        remoteUrl: project.gitRemoteUrl,
+   787      },
+   788    });
+   789
+   790    invalidateContextCache(project.id);
+   791
+   792    // G-03: fire-and-forget post-push scan so the knowledge graph and metrics
+   793    // reflect the new code without requiring a manual scan click.  We run this
+   794    // after the response is sent to avoid blocking the push acknowledgement.
+   795    setImmediate(async () => {
+   796      const scanNow = new Date();
+   797      const jobId = randomUUID();
+   798      try {
+   799        await db.transaction(async (tx) => {
+   800          await tx.insert(scanJobsTable).values({
+   801            id: jobId,
+   802            projectId: project.id,
+   803            status: "queued",
+   804            createdAt: scanNow,
+   805          });
+   806
+   807          await tx.update(projectsTable).set({ status: "scanning", updatedAt: scanNow }).where(eq(projectsTable.id, project.id));
+   808
+   809          await tx.insert(eventsTable).values({
+   810            id: randomUUID(),

@@ -1,0 +1,611 @@
+Removing .engineeringos-delivery/88ee9455-8f86-47ee-a16b-5e95c030e5f5/lib/
+Removing .engineeringos-delivery/88ee9455-8f86-47ee-a16b-5e95c030e5f5/node-compile-cache/
+Removing .engineeringos-delivery/88ee9455-8f86-47ee-a16b-5e95c030e5f5/shell-exec-output/
+Removing .engineeringos-delivery/88ee9455-8f86-47ee-a16b-5e95c030e5f5/tsx-1000/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-08c20344-0ed4-447f-b627-9a5a45c3e4df/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-361cc17c-1ccb-472f-946e-218cfd725f59/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-5d63e423-ffea-4b2a-ae1d-b37d86bfcdf2/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-8a3c500a-b0ec-4bd4-9c33-57c44aeb1512/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-98b36cf5-8965-4591-9559-a0fdbd68eca7/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-eaa3d7ef-9bc1-47d8-bebd-b719e1416ed4/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/apply-mixed-stale-e0321f26.ts
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/apply-mixed-valid-48431545.ts
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/check-digest.ts
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/debug-tree.ts
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/lib/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/mBOYTKlYYAi3L4ERgru0R/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/node-compile-cache/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/shell-exec-output/
+Removing .engineeringos-delivery/a401c154-e95e-4feb-be52-c47b38d4ba84/tsx-1000/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/check-digest.ts
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/debug-tree.ts
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/lib/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/node-compile-cache/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/shell-exec-output/
+Removing .engineeringos-delivery/bbc1be95-96d0-4ccf-bae1-cc2f0228a1fd/tsx-1000/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/apply-atomic-dangerous-98d5e1f4.ts
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/check-digest.ts
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/debug-tree.ts
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/lib/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/node-compile-cache/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/shell-exec-output/
+Removing .engineeringos-delivery/bf11cd62-e1d9-4c1b-85e8-bdb4ad04ad00/tsx-1000/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/apply-mixed-stale-dc48cb4b.ts
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/apply-mixed-valid-6ce3b741.ts
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/check-digest.ts
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/debug-tree.ts
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/lib/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/node-compile-cache/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/shell-exec-output/
+Removing .engineeringos-delivery/c8142995-0e9c-47a3-ad1b-87e3f3a20017/tsx-1000/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/BBDj2R0vEbl2MiniPRPqk/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-eaa3d7ef-9bc1-47d8-bebd-b719e1416ed4/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/check-digest.ts
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/debug-tree.ts
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/lib/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/node-compile-cache/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/shell-exec-output/
+Removing .engineeringos-delivery/ccb89641-5347-490d-82cb-d0f4b05f56a0/tsx-1000/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/apply-hash-conflict-d9e3009b.ts
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/check-digest.ts
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/debug-tree.ts
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/lib/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/node-compile-cache/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/shell-exec-output/
+Removing .engineeringos-delivery/d4abfa1f-ef36-4bc0-9ff9-e38f71fbe409/tsx-1000/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/apply-hunk-conflict-2b29d402.ts
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/check-digest.ts
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/debug-tree.ts
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/lib/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/node-compile-cache/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/shell-exec-output/
+Removing .engineeringos-delivery/d8eeac90-7c27-4bbb-a380-14b08c08cf58/tsx-1000/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/check-digest.ts
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/debug-tree.ts
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/lib/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/node-compile-cache/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/shell-exec-output/
+Removing .engineeringos-delivery/d9056208-3e92-4f71-9056-42145a7b7f40/tsx-1000/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/check-digest.ts
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/debug-tree.ts
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/lib/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/node-compile-cache/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/shell-exec-output/
+Removing .engineeringos-delivery/dcb2b3d9-c460-48f3-aa17-84d94e1519d1/tsx-1000/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-08c20344-0ed4-447f-b627-9a5a45c3e4df/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-361cc17c-1ccb-472f-946e-218cfd725f59/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-5d63e423-ffea-4b2a-ae1d-b37d86bfcdf2/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-8a3c500a-b0ec-4bd4-9c33-57c44aeb1512/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-98b36cf5-8965-4591-9559-a0fdbd68eca7/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-eaa3d7ef-9bc1-47d8-bebd-b719e1416ed4/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/apply-guard-fe318128.ts
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/check-digest.ts
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/debug-tree.ts
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/lib/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/mBOYTKlYYAi3L4ERgru0R/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/node-compile-cache/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/shell-exec-output/
+Removing .engineeringos-delivery/ef6dd593-8e5b-4a7b-8e89-a921a050ef15/tsx-1000/
+Removing .engineeringos-delivery/f635d0c7-52d9-4385-ae1a-33cb4ac3d074/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/apply-guard-ecb2ff76.ts
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/check-digest.ts
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/debug-tree.ts
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/lib/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/node-compile-cache/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/shell-exec-output/
+Removing .engineeringos-delivery/fa610e11-7315-4de8-8e01-6d47b853387b/tsx-1000/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-08c20344-0ed4-447f-b627-9a5a45c3e4df/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-361cc17c-1ccb-472f-946e-218cfd725f59/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-5d63e423-ffea-4b2a-ae1d-b37d86bfcdf2/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-8a3c500a-b0ec-4bd4-9c33-57c44aeb1512/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-98b36cf5-8965-4591-9559-a0fdbd68eca7/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-eaa3d7ef-9bc1-47d8-bebd-b719e1416ed4/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/apply-hash-conflict-45649c99.ts
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/check-digest.ts
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/debug-tree.ts
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/lib/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/mBOYTKlYYAi3L4ERgru0R/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/node-compile-cache/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/shell-exec-output/
+Removing .engineeringos-delivery/fad26f85-85a8-4cd5-a49e-223f31def0bb/tsx-1000/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/.engineeringos-delivery-workspace
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/04a179572841567e2b07c9262dea703c/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/3d8346fae87ed5b4e93fa202b8d56044/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/69c12389733004340b8c61f422f92128/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/83a67b25007f6b094fc1f25d3f163156/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/8bad1b755826a6059765b13d5ab6948b/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/8c8ef9305b5ec2975be5e2bfc275a8cf/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/JnmM5EDEp-05mEkJzp51G/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/KK_pxAGhs6mOWI9f-BUh-/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-0df4c370-b0bd-46b2-9e49-1dd9484a9053/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-2ce32daf-249e-42ee-99b8-6f8fec391293/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-355c5088-7630-49c6-9679-70521bbf7a02/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-3cf338b4-1005-45b1-8bde-b1e49dc5dd5e/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-4f6ef05e-9ce2-4488-bb8f-4807addeddff/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-52d818c4-a3c4-4e9f-a24c-65298dd2d55e/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-96531eac-0b8b-42cf-8596-89b7c1715aa9/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-a0c7830e-c2c0-4636-8195-60ec37d40954/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-df6b7136-6f2c-444d-abc3-b6c2ddeb5544/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/ai-test-ff99dfd4-5247-4177-9a25-c3fa0d36b7ba/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/apply-stale-f735715b.ts
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/b00ad7e6e82a1b9685b07d16fc90dbdd/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/b90d35ce2c04d4b532f59c4945e4b4e9/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/check-digest.ts
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/debug-tree.ts
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/fa093c7b38b5a1964a3e9737aa8d4d48/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/fd09ef384ce0a6e1b4f36893a7175727/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/lib/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/node-compile-cache/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/shell-exec-output/
+Removing .engineeringos-delivery/fb5a5694-9196-47ba-8d15-fb63e539ed46/tsx-1000/
+ M artifacts/api-server/src/lib/delivery-workspace.test.ts
+ M artifacts/api-server/src/lib/delivery-workspace.ts
+ M artifacts/api-server/src/lib/operation-evidence.ts
+ M artifacts/api-server/src/routes/ai.test.ts
+ M artifacts/api-server/src/routes/ai/chat.ts
+ M artifacts/api-server/src/routes/git.test.ts
+ M artifacts/api-server/src/routes/git.ts
+ M docs/actual-capability-baseline-v1.md
+ M docs/replit-agent-parity-gaps.md
+ M lib/ai-orchestrator/src/validation-result.ts
+ M lib/api-client-react/src/generated/api.schemas.ts
+ M lib/api-spec/openapi.yaml
+ M lib/api-zod/src/generated/api.ts
+ M lib/api-zod/src/generated/types/aiApplyChangesResult.ts
+ M lib/api-zod/src/generated/types/aiPendingProposal.ts
+ M lib/api-zod/src/generated/types/index.ts
+ M lib/api-zod/src/generated/types/validationEvidence.ts
+ M lib/db/src/schema/ai_change_proposals.ts
+?? lib/api-zod/src/generated/types/aiApplyChangesResultIntegrityOutcome.ts
+---
+name: workflows
+description: Manage application workflows including configuration, start, stop, restart, and removal.
+---
+
+## Overview
+
+A workflow binds a shell command (e.g., `npm run dev`, `python run.py`, `cargo run`) to a long-running task managed by Replit. Workflows are used to run webservers, background services, TUIs, and other persistent processes.
+
+**Key characteristics:**
+
+- Workflows run until explicitly stopped
+- The system tracks workflows automatically -- no separate configuration file is required
+- Workflows auto-restart after package installation and module installation
+- You can only get console logs from a workflow if it is running
+
+
+## Artifact-Owned Workflows
+
+Each service declared in `artifacts/<slug>/.replit-artifact/artifact.toml` already owns a managed workflow named `artifacts/<slug>: <service-name>`. Start or restart these services with the direct `WorkflowsRestart` tool. For example:
+
+- API server: `{ "name": "artifacts/api-server: API Server" }`
+- Notes frontend: `{ "name": "artifacts/notes-app: web" }`
+
+**Do not call the `configureWorkflow` callback for an artifact service.** Managed artifact workflows inject service configuration including `PORT`, `BASE_PATH`, and proxy routing. Configuring a replacement workflow can omit that configuration or create a legacy artifact that conflicts with the real artifact's preview path.
+
+Use the `configureWorkflow` callback only for a long-running process that is not represented by a registered artifact service.
+
+
+## Setup Tips
+
+1. **Keep workflows minimal**: One workflow per project is usually sufficient. Use the main frontend server or TUI as your primary workflow.
+
+2. **Choose the right workflow**: If your project has a frontend or TUI, set the workflow to the process that updates what the user sees.
+
+3. **Clean up unused workflows**: When adding new workflows, remove any existing workflows that are no longer needed.
+
+4. **Always restart after changes**: Restart workflows after making server-side code changes to ensure updates are visible to the user. Verify they run without errors before returning to the user.
+
+5. **Use bash for one-off commands**: Workflows are for persistent processes. Use bash for build scripts, testing, or commands that don't need to keep running.
+
+## When to Use
+
+Use this skill when:
+
+- You need to create or configure a workflow (background process)
+- You need to restart the application after making code changes
+- The application needs to be restarted to pick up new environment variables
+- You need to remove a workflow that's no longer needed
+- The user asks to start, stop, or restart the application
+
+## When NOT to Use
+
+- For debugging runtime errors (fix the code first, then restart)
+- When the application is already running and changes are hot-reloaded
+- One-off commands (use bash for commands that don't need to persist)
+- Build scripts (use bash for npm build, webpack, etc.)
+- Testing commands (use bash or read the testing skill for testing subagent)
+- More than 10 workflows (keep workflows minimal; combine services if needed)
+
+## Available Functions
+
+The TypeScript runtime registers `listWorkflows`, `getWorkflowStatus`, `configureWorkflow`, `restartWorkflow`, `stopWorkflow`, and `removeWorkflow`.
+
+The functions below are `CodeExecution` callbacks. Outside a `CodeExecution` script, use the direct `WorkflowsRestart` tool for workflow starts and restarts.
+
+### listWorkflows()
+
+List configured workflows with their `name`, `command`, and `state` (`not_started`, `running`, `finished`, or `failed`).
+
+```javascript
+const workflows = await listWorkflows({});
+console.log(workflows);
+```
+
+### getWorkflowStatus({ name, maxScrollbackLines })
+
+Get one workflow's state, command, open ports, configured port, and recent output. `maxScrollbackLines` defaults to 100 and is capped at 1000; set it to 0 to skip output.
+
+```javascript
+const status = await getWorkflowStatus({ name: "Start application" });
+console.log(status);
+```
+
+### configureWorkflow({ name, command, waitForPort, outputType, autoStart, isCanvasWorkflow })
+
+
+Configure or create a workflow only for a process that is not already represented by an artifact service. To start or restart artifact services, use the direct `WorkflowsRestart` tool described above.
+
+
+**Parameters:**
+
+- `name` (str, default "Start application"): Unique workflow identifier
+- `command` (str, required): Shell command to execute
+- `waitForPort` (int, optional): Port the process listens on
+- `outputType` (str, default "webview"): "webview", "console", or "vnc"
+- `autoStart` (bool, default false): Start the workflow after configuration
+- `isCanvasWorkflow` (bool, default false): Whether this workflow serves canvas iframe content
+
+**Output Type Rules:**
+
+- **webview** - For web applications. Can use any supported port.
+- **console** - For backend services, CLIs, TUIs. Can use any supported port.
+- **vnc** - For desktop/GUI apps (Electron, PyQt, etc.). No port needed.
+
+**Supported Ports:** 3000, 3001, 3002, 3003, 4200, 5000, 5173, 6000, 6800, 8000, 8008, 8080, 8099, 9000
+
+**Examples:**
+
+```javascript
+// Web application (React, Next.js, etc.)
+await configureWorkflow({
+    name: "Start application",
+    command: "npm run dev",
+    waitForPort: 3000,
+    outputType: "webview",
+    autoStart: true
+});
+
+// Backend API
+await configureWorkflow({
+    name: "Backend API",
+    command: "python api.py",
+    waitForPort: 8000,
+    outputType: "console",
+    autoStart: true
+});
+
+// Desktop application
+await configureWorkflow({
+    name: "Desktop App",
+    command: "python gui_app.py",
+    outputType: "vnc",
+    autoStart: true
+});
+```
+
+
+### stopWorkflow({ name })
+
+Stop a running workflow without removing its configuration. Use this when the user asks to pause or turn off a workflow that they may want to start again later.
+
+```javascript
+await stopWorkflow({ name: "Backend API" });
+```
+
+### removeWorkflow(name)
+
+Remove a workflow by name. Automatically stops it if running.
+
+**Parameters:**
+
+- `name` (str, required): Name of the workflow to remove
+
+**Returns:** Dict with `success`, `message`, `workflowName`, and `wasRunning`
+
+**Example:**
+
+```javascript
+await removeWorkflow({ name: "Backend API" });
+```
+
+### restartWorkflow(workflowName, timeout)
+
+Restart a workflow by name.
+
+**Parameters:**
+
+- `workflowName` (str, required): Name of the workflow (e.g., "Start application")
+- `timeout` (int, default 30): Timeout in seconds to wait for restart
+
+**Returns:** Dict with restart status and optional screenshot URL
+
+**Example:**
+
+```javascript
+// Restart the main application
+const result = await restartWorkflow({ workflowName: "Start application" });
+console.log(result.message);
+

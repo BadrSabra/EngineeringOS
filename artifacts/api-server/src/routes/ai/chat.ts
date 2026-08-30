@@ -151,8 +151,9 @@ import {
   discardDeliveryWorkspace,
   deliveryWorkspaceExists,
   hashChangeSet,
-  hashDeliveryFiles,
   hashDeliveryWorkspace,
+  hashDeliveryTree,
+  DELIVERY_TREE_DIGEST_VERSION,
   atomicallyPromoteFile,
 } from "../../lib/delivery-workspace.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
@@ -440,9 +441,12 @@ function parsePublicValidationReceipts(value: unknown): PublicValidationResult[]
         artifactRef: evidence.artifactRef,
         ...(typeof evidence.operationId === "string" ? { operationId: evidence.operationId } : {}),
         ...(typeof evidence.projectRevision === "string" ? { projectRevision: evidence.projectRevision } : {}),
+        ...(typeof evidence.treeDigestVersion === "string" ? { treeDigestVersion: evidence.treeDigestVersion } : {}),
+        ...(typeof evidence.baseTreeHash === "string" ? { baseTreeHash: evidence.baseTreeHash } : {}),
         ...(typeof evidence.candidateHash === "string" ? { candidateHash: evidence.candidateHash } : {}),
         ...(typeof evidence.changeSetHash === "string" ? { changeSetHash: evidence.changeSetHash } : {}),
         ...(typeof evidence.promotedHash === "string" ? { promotedHash: evidence.promotedHash } : {}),
+        ...(typeof evidence.committedTreeHash === "string" ? { committedTreeHash: evidence.committedTreeHash } : {}),
       },
       ...(typeof candidate.reasonCode === "string" ? { reasonCode: candidate.reasonCode as PublicValidationResult["reasonCode"] } : {}),
       ...(typeof candidate.detail === "string" ? { detail: redactUserFacingText(candidate.detail).slice(0, 240) } : {}),
@@ -5609,6 +5613,15 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
             lifecycle: proposal.lifecycle,
             baseRevision: proposal.baseRevision,
             changeSetHash: proposal.changeSetHash,
+            baseTreeHash: proposal.baseTreeHash,
+            candidateTreeHash: proposal.candidateTreeHash,
+            promotedTreeHash: proposal.promotedTreeHash,
+            treeDigestVersion: proposal.treeDigestVersion,
+            appliedChanges: proposal.appliedChanges
+              ? parseStoredJson(proposal.appliedChanges)
+              : [],
+            commitHash: proposal.commitHash,
+            committedTreeHash: proposal.committedTreeHash,
             conflictReason: proposal.conflictReason
               ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
               : null,
@@ -5745,6 +5758,35 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
   const changeSetHash = proposal.changeSetHash ?? hashChangeSet(changes);
+  if (
+    proposal.treeDigestVersion !== DELIVERY_TREE_DIGEST_VERSION
+    || !proposal.candidateTreeHash
+    || candidateHash !== proposal.candidateTreeHash
+  ) {
+    const reason = proposal.treeDigestVersion !== DELIVERY_TREE_DIGEST_VERSION
+      ? "The saved delivery workspace uses an unsupported tree digest contract."
+      : "The saved delivery candidate changed after it was captured.";
+    await db.update(aiChangeProposalsTable).set({
+      lifecycle: "blocked",
+      conflictReason: reason,
+    }).where(and(
+      eq(aiChangeProposalsTable.id, proposal.id),
+      eq(aiChangeProposalsTable.status, "pending"),
+    ));
+    return res.status(409).json({
+      error: reason,
+      code: proposal.treeDigestVersion !== DELIVERY_TREE_DIGEST_VERSION
+        ? "DELIVERY_TREE_DIGEST_UNSUPPORTED"
+        : "DELIVERY_CANDIDATE_DRIFT",
+      proposalId: proposal.id,
+      operationId: proposal.operationId,
+      lifecycle: "blocked",
+      integrityOutcome: "blocked",
+      treeDigestVersion: proposal.treeDigestVersion,
+      candidateTreeHash: candidateHash,
+      expectedCandidateTreeHash: proposal.candidateTreeHash,
+    });
+  }
   const groups = new Map<string, typeof changes>();
   for (const change of changes) {
     if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
@@ -5765,6 +5807,7 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
     if ("evidence" in result) {
       result.evidence.operationId = proposal.operationId ?? proposal.messageId;
       result.evidence.projectRevision = proposal.baseRevision ?? undefined;
+      result.evidence.treeDigestVersion = proposal.treeDigestVersion ?? undefined;
       result.evidence.candidateHash = candidateHash;
       result.evidence.changeSetHash = changeSetHash;
     }
@@ -6439,7 +6482,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       rootPath: project.rootPath,
       operationId: applyCorrelationId,
       baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
-      changes: approvedChanges,
+      // The stored proposal is the authorization envelope. Materialize only
+      // the exact subset submitted by the approval request.
+      changes: [],
     });
     await db.update(aiChangeProposalsTable)
       .set({
@@ -6447,6 +6492,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         workspaceRoot: deliveryWorkspace.workspaceRoot,
         baseRevision: deliveryWorkspace.baseRevision,
         changeSetHash: deliveryWorkspace.changeSetHash,
+        baseTreeHash: deliveryWorkspace.baseTreeHash,
+        candidateTreeHash: deliveryWorkspace.candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
         lifecycle: "isolated",
         conflictReason: null,
       })
@@ -6455,6 +6503,10 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         eq(aiChangeProposalsTable.status, "pending"),
       ));
     let journalSequence = 0;
+    let candidateTreeHash = deliveryWorkspace.candidateTreeHash;
+    let promotedTreeHash: string | null = null;
+    let promotionMismatch = false;
+    let effectiveChangeSetHash = deliveryWorkspace.changeSetHash;
     const appendApplyJournal = async (
       stage: ApplyJournalStage,
       payload: Record<string, unknown> = {},
@@ -6468,7 +6520,16 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         proposalId,
         stage,
         sequence: journalSequence,
-        payload,
+        payload: {
+        operationId: applyCorrelationId,
+        baseRevision: deliveryWorkspace.baseRevision,
+        baseTreeHash: deliveryWorkspace.baseTreeHash,
+        candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        changeSetHash: effectiveChangeSetHash,
+        promotedTreeHash,
+        ...payload,
+        },
       });
     };
     await appendApplyJournal("STARTED", {
@@ -6662,10 +6723,16 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       await fs.mkdir(path.dirname(candidatePath), { recursive: true });
       await fs.writeFile(candidatePath, change.newContent, "utf8");
     }
-    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
-    const effectiveChangeSetHash = hashChangeSet(candidateChanges);
+    candidateTreeHash = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
+    const candidateHash = candidateTreeHash;
+    effectiveChangeSetHash = hashChangeSet(candidateChanges);
     await db.update(aiChangeProposalsTable)
-      .set({ changeSetHash: effectiveChangeSetHash })
+      .set({
+        changeSetHash: effectiveChangeSetHash,
+        baseTreeHash: deliveryWorkspace.baseTreeHash,
+        candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      })
       .where(and(
         eq(aiChangeProposalsTable.id, proposalId),
         eq(aiChangeProposalsTable.status, "pending"),
@@ -6693,26 +6760,18 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       if ("evidence" in validation) {
         validation.evidence.operationId = applyCorrelationId;
         validation.evidence.projectRevision = deliveryWorkspace.baseRevision;
+        validation.evidence.baseTreeHash = deliveryWorkspace.baseTreeHash;
+        validation.evidence.treeDigestVersion = DELIVERY_TREE_DIGEST_VERSION;
         validation.evidence.candidateHash = candidateHash;
         validation.evidence.changeSetHash = effectiveChangeSetHash;
       }
       verificationByProfile.set(profile, validation);
     }
 
-    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+    const candidateHashAfterValidation = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
     const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
-    const liveRootChangedBeforePromotion = !candidateChangedDuringValidation && (await Promise.all(
-      candidateChanges.map(async (change) => {
-        let current: Buffer | null = null;
-        try {
-          current = await fs.readFile(change.realPath);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        }
-        return (current === null && change.before === null)
-          || (current !== null && change.before !== null && current.equals(change.before));
-      }),
-    )).some((unchanged) => !unchanged);
+    const liveRootHashBeforePromotion = await hashDeliveryTree(resolvedRoot);
+    const liveRootChangedBeforePromotion = liveRootHashBeforePromotion !== deliveryWorkspace.baseTreeHash;
     const validationNeedsReview = candidateChangedDuringValidation || liveRootChangedBeforePromotion || [...verificationByProfile.values()].some((validation) =>
       validation.status === "failed" ||
       validation.status === "unavailable" ||
@@ -6738,6 +6797,10 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
             : "behavioral_validation",
         candidateHash,
         changeSetHash: effectiveChangeSetHash,
+        baseTreeHash: deliveryWorkspace.baseTreeHash,
+        candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        liveRootHashBeforePromotion,
       });
     } else {
       await appendApplyJournal("WRITING_STARTED", {
@@ -6802,13 +6865,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       }
     }
 
-    const candidateFilesHash = candidateChanges.length > 0
-      ? await hashDeliveryFiles(deliveryWorkspace.workspaceRoot, candidateChanges)
-      : effectiveChangeSetHash;
-    const promotedHash = writtenChanges.length > 0
-      ? await hashDeliveryFiles(resolvedRoot, writtenChanges)
-      : effectiveChangeSetHash;
-    if (writtenChanges.length > 0 && promotedHash !== candidateFilesHash) {
+    promotedTreeHash = await hashDeliveryTree(resolvedRoot);
+    if (writtenChanges.length > 0 && promotedTreeHash !== candidateHash) {
+      promotionMismatch = true;
       for (const result of results) {
         if (result.ok) {
           result.ok = false;
@@ -6818,32 +6877,44 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         }
       }
       rollbackFailures = await restoreApplySnapshots([...writtenChanges].reverse());
-      await appendApplyJournal("ROLLBACK_FAILED", {
+      const rollbackTreeHash = await hashDeliveryTree(resolvedRoot).catch(() => null);
+      await appendApplyJournal(rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK", {
         reason: "promoted_candidate_hash_mismatch",
         candidateHash,
         changeSetHash: effectiveChangeSetHash,
-        promotedHash,
+        promotedTreeHash,
+        rollbackTreeHash,
         failures: rollbackFailures,
       });
+      if (rollbackFailures.length === 0 && rollbackTreeHash !== deliveryWorkspace.baseTreeHash) {
+        await appendApplyJournal("RECOVERY_REQUIRED", {
+          reason: "rollback_tree_mismatch",
+          promotedTreeHash,
+          rollbackTreeHash,
+        });
+      }
     }
     for (const validation of verificationByProfile.values()) {
       if (
         writtenChanges.length > 0
-        && promotedHash === candidateFilesHash
+        && !promotionMismatch
+        && promotedTreeHash === candidateHash
         && "evidence" in validation
       ) {
-        validation.evidence.promotedHash = promotedHash;
+        validation.evidence.promotedHash = promotedTreeHash;
       }
     }
     const validationEvidence = [...verificationByProfile.values()].flatMap((validation) => {
       if (!("evidence" in validation)) return [];
-      const stale = candidateChangedDuringValidation || liveRootChangedBeforePromotion;
+      const stale = candidateChangedDuringValidation || liveRootChangedBeforePromotion || promotionMismatch;
       return [publicValidationReceipt(validation, stale
         ? {
             status: "blocked",
             detail: candidateChangedDuringValidation
               ? "The immutable candidate changed during validation and was not promoted."
-              : "The project changed before promotion and the validated candidate was not promoted.",
+              : liveRootChangedBeforePromotion
+                ? "The project changed before promotion and the validated candidate was not promoted."
+                : "The promoted tree did not match the validated candidate.",
           }
         : undefined)];
     });
@@ -6912,13 +6983,23 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       invalidateContextCache(projectId);
     }
 
-    const allOk = responseResults.every((r) => r.ok) && !verificationNeedsReviewAfterPromotion;
+    const allOk = responseResults.every((r) => r.ok)
+      && !verificationNeedsReviewAfterPromotion
+      && !promotionMismatch
+      && promotedTreeHash === candidateHash;
     const rollbackFailed = rollbackFailures.length > 0;
     const applyStatus = rollbackFailed
       ? "ROLLBACK_FAILED"
       : allOk
         ? "APPLIED"
         : "BLOCKED";
+    const integrityOutcome = rollbackFailed
+      ? "unknown"
+      : promotionMismatch
+        ? "mismatch"
+        : allOk
+          ? "verified"
+          : "blocked";
 
     // Do not record a successful AI execution event until the mandatory
     // behavioral validation has passed. Persistence and behavior remain
@@ -6945,7 +7026,12 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           rollbackFailures,
           candidateHash,
           changeSetHash: effectiveChangeSetHash,
-          promotedHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
+          integrityOutcome,
         },
       });
       await tx.insert(auditLogsTable).values({
@@ -6966,7 +7052,12 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           operationId: applyCorrelationId,
           candidateHash,
           changeSetHash: effectiveChangeSetHash,
-          promotedHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
+          integrityOutcome,
           rollbackFailures,
           behavioralVerification: responseResults.map((result) => ({
             path: result.path,
@@ -6996,10 +7087,15 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           appliedFiles: appliedPaths,
           failedFiles: failedPaths,
           applyStatus,
+          integrityOutcome,
           rollbackFailures,
           candidateHash,
           changeSetHash: effectiveChangeSetHash,
-          promotedHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
           behavioralVerification: responseResults.map((result) => ({
             path: result.path,
             status: result.behavioralVerification.status,
@@ -7014,7 +7110,17 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
             lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
             consumedAt: new Date(),
             validationEvidence: JSON.stringify(validationEvidence),
-            committedHash: allOk ? promotedHash : null,
+            baseTreeHash: deliveryWorkspace.baseTreeHash,
+            candidateTreeHash,
+            promotedTreeHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+            committedHash: null,
+            appliedChanges: allOk
+              ? JSON.stringify(writtenChanges.map((change) => ({
+                  path: change.path,
+                  newContent: change.newContent,
+                })))
+              : null,
           })
           .where(and(
             eq(aiChangeProposalsTable.id, proposalId),
@@ -7030,6 +7136,10 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
                 ? "One or more approved files could not be applied."
                 : "No approved files were applied.",
             validationEvidence: JSON.stringify(validationEvidence),
+            baseTreeHash: deliveryWorkspace.baseTreeHash,
+            candidateTreeHash,
+            promotedTreeHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
           })
           .where(and(
             eq(aiChangeProposalsTable.id, proposalId),
@@ -7045,6 +7155,12 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       results: responseResults,
       correlationId: applyCorrelationId,
       applyStatus,
+      integrityOutcome,
+      baseTreeHash: deliveryWorkspace.baseTreeHash,
+      candidateTreeHash,
+      promotedTreeHash,
+      changeSetHash: effectiveChangeSetHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       rollbackFailures,
       validationEvidence,
     });

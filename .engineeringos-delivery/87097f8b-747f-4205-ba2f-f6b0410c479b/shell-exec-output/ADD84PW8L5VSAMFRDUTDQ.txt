@@ -1,0 +1,89 @@
+artifacts/api-server/src/routes/ai/chat.ts:59:  buildPatchHunks,
+artifacts/api-server/src/routes/ai/chat.ts:61:  rebasePatchHunks,
+artifacts/api-server/src/routes/ai/chat.ts:150:  createDeliveryWorkspace,
+artifacts/api-server/src/routes/ai/chat.ts:903:  hunks?: FilePatchHunk[];
+artifacts/api-server/src/routes/ai/chat.ts:1184: * or omit individual hunks (hunk-level reject), but may not add new paths,
+artifacts/api-server/src/routes/ai/chat.ts:1185: * alter any non-hunk field, or introduce hunks not present in the proposal.
+artifacts/api-server/src/routes/ai/chat.ts:1196:    hunks?: Array<{
+artifacts/api-server/src/routes/ai/chat.ts:1242:    // When the stored change carries hunks the submitted change MUST also carry
+artifacts/api-server/src/routes/ai/chat.ts:1243:    // a non-empty hunk array.  An omitted or empty hunks field for a hunk-bearing
+artifacts/api-server/src/routes/ai/chat.ts:1246:    const storedHasHunks = storedChange.hunks != null && storedChange.hunks.length > 0;
+artifacts/api-server/src/routes/ai/chat.ts:1247:    const submittedHunkCount = change.hunks?.length ?? 0;
+artifacts/api-server/src/routes/ai/chat.ts:1249:      return `Submitted change for "${change.path}" must include at least one accepted hunk (the stored proposal has ${storedChange.hunks!.length})`;
+artifacts/api-server/src/routes/ai/chat.ts:1255:    if (change.hunks && change.hunks.length > 0) {
+artifacts/api-server/src/routes/ai/chat.ts:1257:      const remaining = [...(storedChange.hunks ?? [])];
+artifacts/api-server/src/routes/ai/chat.ts:1258:      for (const hunk of change.hunks) {
+artifacts/api-server/src/routes/ai/chat.ts:1294:    hunks: change.hunks?.map((hunk) => ({
+artifacts/api-server/src/routes/ai/chat.ts:5833:    hunks: z.array(z.object({
+artifacts/api-server/src/routes/ai/chat.ts:5955:      if (!change.hunks || change.hunks.length === 0 || !change.baseHash) {
+artifacts/api-server/src/routes/ai/chat.ts:5960:          error: "This legacy proposal has no Patch Lab hunks/base hash; generate a fresh patch instead.",
+artifacts/api-server/src/routes/ai/chat.ts:6007:        const rebased = rebasePatchHunks(currentContent, change.hunks);
+artifacts/api-server/src/routes/ai/chat.ts:6034:          hunks: buildPatchHunks(currentContent, rebased.content, change.reason, {
+artifacts/api-server/src/routes/ai/chat.ts:6249:    hunks: z.array(z.object({
+artifacts/api-server/src/routes/ai/chat.ts:6392:    // files (file-level reject) or omit individual hunks (hunk-level reject)
+artifacts/api-server/src/routes/ai/chat.ts:6393:    // but cannot add new paths, alter any non-hunk field, or introduce hunks
+artifacts/api-server/src/routes/ai/chat.ts:6438:    const deliveryWorkspace = await createDeliveryWorkspace({
+artifacts/api-server/src/routes/ai/chat.ts:6571:        // When hunks are present, rebase them against the current file content
+artifacts/api-server/src/routes/ai/chat.ts:6572:        // so that: (a) stale hunks are rejected, and (b) partial hunk selections
+artifacts/api-server/src/routes/ai/chat.ts:6573:        // (only accepted hunks forwarded by the UI) are applied correctly.
+artifacts/api-server/src/routes/ai/chat.ts:6575:        if (change.hunks && change.hunks.length > 0) {
+artifacts/api-server/src/routes/ai/chat.ts:6577:          const rebaseResult = rebasePatchHunks(currentContent, change.hunks);
+lib/ai-orchestrator/src/patch-contract.ts:38:export function rebasePatchHunks(
+lib/ai-orchestrator/src/patch-contract.ts:40:  hunks: readonly FilePatchHunk[],
+lib/ai-orchestrator/src/patch-contract.ts:42:  if (hunks.length === 0) {
+lib/ai-orchestrator/src/patch-contract.ts:46:      reason: "The patch has no hunks to rebase safely.",
+lib/ai-orchestrator/src/patch-contract.ts:51:    const newFileHunk = hunks.length === 1 && hunks[0]?.expectedText === "";
+lib/ai-orchestrator/src/patch-contract.ts:60:    return { ok: true, content: hunks[0]?.replacementText ?? "" };
+lib/ai-orchestrator/src/patch-contract.ts:64:  for (const [hunkIndex, hunk] of hunks.entries()) {
+lib/ai-orchestrator/src/patch-contract.ts:98:  // offsets of later hunks.
+lib/ai-orchestrator/src/patch-contract.ts:117:export function buildPatchHunks(
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:432:    prompt: "Detect the changed base, re-read the file, rebase only uniquely matching hunks, and request approval again.",
+lib/ai-orchestrator/src/index.ts:78:export { buildPatchHunks, hashPatchBase, rebasePatchHunks } from "./patch-contract.js";
+lib/ai-orchestrator/src/provider-tool-calls.ts:465: * possible marker prefixes across chunks, and validates the retained suffix at
+lib/ai-orchestrator/src/benchmark/contract-oracle.ts:13:type PendingChange = {
+lib/ai-orchestrator/src/schemas/chat.schema.ts:168:    hunks: z.array(FilePatchHunkSchema).max(100).optional(),
+lib/ai-orchestrator/src/schemas/chat.schema.ts:176:export type PendingChange = z.infer<typeof PendingChangeSchema>;
+lib/ai-orchestrator/src/tools/file-tools.ts:22:import { type PendingChange } from "../schemas/chat.schema.js";
+lib/ai-orchestrator/src/tools/file-tools.ts:23:import { buildPatchHunks, hashPatchBase } from "../patch-contract.js";
+lib/ai-orchestrator/src/tools/file-tools.ts:656:        hunks: buildPatchHunks(originalContent, args.content, args.reason ?? "No reason provided"),
+lib/ai-orchestrator/src/tools/file-tools.ts:723:        hunks: buildPatchHunks(originalContent, newContent, args.reason ?? "Focused text replacement"),
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:190:  it("preserves plain text and handles ordinary marker prefixes across chunks", () => {
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:192:    const chunks = [
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:198:    expect(chunks.join("")).toBe("plain ");
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:204:    const chunks = [
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:211:    expect(chunks.join("")).toBe("before ");
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:217:    const chunks = [
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:223:    expect(chunks.join("")).toBe("before ");
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts:2:import { rebasePatchHunks, type FilePatchHunk } from "../patch-contract.js";
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts:4:describe("rebasePatchHunks", () => {
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts:6:    const hunks: FilePatchHunk[] = [{
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts:14:    expect(rebasePatchHunks(
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts:16:      hunks,
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts:24:    const result = rebasePatchHunks(
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts:43:    const result = rebasePatchHunks(
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts:62:    expect(rebasePatchHunks(null, [{
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:64:  chunks: string[],
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:71:      if (index < chunks.length) {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:72:        controller.enqueue(encoder.encode(chunks[index++]!));
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:555:    const chunks: string[] = [];
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:561:        chunks.push(chunk);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:567:    expect(chunks.join("")).toBe("recovered");
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:580:    const chunks: string[] = [];
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:590:      chunks.push(chunk);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:593:    expect(chunks.join("")).toBe("fallback");
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:608:    const chunks: string[] = [];
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:615:        chunks.push(chunk);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:621:    expect(chunks.join("")).toBe("first answer");
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:11:import { rebasePatchHunks } from "../patch-contract.js";
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:145:    const result = rebasePatchHunks(
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:352:    // The agent accumulates chunks via `for await` and returns the result.
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:359:                // Return an async iterable of streaming chunks.
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:360:                const chunks = [
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:368:                    for (const text of chunks) {
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:21:import { buildPatchHunks, hashPatchBase } from "../patch-contract.js";
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:313:    const hunks = buildPatchHunks(null, content, "Create the module");
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:315:    expect(hunks).toHaveLength(1);
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:316:    expect(hunks[0]).toMatchObject({
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:356:      expect(pending[0].hunks).toEqual(buildPatchHunks(
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2665:                // Return an async iterable of chunks
+lib/ai-orchestrator/src/agents/chat-agent.ts:74:import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type ChatTaskResult, type PendingChange, type ResolvedModelInfo, type RepairPlanMetadata } from "../schemas/chat.schema.js";

@@ -24,6 +24,13 @@ export interface AiPendingProposal {
   lifecycle?: AiPendingProposalLifecycle;
   baseRevision?: string;
   changeSetHash?: string;
+  baseTreeHash?: string;
+  candidateTreeHash?: string;
+  promotedTreeHash?: string;
+  treeDigestVersion?: string;
+  appliedChanges?: AiPendingChange[];
+  commitHash?: string;
+  committedTreeHash?: string;
   conflictReason?: string;
   validationEvidence?: PublicValidationResult[];
 }

@@ -23,6 +23,7 @@ import {
   aiProviderCredentialsTable,
   aiChangeProposalsTable,
   eventsTable,
+  auditLogsTable,
   scanJobsTable,
 } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
@@ -39,6 +40,7 @@ import {
   parseGitHubRemote,
   pushLocalCommitToGitHub,
 } from "../lib/github-connector.js";
+import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../lib/delivery-workspace.js";
 
 const router = Router();
 const execFileAsync = promisify(execFile);
@@ -313,6 +315,12 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
   try {
     await assertRootPathExists(rootPath);
     let scopedPaths: string[] | undefined;
+    let deliveryProof: {
+      baseTreeHash: string;
+      candidateTreeHash: string;
+      promotedTreeHash: string;
+      treeDigestVersion: string;
+    } | undefined;
     if (proposalId) {
       const [proposal] = await db
         .select()
@@ -343,11 +351,30 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
         });
       }
       const applyEvidence = await findOperationEvent(projectId, "AiChangesApplied", correlationId);
+      const applyProofComplete = (
+        typeof applyEvidence?.operationId === "string"
+        && typeof applyEvidence.baseTreeHash === "string"
+        && typeof applyEvidence.candidateTreeHash === "string"
+        && typeof applyEvidence.promotedTreeHash === "string"
+        && typeof applyEvidence.changeSetHash === "string"
+        && applyEvidence.baseTreeHash === proposal.baseTreeHash
+        && applyEvidence.candidateTreeHash === proposal.candidateTreeHash
+        && applyEvidence.promotedTreeHash === proposal.promotedTreeHash
+        && applyEvidence.changeSetHash === proposal.changeSetHash
+        && applyEvidence.treeDigestVersion === proposal.treeDigestVersion
+      );
       if (
         !applyEvidence ||
         applyEvidence.proposalId !== proposalId ||
         applyEvidence.operationId !== correlationId ||
-        applyEvidence.applyStatus !== "APPLIED"
+        proposal.operationId !== correlationId ||
+        applyEvidence.applyStatus !== "APPLIED" ||
+        !applyProofComplete ||
+        !proposal.baseTreeHash ||
+        !proposal.candidateTreeHash ||
+        !proposal.promotedTreeHash ||
+        proposal.treeDigestVersion !== DELIVERY_TREE_DIGEST_VERSION ||
+        proposal.promotedTreeHash !== proposal.candidateTreeHash
       ) {
         return res.status(409).json({
           error: "AI commit requires a recorded successful Apply operation for this proposal and operation",
@@ -356,10 +383,9 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
           operationId: correlationId,
         });
       }
-
       let storedChanges: unknown;
       try {
-        storedChanges = JSON.parse(proposal.changes);
+        storedChanges = JSON.parse(proposal.appliedChanges ?? proposal.changes);
       } catch {
         return res.status(500).json({ error: "Stored AI change proposal is invalid", code: "AI_PROPOSAL_INVALID" });
       }
@@ -459,6 +485,22 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
         });
       }
 
+      const liveTreeBeforeCommit = await hashDeliveryTree(rootPath);
+      if (liveTreeBeforeCommit !== proposal.promotedTreeHash) {
+        return res.status(409).json({
+          error: "The live project changed after Apply; commit requires a fresh Apply",
+          code: "AI_COMMIT_APPLY_DRIFT",
+          expectedTree: proposal.promotedTreeHash,
+          actualTree: liveTreeBeforeCommit,
+        });
+      }
+      deliveryProof = {
+        baseTreeHash: proposal.baseTreeHash,
+        candidateTreeHash: proposal.candidateTreeHash,
+        promotedTreeHash: proposal.promotedTreeHash,
+        treeDigestVersion: proposal.treeDigestVersion ?? DELIVERY_TREE_DIGEST_VERSION,
+      };
+
       // Stage only the paths from the server-owned, already-verified proposal.
       await runGit(["add", "--", ...scopedPaths], rootPath);
     } else {
@@ -476,6 +518,83 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
       rootPath,
     );
     const { stdout: commitHash } = await runGit(["rev-parse", "HEAD"], rootPath);
+    const committedTreeHash = await hashDeliveryTree(rootPath);
+    if (scopedPaths) {
+      const [proposalProof] = await db
+        .select({
+          operationId: aiChangeProposalsTable.operationId,
+          lifecycle: aiChangeProposalsTable.lifecycle,
+          baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+          candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+          promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+          treeDigestVersion: aiChangeProposalsTable.treeDigestVersion,
+        })
+        .from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId!))
+        .limit(1);
+      if (
+        !proposalProof?.promotedTreeHash
+        || proposalProof.operationId !== correlationId
+        || proposalProof.lifecycle !== "applied"
+        || proposalProof.treeDigestVersion !== DELIVERY_TREE_DIGEST_VERSION
+        || committedTreeHash !== proposalProof.promotedTreeHash
+      ) {
+        await db.transaction(async (tx) => {
+          await tx.update(aiChangeProposalsTable)
+            .set({
+              lifecycle: "blocked",
+              commitHash,
+              committedTreeHash,
+              conflictReason: "The post-commit tree did not match the approved Apply proof.",
+            })
+            .where(and(
+              eq(aiChangeProposalsTable.id, proposalId!),
+              eq(aiChangeProposalsTable.lifecycle, "applied"),
+            ));
+          await tx.insert(auditLogsTable).values({
+            id: randomUUID(),
+            entityType: "project",
+            entityId: projectId,
+            action: "ai_executed",
+            projectId,
+            actor: req.userId,
+            stateBefore: {},
+            stateAfter: {
+              proposalId,
+              operationId: correlationId,
+              integrityOutcome: "mismatch",
+              commitHash,
+              committedTreeHash,
+              ...(deliveryProof ?? {}),
+            },
+            correlationId,
+          });
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "GitCommitBlocked",
+            projectId,
+            severity: "error",
+            message: "AI commit was blocked because its complete tree did not match Apply proof",
+            correlationId,
+            payload: {
+              proposalId,
+              operationId: correlationId,
+              integrityOutcome: "mismatch",
+              commitHash,
+              committedTreeHash,
+              ...(deliveryProof ?? {}),
+            },
+          });
+        });
+        return res.status(409).json({
+          error: "The committed tree does not match the approved Apply proof",
+          code: "AI_COMMIT_TREE_MISMATCH",
+          commitHash,
+          committedTreeHash,
+          integrityOutcome: "mismatch",
+        });
+      }
+    }
     const committedPaths = scopedPaths ?? (await runGit(
       ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
       rootPath,
@@ -487,7 +606,15 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
       action: "executed",
       projectId,
       stateBefore: {},
-      stateAfter: { commitMessage: message.trim(), commitHash, committedPaths, proposalId: proposalId ?? null },
+      stateAfter: {
+        commitMessage: message.trim(),
+        commitHash,
+        committedTreeHash,
+        ...(deliveryProof ?? {}),
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        committedPaths,
+        proposalId: proposalId ?? null,
+      },
       correlationId,
     });
 
@@ -504,12 +631,22 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
         ...(proposalId ? { proposalId } : {}),
         operationId: correlationId,
         commitHash,
+        committedTreeHash,
+        ...(deliveryProof ?? {}),
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
         committedPaths,
       },
     });
     if (proposalId) {
       await db.update(aiChangeProposalsTable)
-        .set({ lifecycle: "committed", committedHash: commitHash })
+        .set({
+          lifecycle: "committed",
+          commitHash,
+          committedTreeHash,
+          // Keep the legacy projection populated while new consumers use the
+          // explicitly typed Git identity and content digest fields.
+          committedHash: commitHash,
+        })
         .where(and(
           eq(aiChangeProposalsTable.id, proposalId),
           eq(aiChangeProposalsTable.lifecycle, "applied"),
@@ -518,7 +655,16 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
 
     invalidateContextCache(projectId);
 
-    return res.json({ ok: true, output: stdout || stderr, correlationId, commitHash, committedPaths });
+    return res.json({
+      ok: true,
+      output: stdout || stderr,
+      correlationId,
+      commitHash,
+      committedTreeHash,
+      ...(deliveryProof ?? {}),
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      committedPaths,
+    });
   } catch (err) {
     const e = err as { stderr?: string; stdout?: string; message?: string };
     // "nothing to commit" is not an error from the user's perspective
@@ -567,11 +713,26 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
   try {
     await assertRootPathExists(project.rootPath);
     let commitHash: string | undefined;
+    let deliveryProof: {
+      baseTreeHash: string | null;
+      candidateTreeHash: string | null;
+      promotedTreeHash: string | null;
+      treeDigestVersion: string | null;
+      committedTreeHash: string | null;
+    } | undefined;
     if (proposalId) {
       const [proposal] = await db
         .select({
           lifecycle: aiChangeProposalsTable.lifecycle,
           operationId: aiChangeProposalsTable.operationId,
+          baseRevision: aiChangeProposalsTable.baseRevision,
+          changeSetHash: aiChangeProposalsTable.changeSetHash,
+          baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+          candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+          promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+          treeDigestVersion: aiChangeProposalsTable.treeDigestVersion,
+          committedTreeHash: aiChangeProposalsTable.committedTreeHash,
+          commitHash: aiChangeProposalsTable.commitHash,
         })
         .from(aiChangeProposalsTable)
         .where(and(
@@ -581,10 +742,7 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
         .limit(1);
       if (
         !proposal
-        || (
-          proposal.operationId
-          && (proposal.operationId !== correlationId || proposal.lifecycle !== "committed")
-        )
+        || proposal.lifecycle !== "committed"
       ) {
         return res.status(409).json({
           error: "AI push requires the same committed delivery operation",
@@ -594,19 +752,47 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
           lifecycle: proposal?.lifecycle ?? null,
         });
       }
+      deliveryProof = {
+        baseTreeHash: proposal.baseTreeHash,
+        candidateTreeHash: proposal.candidateTreeHash,
+        promotedTreeHash: proposal.promotedTreeHash,
+        treeDigestVersion: proposal.treeDigestVersion,
+        committedTreeHash: proposal.committedTreeHash,
+      };
       const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
       commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
+      const committedTreeHash = typeof commitEvidence?.committedTreeHash === "string"
+        ? commitEvidence.committedTreeHash
+        : undefined;
       if (
         !commitEvidence ||
         commitEvidence.proposalId !== proposalId ||
         commitEvidence.operationId !== correlationId ||
-        !commitHash
+        proposal.operationId !== correlationId ||
+        !commitHash ||
+        !committedTreeHash ||
+        commitHash !== proposal.commitHash ||
+        committedTreeHash !== proposal.committedTreeHash ||
+        committedTreeHash !== proposal.promotedTreeHash ||
+        proposal.treeDigestVersion !== DELIVERY_TREE_DIGEST_VERSION ||
+        !proposal.baseTreeHash ||
+        !proposal.candidateTreeHash ||
+        proposal.candidateTreeHash !== proposal.promotedTreeHash
       ) {
         return res.status(409).json({
           error: "AI push requires a recorded commit operation for this proposal and operation",
           code: "AI_PUSH_REQUIRES_COMMIT_EVIDENCE",
           proposalId,
           operationId: correlationId,
+        });
+      }
+      const liveTreeBeforePush = await hashDeliveryTree(project.rootPath);
+      if (liveTreeBeforePush !== committedTreeHash) {
+        return res.status(409).json({
+          error: "The repository changed after the recorded AI commit; commit again before pushing",
+          code: "AI_PUSH_COMMIT_TREE_DRIFT",
+          expectedTree: committedTreeHash,
+          actualTree: liveTreeBeforePush,
         });
       }
       const { stdout: currentHead } = await runGit(["rev-parse", "HEAD"], project.rootPath);
@@ -666,6 +852,7 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
         branch,
         remoteUrl: project.gitRemoteUrl,
         commitHash,
+        ...(deliveryProof ? deliveryProof : {}),
         remoteCommitHash,
         proposalId: proposalId ?? null,
       },
@@ -685,6 +872,7 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
         ...(proposalId ? { proposalId } : {}),
         operationId: correlationId,
         commitHash,
+        ...(deliveryProof ? deliveryProof : {}),
         remoteCommitHash,
         branch,
         remoteUrl: project.gitRemoteUrl,
@@ -757,7 +945,16 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
       }
     });
 
-    return res.json({ ok: true, branch, output: redact(output), correlationId, commitHash, remoteCommitHash });
+    return res.json({
+      ok: true,
+      branch,
+      output: redact(output),
+      correlationId,
+      commitHash,
+      ...(deliveryProof ? deliveryProof : {}),
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      remoteCommitHash,
+    });
   } catch (err) {
     if (err instanceof GitHubConnectorError && err.code === "GITHUB_PUSH_REMOTE_DRIFT") {
       return res.status(409).json({

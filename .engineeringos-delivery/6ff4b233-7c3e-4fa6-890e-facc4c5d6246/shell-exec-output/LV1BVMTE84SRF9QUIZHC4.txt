@@ -1,0 +1,155 @@
+# Task #67: Close Candidate Commit Integrity
+
+# Close Candidate Commit Integrity
+
+## What & Why
+Close the remaining integrity gap in the approval-controlled AI delivery chain. The current apply path records candidate, change-set, and promoted hashes, but it compares the isolated candidate as a full tree while live promotion and Git commit checks rely primarily on selected-file bytes and correlated events. That leaves partial approvals, unrelated root drift, candidate mutation, and stale apply evidence insufficiently bound to the bytes that are committed and pushed.
+
+## Done looks like
+- Candidate and live-root hashing use one versioned deterministic tree-digest contract with identical file inclusion/exclusion rules, normalized relative paths, file-kind handling, symlink representation, and byte encoding.
+- Full-file and partial-hunk approvals materialize only the authorized submitted subset in the candidate workspace; omitted proposal files or hunks are not present in the validated candidate.
+- The apply receipt, journal, audit record, proposal state, and correlated event retain the same operation identity, base-tree digest, candidate-tree digest, change-set identity, and promoted-tree digest.
+- Apply blocks before promotion when any included live-root content changed outside the selected files, blocks when the candidate changed during validation, and verifies the complete promoted tree against the validated candidate. A mismatch or failed rollback is retained as an explicit blocked, mismatch, or unknown-state outcome.
+- A scoped AI commit requires complete, matching server-owned apply evidence for the same operation, rechecks the canonical live tree before staging and after committing, and records the Git commit identity separately from the post-commit tree digest. Missing, stale, or mismatched evidence blocks the commit.
+- The push trace preserves and checks the same operation/content proof, while generic non-AI Git commits retain their existing behavior.
+- Deterministic provider-free tests cover full and partial apply, omitted proposal changes, unrelated-root drift, candidate mutation, promoted-byte mutation, missing/stale commit evidence, and a successful Apply → commit → push trace with matching proof.
+- Capability and parity reports describe this only as code-backed or deterministically verified at the evidence level actually established; they do not convert provider, browser, credential, aggregate-release, or production readiness into a pass.
+
+## Out of scope
+- Reimplementing model tool-call parsing, AI failure persistence, capability recipes, schema-drift remediation, or aggregate release validation.
+- Running a live provider campaign, authenticated browser campaign, production deployment, or real GitHub credential flow.
+- Changing approval requirements, evidence gates, redaction rules, server-owned command profiles, or the prohibition on arbitrary model shell execution.
+- Treating a deterministic hash-chain receipt as proof of provider quality or as a complete end-to-end Agent journey.
+
+## Steps
+1. **Define the canonical tree-integrity contract** — Consolidate candidate and live-root digesting behind one server-owned contract with an explicit version and shared delivery exclusion policy. Specify normalized paths, file and symlink records, byte encoding, and bounded failure codes for base drift, candidate drift, promotion mismatch, missing proof, and unknown recovery state; keep Git commit identity distinct from tree-content digests.
+2. **Materialize the exact approved candidate** — Adjust candidate creation and apply preparation so the isolated workspace starts from the current source tree and overlays only the submitted authorized files/hunks, including rebased partial selections, rather than the entire stored proposal. Capture the pre-apply base-tree digest and candidate-tree digest, and retain them with the operation’s server-owned evidence.
+3. **Gate validation and promotion on complete-tree identity** — Validate the exact candidate identified by its operation, revision, and tree digest. Recheck the candidate after validation and compare the complete canonical live root with the captured base before promotion so unrelated changes fail closed; after atomic promotion, compare the complete live tree with the candidate and preserve explicit rollback or unknown-state evidence when the comparison fails.
+4. **Bind commit and push to promoted content** — Make scoped AI commit consume the correlated apply journal/event/proposal evidence and require all required digests to agree for the same operation and approved scope. Recheck the live tree before staging and after Git commit, persist and emit the commit SHA plus post-commit tree digest as separate fields, and carry the verified chain through the AI push event without weakening generic Git behavior.
+5. **Extend deterministic integrity coverage** — Add workspace, apply-route, and Git-route fixtures for canonical exclusions and file kinds, full and partial selections, omitted proposal files/hunks, unrelated root edits, candidate mutation during validation, post-write mutation, rollback mismatch/unknown state, missing or stale evidence, pre/post-commit drift, and a successful local commit/push proof. Include operation/revision/hash assertions across journal, audit, event, proposal, public validation, and operation-history projections, with no live provider or credential dependency.
+6. **Refresh evidence reports conservatively** — After implementation and deterministic checks are inspected, update the actual capability baseline and parity assessment to name the exact newly proven integrity transitions and remaining operational limitations. Keep aggregate validation and live/browser/provider claims pending when their completed evidence is absent.
+
+## Relevant files
+- `artifacts/api-server/src/lib/delivery-workspace.ts`
+- `artifacts/api-server/src/lib/delivery-workspace.test.ts`
+- `artifacts/api-server/src/routes/ai/chat.ts`
+- `artifacts/api-server/src/routes/ai.test.ts`
+- `artifacts/api-server/src/routes/git.ts`
+- `artifacts/api-server/src/routes/git.test.ts`
+- `artifacts/api-server/src/lib/operation-evidence.ts`
+- `artifacts/api-server/src/lib/operation-evidence.test.ts`
+- `lib/db/src/schema/ai_change_proposals.ts`
+- `lib/db/src/schema/ai_apply_journal.ts`
+- `lib/ai-orchestrator/src/validation-result.ts`
+- `lib/api-spec/openapi.yaml`
+- `docs/actual-capability-baseline-v1.md`
+- `docs/replit-agent-parity-gaps.md`
+
+
+--- apply references ---
+8: * POST /api/ai/chat/apply-changes
+21:  aiApplyJournalTable,
+154:  hashDeliveryFiles,
+155:  hashDeliveryWorkspace,
+400:      operationId: result.evidence.operationId,
+441:        ...(typeof evidence.operationId === "string" ? { operationId: evidence.operationId } : {}),
+475:    operationId: string | null;
+508:  const operationId = params.execution?.operationId
+509:    ?? (typeof request.operationId === "string" ? request.operationId : undefined)
+560:    operationId,
+2118:    operationId: string;
+2124:    operationId: randomUUID(),
+2365:    // Full invalidation happens only in /apply-changes when files are written.
+2468:        const operationId = msg.id;
+2474:          messageId: operationId,
+2486:          correlationId: operationId,
+2487:          payload: { messageId: operationId, proposalId: proposalId ?? null },
+2806:    operationId: string;
+2812:    operationId: randomUUID(),
+3058:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+3070:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+3088:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+3129:      operationId: aiExecution.operationId ?? aiExecution.id,
+3748:      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+3781:              operationId: request.operationId ?? analysisCorrelation.operationId,
+3801:                evidenceId: `browser-start:${request.operationId ?? "unknown"}`,
+3863:            operationId: analysisCorrelation.operationId,
+3873:             operationId: analysisCorrelation.operationId,
+4276:    let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
+4348:        const operationId = assistantOperationId ?? proposalMessageId;
+4349:        assistantOperationId = operationId;
+4371:          correlationId: operationId,
+4374:            operationId,
+4588:      operationId: assistantOperationId,
+4710:      operationId: execution.operationId,
+4733:  let operationId = execution.operationId ?? execution.buildPlanMessageId ?? execution.proposalId ?? null;
+4734:  if (!execution.operationId && execution.proposalId) {
+4740:    operationId = proposal?.messageId ?? operationId;
+4742:  const operationEvents = operationId
+4748:        eq(eventsTable.correlationId, operationId),
+4751:  const hasAppliedChanges = operationEvents.some((event) => event.type === "AiChangesApplied");
+4804:    operationId,
+4817:      operationId,
+4864:  const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
+4877:      eq(eventsTable.correlationId, operationId),
+4957:      operationId,
+5006:    operationId: recovered.execution.operationId,
+5189:        operationId: aiExecutionsTable.operationId,
+5208:  const operationId = execution?.operationId ?? execution?.id ?? target.executionId ?? messageId;
+5214:      eq(eventsTable.correlationId, operationId),
+5460:// traversal/symlink escape OUT of the project root (mirrors the apply-changes
+5574:  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
+5579:      operationId: aiExecutionsTable.operationId,
+5589:  const canonicalOperationId = proposalExecution?.operationId
+5600:      operationId: canonicalOperationId,
+5607:        || proposal.validationEvidence
+5615:            validationEvidence: proposal.validationEvidence
+5616:              ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
+5650:      proposal.operationId
+5651:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+5674:      operationId: proposal.operationId ?? proposal.messageId,
+5687:      validationEvidence: proposal.validationEvidence
+5688:        ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+5712:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+5716:    || !proposal.operationId
+5717:    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+5720:      proposal.operationId
+5721:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+5746:  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+5766:      result.evidence.operationId = proposal.operationId ?? proposal.messageId;
+5778:    validationEvidence: evidence,
+5788:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+5792:    operationId: proposal.operationId,
+5794:    validationEvidence: parsePublicValidationReceipts(results),
+5815:  if (updated && proposal.workspaceRoot && proposal.operationId) {
+5816:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+6232:  if (proposal.workspaceRoot && proposal.operationId) {
+6233:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+6238:// ── POST /api/ai/chat/apply-changes ─────────────────────────────────────────
+6240:router.post("/ai/chat/apply-changes", async (req, res) => {
+6278:    operationId: z.string().uuid().optional(),
+6291:  const { changes, projectId, proposalId, operationId } = applyBody.data;
+6412:        operationId: aiExecutionsTable.operationId,
+6422:    const canonicalOperationId = proposalExecution?.operationId
+6426:    if (operationId && operationId !== canonicalOperationId) {
+6440:      operationId: applyCorrelationId,
+6446:        operationId: applyCorrelationId,
+6463:      await db.insert(aiApplyJournalTable).values({
+6465:        operationId: applyCorrelationId,
+6476:      operationId: applyCorrelationId,
+6665:    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+6694:        validation.evidence.operationId = applyCorrelationId;
+6702:    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+6748:        operationId: applyCorrelationId,
+6806:      ? await hashDeliveryFiles(deliveryWorkspace.workspaceRoot, candidateChanges)
+6809:      ? await hashDeliveryFiles(resolvedRoot, writtenChanges)
+6838:    const validationEvidence = [...verificationByProfile.values()].flatMap((validation) => {
+6934:      await tx.insert(aiApplyJournalTable).values({
+6936:        operationId: applyCorrelationId,
+6966:          operationId: applyCorrelationId,
+6980:        type: "AiChangesApplied",
+6995:          operationId: applyCorrelationId,
+7016:            validationEvidence: JSON.stringify(validationEvidence),
+7017:            committedHash: allOk ? promotedHash : null,
+7032:            validationEvidence: JSON.stringify(validationEvidence),
+7049:      validationEvidence,

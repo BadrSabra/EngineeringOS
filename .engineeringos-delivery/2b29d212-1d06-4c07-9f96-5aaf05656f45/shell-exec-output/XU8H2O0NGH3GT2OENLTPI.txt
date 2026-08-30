@@ -1,0 +1,203 @@
+   315    await assertRootPathExists(rootPath);
+   316    let scopedPaths: string[] | undefined;
+   317    let deliveryProof: {
+   318      baseTreeHash: string;
+   319      candidateTreeHash: string;
+   320      promotedTreeHash: string;
+   321    } | undefined;
+   322    if (proposalId) {
+   323      const [proposal] = await db
+   324        .select()
+   325        .from(aiChangeProposalsTable)
+   326        .where(and(
+   327          eq(aiChangeProposalsTable.id, proposalId),
+   328          eq(aiChangeProposalsTable.projectId, projectId),
+   329        ))
+   330        .limit(1);
+   331      if (!proposal) {
+   332        return res.status(404).json({ error: "AI change proposal not found", code: "AI_PROPOSAL_NOT_FOUND" });
+   333      }
+   334      if (proposal.status !== "applied") {
+   335        return res.status(409).json({
+   336          error: "AI changes must pass Apply and behavioral verification before commit",
+   337          code: "AI_COMMIT_REQUIRES_VERIFIED_APPLY",
+   338        });
+   339      }
+   340      if (
+   341        proposal.workspaceRoot
+   342        && proposal.lifecycle !== "applied"
+   343        && proposal.lifecycle !== "validated"
+   344      ) {
+   345        return res.status(409).json({
+   346          error: "AI proposal is not in a committable lifecycle state",
+   347          code: "AI_COMMIT_LIFECYCLE_BLOCKED",
+   348          lifecycle: proposal.lifecycle,
+   349        });
+   350      }
+   351      const applyEvidence = await findOperationEvent(projectId, "AiChangesApplied", correlationId);
+   352      const applyProofComplete = (
+   353        typeof applyEvidence?.operationId === "string"
+   354        && typeof applyEvidence.baseTreeHash === "string"
+   355        && typeof applyEvidence.candidateTreeHash === "string"
+   356        && typeof applyEvidence.promotedTreeHash === "string"
+   357        && typeof applyEvidence.changeSetHash === "string"
+   358        && applyEvidence.baseTreeHash === proposal.baseTreeHash
+   359        && applyEvidence.candidateTreeHash === proposal.candidateTreeHash
+   360        && applyEvidence.promotedTreeHash === proposal.promotedTreeHash
+   361        && applyEvidence.changeSetHash === proposal.changeSetHash
+   362      );
+   363      if (
+   364        !applyEvidence ||
+   365        applyEvidence.proposalId !== proposalId ||
+   366        applyEvidence.operationId !== correlationId ||
+   367        applyEvidence.applyStatus !== "APPLIED" ||
+   368        !applyProofComplete ||
+   369        !proposal.baseTreeHash ||
+   370        !proposal.candidateTreeHash ||
+   371        !proposal.promotedTreeHash ||
+   372        proposal.promotedTreeHash !== proposal.candidateTreeHash
+   373      ) {
+   374        return res.status(409).json({
+   375          error: "AI commit requires a recorded successful Apply operation for this proposal and operation",
+   376          code: "AI_COMMIT_REQUIRES_APPLY_EVIDENCE",
+   377          proposalId,
+   378          operationId: correlationId,
+   379        });
+   380      }
+   625  if (!parseGitHubRemote(project.gitRemoteUrl) && !allowLegacyFixture) {
+   626    return res.status(400).json({
+   627      error: "Remote URL must be a credential-free HTTPS github.com repository URL.",
+   628      code: "UNSAFE_REMOTE_URL",
+   629    });
+   630  }
+   631
+   632  const branch = project.gitDefaultBranch ?? "main";
+   633  const githubRemote = parseGitHubRemote(project.gitRemoteUrl);
+   634
+   635  try {
+   636    await assertRootPathExists(project.rootPath);
+   637    let commitHash: string | undefined;
+   638    let deliveryProof: {
+   639      baseTreeHash: string | null;
+   640      candidateTreeHash: string | null;
+   641      promotedTreeHash: string | null;
+   642      committedTreeHash: string | null;
+   643    } | undefined;
+   644    if (proposalId) {
+   645      const [proposal] = await db
+   646        .select({
+   647          lifecycle: aiChangeProposalsTable.lifecycle,
+   648          operationId: aiChangeProposalsTable.operationId,
+   649          baseRevision: aiChangeProposalsTable.baseRevision,
+   650          changeSetHash: aiChangeProposalsTable.changeSetHash,
+   651          baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+   652          candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+   653          promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+   654          committedTreeHash: aiChangeProposalsTable.committedTreeHash,
+   655          commitHash: aiChangeProposalsTable.commitHash,
+   656        })
+   657        .from(aiChangeProposalsTable)
+   658        .where(and(
+   659          eq(aiChangeProposalsTable.id, proposalId),
+   660          eq(aiChangeProposalsTable.projectId, project.id),
+   661        ))
+   662        .limit(1);
+   663      if (
+   664        !proposal
+   665        || proposal.lifecycle !== "committed"
+   666      ) {
+   667        return res.status(409).json({
+   668          error: "AI push requires the same committed delivery operation",
+   669          code: "AI_PUSH_LIFECYCLE_BLOCKED",
+   670          proposalId,
+   671          operationId: correlationId,
+   672          lifecycle: proposal?.lifecycle ?? null,
+   673        });
+   674      }
+   675      deliveryProof = {
+   676        baseTreeHash: proposal.baseTreeHash,
+   677        candidateTreeHash: proposal.candidateTreeHash,
+   678        promotedTreeHash: proposal.promotedTreeHash,
+   679        committedTreeHash: proposal.committedTreeHash,
+   680      };
+   681      const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
+   682      commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
+   683      const committedTreeHash = typeof commitEvidence?.committedTreeHash === "string"
+   684        ? commitEvidence.committedTreeHash
+   685        : undefined;
+   686      if (
+   687        !commitEvidence ||
+   688        commitEvidence.proposalId !== proposalId ||
+   689        commitEvidence.operationId !== correlationId ||
+   690        !commitHash ||
+   691        !committedTreeHash ||
+   692        commitHash !== proposal.commitHash ||
+   693        committedTreeHash !== proposal.committedTreeHash ||
+   694        committedTreeHash !== proposal.promotedTreeHash ||
+   695        !proposal.baseTreeHash ||
+   696        !proposal.candidateTreeHash ||
+   697        proposal.candidateTreeHash !== proposal.promotedTreeHash
+   698      ) {
+   699        return res.status(409).json({
+   700          error: "AI push requires a recorded commit operation for this proposal and operation",
+   701          code: "AI_PUSH_REQUIRES_COMMIT_EVIDENCE",
+   702          proposalId,
+   703          operationId: correlationId,
+   704        });
+   705      }
+   706      const liveTreeBeforePush = await hashDeliveryTree(project.rootPath);
+   707      if (liveTreeBeforePush !== committedTreeHash) {
+   708        return res.status(409).json({
+   709          error: "The repository changed after the recorded AI commit; commit again before pushing",
+   710          code: "AI_PUSH_COMMIT_TREE_DRIFT",
+   711          expectedTree: committedTreeHash,
+   712          actualTree: liveTreeBeforePush,
+   713        });
+   714      }
+   715      const { stdout: currentHead } = await runGit(["rev-parse", "HEAD"], project.rootPath);
+   520        .where(eq(aiChangeProposalsTable.id, proposalId!))
+   521        .limit(1);
+   522      if (!proposalProof?.promotedTreeHash || committedTreeHash !== proposalProof.promotedTreeHash) {
+   523        return res.status(409).json({
+   524          error: "The committed tree does not match the approved Apply proof",
+   525          code: "AI_COMMIT_TREE_MISMATCH",
+   526          commitHash,
+   527          committedTreeHash,
+   528        });
+   529      }
+   530    }
+   531    const committedPaths = scopedPaths ?? (await runGit(
+   532      ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+   533      rootPath,
+   534    )).stdout.split("\n").filter(Boolean);
+   535
+   536    await recordAudit({
+   537      entityType: "project",
+   538      entityId: projectId,
+   539      action: "executed",
+   540      projectId,
+   541      stateBefore: {},
+   542      stateAfter: {
+   543        commitMessage: message.trim(),
+   544        commitHash,
+   545        committedTreeHash,
+   546        ...(deliveryProof ?? {}),
+   547        committedPaths,
+   548        proposalId: proposalId ?? null,
+   549      },
+   550      correlationId,
+   551    });
+   552
+   553    // G-14: emit a high-level event so commit appears in the dashboard
+   554    // activity feed and in the AI context's recentEvents.
+   555    await db.insert(eventsTable).values({
+   556      id: randomUUID(),
+   557      type: "GitCommitCreated",
+   558      projectId,
+   559      severity: "info",
+   560      message: `Git commit: ${message.trim().slice(0, 120)}`,
+   561      correlationId,
+   562      payload: {
+   563        ...(proposalId ? { proposalId } : {}),
+   564        operationId: correlationId,
+   565        commitHash,

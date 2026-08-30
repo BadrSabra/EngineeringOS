@@ -54,7 +54,12 @@ export type OperationEvidenceProjection = {
   completeness: EvidenceCompleteness;
   verified: false;
   hashes: {
+    digestVersion: string | null;
     changeSet: string | null;
+    baseTree: string | null;
+    candidateTree: string | null;
+    promotedTree: string | null;
+    commitTree: string | null;
     committed: string | null;
   };
   counts: {
@@ -79,7 +84,18 @@ export type EvidenceInput = {
   audits?: Array<{ id: string; action: string; entityType: string; timestamp: Date; reason: string | null }>;
   taskLogs?: Array<{ id: string; level: string; message: string; timestamp: Date; metadata: Record<string, unknown> | null }>;
   journal?: Array<{ id: string; stage: string; sequence: number; attemptId: string; createdAt: Date; payload: Record<string, unknown> }>;
-  proposal?: { revision: number; baseRevision: string | null; changeSetHash: string | null; committedHash: string | null } | null;
+  proposal?: {
+    revision: number;
+    baseRevision: string | null;
+    treeDigestVersion?: string | null;
+    baseTreeHash?: string | null;
+    candidateTreeHash?: string | null;
+    promotedTreeHash?: string | null;
+    committedTreeHash?: string | null;
+    commitHash?: string | null;
+    changeSetHash: string | null;
+    committedHash: string | null;
+  } | null;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -199,8 +215,13 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
     completeness,
     verified: false,
     hashes: {
+      digestVersion: text(input.proposal?.treeDigestVersion, 64) ?? null,
       changeSet: text(input.proposal?.changeSetHash, 128) ?? null,
-      committed: text(input.proposal?.committedHash, 128) ?? null,
+      baseTree: text(input.proposal?.baseTreeHash, 128) ?? null,
+      candidateTree: text(input.proposal?.candidateTreeHash, 128) ?? null,
+      promotedTree: text(input.proposal?.promotedTreeHash, 128) ?? null,
+      commitTree: text(input.proposal?.committedTreeHash, 128) ?? null,
+      committed: text(input.proposal?.commitHash, 128) ?? text(input.proposal?.committedHash, 128) ?? null,
     },
     counts: {
       executions: 1,
@@ -264,8 +285,14 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
     }).from(aiApplyJournalTable).where(and(eq(aiApplyJournalTable.projectId, execution.projectId), eq(aiApplyJournalTable.operationId, operationId))),
     execution.proposalId
       ? db.select({
-          revision: aiChangeProposalsTable.revision, baseRevision: aiChangeProposalsTable.baseRevision,
-          changeSetHash: aiChangeProposalsTable.changeSetHash, committedHash: aiChangeProposalsTable.committedHash,
+           revision: aiChangeProposalsTable.revision, baseRevision: aiChangeProposalsTable.baseRevision,
+           baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+           candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+           promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+           treeDigestVersion: aiChangeProposalsTable.treeDigestVersion,
+           committedTreeHash: aiChangeProposalsTable.committedTreeHash,
+           commitHash: aiChangeProposalsTable.commitHash,
+           changeSetHash: aiChangeProposalsTable.changeSetHash, committedHash: aiChangeProposalsTable.committedHash,
         }).from(aiChangeProposalsTable).where(and(eq(aiChangeProposalsTable.id, execution.proposalId), eq(aiChangeProposalsTable.projectId, execution.projectId))).limit(1)
       : Promise.resolve([]),
   ]);

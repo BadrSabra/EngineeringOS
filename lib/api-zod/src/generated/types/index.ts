@@ -14,6 +14,7 @@ export * from './aiApplyChangesRequestChangesItemRisk';
 export * from './aiApplyChangesRequestChangesItemValidationProfile';
 export * from './aiApplyChangesResult';
 export * from './aiApplyChangesResultApplyStatus';
+export * from './aiApplyChangesResultIntegrityOutcome';
 export * from './aiApplyChangesResultResultsItem';
 export * from './aiApplyChangesResultResultsItemBehavioralVerification';
 export * from './aiApplyChangesResultResultsItemBehavioralVerificationStatus';

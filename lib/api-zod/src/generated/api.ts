@@ -4134,6 +4134,12 @@ export const aiApplyChangesResponseValidationEvidenceItemRemainingMsMin = 0;
 export const AiApplyChangesResponse = zod.object({
   "correlationId": zod.string().describe('Logical operation identifier shared with the proposal\'s plan and later Git operations'),
   "applyStatus": zod.enum(['APPLIED', 'PARTIAL', 'BLOCKED', 'ROLLBACK_FAILED']),
+  "integrityOutcome": zod.enum(['verified', 'blocked', 'mismatch', 'unknown']).optional(),
+  "baseTreeHash": zod.string().optional(),
+  "candidateTreeHash": zod.string().optional(),
+  "promotedTreeHash": zod.string().optional(),
+  "changeSetHash": zod.string().optional(),
+  "treeDigestVersion": zod.string().optional(),
   "rollbackFailures": zod.array(zod.object({
   "path": zod.string().optional(),
   "error": zod.string().optional()
@@ -4152,9 +4158,14 @@ export const AiApplyChangesResponse = zod.object({
   "revision": zod.string().optional(),
   "operationId": zod.string().optional(),
   "projectRevision": zod.string().optional(),
+  "treeDigestVersion": zod.string().optional(),
   "candidateHash": zod.string().optional(),
   "changeSetHash": zod.string().optional(),
   "promotedHash": zod.string().optional(),
+  "baseTreeHash": zod.string().optional().describe('Canonical complete-tree digest captured before Apply'),
+  "candidateTreeHash": zod.string().optional().describe('Canonical complete-tree digest of the validated candidate'),
+  "promotedTreeHash": zod.string().optional().describe('Canonical complete-tree digest observed after promotion'),
+  "committedTreeHash": zod.string().optional().describe('Canonical complete-tree digest observed after the Git commit'),
   "screenshotAvailable": zod.boolean().optional(),
   "consoleErrorCount": zod.number().optional()
 }),
@@ -4376,6 +4387,26 @@ export const getAiPendingProposalResponseChangesItemEvidenceMax = 4;
 
 export const getAiPendingProposalResponseRevisionMin = 0;
 
+export const getAiPendingProposalResponseAppliedChangesItemBaseHashRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+
+
+export const getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceItemLabelMax = 240;
+
+
+
+export const getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceMax = 4;
+
+export const getAiPendingProposalResponseAppliedChangesItemHunksMax = 100;
+
+
+export const getAiPendingProposalResponseAppliedChangesItemEvidenceItemLabelMax = 240;
+
+
+
+export const getAiPendingProposalResponseAppliedChangesItemEvidenceMax = 4;
+
 export const getAiPendingProposalResponseValidationEvidenceItemProcessBudgetMsMin = 0;
 
 export const getAiPendingProposalResponseValidationEvidenceItemOverallBudgetMsMin = 0;
@@ -4426,6 +4457,44 @@ export const GetAiPendingProposalResponse = zod.object({
   "lifecycle": zod.enum(['proposed', 'isolated', 'validated', 'applied', 'conflicted', 'committed', 'cancelled', 'abandoned', 'blocked']).optional(),
   "baseRevision": zod.string().optional(),
   "changeSetHash": zod.string().optional(),
+  "baseTreeHash": zod.string().optional(),
+  "candidateTreeHash": zod.string().optional(),
+  "promotedTreeHash": zod.string().optional(),
+  "treeDigestVersion": zod.string().optional(),
+  "appliedChanges": zod.array(zod.object({
+  "path": zod.string().describe('Normalized relative path within the project root'),
+  "absolutePath": zod.string().describe('Absolute filesystem path; must be inside the project root'),
+  "newContent": zod.string().describe('Full new content to write to the file'),
+  "originalContent": zod.string().nullish().describe('Original content before the change, or null for new files'),
+  "baseHash": zod.string().regex(getAiPendingProposalResponseAppliedChangesItemBaseHashRegExp).optional().describe('SHA-256 hash of the source content observed when the patch was generated'),
+  "hunks": zod.array(zod.object({
+  "startLine": zod.number().min(1),
+  "endLine": zod.number().min(1),
+  "expectedText": zod.string(),
+  "replacementText": zod.string(),
+  "reason": zod.string().min(1),
+  "risk": zod.enum(['low', 'medium', 'high']).optional(),
+  "evidence": zod.array(zod.object({
+  "kind": zod.enum(['finding', 'source', 'validation']),
+  "id": zod.string().min(1),
+  "label": zod.string().min(1).max(getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceItemLabelMax),
+  "file": zod.string().min(1).optional(),
+  "line": zod.number().min(1).optional()
+})).max(getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceMax).optional()
+})).max(getAiPendingProposalResponseAppliedChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
+  "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
+  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
+  "risk": zod.enum(['low', 'medium', 'high']).optional().describe('Server-derived change risk shown in Patch Lab'),
+  "evidence": zod.array(zod.object({
+  "kind": zod.enum(['finding', 'source', 'validation']),
+  "id": zod.string().min(1),
+  "label": zod.string().min(1).max(getAiPendingProposalResponseAppliedChangesItemEvidenceItemLabelMax),
+  "file": zod.string().min(1).optional(),
+  "line": zod.number().min(1).optional()
+})).max(getAiPendingProposalResponseAppliedChangesItemEvidenceMax).optional()
+})).optional(),
+  "commitHash": zod.string().optional(),
+  "committedTreeHash": zod.string().optional(),
   "conflictReason": zod.string().optional(),
   "validationEvidence": zod.array(zod.object({
   "profile": zod.string(),
@@ -4441,9 +4510,14 @@ export const GetAiPendingProposalResponse = zod.object({
   "revision": zod.string().optional(),
   "operationId": zod.string().optional(),
   "projectRevision": zod.string().optional(),
+  "treeDigestVersion": zod.string().optional(),
   "candidateHash": zod.string().optional(),
   "changeSetHash": zod.string().optional(),
   "promotedHash": zod.string().optional(),
+  "baseTreeHash": zod.string().optional().describe('Canonical complete-tree digest captured before Apply'),
+  "candidateTreeHash": zod.string().optional().describe('Canonical complete-tree digest of the validated candidate'),
+  "promotedTreeHash": zod.string().optional().describe('Canonical complete-tree digest observed after promotion'),
+  "committedTreeHash": zod.string().optional().describe('Canonical complete-tree digest observed after the Git commit'),
   "screenshotAvailable": zod.boolean().optional(),
   "consoleErrorCount": zod.number().optional()
 }),

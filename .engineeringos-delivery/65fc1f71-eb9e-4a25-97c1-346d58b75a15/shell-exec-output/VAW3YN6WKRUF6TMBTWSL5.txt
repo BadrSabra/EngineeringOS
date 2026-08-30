@@ -1,0 +1,289 @@
+  6400      });
+  6401    }
+  6402    if (!changes.every((change) => change.validationProfile)) {
+  6403      return res.status(409).json({
+  6404        error: "Approved repair changes must include a registered validation profile",
+  6405        code: "PROPOSAL_VALIDATION_REQUIRED",
+  6406      });
+  6407    }
+  6408
+  6409    const [proposalExecution] = await db
+  6410      .select({
+  6411        id: aiExecutionsTable.id,
+  6412        operationId: aiExecutionsTable.operationId,
+  6413        buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+  6414      })
+  6415      .from(aiExecutionsTable)
+  6416      .where(and(
+  6417        eq(aiExecutionsTable.proposalId, proposal.id),
+  6418        eq(aiExecutionsTable.projectId, projectId),
+  6419      ))
+  6420      .orderBy(desc(aiExecutionsTable.updatedAt))
+  6421      .limit(1);
+  6422    const canonicalOperationId = proposalExecution?.operationId
+  6423      ?? proposalExecution?.buildPlanMessageId
+  6424      ?? proposalExecution?.id
+  6425      ?? proposal.messageId;
+  6426    if (operationId && operationId !== canonicalOperationId) {
+  6427      return res.status(409).json({
+  6428        error: "Operation identity does not match the server-owned execution",
+  6429        code: "OPERATION_ID_MISMATCH",
+  6430      });
+  6431    }
+  6432    const applyCorrelationId = canonicalOperationId;
+  6433    const applyAttemptId = randomUUID();
+  6434    // Materialize the approved change set into an operation-owned workspace
+  6435    // before touching the user's checkout. This workspace is retained as the
+  6436    // recovery/proof artifact; the durable root is only written after all
+  6437    // revision, path, and validation gates below pass.
+  6438    const deliveryWorkspace = await createDeliveryWorkspace({
+  6439      rootPath: project.rootPath,
+  6440      operationId: applyCorrelationId,
+  6441      baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
+  6442      changes: approvedChanges,
+  6443    });
+  6444    await db.update(aiChangeProposalsTable)
+  6445      .set({
+  6446        operationId: applyCorrelationId,
+  6447        workspaceRoot: deliveryWorkspace.workspaceRoot,
+  6448        baseRevision: deliveryWorkspace.baseRevision,
+  6449        changeSetHash: deliveryWorkspace.changeSetHash,
+  6450        lifecycle: "isolated",
+  6451        conflictReason: null,
+  6452      })
+  6453      .where(and(
+  6454        eq(aiChangeProposalsTable.id, proposalId),
+  6455        eq(aiChangeProposalsTable.status, "pending"),
+  6456      ));
+  6457    let journalSequence = 0;
+  6458    const appendApplyJournal = async (
+  6459      stage: ApplyJournalStage,
+  6460      payload: Record<string, unknown> = {},
+  6461    ): Promise<void> => {
+  6462      journalSequence += 1;
+  6463      await db.insert(aiApplyJournalTable).values({
+  6464        id: randomUUID(),
+  6465        operationId: applyCorrelationId,
+  6466        attemptId: applyAttemptId,
+  6467        projectId,
+  6468        proposalId,
+  6469        stage,
+  6470        sequence: journalSequence,
+  6471        payload,
+  6472      });
+  6473    };
+  6474    await appendApplyJournal("STARTED", {
+  6475      changeCount: changes.length,
+  6476      operationId: applyCorrelationId,
+  6477    });
+  6478
+  6479    results = [];
+  6480    const writableChanges: Array<{
+  6481      path: string;
+  6482      realPath: string;
+  6483      newContent: string;
+  6484      before: Buffer | null;
+  6485      validationProfile?: ValidationProfile;
+  6486    }> = [];
+  6487    const writtenChanges: typeof writableChanges = [];
+  6488    // Track every file whose write was attempted, including a file whose
+  6489    // writeFile call mutates bytes and then throws before the success marker.
+  6490    // Rollback must cover that file too.
+  6491    const attemptedChanges: typeof writableChanges = [];
+  6492    const seenRealPaths = new Set<string>();
+  6493    let rollbackFailures: ApplyRollbackFailure[] = [];
+  6494
+  6495    await appendApplyJournal("PREFLIGHT_STARTED", {
+  6496      fileCount: changes.length,
+  6497    });
+  6498    for (const change of changes) {
+  6499      const BLOCKED_WRITE_EXTENSIONS =
+  6500        /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+  6501      // Check BOTH the client-supplied path and absolutePath — a mismatch between
+  6502      // the two fields can bypass a check on path alone.
+  6503      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {
+  6504        results.push({
+  6505          path: change.path,
+  6506          ok: false,
+  6507          error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+  6508        });
+  6509        continue;
+  6510      }
+  6511
+  6512      const resolved = path.resolve(change.absolutePath);
+  6513      if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+  6514        results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+  6515        continue;
+  6940        stage: applyStatus,
+  6941        sequence: journalSequence,
+  6942        payload: {
+  6943          appliedFiles: appliedPaths,
+  6944          failedFiles: failedPaths,
+  6945          rollbackFailures,
+  6946          candidateHash,
+  6947          changeSetHash: effectiveChangeSetHash,
+  6948          promotedHash,
+  6949        },
+  6950      });
+  6951      await tx.insert(auditLogsTable).values({
+  6952        // Each attempt gets its own audit row; correlationId remains stable
+  6953        // across retries of the same plan/apply operation.
+  6954        id: randomUUID(),
+  6955        entityType: "project",
+  6956        entityId: projectId,
+  6957        action: "ai_executed",
+  6958        projectId,
+  6959        actor: req.userId,
+  6960        stateBefore: {},
+  6961        stateAfter: {
+  6962          filesWritten: appliedPaths,
+  6963          failedFiles: failedPaths,
+  6964          applyStatus,
+  6965          proposalId,
+  6966          operationId: applyCorrelationId,
+  6967          candidateHash,
+  6968          changeSetHash: effectiveChangeSetHash,
+  6969          promotedHash,
+  6970          rollbackFailures,
+  6971          behavioralVerification: responseResults.map((result) => ({
+  6972            path: result.path,
+  6973            status: result.behavioralVerification.status,
+  6974          })),
+  6975        },
+  6976        correlationId: applyCorrelationId,
+  6977      });
+  6978      await tx.insert(eventsTable).values({
+  6979        id: randomUUID(),
+  6980        type: "AiChangesApplied",
+  6981        projectId,
+  6982        severity: rollbackFailed
+  6983          ? "error"
+  6984          : appliedPaths.length > 0 && !verificationNeedsReviewAfterPromotion
+  6985            ? (failedPaths.length > 0 ? "warning" : "success")
+  6986            : "warning",
+  6987        message: appliedPaths.length > 0
+  6988          ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}${verificationNeedsReviewAfterPromotion ? " (behavioral verification needs review)" : ""}`
+  6989          : rollbackFailed
+  6990            ? `AI apply rollback failed; filesystem state is unknown: ${rollbackFailures.map((failure) => failure.path).join(", ")}`
+  6991            : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+  6992        correlationId: applyCorrelationId,
+  6993        payload: {
+  6994          proposalId,
+  6995          operationId: applyCorrelationId,
+  6996          appliedFiles: appliedPaths,
+  6997          failedFiles: failedPaths,
+  6998          applyStatus,
+  6999          rollbackFailures,
+  7000          candidateHash,
+  7001          changeSetHash: effectiveChangeSetHash,
+  7002          promotedHash,
+  7003          behavioralVerification: responseResults.map((result) => ({
+  7004            path: result.path,
+  7005            status: result.behavioralVerification.status,
+  7006          })),
+  7007        },
+  7008      });
+  7009      if (appliedPaths.length > 0) {
+  7010        await tx
+  7011          .update(aiChangeProposalsTable)
+  7012          .set({
+  7013            status: "applied",
+  7014            lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
+  7015            consumedAt: new Date(),
+  7016            validationEvidence: JSON.stringify(validationEvidence),
+  7017            committedHash: allOk ? promotedHash : null,
+  7018          })
+  7019          .where(and(
+  7020            eq(aiChangeProposalsTable.id, proposalId),
+  7021            eq(aiChangeProposalsTable.status, "pending"),
+  7022          ));
+  7023      } else {
+  7024        await tx.update(aiChangeProposalsTable)
+  7025          .set({
+  7026            lifecycle: rollbackFailed || failedPaths.length > 0 ? "conflicted" : "blocked",
+  7027            conflictReason: rollbackFailed
+  7028              ? "Apply rollback did not fully restore the working tree."
+  7029              : failedPaths.length > 0
+  7030                ? "One or more approved files could not be applied."
+  7031                : "No approved files were applied.",
+  7032            validationEvidence: JSON.stringify(validationEvidence),
+  7033          })
+  7034          .where(and(
+  7035            eq(aiChangeProposalsTable.id, proposalId),
+  7036            eq(aiChangeProposalsTable.status, "pending"),
+  7037          ));
+  7038      }
+  7039    });
+  7040
+  7041    // Applying a pending change proves only that the guarded file write
+  7042    // succeeded. It does not prove that the proposed repair is behaviorally
+  7043    // correct, so make that distinction explicit in the response contract.
+  7044    return res.status(rollbackFailed ? 500 : allOk ? 200 : 207).json({
+  7045      results: responseResults,
+  7046      correlationId: applyCorrelationId,
+  7047      applyStatus,
+  7048      rollbackFailures,
+  7049      validationEvidence,
+  7050    });
+  7051  } finally {
+  7052    await applyLock.release();
+  7053  }
+  7054});
+  7055
+  7056export default router;
+   570    if (proposalId) {
+   571      const [proposal] = await db
+   572        .select({
+   573          lifecycle: aiChangeProposalsTable.lifecycle,
+   574          operationId: aiChangeProposalsTable.operationId,
+   575        })
+   576        .from(aiChangeProposalsTable)
+   577        .where(and(
+   578          eq(aiChangeProposalsTable.id, proposalId),
+   579          eq(aiChangeProposalsTable.projectId, project.id),
+   580        ))
+   581        .limit(1);
+   582      if (
+   583        !proposal
+   584        || (
+   585          proposal.operationId
+   586          && (proposal.operationId !== correlationId || proposal.lifecycle !== "committed")
+   587        )
+   588      ) {
+   589        return res.status(409).json({
+   590          error: "AI push requires the same committed delivery operation",
+   591          code: "AI_PUSH_LIFECYCLE_BLOCKED",
+   592          proposalId,
+   593          operationId: correlationId,
+   594          lifecycle: proposal?.lifecycle ?? null,
+   595        });
+   596      }
+   597      const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
+   598      commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
+   599      if (
+   600        !commitEvidence ||
+   601        commitEvidence.proposalId !== proposalId ||
+   602        commitEvidence.operationId !== correlationId ||
+   603        !commitHash
+   604      ) {
+   605        return res.status(409).json({
+   606          error: "AI push requires a recorded commit operation for this proposal and operation",
+   607          code: "AI_PUSH_REQUIRES_COMMIT_EVIDENCE",
+   608          proposalId,
+   609          operationId: correlationId,
+   610        });
+   611      }
+   612      const { stdout: currentHead } = await runGit(["rev-parse", "HEAD"], project.rootPath);
+   613      if (currentHead !== commitHash) {
+   614        return res.status(409).json({
+   615          error: "The repository changed after the recorded AI commit; commit again before pushing",
+   616          code: "AI_PUSH_COMMIT_DRIFT",
+   617          expectedCommit: commitHash,
+   618          actualCommit: currentHead,
+   619        });
+   620      }
+   621    } else {
+   622      commitHash = (await runGit(["rev-parse", "HEAD"], project.rootPath)).stdout;
+   623    }
+   624    let output = "";
+   625    let remoteCommitHash: string | undefined;

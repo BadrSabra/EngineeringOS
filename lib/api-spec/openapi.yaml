@@ -3397,12 +3397,26 @@ components:
           type: string
         projectRevision:
           type: string
+        treeDigestVersion:
+          type: string
         candidateHash:
           type: string
         changeSetHash:
           type: string
         promotedHash:
           type: string
+        baseTreeHash:
+          type: string
+          description: Canonical complete-tree digest captured before Apply
+        candidateTreeHash:
+          type: string
+          description: Canonical complete-tree digest of the validated candidate
+        promotedTreeHash:
+          type: string
+          description: Canonical complete-tree digest observed after promotion
+        committedTreeHash:
+          type: string
+          description: Canonical complete-tree digest observed after the Git commit
         screenshotAvailable:
           type: boolean
         consoleErrorCount:
@@ -4813,6 +4827,22 @@ components:
           type: string
         changeSetHash:
           type: string
+        baseTreeHash:
+          type: string
+        candidateTreeHash:
+          type: string
+        promotedTreeHash:
+          type: string
+        treeDigestVersion:
+          type: string
+        appliedChanges:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+        commitHash:
+          type: string
+        committedTreeHash:
+          type: string
         conflictReason:
           type: string
         validationEvidence:
@@ -4879,6 +4909,19 @@ components:
         applyStatus:
           type: string
           enum: [APPLIED, PARTIAL, BLOCKED, ROLLBACK_FAILED]
+        integrityOutcome:
+          type: string
+          enum: [verified, blocked, mismatch, unknown]
+        baseTreeHash:
+          type: string
+        candidateTreeHash:
+          type: string
+        promotedTreeHash:
+          type: string
+        changeSetHash:
+          type: string
+        treeDigestVersion:
+          type: string
         rollbackFailures:
           type: array
           items:

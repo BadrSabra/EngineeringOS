@@ -1,0 +1,713 @@
+--- git rest ---
+// ── Git write operations ──────────────────────────────────────────────────────
+
+/** POST /api/projects/:projectId/git/commit — stage selected or all changes and commit */
+router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async (req, res) => {
+  const body = req.body as {
+    message?: unknown;
+    proposalId?: unknown;
+    operationId?: unknown;
+  };
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const proposalId = typeof body.proposalId === "string" ? body.proposalId : undefined;
+  const operationId = typeof body.operationId === "string" ? body.operationId : undefined;
+  if (!message) return res.status(400).json({ error: "message is required" });
+  if (proposalId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(proposalId)) {
+    return res.status(400).json({ error: "proposalId must be a valid UUID" });
+  }
+  if (operationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    return res.status(400).json({ error: "operationId must be a valid UUID" });
+  }
+
+  const { rootPath, id: projectId } = req.project!;
+  const correlationId = operationId ?? proposalId ?? randomUUID();
+
+  try {
+    await assertRootPathExists(rootPath);
+    let scopedPaths: string[] | undefined;
+    if (proposalId) {
+      const [proposal] = await db
+        .select()
+        .from(aiChangeProposalsTable)
+        .where(and(
+          eq(aiChangeProposalsTable.id, proposalId),
+          eq(aiChangeProposalsTable.projectId, projectId),
+        ))
+        .limit(1);
+      if (!proposal) {
+        return res.status(404).json({ error: "AI change proposal not found", code: "AI_PROPOSAL_NOT_FOUND" });
+      }
+      if (proposal.status !== "applied") {
+        return res.status(409).json({
+          error: "AI changes must pass Apply and behavioral verification before commit",
+          code: "AI_COMMIT_REQUIRES_VERIFIED_APPLY",
+        });
+      }
+      if (
+        proposal.workspaceRoot
+        && proposal.lifecycle !== "applied"
+        && proposal.lifecycle !== "validated"
+      ) {
+        return res.status(409).json({
+          error: "AI proposal is not in a committable lifecycle state",
+          code: "AI_COMMIT_LIFECYCLE_BLOCKED",
+          lifecycle: proposal.lifecycle,
+        });
+      }
+      const applyEvidence = await findOperationEvent(projectId, "AiChangesApplied", correlationId);
+      if (
+        !applyEvidence ||
+        applyEvidence.proposalId !== proposalId ||
+        applyEvidence.operationId !== correlationId ||
+        applyEvidence.applyStatus !== "APPLIED"
+      ) {
+        return res.status(409).json({
+          error: "AI commit requires a recorded successful Apply operation for this proposal and operation",
+          code: "AI_COMMIT_REQUIRES_APPLY_EVIDENCE",
+          proposalId,
+          operationId: correlationId,
+        });
+      }
+
+      let storedChanges: unknown;
+      try {
+        storedChanges = JSON.parse(proposal.changes);
+      } catch {
+        return res.status(500).json({ error: "Stored AI change proposal is invalid", code: "AI_PROPOSAL_INVALID" });
+      }
+      if (
+        !Array.isArray(storedChanges) ||
+        storedChanges.length === 0 ||
+        storedChanges.some((change) =>
+          !change ||
+          typeof change !== "object" ||
+          typeof (change as { path?: unknown }).path !== "string" ||
+          typeof (change as { newContent?: unknown }).newContent !== "string",
+        )
+      ) {
+        return res.status(500).json({ error: "Stored AI change proposal has no valid file scope", code: "AI_PROPOSAL_SCOPE_INVALID" });
+      }
+      scopedPaths = [...new Set(storedChanges.map((change) => (change as { path: string }).path))];
+      const invalidPath = scopedPaths.find((candidate) => {
+        const normalized = candidate.replaceAll("\\", "/");
+        return (
+          !normalized ||
+          normalized.startsWith("/") ||
+          path.isAbsolute(candidate) ||
+          normalized.split("/").some((segment) => segment === ".." || segment.length === 0)
+        );
+      });
+      if (invalidPath) {
+        return res.status(409).json({
+          error: "AI change proposal contains an unsafe file path",
+          code: "AI_PROPOSAL_SCOPE_INVALID",
+          path: invalidPath,
+        });
+      }
+
+      // Apply proof is content-bound, not just event-bound. A user may have
+      // edited an applied file after validation, or another actor may have
+      // changed the working tree. Never commit that drift under the original
+      // proposal identity.
+      for (const change of storedChanges as Array<{ path: string; newContent: string }>) {
+        const absolutePath = path.resolve(rootPath, change.path);
+        if (absolutePath !== path.resolve(rootPath) && !absolutePath.startsWith(`${path.resolve(rootPath)}${path.sep}`)) {
+          return res.status(409).json({
+            error: "AI change proposal contains a path outside the project root",
+            code: "AI_PROPOSAL_SCOPE_INVALID",
+            path: change.path,
+          });
+        }
+        let currentContent: string;
+        try {
+          currentContent = await fsReadFile(absolutePath, "utf8");
+        } catch {
+          return res.status(409).json({
+            error: "An applied AI file is no longer present; commit requires a fresh Apply",
+            code: "AI_COMMIT_APPLY_DRIFT",
+            path: change.path,
+          });
+        }
+        if (currentContent !== change.newContent) {
+          return res.status(409).json({
+            error: "An applied AI file changed after verification; commit requires a fresh Apply",
+            code: "AI_COMMIT_APPLY_DRIFT",
+            path: change.path,
+          });
+        }
+      }
+
+      const { stdout: stagedOutput } = await runGit(["diff", "--cached", "--name-only", "-z"], rootPath);
+      const stagedPaths = stagedOutput.split("\0").filter(Boolean);
+      const unrelatedStaged = stagedPaths.filter((candidate) => !scopedPaths!.includes(candidate));
+      if (unrelatedStaged.length > 0) {
+        return res.status(409).json({
+          error: "Scoped AI commit blocked by unrelated staged changes",
+          code: "AI_COMMIT_UNRELATED_STAGED_CHANGES",
+          paths: unrelatedStaged,
+        });
+      }
+
+      // A scoped AI commit must be the only pending filesystem change. This
+      // includes unstaged changes and untracked files, not just the staged
+      // index, so unrelated work cannot silently remain alongside the proof.
+      const { stdout: statusOutput } = await runGit([
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "-z",
+      ], rootPath);
+      const workingTreePaths = statusOutput
+        .split("\0")
+        .filter(Boolean)
+        .map((entry) => entry.slice(3).split(" -> ").at(-1) ?? entry.slice(3))
+        .filter(Boolean);
+      const unrelatedWorkingTree = workingTreePaths.filter((candidate) => !scopedPaths!.includes(candidate));
+      if (unrelatedWorkingTree.length > 0) {
+        return res.status(409).json({
+          error: "Scoped AI commit blocked by unrelated working-tree changes",
+          code: "AI_COMMIT_UNRELATED_WORKTREE_CHANGES",
+          paths: unrelatedWorkingTree,
+        });
+      }
+
+      // Stage only the paths from the server-owned, already-verified proposal.
+      await runGit(["add", "--", ...scopedPaths], rootPath);
+    } else {
+      // Generic Git commits retain their existing behavior.
+      await runGit(["add", "-A"], rootPath);
+    }
+
+    // Commit with a fixed identity so git never fails on "user.email not set"
+    const { stdout, stderr } = await runGit(
+      [
+        "-c", "user.name=EngineeringOS",
+        "-c", "user.email=ai@engineeringos.local",
+        "commit", "-m", message.trim(),
+      ],
+      rootPath,
+    );
+    const { stdout: commitHash } = await runGit(["rev-parse", "HEAD"], rootPath);
+    const committedPaths = scopedPaths ?? (await runGit(
+      ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+      rootPath,
+    )).stdout.split("\n").filter(Boolean);
+
+    await recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "executed",
+      projectId,
+      stateBefore: {},
+      stateAfter: { commitMessage: message.trim(), commitHash, committedPaths, proposalId: proposalId ?? null },
+      correlationId,
+    });
+
+    // G-14: emit a high-level event so commit appears in the dashboard
+    // activity feed and in the AI context's recentEvents.
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "GitCommitCreated",
+      projectId,
+      severity: "info",
+      message: `Git commit: ${message.trim().slice(0, 120)}`,
+      correlationId,
+      payload: {
+        ...(proposalId ? { proposalId } : {}),
+        operationId: correlationId,
+        commitHash,
+        committedPaths,
+      },
+    });
+    if (proposalId) {
+      await db.update(aiChangeProposalsTable)
+        .set({ lifecycle: "committed", committedHash: commitHash })
+        .where(and(
+          eq(aiChangeProposalsTable.id, proposalId),
+          eq(aiChangeProposalsTable.lifecycle, "applied"),
+        ));
+    }
+
+    invalidateContextCache(projectId);
+
+    return res.json({ ok: true, output: stdout || stderr, correlationId, commitHash, committedPaths });
+  } catch (err) {
+    const e = err as { stderr?: string; stdout?: string; message?: string };
+    // "nothing to commit" is not an error from the user's perspective
+    const msg = e.stderr?.trim() || e.stdout?.trim() || e.message || "git commit failed";
+    if (msg.includes("nothing to commit")) {
+      return res.status(409).json({ error: "Nothing to commit — working tree is clean." });
+    }
+    return res.status(500).json({ error: redact(msg) });
+  }
+});
+
+/** POST /api/projects/:projectId/git/push — push through GitHub connector or legacy HTTPS token */
+router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (req, res) => {
+  const project = req.project!;
+  const body = (req.body ?? {}) as { proposalId?: unknown };
+  const proposalId = typeof body.proposalId === "string" ? body.proposalId : undefined;
+  const operationId = typeof (body as { operationId?: unknown }).operationId === "string"
+    ? (body as { operationId: string }).operationId
+    : undefined;
+  if (proposalId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(proposalId)) {
+    return res.status(400).json({ error: "proposalId must be a valid UUID" });
+  }
+  if (operationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    return res.status(400).json({ error: "operationId must be a valid UUID" });
+  }
+  const correlationId = operationId ?? proposalId ?? randomUUID();
+
+  if (!project.gitRemoteUrl) {
+    return res.status(400).json({
+      error: "No remote URL configured for this project. Add one in the Git settings panel.",
+    });
+  }
+
+  const allowLegacyFixture = config.nodeEnv === "test"
+    && (project.gitRemoteUrl === TEST_FIXTURE_REMOTE || Boolean(process.env.ENGINEERINGOS_TEST_PUSH_REMOTE));
+  if (!parseGitHubRemote(project.gitRemoteUrl) && !allowLegacyFixture) {
+    return res.status(400).json({
+      error: "Remote URL must be a credential-free HTTPS github.com repository URL.",
+      code: "UNSAFE_REMOTE_URL",
+    });
+  }
+
+  const branch = project.gitDefaultBranch ?? "main";
+  const githubRemote = parseGitHubRemote(project.gitRemoteUrl);
+
+  try {
+    await assertRootPathExists(project.rootPath);
+    let commitHash: string | undefined;
+    if (proposalId) {
+      const [proposal] = await db
+        .select({
+          lifecycle: aiChangeProposalsTable.lifecycle,
+          operationId: aiChangeProposalsTable.operationId,
+        })
+        .from(aiChangeProposalsTable)
+        .where(and(
+          eq(aiChangeProposalsTable.id, proposalId),
+          eq(aiChangeProposalsTable.projectId, project.id),
+        ))
+        .limit(1);
+      if (
+        !proposal
+        || (
+          proposal.operationId
+          && (proposal.operationId !== correlationId || proposal.lifecycle !== "committed")
+        )
+      ) {
+        return res.status(409).json({
+          error: "AI push requires the same committed delivery operation",
+          code: "AI_PUSH_LIFECYCLE_BLOCKED",
+          proposalId,
+          operationId: correlationId,
+          lifecycle: proposal?.lifecycle ?? null,
+        });
+      }
+      const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
+      commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
+      if (
+        !commitEvidence ||
+        commitEvidence.proposalId !== proposalId ||
+        commitEvidence.operationId !== correlationId ||
+        !commitHash
+      ) {
+        return res.status(409).json({
+          error: "AI push requires a recorded commit operation for this proposal and operation",
+          code: "AI_PUSH_REQUIRES_COMMIT_EVIDENCE",
+          proposalId,
+          operationId: correlationId,
+        });
+      }
+      const { stdout: currentHead } = await runGit(["rev-parse", "HEAD"], project.rootPath);
+      if (currentHead !== commitHash) {
+        return res.status(409).json({
+          error: "The repository changed after the recorded AI commit; commit again before pushing",
+          code: "AI_PUSH_COMMIT_DRIFT",
+          expectedCommit: commitHash,
+          actualCommit: currentHead,
+        });
+      }
+    } else {
+      commitHash = (await runGit(["rev-parse", "HEAD"], project.rootPath)).stdout;
+    }
+    let output = "";
+    let remoteCommitHash: string | undefined;
+    if (githubRemote) {
+      if (!commitHash) {
+        return res.status(409).json({
+          error: "A local commit is required before pushing through the GitHub integration",
+          code: "GITHUB_PUSH_REQUIRES_LOCAL_COMMIT",
+        });
+      }
+      const pushed = await pushLocalCommitToGitHub({
+        rootPath: project.rootPath,
+        remote: githubRemote,
+        branch,
+        commitHash,
+        message: `EngineeringOS: ${branch}`,
+      });
+      remoteCommitHash = pushed.remoteCommitHash;
+      output = `Pushed ${pushed.changedPaths.length} verified path(s) through GitHub integration`;
+    } else if (allowLegacyFixture) {
+      const token = await getGithubToken(req.userId);
+      if (!token) return res.status(428).json({ error: "GitHub authentication is not configured." });
+      const result = await runGit(
+        ["push", buildAuthUrl(project.gitRemoteUrl, token), branch],
+        project.rootPath,
+        { timeout: 60_000 },
+      );
+      output = result.stdout || result.stderr;
+      remoteCommitHash = commitHash;
+    } else {
+      return res.status(400).json({
+        error: "Only GitHub remotes can be pushed through this API.",
+        code: "UNSAFE_REMOTE_URL",
+      });
+    }
+
+    await recordAudit({
+      entityType: "project",
+      entityId: project.id,
+      action: "executed",
+      projectId: project.id,
+      stateBefore: {},
+      stateAfter: {
+        branch,
+        remoteUrl: project.gitRemoteUrl,
+        commitHash,
+        remoteCommitHash,
+        proposalId: proposalId ?? null,
+      },
+      correlationId,
+    });
+
+    // G-14: emit a high-level event so push appears in dashboard activity feed
+    // and in the AI context's recentEvents on the next chat request.
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "GitPushed",
+      projectId: project.id,
+      severity: "info",
+      message: `Pushed branch "${branch}" to ${project.gitRemoteUrl}`,
+      correlationId,
+      payload: {
+        ...(proposalId ? { proposalId } : {}),
+        operationId: correlationId,
+        commitHash,
+        remoteCommitHash,
+        branch,
+        remoteUrl: project.gitRemoteUrl,
+      },
+    });
+
+    invalidateContextCache(project.id);
+
+    // G-03: fire-and-forget post-push scan so the knowledge graph and metrics
+    // reflect the new code without requiring a manual scan click.  We run this
+    // after the response is sent to avoid blocking the push acknowledgement.
+    setImmediate(async () => {
+      const scanNow = new Date();
+      const jobId = randomUUID();
+      try {
+        await db.transaction(async (tx) => {
+          await tx.insert(scanJobsTable).values({
+            id: jobId,
+            projectId: project.id,
+            status: "queued",
+            createdAt: scanNow,
+          });
+
+          await tx.update(projectsTable).set({ status: "scanning", updatedAt: scanNow }).where(eq(projectsTable.id, project.id));
+
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "ProjectScanQueued",
+            projectId: project.id,
+            severity: "info",
+            message: "Automatic scan queued after push",
+            correlationId: jobId,
+            payload: { parentCorrelationId: correlationId },
+          });
+        });
+
+        // PR-D1: enqueueWithId prevents duplicate execution if the stale-pending
+        // sweep re-fires before this closure has had a chance to start.
+        heavyJobQueue.enqueueWithId(jobId, () => runScanJob(jobId, project.id));
+        invalidateContextCache(project.id);
+      } catch (scanErr) {
+        // Non-fatal — log and emit a warning event so the failure is visible in
+        // the dashboard activity feed; the push itself succeeded.
+        logger.error({ err: scanErr, projectId: project.id, scope: "git-push" }, "post-push scan failed");
+        await db.transaction(async (tx) => {
+          await tx
+            .update(scanJobsTable)
+            .set({
+              status: "failed",
+              error: "Failed to queue post-push scan",
+              finishedAt: new Date(),
+            })
+            .where(eq(scanJobsTable.id, jobId));
+
+          await tx
+            .update(projectsTable)
+            .set({ status: "active", updatedAt: new Date() })
+            .where(eq(projectsTable.id, project.id));
+
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "ProjectScanFailed",
+            projectId: project.id,
+            severity: "warning",
+            message: "Post-push automatic scan failed — trigger a manual scan to refresh the knowledge graph.",
+           payload: { error: String(scanErr), parentCorrelationId: correlationId },
+          });
+        }).catch(() => {});
+        invalidateContextCache(project.id);
+      }
+    });
+
+    return res.json({ ok: true, branch, output: redact(output), correlationId, commitHash, remoteCommitHash });
+--- schema refs ---
+lib/ai-orchestrator/src/filesystem-manifest.ts:191: * Unlike the manifest, this is actual source evidence and is never persisted
+lib/ai-orchestrator/src/required-claims.ts:8: * An evidence inventory is NOT an answer. A behavioral question carries a set
+lib/ai-orchestrator/src/required-claims.ts:20: * The required claim set is derived from the QUESTION, not from evidence:
+lib/ai-orchestrator/src/required-claims.ts:30: * surfaces excerpt-bearing evidence: the question is the source of truth for
+lib/ai-orchestrator/src/required-claims.ts:31: * what must be closed, the consumed evidence is the proof of closure.
+lib/ai-orchestrator/src/required-claims.ts:45:  evidencePaths: string[];
+lib/ai-orchestrator/src/required-claims.ts:56:  evidenceAvailable: boolean;
+lib/ai-orchestrator/src/required-claims.ts:59:  /** True only when the primary claim is CLOSED by grounded evidence. */
+lib/ai-orchestrator/src/required-claims.ts:67:// Only outward payloads (diagnostic details/reasons/evidence paths) are capped.
+lib/ai-orchestrator/src/required-claims.ts:76:/** True when an evidence reference carries a non-empty exact cited excerpt. */
+lib/ai-orchestrator/src/required-claims.ts:81:/** Exact source path captured on an evidence reference (already normalized). */
+lib/ai-orchestrator/src/required-claims.ts:91: * @param evidence  Validated `EvidenceReference[]` for the answer (the proof
+lib/ai-orchestrator/src/required-claims.ts:95: *                  project-relative path (the evidence inventory).
+lib/ai-orchestrator/src/required-claims.ts:99:  evidence: readonly EvidenceReference[];
+lib/ai-orchestrator/src/required-claims.ts:102:  const { question, evidence, fileContents } = input;
+lib/ai-orchestrator/src/required-claims.ts:104:  const grounded = evidence.filter(isGrounded);
+lib/ai-orchestrator/src/required-claims.ts:105:  const evidenceAvailable = fileContents.size > 0 || evidence.length > 0;
+lib/ai-orchestrator/src/required-claims.ts:117:    evidencePaths: grounded.slice(0, MAX_DISPLAY_EVIDENCE).map((item) => sourceOfEvidence(item)),
+lib/ai-orchestrator/src/required-claims.ts:121:          reason: evidenceAvailable
+lib/ai-orchestrator/src/required-claims.ts:122:            ? "evidence was retained but the answer did not ground the question in a cited source excerpt"
+lib/ai-orchestrator/src/required-claims.ts:123:            : "no grounded source evidence was produced for the question",
+lib/ai-orchestrator/src/required-claims.ts:146:      evidencePaths: closedRef ? [srcPath] : [],
+lib/ai-orchestrator/src/required-claims.ts:167:    evidenceAvailable,
+lib/ai-orchestrator/src/required-claims.ts:179: * of claims/edges that must close before finalization — not only once evidence
+lib/ai-orchestrator/src/required-claims.ts:180: * has already been collected. It is deliberately pure: no evidence is consulted.
+lib/ai-orchestrator/src/required-claims.ts:183: * collected evidence reachability edges (AI-OBJ-005 Objective Completion Gate).
+lib/ai-orchestrator/src/required-claims.ts:191:    evidencePaths: [],
+lib/ai-orchestrator/src/required-claims.ts:193:  // Each required evidence edge is a claim that "a proved edge between these
+lib/ai-orchestrator/src/required-claims.ts:201:      evidencePaths: [],
+lib/ai-orchestrator/src/required-claims.ts:209: * CLAIMS are CLOSED by grounded source evidence gathered during the run. This is
+lib/ai-orchestrator/src/required-claims.ts:216: *      (the evidence inventory `fileContents` / completed reads), AND
+lib/ai-orchestrator/src/required-claims.ts:221: * When grounded behavior evidence is supplied, the file must ALSO be one the run
+lib/ai-orchestrator/src/required-claims.ts:225: * alone here (closing edges requires the runtime/evidence endpoints in
+lib/ai-orchestrator/src/required-claims.ts:232:  evidence?: readonly EvidenceReference[];
+lib/ai-orchestrator/src/required-claims.ts:235:  const { objective, response = "", evidence = [], fileContents = new Map() } = input;
+lib/ai-orchestrator/src/required-claims.ts:237:    evidence
+lib/ai-orchestrator/src/required-claims.ts:268:      ? { ...claim, status: "CLOSED" as const, evidencePaths: path ? [path] : [] }
+lib/ai-orchestrator/src/required-claims.ts:275: * reachability edges already proven at runtime. A required evidence edge closes
+lib/ai-orchestrator/src/required-claims.ts:276: * only when the edge with the same endpoints carried runtime/evidence proof —
+lib/ai-orchestrator/src/required-claims.ts:299:      ? { ...claim, status: "CLOSED" as const, evidencePaths: edgeKey ? [edgeKey] : [] }
+lib/ai-orchestrator/src/quality/quality-planner.ts:101:      evidence: getPhaseBudget("evidence"),
+lib/ai-orchestrator/src/quality/execution-phases.ts:10:  | "evidence"
+lib/ai-orchestrator/src/quality/execution-phases.ts:39:  "evidence",
+lib/ai-orchestrator/src/quality/execution-phases.ts:48:  evidence: { maxModelCalls: 3, maxToolCalls: 20, maxOutputTokens: 1_024 },
+lib/ai-orchestrator/src/quality/execution-phases.ts:57:  evidence: ["read_file", "read_file_range", "search_code", "list_directory"],
+lib/ai-orchestrator/src/quality/execution-phases.ts:77: * Advance the server-owned repair journey. The model can provide evidence,
+lib/ai-orchestrator/src/quality/execution-phases.ts:103:      reason: "Validation evidence is required before leaving the validation phase.",
+lib/ai-orchestrator/src/quality/execution-phases.ts:124:      reason: "A report requires passed validation evidence.",
+lib/ai-orchestrator/src/evidence-integrity.ts:11: * DIRECT evidence traceable to the same execution run** (EI-003).
+lib/ai-orchestrator/src/evidence-integrity.ts:16: * Addresses benchmark gaps G-22 (evidence↔claim mismatch) and G-23
+lib/ai-orchestrator/src/evidence-integrity.ts:17: * (telemetry↔evidence-packet mismatch).
+lib/ai-orchestrator/src/evidence-integrity.ts:51: * The previous inline regex `evidence.match(/\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b/)`
+lib/ai-orchestrator/src/evidence-integrity.ts:57: *  1. compound (camelCase / snake_case) tokens in the evidence snippet;
+lib/ai-orchestrator/src/evidence-integrity.ts:58: *  2. plain tokens in the evidence snippet;
+lib/ai-orchestrator/src/evidence-integrity.ts:64:export function extractClaimSymbol(evidence: string, title = ""): string | undefined {
+lib/ai-orchestrator/src/evidence-integrity.ts:77:    pickFrom(evidence, true) ??
+lib/ai-orchestrator/src/evidence-integrity.ts:78:    pickFrom(evidence, false) ??
+lib/ai-orchestrator/src/evidence-integrity.ts:89:/** Source category of the evidence window. */
+lib/ai-orchestrator/src/evidence-integrity.ts:131:/** EI-002: lifecycle stages of an evidence object. */
+lib/ai-orchestrator/src/evidence-integrity.ts:135: * A single canonical evidence record. Every source read produces exactly one
+lib/ai-orchestrator/src/evidence-integrity.ts:136: * of these keyed by `evidenceId`, and no evidence may appear in a report that
+lib/ai-orchestrator/src/evidence-integrity.ts:140:  evidenceId: string;
+lib/ai-orchestrator/src/evidence-integrity.ts:141:  /** Execution run this evidence belongs to. Must equal the current runId to count as fresh proof. */
+lib/ai-orchestrator/src/evidence-integrity.ts:157:   * When the evidence was served from a cache populated by an earlier run,
+lib/ai-orchestrator/src/evidence-integrity.ts:158:   * this holds that origin run. Such evidence is lineage-tagged and is never
+lib/ai-orchestrator/src/evidence-integrity.ts:162:  /** Present when recovered at an evidence gap (EI-017/018). */
+lib/ai-orchestrator/src/evidence-integrity.ts:174:/** EI-006: evidence strength. CONTEXT_ONLY can never prove Behavior or a Finding. */
+lib/ai-orchestrator/src/evidence-integrity.ts:182: * A claim about observable behavior. Holds explicit evidenceIds that must bind
+lib/ai-orchestrator/src/evidence-integrity.ts:190:  /** The symbol the claim is about; evidence selection starts from this (EI-013). */
+lib/ai-orchestrator/src/evidence-integrity.ts:194:   * `validateClaim` runs the evidence relevance gate so that e.g. a behavioral
+lib/ai-orchestrator/src/evidence-integrity.ts:200:   * from the sourceScope of its DIRECT evidence; FIXTURE evidence cannot
+lib/ai-orchestrator/src/evidence-integrity.ts:204:  evidenceIds: string[];
+lib/ai-orchestrator/src/evidence-integrity.ts:206:  /** EI-005: supporting relation — which evidenceId+span proves the claim. */
+lib/ai-orchestrator/src/evidence-integrity.ts:213:  evidenceIds: string[];
+lib/ai-orchestrator/src/evidence-integrity.ts:214:  /** File-local source spans, one per evidenceId, in the same order. */
+lib/ai-orchestrator/src/evidence-integrity.ts:222:export type ClaimValidationResult = "PROVEN" | "NOT_PROVEN" | "REJECTED";
+lib/ai-orchestrator/src/evidence-integrity.ts:226:  result: ClaimValidationResult;
+lib/ai-orchestrator/src/evidence-integrity.ts:227:  /** Which of the EI-007 checks failed (evidence exists / same run / production / symbol / direct / covers). */
+lib/ai-orchestrator/src/evidence-integrity.ts:264:   * Canonical evidence projection consumed by persisted trace/UI surfaces.
+lib/ai-orchestrator/src/evidence-integrity.ts:272:  evidenceRecords: EvidenceRecord[];
+lib/ai-orchestrator/src/evidence-integrity.ts:273:  /** Distinct files with at least one accepted evidence record (packet-side). */
+lib/ai-orchestrator/src/evidence-integrity.ts:274:  evidenceFileCount: number;
+lib/ai-orchestrator/src/evidence-integrity.ts:280:  /** EI-029: proof scope of the collected evidence; NOT_PROVEN when none established. */
+lib/ai-orchestrator/src/evidence-integrity.ts:282:  /** EI-030: scoped finding status derived from the evidence scope. */
+lib/ai-orchestrator/src/evidence-integrity.ts:288:   * telemetry that is inconsistent with the gate verdict or the evidence.
+lib/ai-orchestrator/src/evidence-integrity.ts:327:/** EI-029: infer the proof scope a set of evidence is allowed to assert. */
+lib/ai-orchestrator/src/evidence-integrity.ts:341: * EI-030/031: map a set of evidence windows to a scoped finding status. The
+lib/ai-orchestrator/src/evidence-integrity.ts:365: * A bare "FINDING PROVEN" is reserved for production-grade evidence only.
+lib/ai-orchestrator/src/evidence-integrity.ts:366: * Fixture, test, and spec evidence must carry an explicit scope qualifier so
+lib/ai-orchestrator/src/evidence-integrity.ts:410: * EI-033: can evidence of `evidenceScope` prove a claim asserting `claimScope`?
+lib/ai-orchestrator/src/evidence-integrity.ts:413:export function evidenceScopeSupportsClaimScope(
+lib/ai-orchestrator/src/evidence-integrity.ts:414:  evidenceScope: EvidenceSourceScope,
+lib/ai-orchestrator/src/evidence-integrity.ts:419:    // A mixed claim must be supported by production-grade evidence at least once.
+lib/ai-orchestrator/src/evidence-integrity.ts:420:    return evidenceScope === "PRODUCTION";
+lib/ai-orchestrator/src/evidence-integrity.ts:422:  if (claimScope === "PRODUCTION") return evidenceScope === "PRODUCTION";
+lib/ai-orchestrator/src/evidence-integrity.ts:423:  if (claimScope === "FIXTURE_LOCAL") return evidenceScope === "FIXTURE" || evidenceScope === "PRODUCTION";
+lib/ai-orchestrator/src/evidence-integrity.ts:424:  if (claimScope === "TEST_LOCAL") return evidenceScope === "TEST" || evidenceScope === "PRODUCTION";
+lib/ai-orchestrator/src/evidence-integrity.ts:426:  return evidenceScope === "SPEC" || evidenceScope === "PRODUCTION";
+lib/ai-orchestrator/src/evidence-integrity.ts:445: * mixed evidence all block repair with an explicit reason so a local proof can
+lib/ai-orchestrator/src/evidence-integrity.ts:454:        detail: "Finding proven from production source evidence; repair may proceed.",
+lib/ai-orchestrator/src/evidence-integrity.ts:460:        detail: "Finding proven only from fixture evidence (EI-031/033); the defect is not proven in production code.",
+lib/ai-orchestrator/src/evidence-integrity.ts:466:        detail: "Finding proven only from test evidence (EI-031/033); the defect is not proven in production code.",
+lib/ai-orchestrator/src/evidence-integrity.ts:472:        detail: "Finding rests on mixed production and fixture/test evidence; repair is blocked until a production-scope proof is established.",
+lib/ai-orchestrator/src/evidence-integrity.ts:494:export function evidenceSpanFromContent(file: string, content: string): {
+lib/ai-orchestrator/src/evidence-integrity.ts:540: * completed read that has been admitted into the evidence pool.
+lib/ai-orchestrator/src/evidence-integrity.ts:561:   * File-local coordinates for the evidence window. When provided, overrides
+lib/ai-orchestrator/src/evidence-integrity.ts:587:    : evidenceSpanFromContent(file, content);
+lib/ai-orchestrator/src/evidence-integrity.ts:589:  // Cached evidence from an earlier run must never be treated as fresh proof.
+lib/ai-orchestrator/src/evidence-integrity.ts:594:    evidenceId: buildEvidenceId(runId, file, readAttemptId),
+lib/ai-orchestrator/src/evidence-integrity.ts:647:  // production-scope evidence, not UNKNOWN (which falls through to NOT_PROVEN
+lib/ai-orchestrator/src/evidence-integrity.ts:654: * EI-001 acceptance criterion: every evidence record must carry a runId and a
+lib/ai-orchestrator/src/evidence-integrity.ts:660:    if (!record.runId) violations.push(`evidence ${record.evidenceId} missing runId`);
+lib/ai-orchestrator/src/evidence-integrity.ts:661:    if (!record.readAttemptId) violations.push(`evidence ${record.evidenceId} missing readAttemptId`);
+lib/ai-orchestrator/src/evidence-integrity.ts:662:    // EI-003/022: cached evidence from another run is allowed to exist but
+lib/ai-orchestrator/src/evidence-integrity.ts:665:      violations.push(`cached evidence ${record.evidenceId} missing originRunId`);
+lib/ai-orchestrator/src/evidence-integrity.ts:681:  evidenceIds?: string[];
+lib/ai-orchestrator/src/evidence-integrity.ts:691:    evidenceIds: input.evidenceIds ?? [],
+lib/ai-orchestrator/src/evidence-integrity.ts:692:    status: input.status ?? (input.evidenceIds && input.evidenceIds.length > 0 ? "SUPPORTED" : "NOT_PROVEN"),
+lib/ai-orchestrator/src/evidence-integrity.ts:723: * EI-014: rank evidence candidates for a claim. Higher is better. Factored as
+lib/ai-orchestrator/src/evidence-integrity.ts:729:): { evidence: EvidenceRecord; score: number }[] {
+lib/ai-orchestrator/src/evidence-integrity.ts:731:    .map((evidence) => {
+lib/ai-orchestrator/src/evidence-integrity.ts:732:      const symbolMatch = claim.symbol ? (evidence.symbol === claim.symbol ? 1 : 0.25) : 0.5;
+lib/ai-orchestrator/src/evidence-integrity.ts:737:      if (evidence.sourceSpan && evidence.sourceSpan.endLine >= evidence.sourceSpan.startLine) {
+lib/ai-orchestrator/src/evidence-integrity.ts:738:        spanWidth = evidence.sourceSpan.endLine - evidence.sourceSpan.startLine + 1;
+lib/ai-orchestrator/src/evidence-integrity.ts:744:      const directnessScore = evidence.strength === "DIRECT" ? 1 : evidence.strength === "INDIRECT" ? 0.5 : 0;
+lib/ai-orchestrator/src/evidence-integrity.ts:746:        evidence.sourceType === "IMPLEMENTATION" ? 1 : evidence.sourceType === "CONFIG" ? 0.4 : 0.6;
+lib/ai-orchestrator/src/evidence-integrity.ts:748:      return { evidence, score };
+lib/ai-orchestrator/src/evidence-integrity.ts:753:/** EI-005: build a claim→evidence binding, or return null when no evidence binds. */
+lib/ai-orchestrator/src/evidence-integrity.ts:758:  const bound = records.filter((record) => claim.evidenceIds.includes(record.evidenceId));
+lib/ai-orchestrator/src/evidence-integrity.ts:759:  // A claim with declared evidenceIds none of which resolve to records is a
+lib/ai-orchestrator/src/evidence-integrity.ts:761:  if (claim.evidenceIds.length > 0 && bound.length === 0) return null;
+lib/ai-orchestrator/src/evidence-integrity.ts:770:    evidenceIds: bound.map((record) => record.evidenceId),
+lib/ai-orchestrator/src/evidence-integrity.ts:787:     * AI-OBJ-007: source excerpts keyed by `evidenceId`. When provided and
+lib/ai-orchestrator/src/evidence-integrity.ts:788:     * `claim.category` is set, the evidence relevance gate is applied to each
+lib/ai-orchestrator/src/evidence-integrity.ts:798:  const bound = records.filter((record) => claim.evidenceIds.includes(record.evidenceId));
+lib/ai-orchestrator/src/evidence-integrity.ts:799:  if (claim.evidenceIds.length === 0) {
+lib/ai-orchestrator/src/evidence-integrity.ts:800:    reasons.push("claim has no evidenceIds (EI-005 REJECTED)");
+lib/ai-orchestrator/src/evidence-integrity.ts:804:    reasons.push("declared evidenceIds resolve to no records (EI-005 REJECTED)");
+lib/ai-orchestrator/src/evidence-integrity.ts:813:      failureKinds.push(`${record.evidenceId} is CONTEXT_ONLY and cannot prove behavior (EI-006)`);
+lib/ai-orchestrator/src/evidence-integrity.ts:815:    if (record.runId !== opts.runId) failureKinds.push(`${record.evidenceId} from different run`);
+lib/ai-orchestrator/src/evidence-integrity.ts:817:      failureKinds.push(`${record.evidenceId} is cached from run ${record.originRunId}, not fresh proof (EI-003)`);
+lib/ai-orchestrator/src/evidence-integrity.ts:820:      failureKinds.push(`${record.evidenceId} is TEST source, not production (EI-007#3)`);
+lib/ai-orchestrator/src/evidence-integrity.ts:823:    if (claim.scope && !evidenceScopeSupportsClaimScope(record.sourceScope ?? "PRODUCTION", claim.scope)) {
+lib/ai-orchestrator/src/evidence-integrity.ts:825:        `${record.evidenceId} sourceScope ${record.sourceScope ?? "UNKNOWN"} cannot support claim scope ${claim.scope} (EI-033)`,
+lib/ai-orchestrator/src/evidence-integrity.ts:829:      failureKinds.push(`${record.evidenceId} symbol mismatch`);
+lib/ai-orchestrator/src/evidence-integrity.ts:831:    // AI-OBJ-007: evidence relevance gate — applied when the claim carries a
+lib/ai-orchestrator/src/evidence-integrity.ts:832:    // category so behavioral/import evidence cannot prove reachability claims.
+lib/ai-orchestrator/src/evidence-integrity.ts:834:      const snippet = opts.snippets?.get(record.evidenceId) ?? "";
+lib/ai-orchestrator/src/evidence-integrity.ts:835:      const gate = evidenceRelevanceGate(
+lib/ai-orchestrator/src/evidence-integrity.ts:842:        failureKinds.push(`${record.evidenceId} relevance rejected: ${gate.reason}`);
+lib/ai-orchestrator/src/evidence-integrity.ts:851:    if (claim.scope && !evidenceScopeSupportsClaimScope(record.sourceScope ?? "PRODUCTION", claim.scope)) return false;
+lib/ai-orchestrator/src/evidence-integrity.ts:855:      const snippet = opts.snippets?.get(record.evidenceId) ?? "";
+lib/ai-orchestrator/src/evidence-integrity.ts:856:      const gate = evidenceRelevanceGate(
+lib/ai-orchestrator/src/evidence-integrity.ts:867:    reasons.push(...(failureKinds.length > 0 ? failureKinds : bound.map((r) => `${r.evidenceId} cannot prove the claim (EI-007)`)));
+lib/ai-orchestrator/src/evidence-integrity.ts:881: * evidenceIds → source spans → validator decision. Anything less is a
+lib/ai-orchestrator/src/evidence-integrity.ts:891:    return { allowed: false, code: "VERIFICATION_FAILURE", reason: "no claim is bound to any evidence (EI-008)" };
+lib/ai-orchestrator/src/evidence-integrity.ts:906:    if (!binding || binding.evidenceIds.length === 0) {
+lib/ai-orchestrator/src/evidence-integrity.ts:907:      return { allowed: false, code: "VERIFICATION_FAILURE", reason: `claim ${claim.claimId} has no resolved evidence binding` };
+lib/ai-orchestrator/src/evidence-integrity.ts:913:  return { allowed: true, reason: `all ${input.claims.length} claim(s) verified PROVEN with bound evidence` };
+lib/ai-orchestrator/src/evidence-integrity.ts:919: * Different claim categories require fundamentally different evidence. A
+lib/ai-orchestrator/src/evidence-integrity.ts:962:  evidenceRecords: EvidenceRecord[];
+lib/ai-orchestrator/src/evidence-integrity.ts:973:    evidenceRecords,
+lib/ai-orchestrator/src/evidence-integrity.ts:980:  const completed = evidenceRecords.filter(
+lib/ai-orchestrator/src/evidence-integrity.ts:983:  const readAttempts = evidenceRecords.length;
+lib/ai-orchestrator/src/evidence-integrity.ts:985:  const targetedReads = evidenceRecords.filter((record) => record.readType === "TARGETED").length;
+lib/ai-orchestrator/src/evidence-integrity.ts:986:  const cachedReads = evidenceRecords.filter((record) => record.readType === "CACHED").length;
+lib/ai-orchestrator/src/evidence-integrity.ts:988:  const evidenceFileCount = new Set(evidenceRecords.map((record) => record.file)).size;
+lib/ai-orchestrator/src/evidence-integrity.ts:989:  const acceptedEvidenceCount = evidenceRecords.filter((record) => record.phase === "EVIDENCE_ACCEPTED").length;
+lib/ai-orchestrator/src/evidence-integrity.ts:993:      evidenceRecords
+lib/ai-orchestrator/src/evidence-integrity.ts:1000:      evidenceRecords
+lib/ai-orchestrator/src/evidence-integrity.ts:1006:  const verdictScope = deriveVerdictScope(evidenceRecords);
+lib/ai-orchestrator/src/evidence-integrity.ts:1007:  const scopedFindingStatus = deriveScopedFindingStatus(evidenceRecords);
+lib/ai-orchestrator/src/evidence-integrity.ts:1021:    evidenceRecords,
+lib/ai-orchestrator/src/evidence-integrity.ts:1022:    evidenceFileCount,
+lib/ai-orchestrator/src/evidence-integrity.ts:1039: *   evidenceFileCount <= uniqueFilesRead
+lib/ai-orchestrator/src/evidence-integrity.ts:1040: *   acceptedEvidenceCount <= evidenceRecords
+lib/ai-orchestrator/src/evidence-integrity.ts:1046:  const completedRecords = ledger.evidenceRecords.filter(
+lib/ai-orchestrator/src/evidence-integrity.ts:1062:  // EI-026: evidenceFiles <= uniqueFiles.
+lib/ai-orchestrator/src/evidence-integrity.ts:1063:  if (ledger.evidenceFileCount > ledger.uniqueFilesRead) {
+lib/ai-orchestrator/src/evidence-integrity.ts:1065:      `evidenceFileCount ${ledger.evidenceFileCount} > uniqueFilesRead ${ledger.uniqueFilesRead} (evidence without a completed read)`,
+lib/ai-orchestrator/src/evidence-integrity.ts:1068:  // EI-026: acceptedEvidence <= evidenceRecords.
+lib/ai-orchestrator/src/evidence-integrity.ts:1069:  if (ledger.acceptedEvidenceCount > ledger.evidenceRecords.length) {
+lib/ai-orchestrator/src/evidence-integrity.ts:1071:      `acceptedEvidenceCount ${ledger.acceptedEvidenceCount} > evidenceRecords ${ledger.evidenceRecords.length}`,
+lib/ai-orchestrator/src/evidence-integrity.ts:1079:  // fixture/test/spec-only evidence can never assert production proof.
+lib/ai-orchestrator/src/evidence-integrity.ts:1081:    const hasProductionEvidence = ledger.evidenceRecords.some(
+lib/ai-orchestrator/src/evidence-integrity.ts:1086:        "verdictScope PRODUCTION asserted with no production-source evidence (EI-031 scope escalation)",
+lib/ai-orchestrator/src/evidence-integrity.ts:1090:  const lineage = validateEvidenceLineage(ledger.evidenceRecords);
+lib/ai-orchestrator/src/evidence-integrity.ts:1095:  // evidence counts — otherwise the run's objective telemetry is judged
+lib/ai-orchestrator/src/evidence-integrity.ts:1251:  evidenceIds: string[];
+lib/ai-orchestrator/src/evidence-integrity.ts:1269:    evidenceIds: provenClaims.flatMap((claim) => claim.evidenceIds),
+lib/ai-orchestrator/src/evidence-integrity.ts:1274:// ── EI-016 Claim-oriented evidence map ─────────────────────────────────────────
+lib/ai-orchestrator/src/evidence-integrity.ts:1286:    const bound = records.filter((record) => claim.evidenceIds.includes(record.evidenceId));
+lib/ai-orchestrator/src/evidence-integrity.ts:1288:      lines.push(`⚠️ claim "${claim.text}" has no bound evidence`);
+lib/ai-orchestrator/src/evidence-integrity.ts:1302: * Build a RunLedger from the runtime evidence already collected in chat-agent:
+lib/ai-orchestrator/src/evidence-integrity.ts:1303: * the retained file bodies (evidence windows) and the engine's source-retrieval
+lib/ai-orchestrator/src/evidence-integrity.ts:1310:  /** Files cited by accepted behavior evidence (claim-relevant windows). */
+lib/ai-orchestrator/src/evidence-integrity.ts:1324:   * Prefetch completed reads (EI-011). Files retained as evidence bodies via
+lib/ai-orchestrator/src/evidence-integrity.ts:1341:   * EI-017/018: pre-built targeted evidence records produced during claim
+lib/ai-orchestrator/src/evidence-integrity.ts:1387:    evidenceRecords: records,
+lib/ai-orchestrator/src/evidence-integrity.ts:1398:  // between evidenceFileCount and uniqueFilesRead is a real telemetry loss that
+lib/ai-orchestrator/src/evidence-integrity.ts:1399:  // must fail closed — never masked by a silent evidence-derived fallback.
+lib/ai-orchestrator/src/evidence-integrity.ts:1460: * Returns the read attempt id to persist on recovered evidence (EI-018).
+lib/ai-orchestrator/src/evidence-integrity.ts:1476:/** EI-018: tag recovered evidence with the recovery attempt id + bump recovery count. */
+lib/ai-orchestrator/src/evidence-integrity.ts:1488: * evidence quality; BLOCKED is the fail-closed outcome when the objective cannot
+lib/ai-orchestrator/src/evidence-integrity.ts:1489: * be completed with the evidence at hand and the run MUST NOT emit a final answer.
+lib/ai-orchestrator/src/evidence-integrity.ts:1507:   * of any evidence an explanation happens to contain.
+lib/ai-orchestrator/src/evidence-integrity.ts:1558: * answered a PRODUCTION_REACHABILITY objective with accepted behavior evidence
+lib/ai-orchestrator/src/evidence-integrity.ts:1569:  /** True when behavior evidence was actually accepted for the candidate. */
+lib/ai-orchestrator/src/evidence-integrity.ts:1682:}): { from: string; to: string; source?: string; evidence?: string }[] {
+lib/ai-orchestrator/src/evidence-integrity.ts:1685:  const out: { from: string; to: string; source?: string; evidence?: string }[] = [];
+lib/ai-orchestrator/src/evidence-integrity.ts:1699:      const evidence = invocationInsideCaller(body, rawFrom, toSym, file);
+lib/ai-orchestrator/src/evidence-integrity.ts:1700:      if (evidence) {
+lib/ai-orchestrator/src/evidence-integrity.ts:1701:        out.push({ from: edge.from, to: edge.to, source: file, evidence });
+lib/ai-orchestrator/src/evidence-integrity.ts:1779:  /** Required claim ids the run actually closed with direct evidence (AI-OBJ-011). */
+lib/ai-orchestrator/src/evidence-integrity.ts:1800: * emitted and refuses finalization while any required claim or required evidence
+lib/ai-orchestrator/src/evidence-integrity.ts:1817:  /** Directly proven reachability edges from this run (runtime/evidence proof only). */
+lib/ai-orchestrator/src/evidence-integrity.ts:1828:   * objective, even if some evidence was collected.
+lib/ai-orchestrator/src/evidence-integrity.ts:1871:  const hasEvidence = ledger.evidenceRecords.length > 0 || ledger.claims.length > 0;
+lib/ai-orchestrator/src/evidence-integrity.ts:1880:  // override every evidence-quality verdict. Even a fully-evidenced objective
+lib/ai-orchestrator/src/evidence-integrity.ts:1882:  // bounded scope (T5) — no amount of collected evidence repairs those.
+lib/ai-orchestrator/src/evidence-integrity.ts:1937: * AI-OBJ-007: gate that rejects evidence before it enters claim validation if
+lib/ai-orchestrator/src/evidence-integrity.ts:1938: * the evidence does not prove the category of claim it is attached to.
+lib/ai-orchestrator/src/evidence-integrity.ts:1946: *  R3. Import / package-membership evidence cannot prove
+lib/ai-orchestrator/src/evidence-integrity.ts:1951: *      still rejected — ambiguous evidence cannot prove a caller reaches a
+lib/ai-orchestrator/src/evidence-integrity.ts:1970:export function evidenceRelevanceGate(
+lib/ai-orchestrator/src/evidence-integrity.ts:1981:      reason: `CONTEXT_ONLY evidence from ${record.file} cannot prove ${claimCategory} (AI-OBJ-007 R1)`,
+lib/ai-orchestrator/src/evidence-integrity.ts:1999:    // declaration, arrow assignment) is never treated as invocation evidence —
+lib/ai-orchestrator/src/evidence-integrity.ts:2016:    // description. Invocation evidence wins over the behavioral denylist.
+lib/ai-orchestrator/src/evidence-integrity.ts:2027:    // Rule 3: import / package-membership evidence cannot prove reachability.
+lib/ai-orchestrator/src/evidence-integrity.ts:2037:    // Rule 4: positive-evidence gate — the snippet must contain a recognisable
+lib/ai-orchestrator/src/evidence-integrity.ts:2107: * data-flow relationship (AI-OBJ-007 R4 — positive-evidence gate).
+lib/ai-orchestrator/src/evidence-integrity.ts:2128: * Declaration forms that must NOT be read as invocation evidence
+lib/ai-orchestrator/src/evidence-integrity.ts:2163: *  3. No behavioral evidence may substitute for the primary objective when the
+lib/ai-orchestrator/src/evidence-integrity.ts:2172:  /** Whether the run's primary claim was closed by grounded evidence. */
+lib/ai-orchestrator/src/evidence-integrity.ts:2179:   * The category of the primary claim. When C_PRODUCTION_REACHABILITY, evidence
+lib/ai-orchestrator/src/evidence-integrity.ts:2184:   * Behavioral evidence snippets that were actually used to close the primary claim.
+lib/ai-orchestrator/src/evidence-integrity.ts:2236:  // Rule 3: behavioral evidence must not substitute for primary reachability objective.
+lib/ai-orchestrator/src/evidence-integrity.ts:2242:      const gate = evidenceRelevanceGate(
+lib/ai-orchestrator/src/evidence-integrity.ts:2303:  // proof. Each of those validations passed the evidenceRelevanceGate (R2/R3/R5),
+lib/ai-orchestrator/src/evidence-integrity.ts:2306:  // evidence type suffices.

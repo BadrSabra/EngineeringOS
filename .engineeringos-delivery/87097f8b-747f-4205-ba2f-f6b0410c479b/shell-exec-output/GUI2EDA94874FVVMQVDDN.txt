@@ -1,0 +1,663 @@
+const MARKER = ".engineeringos-delivery-workspace";
+
+export function hashChangeSet(changes: readonly { path: string; newContent: string }[]): string {
+  const canonical = [...changes]
+    .map((change) => ({ path: change.path.replaceAll("\\", "/"), newContent: change.newContent }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+/**
+ * Runtime sockets, generated delivery state, and toolchain directories are
+ * excluded identically while copying and hashing. Keep this policy in one
+ * place: a candidate digest must be comparable with a live-root digest.
+ */
+export function shouldExcludeDeliveryEntry(absolutePath: string, rootPath: string): boolean {
+  const basename = path.basename(absolutePath);
+  const relative = path.relative(rootPath, absolutePath).replaceAll("\\", "/");
+  if (
+    absolutePath === rootPath
+    || absolutePath.endsWith(".pipe")
+    || absolutePath.endsWith(".sock")
+    || basename.startsWith(".org.chromium.")
+    || /^(?:SingletonSocket|SingletonCookie|SingletonLock)$/.test(basename)
+  ) return absolutePath !== rootPath;
+  if (relative === ".engineeringos-delivery" || relative.startsWith(".engineeringos-delivery/")) return true;
+  return DELIVERY_TREE_EXCLUSIONS.includes(basename as typeof DELIVERY_TREE_EXCLUSIONS[number]);
+}
+
+function normalizeDeliveryRelativePath(relativePath: string): string {
+  const normalized = relativePath.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+  if (
+    !normalized
+    || normalized.startsWith("/")
+    || path.isAbsolute(relativePath)
+    || normalized.split("/").some((segment) => !segment || segment === "..")
+  ) {
+    throw new DeliveryTreeDigestError("DELIVERY_TREE_UNSAFE_PATH", "Delivery tree contains an unsafe relative path.");
+  }
+  return normalized;
+}
+
+/**
+ * Hash a complete source/candidate tree with a deterministic, byte-oriented
+ * record format. Directories are retained (including empty directories),
+ * regular files use base64 of their exact bytes, and symlinks use base64 of
+ * their link target without following it. Other filesystem kinds are recorded
+ * by kind but never read as files.
+ */
+export async function hashDeliveryTree(rootPath: string): Promise<string> {
+  const resolvedRoot = path.resolve(rootPath);
+  const entries: Array<{ path: string; kind: "directory" | "file" | "symlink" | "other"; bytes?: string }> = [];
+  const seenPaths = new Set<string>();
+  async function visit(directory: string): Promise<void> {
+    let children;
+    try {
+      children = (await readdir(directory, { withFileTypes: true }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      throw new DeliveryTreeDigestError(
+        directory === resolvedRoot ? "DELIVERY_TREE_ROOT_UNAVAILABLE" : "DELIVERY_TREE_ENTRY_UNREADABLE",
+        "Delivery tree could not be read.",
+      );
+    }
+    for (const entry of children) {
+      const absolute = path.join(directory, entry.name);
+      if (shouldExcludeDeliveryEntry(absolute, resolvedRoot) || (directory === resolvedRoot && entry.name === MARKER)) continue;
+      const relative = normalizeDeliveryRelativePath(path.relative(resolvedRoot, absolute));
+      if (seenPaths.has(relative)) {
+        throw new DeliveryTreeDigestError("DELIVERY_TREE_UNSAFE_PATH", "Delivery tree contains duplicate normalized paths.");
+      }
+      seenPaths.add(relative);
+      let stat;
+      try {
+        stat = await lstat(absolute);
+      } catch {
+        throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree entry could not be inspected.");
+      }
+      if (stat.isDirectory()) {
+        entries.push({ path: relative, kind: "directory" });
+        await visit(absolute);
+      } else if (stat.isFile()) {
+        try {
+          entries.push({ path: relative, kind: "file", bytes: (await readFile(absolute)).toString("base64") });
+        } catch {
+          throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree file could not be read.");
+        }
+      } else if (stat.isSymbolicLink()) {
+        try {
+          entries.push({ path: relative, kind: "symlink", bytes: Buffer.from(await readlink(absolute), "utf8").toString("base64") });
+        } catch {
+          throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree symlink could not be read.");
+        }
+      } else {
+        entries.push({ path: relative, kind: "other" });
+      }
+    }
+  }
+  try {
+    const stat = await lstat(resolvedRoot);
+    if (!stat.isDirectory()) throw new Error("not a directory");
+  } catch {
+    throw new DeliveryTreeDigestError("DELIVERY_TREE_ROOT_UNAVAILABLE", "Delivery tree root is unavailable.");
+  }
+  await visit(resolvedRoot);
+  const canonical = JSON.stringify({ version: DELIVERY_TREE_DIGEST_VERSION, entries });
+  return createHash("sha256").update(Buffer.from(canonical, "utf8")).digest("hex");
+}
+
+/** Backward-compatible name used by benchmark and recovery callers. */
+export const hashDeliveryWorkspace = hashDeliveryTree;
+
+export async function hashDeliveryFiles(
+  rootPath: string,
+  changes: readonly { path: string }[],
+): Promise<string> {
+  const entries = await Promise.all([...changes]
+    .map((change) => change.path.replaceAll("\\", "/"))
+    .sort((a, b) => a.localeCompare(b))
+    .map(async (relative) => ({
+      path: relative,
+      newContent: (await readFile(path.resolve(rootPath, relative))).toString(),
+    })));
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+}
+
+export function deliveryWorkspacePath(operationId: string): string {
+  if (!/^[0-9a-f-]{36}$/i.test(operationId)) throw new Error("Invalid delivery operation identity");
+  return path.join(WORKSPACES_DIR, operationId);
+}
+
+export async function createDeliveryWorkspace(input: {
+    const operationMode =
+      proposalId
+      || result.repairPlan
+      || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT"
+      || Boolean(effectiveBuildPlanMessageId)
+        ? "DELIVERY"
+        : streamTurnIntent.operationMode;
+
+    const publicToolTrace = streamTurnIntent.requiresEvidence
+        ? serializeToolTrace(traceSteps, false, streamAuditScopeDescription)
+      : assistantMsg.toolTrace;
+    // The database row is intentionally retained with full diagnostics, but
+    // every SSE projection of that row must use the public trace.
+    assistantMsg.toolTrace = publicToolTrace;
+    const publicExecutionSummary = projectPublicExecutionSummary(executionSummary, true);
+    const publicAssistantMsg = {
+      id: assistantMsg.id,
+      sessionId: assistantMsg.sessionId,
+      role: assistantMsg.role,
+      content: assistantMsg.content,
+      sources: assistantMsg.sources,
+      repairPlanMetadata: assistantMsg.repairPlanMetadata,
+      behaviorEvidence: assistantMsg.behaviorEvidence,
+      createdAt: assistantMsg.createdAt,
+      toolTrace: publicToolTrace,
+      turnIntent: streamTurnIntent.kind,
+      executionId: aiExecutionId,
+      outcome: "SUCCEEDED",
+    };
+    sse({
+      type: "done",
+      sessionId: sessionIdToUse,
+      message: {
+        ...publicAssistantMsg,
+        taskResult: parseTaskResult(assistantMsg.taskResult),
+      },
+      sources: redactUserFacingValue(result.sources),
+      toolTrace: publicToolTrace,
+      pendingChanges: proposalId
+        ? proposalChanges
+        : [],
+      proposalId,
+      operationId: assistantOperationId,
+      operationMode,
+      proposalUnavailable: (result.pendingChanges?.length ?? 0) > 0 && !proposalId
+        ? hasPassedLatestValidation(traceSteps)
+          ? "Repair changes require closed Finding/claim evidence before approval."
+          : "Repair changes require a verified validation profile before approval."
+        : undefined,
+      repairPlan: redactUserFacingValue(result.repairPlan),
+      productionReachability: result.productionReachability,
+      crossFileTraces: redactUserFacingValue(result.crossFileTraces),
+      // Exact source line spans for each accepted behavior-evidence excerpt so the
+      // dashboard can show where the proof comes from.
+      behaviorEvidence: redactUserFacingValue(result.behaviorEvidence),
+      // AI-008: per-task typed result discriminated on `kind` by forensicTaskType
+      taskResult: redactUserFacingValue(result.taskResult),
+      // PR-010: telemetry fields for client observability
+      telemetry: {
+        latencyMs: chatLatencyMs,
+      },
+      execution: publicExecutionSummary,
+      _meta: rootFallbackUsed
+        ? { rootPathFallback: { used: true, original: rootOriginalPath } }
+        : undefined,
+    });
+    res.end();
+    return;
+  } finally {
+    if (aiExecution && !executionTerminal) {
+      await failAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        error: executionAbortController?.signal.aborted
+          ? "Execution cancelled by the user."
+          : "Execution ended before reaching a terminal result.",
+        cancelled: executionAbortController?.signal.aborted,
+        nodeStates: executionNodeStates,
+      }).catch((err) => {
+        logger.warn({ err, executionId: aiExecution!.id }, "AI execution terminal-state update failed");
+      });
+      executionTerminal = true;
+    }
+    if (aiExecution) {
+      if (executionAbortController) {
+        unregisterAiExecutionController(aiExecution.id, executionAbortController);
+      }
+    }
+    await applyLock.release();
+  }
+});
+
+// ── Durable AI execution control plane ────────────────────────────────────────
+
+router.get("/ai/executions/history", async (req, res) => {
+  const project = await loadProjectByIdForUser(
+    typeof req.query.projectId === "string" ? req.query.projectId : undefined,
+    req.userId,
+    res,
+  );
+  if (!project) return;
+
+  const parsedLimit = Number(req.query.limit);
+  const limit = Number.isInteger(parsedLimit) ? Math.min(50, Math.max(1, parsedLimit)) : 20;
+  const executions = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.projectId, project.id),
+      eq(aiExecutionsTable.userId, req.userId),
+      inArray(aiExecutionsTable.status, ["paused", "cancelled", "failed"]),
+    ))
+    .orderBy(desc(aiExecutionsTable.updatedAt))
+    .limit(limit);
+
+  const safeText = (value: unknown, fallback: string, max = 240): string => {
+    if (typeof value !== "string" || !value.trim()) return fallback;
+    return redactUserFacingText(value).slice(0, max);
+  };
+  return res.json(executions.map((execution) => {
+    const request = parseExecutionRequest(execution.request);
+    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+    const checkpointRecord = checkpoint && typeof checkpoint === "object"
+      ? checkpoint as Record<string, unknown>
+      : {};
+    const hasPendingProposal = Boolean(execution.proposalId);
+    const evidenceVerdict = derivePersistedEvidenceVerdict({
+      executionStatus: execution.status,
+      checkpoint: checkpointRecord,
+      hasPendingProposal,
+    });
+    const resumable = execution.status === "paused" || execution.status === "failed";
+    const disposition = evidenceVerdict === "PROVEN"
+      ? "RETAIN_FOR_REVIEW"
+      : "NEW_RUN_RECOMMENDED";
+    return {
+      id: execution.id,
+      projectId: execution.projectId,
+      sessionId: execution.sessionId,
+      status: execution.status,
+      objective: safeText(
+        typeof request?.objective === "string"
+          ? request.objective
+          : request?.message,
+        "AI audit execution",
+        500,
+      ),
+      evidenceVerdict,
+      evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+        ? safeText(checkpointRecord.evidenceReason, "", 500)
+        : null,
+      terminalReason: execution.status === "cancelled"
+        ? "Audit was cancelled before completion."
+        : execution.status === "failed"
+          ? "Execution stopped before a complete result was recorded."
+          : "Execution is paused at a durable checkpoint.",
+      proofRequired: checkpointRecord.proofRequired === true
+        || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId),
+      disposition,
+      recommendedAction: disposition === "RETAIN_FOR_REVIEW"
+        ? "REVIEW_RETAINED_PROOF"
+        : resumable ? "RESUME_CHECKPOINT" : "START_NEW_RUN",
+      resumable,
+      checkpointVersion: execution.checkpointVersion,
+      operationId: execution.operationId,
+      createdAt: execution.createdAt,
+      if ("evidence" in validation) {
+        validation.evidence.operationId = applyCorrelationId;
+        validation.evidence.projectRevision = deliveryWorkspace.baseRevision;
+        validation.evidence.baseTreeHash = deliveryWorkspace.baseTreeHash;
+        validation.evidence.treeDigestVersion = DELIVERY_TREE_DIGEST_VERSION;
+        validation.evidence.candidateHash = candidateHash;
+        validation.evidence.changeSetHash = effectiveChangeSetHash;
+      }
+      verificationByProfile.set(profile, validation);
+    }
+
+    const candidateHashAfterValidation = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
+    const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
+    const liveRootHashBeforePromotion = await hashDeliveryTree(resolvedRoot);
+    const liveRootChangedBeforePromotion = liveRootHashBeforePromotion !== deliveryWorkspace.baseTreeHash;
+    const validationNeedsReview = candidateChangedDuringValidation || liveRootChangedBeforePromotion || [...verificationByProfile.values()].some((validation) =>
+      validation.status === "failed" ||
+      validation.status === "unavailable" ||
+      validation.status === "skipped" ||
+      validation.status === "blocked",
+    );
+    if (validationNeedsReview) {
+      // Behavioral validation is a promotion gate. Keep the candidate for
+      // inspection/recovery, but never write an unproven candidate to the
+      // user's live project.
+      for (const change of candidateChanges) {
+        results.push({
+          path: change.path,
+          ok: false,
+          error: "Behavioral verification did not pass; the candidate was not promoted.",
+        });
+      }
+      await appendApplyJournal("BLOCKED", {
+        reason: candidateChangedDuringValidation
+          ? "candidate_changed_after_validation"
+          : liveRootChangedBeforePromotion
+            ? "live_root_changed_before_promotion"
+            : "behavioral_validation",
+        candidateHash,
+        changeSetHash: effectiveChangeSetHash,
+        baseTreeHash: deliveryWorkspace.baseTreeHash,
+        candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        liveRootHashBeforePromotion,
+      });
+    } else {
+      await appendApplyJournal("WRITING_STARTED", {
+        fileCount: writableChanges.length,
+        files: writableChanges.map((change) => change.path),
+      });
+      await appendApplyJournal("PROMOTION_INTENT", {
+        operationId: applyCorrelationId,
+        candidateWorkspace: deliveryWorkspace.workspaceRoot,
+        candidateHash,
+        baseRevision: deliveryWorkspace.baseRevision,
+        changeSetHash: effectiveChangeSetHash,
+        files: writableChanges.map((change) => ({
+          path: change.path,
+          originalContent: change.before?.toString("utf8") ?? null,
+          newContent: change.newContent,
+        })),
+      });
+      let writeFailure: string | undefined;
+      try {
+        for (const change of writableChanges) {
+          attemptedChanges.push(change);
+          await atomicallyPromoteFile(change.realPath, change.newContent, applyCorrelationId);
+          const persisted = await fs.readFile(change.realPath, "utf-8");
+          if (persisted !== change.newContent) {
+            throw new Error("Post-write persistence verification failed.");
+          }
+          writtenChanges.push(change);
+          results.push({ path: change.path, ok: true });
+        }
+        await appendApplyJournal("WRITTEN", {
+          files: writtenChanges.map((change) => change.path),
+          promotionState: "PROMOTED",
+        });
+      } catch (e) {
+        writeFailure = e instanceof Error ? e.message : String(e);
+        rollbackFailures = await restoreApplySnapshots([...attemptedChanges].reverse());
+        for (const result of results) {
+          if (result.ok) {
+            result.ok = false;
+            result.writeStatus = rollbackFailures.length > 0 ? "unknown" : "not_written";
+            result.persistenceVerified = false;
+            result.error = rollbackFailures.length > 0
+              ? `Apply encountered a write failure and rollback could not be verified: ${writeFailure}`
+              : `Apply rolled back after a file write failed: ${writeFailure}`;
+          }
+        }
+        for (const change of writableChanges.slice(writtenChanges.length)) {
+          results.push({ path: change.path, ok: false, error: `Apply aborted: ${writeFailure}` });
+        }
+        await appendApplyJournal("WRITE_FAILED", {
+          error: writeFailure,
+          writtenFiles: attemptedChanges.map((change) => change.path),
+        });
+        await appendApplyJournal(
+          rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK",
+          {
+            failures: rollbackFailures,
+            writtenFiles: writtenChanges.map((change) => change.path),
+          },
+        );
+      }
+    }
+
+    promotedTreeHash = await hashDeliveryTree(resolvedRoot);
+    if (writtenChanges.length > 0 && promotedTreeHash !== candidateHash) {
+      promotionMismatch = true;
+      for (const result of results) {
+        if (result.ok) {
+          result.ok = false;
+          result.writeStatus = "unknown";
+          result.persistenceVerified = false;
+          result.error = "Promoted bytes do not match the validated candidate.";
+        }
+      }
+      rollbackFailures = await restoreApplySnapshots([...writtenChanges].reverse());
+      const rollbackTreeHash = await hashDeliveryTree(resolvedRoot).catch(() => null);
+      await appendApplyJournal(rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK", {
+        reason: "promoted_candidate_hash_mismatch",
+        candidateHash,
+        changeSetHash: effectiveChangeSetHash,
+        promotedTreeHash,
+        rollbackTreeHash,
+        failures: rollbackFailures,
+      });
+      if (rollbackFailures.length === 0 && rollbackTreeHash !== deliveryWorkspace.baseTreeHash) {
+        await appendApplyJournal("RECOVERY_REQUIRED", {
+          reason: "rollback_tree_mismatch",
+          promotedTreeHash,
+          rollbackTreeHash,
+        });
+      }
+    }
+    for (const validation of verificationByProfile.values()) {
+      if (
+        writtenChanges.length > 0
+        && !promotionMismatch
+        && promotedTreeHash === candidateHash
+        && "evidence" in validation
+      ) {
+        validation.evidence.promotedHash = promotedTreeHash;
+      }
+    }
+    const validationEvidence = [...verificationByProfile.values()].flatMap((validation) => {
+      if (!("evidence" in validation)) return [];
+      const stale = candidateChangedDuringValidation || liveRootChangedBeforePromotion || promotionMismatch;
+      return [publicValidationReceipt(validation, stale
+        ? {
+            status: "blocked",
+            detail: candidateChangedDuringValidation
+              ? "The immutable candidate changed during validation and was not promoted."
+              : liveRootChangedBeforePromotion
+                ? "The project changed before promotion and the validated candidate was not promoted."
+                : "The promoted tree did not match the validated candidate.",
+          }
+        : undefined)];
+    });
+
+    const responseResults = results.map((result) => {
+      const change = writableChanges.find((item) => item.path === result.path);
+      const verification = change?.validationProfile
+        ? verificationByProfile.get(change.validationProfile) ?? {
+            ...makeSyntheticValidationResult(
+              change.validationProfile,
+              "unavailable",
+              "Registered validation did not produce a result.",
+              "Behavioral verification did not produce a result.",
+            ),
+          }
+        : {
+            ...makeSyntheticValidationResult(
+              "",
+              "skipped",
+              "No registered behavioral validation profile was selected.",
+              "No registered behavioral validation profile was selected.",
+            ),
+          };
+      return {
+        ...result,
+        writeStatus: result.writeStatus ?? (result.ok ? "written" as const : "not_written" as const),
+        persistenceVerified: result.ok,
+        behavioralVerification: result.behavioralVerification ?? verification,
+      };
+    });
+    const verificationNeedsReviewAfterPromotion = responseResults.some((result) =>
+      result.behavioralVerification.status === "failed" ||
+      result.behavioralVerification.status === "unavailable" ||
+      result.behavioralVerification.status === "skipped" ||
+      result.behavioralVerification.status === "blocked",
+    );
+    if (verificationNeedsReviewAfterPromotion && responseResults.some((result) => result.ok)) {
+      // Behavioral verification is a correctness gate, not an advisory report.
+      // Never leave a persisted AI repair in place when its registered
+      // validation did not pass. Keeping the proposal pending allows the user
+      // to review the failure and retry with a fresh approved change.
+      rollbackFailures = await restoreApplySnapshots([...writtenChanges].reverse());
+      await appendApplyJournal(
+        rollbackFailures.length > 0 ? "ROLLBACK_FAILED" : "ROLLED_BACK",
+        {
+          reason: "behavioral_validation",
+          failures: rollbackFailures,
+          writtenFiles: writtenChanges.map((change) => change.path),
+        },
+      );
+      for (const result of responseResults) {
+        if (!result.ok) continue;
+        result.ok = false;
+        result.writeStatus = rollbackFailures.length > 0 ? "unknown" : "not_written";
+        result.persistenceVerified = false;
+        result.error = rollbackFailures.length > 0
+          ? "Behavioral verification did not pass and rollback could not be verified; filesystem state is unknown."
+          : "Behavioral verification did not pass; the file change was rolled back.";
+      }
+    }
+
+    const appliedPaths = responseResults.filter((r) => r.ok).map((r) => r.path);
+    const failedPaths  = responseResults.filter((r) => !r.ok).map((r) => r.path);
+
+    if (appliedPaths.length > 0) {
+      invalidateContextCache(projectId);
+    }
+
+    const allOk = responseResults.every((r) => r.ok)
+      && !verificationNeedsReviewAfterPromotion
+      && !promotionMismatch
+      && promotedTreeHash === candidateHash;
+    const rollbackFailed = rollbackFailures.length > 0;
+    const applyStatus = rollbackFailed
+      ? "ROLLBACK_FAILED"
+      : allOk
+        ? "APPLIED"
+        : "BLOCKED";
+    const integrityOutcome = rollbackFailed
+      ? "unknown"
+      : promotionMismatch
+        ? "mismatch"
+        : allOk
+          ? "verified"
+          : "blocked";
+
+    // Do not record a successful AI execution event until the mandatory
+    // behavioral validation has passed. Persistence and behavior remain
+    // separate in the payload so a failed validator cannot hide a rollback.
+    // proposalId is the durable operation identity. Reusing it makes the
+    // plan/apply/commit/push lifecycle queryable as one trace instead of
+    // creating a new correlation for every write step.
+    const preview = appliedPaths.length > 0
+      ? appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "")
+      : failedPaths.slice(0, 3).join(", ") + (failedPaths.length > 3 ? ` +${failedPaths.length - 3} more` : "");
+    await db.transaction(async (tx) => {
+      journalSequence += 1;
+      await tx.insert(aiApplyJournalTable).values({
+        id: randomUUID(),
+        operationId: applyCorrelationId,
+        attemptId: applyAttemptId,
+        projectId,
+        proposalId,
+        stage: applyStatus,
+        sequence: journalSequence,
+        payload: {
+          appliedFiles: appliedPaths,
+          failedFiles: failedPaths,
+          rollbackFailures,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
+          integrityOutcome,
+        },
+      });
+      await tx.insert(auditLogsTable).values({
+        // Each attempt gets its own audit row; correlationId remains stable
+        // across retries of the same plan/apply operation.
+        id: randomUUID(),
+        entityType: "project",
+        entityId: projectId,
+        action: "ai_executed",
+        projectId,
+        actor: req.userId,
+        stateBefore: {},
+        stateAfter: {
+          filesWritten: appliedPaths,
+          failedFiles: failedPaths,
+          applyStatus,
+          proposalId,
+          operationId: applyCorrelationId,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
+          integrityOutcome,
+          rollbackFailures,
+          behavioralVerification: responseResults.map((result) => ({
+            path: result.path,
+            status: result.behavioralVerification.status,
+          })),
+        },
+        correlationId: applyCorrelationId,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiChangesApplied",
+        projectId,
+        severity: rollbackFailed
+          ? "error"
+          : appliedPaths.length > 0 && !verificationNeedsReviewAfterPromotion
+            ? (failedPaths.length > 0 ? "warning" : "success")
+            : "warning",
+        message: appliedPaths.length > 0
+          ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}${verificationNeedsReviewAfterPromotion ? " (behavioral verification needs review)" : ""}`
+          : rollbackFailed
+            ? `AI apply rollback failed; filesystem state is unknown: ${rollbackFailures.map((failure) => failure.path).join(", ")}`
+            : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+        correlationId: applyCorrelationId,
+        payload: {
+          proposalId,
+          operationId: applyCorrelationId,
+          appliedFiles: appliedPaths,
+          failedFiles: failedPaths,
+          applyStatus,
+          integrityOutcome,
+          rollbackFailures,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash,
+          promotedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          promotionMismatch,
+          behavioralVerification: responseResults.map((result) => ({
+            path: result.path,
+            status: result.behavioralVerification.status,
+          })),
+        },
+      });
+      if (appliedPaths.length > 0) {
+        await tx
+          .update(aiChangeProposalsTable)
+          .set({
+            status: "applied",
+            lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
+            consumedAt: new Date(),
+            validationEvidence: JSON.stringify(validationEvidence),
+            baseTreeHash: deliveryWorkspace.baseTreeHash,
+            candidateTreeHash,
+            promotedTreeHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+            committedHash: null,
+            appliedChanges: allOk
+              ? JSON.stringify(writtenChanges.map((change) => ({
+                  path: change.path,
+                  newContent: change.newContent,
+                })))
+              : null,
+          })
+          .where(and(

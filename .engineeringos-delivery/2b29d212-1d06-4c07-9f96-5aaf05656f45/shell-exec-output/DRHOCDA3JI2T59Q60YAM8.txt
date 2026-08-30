@@ -1,0 +1,247 @@
+artifacts/api-server/src/routes/ai/chat.ts:402:      candidateHash: result.evidence.candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:404:      promotedHash: result.evidence.promotedHash,
+artifacts/api-server/src/routes/ai/chat.ts:443:        ...(typeof evidence.candidateHash === "string" ? { candidateHash: evidence.candidateHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:445:        ...(typeof evidence.promotedHash === "string" ? { promotedHash: evidence.promotedHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:5746:  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:5768:      result.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6681:    const candidateHash = candidateTreeHash;
+artifacts/api-server/src/routes/ai/chat.ts:6716:        validation.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6722:    const candidateHashAfterValidation = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6723:    const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6749:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6763:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6819:    if (writtenChanges.length > 0 && promotedTreeHash !== candidateHash) {
+artifacts/api-server/src/routes/ai/chat.ts:6833:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6851:        && promotedTreeHash === candidateHash
+artifacts/api-server/src/routes/ai/chat.ts:6854:        validation.evidence.promotedHash = promotedTreeHash;
+artifacts/api-server/src/routes/ai/chat.ts:6939:      && promotedTreeHash === candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6970:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6994:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:7030:          candidateHash,
+lib/ai-orchestrator/src/validation-result.ts:31:export type ValidationEvidence = {
+lib/ai-orchestrator/src/validation-result.ts:43:  candidateHash?: string;
+lib/ai-orchestrator/src/validation-result.ts:45:  promotedHash?: string;
+lib/ai-orchestrator/src/validation-result.ts:112:      ...(evidence.candidateHash ? { candidateHash: evidence.candidateHash } : {}),
+lib/ai-orchestrator/src/validation-result.ts:114:      ...(evidence.promotedHash ? { promotedHash: evidence.promotedHash } : {}),
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:119:  provenance: { candidateHash?: string; sourceRevision?: string } = {},
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:122:    ...(provenance.candidateHash ? { candidateHash: provenance.candidateHash } : {}),
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:167:  candidateHash?: string;
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:235:          candidateHash: args.candidateHash,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:343:        candidateHash: args.candidateHash,
+lib/ai-orchestrator/src/benchmark/behavioral-oracle-gate.test.ts:12:    candidateHash: "a".repeat(64),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:112:  candidateHash?: string;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:146:  candidateHash?: string;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:261:  candidateHash?: string;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:736:    ...(telemetry.candidateHash ? { candidateHash: telemetry.candidateHash } : {}),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:951:  const candidateHashes = results.map((result) => result.candidateHash);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:953:  const expectedCandidateHash = candidateHashes.find(
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:954:    (candidateHash): candidateHash is string => Boolean(candidateHash?.trim()),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:956:  const missingCandidateHash = candidateHashes.filter(
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:957:    (candidateHash) => !candidateHash?.trim(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:959:  const malformedCandidateHash = candidateHashes.filter(
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:960:    (candidateHash) => Boolean(candidateHash?.trim()) && !/^[a-f0-9]{64}$/.test(candidateHash!),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:963:    candidateHashes.some((candidateHash) => candidateHash !== expectedCandidateHash);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:1036:    ...(expectedCandidateHash ? { candidateHash: expectedCandidateHash } : {}),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:1187:    `Candidate hash: ${scorecard.candidateHash ?? "missing"}`,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:30:    candidateHash: "a".repeat(64),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:261:    const candidateHash = "a".repeat(64);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:264:      results: [observation(testCase.id, { candidateHash })],
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:268:    expect(matching.candidateHash).toBe(candidateHash);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:273:        observation(testCase.id, { candidateHash }),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:274:        observation("single-file-002", { candidateHash: "b".repeat(64) }),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:283:      results: [observation(testCase.id, { candidateHash: undefined })],
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:291:      results: [observation(testCase.id, { candidateHash: "caller-supplied-stale-hash" })],
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:470:         candidateHash: "a".repeat(64),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:503:         candidateHash: "a".repeat(64),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:534:         candidateHash: "a".repeat(64),
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:53:  candidateHash?: string;
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:128:  candidateHash?: string,
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:173:    ...(candidateHash ?? validation?.result.evidence.candidateHash
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:174:      ? { candidateHash: candidateHash ?? validation?.result.evidence.candidateHash }
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:363:        opts.candidateHash,
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:110:  "candidateHash",
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:307:    ...(value.candidateHash === undefined
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:309:      : { candidateHash: stringField(value.candidateHash, `${path}.candidateHash`, 200) }),
+lib/ai-orchestrator/src/quality/execution-phases.ts:22:export type ValidationEvidenceStatus = "passed" | "failed" | "unavailable";
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts:79:        candidateHash: "candidate-1",
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts:81:        promotedHash: "promoted-1",
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts:88:      candidateHash: "candidate-1",
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts:90:      promotedHash: "promoted-1",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:90:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:123:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:156:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:184:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:212:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:240:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:268:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:296:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:324:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:352:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:380:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:408:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:436:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:464:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:492:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:520:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:548:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:576:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:604:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:632:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:660:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:688:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:716:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:744:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:772:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:800:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:828:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:856:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:884:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:912:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:940:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:968:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:996:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1024:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1054:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1081:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1108:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1130:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1152:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1174:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1196:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1218:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1240:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1262:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1284:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1306:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1328:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1350:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1372:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1394:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:1416:        "candidateHash": "1af4eb3a4cdaab1edfedbf9e94f04310d8738ab9e18f82f50bdebc54e7f28e5c",
+ */
+function publicValidationReceipt(
+  result: ValidationResult,
+  overrides: Partial<Pick<ValidationResult, "status" | "detail" | "reasonCode">> = {},
+): PublicValidationResult {
+  return toPublicValidationResult({
+    ...result,
+    ...overrides,
+    evidence: {
+      ...result.evidence,
+      operationId: result.evidence.operationId,
+      projectRevision: result.evidence.projectRevision,
+      candidateHash: result.evidence.candidateHash,
+      changeSetHash: result.evidence.changeSetHash,
+      promotedHash: result.evidence.promotedHash,
+    },
+  });
+}
+
+function parsePublicValidationReceipts(value: unknown): PublicValidationResult[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as Record<string, unknown>;
+    // Older records stored one receipt per file. Only retain entries that
+    // already satisfy the public contract; never project their raw fields.
+    if (
+      typeof candidate.profile !== "string"
+      || typeof candidate.status !== "string"
+      || typeof candidate.scenario !== "string"
+      || !("evidence" in candidate)
+      || !candidate.evidence
+      || typeof candidate.evidence !== "object"
+    ) return [];
+    const evidence = candidate.evidence as Record<string, unknown>;
+    if (
+      typeof evidence.evidenceId !== "string"
+      || typeof evidence.observedAt !== "string"
+      || typeof evidence.artifactRef !== "string"
+    ) return [];
+    return [{
+      profile: candidate.profile,
+      status: candidate.status as PublicValidationResult["status"],
+      scenario: candidate.scenario,
+      exitCode: typeof candidate.exitCode === "number" || candidate.exitCode === null
+        ? candidate.exitCode
+        : null,
+      evidence: {
+        evidenceId: evidence.evidenceId,
+        observedAt: evidence.observedAt,
+        artifactRef: evidence.artifactRef,
+        ...(typeof evidence.operationId === "string" ? { operationId: evidence.operationId } : {}),
+        ...(typeof evidence.projectRevision === "string" ? { projectRevision: evidence.projectRevision } : {}),
+        ...(typeof evidence.candidateHash === "string" ? { candidateHash: evidence.candidateHash } : {}),
+        ...(typeof evidence.changeSetHash === "string" ? { changeSetHash: evidence.changeSetHash } : {}),
+        ...(typeof evidence.promotedHash === "string" ? { promotedHash: evidence.promotedHash } : {}),
+      },
+      ...(typeof candidate.reasonCode === "string" ? { reasonCode: candidate.reasonCode as PublicValidationResult["reasonCode"] } : {}),
+      ...(typeof candidate.detail === "string" ? { detail: redactUserFacingText(candidate.detail).slice(0, 240) } : {}),
+    }];
+  });
+}
+
+/**
+ * Rebuild only the small, redacted correlation envelope from durable evidence.
+ * This intentionally does not call a provider or reinterpret assistant prose:
+      nextAction: discarded
+        ? "No action is required."
+        : "Start a new delivery from the current project rather than retrying this recovery.",
+    });
+  }
+
+  let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
+  try {
+    const parsed = parseStoredJson(proposal.changes);
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    changes = parsed;
+  } catch {
+    return res.status(409).json({ error: "Stored delivery changes are invalid.", code: "DELIVERY_INVALID" });
+  }
+  const workspaceRoot = proposal.workspaceRoot!;
+  const results: Array<Record<string, unknown>> = [];
+  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+  const changeSetHash = proposal.changeSetHash ?? hashChangeSet(changes);
+  const groups = new Map<string, typeof changes>();
+  for (const change of changes) {
+    if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
+    const group = groups.get(change.validationProfile) ?? [];
+    group.push(change);
+    groups.set(change.validationProfile, group);
+  }
+  for (const [profile, group] of groups) {
+    const parsedProfile = ValidationProfileSchema.safeParse(profile);
+    if (!parsedProfile.success) continue;
+    const result = await runRepairValidation(
+      workspaceRoot,
+      parsedProfile.data,
+      group.map((change) => change.path),
+      undefined,
+      [],
+    );
+    if ("evidence" in result) {
+      result.evidence.operationId = proposal.operationId ?? proposal.messageId;
+      result.evidence.projectRevision = proposal.baseRevision ?? undefined;
+      result.evidence.candidateHash = candidateHash;
+      result.evidence.changeSetHash = changeSetHash;
+    }
+    results.push(publicValidationReceipt(result));
+  }
+  const passed = results.length === groups.size && results.length > 0
+    && results.every((result) => result.status === "passed");
+  const evidence = JSON.stringify(results);
+  const [updated] = await db.update(aiChangeProposalsTable).set({
+    lifecycle: passed ? "validated" : "blocked",
+    validationEvidence: evidence,
+    conflictReason: passed ? null : "Validation recovery did not pass all registered profiles.",
+  }).where(and(
+    eq(aiChangeProposalsTable.id, proposal.id),
+    eq(aiChangeProposalsTable.status, "pending"),
+    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+  )).returning({ id: aiChangeProposalsTable.id });
+  if (!updated) {
+    const [current] = await db.select({ lifecycle: aiChangeProposalsTable.lifecycle })
+      .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
+    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+  }
+  return res.json({
