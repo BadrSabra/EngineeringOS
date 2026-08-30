@@ -1961,6 +1961,58 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       onStep?.({ kind: "diagnostic", code, details: details.slice(0, 2) });
     } catch { /* ignore */ }
   };
+  const terminalInvalidToolCall = (error: GroqClientError, iter: number): ToolLoopResult => {
+    // The provider client has already rejected this response against the
+    // server-owned manifest. Do not retry it, append a synthetic tool result,
+    // or expose the provider's raw diagnostic. A single terminal step keeps
+    // the UI and persisted trace honest without turning the request into a
+    // generic "failed to send" loop.
+    const toolMatch = error.message.match(/\btool\s+["'`]?([A-Za-z][A-Za-z0-9_.-]{0,119})/i);
+    const tool = toolMatch?.[1] ?? "provider_tool_call";
+    try {
+      onStep?.({
+        kind: "diagnostic",
+        code: "TOOL_UNAVAILABLE",
+        details: ["requested tool was rejected by the authorized tool manifest"],
+        tool,
+      });
+      onStep?.({
+        kind: "tool_result",
+        tool,
+        cached: false,
+        outputLength: 0,
+        resultKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        resultSummary: "Requested tool was unavailable; operation blocked.",
+      });
+      onStep?.({
+        kind: "done",
+        iterations: iter + 1,
+        maxIterations,
+        ...executionCounts(),
+        stopReason: "tool_failure",
+        synthesisStarted,
+        synthesisAttempts,
+        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+          : {}),
+        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+        sourceRetrieval,
+      });
+    } catch { /* observers must not change terminal semantics */ }
+    return {
+      kind: "failed",
+      tool,
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+      toolSources,
+      fileContents,
+      sourceRetrieval,
+    };
+  };
   const emitReadEvidenceLinked = (
     toolName: string,
     path: string | undefined,
