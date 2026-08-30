@@ -48,7 +48,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-auto overflow-x-hidden bg-background p-3 sm:p-6">
-          <div className="max-w-7xl mx-auto w-full">{children}</div>
+          <div className="h-full min-h-0 max-w-7xl mx-auto w-full">{children}</div>
         </main>
       </div>
     </div>

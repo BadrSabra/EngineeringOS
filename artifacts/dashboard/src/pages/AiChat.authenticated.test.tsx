@@ -892,12 +892,6 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
     expect(drawer.querySelector('.provider-key-cards')).toHaveClass('max-h-[45%]', 'overflow-y-auto', 'overscroll-contain');
     expect(drawer.querySelectorAll('.provider-key-card')).toHaveLength(4);
-    for (const provider of ['OpenRouter', 'Gemini', 'DeepSeek', 'Groq']) {
-    const card = await screen.findByRole('button', { name: /Forensic evidence/ });
-      expect(card).not.toBeNull();
-      expect(card?.querySelector('input[type="password"]')).toBeInTheDocument();
-      expect(within(card as HTMLElement).getByRole('button', { name: 'Save', exact: true })).toBeInTheDocument();
-    }
     expect(document.querySelectorAll('input[type="password"]')).toHaveLength(4);
     expect(document.body.style.overflow).toBe('hidden');
 
@@ -914,6 +908,24 @@ it('shows Groq model readiness without requiring a personal key when the server 
     fireEvent.click(screen.getByRole('button', { name: 'Close sidebar' }));
     expect(screen.getByRole('button', { name: 'Existing session' }).closest('div.absolute')).toHaveClass('hidden');
     expect(document.body.style.overflow).toBe('');
+  });
+
+  it('keeps every provider key card control available in the mobile drawer', async () => {
+    renderAiChat(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    const drawer = screen.getByTestId('sessions-drawer');
+
+    for (const provider of ['OpenRouter', 'Gemini', 'DeepSeek', 'Groq']) {
+      const card = within(drawer)
+        .getByText(`${provider} API Key`, { exact: true })
+        .closest('.provider-key-card');
+      expect(card).not.toBeNull();
+      expect(card?.querySelector('input[type="password"]')).toBeInTheDocument();
+      expect(
+        within(card as HTMLElement).getByRole('button', { name: 'Save', exact: true }),
+      ).toBeInTheDocument();
+    }
   });
 
   it('shows persisted forensic session statuses and distinguishes incomplete audits from no findings', async () => {

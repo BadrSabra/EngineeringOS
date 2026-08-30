@@ -4424,6 +4424,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const drawer = page.getByTestId("sessions-drawer");
       await expect(drawer).toBeVisible();
       await expectWithinViewport(drawer, viewport, `sessions drawer at ${width}px`);
+      const drawerBox = await drawer.boundingBox();
+      expect(drawerBox?.height, `sessions drawer height at ${width}px`).toBeGreaterThan(
+        viewport.height * 0.8,
+      );
       await expectNoHorizontalOverflow(page);
 
       const providerCards = drawer.locator(".provider-key-card");
