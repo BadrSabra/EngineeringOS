@@ -5950,6 +5950,18 @@ export async function chat(opts: {
     };
   }
 
+  if (loopResult.kind === "incomplete") {
+    const isArabic = /[\u0600-\u06FF]/.test(message);
+    const incompleteResponse = isArabic
+      ? `ANALYSIS_INCOMPLETE — لم تكتمل متطلبات الهدف (${loopResult.reason}). تم الاحتفاظ بالأدلة المتاحة، لكن لا يمكنني اعتبار النتيجة مكتملة.`
+      : `ANALYSIS_INCOMPLETE — the agent stopped before completing the required objective (${loopResult.reason}). Available evidence was retained, but the result is not complete.`;
+    return {
+      response: finalizeTaskResponse(incompleteResponse),
+      sources: toolSources,
+      pendingChanges: getExecutionPendingChanges(),
+    };
+  }
+
   // ── Final response from model (kind:"response" or kind:"partial") ─────────
   const result = loopResult.kind === "cancelled"
     ? {

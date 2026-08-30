@@ -26,6 +26,7 @@ import type { ToolDefinitionLike } from "../tool-policy.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage } from "../groq-client.js";
 import { executeToolLoop } from "../tool-execution-engine.js";
+import { stripReadFileWrapper } from "../tools/file-tools.js";
 import type { CompoundQueryPart } from "./query-planner.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -85,6 +86,28 @@ export type SourceEvidence = {
   excerpt: string;
   startLine: number;
   endLine: number;
+  truncated?: boolean;
+  taskIndex?: number;
+};
+
+export type HierarchicalSubtaskStatus =
+  | "complete"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "exhausted";
+
+export type HierarchicalSubtaskReceipt = {
+  taskIndex: number;
+  intent: string;
+  status: HierarchicalSubtaskStatus;
+  reason?: string;
+  tool?: string;
+  failureKind?: string;
+  diagnosticCode?: string;
+  text?: string;
+  toolSources: string[];
+  sourceEvidence: SourceEvidence[];
 };
 
 export type HierarchicalResult = {
@@ -94,6 +117,9 @@ export type HierarchicalResult = {
   toolSources: string[];
   /** Bodies returned by completed read tools, never planner hints. */
   sourceEvidence: SourceEvidence[];
+  receipts: HierarchicalSubtaskReceipt[];
+  status: "complete" | "partial" | "failed" | "cancelled";
+  synthesisStatus: "complete" | "failed" | "skipped";
   coverage?: CompoundSynthesisValidation;
 };
 
@@ -107,12 +133,7 @@ const WRITE_TOOL_NAMES = new Set(["write_file", "replace_text", "run_validation"
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-type SubResult = {
-  intent: string;
-  text: string;
-  toolSources: string[];
-  sourceEvidence: SourceEvidence[];
-};
+type SubResult = HierarchicalSubtaskReceipt;
 
 /**
  * Run a single sub-task tool loop and return the text output plus sources.
@@ -121,6 +142,7 @@ type SubResult = {
  */
 async function runSubTask(
   task: HierarchicalTask,
+  taskIndex: number,
   opts: HierarchicalExecutorOpts,
 ): Promise<SubResult> {
   const { systemPrompt, strategy, model, powerModel, provider, apiKey, tools, rootPath, pendingChanges, cache, signal } = opts;
@@ -133,6 +155,7 @@ async function runSubTask(
     { role: "system", content: systemPrompt },
     { role: "user", content: task.intent },
   ];
+  const targetedRanges = new Map<string, { startLine: number; requestedEndLine: number }>();
 
   try {
     const loopResult = await executeToolLoop({
@@ -149,27 +172,64 @@ async function runSubTask(
       maxIterations: task.maxIter,
       maxToolCalls,
       signal,
+      onStep: (step) => {
+        if (step.kind !== "tool_call" || step.tool !== "read_file_range") return;
+        const path = step.args.path;
+        const startLine = Number(step.args.start_line);
+        const requestedEndLine = Number(step.args.end_line);
+        if (
+          path &&
+          Number.isInteger(startLine) &&
+          startLine > 0 &&
+          Number.isInteger(requestedEndLine) &&
+          requestedEndLine >= startLine
+        ) {
+          targetedRanges.set(path, { startLine, requestedEndLine });
+        }
+      },
     });
 
-    const text =
-      loopResult.kind === "response" || loopResult.kind === "partial"
-        ? (loopResult.result.content ?? "")
-        : `[Analysis for "${task.intent}" — iteration budget exhausted before a complete answer was produced]`;
-
+    const status: HierarchicalSubtaskStatus =
+      loopResult.kind === "response" ? "complete" :
+        loopResult.kind === "partial" ? "partial" :
+          loopResult.kind === "exhausted" || loopResult.kind === "stopped" || loopResult.kind === "incomplete"
+            ? "exhausted" :
+              loopResult.kind === "cancelled" ? "cancelled" : "failed";
     const sourceEvidence: SourceEvidence[] = Array.from(loopResult.fileContents ?? new Map<string, string>()).map(([file, content]) => {
-      const raw = content
-        .replace(/^File:\s*[^\n]+\n```[^\n]*\n/u, "")
-        .replace(/\n```\s*$/u, "")
-        .trim();
+      const raw = stripReadFileWrapper(content);
       const excerpt = raw.slice(0, 4_000);
+      const range = targetedRanges.get(file);
+      const lineCount = Math.max(1, excerpt.split("\n").length);
       return {
         file,
         excerpt,
-        startLine: 1,
-        endLine: Math.max(1, excerpt.split("\n").length),
+        startLine: range?.startLine ?? 1,
+        endLine: range ? Math.min(range.requestedEndLine, range.startLine + lineCount - 1) : lineCount,
+        truncated: excerpt.length < raw.length || Boolean(range && range.requestedEndLine > range.startLine + lineCount - 1),
+        taskIndex,
       };
     });
-    return { intent: task.intent, text, toolSources: loopResult.toolSources, sourceEvidence };
+    const text = "result" in loopResult && loopResult.result?.content
+      ? loopResult.result.content
+      : undefined;
+    return {
+      taskIndex,
+      intent: task.intent,
+      status,
+      ...(loopResult.kind === "failed"
+        ? {
+            tool: loopResult.tool,
+            failureKind: loopResult.failureKind,
+            diagnosticCode: loopResult.diagnosticCode,
+          }
+        : {}),
+      ...(loopResult.kind === "incomplete" || loopResult.kind === "exhausted" || loopResult.kind === "stopped"
+        ? { reason: loopResult.reason }
+        : {}),
+      ...(text ? { text } : {}),
+      toolSources: loopResult.toolSources,
+      sourceEvidence,
+    };
   } catch (err) {
     console.warn(
       JSON.stringify({
@@ -180,8 +240,11 @@ async function runSubTask(
       }),
     );
     return {
+      taskIndex,
       intent: task.intent,
-      text: `[Analysis for "${task.intent}" encountered an error]`,
+      status: "failed",
+      reason: "subtask_exception",
+      diagnosticCode: "SUBTASK_EXCEPTION",
       toolSources: [],
       sourceEvidence: [],
     };
@@ -253,7 +316,12 @@ function buildSynthesisUserTurn(
   compoundParts: CompoundQueryPart[] = [],
 ): string {
   const sections = subResults
-    .map((r, i) => `## Sub-analysis ${i + 1}: ${r.intent}\n\n${r.text}`)
+    .map((r, i) => {
+      const outcome = r.text && (r.status === "complete" || r.status === "partial")
+        ? r.text
+        : "(No candidate findings; this receipt is diagnostic only.)";
+      return `## Sub-analysis ${i + 1}: ${r.intent}\nSTATUS: ${r.status}\nOUTCOME:\n${outcome}`;
+    })
     .join("\n\n---\n\n");
   const evidence = [...new Map(
     subResults.flatMap((r) => r.sourceEvidence)
@@ -273,7 +341,8 @@ function buildSynthesisUserTurn(
   return (
     `Original compound-question coverage contract:\n${coverage}\n\n` +
     `Verified source evidence (only these read bodies may be cited):\n${evidenceManifest}\n\n` +
-    `Here are the results of each sub-analysis:\n\n${sections}\n\n` +
+    `Here are the results of each sub-analysis. FAILED, CANCELLED, and EXHAUSTED ` +
+    `statuses and reasons are diagnostic context only and cannot support a FACT:\n\n${sections}\n\n` +
     `Synthesize every requested part without dropping any part. ` +
     `Classify each material statement as FACT (حقيقة مؤكدة), INFERENCE (استنتاج), or PROPOSAL (اقتراح/أولوية). ` +
     `Every FACT and every PROPOSAL must cite a file and line range from the verified source evidence manifest. ` +
@@ -283,12 +352,97 @@ function buildSynthesisUserTurn(
   );
 }
 
+function aggregateStatus(receipts: readonly HierarchicalSubtaskReceipt[]): HierarchicalResult["status"] {
+  if (receipts.length === 0) return "failed";
+  if (receipts.some((receipt) => receipt.status === "cancelled")) return "cancelled";
+  if (receipts.some((receipt) => receipt.status === "failed")) return "failed";
+  if (receipts.some((receipt) => receipt.status === "partial" || receipt.status === "exhausted")) return "partial";
+  return "complete";
+}
+
+function cancelledReceipt(task: HierarchicalTask, taskIndex: number): HierarchicalSubtaskReceipt {
+  return {
+    taskIndex,
+    intent: task.intent,
+    status: "cancelled",
+    reason: "cancelled_before_start",
+    toolSources: [],
+    sourceEvidence: [],
+  };
+}
+
+function isAbortRequested(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
 export type CompoundSynthesisValidation = {
   valid: boolean;
   missingPartIds: string[];
   invalidCitations: string[];
   violations: string[];
 };
+
+export type SynthesisSafetyValidation = {
+  valid: boolean;
+  violations: string[];
+};
+
+/**
+ * Validate the synthesis boundary independently of the model's wording.
+ * Diagnostics from failed receipts are not evidence, and citations must point
+ * to an evidence window owned by a non-failed receipt.
+ */
+export function validateSynthesisSafety(
+  response: string,
+  receipts: readonly HierarchicalSubtaskReceipt[],
+  sourceEvidence: readonly SourceEvidence[],
+): SynthesisSafetyValidation {
+  const violations: string[] = [];
+  const evidenceByFile = new Map<string, SourceEvidence[]>();
+  for (const item of sourceEvidence) {
+    const key = item.file.replace(/^\.\/+/, "");
+    evidenceByFile.set(key, [...(evidenceByFile.get(key) ?? []), item]);
+  }
+  const citedFiles = [
+    ...[...response.matchAll(
+      /`((?:\.{0,2}\/|lib\/|src\/|artifacts\/|packages\/)[\w.@/-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|rb|sql|md|json|yaml|yml|toml))`/g,
+    )].map((match) => match[1]!),
+    ...[...response.matchAll(
+      /(?<![\w/@.`])((?:\.{0,2}\/|lib\/|src\/|artifacts\/|packages\/)[\w.@/-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|rb|sql|md|json|yaml|yml|toml))/g,
+    )].map((match) => match[1]!),
+  ].map((file) => file.replace(/^\.\/+/, ""));
+  for (const file of citedFiles) {
+    const windows = evidenceByFile.get(file) ?? [];
+    if (windows.length === 0) {
+      violations.push(`citation is not a retained source window: ${file}`);
+      continue;
+    }
+    if (windows.every((window) => {
+      const receipt = window.taskIndex === undefined
+        ? undefined
+        : receipts.find((candidate) => candidate.taskIndex === window.taskIndex);
+      return receipt?.status === "failed" || receipt?.status === "cancelled" || receipt?.status === "exhausted";
+    })) {
+      violations.push(`citation belongs only to an incomplete subtask: ${file}`);
+    }
+  }
+  const lower = response.toLocaleLowerCase();
+  for (const receipt of receipts) {
+    if (
+      receipt.status !== "complete" &&
+      receipt.status !== "partial" &&
+      receipt.intent.trim() &&
+      lower.includes(receipt.intent.toLocaleLowerCase()) &&
+      /\bfact\b|حقيقة مؤكدة|كحقيقة/iu.test(response)
+    ) {
+      violations.push(`failed subtask "${receipt.intent.slice(0, 80)}" was presented as a fact`);
+    }
+  }
+  if (/\bfact\b|حقيقة مؤكدة/iu.test(response) && sourceEvidence.length === 0) {
+    violations.push("a FACT was synthesized without retained source evidence");
+  }
+  return { valid: violations.length === 0, violations: [...new Set(violations)] };
+}
 
 export function validateCompoundSynthesis(
   response: string,
@@ -356,11 +510,17 @@ export async function executeHierarchical(
   // ── 1. Run compatible sub-task waves ───────────────────────────────────────
   const subResults: SubResult[] = [];
   let pendingTasks = [...tasks];
+  const taskIndexes = new Map(tasks.map((task, index) => [task, index]));
   const maxParallelTasks = Math.max(
     1,
     Math.min(opts.maxParallelTasks ?? DEFAULT_MAX_PARALLEL_TASKS, 8),
   );
   while (pendingTasks.length > 0) {
+    if (isAbortRequested(opts.signal)) {
+      subResults.push(...pendingTasks.map((task) => cancelledReceipt(task, taskIndexes.get(task) ?? 0)));
+      pendingTasks = [];
+      break;
+    }
     const { wave, rest } = takeSchedulingWave(pendingTasks, maxParallelTasks);
     pendingTasks = rest;
     console.info(JSON.stringify({
@@ -371,7 +531,11 @@ export async function executeHierarchical(
       readOnlyTasks: wave.filter((task) => task.readOnly).length,
     }));
 
-    const waveResults = await Promise.all(wave.map((task) => runSubTask(task, opts)));
+    const waveResults = await Promise.all(wave.map((task) =>
+      isAbortRequested(opts.signal)
+        ? Promise.resolve(cancelledReceipt(task, taskIndexes.get(task) ?? 0))
+        : runSubTask(task, taskIndexes.get(task) ?? 0, opts),
+    ));
     for (const [index, sub] of waveResults.entries()) {
       const task = wave[index];
       subResults.push(sub);
@@ -381,9 +545,14 @@ export async function executeHierarchical(
           code: "SUBTASK_COMPLETE",
           intent: task.intent.slice(0, 100),
           sourceCount: sub.toolSources.length,
-          textLength: sub.text.length,
+          status: sub.status,
+          textLength: sub.text?.length ?? 0,
         }),
       );
+    }
+    if (isAbortRequested(opts.signal)) {
+      subResults.push(...pendingTasks.map((task) => cancelledReceipt(task, taskIndexes.get(task) ?? 0)));
+      pendingTasks = [];
     }
   }
 
@@ -396,6 +565,18 @@ export async function executeHierarchical(
   ).values()];
 
   // ── 3. Synthesis call (no tools) ─────────────────────────────────────────
+  const aggregate = aggregateStatus(subResults);
+  if (aggregate === "cancelled") {
+    return {
+      response: "ANALYSIS_INCOMPLETE — execution was cancelled before all sub-analyses completed.",
+      toolSources: [...new Set(subResults.flatMap((r) => r.toolSources))],
+      sourceEvidence: [...new Map(subResults.flatMap((r) => r.sourceEvidence)
+        .map((item) => [`${item.taskIndex}:${item.file}:${item.startLine}:${item.endLine}`, item])).values()],
+      receipts: subResults,
+      status: "cancelled",
+      synthesisStatus: "skipped",
+    };
+  }
   const synthesisMessages: RawMessage[] = [
     {
       role: "system",
@@ -412,6 +593,7 @@ export async function executeHierarchical(
   ];
 
   let synthesisText = "";
+  let synthesisStatus: HierarchicalResult["synthesisStatus"] = "complete";
   try {
     const synthesisResult = await opts.strategy.call(synthesisMessages, {
       model: opts.model,
@@ -423,6 +605,7 @@ export async function executeHierarchical(
     });
     synthesisText = synthesisResult.content ?? "";
   } catch (err) {
+    synthesisStatus = "failed";
     console.warn(
       JSON.stringify({
         scope: "hierarchical-executor",
@@ -430,10 +613,26 @@ export async function executeHierarchical(
         reason: err instanceof Error ? err.message : String(err),
       }),
     );
-    // Fallback: join sub-results directly so the caller always gets something useful.
-    synthesisText = subResults
-      .map((r) => `**${r.intent}**\n\n${r.text}`)
-      .join("\n\n---\n\n");
+    // Never expose diagnostics as answer text. A deterministic status report
+    // remains useful to the caller and cannot turn a failure into a finding.
+    synthesisText = [
+      "ANALYSIS_INCOMPLETE — synthesis did not complete.",
+      ...subResults
+        .filter((r) => r.status === "complete" || r.status === "partial")
+        .map((r) => [
+          `- ${r.intent}: ${r.status}; verified evidence windows: ${r.sourceEvidence.length}`,
+          r.text ? `  ${r.text}` : "",
+        ].filter(Boolean).join("\n")),
+    ].join("\n");
+  }
+
+  const safety = validateSynthesisSafety(synthesisText, subResults, sourceEvidence);
+  if (!safety.valid) {
+    synthesisStatus = "failed";
+    synthesisText = [
+      "ANALYSIS_INCOMPLETE — synthesis was rejected because its claims were not safely bound to completed evidence.",
+      ...safety.violations.slice(0, 4).map((violation) => `- ${violation}`),
+    ].join("\n");
   }
 
   console.info(
@@ -453,6 +652,9 @@ export async function executeHierarchical(
     response: synthesisText,
     toolSources: uniqueSources,
     sourceEvidence,
+    receipts: subResults,
+    status: aggregate,
+    synthesisStatus,
     ...(coverage ? { coverage } : {}),
   };
 }

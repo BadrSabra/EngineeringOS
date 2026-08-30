@@ -398,6 +398,29 @@ describe("executeHierarchical — resilience", () => {
     // tools must be absent (undefined) from the synthesis call options
     expect(callOpts).not.toHaveProperty("tools");
   });
+
+  it("returns cancelled receipts without starting queued tasks", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const mockLoop = vi.mocked(executeToolLoop);
+    const controller = new AbortController();
+    controller.abort();
+    const strategy = makeStrategy();
+    const { executeHierarchical } = await import("../agents/hierarchical-executor.js");
+
+    const result = await executeHierarchical(
+      [
+        { intent: "q1", targetPaths: [], maxIter: 7 },
+        { intent: "q2", targetPaths: [], maxIter: 7 },
+      ],
+      { ...makeOpts(strategy), signal: controller.signal },
+    );
+
+    expect(mockLoop).not.toHaveBeenCalled();
+    expect(strategy.call).not.toHaveBeenCalled();
+    expect(result.status).toBe("cancelled");
+    expect(result.synthesisStatus).toBe("skipped");
+    expect(result.receipts.map((receipt) => receipt.status)).toEqual(["cancelled", "cancelled"]);
+  });
 });
 
 describe("compound synthesis evidence contract", () => {

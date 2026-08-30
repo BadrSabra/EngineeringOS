@@ -1470,7 +1470,19 @@ type PersistedToolTraceEntry = {
   toolCalls?: number;
   prefetchToolCalls?: number;
   loopToolCalls?: number;
-  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+  stopReason?:
+    | "response"
+    | "iteration_budget"
+    | "soft_limit"
+    | "repeated_tool_call"
+    | "empty_response"
+    | "provider_timeout"
+    | "tool_failure"
+    | "cancelled"
+    | "claim_unclosed"
+    | "evidence_incomplete"
+    | "no_progress"
+    | "validation_incomplete";
   synthesisStarted?: boolean;
   synthesisAttempts?: number;
   synthesisMaxAttempts?: number;
@@ -3347,7 +3359,19 @@ router.post("/ai/chat/stream", async (req, res) => {
           toolCalls: number;
           prefetchToolCalls: number;
           loopToolCalls: number;
-          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+          stopReason:
+            | "response"
+            | "iteration_budget"
+            | "soft_limit"
+            | "repeated_tool_call"
+            | "empty_response"
+            | "provider_timeout"
+            | "tool_failure"
+            | "cancelled"
+            | "claim_unclosed"
+            | "evidence_incomplete"
+            | "no_progress"
+            | "validation_incomplete";
           synthesisStarted: boolean;
            synthesisAttempts?: number;
            synthesisMaxAttempts?: number;

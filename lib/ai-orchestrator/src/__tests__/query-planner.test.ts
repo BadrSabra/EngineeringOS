@@ -306,3 +306,31 @@ describe("query-planner — knowledge-graph enrichment", () => {
     expect(mockGetNeighborhood).not.toHaveBeenCalled();
   });
 });
+
+describe("query-planner — runtime contract validation", () => {
+  it("rejects malformed scope, counts, paths, and compound parts without clamping them", async () => {
+    const { validateQueryPlanShape } = await import("../agents/query-planner.js");
+    const validation = validateQueryPlanShape({
+      targetFiles: ["../outside.ts"],
+      targetEntities: [],
+      scopeEstimate: "narrow",
+      suggestedIterations: 60,
+      requiresToolUse: true,
+      subQueries: ["only one"],
+      compoundParts: [{
+        id: "duplicate",
+        kind: "UNKNOWN",
+        question: "",
+        requiresCitation: "yes",
+      }],
+    });
+
+    expect(validation.valid).toBe(false);
+    expect(validation.diagnostics).toEqual(expect.arrayContaining([
+      "targetFiles contains an invalid project-relative path",
+      "suggestedIterations must be an integer in 5-16",
+      "subQueries are allowed only for broad plans",
+      "compoundParts contains an unsupported kind",
+    ]));
+  });
+});

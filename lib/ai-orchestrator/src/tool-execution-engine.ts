@@ -975,6 +975,48 @@ export const _compactModelMessages = compactModelMessages;
 
 // ── Tool loop ─────────────────────────
 
+export type AgentLoopPhase = "planning" | "evidence" | "reasoning" | "recovery" | "terminal";
+
+/**
+ * Server-owned objective input for callers that need the tool loop itself to
+ * enforce completion. Evidence paths are deliberately explicit; model prose
+ * can never close a claim.
+ */
+export type AgentLoopObjective = {
+  goal: string;
+  requiredEvidencePaths?: string[];
+  requiredClaims: Array<{
+    claimId: string;
+    requiredEvidencePaths?: string[];
+  }>;
+};
+
+export type AgentLoopClaimState = {
+  claimId: string;
+  status: "PENDING" | "PROVEN" | "BLOCKED";
+  evidenceRefs: string[];
+};
+
+export type AgentLoopState = {
+  goal?: string;
+  phase: AgentLoopPhase;
+  iterations: number;
+  progress: {
+    uniqueSourceReads: number;
+    toolCalls: number;
+    noProgressStreak: number;
+  };
+  claims: AgentLoopClaimState[];
+  missingEvidencePaths: string[];
+  terminalReason?:
+    | "goal_met"
+    | "claim_unclosed"
+    | "evidence_incomplete"
+    | "no_progress"
+    | "validation_incomplete"
+    | "cancelled";
+};
+
 export type ToolLoopOpts = {
   /**
    * Conversation messages — mutated in place.
@@ -1055,6 +1097,13 @@ export type ToolLoopOpts = {
   pendingChanges: PendingChange[];
   /** Server-owned phase; caps budgets and filters tools when provided. */
   phase?: ExecutionPhase;
+  /**
+   * Optional server-owned completion contract. When present, a text response
+   * is only successful after its required evidence/claims are complete.
+   */
+  objective?: AgentLoopObjective;
+  /** Previously server-verified claim state, restored on resumable execution. */
+  claimState?: AgentLoopClaimState[];
 
   /**
    * Structured forensic mode: every uncached read_file call requests the
@@ -1221,6 +1270,7 @@ export type ToolLoopResult =
       fileContents?: Map<string, string>;
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
+       objectiveState?: AgentLoopState;
     }
   | {
       /**
@@ -1237,6 +1287,7 @@ export type ToolLoopResult =
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
       reason?: "soft_limit" | "empty_response" | "provider_timeout";
+       objectiveState?: AgentLoopState;
     }
   | {
       kind: "exhausted";
@@ -1248,6 +1299,7 @@ export type ToolLoopResult =
       sourceRetrieval?: SourceRetrievalTelemetry;
       /** Why the loop could not produce a final response. */
       reason?: "iteration_budget" | "empty_response";
+       objectiveState?: AgentLoopState;
     }
   | {
       /** A required tool failed; no completed operation may be claimed. */
@@ -1258,6 +1310,7 @@ export type ToolLoopResult =
       tool: string;
       failureKind: "execution" | "unavailable" | "cancelled";
       diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+       objectiveState?: AgentLoopState;
     }
   | {
       /**
@@ -1273,6 +1326,7 @@ export type ToolLoopResult =
       reason: "repeated_tool_call";
       tool: string;
       iterations: number;
+       objectiveState?: AgentLoopState;
     }
   | {
       /** Cancellation preserves evidence but never represents a completed audit. */
@@ -1280,6 +1334,21 @@ export type ToolLoopResult =
       toolSources: string[];
       fileContents?: Map<string, string>;
       sourceRetrieval?: SourceRetrievalTelemetry;
+       objectiveState?: AgentLoopState;
+     }
+  | {
+      /**
+       * The loop stopped with useful state but the server-owned objective could
+       * not be closed. This is intentionally distinct from provider failure,
+       * cancellation, and ordinary budget exhaustion.
+       */
+      kind: "incomplete";
+      reason: "claim_unclosed" | "evidence_incomplete" | "no_progress" | "validation_incomplete";
+      result?: RawGroqResponse;
+      toolSources: string[];
+      fileContents?: Map<string, string>;
+      sourceRetrieval?: SourceRetrievalTelemetry;
+      objectiveState?: AgentLoopState;
     };
 
 // ── Agent step events ──────────────────
@@ -1555,6 +1624,10 @@ export type AgentStep =
         | "empty_response"
          | "provider_timeout"
          | "tool_failure"
+         | "claim_unclosed"
+         | "evidence_incomplete"
+         | "no_progress"
+         | "validation_incomplete"
         | "cancelled";
       synthesisStarted: boolean;
       /** Bounded final-synthesis telemetry for operator diagnostics. */
@@ -1566,6 +1639,7 @@ export type AgentStep =
       diagnosticCodes: AgentDiagnosticCode[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
+       objectiveState?: AgentLoopState;
     };
 
 /**
@@ -1607,6 +1681,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
     executionMode,
     executionTargetPaths = [],
+    objective,
+    claimState,
     allowExecutionTools = false,
     validationRunner,
     browserValidationRunner,
@@ -2327,11 +2403,102 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       });
     } catch { /* ignore */ }
   };
-  const cancelledResult = (): ToolLoopResult => {
+  let currentIteration = 0;
+  let loopPhase: AgentLoopPhase = "planning";
+  const normalizedObjectivePath = (value: string): string =>
+    value.replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const verifiedPathSet = (): Set<string> => new Set(
+    [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
+      .map(normalizedObjectivePath),
+  );
+  const buildObjectiveState = (
+    terminalReason?: AgentLoopState["terminalReason"],
+  ): AgentLoopState | undefined => {
+    if (!objective) return undefined;
+    const verifiedPaths = verifiedPathSet();
+    const missingEvidencePaths = (objective.requiredEvidencePaths ?? [])
+      .map(normalizedObjectivePath)
+      .filter((path) => !verifiedPaths.has(path));
+    const restored = new Map((claimState ?? []).map((claim) => [claim.claimId, claim]));
+    const claims = objective.requiredClaims.map((claim) => {
+      const prior = restored.get(claim.claimId);
+      if (prior?.status === "PROVEN" || prior?.status === "BLOCKED") {
+        return { ...prior, evidenceRefs: prior.evidenceRefs.slice(0, 12) };
+      }
+      const requiredPaths = (claim.requiredEvidencePaths ?? []).map(normalizedObjectivePath);
+      const evidenceRefs = requiredPaths.filter((path) => verifiedPaths.has(path));
+      return {
+        claimId: claim.claimId,
+        status: requiredPaths.length > 0 && evidenceRefs.length === requiredPaths.length
+          ? "PROVEN" as const
+          : "PENDING" as const,
+        evidenceRefs,
+      };
+    });
+    return {
+      goal: objective.goal,
+      phase: loopPhase,
+      iterations: currentIteration,
+      progress: {
+        uniqueSourceReads: sourceRetrieval.uniqueReads + sourceRetrieval.prefetchReads,
+        toolCalls: totalToolCalls,
+        noProgressStreak,
+      },
+      claims,
+      missingEvidencePaths,
+      ...(terminalReason ? { terminalReason } : {}),
+    };
+  };
+  const objectiveIncompleteReason = (): "claim_unclosed" | "evidence_incomplete" | "no_progress" | undefined => {
+    if (!objective) return undefined;
+    const state = buildObjectiveState();
+    if (state?.missingEvidencePaths.length) return "evidence_incomplete";
+    if (state?.claims.some((claim) => claim.status !== "PROVEN")) return "claim_unclosed";
+    return undefined;
+  };
+  const incompleteResult = (
+    reason: "claim_unclosed" | "evidence_incomplete" | "no_progress" | "validation_incomplete",
+    result?: RawGroqResponse,
+  ): ToolLoopResult => {
+    loopPhase = "terminal";
+    const state = buildObjectiveState(reason);
     try {
       onStep?.({
         kind: "done",
-        iterations: 0,
+        iterations: currentIteration,
+        maxIterations,
+        ...executionCounts(),
+        stopReason: reason,
+        synthesisStarted,
+        synthesisAttempts,
+        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+          : {}),
+        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+        diagnosticCodes: [],
+        sourceRetrieval,
+        ...(state ? { objectiveState: state } : {}),
+      });
+    } catch { /* observers must not change terminal semantics */ }
+    return {
+      kind: "incomplete",
+      reason,
+      ...(result ? { result } : {}),
+      toolSources,
+      fileContents,
+      sourceRetrieval,
+      ...(state ? { objectiveState: state } : {}),
+    };
+  };
+  const cancelledResult = (): ToolLoopResult => {
+    loopPhase = "terminal";
+    currentIteration = Math.max(currentIteration, 0);
+    try {
+      onStep?.({
+        kind: "done",
+        iterations: currentIteration,
         maxIterations,
         ...executionCounts(),
         stopReason: "cancelled",
@@ -2347,7 +2514,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         sourceRetrieval,
       });
     } catch { /* ignore */ }
-    return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
+    return {
+      kind: "cancelled",
+      toolSources,
+      fileContents,
+      sourceRetrieval,
+      ...(buildObjectiveState("cancelled")
+        ? { objectiveState: buildObjectiveState("cancelled") }
+        : {}),
+    };
   };
   const failedToolResult = (
     tool: string,
@@ -2368,7 +2543,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       });
       onStep?.({
         kind: "done",
-        iterations: 0,
+        iterations: currentIteration,
         maxIterations,
         ...executionCounts(),
         stopReason: "tool_failure",
@@ -2385,14 +2560,19 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       tool,
       failureKind,
       diagnosticCode,
+      ...(buildObjectiveState("evidence_incomplete")
+        ? { objectiveState: buildObjectiveState("evidence_incomplete") }
+        : {}),
     };
   };
 
   for (let iter = 0; iter < maxIterations; iter++) {
+    currentIteration = iter;
     if (signal?.aborted) return cancelledResult();
     try { onStep?.({ kind: "iteration_start", iter, maxIterations }); } catch { /* ignore */ }
     // Reset per-iteration progress attribution before any tool calls dispatch.
     let iterationIssuedToolCalls = false;
+    loopPhase = "planning";
     let iterationNewRead = false;
     let iterationNewSearch = false;
     let iterationListDir = false;
@@ -2912,6 +3092,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
     // ── No tool calls → final response ──────────────────────────────────────
     if (!result.toolCalls || result.toolCalls.length === 0) {
+      loopPhase = "reasoning";
       // Prefetch gives the model source bodies before the first loop call, but
       // the provider client intentionally omits response_format whenever tools
       // are attached. If the model immediately decides it has enough evidence,
@@ -3010,7 +3191,17 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         }
       }
 
-      classifyZeroReadTerminal("response", iter + 1);
+      currentIteration = iter + 1;
+      classifyZeroReadTerminal("response", currentIteration);
+      const incompleteReason =
+        (objective && forceSynthesisNext && noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD
+          ? "no_progress" as const
+          : objective && requiresEvidence && evidenceRouteAvailable && firstSourceReadIter === null
+          ? "evidence_incomplete" as const
+          : objectiveIncompleteReason());
+      if (incompleteReason) {
+        return incompleteResult(incompleteReason, result);
+      }
       try {
         onStep?.({
           kind: "done",
@@ -3030,7 +3221,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           sourceRetrieval,
         });
       } catch { /* ignore */ }
-      return { kind: "response", result, toolSources, fileContents, sourceRetrieval };
+      return {
+        kind: "response",
+        result,
+        toolSources,
+        fileContents,
+        sourceRetrieval,
+        ...(buildObjectiveState(objective ? "goal_met" : undefined)
+          ? { objectiveState: buildObjectiveState(objective ? "goal_met" : undefined) }
+          : {}),
+      };
     }
 
     // Some providers still emit tool_calls after the tool schema has been
@@ -3042,7 +3242,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // collected instead of discarding it behind a generic fallback.
     if (synthesisOnly) {
       const terminalResult: RawGroqResponse = { ...result, toolCalls: null };
-      classifyZeroReadTerminal("synthesis", iter + 1);
+      loopPhase = "reasoning";
+      currentIteration = iter + 1;
+      classifyZeroReadTerminal("synthesis", currentIteration);
+      const incompleteReason =
+        (objective && forceSynthesisNext && noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD
+          ? "no_progress" as const
+          : objective && requiresEvidence && evidenceRouteAvailable && firstSourceReadIter === null
+          ? "evidence_incomplete" as const
+          : objectiveIncompleteReason());
+      if (incompleteReason) {
+        return incompleteResult(incompleteReason, terminalResult);
+      }
       try {
         onStep?.({
           kind: "done",
@@ -3056,7 +3267,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         });
       } catch { /* ignore */ }
       if (result.content?.trim()) {
-        return { kind: "response", result: terminalResult, toolSources, fileContents, sourceRetrieval };
+        return {
+          kind: "response",
+          result: terminalResult,
+          toolSources,
+          fileContents,
+          sourceRetrieval,
+          ...(buildObjectiveState(objective ? "goal_met" : undefined)
+            ? { objectiveState: buildObjectiveState(objective ? "goal_met" : undefined) }
+            : {}),
+        };
       }
       return {
         kind: "partial",
@@ -3106,6 +3326,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // batch; preserve the tool-message protocol and synthesize on the next
     // iteration instead.
     let forensicBatchStopped = false;
+    loopPhase = "evidence";
     for (const tc of safeToolCalls) {
       let args: Record<string, string> = {};
       try {
@@ -4314,6 +4535,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // synthesis hint fired), surface it as a kind:"partial" result so the caller
   // can give the user a useful answer instead of a generic error message.
   if (lastTextSeen !== undefined) {
+    currentIteration = maxIterations;
+    const incompleteReason =
+      objective && forceSynthesisNext && noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD
+        ? "no_progress" as const
+        : objective && requiresEvidence && evidenceRouteAvailable && firstSourceReadIter === null
+          ? "evidence_incomplete" as const
+          : objectiveIncompleteReason();
+    if (incompleteReason) return incompleteResult(incompleteReason, lastTextSeen);
     classifyZeroReadTerminal("soft_limit", maxIterations);
     try {
       onStep?.({
@@ -4330,6 +4559,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "soft_limit" };
   }
 
+  currentIteration = maxIterations;
+  const incompleteReason =
+    objective && forceSynthesisNext && noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD
+      ? "no_progress" as const
+      : objective && requiresEvidence && evidenceRouteAvailable && firstSourceReadIter === null
+        ? "evidence_incomplete" as const
+        : objectiveIncompleteReason();
+  if (incompleteReason) return incompleteResult(incompleteReason);
   classifyZeroReadTerminal("iteration_budget", maxIterations);
   try {
     onStep?.({

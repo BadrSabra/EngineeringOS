@@ -50,6 +50,7 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type ScopeEstimate = "narrow" | "medium" | "broad";
+export type QueryPlanStatus = "valid" | "fallback" | "invalid";
 
 export type CompoundPartKind =
   | "CURRENT_STATE"
@@ -86,6 +87,10 @@ export type QueryPlan = {
   subQueries: string[];
   /** Explicit coverage contract for compound questions. */
   compoundParts: CompoundQueryPart[];
+  /** Server-owned interpretation of the planner response. */
+  planStatus?: QueryPlanStatus;
+  /** Bounded diagnostics for an invalid or fallback plan. */
+  planDiagnostics?: string[];
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -116,6 +121,8 @@ const FALLBACK_PLAN: QueryPlan = {
   requiresToolUse: true,
   subQueries: [],
   compoundParts: [],
+  planStatus: "fallback",
+  planDiagnostics: ["planner output was unavailable"],
 };
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
@@ -161,6 +168,139 @@ Rules:
 
 // ── JSON parser ───────────────────────────────────────────────────────────────
 
+type RawQueryPlanValidation = {
+  valid: boolean;
+  diagnostics: string[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Validate the planner envelope before normalizing it. Clamping malformed
+ * values is unsafe here: a planner that claims a narrow scope with a broad
+ * decomposition can bypass the caller's budget and scheduling assumptions.
+ */
+export function validateQueryPlanShape(
+  value: unknown,
+): RawQueryPlanValidation {
+  const diagnostics: string[] = [];
+  if (!isRecord(value)) return { valid: false, diagnostics: ["plan must be a JSON object"] };
+
+  const scope = value.scopeEstimate;
+  if (scope !== "narrow" && scope !== "medium" && scope !== "broad") {
+    diagnostics.push("scopeEstimate must be narrow, medium, or broad");
+  }
+
+  const arrays: Array<[string, number]> = [
+    ["targetFiles", MAX_TARGET_FILES],
+    ["targetEntities", 10],
+    ["subQueries", MAX_SUBQUERIES],
+  ];
+  for (const [name, max] of arrays) {
+    const candidate = value[name];
+    if (!Array.isArray(candidate)) {
+      diagnostics.push(`${name} must be an array`);
+    } else if (candidate.length > max) {
+      diagnostics.push(`${name} exceeds the maximum of ${max}`);
+    }
+  }
+
+  const targetFiles = Array.isArray(value.targetFiles) ? value.targetFiles : [];
+  for (const file of targetFiles) {
+    if (
+      typeof file !== "string" ||
+      !file.trim() ||
+      file.startsWith("/") ||
+      /^[A-Za-z]:[\\/]/.test(file) ||
+      file.split(/[\\/]+/u).includes("..")
+    ) {
+      diagnostics.push("targetFiles contains an invalid project-relative path");
+      break;
+    }
+  }
+  for (const name of ["targetEntities", "subQueries"] as const) {
+    const values = Array.isArray(value[name]) ? value[name] : [];
+    if (values.some((item) => typeof item !== "string" || !item.trim())) {
+      diagnostics.push(`${name} must contain non-empty strings`);
+    }
+  }
+
+  const iterations = value.suggestedIterations;
+  const range =
+    scope === "narrow" ? [5, 16] :
+      scope === "broad" ? [40, 60] : [18, 35];
+  if (
+    typeof iterations !== "number" ||
+    !Number.isInteger(iterations) ||
+    !Number.isFinite(iterations) ||
+    iterations < range[0] ||
+    iterations > range[1]
+  ) {
+    diagnostics.push(`suggestedIterations must be an integer in ${range[0]}-${range[1]}`);
+  }
+  if (typeof value.requiresToolUse !== "boolean") {
+    diagnostics.push("requiresToolUse must be a boolean");
+  }
+
+  const subQueries = Array.isArray(value.subQueries) ? value.subQueries : [];
+  if (scope === "broad" && subQueries.length > 0 && subQueries.length < 2) {
+    diagnostics.push("broad plans require 2-5 subQueries");
+  }
+  if (scope !== "broad" && subQueries.length > 0) {
+    diagnostics.push("subQueries are allowed only for broad plans");
+  }
+  if (value.requiresToolUse === false && (targetFiles.length > 0 || subQueries.length > 0)) {
+    diagnostics.push("a no-tool plan cannot contain target files or subQueries");
+  }
+
+  const parts = value.compoundParts === undefined
+    ? []
+    : Array.isArray(value.compoundParts)
+      ? value.compoundParts
+      : [];
+  if (value.compoundParts !== undefined && !Array.isArray(value.compoundParts)) {
+    diagnostics.push("compoundParts must be an array");
+  }
+  if (parts.length > 8) diagnostics.push("compoundParts exceeds the maximum of 8");
+  const ids = new Set<string>();
+  for (const part of parts) {
+    if (!isRecord(part) || typeof part.id !== "string" || !part.id.trim()) {
+      diagnostics.push("compoundParts must have non-empty ids");
+      continue;
+    }
+    if (ids.has(part.id)) diagnostics.push("compoundParts ids must be unique");
+    ids.add(part.id);
+    if (typeof part.question !== "string" || !part.question.trim()) {
+      diagnostics.push("compoundParts questions must be non-empty");
+    }
+    if (
+      part.kind !== "CURRENT_STATE" &&
+      part.kind !== "FEATURES" &&
+      part.kind !== "GAPS" &&
+      part.kind !== "PRIORITIES" &&
+      part.kind !== "OTHER"
+    ) {
+      diagnostics.push("compoundParts contains an unsupported kind");
+    }
+    if (typeof part.requiresCitation !== "boolean") {
+      diagnostics.push("compoundParts requiresCitation must be boolean");
+    }
+    if (
+      part.requiredCount !== undefined &&
+      (typeof part.requiredCount !== "number" ||
+        !Number.isInteger(part.requiredCount) ||
+        part.requiredCount < 1 ||
+        part.requiredCount > 10)
+    ) {
+      diagnostics.push("compoundParts requiredCount must be an integer from 1-10");
+    }
+  }
+
+  return { valid: diagnostics.length === 0, diagnostics: [...new Set(diagnostics)] };
+}
+
 function parsePlannerResponse(raw: string | null): QueryPlan | null {
   if (!raw) return null;
 
@@ -171,16 +311,10 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
   try {
     const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
 
-    const scopeEstimate: ScopeEstimate =
-      parsed["scopeEstimate"] === "narrow" || parsed["scopeEstimate"] === "broad"
-        ? (parsed["scopeEstimate"] as ScopeEstimate)
-        : "medium";
-
-    const rawIter = parsed["suggestedIterations"];
-    const suggestedIterations =
-      typeof rawIter === "number"
-        ? Math.min(Math.max(Math.round(rawIter), 5), 60)
-        : scopeEstimate === "narrow" ? 10 : scopeEstimate === "broad" ? 45 : 24;
+    const validation = validateQueryPlanShape(parsed);
+    if (!validation.valid) return null;
+    const scopeEstimate = parsed["scopeEstimate"] as ScopeEstimate;
+    const suggestedIterations = parsed["suggestedIterations"] as number;
 
     return {
       originalIntent: typeof parsed["originalIntent"] === "string" ? parsed["originalIntent"] : "",
@@ -192,7 +326,7 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
         : [],
       scopeEstimate,
       suggestedIterations,
-      requiresToolUse: parsed["requiresToolUse"] !== false,
+      requiresToolUse: parsed["requiresToolUse"] as boolean,
       subQueries: Array.isArray(parsed["subQueries"])
         ? (parsed["subQueries"] as string[]).filter((q) => typeof q === "string").slice(0, MAX_SUBQUERIES)
         : [],
@@ -214,6 +348,8 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
               requiresCitation: part.requiresCitation !== false,
             }))
         : [],
+      planStatus: "valid",
+      planDiagnostics: [],
     };
   } catch {
     return null;
@@ -659,15 +795,31 @@ export async function planQuery(opts: {
 
   const parsedPlan = parsePlannerResponse(result.content);
   if (!parsedPlan) {
+    let invalidDiagnostics = ["planner response was not a valid plan"];
+    try {
+      const jsonMatch = result.content?.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as unknown;
+        const validation = validateQueryPlanShape(parsed);
+        if (!validation.valid) invalidDiagnostics = validation.diagnostics;
+      }
+    } catch {
+      // Keep the bounded parser diagnostic; raw provider content is never
+      // returned to callers.
+    }
     console.warn(
       JSON.stringify({
         scope: "query-planner",
         code: "PARSE_FAILED",
         model,
-        raw: result.content?.slice(0, 300),
+        diagnostics: invalidDiagnostics.slice(0, 4),
       }),
     );
-    return FALLBACK_PLAN;
+    return {
+      ...FALLBACK_PLAN,
+      planStatus: result.content ? "invalid" : "fallback",
+      planDiagnostics: invalidDiagnostics.slice(0, 4),
+    };
   }
 
   // ── Graph enrichment ───────────────────────────────────────────────────────
@@ -689,6 +841,17 @@ export async function planQuery(opts: {
           ? plan.compoundParts.map((part) => part.question).slice(0, MAX_SUBQUERIES)
           : plan.subQueries,
   };
+  if (
+    normalizedPlan.scopeEstimate === "broad" &&
+    normalizedPlan.subQueries.length < 2
+  ) {
+    return {
+      ...FALLBACK_PLAN,
+      originalIntent: message,
+      planStatus: "invalid",
+      planDiagnostics: ["broad plans require at least two focused subQueries"],
+    };
+  }
 
   const enriched =
     projectId && projectContext.metricsVerified

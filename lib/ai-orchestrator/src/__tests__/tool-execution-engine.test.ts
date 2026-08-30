@@ -372,6 +372,58 @@ describe("executeToolLoop", () => {
     expect(result.kind).toBe("response");
   });
 
+  it("returns an authoritative incomplete result when a declared claim is open", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([makeResponse("unsupported claim")]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: undefined,
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 1,
+      objective: {
+        goal: "verify the requested claim",
+        requiredClaims: [{ claimId: "claim-1" }],
+      },
+    });
+
+    expect(result.kind).toBe("incomplete");
+    if (result.kind === "incomplete") {
+      expect(result.reason).toBe("claim_unclosed");
+      expect(result.objectiveState?.claims).toEqual([
+        { claimId: "claim-1", status: "PENDING", evidenceRefs: [] },
+      ]);
+    }
+  });
+
+  it("closes a declared claim only from its server-owned evidence path", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/proof.ts" })]),
+        makeResponse("verified"),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      objective: {
+        goal: "verify the requested claim",
+        requiredClaims: [{ claimId: "claim-1", requiredEvidencePaths: ["src/proof.ts"] }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
+  });
+
   it("rejects a tool emitted outside the server-owned phase", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const diagnostics: AgentStep[] = [];
