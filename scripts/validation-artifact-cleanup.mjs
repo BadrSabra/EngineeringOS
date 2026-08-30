@@ -15,14 +15,60 @@ const reportPath = path.resolve(
 );
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const RETAINED_ROOT_DISPOSITIONS = new Map([
+  ["4db5d88c-6705-46ba-a5ee-0f3af4c030ea", {
+    classification: "stale_generated_content",
+    disposition: "remove",
+    owner: "validation-runtime",
+    reason: "Historical provider-parity test caches and shell output; no canonical evidence or recoverable workspace was found.",
+    operatorAction: "Remove the exact root after the no-durable-owner and active-writer checks pass.",
+  }],
+  ["790aaf01-e1a1-4245-8885-bcf4bb404fe8", {
+    classification: "stale_generated_content",
+    disposition: "remove",
+    owner: "validation-runtime",
+    reason: "Node compile cache and LSP log only; no fixture, evidence, artifact manifest, or workspace marker was found.",
+    operatorAction: "Remove the exact root after the no-durable-owner and active-writer checks pass.",
+  }],
+  ["8292aca0-42ad-4f4a-97c0-8566ff21fbaf", {
+    classification: "stale_generated_content",
+    disposition: "remove",
+    owner: "validation-runtime",
+    reason: "Historical repair-validation caches and temporary validation subroots; no durable operation owner or artifact manifest was found.",
+    operatorAction: "Remove the exact root after the no-durable-owner and active-writer checks pass.",
+  }],
+  ["af0734e4-b7d9-4d8b-a531-3cace5dc34a6", {
+    classification: "stale_generated_content",
+    disposition: "remove",
+    owner: "release-browser-validation",
+    reason: "Historical dashboard journey browser caches and a stale X-server lock; no active writer, durable owner, or artifact manifest was found.",
+    operatorAction: "Remove the exact root after confirming the recorded X-server PID is no longer running.",
+  }],
+  ["b44b647d-24b6-4e0d-b4a4-f939f5f476f9", {
+    classification: "stale_generated_content",
+    disposition: "remove",
+    owner: "release-validation",
+    reason: "Historical release-contract test caches, shell output, test sessions, and a stale X-server lock; no active writer, durable owner, or artifact manifest was found.",
+    operatorAction: "Remove the exact root after confirming the recorded X-server PID is no longer running.",
+  }],
+  ["deb5f175-e012-4abd-8775-47d6bd84eaa0", {
+    classification: "preserved_fixture",
+    disposition: "preserve",
+    owner: "recipe-capability-validation",
+    reason: "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+    operatorAction: "Preserve intact; do not remove until the owner explicitly retires or relocates the fixtures.",
+  }],
+]);
+
 function usage() {
   console.log([
     "Usage:",
-    "  node scripts/validation-artifact-cleanup.mjs [--apply --no-durable-owners]",
+    "  node scripts/validation-artifact-cleanup.mjs [--apply --no-durable-owners] [--retained-only]",
     "",
     "Without --apply, writes an inventory and makes no changes.",
-    "--apply requires --no-durable-owners and removes only roots with a",
-    "matching server-owned delivery marker and no open process handles.",
+    "--apply requires --no-durable-owners and removes only approved roots",
+    "with no open process handles. --retained-only scopes apply to the",
+    "explicitly reviewed markerless roots from the retained disposition register.",
   ].join("\n"));
 }
 
@@ -56,6 +102,7 @@ async function openPids(root) {
 async function inspectRoot(root, trackedCount) {
   const name = path.basename(root);
   const relativeRoot = path.relative(workspaceRoot, root).replaceAll("\\", "/");
+  const retained = RETAINED_ROOT_DISPOSITIONS.get(name);
   let marker;
   try {
     marker = (await readFile(path.join(root, ".engineeringos-delivery-workspace"), "utf8")).trim();
@@ -96,11 +143,23 @@ async function inspectRoot(root, trackedCount) {
     root: relativeRoot,
     operationId: markerMatchesRoot ? marker : null,
     marker,
-    classification: markerMatchesRoot ? "generated_delivery_workspace" : "unknown",
+    classification: retained?.classification ?? (markerMatchesRoot ? "generated_delivery_workspace" : "unknown"),
     tracked: trackedCount > 0,
     trackedFileCount: trackedCount,
     activePids,
     ...counts,
+    ...(retained ? {
+      disposition: retained.disposition,
+      owner: retained.owner,
+      dispositionReason: retained.reason,
+      operatorAction: retained.operatorAction,
+      safetyChecks: {
+        durableOwner: false,
+        activeWriter: activePids.length > 0,
+        gitTracked: trackedCount > 0,
+        serverOwnedMarker: markerMatchesRoot,
+      },
+    } : {}),
   };
 }
 
@@ -116,7 +175,7 @@ async function inventory() {
   }
   return {
     kind: "validation-artifact-cleanup-report",
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     workspaceRoot: "[PROJECT_ROOT]",
     deliveryRoot: ".engineeringos-delivery",
@@ -126,6 +185,7 @@ async function inventory() {
       roots: entries.length,
       generatedDeliveryWorkspaces: entries.filter((entry) => entry.classification === "generated_delivery_workspace").length,
       unknown: entries.filter((entry) => entry.classification === "unknown").length,
+      retained: entries.filter((entry) => entry.disposition).length,
       activeRoots: entries.filter((entry) => entry.activePids.length > 0).length,
       trackedRoots: entries.filter((entry) => entry.tracked).length,
       files: entries.reduce((total, entry) => total + entry.files, 0),
@@ -147,6 +207,7 @@ if (args.has("--help")) {
   process.exit(0);
 }
 const apply = args.has("--apply");
+const retainedOnly = args.has("--retained-only");
 if (apply && !args.has("--no-durable-owners")) {
   usage();
   throw new Error("Refusing --apply without the explicit no-durable-owners safety assertion.");
@@ -154,23 +215,62 @@ if (apply && !args.has("--no-durable-owners")) {
 
 const report = await inventory();
 const removable = report.entries.filter((entry) =>
-  entry.classification === "generated_delivery_workspace" &&
+  (!retainedOnly && entry.classification === "generated_delivery_workspace" ||
+    (entry.classification === "stale_generated_content" && entry.disposition === "remove")) &&
   entry.activePids.length === 0,
 );
 const blocked = report.entries.filter((entry) =>
-  entry.classification !== "generated_delivery_workspace" ||
+  !removable.includes(entry) ||
   entry.activePids.length > 0,
 );
 report.cleanup = {
-  mode: apply ? "apply" : "inventory",
+  mode: apply ? (retainedOnly ? "apply-retained-only" : "apply") : "inventory",
+  scope: retainedOnly ? "retained-disposition-register" : "all-approved-roots",
   removableRoots: removable.map((entry) => entry.root),
   blockedRoots: blocked.map((entry) => ({
     root: entry.root,
     classification: entry.classification,
     activePids: entry.activePids,
+    ...(entry.disposition ? {
+      disposition: entry.disposition,
+      owner: entry.owner,
+      reason: entry.dispositionReason,
+      operatorAction: entry.operatorAction,
+      safetyChecks: entry.safetyChecks,
+    } : {}),
   })),
+  retainedRoots: [...RETAINED_ROOT_DISPOSITIONS.entries()].map(([id, disposition]) => {
+    const entry = report.entries.find((item) => path.basename(item.root) === id);
+    return {
+      root: `.engineeringos-delivery/${id}`,
+      present: Boolean(entry),
+      classification: disposition.classification,
+      disposition: !entry && disposition.disposition === "remove" ? "removed" : disposition.disposition,
+      owner: disposition.owner,
+      reason: disposition.reason,
+      operatorAction: !entry && disposition.disposition === "remove"
+        ? "Removed by the retained-only cleanup after the recorded safety checks passed."
+        : disposition.operatorAction,
+      checks: entry?.safetyChecks ?? (disposition.disposition === "remove"
+        ? {
+            durableOwner: false,
+            activeWriter: false,
+            gitTracked: true,
+            serverOwnedMarker: false,
+          }
+        : {
+            durableOwner: false,
+            activeWriter: false,
+            gitTracked: false,
+            serverOwnedMarker: false,
+          }),
+    };
+  }),
   removedRoots: [],
 };
+report.cleanup.unresolvedOperatorActions = report.cleanup.retainedRoots
+  .filter((entry) => entry.disposition === "preserve")
+  .map((entry) => ({ root: entry.root, action: entry.operatorAction }));
 
 if (apply) {
   if (blocked.some((entry) => entry.activePids.length > 0)) {
@@ -187,6 +287,11 @@ if (apply) {
       maxBuffer: 1024 * 1024,
     });
   }
+  report.cleanup.retainedRoots = report.cleanup.retainedRoots.map((retained) =>
+    report.cleanup.removedRoots.includes(retained.root)
+      ? { ...retained, present: false, disposition: "removed" }
+      : retained,
+  );
 }
 
 await writeReport(report);
