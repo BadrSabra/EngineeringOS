@@ -1,0 +1,250 @@
+lib/api-zod/src/generated/api.ts:5162:  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']).describe('AI provider identifier')
+lib/api-zod/src/generated/api.ts:5187:  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']).describe('AI provider identifier')
+lib/api-zod/src/generated/api.ts:5220:  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']).describe('AI provider identifier')
+lib/api-zod/src/generated/api.ts:5269:  "kind": zod.enum(['groq_model_catalog_drift']),
+lib/api-zod/src/generated/api.ts:5271:  "provider": zod.enum(['groq']),
+lib/api-zod/src/generated/api.ts:5289:  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini', 'null']).nullish().describe('The AI provider that will be used, or null if none is configured'),
+lib/scanner/package.json:18:    "@types/node": "catalog:",
+lib/api-client-react/src/generated/api.ts:7048:  return `/api/ai/groq-key`
+lib/api-client-react/src/generated/api.ts:7071:    `/api/ai/groq-key`
+lib/api-client-react/src/generated/api.ts:7125:  return `/api/ai/groq-key`
+lib/api-client-react/src/generated/api.ts:7196:  return `/api/ai/groq-key`
+lib/api-client-react/src/generated/api.ts:7919:export const getGetProviderKeyStatusUrl = (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',) => {
+lib/api-client-react/src/generated/api.ts:7930:export const getProviderKeyStatus = async (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: RequestInit): Promise<ProviderKeyStatus> => {
+lib/api-client-react/src/generated/api.ts:7945:export const getGetProviderKeyStatusQueryKey = (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',) => {
+lib/api-client-react/src/generated/api.ts:7952:export const getGetProviderKeyStatusQueryOptions = <TData = Awaited<ReturnType<typeof getProviderKeyStatus>>, TError = ErrorType<void>>(provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProviderKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7979: provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProviderKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7996:export const getSaveProviderKeyUrl = (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',) => {
+lib/api-client-react/src/generated/api.ts:8007:export const saveProviderKey = async (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',
+lib/api-client-react/src/generated/api.ts:8024:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:8025:): UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>}, TContext> => {
+lib/api-client-react/src/generated/api.ts:8037:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveProviderKey>>, {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>}> = (props) => {
+lib/api-client-react/src/generated/api.ts:8058:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:8062:        {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>},
+lib/api-client-react/src/generated/api.ts:8068:export const getDeleteProviderKeyUrl = (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',) => {
+lib/api-client-react/src/generated/api.ts:8079:export const deleteProviderKey = async (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: RequestInit): Promise<DeleteProviderKey200> => {
+lib/api-client-react/src/generated/api.ts:8095:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:8096:): UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}, TContext> => {
+lib/api-client-react/src/generated/api.ts:8108:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteProviderKey>>, {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}> = (props) => {
+lib/api-client-react/src/generated/api.ts:8129:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:8133:        {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'},
+lib/api-client-react/src/generated/api.schemas.ts:624:  groq_model_catalog_drift: 'groq_model_catalog_drift',
+lib/api-client-react/src/generated/api.schemas.ts:639:  groq: 'groq',
+lib/api-client-react/src/generated/api.schemas.ts:805:  groq: 'groq',
+lib/api-zod/src/generated/types/operatorAlertProvider.ts:13:  groq: 'groq',
+lib/api-zod/src/generated/types/operatorAlertKind.ts:13:  groq_model_catalog_drift: 'groq_model_catalog_drift',
+lib/api-client-react/package.json:13:    "@tanstack/react-query": "catalog:"
+lib/api-client-react/package.json:19:    "@types/node": "catalog:",
+lib/api-zod/src/generated/types/index.ts:222:export * from './groqKeyStatus';
+lib/api-zod/src/generated/types/index.ts:223:export * from './groqModelAvailability';
+lib/api-zod/src/generated/types/index.ts:224:export * from './groqModelAvailabilityCheckedModels';
+lib/api-zod/src/generated/types/index.ts:225:export * from './groqModelAvailabilitySource';
+lib/api-zod/src/generated/types/index.ts:226:export * from './groqModelAvailabilityStatus';
+lib/api-zod/src/generated/types/index.ts:227:export * from './groqModelAvailabilityUnavailableRolesItem';
+lib/api-zod/src/generated/types/providerKeyStatus.ts:8:import type { GroqModelAvailability } from './groqModelAvailability';
+lib/knowledge-engine/package.json:15:    "drizzle-orm": "catalog:"
+lib/knowledge-engine/package.json:18:    "@types/node": "catalog:",
+lib/api-zod/src/generated/types/groqModelAvailability.ts:8:import type { GroqModelAvailabilityCheckedModels } from './groqModelAvailabilityCheckedModels';
+lib/api-zod/src/generated/types/groqModelAvailability.ts:9:import type { GroqModelAvailabilitySource } from './groqModelAvailabilitySource';
+lib/api-zod/src/generated/types/groqModelAvailability.ts:10:import type { GroqModelAvailabilityStatus } from './groqModelAvailabilityStatus';
+lib/api-zod/src/generated/types/groqModelAvailability.ts:11:import type { GroqModelAvailabilityUnavailableRolesItem } from './groqModelAvailabilityUnavailableRolesItem';
+lib/db/package.json:20:    "drizzle-orm": "catalog:",
+lib/db/package.json:23:    "zod": "catalog:"
+lib/db/package.json:26:    "@types/node": "catalog:",
+lib/db/package.json:29:    "tsx": "catalog:"
+lib/ai-orchestrator/src/startup-validator.ts:7: *   2. Dynamic OpenRouter catalog refresh (if OPENROUTER_API_KEY is present).
+lib/ai-orchestrator/src/startup-validator.ts:8: *   3. Audits the static FREE_MODELS list against the live catalog.
+lib/ai-orchestrator/src/startup-validator.ts:22:} from "./groq-client.js";
+lib/ai-orchestrator/src/startup-validator.ts:24:import { FREE_MODELS } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/startup-validator.ts:28:} from "./openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/startup-validator.ts:36:  /** Whether Groq's configured defaults were confirmed by its live catalog. */
+lib/ai-orchestrator/src/startup-validator.ts:71:  groq:       "GROQ_API_KEY",
+lib/ai-orchestrator/src/startup-validator.ts:93:      if (providerId === "groq") {
+lib/ai-orchestrator/src/startup-validator.ts:131:    if (providerId === "groq") {
+lib/ai-orchestrator/src/startup-validator.ts:136:          loadProvider("groq").defaultModels,
+lib/ai-orchestrator/src/startup-validator.ts:142:            ? "GROQ_API_KEY was rejected while checking the live model catalog — verify the key."
+lib/ai-orchestrator/src/startup-validator.ts:143:            : `Groq model catalog could not be checked (${code}) — rerun startup or release validation before relying on Groq.`;
+lib/ai-orchestrator/src/startup-validator.ts:167:          "Groq model catalog is missing one or more configured default models.";
+lib/ai-orchestrator/src/startup-validator.ts:212:        ...(providerId === "groq" ? { modelCheck: "passed" } : {}),
+lib/ai-orchestrator/src/startup-validator.ts:217:  // PR-002 integration: refresh the dynamic OpenRouter catalog at startup so
+lib/ai-orchestrator/src/startup-validator.ts:223:      // Audit the static catalog — log any stale model IDs.
+lib/ai-orchestrator/src/index.ts:8:} from "./groq-client.js";
+lib/ai-orchestrator/src/index.ts:92:} from "./groq-client.js";
+lib/ai-orchestrator/src/index.ts:239:} from "./capability-catalog.js";
+lib/ai-orchestrator/src/index.ts:269:} from "./capability-catalog.js";
+lib/ai-orchestrator/src/index.ts:744:// PR-002: dynamic catalog
+lib/ai-orchestrator/src/index.ts:752:} from "./openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/provider-registry.ts:18:import { groqStrategy } from "./strategies/groq.strategy.js";
+lib/ai-orchestrator/src/provider-registry.ts:22:import { MODEL_FAST, MODEL_POWERFUL } from "./groq-client.js";
+lib/ai-orchestrator/src/provider-registry.ts:23:import { FREE_MODELS } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/provider-registry.ts:26:// The emergency fallback is derived from the current static free-tier catalog
+lib/ai-orchestrator/src/provider-registry.ts:34:export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
+lib/ai-orchestrator/src/provider-registry.ts:54: * Fallback priority order: openrouter → gemini → deepseek → groq.
+lib/ai-orchestrator/src/provider-registry.ts:62:export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter", "gemini", "deepseek", "groq"];
+lib/ai-orchestrator/src/provider-registry.ts:75:      // reliably-free model in the static catalog.  Execution paths that
+lib/ai-orchestrator/src/provider-registry.ts:77:      // (see agent-complete.ts RC-04 fix) so the live free-tier catalog is
+lib/ai-orchestrator/src/provider-registry.ts:145:  groq: {
+lib/ai-orchestrator/src/provider-registry.ts:146:    providerId: "groq",
+lib/ai-orchestrator/src/provider-registry.ts:148:    consoleUrl: "console.groq.com",
+lib/ai-orchestrator/src/provider-registry.ts:149:    statusUrl: "status.groq.com",
+lib/ai-orchestrator/src/provider-registry.ts:154:      // Keep the resolver aligned with groq-client.ts. Groq retires model
+lib/ai-orchestrator/src/provider-registry.ts:233:  ["groq",       groqStrategy],
+lib/ai-orchestrator/src/groq-client.ts:17:import Groq from "groq-sdk";
+lib/ai-orchestrator/src/groq-client.ts:177:        JSON.stringify({ scope: "groq-client", event: "circuit_closed", key: key === "env" ? key : "user" }),
+lib/ai-orchestrator/src/groq-client.ts:189:          scope: "groq-client",
+lib/ai-orchestrator/src/groq-client.ts:264:          `Groq model catalog is missing the configured ${missingDescription}. ` +
+lib/ai-orchestrator/src/groq-client.ts:454:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/groq-client.ts:566:  const line = JSON.stringify({ scope: "groq-client", ...meta });
+lib/ai-orchestrator/src/groq-client.ts:701:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/tool-execution-engine.ts:28:import type { RawMessage, RawGroqResponse } from "./groq-client.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:30:import type { ModelCapability } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:7: * PR-01: refreshes the dynamic model catalog before each call so stale model
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:24:import { refreshDynamicCatalog } from "../openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:34:import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:46:  // PR-01 + PR-07: refresh catalog (fire-and-forget), check circuit, record outcome.
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:84:    // PR-01: refresh the live model catalog so stale IDs are filtered before
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:109:            catalog: "current_snapshot",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:186:    // PR-01: fire-and-forget catalog refresh.
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:203:            catalog: "current_snapshot",
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:5: * (SSE generator) from groq-client.ts behind the `ProviderStrategy` interface.
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:8:import { completeRaw, completeStream } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:9:import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:16:export const groqStrategy: ProviderStrategy = {
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:17:  providerId: "groq",
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:19:import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:14:import type { RawMessage } from "../groq-client.js";
+lib/db/src/schema/operator_alerts.ts:9:  "groq_model_catalog_drift",
+lib/ai-orchestrator/src/recipe-compiler.ts:473:    if (adapter.catalog?.requiresAuthorization && context.authorized !== true) {
+lib/ai-orchestrator/src/recipe-compiler.ts:479:    if (adapter.catalog && !adapter.catalog.supportedScopes.includes(scope.kind)) {
+lib/ai-orchestrator/src/recipe-capabilities.ts:32:  catalog: {
+lib/ai-orchestrator/src/provider-tool-calls.ts:21:import type { RawGroqResponse, ToolCall, ToolDefinition } from "./groq-client.js";
+lib/ai-orchestrator/src/provider-strategy.ts:13:import type { RawMessage, ToolDefinition, RawGroqResponse } from "./groq-client.js";
+lib/ai-orchestrator/src/provider-strategy.ts:14:import type { ModelCapability } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:212:For each proven problem, emit ID, severity, File(s), Evidence, Why it matters, Root cause, and Fix on separate lines. Quote an exact code fragment or name a completed tool result. Emit no more than five findings. Do not turn an inference into a finding. A missing schema/context read, absent test run, or unread dependency is a verification gap, not a code defect. Performance, memory, latency, and complexity impact claims require a completed benchmark/profile/result or an exact violated contract; O(n), an allocation pattern, or a suggested Map.has() change alone is not enough. Package-manager aliases such as catalog: require the root catalog or lockfile before claiming that a version is missing.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:13: * the dynamic catalog (getDynamicModelIds) when it has been loaded. Models that
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:24:import { FREE_MODELS, type ModelCapability, type OpenRouterFreeModel } from "./model-catalog.js";
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:25:import { getUsableDynamicModelIds } from "./dynamic-catalog.js";
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:35:  // A failed or expired refresh is not an authoritative catalog boundary.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:83:  /** PR-002: models skipped because they are absent from the live catalog. */
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:93: * PR-002: Filter the model pool against the live OpenRouter catalog.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:100:  if (!dynamicIds) return { live: models, stale: [] }; // catalog not loaded yet
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:118: * PR-002: models absent from the live OpenRouter catalog are excluded from the
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:125:  // Emit resolution trace so stale catalog entries and empty chains are visible.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:135:  // capability. A missing capability is a configuration/catalog failure, not
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:142:  // RC-01: only fall back to rawPool when the catalog has NOT been loaded yet.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:143:  // If the catalog IS loaded and filtered everything out, those models have moved
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:147:  // A refresh attempt is not an authoritative catalog boundary. Failed or
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:149:  const catalogLoaded = getUsableDynamicModelIds() !== null;
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:154:      ? []      // authoritative live catalog has no compatible free candidates
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:181:      catalogLoaded,
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:185:      poolFallback: pool.length === 0 && !catalogLoaded ? "static_list" : null,
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:195: * Throws only when the catalog is completely empty — never in practice.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:241: * PR-002: models absent from the live catalog are excluded from the chain
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:244: * If the model ID is not in the catalog (e.g. custom/paid), returns [id] with
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:255:  // live catalog. A model that disappeared from the live catalog should still
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:272:  // PR-002 / RC-02: filter peers against dynamic catalog (free-tier only).
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:273:  // RC-02: if the catalog IS loaded but filtered a peer group to empty, don't
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:276:  // catalog hasn't loaded yet (best-effort static list on first request).
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:282:  const catalogLoaded = getUsableDynamicModelIds() !== null;
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:284:  const sameQuality = (sameLive.length > 0 ? sameLive : (catalogLoaded ? [] : sameQualityRaw)).map((m) => m.id);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:285:  const otherQuality = (otherLive.length > 0 ? otherLive : (catalogLoaded ? [] : otherQualityRaw)).map((m) => m.id);
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:6: * they derive them from this catalog via model-resolver.ts.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:13: *   dynamic catalog has loaded) is less likely to hit a "paid version" 404.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:15: *   their tier — the dynamic catalog (which filters by live pricing = $0) will
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:47: * to the next candidate automatically. The dynamic catalog (dynamic-catalog.ts)
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:55:  //    (before the dynamic catalog has loaded). Smaller models are more likely
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:118:  // ── Powerful tier — high-capability models; dynamic catalog filters them
+lib/ai-orchestrator/src/openrouter/index.ts:1:export { FREE_MODELS } from "./model-catalog.js";
+lib/ai-orchestrator/src/openrouter/index.ts:2:export type { ModelCapability, OpenRouterFreeModel } from "./model-catalog.js";
+lib/ai-orchestrator/src/openrouter/index.ts:12:// PR-002: dynamic catalog
+lib/ai-orchestrator/src/openrouter/index.ts:20:} from "./dynamic-catalog.js";
+lib/ai-orchestrator/src/openrouter/index.ts:21:export type { DynamicCatalogStatus } from "./dynamic-catalog.js";
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:10: *   • Never throws to the caller — on fetch failure the previous catalog is
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:35: * Whether the dynamic catalog has been loaded at least once.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:114:            scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:117:            hint: "OpenRouter /models returned non-200 — keeping previous catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:131:            scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:133:            hint: "OpenRouter /models returned 0 models — keeping previous catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:142:      // so models that moved from free → paid still passed the live-catalog
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:155:        // or a temporary catalog gap) — keep previous catalog in that case.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:158:            scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:161:            hint: "OpenRouter returned no free-priced models — keeping previous catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:174:          scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:186:          scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:189:          hint: "Keeping previous catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:203: * catalog and log any that are no longer available.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:212:        scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:216:          "These models are in model-catalog.ts but no longer listed on OpenRouter. " +
+artifacts/mockup-sandbox/package.json:41:    "@replit/vite-plugin-cartographer": "catalog:",
+artifacts/mockup-sandbox/package.json:42:    "@replit/vite-plugin-runtime-error-modal": "catalog:",
+artifacts/mockup-sandbox/package.json:43:    "@tailwindcss/vite": "catalog:",
+artifacts/mockup-sandbox/package.json:44:    "@types/node": "catalog:",
+artifacts/mockup-sandbox/package.json:45:    "@types/react": "catalog:",
+artifacts/mockup-sandbox/package.json:46:    "@types/react-dom": "catalog:",
+artifacts/mockup-sandbox/package.json:47:    "@vitejs/plugin-react": "catalog:",
+artifacts/mockup-sandbox/package.json:49:    "class-variance-authority": "catalog:",
+artifacts/mockup-sandbox/package.json:50:    "clsx": "catalog:",
+artifacts/mockup-sandbox/package.json:55:    "framer-motion": "catalog:",
+artifacts/mockup-sandbox/package.json:57:    "lucide-react": "catalog:",
+artifacts/mockup-sandbox/package.json:59:    "react": "catalog:",
+artifacts/mockup-sandbox/package.json:61:    "react-dom": "catalog:",
+artifacts/mockup-sandbox/package.json:66:    "tailwind-merge": "catalog:",
+artifacts/mockup-sandbox/package.json:67:    "tailwindcss": "catalog:",
+artifacts/mockup-sandbox/package.json:71:    "vite": "catalog:",
+artifacts/mockup-sandbox/package.json:72:    "zod": "catalog:"
+lib/ai-orchestrator/src/openai-compatible-client.ts:7: * groq-sdk client (which adds circuit-breaking and retry-with-backoff on top).
+lib/ai-orchestrator/src/openai-compatible-client.ts:10: * produced by groq-client.ts so chat-agent.ts and agent-complete.ts can route
+lib/ai-orchestrator/src/openai-compatible-client.ts:19:import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:26:import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:27:import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:75:// PR-001: safe fallback — derived at module load from the static catalog so
+lib/ai-orchestrator/src/openai-compatible-client.ts:610: * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
+lib/ai-orchestrator/src/openai-compatible-client.ts:819: * Yields content deltas in the same way as groq-client's `completeStream()`.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1041: * `capability` to pick the best currently-free model from the live catalog.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1043: * be stale by the time the first catalog refresh completes).
+lib/ai-orchestrator/src/openai-compatible-client.ts:1067: * from the live catalog at call time using the `quality` + `capability` hints.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1082:      `OpenRouter configured model is not a known free catalog model: ${initialModel}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1088:  // fallback chain from the live free-tier catalog at call time.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1100:    const catalog = getDynamicCatalogStatus();
+lib/ai-orchestrator/src/openai-compatible-client.ts:1103:      `OpenRouter model ${initialModel} does not satisfy capability="${capability}" in the current catalog`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1109:          catalogLoaded: catalog.loaded,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1110:          catalogUsable: catalog.usable,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1111:          catalogStatus: catalog.lastRefreshStatus,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1112:          catalogError: catalog.lastRefreshError ?? undefined,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1192:  const catalog = getDynamicCatalogStatus();
+lib/ai-orchestrator/src/openai-compatible-client.ts:1196:      catalogLoaded: catalog.loaded,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1197:      catalogUsable: catalog.usable,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1198:      catalogStatus: catalog.lastRefreshStatus,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1199:      catalogError: catalog.lastRefreshError ?? undefined,
+lib/db/src/schema/ai_provider_credentials.ts:13:    /** Provider identifier — currently only "groq". */
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:56:    providerId: "groq",
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:57:    candidates: ["groq"],
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:1:import type { ModelCapability } from "../openrouter/model-catalog.js";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:9:import { getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:20:  source: "openrouter-catalog" | "provider-registry";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:37:    throw new Error(`OpenRouter model override is not a currently-free catalog model: ${normalized}${detail}`);
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:109:    // normal free-tier routing retain the catalog-driven fallback chain.
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:135:      const catalog = getDynamicCatalogStatus();
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:143:            catalogLoaded: catalog.loaded,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:144:            catalogUsable: catalog.usable,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:145:            catalogStatus: catalog.lastRefreshStatus,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:146:            catalogError: catalog.lastRefreshError ?? undefined,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:161:      source: "openrouter-catalog",
+lib/ai-orchestrator/src/forensic-output-guard.ts:235:    /catalog\s*:/.test(lower) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:240:    reasons.push("a package-manager catalog alias does not prove a missing version without the root catalog or lockfile");
+lib/db/src/application-schema-check.ts:523:  // Keep catalog reads sequential; pg clients do not support concurrent
+lib/db/src/application-schema-check.test.ts:338:  it("reads all metadata through read-only catalog queries", async () => {
+lib/ai-orchestrator/src/capability-contract.ts:73:        message: "catalog input fields cannot contain server-owned execution controls",
+lib/ai-orchestrator/src/capability-contract.ts:97:    /** Empty means all projects; values are never emitted in catalog output. */
+lib/ai-orchestrator/src/capability-contract.ts:181:    catalog: CapabilityCatalogMetadataSchema.optional(),
+lib/ai-orchestrator/src/capability-contract.ts:376:  const catalog = adapter.catalog
+lib/ai-orchestrator/src/capability-contract.ts:378:        ...adapter.catalog,
+lib/ai-orchestrator/src/capability-contract.ts:380:          ...adapter.catalog.inputShape,
+lib/ai-orchestrator/src/capability-contract.ts:381:          fields: Object.freeze(adapter.catalog.inputShape.fields.map((field) => Object.freeze({ ...field }))),
+lib/ai-orchestrator/src/capability-contract.ts:383:        supportedScopes: Object.freeze([...adapter.catalog.supportedScopes]),
+lib/ai-orchestrator/src/capability-contract.ts:384:        keywords: Object.freeze([...adapter.catalog.keywords]),
+lib/ai-orchestrator/src/capability-contract.ts:385:        allowedPhases: Object.freeze([...adapter.catalog.allowedPhases]),
+lib/ai-orchestrator/src/capability-contract.ts:386:        projectIds: Object.freeze([...adapter.catalog.projectIds]),
+lib/ai-orchestrator/src/capability-contract.ts:387:        expectedEvidence: Object.freeze([...adapter.catalog.expectedEvidence]),
+lib/ai-orchestrator/src/capability-contract.ts:398:    ...(catalog ? { catalog } : {}),
+lib/ai-orchestrator/src/capability-catalog.ts:109:    kind: z.literal("capability_catalog"),

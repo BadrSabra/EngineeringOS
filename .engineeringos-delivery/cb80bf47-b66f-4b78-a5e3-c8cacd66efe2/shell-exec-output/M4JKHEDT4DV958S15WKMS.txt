@@ -1,0 +1,240 @@
+docs/truth-flow-pr-review-plan.md:177:- [ ] `lib/ai-orchestrator/src/agents/chat-agent.ts`
+docs/truth-flow-pr-review-plan.md:199:- [ ] `lib/ai-orchestrator/src/__tests__/chat-agent.test.ts`
+docs/replit-agent-parity-gaps.md:70:| Grounded ordinary chat | Chat and SSE routes build context, classify intent, persist history, and expose read/list/search tools. `chat-agent.ts` records actual tool sources, caches repeated calls, and bounds iterations/calls ([chat agent](../lib/ai-orchestrator/src/agents/chat-agent.ts#L4-L40)). | **Specialized stronger, provider/browser partial** | Provider-free JSON/SSE, redaction, and false-success contracts pass. A configured-provider chat journey and authenticated browser proof are still absent. |
+docs/replit-agent-parity-gaps.md:71:| Broad multi-file analysis | Hierarchical execution gives subtasks bounded loops, disjoint write scopes, preserved partial results, and a no-tools synthesis pass ([hierarchical executor](../lib/ai-orchestrator/src/agents/hierarchical-executor.ts#L4-L22)). | **Specialized stronger** | Broad analysis is deliberately bounded and evidence-checked. Recursive nesting and per-subquery SSE are explicitly out of scope ([same source](../lib/ai-orchestrator/src/agents/hierarchical-executor.ts#L19-L22)); long or highly interactive investigations may feel less fluid than a general Agent. |
+docs/replit-agent-parity-gaps.md:74:| Bounded code changes | `write_file` queues pending changes; approval and proposal endpoints are distinct, and the API rechecks project context before authorizing writes ([chat agent](../lib/ai-orchestrator/src/agents/chat-agent.ts#L38-L42); [chat routes](../artifacts/api-server/src/routes/ai/chat.ts#L4960-L5884)). | **Specialized stronger, operationally partial** | Users get a safe proposal rather than an immediate mutation. The complete plan → approval → validation → apply browser path was not run. |
+docs/pr-backlog-ai-orchestrator.md:291:**Scope:** `chat.schema.ts` + `chat-agent.ts`
+docs/pr-backlog-ai-orchestrator.md:295:- `lib/ai-orchestrator/src/agents/chat-agent.ts`
+docs/pr-backlog-ai-orchestrator.md:298:The chat agent assembles `pendingChanges` server-side after the tool loop (lines 238-256 of `chat-agent.ts`) and returns it without a runtime shape check. If `executeFileTool` produces a malformed `PendingChange` (e.g., a relative `absolutePath`), the bug propagates silently to the client.
+docs/pr-backlog-ai-orchestrator.md:311:### `chat-agent.ts` — validate before return
+docs/pr-backlog-ai-orchestrator.md:317:  console.error(JSON.stringify({ scope: "chat-agent", code: "CHAT_OUTPUT_INVALID", issues: check.error.issues }));
+docs/pr-backlog-ai-orchestrator.md:330:**Tests to add (new file `lib/ai-orchestrator/src/__tests__/chat-agent.test.ts`):**
+docs/objective-claim-completion-gate-plan.md:21:| `done` blocking / terminal kinds | `chat-agent.ts` — `relayForensicTerminal` (975), `classifyForensicTerminal` (4-way), `verificationRejectionReasons` (5448) |
+docs/objective-claim-completion-gate-plan.md:24:| Execution-handoff scope restore | `chat-agent.ts` — restored scope from `priorRepairPlanMetadata` (2100) |
+docs/objective-claim-completion-gate-plan.md:77:- Wired into `chat-agent.ts` `verificationRejectionReasons` + `relayForensicTerminal` so `BLOCKED` cannot emit `response completed` as final.
+docs/gap-analysis-2026-07-27.md:32:| GAP-5 | `chat-agent.ts` provider dispatch is a hardcoded if/else chain | `lib/ai-orchestrator` | Low (tech debt) | Small |
+docs/gap-analysis-2026-07-27.md:49:- `lib/ai-orchestrator/src/agents/chat-agent.ts:211` — `provider?: "groq" | "deepseek" | "openrouter" | "gemini"`
+docs/gap-analysis-2026-07-27.md:163:## GAP-5 — `chat-agent.ts` provider dispatch is hardcoded
+docs/gap-analysis-2026-07-27.md:166:Adding a new AI provider to the chat agent requires edits in 3+ places inside `chat-agent.ts` — each conditional chain (complete function selection, fast model, powerful model) must be extended manually.
+docs/gap-analysis-2026-07-27.md:169:The PROVIDER_REGISTRY pattern exists in `agent-complete.ts` and works correctly there. `chat-agent.ts` was written before the registry was mature and was never refactored to use it.
+docs/gap-analysis-2026-07-27.md:172:- `lib/ai-orchestrator/src/agents/chat-agent.ts:224–245` — three separate ternary chains for `completeFn`, `fastModel`, `powerfulModel`
+docs/gap-analysis-2026-07-27.md:176:Replace the three ternary chains in `chat-agent.ts` with a lookup against `PROVIDER_REGISTRY[provider]`, matching the pattern already used in `agent-complete.ts`.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:39:`requireProvider`/`runAgentWithFallback`/`chatWithFallback` resolve a configured provider, classify failures, and provide bounded fallback behavior. `lib/ai-orchestrator/src/agents/chat-agent.ts` constructs the agent prompt and invokes `executeToolLoop`; execution-plan requests use `executeExecutionNodePlan`. `execution-node-coordinator.ts` schedules dependency-aware waves, disjoint file scopes, bounded attempts, and legal node transitions. A node is not accepted as passed merely because a model says so: the caller must report observed validation.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:93:| Planning and dependency-aware execution / partial capability | `chat-agent.ts` → execution plan; `execution-node-coordinator.ts` → `executeExecutionNodePlan` | Server-owned scopes/dependencies/profile and bounded waves exist. Planning still stops for approval and cannot prove every cross-file semantic edge. | high | Make plan a durable operation artifact with revision, claims, evidence, and executable repair transitions. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:99:| Provider fallback and model output / partial capability | `ai-route-helpers.ts`; `chat-agent.ts`; route parse gates | Fallback and structured parse errors are bounded and surfaced. Live provider behavior, latency, and model quality are not source-verifiable. | medium | Add durable attempt receipts and explicit provider/model capability contracts. | cannot verify |
+docs/fact-record.md:277:| lib/ai-orchestrator/src/agents/chat-agent.ts | `chat()`: محادثة مع سياق المشروع الكامل؛ يُرسل آخر 10 رسائل كـ history؛ يُرجع JSON بحقلي `response` و`sources`. يستخدم MODEL_FAST. | لا streaming حالياً. | المحادثة التفاعلية مع المشروع. | High | lib/ai-orchestrator/src/agents/chat-agent.ts |
+docs/completion-plan.md:286:- `chat-agent.ts` — محادثة تفاعلية مع سياق المشروع الكامل (graph + metrics + tasks + events)؛ يُرجع JSON مع مصادر البيانات.
+docs/ai-orchestrator-trace-analysis.md:66:Tool calls are dispatched by exact name match in `chat-agent.ts`. File tools and git tools are dispatched by `startsWith` prefix (`file_`, `git_`) and then by a secondary `switch`. This is fragile (G-13, accepted risk) but functional for the current tool set. No tools have overlapping prefixes.
+docs/ai-orchestrator-gap-analysis.md:31:| G-09 | Agent → Silent data loss | `chat-agent.ts` | Line ~361 (`ChatOutputSchema`) | `pendingChanges` parsed from model output | **On Zod validation failure, `pendingChanges` are silently dropped** (replaced with `[]`). The model's file-write intent is lost without any log entry or user-visible indication. The chat response says "I made changes" but no changes are queued | **Medium** |
+docs/ai-orchestrator-gap-analysis.md:35:| G-13 | Tool dispatch → String prefix | `chat-agent.ts` | Tool dispatch loop | Dispatches to `executeGitTool` if function name starts with `"git_"`, else `executeFileTool` | **Fragile prefix match**. If a future tool has `git_` in its name but is not a git tool (or vice versa), it silently routes to the wrong executor with no type error. No central registry to enforce the contract | **Medium** |
+docs/ai-orchestrator-gap-analysis.md:40:| G-18 | Agent → Single-shot, no retry | `task-agent.ts`, `scan-analyst.ts`, `code-reviewer.ts` | All three | Single model call; fallback on any error | **Only chat-agent has retries** (NON_200 → MODEL_POWERFUL, parse failure → JSON correction). The other three agents fall straight to generic fallbacks on any failure. A transient 429 or network blip silently produces boilerplate output instead of retrying | **Low** |
+docs/ai-orchestrator-gap-analysis.md:87:Only chat-agent retries (G-18). On any transient Groq error, task/scan/review agents immediately return boilerplate.
+docs/ai-orchestrator-gap-analysis.md:101:Gap: dispatch by string prefix (G-13). The `chat-agent` loop checks `if (name.startsWith("git_"))` to route. No registry enforces this invariant; a naming collision is a silent misbehavior, not a compile error.
+docs/ai-orchestrator-forensic-analysis.md:48:- **Entry Points:** `chat` (chat-agent.ts), `executeTask` (task-agent.ts), `analyzeScan` (scan-analyst.ts), `reviewCode` (code-reviewer.ts), and `orchestrateWorkflow` (workflow-orchestrator.ts).
+docs/ai-orchestrator-forensic-analysis.md:65:  relevant writes. `chat-agent.ts` uses request-local state to deduplicate
+docs/ai-orchestrator-forensic-analysis.md:82:#### 1. Chat Agent (`chat-agent.ts:chat`)
+docs/ai-orchestrator-forensic-analysis.md:189:- **index.ts** → groq-client.js, file-tools.js, errors.js, parsing.js, context-builder.js, schemas/index.js, agents/chat-agent.js, agents/task-agent.js, agents/scan-analyst.js, agents/code-reviewer.js, agents/workflow-orchestrator.js
+docs/ai-orchestrator-forensic-analysis.md:190:- **agents/chat-agent.ts** → groq-client.js, errors.js, context-builder.js, prompts/chat.prompt.js, schemas/chat.schema.js, parsing.js, tools/file-tools.js, tools/git-tools.js
+docs/ai-orchestrator-forensic-analysis.md:205:1. **context-builder.ts dependents:** agents/chat-agent, code-reviewer, scan-analyst, task-agent, workflow-orchestrator, prompts/*.prompt.ts (mostly types).
+docs/ai-orchestrator-forensic-analysis.md:206:2. **groq-client.ts dependents:** agents/chat-agent, code-reviewer, scan-analyst, task-agent, workflow-orchestrator, index.ts.
+docs/ai-orchestrator-forensic-analysis.md:208:   - **chat.schema:** chat-agent, file-tools.
+docs/ai-orchestrator-forensic-analysis.md:214:4. **Tool dependents:** chat-agent (imports file-tools and git-tools).
+docs/ai-orchestrator-forensic-analysis.md:280:10. **Prompt Building**: `buildChatSystemPrompt` (line 171) at `lib/ai-orchestrator/src/agents/chat-agent.ts`.
+docs/ai-orchestrator-forensic-analysis.md:330:- **`toolCallCache` (lib/ai-orchestrator/src/agents/chat-agent.ts):** `Map<string, string>`. Keyed by `toolName + JSON.stringify(args)`. Local to a single `chat()` invocation (request-level). Prevents redundant execution of identical tool calls within one agent loop.
+docs/ai-orchestrator-forensic-analysis.md:376:- lib/ai-orchestrator/src/agents/chat-agent.ts: `requiresToolExecution` and `model` selection. Different LLM strategies (MODEL_FAST vs MODEL_POWERFUL) based on user intent. Complete.
+docs/ai-orchestrator-forensic-analysis.md:410:- lib/ai-orchestrator/src/agents/chat-agent.ts: `toolCallCache`. Deduplicates identical tool calls within a single request. Complete.
+docs/ai-orchestrator-forensic-analysis.md:417:- lib/ai-orchestrator/src/agents/chat-agent.ts: Falls back from `MODEL_FAST` to `MODEL_POWERFUL` on certain errors or intent. Fallback to `fallbackChatOutput` on parse failure. Complete.
+docs/ai-orchestrator-forensic-analysis.md:427:- lib/ai-orchestrator/src/agents/chat-agent.ts: `write_file` tool pushes to `pendingChanges` instead of writing to disk. Persisted only after user approval in `/apply-changes`. Complete.
+docs/ai-orchestrator-forensic-analysis.md:450:   - [chat-agent.ts:168] requiresToolExecution("Read src/index.ts...") matches "Read" → model = "llama-3.3-70b-versatile" (MODEL_POWERFUL).
+docs/ai-orchestrator-forensic-analysis.md:451:   - [chat-agent.ts:176] Iteration 0 begins.
+docs/ai-orchestrator-forensic-analysis.md:452:   - [chat-agent.ts:182] await completeRaw(...) with tools (FILE_TOOL_DEFINITIONS).
+docs/ai-orchestrator-forensic-analysis.md:454:   - [chat-agent.ts:195] Groq returns tool_calls: [{ id: "call_1", function: { name: "read_file", arguments: '{"path":"src/index.ts"}' } }].
+docs/ai-orchestrator-forensic-analysis.md:455:   - [chat-agent.ts:260] totalToolCalls = 1.
+docs/ai-orchestrator-forensic-analysis.md:456:   - [chat-agent.ts:264] await executeFileTool("read_file", {path: "src/index.ts"}, "/home/runner/workspace", []):
+docs/ai-orchestrator-forensic-analysis.md:461:   - [chat-agent.ts:292] messages.push({ role: "tool", tool_call_id: "call_1", content: "..." }).
+docs/ai-orchestrator-forensic-analysis.md:462:   - [chat-agent.ts:176] Iteration 1 begins.
+docs/ai-orchestrator-forensic-analysis.md:463:   - [chat-agent.ts:182] await completeRaw(...) with updated history.
+docs/ai-orchestrator-forensic-analysis.md:464:   - [chat-agent.ts:298] Groq returns final text: '{"response": "src/index.ts initializes the server...", "sources": ["src/index.ts"]}'.
+docs/ai-orchestrator-forensic-analysis.md:465:   - [chat-agent.ts:300] parseAgentResponse(...) → returns validated ChatResponse.
+docs/ai-orchestrator-forensic-analysis.md:466:   - [chat-agent.ts:378] Returns ChatOutput object.
+docs/ai-orchestrator-executive-table.md:15:| `lib/ai-orchestrator/src/agents/chat-agent.ts` | Conversational Agent — الأكثر تعقيداً: tool-use loop، قرار النموذج، إدارة السياق، dedup الأدوات، تجميع pending changes. | (1) `MAX_TOOL_ITERATIONS = 6` صامت — مهمة معقدة تتوقف عند 6 iterations بدون إشعار المستخدم أن العمل لم يكتمل. (2) لا timeout على مستوى iteration واحدة — أداة بطيئة (grep كبير) تحجب الـ loop. (3) `toolCallCache` keyed بـ `JSON.stringify(args)` — args ضخمة (محتوى ملف) قد تتطابق مع ملف مختلف بشكل نظري. (4) رسالة المستخدم تُحقن مباشرة في الـ prompt بدون sanitization — أكبر سطح prompt injection في الطبقة. تحقق: إضافة early-termination message عند بلوغ الحد، timeout per tool call. |
+docs/ai-orchestrator-executive-table.md:22:| `lib/ai-orchestrator/src/schemas/chat.schema.ts` | Chat I/O Contract — يعرّف `ChatResponseSchema`، `ChatOutputSchema`، `PendingChangeSchema`. هو الـ schema الوحيد المستخدم من file-tools أيضاً. | (1) `PendingChange.absolutePath` يتحقق بـ `path.isAbsolute()` — على Linux صحيح، لكن القيود المنطقية (يجب أن يكون داخل rootPath) لا تُتحقق هنا — تحقق مزدوج في chat-agent والـ route. (2) `ChatOutputSchema` و `ChatResponseSchema` هيكلان منفصلان — تغيير أحدهما دون الآخر يكسر الـ parse pipeline بصمت. تحقق: دمج أو إضافة test يُثبت تزامنهما. |
+docs/ai-agent-improvement-plan.md:34:chat-agent.ts
+docs/ai-agent-improvement-plan.md:92:#### `lib/ai-orchestrator/src/agents/chat-agent.ts`
+docs/ai-agent-improvement-plan.md:107:#### `lib/ai-orchestrator/src/agents/chat-agent.ts` — معالجة `kind:'partial'`
+docs/ai-agent-improvement-plan.md:129:**الملف الجديد:** `lib/ai-orchestrator/src/agents/query-planner.ts`
+docs/ai-agent-improvement-plan.md:162:**التكامل مع `chat-agent.ts`:**
+docs/ai-agent-improvement-plan.md:251:**الملف الجديد:** `lib/ai-orchestrator/src/agents/hierarchical-executor.ts`
+docs/ai-agent-improvement-plan.md:281:// في query-planner.ts (المرحلة 2):
+docs/ai-agent-improvement-plan.md:323:│   ├── chat-agent.ts              ← تعديل: dynamic budget، plan integration
+docs/ai-agent-improvement-plan.md:324:│   ├── query-planner.ts           ← جديد (المرحلة 2)
+docs/ai-agent-improvement-plan.md:325:│   └── hierarchical-executor.ts  ← جديد (المرحلة 4)
+docs/actual-capability-baseline-v1.md:92:| Source-aware tool use | `chat-agent.ts` + `tool-execution-engine.ts`; read/list/search tools, cache, source provenance, tool authorization, bounded iterations/calls, soft synthesis limit | **Verified by automated test** | Deterministic benchmark and AI contract gates pass; no live-provider tool journey |
+docs/actual-capability-baseline-v1.md:93:| Broad/hierarchical analysis | `hierarchical-executor.ts` schedules bounded waves, isolates write scopes, preserves partial sub-results, performs tool-free synthesis, and validates compound coverage | **Verified by code** | Explicit out-of-scope items remain: recursive nesting and per-subquery SSE |
+docs/actual-capability-baseline-v1.md:118:3. `chat-agent.ts` selects the tool policy and uses `executeToolLoop`.
+artifacts/api-server/src/routes/ai/chat.ts:2001:      path: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+artifacts/api-server/src/routes/ai/chat.ts:2150:  // Fetch a stable bounded history for every ordinary request. chat-agent
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:102:vi.mock("../../../../lib/ai-orchestrator/src/agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/index.ts:471:} from "./agents/chat-agent.js";
+lib/ai-orchestrator/src/index.ts:472:export type { ChatMessage, ChatResult } from "./agents/chat-agent.js";
+lib/ai-orchestrator/src/groq-client.ts:358:  // consumer (chat-agent loop, parseAgentResponse, conversation history)
+lib/ai-orchestrator/src/tool-execution-engine.ts:4: * Extracts the tool-calling machinery from chat-agent.ts so it can be tested
+lib/ai-orchestrator/src/tool-execution-engine.ts:160: * Prefetch first source evidence marker (incl. eager read in chat-agent).
+lib/ai-orchestrator/src/tool-execution-engine.ts:2347:  // (including the eager first-evidence read in `chat-agent`). Those are real,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2951:          // valuable and must reach chat-agent's bounded no-tools recovery;
+lib/ai-orchestrator/src/evidence-integrity.ts:1302: * Build a RunLedger from the runtime evidence already collected in chat-agent:
+lib/ai-orchestrator/src/evidence-integrity.ts:2300:  // In the chat-agent path, `validations` contains only reachability-specific
+lib/ai-orchestrator/src/deepseek-client.ts:5: * groq-client's RawGroqResponse so chat-agent.ts can route to either
+lib/ai-orchestrator/src/deepseek-client.ts:61: * used by groq-client.ts so callers (routes/ai.ts, chat-agent.ts) handle
+lib/ai-orchestrator/src/deepseek-client.ts:80: * so chat-agent.ts can drive either provider through the same async-generator
+lib/ai-orchestrator/src/deepseek-client.ts:219: * The returned shape is identical to completeRaw() so chat-agent.ts can
+lib/ai-orchestrator/src/context-builder.ts:106:  const effectivePlan = options.plan ?? resolveExecutionDecision("chat-agent", {
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:6:} from "../agents/chat-agent.js";
+lib/ai-orchestrator/src/session-memory.ts:172: * chat-agent.ts can extract file paths for speculative-prefetch without a
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts:8:import type { ChatResult } from "../agents/chat-agent.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:10: * produced by groq-client.ts so chat-agent.ts and agent-complete.ts can route
+lib/ai-orchestrator/src/openai-compatible-client.ts:1147:      // reasoning candidate instead of letting chat-agent replay a tool-loop
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:93:  // because its read-only tool loop lives inside chat-agent.
+lib/ai-orchestrator/src/forensic-recovery.ts:63:     * Required by the chat-agent when the user explicitly asks for a
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:10:import { chat, type ChatMessage, type ChatResult } from "../agents/chat-agent.js";
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:112:    prompt: "Trace the relationship using only completed reads of `lib/knowledge-engine/src/queries.ts` and `lib/ai-orchestrator/src/chat-agent.ts`. Cite those inspected files.",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:121:        "lib/ai-orchestrator/src/chat-agent.ts",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:262:    "lib/ai-orchestrator/src/chat-agent.ts":
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:296:      reportEvidence("lib/ai-orchestrator/src/chat-agent.ts", "export function runAgent"),
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:313:      source: "lib/ai-orchestrator/src/chat-agent.ts",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:315:      outputLength: files["lib/ai-orchestrator/src/chat-agent.ts"].length,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:320:      args: { path: "lib/ai-orchestrator/src/chat-agent.ts" },
+lib/ai-orchestrator/src/agents/query-planner.ts:617:          scope: "query-planner",
+lib/ai-orchestrator/src/agents/query-planner.ts:703:        scope: "query-planner",
+lib/ai-orchestrator/src/agents/query-planner.ts:718:          scope: "query-planner",
+lib/ai-orchestrator/src/agents/query-planner.ts:776:          scope: "query-planner",
+lib/ai-orchestrator/src/agents/query-planner.ts:792:    console.warn(JSON.stringify({ scope: "query-planner", code: "TIMEOUT_OR_ERROR", model }));
+lib/ai-orchestrator/src/agents/query-planner.ts:812:        scope: "query-planner",
+lib/ai-orchestrator/src/agents/query-planner.ts:863:      scope: "query-planner",
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:30:import type { CompoundQueryPart } from "./query-planner.js";
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:236:        scope: "hierarchical-executor",
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:527:      scope: "hierarchical-executor",
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:544:          scope: "hierarchical-executor",
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:623:        scope: "hierarchical-executor",
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:652:      scope: "hierarchical-executor",
+lib/ai-orchestrator/src/agents/chat-agent.ts:99:} from "./query-planner.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:125:import { executeHierarchical, validateCompoundSynthesis } from "./hierarchical-executor.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:1688:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:1712:            scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:1753:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:1768:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2442:      path: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2449:      source: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2457:      source: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2628:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2775:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2902:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2932:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2943:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2955:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2968:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:3309:                scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:3697:    scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:3999:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4029:    scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4103:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4130:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4190:    scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4284:              scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4302:              scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4400:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4412:      scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4467:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4916:    scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:5054:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6055:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6275:            scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6375:        JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider: providerId, reason: String(streamErr) }),
+lib/ai-orchestrator/src/agents/chat-agent.ts:6655:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6686:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6708:      scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6713:    console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
+lib/ai-orchestrator/src/agents/chat-agent.ts:6748:        console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code, provider }));
+lib/ai-orchestrator/src/agents/chat-agent.ts:6759:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6924:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7022:            scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7033:            scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7371:                  scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7443:              scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7463:              scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7542:                scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7714:                          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7739:                scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7766:              scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7796:                  scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7821:                    scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7837:                    scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7869:                    scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7921:              scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7979:            scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8079:            scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8197:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8381:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8388:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8395:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8481:            scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8494:            scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8507:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8525:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8581:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8596:          scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8752:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8977:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8986:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:9209:        scope: "chat-agent",
+lib/ai-orchestrator/src/agents/chat-agent.ts:9378:        scope: "chat-agent",
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:383: * applied to the per-packet recovery loop in chat-agent.ts:
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:68:  vi.doMock("../agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:165:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:260:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:313:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:399:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:487:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:104:  vi.doMock("../agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:174:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:113:  vi.doMock("../agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:189:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:248:  vi.doMock("../agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:305:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts:9: * The tests exercise the exact sub-steps the chat-agent recovery loop performs:
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts:67:      // Step 1: scan retained content (the same logic as in chat-agent).
+lib/ai-orchestrator/src/__tests__/conversation-history.test.ts:5:} from "../agents/chat-agent.js";
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:40:  vi.doMock("../agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:80:    vi.doUnmock("../agents/query-planner.js");
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:143:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:249:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:120:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:195:    const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:210:    const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:229:    const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:246:    const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:304:    const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:326:    const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:399:    const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:421:    const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:51:  vi.doMock("../agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:170:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:213:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:51:  vi.doMock("../agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:197:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:264:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:315:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:366:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:421:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1574:    FILE_TOOL_MOCK.mockResolvedValue("src/chat-agent.ts:42: match");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1674:    FILE_TOOL_MOCK.mockResolvedValue("src/chat-agent.ts:42: same match");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1723:      args.pattern === "new-result" ? "src/other.ts:7: new match" : "src/chat-agent.ts:42: same match",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1861:      args.pattern === "onStep" ? "src/chat-agent.ts:42: match" : "No matches found.",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1899:    FILE_TOOL_MOCK.mockResolvedValue("src/chat-agent.ts:42: match");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3153:    // eager first-evidence/prefetch path in chat-agent). Prefetch satisfies the
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:56:  vi.doMock("../agents/query-planner.js", () => ({
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:166:    vi.doUnmock("../agents/query-planner.js");
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:184:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:218:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:255:      const { chat } = await import("../agents/chat-agent.js");
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:305:        await import("../agents/chat-agent.js");

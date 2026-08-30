@@ -28,6 +28,7 @@ import type { RawMessage } from "../groq-client.js";
 import { executeToolLoop } from "../tool-execution-engine.js";
 import { stripReadFileWrapper } from "../tools/file-tools.js";
 import type { CompoundQueryPart } from "./query-planner.js";
+import type { ExecutionLedger } from "../execution-ledger.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ export type HierarchicalExecutorOpts = {
   maxParallelTasks?: number;
   /** Optional coverage contract for a compound question. */
   compoundParts?: CompoundQueryPart[];
+  executionLedger?: ExecutionLedger;
 };
 
 export type SourceEvidence = {
@@ -158,6 +160,20 @@ async function runSubTask(
   const targetedRanges = new Map<string, { startLine: number; requestedEndLine: number }>();
 
   try {
+    if (opts.executionLedger && !opts.executionLedger.admit("hierarchical_task", {
+      provider,
+      model,
+      operation: `subtask:${taskIndex}`,
+    })) {
+      return {
+        taskIndex,
+        intent: task.intent,
+        status: opts.executionLedger.signal.aborted ? "cancelled" : "exhausted",
+        reason: "aggregate_request_budget_exhausted",
+        toolSources: [],
+        sourceEvidence: [],
+      };
+    }
     const loopResult = await executeToolLoop({
       messages: taskMessages,
       strategy,
@@ -172,6 +188,7 @@ async function runSubTask(
       maxIterations: task.maxIter,
       maxToolCalls,
       signal,
+      executionLedger: opts.executionLedger,
       onStep: (step) => {
         if (step.kind !== "tool_call" || step.tool !== "read_file_range") return;
         const path = step.args.path;
@@ -595,13 +612,27 @@ export async function executeHierarchical(
   let synthesisText = "";
   let synthesisStatus: HierarchicalResult["synthesisStatus"] = "complete";
   try {
+    const synthesisStartedAt = Date.now();
+    if (opts.executionLedger && !opts.executionLedger.admit("synthesis", {
+      provider: opts.provider,
+      model: opts.model,
+      operation: "hierarchical_synthesis",
+    })) {
+      throw new Error("Aggregate execution budget exhausted before hierarchical synthesis.");
+    }
     const synthesisResult = await opts.strategy.call(synthesisMessages, {
       model: opts.model,
       maxTokens: SYNTHESIS_MAX_TOKENS,
-      timeoutMs: SYNTHESIS_TIMEOUT_MS,
+      timeoutMs: opts.executionLedger?.timeoutMs(SYNTHESIS_TIMEOUT_MS) ?? SYNTHESIS_TIMEOUT_MS,
       apiKey: opts.apiKey,
-      ...(opts.signal ? { signal: opts.signal } : {}),
+      signal: opts.executionLedger?.signal ?? opts.signal,
       // Intentionally no `tools` — synthesis is text-only
+    });
+    opts.executionLedger?.complete("synthesis", {
+      provider: opts.provider,
+      model: opts.model,
+      operation: "hierarchical_synthesis",
+      startedAt: synthesisStartedAt,
     });
     synthesisText = synthesisResult.content ?? "";
     if (!synthesisText.trim()) {

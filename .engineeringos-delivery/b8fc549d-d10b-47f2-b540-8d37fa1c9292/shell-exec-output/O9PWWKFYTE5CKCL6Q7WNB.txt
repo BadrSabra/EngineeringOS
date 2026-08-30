@@ -1,0 +1,215 @@
+  isModelBehaviorallyDemoted,
+  recordBehavioralFailure,
+  recordBehavioralModelCall,
+} from "./behavioral-scorecard.js";
+export type {
+  BehavioralFailureKind,
+  BehavioralScorecard,
+} from "./behavioral-scorecard.js";
+
+// PR-07: circuit breaker
+export {
+  isCircuitOpen,
+  recordCircuitFailure,
+  recordCircuitSuccess,
+  getCircuitState,
+} from "./openrouter/circuit-breaker.js";
+
+// EI-001…EI-023: Evidence Integrity & Claim Verification
+export {
+  createEvidenceRecord,
+  validateEvidenceLineage,
+  classifyEvidenceStrength,
+  createClaim,
+  selectEvidenceForClaim,
+  rankEvidenceForClaim,
+  bindClaimToEvidence,
+  validateClaim,
+  guardFinalJudgment,
+  buildBehaviorFindingStatus,
+  buildRunLedger,
+  validateTelemetry,
+  buildEvidenceBackedAnswer,
+  buildClaimOrientedEvidenceMap,
+  planEvidenceRecovery,
+  tagRecoveredEvidence,
+  evidenceSpanFromContent,
+  classifySourceScope,
+  deriveVerdictScope,
+  deriveScopedFindingStatus,
+  evidenceScopeSupportsClaimScope,
+  scopedRepairGate,
+  extractClaimSymbol,
+  objectiveCompletionGate,
+  // AI-OBJ-007: evidence relevance gate
+  evidenceRelevanceGate,
+  // AI-OBJ-010: final answer validator
+  validateFinalAnswer,
+} from "./evidence-integrity.js";
+export type {
+  EvidenceReadType,
+  EvidenceSourceType,
+  EvidenceSourceScope,
+  VerdictScope,
+  ScopedFindingStatus,
+  EvidencePhase,
+  EvidenceRecord,
+  EvidenceStrength,
+  ClaimStatus,
+  ClaimRecord,
+  ClaimEvidenceBinding,
+  ClaimValidationResult,
+  ClaimValidation,
+  BehaviorStatus,
+  FindingStatus,
+  BehaviorFindingStatus,
+  RunLedger,
+  TelemetryReconciliation,
+  EvidenceBackedAnswer,
+  FinalJudgmentGuard,
+  ScopedRepairGate,
+  RepairBlockReason,
+  ObjectiveCompletionStatus,
+  ObjectiveEvidenceEdgeRef,
+  ObjectiveCompletionGateResult,
+  // AI-OBJ-007
+  ClaimCategory,
+  EvidenceRelevanceVerdict,
+  // AI-OBJ-010
+  FinalAnswerValidation,
+} from "./evidence-integrity.js";
+{
+  "name": "@workspace/ai-orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./capability-probe": "./src/prompts/capability-probe.ts"
+  },
+  "scripts": {
+    "test": "pnpm run test:benchmark-scenarios && vitest run",
+    "test:benchmark-scenarios": "vitest run src/benchmark-scenarios",
+    "test:runtime-oracle": "vitest run src/benchmark-scenarios/runtime-oracle.test.ts",
+    "test:structured-review-fallback-release": "vitest run src/__tests__/structured-review-fallback.release.test.ts",
+    "validate:benchmark-scenarios": "tsx src/benchmark/validate-code-agent-benchmark-scenarios.ts",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "benchmark:deterministic": "tsx src/benchmark/run-forensic-benchmark.ts",
+    "benchmark:manifest": "tsx src/benchmark/run-code-agent-benchmark.ts",
+    "benchmark:code-agent:deterministic": "tsx src/benchmark/run-code-agent-benchmark-deterministic.ts"
+  },
+  "dependencies": {
+    "@workspace/db": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "groq-sdk": "^0.9.0",
+    "typescript": "~5.9.3",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "^4.1.10",
+    "vitest": "^4.1.10"
+  }
+}
+artifacts/api-server/src/routes/ai.test.ts:1115:  // implemented inside chat()/chatWithFallback; for it to actually fire on the
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:5: * chatWithFallback -> chat -> tool-execution-engine path. Only the provider
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:13: *     chatWithFallback independently per test.
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:50:import { chatWithFallback, requireProvider } from "../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:134:  // chat is not called directly by the stream route (chatWithFallback wraps it),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:183:// chatWithFallback and requireProvider are the two route-layer functions that
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:206:  chatWithFallback: vi.fn(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:274:const defaultChatWithFallback = vi.mocked(chatWithFallback).getMockImplementation();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:436:  vi.mocked(chatWithFallback).mockReset();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:437:  vi.mocked(chatWithFallback).mockImplementation(defaultChatWithFallback!);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:847:    const emitReadOnlyEvidence = (args: Parameters<typeof chatWithFallback>[0] extends never
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:849:      : Parameters<typeof chatWithFallback>[6]) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:873:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:884:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:937:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:947:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1084:    vi.mocked(chatWithFallback).mockClear();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1086:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1096:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1116:    const call = vi.mocked(chatWithFallback).mock.calls.at(-1);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1120:    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(1);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1318:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1414:    vi.mocked(chatWithFallback).mockImplementationOnce(async (
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1570:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1571:    const callsBefore = vi.mocked(chatWithFallback).mock.calls.length;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1584:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBefore);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1593:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1594:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1637:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1638:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1706:    vi.mocked(chatWithFallback).mockImplementationOnce(async (
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1910:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1911:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2239:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2272:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2376:    vi.mocked(chatWithFallback).mockReset().mockImplementation(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2382:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2389:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2392:    vi.mocked(chatWithFallback).mockReset().mockImplementation(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2405:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2568:    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2577:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2636:    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2664:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2777:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2803:    } as Awaited<ReturnType<typeof chatWithFallback>>);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2866:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2928:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3051:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3098:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3175:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3219:    const runContinuation = async (...args: Parameters<typeof chatWithFallback>) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3252:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3254:    vi.mocked(chatWithFallback)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3333:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3383:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3386:    } as Awaited<ReturnType<typeof chatWithFallback>>);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3415:    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3426:        } as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3434:        } as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3487:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3492:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3507:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3514:    vi.mocked(chatWithFallback)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3542:    const calls = vi.mocked(chatWithFallback).mock.calls;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3642:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3685:    vi.mocked(chatWithFallback)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3739:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3741:    vi.mocked(chatWithFallback).mockImplementationOnce(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3813:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3838:    vi.mocked(chatWithFallback).mockImplementationOnce(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3932:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3974:    vi.mocked(chatWithFallback).mockImplementationOnce(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4085:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4087:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4161:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4162:    const unavailable = async (...args: Parameters<typeof chatWithFallback>) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4189:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4191:    vi.mocked(chatWithFallback)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4279:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4281:    vi.mocked(chatWithFallback).mockImplementationOnce(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4345:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4346:    const callsBefore = vi.mocked(chatWithFallback).mock.calls.length;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4355:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBefore);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4361:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4362:    const callsBefore = vi.mocked(chatWithFallback).mock.calls.length;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4371:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBefore);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4389:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4473:    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4550:    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(2);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4557:    // Override chatWithFallback to throw MODEL_NOT_FOUND after all providers fail
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4558:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4562:    vi.mocked(chatWithFallback).mockRejectedValueOnce(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4609:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4611:    vi.mocked(chatWithFallback).mockRejectedValueOnce(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4648:// ─── INT-007: Fetch isolation — chatWithFallback call counts ──────────────────
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4651:// all.  We observe call counts on the chatWithFallback mock as the proxy:
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4652://   • Success path → chatWithFallback called exactly once
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4653://   • Error / empty-chain path → chatWithFallback called once (throws), no done event emitted
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4654://   • Validation failure → chatWithFallback never called (guard fires before AI layer)

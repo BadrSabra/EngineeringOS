@@ -1,0 +1,795 @@
+74:    expect(getBehavioralScorecard("recovering-model")?.demoted).toBe(false);
+77:  it("demotes task_execution fallback candidates without removing them", () => {
+86:    const normalChain = resolveFallbackChain({
+90:    const taskChain = resolveFallbackChain({
+101:  it("restores the original ordering after the model recovers", () => {
+111:    const recoveredChain = resolveFallbackChain({
+116:    expect(recoveredChain[0]?.id).toBe(candidate.id);
+
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts
+66:      supportsNativeStream: false,
+96:        return response("ordered synthesis");
+98:      stream: async function* () {
+143:        "lib/ai-orchestrator/src/forensic-recovery.ts",
+217:      supportsNativeStream: false,
+224:      stream: async function* () {
+243:      allowedReadPaths: ["lib/ai-orchestrator/src/forensic-recovery.ts"],
+262:      supportsNativeStream: false,
+276:        return response("fixture synthesis");
+278:      stream: async function* () {
+333:      supportsNativeStream: false,
+338:        // call but zero fresh executions (budget never consumed).
+339:        const toolResultsSeen = messages.filter((m) => m.role === "tool").length;
+340:        if (toolResultsSeen === 0) {
+345:        return response("coverage synthesis");
+347:      stream: async function* () {
+353:    // fresh tool budget is consumed. maxToolCalls:0 proves this — if the file
+354:    // were re-read fresh the loop would serve a "budget exhausted" response and
+374:      // A budget of 0 fresh tool calls proves the read was served from cache.
+394:      supportsNativeStream: false,
+402:      stream: async function* () {
+428:    // The loop hits the iteration budget with no text response → kind:"exhausted".
+448:// live forensic_status stream and that an incomplete read blocks a Finding.
+528:      fallbackChain: ["initial-model"],
+532:    resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+553:      supportsNativeStream: false,
+554:      ownsModelFallback: true,
+561:      stream: vi.fn(),
+634:        status: "BUDGET_EXHAUSTED",
+663:      supportsNativeStream: false,
+664:      ownsModelFallback: true,
+671:      stream: vi.fn(),
+728:      supportsNativeStream: false,
+729:      ownsModelFallback: true,
+736:      stream: vi.fn(),
+774:      // despite the provider asserting a Finding.
+812:      supportsNativeStream: false,
+813:      ownsModelFallback: true,
+820:      stream: vi.fn(),
+866:      // blocks repair, even though the provider asserted a Finding.
+
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+14:  buildForensicRecoveryMessages,
+15:  classifyRecoveryFailure,
+16:  requiresBehavioralFindingAssessment,
+21:  structuredRecoveryParseDiagnostic,
+31:        ["src/provider.ts", "return fallback;"],
+160:  it("recovers six ordered sections from heading variants", () => {
+167:  it("accepts harmless unnumbered and colon-terminated recovery headings", () => {
+189:  it("recovers six sections whose newlines are JSON-escaped", () => {
+228:describe("buildForensicRecoveryMessages", () => {
+238:    const messages = buildForensicRecoveryMessages(
+265:  it("allocates Recovery evidence across the whole manifest instead of starving later files", () => {
+277:    const messages = buildForensicRecoveryMessages(
+279:      "Return the staged Recovery envelope.",
+291:    expect(serialized).toContain("Assess every listed file before deciding");
+297:describe("requiresBehavioralFindingAssessment", () => {
+304:  ])("requires an assessed negative basis: %s", (objective) => {
+305:    expect(requiresBehavioralFindingAssessment(objective)).toBe(true);
+311:  ])("does not require a defect assessment: %s", (objective) => {
+312:    expect(requiresBehavioralFindingAssessment(objective)).toBe(false);
+316:describe("structuredRecoveryParseDiagnostic", () => {
+318:    expect(structuredRecoveryParseDiagnostic({ ok: true }, 1)).toBeNull();
+322:    expect(structuredRecoveryParseDiagnostic({ ok: false, code: "MALFORMED_JSON" }, 2)).toEqual({
+323:      code: "FORENSIC_STRUCTURED_RECOVERY_PARSE_FAILED",
+325:        "structured envelope parse failed on recovery attempt 2",
+336:  it("recovers the latest assistant audit message", () => {
+344:  it("recovers an Arabic خطة الإصلاح section", () => {
+379:      files: ["lib/ai-orchestrator/src/forensic-recovery.ts"],
+397:  it("extracts implementation paths from a recovered repair plan", () => {
+453:      "Phase 1 (F-01): Fix tool-execution-engine budget exhaustion logic to validate content before returning partial/exhausted responses — lib/ai-orchestrator/src/tool-execution-engine.ts Phase 2 (F-02): Fix groq-client circuit breaker logic to properly handle transient vs final-call failures — lib/ai-orchestrator/src/groq-client.ts";
+594:  it("returns no changes when the recovered plan has no executable paths", () => {
+599:describe("classifyRecoveryFailure", () => {
+601:    expect(classifyRecoveryFailure(undefined)).toBeUndefined();
+605:    expect(classifyRecoveryFailure({ kind: "parse", parseCode: "NOT_FOUND" })).toBe("PARSE_FAILURE");
+609:    expect(classifyRecoveryFailure({ kind: "provider", code: "TIMEOUT" })).toBe("TIMEOUT");
+610:    expect(classifyRecoveryFailure({ kind: "provider", code: "RATE_LIMIT" })).toBe("PROVIDER_FAILURE");
+614:    expect(classifyRecoveryFailure({ kind: "no_finding" })).toBe("EVIDENCE_FAILURE");
+619:      classifyRecoveryFailure({ kind: "contract", violations: ["missing field"] }),
+
+lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts
+76:  it("returns cancellation as unavailable while retaining the operation correlation", async () => {
+82:      throw new Error("cancelled");
+
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts
+4:  EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+9:  mergeForensicRecoveryEnvelopes,
+10:  validateStructuredForensicRecovery,
+11:  type ForensicRecoveryEnvelope,
+12:} from "../forensic-recovery.js";
+23:describe("staged forensic Recovery", () => {
+25:    const envelope: ForensicRecoveryEnvelope = {
+78:      expect(report).not.toContain("recovery-model");
+80:      expect(report).not.toContain("recoveryAttemptId");
+84:  it("keeps a cancelled Arabic audit incomplete and exposes blocked Recovery in Repair Plan", () => {
+99:        cancelled: true,
+104:    expect(report).toContain("Recovery needed");
+111:    const envelope: ForensicRecoveryEnvelope = {
+129:    const result = validateStructuredForensicRecovery(envelope, evidence);
+153:    const envelope: ForensicRecoveryEnvelope = {
+167:    const result = validateStructuredForensicRecovery(envelope, evidence);
+178:    const result = validateStructuredForensicRecovery(
+209:    const sourceFile = "lib/ai-orchestrator/src/forensic-recovery.ts";
+290:    const result = validateStructuredForensicRecovery(
+316:    const result = validateStructuredForensicRecovery(
+343:    const result = validateStructuredForensicRecovery(
+374:    const envelope: ForensicRecoveryEnvelope = {
+403:    const sourceFile = "lib/ai-orchestrator/src/forensic-recovery.ts";
+461:    const envelope: ForensicRecoveryEnvelope = {
+476:    const result = validateStructuredForensicRecovery(envelope, globallyIncompleteEvidence);
+485:  it("does not treat an empty envelope as an accepted Recovery report", () => {
+486:    const result = validateStructuredForensicRecovery(
+487:      EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+493:      "Structured Recovery produced no directly proven Finding",
+499:    const result = validateStructuredForensicRecovery(
+520:    const result = validateStructuredForensicRecovery(
+535:      "NO_FINDING recovery requires a source-grounded noFindingBasis naming the inspected file and quoting an exact source fragment",
+543:    const result = validateStructuredForensicRecovery(
+626:    const result = validateStructuredForensicRecovery(
+646:    const result = validateStructuredForensicRecovery(
+674:    const envelope: ForensicRecoveryEnvelope = {
+691:    const result = validateStructuredForensicRecovery(envelope, evidence);
+701:    const envelope: ForensicRecoveryEnvelope = {
+702:      ...EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+726:    const merged = mergeForensicRecoveryEnvelopes([
+764:    const goodEnvelope: ForensicRecoveryEnvelope = {
+782:    const crashingEnvelope = {} as ForensicRecoveryEnvelope;
+789:    const merged = mergeForensicRecoveryEnvelopes([crashingEnvelope, goodEnvelope]);
+801:    const goodEnvelope: ForensicRecoveryEnvelope = {
+831:    } as unknown as ForensicRecoveryEnvelope;
+838:    const merged = mergeForensicRecoveryEnvelopes([crashOnPlanEnvelope, goodEnvelope]);
+850:    const merged = mergeForensicRecoveryEnvelopes([
+
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts
+10:  completeStream: vi.fn(),
+17:  deepseekCompleteStream: vi.fn(),
+24:  openrouterCompleteStream: vi.fn(),
+34:  geminiCompleteStream: vi.fn(),
+
+lib/ai-orchestrator/src/__tests__/forensic-prompt-safety.test.ts
+21:      "Files previously accessed in this project:\n" +
+62:    expect(prompt).toContain("Do not claim tests passed");
+108:  it("suppresses historical session memory for evidence-bound prompts", () => {
+116:      suppressSessionMemory: true,
+132:      suppressSessionMemory: true,
+
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts
+12: *   1. OBJECTIVE_MISMATCH / RECOVERY_SCOPE_FAILURE are derived from REAL run
+13: *      signals (accepted behavior evidence / recovery reads escaping the bounded
+14: *      scope) and asserted at the chat() level — not injected only into unit
+15: *      tests. A behavioral-only answer or an over-broad recovery read can never
+19: *      validateTelemetry reconciliation — asserted objective fields + fail-closed.
+120: * is fed into — so AI-OBJ-011 objective fields + fail-closed are asserted from
+132:  opts: { fallbackChain?: string[]; openrouterChain?: string[] } = {},
+137:  const fallbackChain = opts.fallbackChain ?? ["initial-model"];
+156:      fallbackChain,
+160:    resolveFallbackChain: vi.fn(() => openrouterChain.map((id) => ({ id }))),
+177:        recovery?: Parameters<typeof actual.attachObjectiveTelemetry>[3],
+179:        const telemetryLedger = actual.attachObjectiveTelemetry(ledger, gate, objective, recovery);
+192:function retainedReadStreamingStrategy(
+193:  mode: "direct" | "native-sse",
+230:    supportsNativeStream: mode === "native-sse",
+231:    ownsModelFallback: true,
+233:    stream: vi.fn(async function* () {
+234:      if (mode === "native-sse") {
+248: * case requires a claim whose assertion appears verbatim in a retained
+249: * production read AND in the answer: a behavioral report never asserts it, so
+323:      supportsNativeStream: false,
+324:      ownsModelFallback: true,
+331:      stream: vi.fn(),
+405:    // synthesize the report after the pre-read; asking it to repeat the read
+409:      supportsNativeStream: false,
+410:      ownsModelFallback: true,
+422:      stream: vi.fn(),
+479:    ["direct OpenRouter streaming", "direct", "openrouter"],
+480:    ["native Groq SSE streaming", "native-sse", "groq"],
+488:      const strategy = retainedReadStreamingStrategy(
+521:          // objective ledger, rather than native SSE exposing only delivery
+554:      supportsNativeStream: false,
+555:      ownsModelFallback: true,
+567:      stream: vi.fn(),
+619:  it("RECOVERY_SCOPE_FAILURE: recovery reading outside the bounded objective scope is a chat()-level reachability failure", async () => {
+638:    // { src/graph-extractor.ts, src/inference.ts }. The recovery step below re-reads
+640:    // deriveObjectiveRecoveryScopeViolated must flip on and the gate must emit
+641:    // RECOVERY_SCOPE_FAILURE (T5 — over-broad recovery can never finalize).
+653:    // Genuinely drive the EI-017 recovery path (modeled on
+654:    // ei-017-targeted-read-chat-e2e.test.ts): the real recovery loop runs, the
+655:    // recovery provider returns a REJECTED FINDING_PROVEN envelope (empty
+658:    // recoveredReadData is therefore populated by a REAL recovery read, and the
+659:    // gate must downgrade the run to RECOVERY_SCOPE_FAILURE. Nothing is injected.
+664:      supportsNativeStream: false,
+665:      ownsModelFallback: true,
+670:          // orchestrator file so both are retained — the recovery targeted read
+697:          // Structurally broken forensic synthesis (duplicated Evidence Map
+698:          // heading) → the evidence contract fails → needsForensicRecovery.
+727:        // Recovery attempts: a REJECTED FINDING_PROVEN structured envelope whose
+730:        // Plan" contract, so validateStructuredForensicRecovery rejects it while
+732:        // EXTRA, populating recoveredReadData with the out-of-scope file.
+742:                whyItMatters: "Recovery reads must stay inside the declared objective scope.",
+743:                rootCause: "unjustified broad recovery target",
+744:                fix: "restrict recovery reads to the bounded scope",
+754:                ? "recovery-model"
+760:      stream: vi.fn(),
+765:      fallbackChain: ["initial-model", "recovery-model", "final-model"],
+766:      openrouterChain: ["recovery-model", "final-model"],
+773:        // Same structured forensic trigger as the ei-017 recovery harness so the
+774:        // real recovery loop is reached with the objective threaded through.
+788:      // 0. Recovery genuinely ran and issued a targeted read on the out-of-scope
+789:      //    retained file — otherwise this test would just be asserting absence.
+798:      // OBJECTIVE_BLOCKED diagnostic carries status:RECOVERY_SCOPE_FAILURE.
+804:        expect(blockedDiag.details.join("\n")).toContain("status:RECOVERY_SCOPE_FAILURE");
+807:      // Post-attachment telemetry reflects the recovery-scope failure.
+809:      expect(telemetry.completionGateResult).toBe("RECOVERY_SCOPE_FAILURE");
+811:      // Fail-closed consistent: RECOVERY_SCOPE_FAILURE is exempt from the
+
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts
+146:      "the performance or memory impact is asserted without a completed measurement or reproducible result",
+308:    const fallbackValidation = applyForensicOutputContract(result.response);
+309:    expect(fallbackValidation.valid).toBe(true);
+310:    expect(fallbackValidation.violations).toEqual([]);
+347:    const fallbackValidation = applyForensicOutputContract(result.response, evidence);
+348:    expect(fallbackValidation.valid).toBe(true);
+349:    expect(fallbackValidation.violations).toEqual([]);
+350:    expect(fallbackValidation.response).toContain("No verified finding identified");
+415:      "No validation scenario available because no Finding passed the report contract.",
+447:      "No validation scenario available because no Finding passed the report contract.",
+479:      "No validation scenario available because no Finding passed the report contract.",
+492:  it("repairs a multi-file recovery report with short paths, stale FACT claims, and broad wording", () => {
+553:  it("preserves prefetch evidence when synthetic tool messages are unavailable", () => {
+566:  it("does not leak stale original-report violations into the reconstructed fallback", () => {
+636:    const fallback = applyForensicOutputContract("invalid response", evidence);
+638:    expect(fallback.response).toContain("Notes: NOT PROVEN");
+639:    expect(fallback.response).toContain("display truncation marker");
+640:    expect(fallback.response).toContain("targeted complete read required");
+641:    expect(fallback.response).not.toContain("Notes: FACT");
+642:    expect(applyForensicOutputContract(fallback.response, evidence).valid).toBe(true);
+801:    const fallback = applyForensicOutputContract(
+819:    expect(fallback.valid).toBe(true);
+820:    expect(fallback.response).toContain(
+823:    expect(fallback.response).not.toContain(
+826:    const fallbackValidation = applyForensicOutputContract(
+827:      fallback.response,
+830:    expect(fallbackValidation.valid).toBe(true);
+861:  it("excludes failed reads and synthesis instructions from source evidence", () => {
+876:              id: "synthesis",
+891:          tool_call_id: "synthesis",
+893:            "Synthesis phase is active. No further tools may run. " +
+904:  it("skips comment-only lines when choosing a fallback source fragment", () => {
+928:  it("prefers executable fallback evidence over imports and labels it as read proof only", () => {
+1168:  it("repairs a short six-section recovery response when the map omits many reads", () => {
+1213:  it("fails closed with a rebuilt map when stale paths survive a malformed recovery", () => {
+1425:  it("rejects an unstructured finding that bypasses the finding ID grammar", () => {
+1559:  it("removes unstructured findings and unknown repair IDs from rejected recovery output", () => {
+1810:      '* Evidence: `export { complete, completeRaw, completeStream } from "./groq-client.js";`',
+1820:        'export { complete, completeRaw, completeStream } from "./groq-client.js";\n',
+1847:          "  const budget = { remaining: plan.budgetTokens };",
+1860:  it("does not call a logged graceful fallback silent", () => {
+1865:      "* Evidence: `return fallback; inside catch block in safeLoad`",
+1878:          "  return fallback;",
+1886:      "fallback path emits structured console telemetry",
+1992:  it("renders an Arabic not-proven fallback while preserving every requested part", () => {
+
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts
+4: * This test intentionally exercises chat() with a recovered Repair Plan and a
+25:    sessionMemories: "Previously accessed files:\n  • unrelated.ts\n  • another.ts",
+31:describe("chat agent — recovered Repair Plan execution", () => {
+360:  it("transitions a persisted execution node only after server-owned validation passes", async () => {
+438:        status: "passed" as const,
+478:      expect(executionNodes).toContainEqual([`${nodeId}:passed:1`]);
+479:      expect(executionNodes.at(-1)).toEqual([`${nodeId}:passed:1`]);
+566:        status: "passed" as const,
+573:        status: (++proofCalls === 1 ? "failed" : "passed") as "failed" | "passed",
+728:          status: "passed" as const,
+765:      expect(nodeSnapshots.at(-1)?.every((snapshot) => snapshot.endsWith(":passed"))).toBe(true);
+776:  it("retries one coordinated node with server-owned failure context while a sibling passes", async () => {
+910:          status: "passed" as const,
+955:        expect.stringMatching(/phase:F-01:1:passed:2/),
+956:        expect.stringMatching(/phase:F-02:2:passed:1/),
+958:      const firstNodePassedIndex = nodeSnapshots.findIndex((snapshot) =>
+959:        snapshot.some((entry) => entry === "phase:F-01:1:passed:2"),
+964:      expect(firstNodePassedIndex).toBeGreaterThanOrEqual(0);
+965:      expect(secondNodeStartedIndex).toBeGreaterThan(firstNodePassedIndex);
+1032:      // the machine reason code and the "no tools run" promise are asserted.
+1041:  it("task #46: restores the persisted verdict scope from the recovered plan metadata instead of re-deriving from paths", async () => {
+
+lib/ai-orchestrator/src/__tests__/ai-obj-013-status-telemetry.test.ts
+5: * exact status for each reachability shape — including RECOVERY_SCOPE_FAILURE
+6: * and OBJECTIVE_MISMATCH — so a behavioral answer or an over-broad recovery
+56:  recoveryScopeViolated?: boolean;
+64:    recoveryScopeViolated: input.recoveryScopeViolated,
+126:  it("T5 RECOVERY_SCOPE_FAILURE — recovery reads outside the bounded objective scope", () => {
+127:    // Even with a fully proven claim AND edge, an over-broad recovery scan
+128:    // (non-required files) must override everything -> RECOVERY_SCOPE_FAILURE.
+137:      recoveryScopeViolated: true,
+139:    expect(result.status).toBe("RECOVERY_SCOPE_FAILURE");
+142:    expect(result.recoveryScopeViolated).toBe(true);
+168:  it("OBJECTIVE_MISMATCH takes precedence even over RECOVERY_SCOPE_FAILURE (both set)", () => {
+169:    const result = gate({ recoveryScopeViolated: true, answerTypeMismatch: true });
+204:    expect(tel.recoveryTriggered).toBe(false);
+207:  it("records recovery metadata and a behavioral final answer type when gated", () => {
+215:    expect(tel.recoveryTriggered).toBe(true);
+216:    expect(tel.recoveryTarget).toBe("client->server");
+239:  it("consistent, fully-partitioned objective telemetry passes", () => {
+
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+6: *   - executeToolLoop:   budget exhaustion, cache hits, tool dispatch, exhausted iterations
+74:    supportsNativeStream: false,
+81:    stream: async function* () { yield ""; },
+466:  it("returns a cancelled result when AbortSignal interrupts the provider turn", async () => {
+472:      supportsNativeStream: false,
+480:      stream: async function* () { yield ""; },
+500:    expect(result.kind).toBe("cancelled");
+502:    expect(steps.some((step) => step.kind === "done" && step.stopReason === "cancelled")).toBe(true);
+681:      status: changes?.[0]?.newContent === "const value = 2;\n" ? "passed" as const : "failed" as const,
+724:      status: "passed",
+1009:  it("runs one no-tools JSON synthesis pass after forensic prefetch", async () => {
+1041:    const synthesisOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
+1042:    expect(synthesisOptions).toMatchObject({
+1045:    expect(synthesisOptions).not.toHaveProperty("tools");
+1048:  it("falls back when no-tools synthesis returns tool calls without text", async () => {
+1053:      makeResponse('{"response":"fallback forensic report","sources":[]}'),
+1076:      expect(result.result.content).toBe('{"response":"fallback forensic report","sources":[]}');
+1080:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[2]?.[1] as Record<string, unknown>;
+1081:    expect(fallbackOptions).toMatchObject({
+1085:    expect(fallbackOptions).not.toHaveProperty("tools");
+1088:  it("bounds synthesis tool bodies without mutating the complete evidence messages", async () => {
+1089:    const { _compactSynthesisMessages } = await import("../tool-execution-engine.js");
+1100:    const compacted = _compactSynthesisMessages(messages);
+1147:      .mockResolvedValueOnce(makeResponse("recovered answer"));
+1163:      expect(result.result.content).toBe("recovered answer");
+1168:  it("records the model returned by a successful fallback response", async () => {
+1174:        ...makeResponse("fallback answer"),
+1175:        model: "actual-fallback-model",
+1183:      powerModel: "fallback-model",
+1195:      model: "actual-fallback-model",
+1201:  it("preserves the full authorized manifest when a fallback executes a narrowed tool list", async () => {
+1209:      .mockResolvedValueOnce(makeResponse("fallback completed"));
+1215:      powerModel: "fallback-model",
+1234:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
+1235:    expect(fallbackOptions).toMatchObject({
+1236:      model: "fallback-model",
+1290:  it("terminalizes an invalid tool call during the deliberate no-tools synthesis phase", async () => {
+1335:      powerModel: "fallback-model",
+1348:      details: ["fallback provider failure code: TIMEOUT"],
+1381:  it("returns a recoverable partial result when forensic synthesis is empty", async () => {
+1417:  it("preserves forensic reads when EMPTY_RESPONSE happens before synthesis starts", async () => {
+1582:      makeResponse("synthesized"),
+1697:      searchNoveltyBudget: 4,
+1747:      searchNoveltyBudget: 4,
+2122:  it("caps an oversized repair budget at three validation attempts", async () => {
+2156:      makeResponse("BLOCKED: the repair attempt budget was exhausted."),
+2249:  it("reports total tool-call telemetry across prefetch, cached results, and synthesis escalation", async () => {
+2259:      makeResponse("synthesized"),
+2299:      synthesisStarted: true,
+2305:  it("forces forensic synthesis after a cached source read", async () => {
+2344:  it("terminates synthesis when a provider emits tool calls with tools disabled", async () => {
+2471:  it("serves budget-exhausted message when maxToolCalls is reached", async () => {
+2493:      maxToolCalls: 2, // Budget of 2: first two execute, third gets budget message
+2499:    // The third should have received a budget message (visible in the messages array).
+2501:    const budgetMessage = toolMessages.find(
+2502:      (m) => m.role === "tool" && m.content.startsWith("Tool call budget exhausted"),
+2504:    expect(budgetMessage).toBeDefined();
+2542:  it("disables real tool execution during the reserved synthesis window", async () => {
+2555:        makeToolCall(`synthesis-${callCount}`, "read_file", {
+2556:          path: `synthesis-${callCount}.ts`,
+2618:  it("stops task execution at soft limit without a synthesis model call", async () => {
+2661:  it("fails closed for unknown tool names without consuming execution budget", async () => {
+2682:      maxToolCalls: 1, // Budget of 1: unknown tool should NOT consume it
+2787:    // Model reads on the FIRST iteration, then synthesizes.
+2820:    // the model synthesizes. This exercises every first-evidence bucket.
+2868:  it("classifies a zero-read provider_timeout run and streams sourceRetrieval on the done step (FEG-015)", async () => {
+2877:      supportsNativeStream: false,
+2887:      stream: async function* () { yield ""; },
+2955:    // returns a final response well before the budget. Starvation must reflect
+2956:    // the iterations that ACTUALLY elapsed, not the full maxIterations budget.
+2985:    // The configured budget is much larger; we must never report it as the
+2989:    // The SSE done step must serialize the SAME classified values, not the
+2990:    // pre-classification defaults (budget / 0 / absent inbox fields).
+3000:  it("counts a truncated read → range-read recovery as evidence, then the next path as a dependency (FEG-015)", async () => {
+3003:    // usable source body). Iteration 1 recovers the SAME path via
+3043:    // The range-recovery read is the completed path's first successful read: it
+3058:    // usable source body). Iteration 1 re-issues the recovery window as a
+3102:    // The cached range-recovery read is the path's first COMPLETED evidence, so
+3115:    // longer than the search-novelty window, so the soft limit (75% of budget
+3117:    // output so it stays "new" (avoids premature force-synthesis).
+3198:    const { executeToolLoop, splitRunBudget } = await import("../tool-execution-engine.js");
+3203:    // first read so planning cannot exhaust the evidence budget. A read tool is
+3240:    expect(splitRunBudget(12).planning).toBe(4);
+3241:    // Budget split telemetry surfaces the protected allocations.
+3242:    expect(result.sourceRetrieval?.budgetAllocation).toEqual({
+3247:    // The planning-budget guard forced a first read (distinct from the FEG-008
+3255:    expect(forceDiagnostic?.details?.[0]).toContain("planning budget exhausted");
+3265:  it("classifies a zero-read budget-exhaustion run as INCOMPLETE_BEFORE_EVIDENCE (FEG-010)", async () => {
+3267:    // A run that exhausts the iteration budget with ZERO source reads and no
+3848:    // The cached read is recorded as a cached read, and the run progressed.
+4050:describe("bounded synthesis budget", () => {
+4051:  it("enforces a real bounded synthesis timeout and preserves operator telemetry", async () => {
+4056:      supportsNativeStream: false,
+4060:            reject(new GroqClientError("TIMEOUT", "bounded synthesis timeout"));
+4064:      stream: async function* () { yield ""; },
+4078:      synthesisTimeoutMs: 1_000,
+4079:      synthesisMaxAttempts: 1,
+4087:        synthesisAttempts: 1,
+4088:        synthesisMaxAttempts: 1,
+4089:        synthesisTimeoutMs: 1_000,
+4090:        synthesisTimedOut: true,
+4098:        synthesisAttempts: 1,
+4099:        synthesisMaxAttempts: 1,
+4100:        synthesisTimeoutMs: 1_000,
+4101:        synthesisTimedOut: true,
+4106:  it("keeps synthesis fallback within its independent attempt budget", async () => {
+4110:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "fixture synthesis timeout"))
+4111:      .mockResolvedValueOnce(makeResponse("fallback report"));
+4124:      synthesisTimeoutMs: 5_000,
+4125:      synthesisMaxAttempts: 2,
+4130:      expect(result.result.content).toBe("fallback report");
+4131:      expect(result.sourceRetrieval?.synthesisAttempts).toBe(2);
+4132:      expect(result.sourceRetrieval?.synthesisMaxAttempts).toBe(2);
+4133:      expect(result.sourceRetrieval?.synthesisTimeoutMs).toBe(5_000);
+4144:  it("does not retry synthesis after the shared deadline is exhausted", async () => {
+4148:      new GroqClientError("TIMEOUT", "fixture synthesis timeout"),
+4162:      synthesisTimeoutMs: 1_000,
+4163:      synthesisMaxAttempts: 1,
+4169:      expect(result.sourceRetrieval?.synthesisAttempts).toBe(1);
+4170:      expect(result.sourceRetrieval?.synthesisMaxAttempts).toBe(1);
+4190:    // inner fallback retry).  totalToolCalls is 1 at that point so evidence
+4198:      supportsNativeStream: false,
+4205:        // Second call (synthesis): provider times out.
+4208:      stream: async function* () { yield ""; },
+4237:  it("returns kind:partial/provider_timeout when both primary and fallback time out after a tool call", async () => {
+4238:    // primary !== powerModel so the inner fallback retry path is taken.
+4240:    // must NOT rethrow after the fallback also fails.
+4247:      supportsNativeStream: false,
+4256:      stream: async function* () { yield ""; },
+4289:      supportsNativeStream: false,
+4291:      stream: async function* () { yield ""; },
+4312:  it("passes through a well-formed assistant → tool chain unchanged", async () => {
+
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts
+35:      supportsNativeStream: false,
+47:        return response("final synthesis");
+49:      stream: async function* () {
+
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts
+12: *   3. asserts the returned response reads BLOCKED (not the model's report),
+14: *      decision_trace finalState is NOT a passed verdict.
+111:      fallbackChain: ["initial-model"],
+115:    resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+165:      supportsNativeStream: false,
+166:      ownsModelFallback: true,
+173:      stream: vi.fn(),
+215:      //    passed verdict. And an OBJECTIVE_BLOCKED diagnostic step was relayed.
+245:    // Declare a genuinely-completable objective: the required claim's assertion
+260:      supportsNativeStream: false,
+261:      ownsModelFallback: true,
+268:      stream: vi.fn(),
+314:  it("keeps a required claim UNCLOSED (BLOCKED) when the retained read contains the claim text but the answer does not assert it (response-bound closure)", async () => {
+320:    // The claim's assertion ("return eval(input)") appears verbatim in the
+322:    // that never asserts that claim. Response-bound closure must refuse to
+339:      supportsNativeStream: false,
+340:      ownsModelFallback: true,
+347:      stream: vi.fn(),
+370:      // The claim text lives in the read, but the answer never asserts it —
+
+lib/ai-orchestrator/src/__tests__/forensic-evidence-packets.test.ts
+3:import { validateStructuredForensicRecovery } from "../forensic-recovery.js";
+110:    const result = validateStructuredForensicRecovery(envelope, alphaPacket.evidence);
+
+lib/ai-orchestrator/src/__tests__/fixture-guards.test.ts
+2:import { assertArabicForensicFixture } from "./fixture-guards.js";
+6:    const report = assertArabicForensicFixture(
+17:      assertArabicForensicFixture(
+27:  it("reports a prompt/report mismatch before behavioral assertions", () => {
+29:      assertArabicForensicFixture(
+
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts
+458:    expect(() => transitionExecutionNode([node], node.id, "passed")).toThrow(/Invalid/);
+
+lib/ai-orchestrator/src/__tests__/flight-deck-state.test.ts
+69:  it("keeps cancellation terminal and does not let delivery flags override it", () => {
+70:    expect(deriveFlightDeckState({ executionStatus: "cancelled", hasPushedChanges: true }))
+71:      .toBe("CANCELLED");
+72:    expect(deriveFlightDeckState({ executionStatus: "cancelled" })).toBe("CANCELLED");
+
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts
+553:describe("FIXTURE_PATH_RE — exported regex is available for downstream consumers", () => {
+641:    behavioralAssessmentRequested?: boolean;
+658:    options.behavioralAssessmentRequested ?? true,
+897: * report whose Findings cite concrete evidence paths, and asserts the emitted
+1096:  it("passes the incomplete-coverage reason through to the emitted step", () => {
+1264:    // (e.g., "This repair addresses ID: F-01 if confirmed.") must not trigger PROVEN.
+1269:      "This repair plan addresses the candidate issue with ID: F-01 if a finding is confirmed.",
+1281:    // This is the regression the section-scoping fix addresses: the hasFinding
+
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts
+6: * to simulate a specific execFile outcome, then asserts the string returned by
+222:   * the tool returns fewer lines than requested. The recovery code must derive
+256:      // recovery path uses. The file has 7 lines so the window is also 7 lines.
+
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts
+52:          { kind: "node_status", nodeId: "check", status: "passed" },
+53:          { kind: "evidence", nodeId: "check", evidenceType: "validation_passed" },
+187:          predicate: { kind: "node_status", nodeId: "check", status: "passed" },
+202:            { kind: "node_status", nodeId: "check", status: "passed" },
+214:        predicate: { kind: "node_status", nodeId: "check", status: "passed" },
+222:    const overBudget = compileCapabilityRecipe(recipe(), {
+226:    expect(overBudget).toMatchObject({ ok: false, diagnostics: [{ code: "PLAN_TOO_LARGE" }] });
+229:  it("advances only on typed evidence and preserves cancellation/terminal state", () => {
+235:      [nodeId]: { status: "passed" },
+240:    const passed = advanceCompiledRecipeTransition(compiled.plan, {
+242:        status: "passed",
+244:        evidence: [{ type: "validation_passed" }],
+247:    expect(passed.status).toBe("succeeded");
+248:    expect(passed.state.completedNodeIds).toEqual([nodeId]);
+252:    const cancelled = advanceCompiledRecipeTransition(compiled.plan, {}, controller.signal);
+253:    expect(cancelled.status).toBe("cancelled");
+254:    expect(cancelled.state.status).toBe("cancelled");
+256:      { kind: "evidence", nodeId, evidenceType: "validation_passed" },
+257:      { [nodeId]: { status: "passed", evidence: [{ type: "validation_passed" }] } },
+
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts
+3:  createContentOnlyStreamGuard,
+189:describe("content-only provider stream guard", () => {
+191:    const guard = createContentOnlyStreamGuard({ providerName: "fixture-provider" });
+203:    const guard = createContentOnlyStreamGuard({ providerName: "fixture-provider" });
+216:    const guard = createContentOnlyStreamGuard({ providerName: "fixture-provider" });
+
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts
+12: * and assert the acceptance-criteria table from the observable runtime surface:
+108:      fallbackChain: ["initial-model"],
+112:    resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+130:// is asserted against the run's terminal telemetry + step ordering.
+131:function assertAcceptanceTable(
+152:  // prefetch sentinel) — never a hunt through the budget before evidence.
+225:      supportsNativeStream: false,
+226:      ownsModelFallback: true,
+233:      stream: vi.fn(),
+276:      assertAcceptanceTable({
+299:      supportsNativeStream: false,
+300:      ownsModelFallback: true,
+324:      stream: vi.fn(),
+352:      // Evidence acquired (not 0 reads), first read within budget, no duplicates,
+354:      assertAcceptanceTable({
+371:    // an explicit behavior query (semanticBehaviorAnswer is then assembled) and
+380:      supportsNativeStream: false,
+381:      ownsModelFallback: true,
+426:      stream: vi.fn(),
+467:      assertAcceptanceTable({
+489:      supportsNativeStream: false,
+490:      ownsModelFallback: true,
+497:      stream: vi.fn(),
+521:      assertAcceptanceTable({
+
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts
+431:  it("unproven primary + at least one validation attempted + recovery available → RECOVERY_REQUIRED", () => {
+432:    // RECOVERY_REQUIRED requires the run to have tried claim validation (not zero evidence).
+434:    // and a specific edge identified for targeted recovery, the verdict is RECOVERY_REQUIRED.
+440:      recoveryAvailable: true,
+442:    expect(result.verdict).toBe("RECOVERY_REQUIRED");
+445:  it("no validations at all (zero evidence) → EVIDENCE_INSUFFICIENT even with recoveryAvailable", () => {
+451:      recoveryAvailable: true,
+466:      recoveryAvailable: false,
+476:      recoveryAvailable: false,
+486:      recoveryAvailable: false,
+490:  it("T1 no claim proven, evidence collected, recovery available → RECOVERY_REQUIRED", () => {
+496:      recoveryAvailable: true,
+497:    })).toBe("RECOVERY_REQUIRED");
+500:  it("no claim proven, evidence collected, no recovery → OBJECTIVE_BLOCKED", () => {
+506:      recoveryAvailable: false,
+510:  it("EVIDENCE_INSUFFICIENT takes precedence over recovery", () => {
+516:      recoveryAvailable: true,  // available but no evidence beats it
+576:      proven: true,  // stale/bypassed flag
+599:      // the R4 "no recognisable invocation" fallback).
+642:    // Without a target symbol: new Map() matches the INVOCATION_PATTERNS allowlist (R4 passes).
+645:    // R4 passes (contains a call), but caller MUST always pass targetSymbol for
+
+lib/ai-orchestrator/src/__tests__/profile-classifier.test.ts
+275:        "You are working on Task #61 — Confirm live tool-call events reach the streaming bubble.",
+276:        "Done looks like: add tests in chat-sse.test.ts and use-ai-chat-stream.test.ts.",
+278:        "The task covers forensic_status, tool_call, tool_result, model_call, thinking, synthesis_start, and execution_guard.",
+
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts
+13:        status: "passed",
+33:    expect(parsed.status).toBe("passed");
+52:      status: "passed",
+80:      status: "passed",
+81:      code: "COMMAND_PASSED",
+101:  it("passes only the server-owned target paths to the validation runner", async () => {
+103:      status: "passed",
+121:      status: "passed",
+150:    const runner = vi.fn().mockResolvedValue({ status: "passed", profile: "workspace-typecheck" });
+169:      status: "passed",
+187:      status: "passed",
+
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts
+5:  capBudgetForTask,
+53:  it("caps narrow task budgets independently from broad forensic execution", () => {
+55:      capBudgetForTask("CODE_EXTRACTION", { maxIterations: 150, maxToolCalls: 500 }),
+58:      capBudgetForTask("BEHAVIOR_QUERY", { maxIterations: 150, maxToolCalls: 500 }),
+61:      capBudgetForTask("FULL_FORENSIC_AUDIT", { maxIterations: 220, maxToolCalls: 800 }),
+64:      capBudgetForTask("WORKSPACE_REVIEW", { maxIterations: 150, maxToolCalls: 500 }),
+164:      "assess the full repository",
+377:      '  if (url === "http://host") return fallback;\n' +
+385:        'Evidence: `if (url === "http://host") return fallback`\n' +
+386:        "The function returns the fallback value.",
+401:    // start.  The lexical scanner processes the string delimiter first.
+430:    // *second* occurrence (the safe fallback), computeSourceSpan must prefer
+438:      '    console.log("safe fallback");\n' +
+447:        "In the safe fallback branch:\n" +
+449:        "The function returns the partial result in the fallback.",
+
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts
+24:import { assertArabicFixtureResponse } from "./fixture-guards.js";
+62:      fallbackChain: ["initial-model"],
+66:    resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+73:    supportsNativeStream: false,
+74:    ownsModelFallback: true,
+81:    stream: vi.fn(),
+85:function makeNativeSseStrategy(responseText: string) {
+88:    supportsNativeStream: true,
+89:    ownsModelFallback: true,
+96:    stream: vi.fn(async function* () {
+104:function nativeSseReadThenAnswerStrategy(
+112:    supportsNativeStream: true,
+113:    ownsModelFallback: true,
+136:    stream: vi.fn(async function* () {
+144:function nativeSseRangeReadThenAnswerStrategy(
+152:    supportsNativeStream: true,
+153:    ownsModelFallback: true,
+183:    stream: vi.fn(async function* () {
+206:    supportsNativeStream: false,
+207:    ownsModelFallback: true,
+230:    stream: vi.fn(),
+242:    supportsNativeStream: false,
+243:    ownsModelFallback: true,
+273:    stream: vi.fn(),
+430:          evidence: "runtime chatWithFallback dispatch",
+495:  it("S6 source-backed call-site in correct caller file: claim PROVEN, response passes", async () => {
+559:  // but the trace link asserts the caller is src/engine.ts. The gate must reject
+560:  // this because engine.ts was never read — it cannot prove the asserted chain.
+562:  it("S7 call-site in wrong caller file: gate blocks because asserted caller was not read", async () => {
+583:    // (src/unrelated.ts calls computeCentrality, but the asserted caller is
+607:            // Asserted caller: engine.ts — but only unrelated.ts was read.
+679:  // The real production API always passes ONLY runtimeChatTraceLinks — a single
+715:          evidence: "runtime chatWithFallback dispatch",
+763:          evidence: "runtime chatWithFallback dispatch",
+779:  // ── Scenario 11 (Arabic SSE regression): the native stream has its own
+781:  it("S11 Arabic production-reachability prompt: native SSE stays NOT PROVEN", async () => {
+784:    assertArabicFixtureResponse(unsupportedArabicAnswer, "reachability-gate-native-sse-arabic");
+800:    await mockChatProviders(makeNativeSseStrategy(unsupportedForensicReport));
+820:          evidence: "runtime chatWithFallback dispatch",
+826:    const streamed = deltas.join("");
+827:    expect(streamed).toContain("NOT PROVEN");
+828:    expect(streamed).not.toContain(unsupportedArabicAnswer);
+839:  // ── Scenario 12 (native SSE positive regression): a source-backed caller
+841:  // finalization guard must not over-block a trace merely because it is streamed.
+842:  it("S12 source-backed application trace: native SSE preserves VERIFIED result", async () => {
+872:    await mockChatProviders(nativeSseReadThenAnswerStrategy(callerPath, verifiedReport, calls));
+906:    const streamed = deltas.join("");
+908:    expect(streamed).toContain("PROVEN");
+909:    expect(streamed).not.toContain("NOT PROVEN");
+918:  // ── Scenario 13 (Arabic native SSE positive regression): Arabic output
+919:  // must not be over-blocked when the asserted caller was read and the
+921:  it("S13 Arabic source-backed application trace: native SSE preserves VERIFIED result", async () => {
+950:    assertArabicFixtureResponse(verifiedArabicReport, "reachability-gate-native-sse-arabic-positive");
+953:      nativeSseReadThenAnswerStrategy(callerPath, verifiedArabicReport, calls),
+988:    const streamed = deltas.join("");
+990:    expect(streamed).toContain("PROVEN");
+991:    expect(streamed).not.toContain("NOT PROVEN");
+1000:  // ── Scenario 14 (Arabic native SSE range-read positive regression): the
+1001:  // asserted caller is proven from a bounded source window, not a complete
+1005:  it("S14 source-range-backed caller: native SSE preserves VERIFIED result", async () => {
+1035:    assertArabicFixtureResponse(verifiedReport, "reachability-gate-native-sse-arabic-range");
+1038:      nativeSseRangeReadThenAnswerStrategy(callerPath, verifiedReport, calls),
+1073:    const streamed = deltas.join("");
+1075:    expect(streamed).toContain("PROVEN");
+1076:    expect(streamed).not.toContain("NOT PROVEN");
+1085:  // ── Scenario 15 (non-streaming range-read positive regression): the
+1086:  // non-streamed finalization seam must preserve the same source-backed
+1087:  // verification as native SSE when the asserted caller arrives through a
+1089:  it("S15 source-range-backed caller: non-streaming finalization preserves VERIFIED result", async () => {
+1119:    assertArabicFixtureResponse(verifiedReport, "reachability-gate-non-streaming-arabic-range");
+
+lib/ai-orchestrator/src/__tests__/quality-engine.test.ts
+2:import { assessStructuredOutput, buildQualityPlan, sortProviderIdsByQuality } from "../quality-engine.js";
+19:describe("assessStructuredOutput", () => {
+21:    const assessment = assessStructuredOutput("task_execution", {
+29:    expect(assessment.decision).toBe("accept");
+30:    expect(assessment.score).toBeGreaterThanOrEqual(assessment.threshold);
+33:  it("flags fallback-style task output for retry", () => {
+34:    const assessment = assessStructuredOutput("task_execution", {
+42:    expect(assessment.decision).toBe("retry");
+43:    expect(assessment.reasons.length).toBeGreaterThan(0);
+63:    expect(plan.strictHints.requireStreaming).toBe(true);
+
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts
+5:  getPhaseBudget,
+12:  it("defines independent bounded budgets for every repair phase", () => {
+16:      "validation", "repair_recovery", "report",
+20:    expect(getPhaseBudget("patch_proposal").maxOutputTokens).toBeGreaterThan(0);
+45:    advance("repair_recovery", "failed");
+47:    advance("report", "passed");
+54:      "repair_recovery",
+57:    expect(state.validationEvidence).toBe("passed");
+80:  it("requires a failed validation result to enter recovery", () => {
+89:    expect(transitionExecutionPhase(state, "repair_recovery", "passed").ok).toBe(false);
+90:    const recovery = transitionExecutionPhase(state, "repair_recovery", "failed");
+91:    expect(recovery.ok).toBe(true);
+92:    if (!recovery.ok) return;
+93:    expect(transitionExecutionPhase(recovery.state, "report", "passed").ok).toBe(false);
+94:    expect(transitionExecutionPhase(recovery.state, "validation").ok).toBe(true);
+
+lib/ai-orchestrator/src/__tests__/query-planner.test.ts
+212:        id: "file-stream",
+214:        name: "use-ai-chat-stream.ts",
+215:        path: "src/use-ai-chat-stream.ts",
+257:        root: { id: "file-stream", path: "src/use-ai-chat-stream.ts" },
+264:      message: "Inspect `chat.ts` and `use-ai-chat-stream.ts`",
+271:      ["chat.ts", "use-ai-chat-stream.ts"],
+274:    expect(mockGetNeighborhood).toHaveBeenNthCalledWith(2, expect.anything(), "file-stream", 1);
+277:      "src/use-ai-chat-stream.ts",
+
+lib/ai-orchestrator/src/__tests__/schemas.test.ts
+264:    overallAssessment: "a",
+284:  it("rejects an empty overallAssessment", () => {
+285:    expect(ScanSummarySchema.safeParse({ ...validSummary, overallAssessment: "" }).success).toBe(false);
+
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts
+2: * Provider-free release coverage for structured code-review fallback.
+111:describe("structured review provider fallback release check", () => {
+146:      // before the fallback chain advances.
+180:      // The reviewer may spend its remaining quality-retry budget on the
+181:      // successful fallback response. The transport fallback itself must
+
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts
+3:  buildResponseLanguageFallback,
+4:  buildTaskValidationFallback,
+111:    expect(buildResponseLanguageFallback("ar")).toContain("لغة الطلب");
+115:    const fallback = buildTaskValidationFallback("FULL_FORENSIC_AUDIT", true);
+116:    expect(fallback).toContain("## 1) Executive Verdict");
+117:    expect(fallback).toContain("## 6) Final Judgment");
+118:    expect(fallback).toContain("ANALYSIS_INCOMPLETE");
+119:    expect(fallback).not.toContain("FINDING PROVEN");
+120:    expect(validateTaskResponse("FULL_FORENSIC_AUDIT", fallback, { responseLanguage: "ar" }).valid).toBe(true);
+123:  it("returns an informative incomplete behavior fallback after source reads", () => {
+124:    const arabicFallback = buildTaskValidationFallback("BEHAVIOR_QUERY", true);
+125:    const englishFallback = buildTaskValidationFallback("BEHAVIOR_QUERY", false);
+127:    expect(arabicFallback).toContain("ANALYSIS_INCOMPLETE");
+128:    expect(arabicFallback).toContain("تمت قراءة مصادر");
+129:    expect(validateTaskResponse("BEHAVIOR_QUERY", arabicFallback, { responseLanguage: "ar" }).valid).toBe(true);
+130:    expect(englishFallback).toContain("ANALYSIS_INCOMPLETE");
+131:    expect(validateTaskResponse("BEHAVIOR_QUERY", englishFallback, { responseLanguage: "en" }).valid).toBe(true);
+
+lib/ai-orchestrator/src/__tests__/retry-controller.test.ts
+2:import type { QualityAssessment } from "../quality-engine.js";
+6:  it("retries on parse failure while budget remains", () => {
+18:    const assessment: QualityAssessment = {
+26:    const decision = decideRetry({ attempt: 1, limit: 2, assessment });
+30:  it("stops when the retry budget is exhausted", () => {
+
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts
+28:  return { status: "passed", detail: "validation passed" };
+56:    expect(result.status).toBe("passed");
+60:    expect(snapshots.some((snapshot) => snapshot.startsWith("passed:C"))).toBe(true);
+113:    expect(result.status).toBe("passed");
+125:      expect.objectContaining({ id: "flaky", status: "passed", attempts: 3 }),
+126:      expect.objectContaining({ id: "stable", status: "passed", attempts: 1 }),
+176:    expect(result.status).toBe("passed");
+187:  it("recovers running and failed nodes from a durable checkpoint", async () => {
+188:    const recovered: string[] = [];
+196:        recovered.push(node.id);
+200:        if (event === "recovered" || event === "retry_queued") recovered.push(`${event}:${nodeId}`);
+205:    expect(recovered).toEqual(expect.arrayContaining([
+206:      "recovered:interrupted",
+213:      expect.objectContaining({ id: "interrupted", status: "passed", attempts: 2 }),
+214:      expect.objectContaining({ id: "failed", status: "passed", attempts: 3 }),
+219:  it("returns cancelled without starting queued work when cancellation is already requested", async () => {
+233:    expect(result.status).toBe("cancelled");
+238:  it("preserves running nodes for recovery when cancellation arrives during a wave", async () => {
+255:    expect(result.status).toBe("cancelled");
+
+lib/ai-orchestrator/src/__tests__/required-claims.test.ts
+7: *   - the required claim set is derived from the QUESTION (primary assertion +
+
+lib/ai-orchestrator/src/__tests__/task-checklist.test.ts
+136:  it("adds an explicit unfinished section to a fallback response", () => {

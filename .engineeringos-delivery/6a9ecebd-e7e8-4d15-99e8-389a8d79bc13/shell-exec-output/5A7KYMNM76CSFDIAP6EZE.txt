@@ -1,0 +1,300 @@
+lib/ai-orchestrator/src/context-serializer.ts:1:import type { AgentContext as ProjectContext } from "./schemas/context.schema.js";
+lib/ai-orchestrator/src/context-serializer.ts:5:} from "./context-loader.js";
+lib/ai-orchestrator/src/context-serializer.ts:140:  if (!wants("graphEntities") && !wants("graphRelationships")) {
+lib/ai-orchestrator/src/context-serializer.ts:141:    return buildMissingSummary("Knowledge graph");
+lib/ai-orchestrator/src/context-serializer.ts:226:    : "Knowledge graph empty — run a scan first";
+lib/ai-orchestrator/src/context-serializer.ts:276:    graphSummary: buildGraphSummary(loaded),
+lib/ai-orchestrator/src/capability-catalog.ts:437:      "Provide only a capability ID, a supported recipe version, and server-owned discovery context.",
+lib/ai-orchestrator/src/capability-catalog.ts:475:      entry?.availability.operatorGuidance ?? "The capability is unavailable in the current server context.",
+lib/ai-orchestrator/src/capability-catalog.ts:476:      entry?.availability.operatorGuidance ?? "Refresh the catalog and retry with an allowed server context.",
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:20:  | "chat"          // General conversational tasks
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:25:  | "long_context"; // Large context window tasks (>64k tokens)
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:31:  /** Max context window in tokens. */
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:32:  context: number;
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:61:    context: 65_536,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:71:    context: 1_000_000,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:81:    context: 512_000,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:91:    context: 1_048_576,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:101:    context: 262_144,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:110:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:111:    context: 1_048_576,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:123:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:124:    context: 262_144,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:133:    capabilities: ["coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:134:    context: 256_000,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:143:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:144:    context: 256_000,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:153:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:154:    context: 262_144,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:163:    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:164:    context: 262_144,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:173:    capabilities: ["chat", "reasoning", "coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:174:    context: 256_000,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:183:    capabilities: ["chat", "reasoning", "coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:184:    context: 262_144,
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:194:    capabilities: ["chat", "reasoning", "coding", "tool_calling", "json", "long_context"],
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:195:    context: 1_000_000,
+lib/ai-orchestrator/src/context-runtime/context-object.ts:4: * Defines typed wrappers that carry context data between the DB layer
+lib/ai-orchestrator/src/context-runtime/context-object.ts:5: * (context-loader), the admission engine (context-admission), and the
+lib/ai-orchestrator/src/context-runtime/context-object.ts:6: * serialization layer (context-serializer / context-builder).
+lib/ai-orchestrator/src/context-runtime/context-object.ts:8: * Contract: no context data may travel between layers as raw strings or DB rows
+lib/ai-orchestrator/src/context-runtime/context-object.ts:16:  | "graphSummary"
+lib/ai-orchestrator/src/context-runtime/context-object.ts:32:  /** Origin label, e.g. "db:tasks", "db:graph_entities". */
+lib/ai-orchestrator/src/context-runtime/context-object.ts:34:  /** Serialized, prompt-ready string produced by context-serializer. */
+lib/ai-orchestrator/src/context-runtime/context-object.ts:53:  /** Overall context budget in tokens (from ExecutionPlan.contextBudget). */
+lib/ai-orchestrator/src/context-runtime/context-object.ts:55:  /** Graph-section budget in tokens (from ExecutionPlan.graphBudget). */
+lib/ai-orchestrator/src/context-runtime/context-object.ts:56:  graphBudgetTokens: number;
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:23:  context_length?: number;
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:18:import type { SliceId, ContextSlice, ContextObject, AdmissionDecision } from "./context-object.js";
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:52:  contextObject: ContextObject;
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:63: *  - graphSummary / workflows     → medium TTL (change only on scans)
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:70:  graphSummary:  { ttlMs: 3 * 60_000,  decayThreshold: 0.80, archiveThreshold: 2.5  },
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:127: * @param contextObject - Output of runAdmission().
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:132:  contextObject: ContextObject,
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:155:  const dropped: ContextSlice[]       = contextObject.droppedSlices.map(processSlice);
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:158:  for (const slice of contextObject.admittedSlices) {
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:164:  for (const slice of contextObject.referenceSlices) {
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:169:  for (const slice of contextObject.deferredSlices) {
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:176:  const updatedPlanSlices = contextObject.plan.slices.map((s) => sliceMap.get(s.id) ?? s);
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:179:    contextObject: {
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:180:      plan: { ...contextObject.plan, slices: updatedPlanSlices },
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:12: *   • Zero I/O — all state is in-memory; resets on process restart.
+lib/ai-orchestrator/src/index.ts:29:  contextManifestMatches,
+lib/ai-orchestrator/src/index.ts:30:  contextManifestAllowsExecution,
+lib/ai-orchestrator/src/index.ts:31:} from "./context-manifest.js";
+lib/ai-orchestrator/src/index.ts:32:export type { ContextManifest, ScanCompleteness, RepositoryRevisionManifest } from "./context-manifest.js";
+lib/ai-orchestrator/src/index.ts:294:} from "./context-builder.js";
+lib/ai-orchestrator/src/index.ts:295:export type { ProjectContext, BuildContextOptions } from "./context-builder.js";
+lib/ai-orchestrator/src/index.ts:297:export type { SliceId, AdmissionDecision, ContextSlice, ContextPlan, ContextObject } from "./context-runtime/context-object.js";
+lib/ai-orchestrator/src/index.ts:298:export { buildSlice, estimateTokens } from "./context-runtime/context-object.js";
+lib/ai-orchestrator/src/index.ts:299:export { runAdmission } from "./context-runtime/context-admission.js";
+lib/ai-orchestrator/src/index.ts:300:export type { SliceMetadata } from "./context-loader.js";
+lib/ai-orchestrator/src/index.ts:302:export { buildContextCacheKey, getCachedContext, setCachedContext } from "./context-cache-manager.js";
+lib/ai-orchestrator/src/index.ts:303:export type { NotifyPool, NotifyPoolClient } from "./context-cache-manager.js";
+lib/ai-orchestrator/src/index.ts:388:// Wave 2: context lifetime management
+lib/ai-orchestrator/src/index.ts:389:export { applyLifetime, DEFAULT_LIFETIME_POLICY } from "./context-runtime/context-lifetime.js";
+lib/ai-orchestrator/src/index.ts:390:export type { SliceLifetimePolicy, LifetimePolicy, SliceLifetimeState, LifetimeResult } from "./context-runtime/context-lifetime.js";
+lib/ai-orchestrator/src/index.ts:392:// Wave 2: context snapshot & diff
+lib/ai-orchestrator/src/index.ts:393:export { takeSnapshot, diffSnapshots, snapshotsContentEqual } from "./context-runtime/context-diff.js";
+lib/ai-orchestrator/src/index.ts:394:export type { SliceFingerprint, ContextSnapshot, SliceChangeKind, SliceDelta, ContextDelta } from "./context-runtime/context-diff.js";
+lib/ai-orchestrator/src/index.ts:395:export { loadProjectContext } from "./context-loader.js";
+lib/ai-orchestrator/src/index.ts:396:export type { BuildProjectContextOptions, ContextLoadSection, LoadedProjectContext } from "./context-loader.js";
+lib/ai-orchestrator/src/index.ts:397:export { buildProjectContextFromLoadedContext } from "./context-serializer.js";
+lib/ai-orchestrator/src/index.ts:398:export { CONTEXT_WARN_CHARS, estimateContextSize, warnIfContextTooLarge } from "./context-compressor.js";
+lib/ai-orchestrator/src/index.ts:727:} from "./session-memory.js";
+lib/ai-orchestrator/src/index.ts:728:export type { MemoryRow } from "./session-memory.js";
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:9: *   const snap1 = takeSnapshot(contextObject1);
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:10: *   // … time passes, context reloaded …
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:11: *   const snap2 = takeSnapshot(contextObject2);
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:16:import type { SliceId, ContextObject, AdmissionDecision } from "./context-object.js";
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:113:export function takeSnapshot(contextObject: ContextObject): ContextSnapshot {
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:115:    ...contextObject.admittedSlices,
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:116:    ...contextObject.referenceSlices,
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:117:    ...contextObject.deferredSlices,
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:118:    ...contextObject.droppedSlices,
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:137:    projectId:            contextObject.plan.projectId,
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:140:    totalEstimatedTokens: contextObject.plan.totalEstimatedTokens,
+lib/ai-orchestrator/src/context-runtime/context-diff.ts:141:    budgetTokens:         contextObject.plan.budgetTokens,
+lib/ai-orchestrator/src/openai-compatible-client.ts:93: * Trimming reduces token consumption without hurting conversational coherence.
+lib/ai-orchestrator/src/openai-compatible-client.ts:118: * The result lets the trimmer drop or keep complete groups so the conversation
+lib/ai-orchestrator/src/openai-compatible-client.ts:166: * 400 even when the context is below the trimming limit. Tool results are
+lib/ai-orchestrator/src/openai-compatible-client.ts:221: * the request within typical provider context-window limits.  The result may
+lib/ai-orchestrator/src/openai-compatible-client.ts:434:/** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:471:      { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:487:        { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:493:      { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:501:      { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:526:      { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:543:        { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:549:      { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:558:        { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:573:        { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:581:        { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:597:      { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:604:    { context: ctx },
+lib/ai-orchestrator/src/openai-compatible-client.ts:692:        context: { providerName, providerModel: model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:698:      { cause: err, context: { providerName, providerModel: model } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:704:    // Log the raw response before classifying so we never lose context.
+lib/ai-orchestrator/src/openai-compatible-client.ts:747:        context: { providerName, providerModel: model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:759:      context: { providerName, providerModel: model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:794:      { context: { providerName, providerModel: model } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:947:        context: { providerName, providerModel: model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:953:      { cause: err, context: { providerName, providerModel: model } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:975: * OR-003: trims context to `OPENROUTER_MAX_MESSAGES` non-system turns and
+lib/ai-orchestrator/src/openai-compatible-client.ts:1083:      { context: { providerName: "OpenRouter", providerModel: initialModel, providerCode: "STALE_CONFIGURED_MODEL" } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:1105:        context: {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1171:          context: {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1185:      context: {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1194:    context: {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1207: * OR-003: same context trim and conservative maxTokens as `openrouterCompleteRaw`.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1229:      { context: { providerName: "OpenRouter", providerModel: initialModel } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:1266:            { cause: err, context: { providerName: "OpenRouter", providerModel: model } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:1270:            context: {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1292:            context: {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1315:      context: { ...lastError.toProviderContext(), providerAttemptedModels: attemptedModels },
+lib/ai-orchestrator/src/openai-compatible-client.ts:1319:    context: { providerAttemptedModels: attemptedModels },
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:5: * the ExecutionPlan's context/graph policy and the available token budget.
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:8: *  1. "project"        — always ADMIT; it is the baseline non-negotiable context.
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:9: *  2. "graphSummary"   — graphMode="off" → DROP; uses graphBudgetTokens cap:
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:10: *                         index:    fits within graphBudgetTokens → ADMIT, else REFERENCE.
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:11: *                         expanded: always ADMIT (full graph requested).
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:25:} from "./context-object.js";
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:32:  graphSummary:   5,
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:42:  const { contextIntensity, graphMode } = plan.taskProfile;
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:50:  // Rule 2 — graph policy
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:51:  if (slice.id === "graphSummary") {
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:52:    if (graphMode === "off") return "DROP";
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:53:    if (graphMode === "index") {
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:54:      if (slice.estimatedTokens <= plan.graphBudget) {
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:60:    // graphMode === "expanded": always admit the full graph
+lib/ai-orchestrator/src/context-runtime/context-admission.ts:66:  if (contextIntensity === "lite") {
+lib/ai-orchestrator/src/context-manifest.ts:20:    graph: ScanCompletenessSchema,
+lib/ai-orchestrator/src/context-manifest.ts:36:  // Keep compatibility with older consumers that treated every context
+lib/ai-orchestrator/src/context-manifest.ts:44:export function contextManifestMatches(
+lib/ai-orchestrator/src/context-manifest.ts:65:export function contextManifestAllowsExecution(manifest: ContextManifest | undefined): boolean {
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:8:  contextIntensity: ContextIntensity;
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:9:  graphMode: GraphMode;
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:24:  const { contextIntensity, graphMode } = plan.taskProfile;
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:31:      rationale: { drivingField: "preferred", contextIntensity, graphMode },
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:41:      rationale: { drivingField: "strictHints", contextIntensity, graphMode },
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:51:      rationale: { drivingField: "relaxedHints", contextIntensity, graphMode },
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts:59:    rationale: { drivingField: "fallback", contextIntensity, graphMode },
+lib/ai-orchestrator/src/context-loader.ts:6:  graphEntitiesTable,
+lib/ai-orchestrator/src/context-loader.ts:7:  graphRelationshipsTable,
+lib/ai-orchestrator/src/context-loader.ts:20:import type { RepositoryRevisionManifest } from "./context-manifest.js";
+lib/ai-orchestrator/src/context-loader.ts:31:// Re-exported under context-meaningful names; consumers import from here, not
+lib/ai-orchestrator/src/context-loader.ts:32:// from @workspace/db directly, so the context layer owns the boundary.
+lib/ai-orchestrator/src/context-loader.ts:50:/** Projected subset of graph_relationships fetched by loadGraph(). */
+lib/ai-orchestrator/src/context-loader.ts:52:  typeof graphRelationshipsTable.$inferSelect,
+lib/ai-orchestrator/src/context-loader.ts:65: * Lightweight metadata describing the load outcome for one context section.
+lib/ai-orchestrator/src/context-loader.ts:66: * Consumed by the context runtime layer (context-builder, context-admission)
+lib/ai-orchestrator/src/context-loader.ts:70:  /** Origin label, e.g. "db:tasks", "db:graph_entities". */
+lib/ai-orchestrator/src/context-loader.ts:87:  | "graphEntities"
+lib/ai-orchestrator/src/context-loader.ts:88:  | "graphRelationships"
+lib/ai-orchestrator/src/context-loader.ts:109:  contextManifest: import("./context-manifest.js").ContextManifest;
+lib/ai-orchestrator/src/context-loader.ts:112:  /** Per-section load metadata for the context runtime layer. */
+lib/ai-orchestrator/src/context-loader.ts:121:  "graphEntities",
+lib/ai-orchestrator/src/context-loader.ts:122:  "graphRelationships",
+lib/ai-orchestrator/src/context-loader.ts:138: * context build.  The project row is NOT wrapped — its failure throws.
+lib/ai-orchestrator/src/context-loader.ts:151:        scope: "context-loader",
+lib/ai-orchestrator/src/context-loader.ts:209: * Load graph entities (up to 60) and/or relationships (up to 40, projected).
+lib/ai-orchestrator/src/context-loader.ts:222:          .from(graphEntitiesTable)
+lib/ai-orchestrator/src/context-loader.ts:223:          .where(eq(graphEntitiesTable.projectId, projectId))
+lib/ai-orchestrator/src/context-loader.ts:224:          .orderBy(desc(graphEntitiesTable.confidence))
+lib/ai-orchestrator/src/context-loader.ts:230:            id: graphRelationshipsTable.id,
+lib/ai-orchestrator/src/context-loader.ts:231:            sourceId: graphRelationshipsTable.sourceId,
+lib/ai-orchestrator/src/context-loader.ts:232:            targetId: graphRelationshipsTable.targetId,
+lib/ai-orchestrator/src/context-loader.ts:233:            relation: graphRelationshipsTable.relation,
+lib/ai-orchestrator/src/context-loader.ts:234:            relationType: graphRelationshipsTable.relationType,
+lib/ai-orchestrator/src/context-loader.ts:235:            confidence: graphRelationshipsTable.confidence,
+lib/ai-orchestrator/src/context-loader.ts:236:            isHeuristic: graphRelationshipsTable.isHeuristic,
+lib/ai-orchestrator/src/context-loader.ts:238:          .from(graphRelationshipsTable)
+lib/ai-orchestrator/src/context-loader.ts:239:          .where(eq(graphRelationshipsTable.projectId, projectId))
+lib/ai-orchestrator/src/context-loader.ts:240:          .orderBy(desc(graphRelationshipsTable.confidence))
+lib/ai-orchestrator/src/context-loader.ts:298: * Load all requested context sections for a project inside a single
+lib/ai-orchestrator/src/context-loader.ts:349:              wants("graphEntities"),
+lib/ai-orchestrator/src/context-loader.ts:350:              wants("graphRelationships"),
+lib/ai-orchestrator/src/context-loader.ts:353:          "graph",
+lib/ai-orchestrator/src/context-loader.ts:387:      const contextManifest = {
+lib/ai-orchestrator/src/context-loader.ts:420:      if (wants("graphEntities"))      _meta.set("graphEntities",      { source: "db:graph_entities",      freshness: entities.length > 0 ? "fresh" : "missing",         loadedAt, rowCount: entities.length,           dependencyHints: ["graphRelationships"] });
+lib/ai-orchestrator/src/context-loader.ts:421:      if (wants("graphRelationships")) _meta.set("graphRelationships", { source: "db:graph_relationships", freshness: relationships.length > 0 ? "fresh" : "missing",    loadedAt, rowCount: relationships.length,       dependencyHints: ["graphEntities"] });
+lib/ai-orchestrator/src/context-loader.ts:436:        contextManifest,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:79:    return "long_context";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:140:          context: {
+lib/ai-orchestrator/src/context-compressor.ts:1:import type { AgentContext as ProjectContext } from "./schemas/context.schema.js";
+lib/ai-orchestrator/src/context-compressor.ts:14:export function estimateContextSize(context: ProjectContext): number {
+lib/ai-orchestrator/src/context-compressor.ts:15:  return Object.values(context).reduce(
+lib/ai-orchestrator/src/context-compressor.ts:21:export function warnIfContextTooLarge(projectId: string, context: ProjectContext, threshold = CONTEXT_WARN_CHARS): void {
+lib/ai-orchestrator/src/context-compressor.ts:22:  const totalChars = estimateContextSize(context);
+lib/ai-orchestrator/src/context-compressor.ts:27:      scope: "context-builder",
+lib/ai-orchestrator/src/context-compressor.ts:39: * GAP-A3: Progressively truncate the longest string fields in the context
+lib/ai-orchestrator/src/context-compressor.ts:49:  context: ProjectContext,
+lib/ai-orchestrator/src/context-compressor.ts:52:  let total = estimateContextSize(context);
+lib/ai-orchestrator/src/context-compressor.ts:53:  if (total <= maxChars) return context;
+lib/ai-orchestrator/src/context-compressor.ts:57:      scope: "context-builder",
+lib/ai-orchestrator/src/context-compressor.ts:67:  const trimmed = { ...context } as Record<string, unknown>;
+lib/ai-orchestrator/src/context-compressor.ts:70:  // Field names must match AgentContext (context.schema.ts).
+lib/ai-orchestrator/src/context-compressor.ts:72:    "graphSummary",
+lib/ai-orchestrator/src/context-compressor.ts:97:    trimmed[target] = current.slice(0, half) + "\n…[trimmed — context too large]";
+lib/ai-orchestrator/src/context-compressor.ts:103:      scope: "context-builder",
+lib/ai-orchestrator/src/context-cache-manager.ts:1:import type { AgentContext as ProjectContext } from "./schemas/context.schema.js";
+lib/ai-orchestrator/src/context-cache-manager.ts:3:import type { SliceId } from "./context-runtime/context-object.js";
+lib/ai-orchestrator/src/context-cache-manager.ts:6:const contextCache = new Map<string, { data: ProjectContext; expiresAt: number }>();
+lib/ai-orchestrator/src/context-cache-manager.ts:28:  plan: Pick<ExecutionPlan, "contextBudget" | "graphBudget"> & {
+lib/ai-orchestrator/src/context-cache-manager.ts:29:    contextIntensity?: string;
+lib/ai-orchestrator/src/context-cache-manager.ts:30:    graphMode?: string;
+lib/ai-orchestrator/src/context-cache-manager.ts:34:    plan.contextIntensity ?? "?",
+lib/ai-orchestrator/src/context-cache-manager.ts:35:    plan.graphMode        ?? "?",
+lib/ai-orchestrator/src/context-cache-manager.ts:36:    plan.contextBudget,
+lib/ai-orchestrator/src/context-cache-manager.ts:37:    plan.graphBudget,
+lib/ai-orchestrator/src/context-cache-manager.ts:56:  graphSummary:  ["graphEntities", "graphRelationships"],
+lib/ai-orchestrator/src/context-cache-manager.ts:74:  for (const key of contextCache.keys()) {
+lib/ai-orchestrator/src/context-cache-manager.ts:80:      contextCache.delete(key);
+lib/ai-orchestrator/src/context-cache-manager.ts:86:  return contextCache.get(cacheKey);
+lib/ai-orchestrator/src/context-cache-manager.ts:90:  contextCache.set(cacheKey, { data, expiresAt: Date.now() + CONTEXT_CACHE_TTL_MS });
+lib/ai-orchestrator/src/context-cache-manager.ts:98: * Invalidate the cached context for a project immediately.
+lib/ai-orchestrator/src/context-cache-manager.ts:99: * Call after any write that changes context-relevant data — e.g. applying AI
+lib/ai-orchestrator/src/context-cache-manager.ts:103:  for (const key of contextCache.keys()) {
+lib/ai-orchestrator/src/context-cache-manager.ts:105:      contextCache.delete(key);
+lib/ai-orchestrator/src/context-cache-manager.ts:144:          for (const key of contextCache.keys()) {
+lib/ai-orchestrator/src/context-cache-manager.ts:146:              contextCache.delete(key);
+lib/ai-orchestrator/src/model-selection/decision-engine.ts:10: * policy decisions (quality, context, memory, graph, history) originate from
+lib/ai-orchestrator/src/model-selection/decision-engine.ts:13: * Context policy overrides (contextIntensityOverride, memoryModeOverride,
+lib/ai-orchestrator/src/model-selection/decision-engine.ts:14: * graphModeOverride, historyModeOverride) are accepted via the options object
+lib/ai-orchestrator/src/context-builder.ts:5: *   cache lookup → load (context-loader)
+lib/ai-orchestrator/src/context-builder.ts:6: *               → serialize (context-serializer)
+lib/ai-orchestrator/src/context-builder.ts:8: *               → admit (context-admission)
+lib/ai-orchestrator/src/context-builder.ts:15:import type { AgentContext } from "./schemas/context.schema.js";
+lib/ai-orchestrator/src/context-builder.ts:16:import { buildContextCacheKey, getCachedContext, setCachedContext, hashExecutionPlan } from "./context-cache-manager.js";
+lib/ai-orchestrator/src/context-builder.ts:17:import { loadProjectContext, type BuildProjectContextOptions, type ContextLoadSection } from "./context-loader.js";
+lib/ai-orchestrator/src/context-builder.ts:18:import { buildProjectContextFromLoadedContext } from "./context-serializer.js";
+lib/ai-orchestrator/src/context-builder.ts:26:} from "./context-runtime/context-object.js";
+lib/ai-orchestrator/src/context-builder.ts:27:import { runAdmission } from "./context-runtime/context-admission.js";
+lib/ai-orchestrator/src/context-builder.ts:29:export { invalidateContextCache, invalidateContextSlice, hashExecutionPlan, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
+lib/ai-orchestrator/src/context-builder.ts:30:export type { BuildProjectContextOptions, ContextLoadSection } from "./context-loader.js";
+lib/ai-orchestrator/src/context-builder.ts:32:/** The context object every agent prompt is built from. Shape enforced by AgentContextSchema. */
+lib/ai-orchestrator/src/context-builder.ts:41:  /** Execution plan controlling context depth and token budgets. Defaults to normal intensity. */
+lib/ai-orchestrator/src/context-builder.ts:52:  graphSummary:  "graphEntities",   // graph entities + relationships → one slice
+lib/ai-orchestrator/src/context-builder.ts:61:  graphEntities:      "graphSummary",
+lib/ai-orchestrator/src/context-builder.ts:62:  graphRelationships: "graphSummary",
+lib/ai-orchestrator/src/context-builder.ts:72:  { id: "graphSummary",  key: "graphSummary" },
+lib/ai-orchestrator/src/context-builder.ts:80:const LABEL_DEFERRED  = "[section deferred — not included in this context budget]";
+lib/ai-orchestrator/src/context-builder.ts:90:        : `${content.slice(0, REFERENCE_LIMIT)}…[brief — see full context for details]`;
+lib/ai-orchestrator/src/context-builder.ts:105:  // changes (e.g. switching context intensity) produce distinct cache entries.
+lib/ai-orchestrator/src/context-builder.ts:107:    contextIntensityOverride: "normal",
+lib/ai-orchestrator/src/context-builder.ts:138:  const contextPlan: ContextPlan = {
+lib/ai-orchestrator/src/context-builder.ts:142:    budgetTokens:      effectivePlan.contextBudget,
+lib/ai-orchestrator/src/context-builder.ts:143:    graphBudgetTokens: effectivePlan.graphBudget,
+lib/ai-orchestrator/src/context-builder.ts:147:  const contextObject = runAdmission(contextPlan, effectivePlan);
+lib/ai-orchestrator/src/context-builder.ts:148:  const sliceMap = new Map(contextObject.plan.slices.map((s) => [s.id, s]));
+lib/ai-orchestrator/src/context-builder.ts:150:  // Trace context admission decisions for diagnostics.
+lib/ai-orchestrator/src/context-builder.ts:153:      scope: "context-builder",
+lib/ai-orchestrator/src/context-builder.ts:156:      totalEstimatedTokens: contextPlan.totalEstimatedTokens,
+lib/ai-orchestrator/src/context-builder.ts:157:      budgetTokens: contextPlan.budgetTokens,
+lib/ai-orchestrator/src/context-builder.ts:158:      graphBudgetTokens: contextPlan.graphBudgetTokens,
+lib/ai-orchestrator/src/context-builder.ts:159:      sliceCount: contextPlan.slices.length,
+lib/ai-orchestrator/src/context-builder.ts:161:      decisions: contextObject.plan.slices.map((s) => ({
+lib/ai-orchestrator/src/context-builder.ts:175:    graphSummary:   applyDecision(sliceMap.get("graphSummary")!.content,  sliceMap.get("graphSummary")!.admissionDecision),
+lib/ai-orchestrator/src/context-builder.ts:179:    contextManifest: loaded.contextManifest,
+lib/ai-orchestrator/src/forensic-recovery.ts:171:  // It may explain why a candidate needs runtime/context evidence, but it
+lib/ai-orchestrator/src/forensic-recovery.ts:302:  /\b(?:test|tests|testing|regression|assert|verify|verified|validate|validation|behavior|behaviour|reproduc|security|endpoint|route|api|query|graph|orchestrator|chat|input|output|request|response|failure|error|eval)\b/i;
+lib/ai-orchestrator/src/forensic-recovery.ts:335:    "knowledge-engine-tests": /\b(?:knowledge|graph|path|centrality|cluster|query|neighbourhood|neighborhood)\b/i,
+lib/ai-orchestrator/src/forensic-recovery.ts:480:        "- graph-empty: تحقق من أن الرسم البياني الفارغ لا ينتج Finding.",
+lib/ai-orchestrator/src/forensic-recovery.ts:486:        "- graph-empty: verify behavior when the knowledge graph is empty.",
+lib/ai-orchestrator/src/capability-contract.ts:150:     * context before an adapter can run.
+lib/ai-orchestrator/src/capability-contract.ts:256:  execute: (input: Input, context: CapabilityExecutionContext) => Promise<Output> | Output;
+lib/ai-orchestrator/src/capability-contract.ts:488:    context: CapabilityExecutionContext,
+lib/ai-orchestrator/src/capability-contract.ts:494:    if (capability.policy.requiresApproval && context.approvalState !== "APPROVED") {
+lib/ai-orchestrator/src/capability-contract.ts:497:    if (!capability.policy.allowedOperations.includes(context.operation)) {
+lib/ai-orchestrator/src/capability-contract.ts:501:      (profile) => !context.approvedCommandProfiles?.has(profile),
+lib/ai-orchestrator/src/capability-contract.ts:508:      output = await capability.execute(validation.input, context);
+lib/ai-orchestrator/src/forensic-output-guard.ts:136:  /\b(?:test|tests|testing|regression|assert|verify|verified|validate|validation|behavior|behaviour|reproduc|security|endpoint|route|api|query|graph|orchestrator|chat|input|output|request|response|failure|error|eval)\b/i;
+lib/ai-orchestrator/src/forensic-output-guard.ts:165:  /\[prefetch output truncated\b/i,
+lib/ai-orchestrator/src/forensic-output-guard.ts:195:    /unbounded|unlimited|without (?:a )?size limit|memory growth|memory exhaustion/.test(lower)
+lib/ai-orchestrator/src/forensic-output-guard.ts:215:    /(?:schema|context|dependency|manifest|workspace)/.test(lower) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:221:    reasons.push("a missing schema/context read is a verification gap, not a proven implementation defect");
+lib/ai-orchestrator/src/forensic-output-guard.ts:225:    /(?:memory|performance|latency|slow|overhead|allocation|complexity|o\([^)]+\))/.test(lower) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:231:    reasons.push("the performance or memory impact is asserted without a completed measurement or reproducible result");
+lib/ai-orchestrator/src/forensic-output-guard.ts:971:  const classifyEvidenceFile = (file: string): "implementation" | "context" | "generated" => {
+lib/ai-orchestrator/src/forensic-output-guard.ts:976:      return "context";
+lib/ai-orchestrator/src/forensic-output-guard.ts:985:    { implementation: 0, context: 0, generated: 0 },

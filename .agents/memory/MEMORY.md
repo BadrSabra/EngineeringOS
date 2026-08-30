@@ -75,3 +75,4 @@
 - [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.
 - [Recipe contract schemas](recipe-contract-schemas.md) — required recipe values need explicit guards, and compiled predicates need wider namespaced-ID validation than source recipes.
 - [Groq model lifecycle](groq-model-lifecycle.md) — validate hardcoded Groq defaults against the live model catalog; valid keys can still fail when Groq retires a slug.
+- [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.

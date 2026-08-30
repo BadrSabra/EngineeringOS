@@ -78,6 +78,16 @@ export {
 } from "./benchmark/benchmark-parity-report.js";
 export type { ProviderConfig } from "./provider-registry.js";
 export type { ProviderStrategy, StrategyCallOptions, StrategyStreamOptions } from "./provider-strategy.js";
+export {
+  createExecutionLedger,
+  type ExecutionLedger,
+  type ExecutionLedgerBudget,
+  type ExecutionLedgerEvent,
+  type ExecutionLedgerSnapshot,
+  type ExecutionAttemptKind,
+  type ExecutionMode,
+  type ExecutionTerminalReason,
+} from "./execution-ledger.js";
 export type { ProviderCapabilityHints, ProviderCapabilitySummary, ProviderCostTier } from "./provider-capabilities.js";
 export type {
   Message,

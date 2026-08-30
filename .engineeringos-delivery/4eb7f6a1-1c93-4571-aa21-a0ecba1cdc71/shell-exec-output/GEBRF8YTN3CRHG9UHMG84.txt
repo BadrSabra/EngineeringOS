@@ -1,0 +1,250 @@
+artifacts/api-server/src/lib/ai-route-helpers.ts:328:        "primary provider error; retrying agent with fallback provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:354: * Call `chat()` with automatic provider fallback on recoverable errors.
+artifacts/api-server/src/lib/ai-route-helpers.ts:360:export async function chatWithFallback(
+artifacts/api-server/src/lib/ai-route-helpers.ts:451:        "primary provider error; retrying with fallback provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:495:      // Non-recoverable error — surface immediately.
+artifacts/api-server/src/lib/ai-route-helpers.ts:530:      operatorAction: "Save an API key for at least one supported provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:552:      operatorAction: "Save an API key for at least one supported provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:589:    const retryable = err.code === "TIMEOUT"
+artifacts/api-server/src/lib/ai-route-helpers.ts:604:            : retryable ? 503 : 502;
+artifacts/api-server/src/lib/ai-route-helpers.ts:607:      error: retryable
+artifacts/api-server/src/lib/ai-route-helpers.ts:608:        ? "The AI request could not complete. Please retry."
+artifacts/api-server/src/lib/ai-route-helpers.ts:611:      retryable,
+artifacts/api-server/src/lib/ai-route-helpers.ts:612:      recoveryState: "REQUIRED",
+artifacts/api-server/src/lib/ai-route-helpers.ts:668:      if (err.retryAfterMs !== undefined) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:669:        res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+artifacts/api-server/src/lib/ai-route-helpers.ts:673:        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:674:        retryAfterMs: err.retryAfterMs,
+artifacts/api-server/src/lib/ai-route-helpers.ts:713:        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:803:      operatorAction: `Replace the ${providerId} API key with a valid key from ${providerConsole}, then retry.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:809:      operatorAction: "Wait for the provider cooldown to finish, then retry or configure another provider.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:820:      operatorAction: "Choose a compatible current model or configure another provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:826:      operatorAction: "Wait for the rate-limit window to reset, then retry or configure another provider.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:849:      operatorAction: "Select another compatible model or configure another provider, then retry.",
+lib/ai-orchestrator/src/openai-compatible-client.ts:7: * groq-sdk client (which adds circuit-breaking and retry-with-backoff on top).
+lib/ai-orchestrator/src/openai-compatible-client.ts:44:  /** Disable transient retry when the caller owns bounded model fallback. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:45:  retryTransient?: boolean;
+lib/ai-orchestrator/src/openai-compatible-client.ts:51:  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:165: * after a tool loop; replaying that turn during synthesis/recovery produces a
+lib/ai-orchestrator/src/openai-compatible-client.ts:276:/** Resolve after `ms` milliseconds (used for retry back-off). */
+lib/ai-orchestrator/src/openai-compatible-client.ts:285: * OR-005: True for transient OpenRouter errors that warrant a single retry.
+lib/ai-orchestrator/src/openai-compatible-client.ts:299:  | "retry"
+lib/ai-orchestrator/src/openai-compatible-client.ts:312: * Stable, provider-free policy used by recovery callers and diagnostics.
+lib/ai-orchestrator/src/openai-compatible-client.ts:325:      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:396: * recoverable by trying another model in the fallback chain — for example,
+lib/ai-orchestrator/src/openai-compatible-client.ts:423:  const value = headers?.get("retry-after")?.trim();
+lib/ai-orchestrator/src/openai-compatible-client.ts:450:    retryAfterMs:    status === 429 ? parseRetryAfterMs(headers) : undefined,
+lib/ai-orchestrator/src/openai-compatible-client.ts:492:      `${providerName} API rate limit exceeded — wait a moment before retrying`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:999:    // retry the same model once with the prompt-only contract.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1011:          action: "retry_without_response_format",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1019:      err.retryAfterMs !== undefined
+lib/ai-orchestrator/src/openai-compatible-client.ts:1023:    if (!isTransientError(err) || opts.retryTransient === false) throw err;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1146:      // per-model retry above and advances immediately to the next live
+lib/ai-orchestrator/src/openai-compatible-client.ts:1150:        opts.retryTransient === false && isTransientError(err);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1260:        // Once bytes have been emitted, retrying would duplicate or splice the
+lib/ai-orchestrator/src/openai-compatible-client.ts:1279:          opts.retryTransient !== false &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:1281:          providerError.retryAfterMs === undefined
+lib/ai-orchestrator/src/openai-compatible-client.ts:1288:          (opts.retryTransient === false && isTransientError(providerError));
+lib/ai-orchestrator/src/index.ts:35:export { mergeForensicRecoveryEnvelopes } from "./forensic-recovery.js";
+lib/ai-orchestrator/src/index.ts:36:export type { ForensicRecoveryEnvelope } from "./forensic-recovery.js";
+lib/ai-orchestrator/src/index.ts:156:export { decideRetry } from "./quality/retry-controller.js";
+lib/ai-orchestrator/src/index.ts:157:export type { RetryDecision } from "./quality/retry-controller.js";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:90:  // need exact source quoting, not a long reasoning trace or a large synthesis
+lib/ai-orchestrator/src/schemas/chat.schema.ts:26: * separate from the Markdown report: execution handoff must not recover write
+lib/ai-orchestrator/src/forensic-recovery.ts:133:        scope: "forensic-recovery",
+lib/ai-orchestrator/src/forensic-recovery.ts:567:            : "Blocked by — analysis cancellation before synthesis and validation completed.",
+lib/ai-orchestrator/src/forensic-recovery.ts:810:          "NO_FINDING recovery requires a source-grounded noFindingBasis naming the inspected file and quoting an exact source fragment",
+lib/ai-orchestrator/src/recipe-contract.ts:11: * timeout, retry, or process-control fields.
+lib/ai-orchestrator/src/recipe-contract.ts:202: * They are kept in a schema so persisted plans can be checked on recovery.
+lib/ai-orchestrator/src/recipe-compiler.ts:110:  "shellcommand", "timeout", "timeoutms", "retries", "retry", "workdir",
+lib/ai-orchestrator/src/provider-registry.ts:263:  /** Total number of API attempts (1 = first try succeeded, 2 = one retry). */
+lib/ai-orchestrator/src/forensic-output-guard.ts:201:    /maxretries|retry loop|retry logic/.test(lower) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:501:    /\brobust (?:error handling|architecture|caching|retry|reliability)\b/i,
+lib/ai-orchestrator/src/forensic-output-guard.ts:1797: * synthetic prefetch reads and real tool-loop reads, while excluding search
+lib/ai-orchestrator/src/groq-client.ts:7: *   complete()    → orchestrates the above with a small bounded retry for
+lib/ai-orchestrator/src/groq-client.ts:55:  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+lib/ai-orchestrator/src/groq-client.ts:72: *   attempt 0 (first retry): 1 000 ms  ±50 %  →  500 – 1 500 ms
+lib/ai-orchestrator/src/groq-client.ts:80:function retryDelayMs(attempt: number, code: GroqErrorCode): number {
+lib/ai-orchestrator/src/groq-client.ts:453:        const delay = retryDelayMs(attempt, lastError.code);
+lib/ai-orchestrator/src/groq-client.ts:454:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/groq-client.ts:547:  // (not retried). Now that they are distinct codes, retry both: rate-limit
+lib/ai-orchestrator/src/groq-client.ts:550:  // never retryable — a retry cannot change the outcome.
+lib/ai-orchestrator/src/groq-client.ts:577: * Designed for the final synthesis step (no tool calls). Do NOT pass `tools` here;
+lib/ai-orchestrator/src/groq-client.ts:700:        const delay = retryDelayMs(attempt, lastError.code);
+lib/ai-orchestrator/src/groq-client.ts:701:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/quality/task-profile.ts:19:  retryOnParseFailure: boolean;
+lib/ai-orchestrator/src/quality/task-profile.ts:20:  retryOnLowQuality: boolean;
+lib/ai-orchestrator/src/quality/task-profile.ts:61:    retryOnParseFailure: taskType !== "chat" || hasTools,
+lib/ai-orchestrator/src/quality/task-profile.ts:62:    retryOnLowQuality: taskType !== "chat",
+lib/ai-orchestrator/src/tool-execution-engine.ts:86: * Fraction of maxIterations at which a "synthesise now" hint is injected into
+lib/ai-orchestrator/src/tool-execution-engine.ts:94:function syntheticValidationResult(
+lib/ai-orchestrator/src/tool-execution-engine.ts:142:  recovery: 0.1, // reserved to force a first read on a zero-evidence run
+lib/ai-orchestrator/src/tool-execution-engine.ts:149:  recovery: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:156:  const recovery = Math.max(1, maxIterations - planning - evidence - reasoning);
+lib/ai-orchestrator/src/tool-execution-engine.ts:157:  return { planning, evidence, reasoning, recovery };
+lib/ai-orchestrator/src/tool-execution-engine.ts:167: * for provider recovery, then force a bounded decision.
+lib/ai-orchestrator/src/tool-execution-engine.ts:356:      `${base} This is the third repeated search, so the next turn is synthesis-only. ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:475: * Error strings, directory listings, synthesis hints, and bounded/truncated
+lib/ai-orchestrator/src/tool-execution-engine.ts:492: *   the body itself is not source evidence (an Error, listing, synthesis or
+lib/ai-orchestrator/src/tool-execution-engine.ts:604:   * between planning, protected evidence acquisition, and recovery.
+lib/ai-orchestrator/src/tool-execution-engine.ts:612:  synthesisAttempts?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:613:  synthesisMaxAttempts?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:614:  synthesisTimeoutMs?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:615:  synthesisElapsedMs?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:616:  synthesisTimedOut?: boolean;
+lib/ai-orchestrator/src/tool-execution-engine.ts:769:            // provider retry/resume; the analysis tool validates it before
+lib/ai-orchestrator/src/tool-execution-engine.ts:934: * return EMPTY_RESPONSE or spend its output budget on a malformed retry.
+lib/ai-orchestrator/src/tool-execution-engine.ts:943:  "[bounded synthesis excerpt omitted; the complete source read remains available to the server evidence gate]";
+lib/ai-orchestrator/src/tool-execution-engine.ts:978:export type AgentLoopPhase = "planning" | "evidence" | "reasoning" | "recovery" | "terminal";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1033:   * When the strategy returns a transient error, the loop may retry with
+lib/ai-orchestrator/src/tool-execution-engine.ts:1069:   * model synthesis behaviour.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1077:   * Optional response envelope requested for the final no-tools synthesis call.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1079:   * once the forensic loop enters its synthesis window.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1139:   * Optional final synthesis window. Starting at this zero-based iteration,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1150:  synthesisTimeoutMs?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1151:  synthesisMaxAttempts?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1154:   * Narrow execution mode for a recovered Repair Plan. It keeps the normal
+lib/ai-orchestrator/src/tool-execution-engine.ts:1185:   * Source files named by the recovered Repair Plan. When all of these files
+lib/ai-orchestrator/src/tool-execution-engine.ts:1397:  // so was classified INCOMPLETE_BEFORE_EVIDENCE) is recovered by reading its
+lib/ai-orchestrator/src/tool-execution-engine.ts:1400:  // FIRST_EVIDENCE_UNAVAILABLE replaces the generic "recovery skipped" outcome
+lib/ai-orchestrator/src/tool-execution-engine.ts:1415:  // normal terminal - and, within the recovery allocation, the loop forces a
+lib/ai-orchestrator/src/tool-execution-engine.ts:1453:  | { kind: "recovery_model_call"; model: string; provider: string; attempt: number }
+lib/ai-orchestrator/src/tool-execution-engine.ts:1518:  | { kind: "synthesis_start"; iter: number; maxIterations: number }
+lib/ai-orchestrator/src/tool-execution-engine.ts:1519:  | { kind: "forensic_recovery_start"; attempt: number }
+lib/ai-orchestrator/src/tool-execution-engine.ts:1576:      recoveryTriggered?: boolean;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1577:      recoveryTarget?: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1632:      synthesisStarted: boolean;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1633:      /** Bounded final-synthesis telemetry for operator diagnostics. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1634:      synthesisAttempts?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1635:      synthesisMaxAttempts?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1636:      synthesisTimeoutMs?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1637:      synthesisElapsedMs?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1638:      synthesisTimedOut?: boolean;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1680:    synthesisTimeoutMs = DEFAULT_SYNTHESIS_TIMEOUT_MS,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1681:    synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1761:  let synthesisStarted = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1762:  const boundedSynthesisTimeoutMs = Math.max(1_000, Math.floor(synthesisTimeoutMs));
+lib/ai-orchestrator/src/tool-execution-engine.ts:1763:  const boundedSynthesisMaxAttempts = Math.max(1, Math.floor(synthesisMaxAttempts));
+lib/ai-orchestrator/src/tool-execution-engine.ts:1764:  let synthesisDeadlineAt: number | null = null;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1765:  let synthesisAttempts = 0;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1766:  let synthesisTimedOut = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1827:  // evidence; a truncated recovery window is NOT a duplicate (FEG-015).
+lib/ai-orchestrator/src/tool-execution-engine.ts:1874:  // forced-synthesis behavior, while FEG-008 progress is judged solely on
+lib/ai-orchestrator/src/tool-execution-engine.ts:1981:  // evidence-allocation guard and the recovery-bounds first-read force are only
+lib/ai-orchestrator/src/tool-execution-engine.ts:2007:  // Soft-limit state — tracks whether the synthesis hint has been injected and
+lib/ai-orchestrator/src/tool-execution-engine.ts:2010:  let synthesisTriggerSent = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2016:    * 4 096 gives synthesis enough room while the existing length-retry and
+lib/ai-orchestrator/src/tool-execution-engine.ts:2027:   * OR-004: Transient error codes that warrant a powerModel retry within
+lib/ai-orchestrator/src/tool-execution-engine.ts:2029:   * retried. EMPTY_RESPONSE gets one bounded same-model retry below because
+lib/ai-orchestrator/src/tool-execution-engine.ts:2042:    // server-owned manifest. Do not retry it, append a synthetic tool result,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2070:        synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2071:        synthesisAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2072:        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2073:        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2074:        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+lib/ai-orchestrator/src/tool-execution-engine.ts:2075:          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2077:        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2145:      } catch (retryErr) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2146:        if (retryErr instanceof GroqClientError) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2148:            `provider failure code: ${retryErr.code}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2151:        throw retryErr;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2162:      if (synthesisAttempts >= boundedSynthesisMaxAttempts) break;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2163:      if (synthesisDeadlineAt !== null && Date.now() >= synthesisDeadlineAt) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2164:        synthesisTimedOut = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2165:        sourceRetrieval.synthesisTimedOut = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2168:      synthesisAttempts += 1;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2169:      sourceRetrieval.synthesisAttempts = synthesisAttempts;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2177:        (synthesisDeadlineAt ?? Date.now() + boundedSynthesisTimeoutMs) - Date.now(),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2180:        synthesisTimedOut = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2181:        sourceRetrieval.synthesisTimedOut = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2185:        // Preserve the configured timeout for the first synthesis attempt.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2191:        const attemptTimeoutMs = synthesisAttempts === 1
+lib/ai-orchestrator/src/tool-execution-engine.ts:2203:          synthesisTimedOut = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2204:          sourceRetrieval.synthesisTimedOut = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2212:        sourceRetrieval.synthesisElapsedMs =
+lib/ai-orchestrator/src/tool-execution-engine.ts:2213:          (sourceRetrieval.synthesisElapsedMs ?? 0) + (Date.now() - startedAt);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2214:        sourceRetrieval.synthesisTimedOut = synthesisTimedOut;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2217:    throw lastError ?? new GroqClientError("TIMEOUT", "synthesis attempt budget exhausted");
+lib/ai-orchestrator/src/tool-execution-engine.ts:2222:   * tools. That response cannot be executed in the synthesis window and often
+lib/ai-orchestrator/src/tool-execution-engine.ts:2224:   * produce the no-tools answer before handing the evidence to recovery.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2230:    const attemptsBefore = synthesisAttempts;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2233:      attemptCount: synthesisAttempts - attemptsBefore,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2239:      synthesisAttempts >= boundedSynthesisMaxAttempts
+lib/ai-orchestrator/src/tool-execution-engine.ts:2250:        reason: "provider returned tool_calls during a no-tools synthesis request",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2261:        attemptCount: synthesisAttempts - attemptsBefore,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2272:  // loop that no single recoverable read can escape.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2279:  // maxIterations is split into planning / evidence / reasoning / recovery
+lib/ai-orchestrator/src/tool-execution-engine.ts:2294:  sourceRetrieval.synthesisMaxAttempts = boundedSynthesisMaxAttempts;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2295:  sourceRetrieval.synthesisTimeoutMs = boundedSynthesisTimeoutMs;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2304:  // or the model synthesizes, so a planner cannot resume orbiting.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2472:        synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2473:        synthesisAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2474:        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2475:        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2476:        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+lib/ai-orchestrator/src/tool-execution-engine.ts:2477:          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2479:        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2505:        synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2506:        synthesisAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2507:        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2508:        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2509:        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+lib/ai-orchestrator/src/tool-execution-engine.ts:2510:          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2512:        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2550:        synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2579:    // ── Soft-limit synthesis hint ─────────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:2584:    if (iter >= softLimitIter && !synthesisTriggerSent) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2585:      synthesisTriggerSent = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2621:            synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2638:       const synthesisHint =
+lib/ai-orchestrator/src/tool-execution-engine.ts:2645:             : "You have gathered enough information. Please synthesize and summarize everything you have found so far — do not call additional tools.");
+lib/ai-orchestrator/src/tool-execution-engine.ts:2646:      messages.push({ role: "user", content: synthesisHint });
+lib/ai-orchestrator/src/tool-execution-engine.ts:2669:    // turns must be allowed to synthesize a final answer after the tool result.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2671:    const synthesisOnly =
+lib/ai-orchestrator/src/tool-execution-engine.ts:2674:    if (synthesisOnly && !synthesisStarted) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2675:      synthesisStarted = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2676:      synthesisDeadlineAt = Date.now() + boundedSynthesisTimeoutMs;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2679:          kind: "synthesis_start",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2687:    const availableIterationTools = synthesisOnly ? [] : repairPlanTools();
+lib/ai-orchestrator/src/tool-execution-engine.ts:2696:    // ordinary tool-loop turns as well as the no-tools synthesis window.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2700:      const synthesisAttemptsBeforeCall = synthesisAttempts;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2701:      const callResult = synthesisOnly
+lib/ai-orchestrator/src/tool-execution-engine.ts:2712:              ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2715:            attemptCount: synthesisAttempts - synthesisAttemptsBeforeCall,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2727:        ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2743:        (!synthesisOnly || synthesisAttempts < boundedSynthesisMaxAttempts)
+lib/ai-orchestrator/src/tool-execution-engine.ts:2760:          const fallbackResult = synthesisOnly
+lib/ai-orchestrator/src/tool-execution-engine.ts:2801:              synthesisStarted ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2822:                synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2823:                synthesisAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2824:                synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2825:                synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2826:                ...(sourceRetrieval.synthesisElapsedMs !== undefined
+lib/ai-orchestrator/src/tool-execution-engine.ts:2827:                  ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2829:                ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2866:        // TIMEOUT (already on powerModel, or non-retryable transient): degrade
+lib/ai-orchestrator/src/tool-execution-engine.ts:2872:            synthesisStarted ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2894:                synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2895:                synthesisAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2896:                synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2897:                synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2898:                ...(sourceRetrieval.synthesisElapsedMs !== undefined
+lib/ai-orchestrator/src/tool-execution-engine.ts:2899:                  ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2901:                ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2921:          // surface a meaningful retryable error to the user.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2927:        // synthesis, return a partial empty result instead of exhausted so the
+lib/ai-orchestrator/src/tool-execution-engine.ts:2928:        // chat agent can run its bounded no-tools contract-recovery attempt
+lib/ai-orchestrator/src/tool-execution-engine.ts:2941:                synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2950:          // synthesis hint. In forensic mode the completed reads are still
+lib/ai-orchestrator/src/tool-execution-engine.ts:2951:          // valuable and must reach chat-agent's bounded no-tools recovery;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2954:          if (synthesisStarted || (executionMode === "forensic" && fileContents.size > 0)) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2963:                synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2990:              synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3043:      const retryMaxTokens = iterMaxTokens === undefined ? undefined : iterMaxTokens * 2;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3044:      const retryMessages = compactModelMessages([
+lib/ai-orchestrator/src/tool-execution-engine.ts:3056:        const retry = await strategy.call(retryMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3058:          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3065:        if (retry.content?.trim()) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3066:          result = retry;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3067:          lastTextSeen = retry;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3073:              model: retry.model || model,

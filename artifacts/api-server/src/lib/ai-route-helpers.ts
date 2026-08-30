@@ -19,6 +19,7 @@ import {
   PROVIDER_REGISTRY,
   sortProviderIdsByQuality,
   isCircuitOpen,
+  createExecutionLedger,
 } from "@workspace/ai-orchestrator";
 import type {
   ProviderId,
@@ -32,6 +33,7 @@ import type {
   TurnIntent,
   ValidationRunner,
 } from "@workspace/ai-orchestrator";
+import type { ExecutionLedger } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 
@@ -413,6 +415,8 @@ export async function chatWithFallback(
     onExecutionNodes?: (nodes: ExecutionNode[]) => void;
     /** Abort signal owned by the durable execution controller. */
     signal?: AbortSignal;
+     /** Shared budget across provider attempts and nested agent phases. */
+     executionLedger?: ExecutionLedger;
   },
   initialProvider: { provider: ProviderId; apiKey: string },
   onDelta?: (delta: string) => void,
@@ -420,6 +424,9 @@ export async function chatWithFallback(
   onStreamReset?: () => void,
   onStep?: (step: AgentStep) => void,
 ): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
+  const executionLedger =
+    baseParams.executionLedger ??
+    createExecutionLedger({ mode: "tool_chat", signal: baseParams.signal });
   const orderedProviders = await collectAvailableProviders(userId, options);
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
     orderedProviders.unshift(initialProvider);
@@ -444,7 +451,10 @@ export async function chatWithFallback(
   // the text-only fallback will lose evidence acquired by the prior attempt.
   const retainedEvidence = baseParams.retainedEvidence ?? new Map<string, string>();
 
-  for (const providerEntry of orderedProviders) {
+  for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
+    if (providerIndex > 0 && !executionLedger.admit("provider_change", { provider: providerEntry.provider })) {
+      break;
+    }
     if (lastErr) {
       logger.info(
         { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
@@ -480,6 +490,7 @@ export async function chatWithFallback(
         signal: baseParams.signal,
         turnIntent: baseParams.turnIntent,
         retainedEvidence,
+         executionLedger,
       } as Parameters<typeof chat>[0]);
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {

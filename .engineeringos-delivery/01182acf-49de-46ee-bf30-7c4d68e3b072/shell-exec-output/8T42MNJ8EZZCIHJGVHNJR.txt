@@ -1,0 +1,240 @@
+artifacts/dashboard/src/pages/AiChat.tsx:1013:    <div className={`mt-2 overflow-hidden rounded-lg border text-[11px] ${
+artifacts/dashboard/src/pages/AiChat.tsx:1867:    <div className={`mt-2 rounded-lg overflow-hidden text-[11px] ${
+artifacts/dashboard/src/pages/AiChat.tsx:3018:    <div className="mt-1 w-full overflow-hidden rounded-lg border border-border/50 bg-background/20 text-[11px]" aria-label="Repair Radar">
+artifacts/dashboard/src/pages/AiChat.tsx:3224:      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:3490:      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:3536:      <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:3776:    <div className="mt-1.5 overflow-hidden rounded-md border border-border/40 bg-background/50">
+artifacts/dashboard/src/pages/AiChat.tsx:4007:            <div className="rounded border border-border/40 overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:4403:          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+artifacts/dashboard/src/pages/AiChat.tsx:4664:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4779:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4890:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:5002:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:5577:      className={`w-full min-w-0 max-w-full overflow-hidden rounded-lg border ${borderColor} ${bgColor} px-3 py-2.5`}
+artifacts/dashboard/src/pages/AiChat.tsx:5986:    <div className="mt-1.5 overflow-hidden rounded border border-amber-500/25 bg-black/20 text-[10px]" aria-label="Repair attempt diff">
+artifacts/dashboard/src/pages/AiChat.tsx:6123:    <div className="mt-1 w-full overflow-hidden rounded-lg border border-border/50 bg-background/20 text-[11px]" aria-label="Flight Recorder">
+artifacts/dashboard/src/pages/AiChat.tsx:6802:      className={`mx-auto mb-3 w-full max-w-3xl overflow-hidden rounded-xl border ${
+artifacts/dashboard/src/pages/AiChat.tsx:7170:export default function AiChat() {
+artifacts/dashboard/src/pages/AiChat.tsx:9311:    <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden overscroll-contain">
+artifacts/dashboard/src/pages/AiChat.tsx:9335:        className={`${sidebarOpen ? 'flex' : 'hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:h-auto md:w-56 md:max-w-none md:shadow-none`}
+artifacts/dashboard/src/pages/AiChat.tsx:9511:        <div className="provider-key-cards min-h-0 shrink-0 max-h-[45%] overflow-y-auto overscroll-contain border-t border-border pt-2 md:max-h-none md:overflow-visible">
+artifacts/dashboard/src/pages/AiChat.tsx:9520:      <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:9522:        <div className="chat-header flex h-12 min-w-0 max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 sm:px-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9549:        <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9647:            <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-6">
+artifacts/dashboard/src/pages/AiChat.tsx:9791:                      <div className="min-w-0 max-w-full overflow-hidden prose prose-sm prose-invert [overflow-wrap:anywhere]">
+artifacts/dashboard/src/pages/AiChat.tsx:9836:                <div className="mx-auto mb-4 w-full max-w-3xl overflow-hidden rounded-xl border border-border/60 bg-card/30">
+artifacts/dashboard/src/pages/AiChat.tsx:1013:    <div className={`mt-2 overflow-hidden rounded-lg border text-[11px] ${
+artifacts/dashboard/src/pages/AiChat.tsx:1867:    <div className={`mt-2 rounded-lg overflow-hidden text-[11px] ${
+artifacts/dashboard/src/pages/AiChat.tsx:3018:    <div className="mt-1 w-full overflow-hidden rounded-lg border border-border/50 bg-background/20 text-[11px]" aria-label="Repair Radar">
+artifacts/dashboard/src/pages/AiChat.tsx:3224:      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:3490:      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:3536:      <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:3776:    <div className="mt-1.5 overflow-hidden rounded-md border border-border/40 bg-background/50">
+artifacts/dashboard/src/pages/AiChat.tsx:4007:            <div className="rounded border border-border/40 overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:4403:          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+artifacts/dashboard/src/pages/AiChat.tsx:4664:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4779:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4890:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:5002:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:5577:      className={`w-full min-w-0 max-w-full overflow-hidden rounded-lg border ${borderColor} ${bgColor} px-3 py-2.5`}
+artifacts/dashboard/src/pages/AiChat.tsx:5986:    <div className="mt-1.5 overflow-hidden rounded border border-amber-500/25 bg-black/20 text-[10px]" aria-label="Repair attempt diff">
+artifacts/dashboard/src/pages/AiChat.tsx:6123:    <div className="mt-1 w-full overflow-hidden rounded-lg border border-border/50 bg-background/20 text-[11px]" aria-label="Flight Recorder">
+artifacts/dashboard/src/pages/AiChat.tsx:6802:      className={`mx-auto mb-3 w-full max-w-3xl overflow-hidden rounded-xl border ${
+artifacts/dashboard/src/pages/AiChat.tsx:7170:export default function AiChat() {
+artifacts/dashboard/src/pages/AiChat.tsx:9311:    <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden overscroll-contain">
+artifacts/dashboard/src/pages/AiChat.tsx:9335:        className={`${sidebarOpen ? 'flex' : 'hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:h-auto md:w-56 md:max-w-none md:shadow-none`}
+artifacts/dashboard/src/pages/AiChat.tsx:9511:        <div className="provider-key-cards min-h-0 shrink-0 max-h-[45%] overflow-y-auto overscroll-contain border-t border-border pt-2 md:max-h-none md:overflow-visible">
+artifacts/dashboard/src/pages/AiChat.tsx:9520:      <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:9522:        <div className="chat-header flex h-12 min-w-0 max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 sm:px-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9549:        <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9647:            <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-6">
+artifacts/dashboard/src/pages/AiChat.tsx:9791:                      <div className="min-w-0 max-w-full overflow-hidden prose prose-sm prose-invert [overflow-wrap:anywhere]">
+artifacts/dashboard/src/pages/AiChat.tsx:9836:                <div className="mx-auto mb-4 w-full max-w-3xl overflow-hidden rounded-xl border border-border/60 bg-card/30">
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:289:function renderAiChat(isDesktop = true) {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:310:      <AiChat />
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:428:    const firstRender = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:441:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:457:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:482:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:548:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:581:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:599:    const { invalidateQueries } = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:640:    const { invalidateQueries } = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:674:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:685:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:748:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:768:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:805:    const { invalidateQueries } = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:848:  renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:873:  renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:881:    renderAiChat(false);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:892:    expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:935:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:959:    const { invalidateQueries } = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1054:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1097:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1181:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1232:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1262:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1312:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1392:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1436:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1504:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1569:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1613:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1648:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1700:      renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1719:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1738:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1773:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1794:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1809:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1861:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1911:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1932:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1948:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1979:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2011:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2028:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2042:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2051:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2104:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2157:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2210:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2263:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2350:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2363:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2378:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2397:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2447:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2526:    const firstRender = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2565:    const reloadedRender = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2609:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2674:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2720:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2751:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2794:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2824:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2855:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2903:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2936:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2947:    expect(code?.closest('.prose')).toHaveClass('min-w-0', 'max-w-full', 'overflow-hidden');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2951:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3032:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3073:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3094:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3142:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3188:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3229:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3263:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3298:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3338:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3381:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3407:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:289:function renderAiChat(isDesktop = true) {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:310:      <AiChat />
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:428:    const firstRender = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:441:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:457:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:482:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:548:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:581:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:599:    const { invalidateQueries } = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:640:    const { invalidateQueries } = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:674:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:685:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:748:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:768:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:805:    const { invalidateQueries } = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:848:  renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:873:  renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:881:    renderAiChat(false);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:892:    expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:935:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:959:    const { invalidateQueries } = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1054:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1097:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1181:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1232:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1262:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1312:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1392:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1436:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1504:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1569:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1613:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1648:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1700:      renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1719:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1738:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1773:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1794:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1809:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1861:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1911:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1932:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1948:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1979:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2011:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2028:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2042:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2051:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2104:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2157:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2210:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2263:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2350:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2363:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2378:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2397:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2447:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2526:    const firstRender = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2565:    const reloadedRender = renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2609:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2674:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2720:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2751:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2794:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2824:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2855:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2903:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2936:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2947:    expect(code?.closest('.prose')).toHaveClass('min-w-0', 'max-w-full', 'overflow-hidden');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2951:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3032:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3073:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3094:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3142:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3188:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3229:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3263:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3298:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3338:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3381:    renderAiChat();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3407:    renderAiChat();
+artifacts/dashboard/src/pages/Tasks.tsx:662:    <div className="space-y-6 h-full flex flex-col">
+artifacts/dashboard/src/pages/Tasks.tsx:758:              className="bg-card border border-border rounded-xl overflow-hidden transition-all"
+artifacts/dashboard/src/pages/Graph.tsx:261:    <div className="space-y-4 h-full flex flex-col">
+artifacts/dashboard/src/pages/Graph.tsx:319:       <div className="grid grid-cols-[220px_1fr_260px] gap-4 flex-1 min-h-0">
+artifacts/dashboard/src/pages/Graph.tsx:326:        <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
+artifacts/dashboard/src/pages/Graph.tsx:375:          <div className="border-t border-border pt-3 flex flex-col flex-1 min-h-0">
+artifacts/dashboard/src/pages/Graph.tsx:409:        <div className="bg-card border border-border rounded-xl shadow-sm relative overflow-hidden">
+artifacts/dashboard/src/pages/Graph.tsx:423:              className="w-full h-full"
+artifacts/dashboard/src/pages/Graph.tsx:510:        <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
+artifacts/dashboard/src/pages/Graph.tsx:583:              <div className="flex-1 overflow-y-auto min-h-0">
+artifacts/dashboard/src/pages/Events.tsx:56:    <div className="space-y-6 h-full flex flex-col">
+artifacts/dashboard/src/pages/Events.tsx:166:      <div className="flex-1 bg-[#0a0a0a] border border-border rounded-xl shadow-sm overflow-hidden flex flex-col font-mono text-sm relative">
+artifacts/dashboard/src/pages/Rules.tsx:216:        <div className="bg-card border border-primary/30 rounded-xl p-5 shadow-md relative overflow-hidden">
+artifacts/dashboard/src/pages/Rules.tsx:217:          <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+artifacts/dashboard/src/pages/Rules.tsx:382:              className="bg-card border border-border rounded-xl overflow-hidden hover:border-primary/30 transition-colors"
+artifacts/dashboard/src/pages/Metrics.tsx:75:          <div className="flex items-center border border-border rounded-md overflow-hidden text-xs font-medium">
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:754:          <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:756:              className={`h-full rounded-full transition-all duration-500 ${isError ? 'bg-red-500' : 'bg-primary'}`}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:882:            <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:883:              <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${report.confidenceScore}%` }} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:893:        <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:908:        <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:977:          <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1110:      <div className="relative bg-background border border-border/60 rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col">

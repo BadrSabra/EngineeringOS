@@ -1,0 +1,120 @@
+4097:      // report with the generic language fallback.
+4232:  // A provider retry may not expose tools (for example Gemini), but its
+4234:  // Seed the same cache key used by read_file so a tool-capable fallback does
+4236:  for (const [filePath, content] of prefetchFileContents) {
+4276:      for (const relPath of eagerReadTargets) {
+4427:  //      → fallbackChain is already built for powerful models
+4428:  //      → modelDecision.model = fallbackChain[0]  ← TOP of the powerful chain  ✅
+4429:  //      → modelDecision.powerModel = fallbackChain[1] ← SECOND in chain        ❌
+4446:  // synthesis fallback, or recovery step can silently switch back to the
+4474:    for (const trace of graphGuidance.crossFileTraces) {
+4605:    for (const entry of discovery.cacheEntries) {
+4648:      for (const entry of graphPrefetch.cacheEntries) {
+4693:      for (const entry of prefetch.cacheEntries) {
+4728:    while ((bm = bulletRe.exec(projectContext.sessionMemories)) !== null) {
+4748:        for (const entry of memPrefetch.cacheEntries) {
+4822:        for (const entry of planPrefetch.cacheEntries) {
+4854:      for (const entry of executionPrefetch.cacheEntries) {
+4879:  // for synthesis so the loop cannot spend the full budget on additional reads.
+4930:  // The final synthesiser pass combines all sub-results into one answer.
+4934:  // its final-synthesis response (`hierarchicalResult.response`) is streamed
+4981:      for (const evidence of hierarchicalResult.sourceEvidence) {
+4987:      // AI-OBJ-005/007: the hierarchical executor's final-synthesis response is
+5194:          // consumed count is returned on the node outcome for the next retry.
+5201:        for (const [file, content] of childLoop.fileContents ?? []) {
+5216:        // before scheduling a retry. This turns "forgot to call validation"
+5325:                  ? "Server-owned automatic validation failed; a bounded repair retry is allowed."
+5353:            detail: "Validation evidence crossed the approved file boundary; no repair retry is permitted.",
+5383:          for (const change of nodePendingChanges) {
+5415:                detail: "Server-owned behavioral proof failed; the node will receive a bounded repair retry.",
+5446:    for (const [file, content] of nodeFileContents) {
+5487:  // and model fallback to the self-contained ToolExecutionEngine.
+5516:    // The tool loop may reach its synthesis window after prefetch has already
+5518:    // no-tools synthesis call; the OpenAI-compatible client deliberately
+5564:    loopResult.sourceRetrieval?.synthesisTimedOut
+5570:        "initial capability-report synthesis exhausted its server-owned deadline",
+5577:  // allow a cancellation to reach a completed NO_FINDING fallback.
+5597:  for (const [filePath, content] of prefetchFileContents) {
+5600:  for (const [filePath, content] of loopResult.fileContents ?? []) {
+5604:  // A provider fallback can be text-only after the primary provider completed
+5684:      ? parseAgentResponse(loopResult.result.content, ChatResponseSchema, fallbackChatOutput)
+5859:  // synthesis hint) that we can surface as a useful answer.
+5976:  // the fallback engine advanced to a different model mid-request.
+6112:  //      final synthesis), emit it via onDelta word-by-word and return early.
+6133:      const parsedDirect = parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
+6256:      for (const chunk of words) {
+6364:      const streamGen = strategy.stream(streamMessages, {
+6379:      // full fallback response arrives in the return value below.
+6399:          "streaming synthesis completed before bounded Recovery",
+6504:      // here as well; otherwise an unsupported behavioral synthesis (including
+6536:      for (const chunk of emittedWords) {
+6616:  let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
+6628:  // JSON correction. It still goes through the normal evidence/contract gate
+6657:        source: "initial-synthesis",
+6665:  // synthesis pass; otherwise the parser discards a potentially useful report
+6666:  // and sends only a generic fallback into capability recovery.
+6688:        source: "initial-synthesis",
+6694:  // JSON format correction: when MODEL_FAST ignores the JSON output instruction
+6713:    console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
+6720:    const correctionPrompt =
+6727:    messages.push({ role: "user", content: correctionPrompt });
+6729:      // The tool-loop fallback may have returned a different model than the
+6732:      const correctionModel = result.model || model;
+6733:      const retry = await strategy.call(
+6735:        buildJsonCorrectionOptions(provider, correctionModel, apiKey, signal),
+6737:      const retryContent = retry.content ?? "";
+6738:      const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
+6739:      if (retryParsed.ok) {
+6741:        parsed = retryParsed;
+6742:        content = retryContent;
+6744:        // Correction also failed — the fallback already wraps raw text gracefully.
+6746:          `correction parse code: ${retryParsed.code}`,
+6756:        `correction provider failure code: ${errorCode}`,
+6765:      // Keep the original fallback output — correction is best-effort only.
+6775:  // Recovery must also run when the JSON correction failed. In that case
+6776:  // parsed.data is the bounded fallback representation of the provider text;
+6778:  // recovery would turn a recoverable plain-text synthesis into an immediate
+6779:  // forensic fallback.
+6922:      // Evidence-only diagnostic until the fallback is actually selected.
+6932:    // `valid: true` so the deterministic fallback itself satisfies the six
+6943:      const correctionPrompt = [
+6990:      const useForensicFallback = (fallbackResponse: string): void => {
+6993:          data: { ...parsed.data, response: fallbackResponse },
+6995:        content = fallbackResponse;
+7055:          : [model, ...(modelDecision.fallbackChain ?? [])]
+7062:        const fallbackPacket: ForensicEvidencePacket = {
+7079:          recoveryPackets.length > 0 ? recoveryPackets : [fallbackPacket];
+7194:        for (
+7225:          // the NEXT attempt's correction prompt so the model can self-correct
+7230:            ? correctionPrompt
+7232:                correctionPrompt,
+7236:                "Return only the corrected report. Do not repeat the rejected section or copy the correction instructions.",
+7258:            // let the provider replay its own transport fallback chain on top
+7274:          let recovery: Awaited<ReturnType<typeof strategy.call>>;
+7282:                strategy.call(recoveryRoundMessages, recoveryOptions),
+7302:                for (const call of executableCalls) {
+7329:                for (const call of executableCalls) {
+7383:            } while (providerReturnedToolCalls && recoveryToolRound < MAX_RECOVERY_TOOL_ROUNDS);
+7422:            // that was tried, including provider-owned fallback candidates
+7430:            for (const attemptedModel of attemptedRecoveryModels) {
+7456:              // to the evidence-preserving fallback instead of letting a
+7634:                  for (const finding of structuredRecovery.data.findings.slice(0, 3)) {
+7648:                    for (const findingFile of finding.files.slice(0, 2)) {
+7661:                        for (let li = 0; li < retainedLines.length; li++) {
+7762:              fallbackChatOutput,
+8092:        // over the fallback so an Evidence Map-only rebuild becomes the final
+8236:  // PR-E: capture parse failure after all correction retries so the route can
+8237:  // surface it as 422 instead of silently returning degraded fallback content.
+8327:   * Normal behavior questions need one bounded citation correction when the
+8343:      const recovery = await strategy.call(
+8354:          retryTransient: false,
+8404:   * Give that narrow case one same-provider correction pass over retained reads.
+8422:        (recoverySignal) => strategy.call(
+8435:            retryTransient: false,
+8436:            // The agent owns this one ordered correction attempt. Provider
+8437:            // fallback would multiply the probe's run-level recovery budget.
+8489:            details: ["one bounded correction produced a source-grounded C1–C7 report"],
+8513:          details: ["correction did not contain a usable C1–C7 report"],
+8713:    // false INCONSISTENT, masking real telemetry loss behind the old fallback.
+9119:            for (const [k, v] of forensicFileContents) {
+9175:  // Mirrored from the retry limit used in the recovery loop; controls

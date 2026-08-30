@@ -39,6 +39,7 @@ import type {
 import type { ProjectContext } from "../context-builder.js";
 import type { ProviderStrategy } from "../provider-strategy.js";
 import type { RawMessage } from "../groq-client.js";
+import type { ExecutionLedger } from "../execution-ledger.js";
 import { extractMentionedFiles } from "./speculative-prefetch.js";
 import {
   buildCrossFileSemanticTrace,
@@ -750,8 +751,14 @@ export async function planQuery(opts: {
    * the knowledge graph neighbourhood of targetEntities.
    */
   projectId?: string;
+  signal?: AbortSignal;
+  executionLedger?: ExecutionLedger;
 }): Promise<QueryPlan> {
-  const { message, projectContext, model, strategy, apiKey, projectId } = opts;
+  const { message, projectContext, model, strategy, apiKey, projectId, signal, executionLedger } = opts;
+  const plannerStartedAt = Date.now();
+  if (executionLedger && !executionLedger.admit("planner", { model, operation: "query_plan" })) {
+    return { ...FALLBACK_PLAN, originalIntent: message, planDiagnostics: ["request execution budget exhausted before planning"] };
+  }
 
   const plannerPrompt = buildPlannerPrompt(message, projectContext.graphSummary);
   const messages: RawMessage[] = [
@@ -765,8 +772,9 @@ export async function planQuery(opts: {
     .call(messages, {
       model,
       maxTokens: 512,
-      timeoutMs: PLANNER_TIMEOUT_MS,
+      timeoutMs: executionLedger?.timeoutMs(PLANNER_TIMEOUT_MS) ?? PLANNER_TIMEOUT_MS,
       apiKey,
+      signal: executionLedger?.signal ?? signal,
       // No tools — the planner is a pure text completion
     })
     .then((r) => r)
@@ -787,6 +795,12 @@ export async function planQuery(opts: {
   );
 
   const result = await Promise.race([plannerCall, timeoutSignal]);
+  executionLedger?.complete("planner", {
+    model,
+    operation: "query_plan",
+    startedAt: plannerStartedAt,
+    status: result ? "completed" : "failed",
+  });
 
   if (!result) {
     console.warn(JSON.stringify({ scope: "query-planner", code: "TIMEOUT_OR_ERROR", model }));

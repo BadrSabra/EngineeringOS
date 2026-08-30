@@ -1,0 +1,147 @@
+artifacts/dashboard/src/index.css:159:    overflow-x: hidden;
+artifacts/dashboard/src/index.css:167:  .sessions-drawer,
+artifacts/dashboard/src/index.css:168:  .provider-key-cards,
+artifacts/dashboard/src/index.css:169:  .provider-key-card,
+artifacts/dashboard/src/index.css:170:  .chat-header,
+artifacts/dashboard/src/index.css:171:  .chat-input-bar {
+artifacts/dashboard/src/index.css:176:  .provider-key-card {
+artifacts/dashboard/src/index.css:180:  .provider-key-card .font-mono {
+artifacts/dashboard/src/index.css:185:  .chat-input-bar {
+artifacts/dashboard/src/index.css:223:    overflow-x: auto;
+artifacts/dashboard/src/index.css:250:    position: absolute;
+artifacts/dashboard/src/index.css:278:    position: absolute;
+artifacts/dashboard/src/pages/AiChat.tsx:435:  absolutePath: string;
+artifacts/dashboard/src/pages/AiChat.tsx:591:      <div className="mt-1.5 flex min-w-0 items-start gap-1.5 text-[10px] text-green-500">
+artifacts/dashboard/src/pages/AiChat.tsx:593:        <span className="min-w-0 break-words">
+artifacts/dashboard/src/pages/AiChat.tsx:607:        <div className="flex min-w-0 items-start gap-1.5">
+artifacts/dashboard/src/pages/AiChat.tsx:609:          <span className="min-w-0 break-words">
+artifacts/dashboard/src/pages/AiChat.tsx:622:      <div className="flex min-w-0 items-start gap-1.5">
+artifacts/dashboard/src/pages/AiChat.tsx:624:        <span className="min-w-0 break-words">
+artifacts/dashboard/src/pages/AiChat.tsx:1062:                    <div key={node.id} className="flex min-w-0 items-center gap-1.5">
+artifacts/dashboard/src/pages/AiChat.tsx:1064:                      <code className="min-w-0 truncate text-foreground/90">{node.name}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:1066:                        <code className="min-w-0 truncate text-muted-foreground">· {node.path}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:1078:                    <div key={`${edge.from}-${edge.to}-${index}`} className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:1079:                      <div className="flex min-w-0 items-center gap-1.5">
+artifacts/dashboard/src/pages/AiChat.tsx:1080:                        <code className="min-w-0 truncate text-foreground/90">{edge.from}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:1082:                        <code className="min-w-0 truncate text-foreground/90">{edge.to}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:1885:            <span className="hidden min-w-0 truncate text-[10px] text-muted-foreground sm:inline">
+artifacts/dashboard/src/pages/AiChat.tsx:2237:                        <code className="min-w-0 flex-1 break-all text-foreground/80">{coverage.root}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:2269:                      <code className="min-w-0 flex-1 break-all text-[10px] text-foreground/85">{packet.root}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:2376:                        <code className="min-w-0 flex-1 break-all text-[10px] text-foreground/85">{label}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:2402:                      <code className="min-w-0 flex-1 break-all text-[10px] text-foreground/85">
+artifacts/dashboard/src/pages/AiChat.tsx:2623:    <details id={traceId} className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-border/50 bg-background/20 text-[10px]">
+artifacts/dashboard/src/pages/AiChat.tsx:2770:        <code className="ml-auto hidden max-w-[12rem] truncate text-[9px] text-muted-foreground sm:block">{operationId}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:2870:            <div key={event.id} className="flex min-w-0 gap-2 text-muted-foreground">
+artifacts/dashboard/src/pages/AiChat.tsx:2873:              <span className="min-w-0 truncate">{event.message || 'No event message'}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:3064:                      <code className="ml-auto max-w-full break-all text-[9px] text-muted-foreground">{attempt.profile}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:3223:    <div className="max-w-3xl mx-auto mb-4">
+artifacts/dashboard/src/pages/AiChat.tsx:3261:                  <div className="flex-1 min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:3263:                      <code className="text-xs font-mono text-foreground truncate max-w-[300px]">
+artifacts/dashboard/src/pages/AiChat.tsx:3403:                            <div className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:3409:                            <div className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:3489:    <div className="max-w-3xl mx-auto mb-4">
+artifacts/dashboard/src/pages/AiChat.tsx:3535:    <div className="max-w-3xl mx-auto mb-4">
+artifacts/dashboard/src/pages/AiChat.tsx:3652:          <div key={`${e.source}-${index}`} className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:3653:            <div className="flex items-start gap-2 min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:3654:              <div className="min-w-0 flex-1">
+artifacts/dashboard/src/pages/AiChat.tsx:3788:              <code className={`min-w-0 flex-1 whitespace-pre-wrap break-words font-mono ${inRange ? 'text-foreground/90' : 'text-muted-foreground/70'}`}>
+artifacts/dashboard/src/pages/AiChat.tsx:3936:          <pre className="rounded border border-border/40 bg-black/25 p-2.5 text-[11px] font-mono text-foreground/90 overflow-x-auto leading-relaxed">{result.extractedCode}</pre>
+artifacts/dashboard/src/pages/AiChat.tsx:4135:                    <span className="min-w-0 text-xs font-medium leading-snug">{title}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:4142:                          {files.map((file) => <code key={file} className="max-w-full break-all text-[10px] font-mono text-muted-foreground">{file}</code>)}
+artifacts/dashboard/src/pages/AiChat.tsx:4393:    <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
+artifacts/dashboard/src/pages/AiChat.tsx:4401:      <div className={`chat-message-content flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
+artifacts/dashboard/src/pages/AiChat.tsx:4403:          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+artifacts/dashboard/src/pages/AiChat.tsx:4419:                    <div className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:4492:                pre: ({ children }) => <pre className="mb-2 max-w-full overflow-x-auto rounded bg-black/20 p-2 text-xs font-mono whitespace-pre">{children}</pre>,
+artifacts/dashboard/src/pages/AiChat.tsx:4521:              <Badge key={s} variant="outline" className="max-w-full whitespace-normal break-all text-xs font-mono text-muted-foreground">
+artifacts/dashboard/src/pages/AiChat.tsx:4542:            <span className="min-w-0 flex-1">The historical mission report is unavailable, but this conversation is preserved.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:4664:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4665:      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4667:        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
+artifacts/dashboard/src/pages/AiChat.tsx:4674:        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4675:          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+artifacts/dashboard/src/pages/AiChat.tsx:4702:        <div className="flex min-w-0 gap-1 mt-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4708:            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+artifacts/dashboard/src/pages/AiChat.tsx:4779:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4780:      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4782:        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Groq API Key</span>
+artifacts/dashboard/src/pages/AiChat.tsx:4788:        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4789:          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+artifacts/dashboard/src/pages/AiChat.tsx:4816:        <div className="flex min-w-0 gap-1 mt-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4822:            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+artifacts/dashboard/src/pages/AiChat.tsx:4890:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4891:      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4893:        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Gemini API Key</span>
+artifacts/dashboard/src/pages/AiChat.tsx:4900:        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4901:          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+artifacts/dashboard/src/pages/AiChat.tsx:4928:        <div className="flex min-w-0 gap-1 mt-2">
+artifacts/dashboard/src/pages/AiChat.tsx:4934:            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+artifacts/dashboard/src/pages/AiChat.tsx:5002:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:5003:      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+artifacts/dashboard/src/pages/AiChat.tsx:5005:        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">OpenRouter API Key</span>
+artifacts/dashboard/src/pages/AiChat.tsx:5012:        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+artifacts/dashboard/src/pages/AiChat.tsx:5013:          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
+artifacts/dashboard/src/pages/AiChat.tsx:5040:        <div className="flex min-w-0 gap-1 mt-2">
+artifacts/dashboard/src/pages/AiChat.tsx:5046:            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
+artifacts/dashboard/src/pages/AiChat.tsx:5577:      className={`w-full min-w-0 max-w-full overflow-hidden rounded-lg border ${borderColor} ${bgColor} px-3 py-2.5`}
+artifacts/dashboard/src/pages/AiChat.tsx:5585:        <div className="min-w-0 flex-1">
+artifacts/dashboard/src/pages/AiChat.tsx:5586:          <div className="flex min-w-0 flex-wrap items-start gap-2">
+artifacts/dashboard/src/pages/AiChat.tsx:5587:            <span className="min-w-0 flex-1 break-words text-xs font-medium text-foreground">{activityLabel}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:5627:              <div key={label} className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:5672:          <div className="mt-1 max-h-56 min-w-0 overflow-y-auto overflow-x-hidden rounded border border-border/40 bg-background/20 px-2 py-1.5">
+artifacts/dashboard/src/pages/AiChat.tsx:5674:              <div key={event.id} className="flex min-w-0 items-start gap-1.5 py-0.5 text-[10px] leading-4">
+artifacts/dashboard/src/pages/AiChat.tsx:5684:                <span className="min-w-0 break-words text-foreground/85">{event.label}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:5686:                  <code className="min-w-0 break-all text-muted-foreground">{redactInternalDetails(event.detail)}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:5701:          <div className="mt-1 max-h-24 min-w-0 overflow-y-auto overflow-x-hidden rounded border border-border/40 bg-background/20 p-1">
+artifacts/dashboard/src/pages/AiChat.tsx:5703:              <code key={source} className="block min-w-0 break-all whitespace-normal rounded px-1 py-0.5 text-[9px] leading-4 text-muted-foreground">
+artifacts/dashboard/src/pages/AiChat.tsx:5746:    <details open={defaultOpen} className="mt-1 w-full min-w-0 max-w-full">
+artifacts/dashboard/src/pages/AiChat.tsx:5753:      <div className="mt-1 max-h-56 min-w-0 overflow-y-auto overflow-x-hidden rounded-lg border border-border/50 bg-background/30 px-3 py-2 text-[10px]">
+artifacts/dashboard/src/pages/AiChat.tsx:5755:          <div key={`${event.id}-${index}`} className="flex min-w-0 items-start gap-1.5 leading-5">
+artifacts/dashboard/src/pages/AiChat.tsx:5762:            <span className="min-w-0 break-words text-foreground/85">{event.label}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:5764:              <code className="min-w-0 break-all text-muted-foreground">{redactInternalDetails(event.detail)}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:6216:              <span className="min-w-0 truncate text-[10px] text-foreground/80">
+artifacts/dashboard/src/pages/AiChat.tsx:6226:                <code className="min-w-0 break-all text-foreground/80">{flightRecorderDetail(replayEntry) ?? 'No additional metadata'}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:6234:          <div className="max-h-64 overflow-y-auto overflow-x-hidden border-t border-border/30 px-3 py-2">
+artifacts/dashboard/src/pages/AiChat.tsx:6236:              <div className="relative space-y-1.5 before:absolute before:bottom-2 before:left-[7px] before:top-2 before:w-px before:bg-border/60">
+artifacts/dashboard/src/pages/AiChat.tsx:6251:                      className={`relative flex min-w-0 items-start gap-2 rounded ${isCurrent ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}
+artifacts/dashboard/src/pages/AiChat.tsx:6255:                      <div className="min-w-0 flex-1 rounded border border-border/30 bg-background/20 px-2 py-1">
+artifacts/dashboard/src/pages/AiChat.tsx:6256:                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+artifacts/dashboard/src/pages/AiChat.tsx:6468:          <div key={node.id} className="flex min-w-0 items-center gap-2 rounded-md border border-border/40 bg-background/20 px-2 py-1.5">
+artifacts/dashboard/src/pages/AiChat.tsx:6472:            <span className="min-w-0 flex-1 truncate text-[10px] text-foreground/90">{node.title}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:6556:          <code className="max-w-[15rem] truncate text-muted-foreground">{data.baseline.baselineId}</code>
+artifacts/dashboard/src/pages/AiChat.tsx:6802:      className={`mx-auto mb-3 w-full max-w-3xl overflow-hidden rounded-xl border ${
+artifacts/dashboard/src/pages/AiChat.tsx:6819:        <div className="min-w-0 flex-1">
+artifacts/dashboard/src/pages/AiChat.tsx:6915:              <code className="min-w-0 truncate text-[9px] text-muted-foreground">
+artifacts/dashboard/src/pages/AiChat.tsx:6946:              <div className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:7024:            <div className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:7086:        <div className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:9311:    <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden overscroll-contain">
+artifacts/dashboard/src/pages/AiChat.tsx:9325:          className="absolute inset-0 z-20 bg-black/55 md:hidden"
+artifacts/dashboard/src/pages/AiChat.tsx:9334:        data-testid="sessions-drawer"
+artifacts/dashboard/src/pages/AiChat.tsx:9335:        className={`${sidebarOpen ? 'flex' : 'hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:h-auto md:w-56 md:max-w-none md:shadow-none`}
+artifacts/dashboard/src/pages/AiChat.tsx:9381:            <ChevronDown className="w-3 h-3 absolute right-2 top-2 text-muted-foreground pointer-events-none" />
+artifacts/dashboard/src/pages/AiChat.tsx:9410:                <span className="flex min-w-0 items-center gap-1.5">
+artifacts/dashboard/src/pages/AiChat.tsx:9411:                  <span className="min-w-0 truncate">{s.title}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:9478:                          <span className="min-w-0 flex-1">
+artifacts/dashboard/src/pages/AiChat.tsx:9511:        <div className="provider-key-cards min-h-0 shrink-0 max-h-[45%] overflow-y-auto overscroll-contain border-t border-border pt-2 md:max-h-none md:overflow-visible">
+artifacts/dashboard/src/pages/AiChat.tsx:9520:      <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden">
+artifacts/dashboard/src/pages/AiChat.tsx:9522:        <div className="chat-header flex h-12 min-w-0 max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 sm:px-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9536:          <span className="min-w-0 truncate text-sm font-medium">EngineeringOS AI</span>
+artifacts/dashboard/src/pages/AiChat.tsx:9537:          <Badge variant="outline" className="ml-auto max-w-[48%] truncate text-[10px] font-mono sm:text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:9549:        <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9551:            <div role="alert" className="mb-4 flex min-w-0 items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+artifacts/dashboard/src/pages/AiChat.tsx:9552:              <span className="min-w-0 flex-1">{historicalReportError}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:9653:                <p className={`text-xs text-center max-w-xs ${projectLoadFailure ? 'text-destructive' : 'text-muted-foreground'}`}>
+artifacts/dashboard/src/pages/AiChat.tsx:9657:               <div className="grid w-full max-w-sm grid-cols-2 gap-2">
+artifacts/dashboard/src/pages/AiChat.tsx:9672:            <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
+artifacts/dashboard/src/pages/AiChat.tsx:9730:                <div className="chat-message flex min-w-0 max-w-full gap-3 mb-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9734:                  <div className="chat-message-content min-w-0 max-w-[calc(100%-2.75rem)] rounded-xl rounded-tl-sm border border-border bg-secondary px-3 py-3 flex flex-col gap-2 sm:max-w-[75%] sm:px-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9791:                      <div className="min-w-0 max-w-full overflow-hidden prose prose-sm prose-invert [overflow-wrap:anywhere]">
+artifacts/dashboard/src/pages/AiChat.tsx:9804:                            pre: ({ children }) => <pre className="mb-2 max-w-full overflow-x-auto rounded bg-black/20 p-2 text-xs font-mono whitespace-pre">{children}</pre>,
+artifacts/dashboard/src/pages/AiChat.tsx:9836:                <div className="mx-auto mb-4 w-full max-w-3xl overflow-hidden rounded-xl border border-border/60 bg-card/30">
+artifacts/dashboard/src/pages/AiChat.tsx:9867:         <div className="chat-input-bar min-w-0 shrink-0 border-t border-border p-3 sm:p-4">
+artifacts/dashboard/src/pages/AiChat.tsx:9869:            <div className="mx-auto mb-3 flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:9870:              <div className="min-w-0">
+artifacts/dashboard/src/pages/AiChat.tsx:9896:                    <span className="max-w-40 text-right text-[10px] text-destructive">
+artifacts/dashboard/src/pages/AiChat.tsx:9913:          <div className="mx-auto w-full min-w-0 max-w-3xl">
+artifacts/dashboard/src/pages/AiChat.tsx:9925:              className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border text-sm"

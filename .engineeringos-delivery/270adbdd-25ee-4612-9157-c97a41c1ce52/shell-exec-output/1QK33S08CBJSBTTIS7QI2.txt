@@ -1,0 +1,455 @@
+10: *                              budget is exhausted.
+12: * Budget rules: maxIterations caps model API calls; maxToolCalls caps real tool
+73: * Per-scope iteration and tool-call budgets (dynamic, complexity-keyed).
+77:  chat:           { maxIterations: 64, maxToolCalls: 180 },
+78:  tool_chat:      { maxIterations: 96, maxToolCalls: 300 },
+79:  analysis:       { maxIterations: 180, maxToolCalls: 640 },
+80:  task_execution: { maxIterations: 192, maxToolCalls: 720 },
+81:  code_review:    { maxIterations: 96, maxToolCalls: 300 },
+82:  workflow:       { maxIterations: 160, maxToolCalls: 560 },
+83:} as const satisfies Record<string, { maxIterations: number; maxToolCalls: number }>;
+86: * Fraction of maxIterations at which a "synthesise now" hint is injected into
+94:function syntheticValidationResult(
+131: * FEG-009/010: run-budget rebalancing. The single maxIterations cap is split
+132: * into per-category shares so a run cannot spend its whole budget planning
+152:export function splitRunBudget(maxIterations: number): RunBudgetCategories {
+153:  const planning = Math.max(1, Math.floor(maxIterations * BUDGET_CATEGORY_SHARES.planning));
+154:  const evidence = Math.max(1, Math.floor(maxIterations * BUDGET_CATEGORY_SHARES.evidence));
+155:  const reasoning = Math.max(1, Math.floor(maxIterations * BUDGET_CATEGORY_SHARES.reasoning));
+156:  const recovery = Math.max(1, maxIterations - planning - evidence - reasoning);
+161: * Negative vs 0-based loop iterations keeps the soft limit from being
+214:  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) {
+218:  while (
+282:// of these sets is an unknown tool and is rejected before touching the budget.
+325:  for (const match of text.matchAll(pattern)) {
+356:      `${base} This is the third repeated search, so the next turn is synthesis-only. ` +
+451:      kind: "ok";
+461:      kind: "unknown_tool";
+466:      kind: "failed";
+475: * Error strings, directory listings, synthesis hints, and bounded/truncated
+492: *   the body itself is not source evidence (an Error, listing, synthesis or
+597:   * landed inside the budget; a reason string otherwise (e.g. the soft limit
+600:  investigationStartSla?: "ok" | "soft_limit_with_zero_reads";
+602:   * FEG-009/010: run-budget rebalancing. The per-category iteration allocations
+603:   * derived from maxIterations, so callers can observe how the budget was split
+606:  budgetAllocation?: {
+611:  /** Synthesis-only budget and observed attempts, kept separate from reads. */
+612:  synthesisAttempts?: number;
+613:  synthesisMaxAttempts?: number;
+614:  synthesisTimeoutMs?: number;
+615:  synthesisElapsedMs?: number;
+616:  synthesisTimedOut?: boolean;
+679:export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToolResult> {
+693:      kind: "unknown_tool",
+701:        kind: "failed",
+717:        kind: "failed",
+725:        kind: "failed",
+769:            // provider retry/resume; the analysis tool validates it before
+811:        kind: "failed",
+842:    return { kind: "ok", output, source };
+853:      kind: "failed",
+886:  for (const m of messages) {
+891:        for (const tc of m.tool_calls) {
+934: * return EMPTY_RESPONSE or spend its output budget on a malformed retry.
+943:  "[bounded synthesis excerpt omitted; the complete source read remains available to the server evidence gate]";
+1033:   * When the strategy returns a transient error, the loop may retry with
+1038:  /** More capable fallback model used on transient errors from model. */
+1061:   * Independent novelty budget for ordinary search_code calls. A search
+1062:   * consumes one unit; a previously unseen result hash refills the budget.
+1067:   * Stop at the soft limit and let the caller build a deterministic execution
+1069:   * model synthesis behaviour.
+1077:   * Optional response envelope requested for the final no-tools synthesis call.
+1079:   * once the forensic loop enters its synthesis window.
+1098:  /** Server-owned phase; caps budgets and filters tools when provided. */
+1133:  maxIterations?: number;
+1136:  maxToolCalls?: number;
+1139:   * Optional final synthesis window. Starting at this zero-based iteration,
+1141:   * evidence. This prevents a large analysis from consuming its entire budget
+1144:  toolCallsDisabledAfter?: number;
+1147:   * Independent final-report budget. Both the primary and its intentional
+1148:   * fallback share this deadline; neither may start a fresh full timeout.
+1150:  synthesisTimeoutMs?: number;
+1151:  synthesisMaxAttempts?: number;
+1255:   * iteration start, model call, each tool call/result, soft limit, and done.
+1264:      kind: "response";
+1277:       * Soft-limit hit: the iteration budget ran out but the model produced at
+1282:      kind: "partial";
+1289:      reason?: "soft_limit" | "empty_response" | "provider_timeout";
+1293:      kind: "exhausted";
+1301:      reason?: "iteration_budget" | "empty_response";
+1306:      kind: "failed";
+1320:      kind: "stopped";
+1333:      kind: "cancelled";
+1343:       * cancellation, and ordinary budget exhaustion.
+1345:      kind: "incomplete";
+1404:  // Investigation Start SLA (FEG-007): the soft limit fired before the first
+1440:      kind: "plan_activity";
+1451:  | { kind: "iteration_start"; iter: number; maxIterations: number }
+1452:  | { kind: "model_call";      model: string; provider: string }
+1453:  | { kind: "recovery_model_call"; model: string; provider: string; attempt: number }
+1455:      kind: "tool_call";
+1471:      kind: "tool_result";
+1486:      kind: "validation";
+1513:      kind: "repair_state";
+1517:  | { kind: "soft_limit";      iter: number }
+1518:  | { kind: "synthesis_start"; iter: number; maxIterations: number }
+1519:  | { kind: "forensic_recovery_start"; attempt: number }
+1521:      kind: "forensic_status";
+1549:  | { kind: "audit_state"; state: AuditState }
+1550:  | { kind: "forensic_terminal"; terminalKind: ForensicTerminalKind }
+1551:  | { kind: "verification"; trace: VerificationTrace }
+1553:      kind: "evidence_integrity";
+1581:  | { kind: "decision_trace"; trace: ForensicDecisionTrace }
+1582:  | { kind: "production_trace"; trace: ProductionReachabilityTrace }
+1583:  | { kind: "cross_file_trace"; trace: import("./semantic-trace.js").CrossFileSemanticTrace }
+1585:      kind: "forensic_packet";
+1597:      kind: "diagnostic";
+1605:  | { kind: "execution_guard"; code: "REPEATED_TOOL_CALL"; tool: string; message: string }
+1607:      kind: "done";
+1609:      maxIterations: number;
+1621:        | "iteration_budget"
+1622:        | "soft_limit"
+1632:      synthesisStarted: boolean;
+1633:      /** Bounded final-synthesis telemetry for operator diagnostics. */
+1634:      synthesisAttempts?: number;
+1635:      synthesisMaxAttempts?: number;
+1636:      synthesisTimeoutMs?: number;
+1637:      synthesisElapsedMs?: number;
+1638:      synthesisTimedOut?: boolean;
+1647: * a budget is hit.
+1652: *        a. Cache hit  → serve cached result (free, no budget).
+1654: *        c. Unknown    → serve error string (no budget consumed).
+1657: *   3. If the model returns no tool_calls: return kind:"response".
+1658: *   4. If maxIterations exhausted without a text response: return kind:"exhausted".
+1663:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+1677:    maxIterations: requestedMaxIterations,
+1678:    maxToolCalls: requestedMaxToolCalls,
+1679:    toolCallsDisabledAfter,
+1680:    synthesisTimeoutMs = DEFAULT_SYNTHESIS_TIMEOUT_MS,
+1681:    synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
+1709:  const maxIterations = Math.min(
+1713:  const maxToolCalls = Math.min(
+1715:    phaseBudget?.maxToolCalls ?? Number.POSITIVE_INFINITY,
+1734:  for (const [path, body] of opts.initialFileContents ?? []) {
+1743:  // Fresh-execution budget counter; only fresh calls consume budget while the
+1761:  let synthesisStarted = false;
+1762:  const boundedSynthesisTimeoutMs = Math.max(1_000, Math.floor(synthesisTimeoutMs));
+1763:  const boundedSynthesisMaxAttempts = Math.max(1, Math.floor(synthesisMaxAttempts));
+1764:  let synthesisDeadlineAt: number | null = null;
+1765:  let synthesisAttempts = 0;
+1766:  let synthesisTimedOut = false;
+1873:  // search-novelty budget: that budget keeps its own duplicate-handling /
+1874:  // forced-synthesis behavior, while FEG-008 progress is judged solely on
+1922:    for (const key of toolCallCache.keys()) {
+2007:  // Soft-limit state — tracks whether the synthesis hint has been injected and
+2008:  // saves the last non-empty text response for the kind:"partial" return path.
+2009:  const softLimitIter = Math.floor(maxIterations * SOFT_LIMIT_RATIO);
+2010:  let synthesisTriggerSent = false;
+2016:    * 4 096 gives synthesis enough room while the existing length-retry and
+2027:   * OR-004: Transient error codes that warrant a powerModel retry within
+2029:   * retried. EMPTY_RESPONSE gets one bounded same-model retry below because
+2037:      onStep?.({ kind: "diagnostic", code, details: details.slice(0, 2) });
+2042:    // server-owned manifest. Do not retry it, append a synthetic tool result,
+2050:        kind: "diagnostic",
+2056:        kind: "tool_result",
+2065:        kind: "done",
+2067:        maxIterations,
+2070:        synthesisStarted,
+2071:        synthesisAttempts,
+2072:        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+2073:        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+2074:        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+2075:          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+2077:        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+2083:      kind: "failed",
+2145:      } catch (retryErr) {
+2146:        if (retryErr instanceof GroqClientError) {
+2148:            `provider failure code: ${retryErr.code}`,
+2151:        throw retryErr;
+2161:    for (let attempt = 0; attempt < boundedSynthesisMaxAttempts; attempt += 1) {
+2162:      if (synthesisAttempts >= boundedSynthesisMaxAttempts) break;
+2163:      if (synthesisDeadlineAt !== null && Date.now() >= synthesisDeadlineAt) {
+2164:        synthesisTimedOut = true;
+2165:        sourceRetrieval.synthesisTimedOut = true;
+2168:      synthesisAttempts += 1;
+2169:      sourceRetrieval.synthesisAttempts = synthesisAttempts;
+2177:        (synthesisDeadlineAt ?? Date.now() + boundedSynthesisTimeoutMs) - Date.now(),
+2180:        synthesisTimedOut = true;
+2181:        sourceRetrieval.synthesisTimedOut = true;
+2185:        // Preserve the configured timeout for the first synthesis attempt.
+2191:        const attemptTimeoutMs = synthesisAttempts === 1
+2203:          synthesisTimedOut = true;
+2204:          sourceRetrieval.synthesisTimedOut = true;
+2212:        sourceRetrieval.synthesisElapsedMs =
+2213:          (sourceRetrieval.synthesisElapsedMs ?? 0) + (Date.now() - startedAt);
+2214:        sourceRetrieval.synthesisTimedOut = synthesisTimedOut;
+2217:    throw lastError ?? new GroqClientError("TIMEOUT", "synthesis attempt budget exhausted");
+2222:   * tools. That response cannot be executed in the synthesis window and often
+2230:    const attemptsBefore = synthesisAttempts;
+2233:      attemptCount: synthesisAttempts - attemptsBefore,
+2239:      synthesisAttempts >= boundedSynthesisMaxAttempts
+2250:        reason: "provider returned tool_calls during a no-tools synthesis request",
+2255:      const fallback = await callWithSynthesisBudget(callMessages, {
+2260:        result: fallback,
+2261:        attemptCount: synthesisAttempts - attemptsBefore,
+2278:  // ── Run-budget rebalancing (FEG-009/010) ─────────────
+2279:  // maxIterations is split into planning / evidence / reasoning / recovery
+2281:  // cannot exhaust the budget on planning before it ever acquires source
+2285:  const runBudget = splitRunBudget(maxIterations);
+2289:  sourceRetrieval.budgetAllocation = {
+2294:  sourceRetrieval.synthesisMaxAttempts = boundedSynthesisMaxAttempts;
+2295:  sourceRetrieval.synthesisTimeoutMs = boundedSynthesisTimeoutMs;
+2304:  // or the model synthesizes, so a planner cannot resume orbiting.
+2352:  // the soft limit would falsely report INVESTIGATION_START_FAILURE /
+2353:  // soft_limit_with_zero_reads — a zero-read verdict for a run that DID acquire
+2358:    for (const [path, body] of opts.initialFileContents) {
+2388:  // iterations, never the full configured budget.
+2398:        kind: "diagnostic",
+2467:        kind: "done",
+2469:        maxIterations,
+2472:        synthesisStarted,
+2473:        synthesisAttempts,
+2474:        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+2475:        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+2476:        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+2477:          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+2479:        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+2486:      kind: "incomplete",
+2500:        kind: "done",
+2502:        maxIterations,
+2505:        synthesisStarted,
+2506:        synthesisAttempts,
+2507:        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+2508:        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+2509:        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+2510:          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+2512:        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+2518:      kind: "cancelled",
+2534:      onStep?.({ kind: "diagnostic", code: diagnosticCode, details: [`${tool}: ${failureKind}`] });
+2536:        kind: "tool_result",
+2545:        kind: "done",
+2547:        maxIterations,
+2550:        synthesisStarted,
+2556:      kind: "failed",
+2569:  for (let iter = 0; iter < maxIterations; iter++) {
+2572:    try { onStep?.({ kind: "iteration_start", iter, maxIterations }); } catch { /* ignore */ }
+2579:    // ── Soft-limit synthesis hint ─────────────────────
+2580:    // At 75 % of the iteration budget, inject a user-turn asking the model to
+2584:    if (iter >= softLimitIter && !synthesisTriggerSent) {
+2585:      synthesisTriggerSent = true;
+2586:      if (lastModelUsed) recordBehavioralFailure(lastModelUsed, "soft_limit");
+2588:      // If the soft limit fires before the FIRST source read, the run never
+2593:          sourceRetrieval.investigationStartSla ?? "soft_limit_with_zero_reads";
+2596:            kind: "diagnostic",
+2599:              `soft limit (iter=${iter}) reached before any source read` +
+2605:      try { onStep?.({ kind: "soft_limit", iter }); } catch { /* ignore */ }
+2613:        classifyZeroReadTerminal("soft_limit", iter);
+2616:            kind: "done",
+2618:            maxIterations,
+2620:            stopReason: "soft_limit",
+2621:            synthesisStarted,
+2627:          kind: "partial",
+2632:          reason: "soft_limit",
+2638:       const synthesisHint =
+2645:             : "You have gathered enough information. Please synthesize and summarize everything you have found so far — do not call additional tools.");
+2646:      messages.push({ role: "user", content: synthesisHint });
+2652:          softLimitIter,
+2653:          maxIterations,
+2658:    // ── Model call (with transient-error fallback to powerModel) ────────────
+2661:    let fallbackReason: string | undefined;
+2669:    // turns must be allowed to synthesize a final answer after the tool result.
+2671:    const synthesisOnly =
+2673:      (toolCallsDisabledAfter !== undefined && iter >= toolCallsDisabledAfter);
+2674:    if (synthesisOnly && !synthesisStarted) {
+2675:      synthesisStarted = true;
+2676:      synthesisDeadlineAt = Date.now() + boundedSynthesisTimeoutMs;
+2679:          kind: "synthesis_start",
+2681:          maxIterations,
+2687:    const availableIterationTools = synthesisOnly ? [] : repairPlanTools();
+2696:    // ordinary tool-loop turns as well as the no-tools synthesis window.
+2700:      const synthesisAttemptsBeforeCall = synthesisAttempts;
+2701:      const callResult = synthesisOnly
+2712:              ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
+2715:            attemptCount: synthesisAttempts - synthesisAttemptsBeforeCall,
+2727:        ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
+2743:        (!synthesisOnly || synthesisAttempts < boundedSynthesisMaxAttempts)
+2745:        fallbackReason = err.code;
+2760:          const fallbackResult = synthesisOnly
+2784:          result = fallbackResult;
+2785:        } catch (fallbackErr) {
+2786:          if (fallbackErr instanceof GroqClientError) {
+2788:              `fallback provider failure code: ${fallbackErr.code}`,
+2791:          if (fallbackErr instanceof GroqClientError && fallbackErr.code === "INVALID_TOOL_CALL") {
+2792:            return terminalInvalidToolCall(fallbackErr, iter);
+2794:          // TIMEOUT after both primary and fallback: degrade gracefully when
+2798:            fallbackErr instanceof GroqClientError &&
+2799:            fallbackErr.code === "TIMEOUT" &&
+2801:              synthesisStarted ||
+2811:                reason: "both primary and fallback timed out; returning partial from collected evidence",
+2817:                kind: "done",
+2819:                maxIterations,
+2822:                synthesisStarted,
+2823:                synthesisAttempts,
+2824:                synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+2825:                synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+2826:                ...(sourceRetrieval.synthesisElapsedMs !== undefined
+2827:                  ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+2829:                ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+2835:              kind: "partial",
+2848:          throw fallbackErr;
+2866:        // TIMEOUT (already on powerModel, or non-retryable transient): degrade
+2872:            synthesisStarted ||
+2889:                kind: "done",
+2891:                maxIterations,
+2894:                synthesisStarted,
+2895:                synthesisAttempts,
+2896:                synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+2897:                synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+2898:                ...(sourceRetrieval.synthesisElapsedMs !== undefined
+2899:                  ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+2901:                ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+2907:              kind: "partial",
+2921:          // surface a meaningful retryable error to the user.
+2927:        // synthesis, return a partial empty result instead of exhausted so the
+2936:                kind: "done",
+2938:                maxIterations,
+2941:                synthesisStarted,
+2946:            return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+2950:          // synthesis hint. In forensic mode the completed reads are still
+2954:          if (synthesisStarted || (executionMode === "forensic" && fileContents.size > 0)) {
+2958:                kind: "done",
+2960:                maxIterations,
+2963:                synthesisStarted,
+2969:              kind: "partial",
+2985:              kind: "done",
+2987:              maxIterations,
+2990:              synthesisStarted,
+2995:          return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+3002:    // OR-007: Emit per-call telemetry (model used, token usage, timing, fallback).
+3003:    const observedModel = result.model || (fallbackReason ? powerModel : model);
+3008:      fallbackReason,
+3016:        kind: "model_call",
+3017:        model: result.model || (fallbackReason ? powerModel : model),
+3022:    // ── Track last text seen (for kind:"partial" fallback) ──────────────────
+3031:    // Free-tier reasoning models can spend the entire output budget on a
+3035:    // no-tools completion pass with a larger output budget before accepting
+3043:      const retryMaxTokens = iterMaxTokens === undefined ? undefined : iterMaxTokens * 2;
+3044:      const retryMessages = compactModelMessages([
+3056:        const retry = await strategy.call(retryMessages, {
+3058:          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+3065:        if (retry.content?.trim()) {
+3066:          result = retry;
+3067:          lastTextSeen = retry;
+3073:              model: retry.model || model,
+3075:              retryMaxTokens,
+3076:              finishReason: retry.finishReason ?? null,
+3099:      // give it one explicit no-tools synthesis pass so JSON mode is actually
+3102:      // normal read→synthesize loop and avoids a redundant provider call.
+3126:        synthesisStarted = true;
+3127:        synthesisDeadlineAt = Date.now() + boundedSynthesisTimeoutMs;
+3129:          onStep?.({ kind: "synthesis_start", iter, maxIterations });
+3132:        const synthesisMessages: RawMessage[] = compactModelMessages([
+3147:          const synthesisStartedAt = Date.now();
+3148:          const synthesisCall = await callSynthesisWithFallback(synthesisMessages, {
+3155:          const synthesisResult = synthesisCall.result;
+3158:            model: synthesisResult.model || result.model || model,
+3159:            attemptCount: synthesisCall.attemptCount,
+3160:            promptTokens: synthesisResult.usage?.promptTokens ?? 0,
+3161:            completionTokens: synthesisResult.usage?.completionTokens ?? 0,
+3162:            durationMs: Date.now() - synthesisStartedAt,
+3166:              kind: "model_call",
+3167:              model: synthesisResult.model || result.model || model,
+3176:          if (synthesisResult.content?.trim()) {
+3177:            result = synthesisResult;
+3207:          kind: "done",
+3209:          maxIterations,
+3212:          synthesisStarted,
+3213:            synthesisAttempts,
+3214:            synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+3215:            synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+3216:            ...(sourceRetrieval.synthesisElapsedMs !== undefined
+3217:              ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+3219:            ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+3225:        kind: "response",
+3237:    // removed for the synthesis phase. Do not append synthetic tool results
+3238:    // and spend another iteration on an impossible tool exchange: synthesis
+3242:    // collected instead of discarding it behind a generic fallback.
+3243:    if (synthesisOnly) {
+3247:      classifyZeroReadTerminal("synthesis", currentIteration);
+3259:          kind: "done",
+3261:          maxIterations,
+3264:          synthesisStarted,
+3271:          kind: "response",
+3282:        kind: "partial",
+3326:    // batch; preserve the tool-message protocol and synthesize on the next
+3330:    for (const tc of safeToolCalls) {
+3356:      if (synthesisOnly) {
+3393:            kind: "validation",
+3394:            result: syntheticValidationResult(
+3406:            kind: "repair_state",
+3438:            kind: "validation",
+3439:            result: syntheticValidationResult(validationProfile ?? "", detail),
+3447:          onStep?.({ kind: "repair_state", state: "BLOCKED", detail });
+3460:      // forced-target read lands or the model synthesizes.
+3464:      // retry slot without actually testing the pending workspace state.
+3476:                "Gather that source evidence, then synthesize."
+3478:                "Read the relevant file to make progress, then synthesize.") +
+3495:            kind: "diagnostic",
+3535:              kind: "diagnostic",
+3546:              kind: "diagnostic",
+3698:              kind: "diagnostic",
+3767:            "search_code is unavailable now; use read_file on the matching source locations or synthesize from the confirmed evidence.",
+3773:            budgetLimit: searchBudgetLimit,
+3827:        // search-duplicate escalation ladder (guidance → hidden → synthesis)
+3880:              kind: "execution_guard",
+3889:              kind: "done",
+3891:              maxIterations,
+3894:              synthesisStarted,
+3900:            kind: "stopped",
+3959:        try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
+3970:            kind: "tool_result",
+4025:                  ? "synthesis_only"
+4028:                    : "guided_retry",
+4039:              nextTurn: duplicateCount >= 3 ? "synthesis_only" : "tool_hidden",
+4057:                    ? "\n\nDUPLICATE_TOOL_ESCALATION: stop repeating this exact tool call and synthesize from the evidence already gathered."
+4059:                      ? "\n\nDUPLICATE_TOOL_ESCALATION: this tool will be hidden on the next turn; use another tool or synthesize."
+4083:      if (totalToolCalls >= maxToolCalls) {
+4097:            "Tool call budget exhausted for this request. " +
+4116:          kind: "tool_call",
+4128:            kind: "repair_state",
+4211:      // Successful execution — consume budget, cache, record source.
+4223:            budgetLimit: searchBudgetLimit,
+4245:        } catch { /* keep the bounded unavailable fallback below */ }
+4274:            kind: "validation",
+4291:            kind: "repair_state",
+4391:          kind: "tool_result",
+4437:            // model still cannot progress, the next turn is synthesis-only.
+4450:              kind: "diagnostic",
+4465:            // a read (or a synthesis of already-gathered evidence). The
+4476:      // consecutive guard never fires and the whole iteration budget drains
+4480:      // budget. Only meaningful when an evidence route actually exists.
+4483:      // first turn of a tiny budget (e.g. maxIterations=4 has a planning
+4500:            kind: "diagnostic",
+4503:              `planning budget exhausted (${planningIterations} planning iters >= ${runBudget.planning} allocation) before the first source read` +
+4518:      // synthesis work, not planning - it cannot be blamed for starving the
+4519:      // evidence budget.
+4524:  // Iteration budget exhausted.
+4529:      iterations: maxIterations,
+4534:  // If the model produced any text during the loop (e.g. after the soft-limit
+4535:  // synthesis hint fired), surface it as a kind:"partial" result so the caller
+4538:    currentIteration = maxIterations;
+4546:    classifyZeroReadTerminal("soft_limit", maxIterations);
+4549:        kind: "done",
+4550:        iterations: maxIterations,
+4551:        maxIterations,
+4553:        stopReason: "soft_limit",
+4554:        synthesisStarted,
+4559:    return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "soft_limit" };
+4562:  currentIteration = maxIterations;
+4570:  classifyZeroReadTerminal("iteration_budget", maxIterations);
+4573:      kind: "done",
+4574:      iterations: maxIterations,
+4575:      maxIterations,
+4577:      stopReason: "iteration_budget",
+4578:      synthesisStarted,
+4583:  return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "iteration_budget" };

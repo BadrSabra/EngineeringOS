@@ -1,0 +1,408 @@
+lib/knowledge-engine/src/index.ts
+8: *  - In-memory inference (centrality, cluster detection, summary stats)
+
+lib/knowledge-engine/src/graph-limits.ts
+3: * are consumed by autonomous context readers as well as interactive clients.
+
+lib/knowledge-engine/src/queries.ts
+5: * results. No side effects, no writes. Safe to call from any context.
+77: * KG-01/04: In-memory semantic-tag filter for relationships returned by
+472: * Used as input to in-memory inference functions.
+
+lib/knowledge-engine/src/inference.ts
+2: * In-memory inference over a fetched graph.
+
+artifacts/api-server/src/app.ts
+186:// authContext shape that production code sees.
+
+artifacts/api-server/src/index.ts
+27:  startContextInvalidationChannel,
+29:  startMemorySweep,
+66:let memorySweep: { stop: () => void } | undefined;
+69:// ── PR-D3: Cross-process AI context cache invalidation ────────────────────────
+70:// Wire a pg_notify call into every invalidateContextCache() invocation so
+86:const { stop: stopCacheChannel } = startContextInvalidationChannel(pool);
+98:  memorySweep?.stop();
+229:  // Start the session-memory sweep — prunes expired/decayed memory rows and
+232:  memorySweep = startMemorySweep();
+
+artifacts/api-server/src/middlewares/requireAuth.ts
+4:import type { AuthContext } from "../types/express.js";
+19: * it to "test". The bypass still builds a real `authContext` so tests
+24:    attachAuthContext(req, {
+39:  attachAuthContext(req, {
+66: * Like `requireAuth`, but never rejects the request. Attaches `authContext`
+77:    // want an authenticated optionalAuth path should set req.authContext
+85:    attachAuthContext(req, {
+95:function attachAuthContext(req: Request, context: AuthContext): void {
+96:  req.authContext = context;
+97:  req.userId = context.userId;
+
+artifacts/api-server/src/types/express.d.ts
+4: * Unified authentication context. Every middleware/route that needs to know
+13: * without another pass over every call site that consumes auth context.
+15:export interface AuthContext {
+23: * Authentication/authorization context primitives attached to `Request` by
+26: * - `userId` and `authContext` are set by `requireAuth`/`optionalAuth` (see
+28: *   is making this request". `userId` is kept alongside `authContext` (a
+29: *   duplicate of `authContext.userId`) because existing routes already read
+30: *   `req.userId` directly; new code should prefer `req.authContext`.
+38: * added to `AuthContext` once the platform grows beyond single-owner
+45:      authContext?: AuthContext;
+
+artifacts/api-server/src/routes/workflows.ts
+16:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+81:  invalidateContextCache(project.id);
+131:  invalidateContextCache(before[0].projectId);
+230:  invalidateContextCache(workflow[0].projectId);
+357:  invalidateContextCache(workflow[0].projectId);
+452:      context: conditionCheck.context,
+553:  invalidateContextCache(workflow[0].projectId);
+654:  invalidateContextCache(workflow[0].projectId);
+732:  invalidateContextCache(workflow[0].projectId);
+918:  invalidateContextCache(workflow[0].projectId);
+
+artifacts/api-server/src/lib/upload-store.ts
+19: * ## Public API (identical to the old in-memory store, all functions now async)
+44:/** Shape returned by `lookupUpload` (unchanged from previous in-memory version). */
+
+artifacts/api-server/src/routes/upload.ts
+27:// made concurrent uploads multiply memory usage before archive limits ran.
+
+artifacts/api-server/src/routes/tasks.ts
+26:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+116:  invalidateContextCache(project.id);
+225:  invalidateContextCache(project.id);
+280:  invalidateContextCache(project.id);
+327:  // the full execution trace can be retrieved with a single filter.
+396:    invalidateContextCache(project.id);
+491:  invalidateContextCache(project.id);
+738:  invalidateContextCache(project.id);
+823:  invalidateContextCache(project.id);
+923:  invalidateContextCache(project.id);
+
+artifacts/api-server/src/lib/task-execution-service.ts
+11:  buildProjectContext,
+13:  invalidateContextCache,
+36:const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
+294:    stage = "context";
+295:    stages.push("context");
+296:    await log("info", "Building project context", { stage: "context" });
+298:    const projectContext = await buildProjectContext(before.projectId, { sections: [...CONTEXT_SECTIONS] });
+301:      checkpoint: { stage: "model_call", sequence: 2, detail: "Project context built.", updatedAt: new Date().toISOString() },
+316:        projectContext,
+487:    invalidateContextCache(before.projectId);
+492:    const code = cancelled ? "cancelled" : stage === "context" ? "context_build_failed" : "task_execution_failed";
+504:    await log("error", stage === "context"
+505:      ? "AI execution failed while building project context"
+506:      : "AI task execution failed", { stage, code: "provider_or_context_failure" });
+541:    invalidateContextCache(before.projectId);
+
+artifacts/api-server/src/routes/rules.ts
+21:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+277:  invalidateContextCache(body.projectId);
+
+artifacts/api-server/src/services/workflow-service.ts
+12:import { evaluateCondition, type ConditionContext } from "../lib/condition-evaluator.js";
+14:export type { ConditionContext };
+21:  | { allowed: false; reason: "condition_not_met"; condition: string; context: ConditionContext }
+36:  ctx: ConditionContext,
+43:    return { allowed: false, reason: "condition_not_met", condition, context: ctx };
+
+artifacts/api-server/src/routes/projects.ts
+30:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+219:  invalidateContextCache(project[0].id);
+257:  invalidateContextCache(projectId);
+325:  invalidateContextCache(projectId);
+415:    invalidateContextCache(projectId);
+419:  invalidateContextCache(projectId);
+
+artifacts/api-server/src/lib/discovery-adapters.ts
+111:/** Context available to every adapter's resolve(), regardless of source type. */
+112:export interface ResolveContext {
+130:  resolve(config: SourceConfig, ctx: ResolveContext): Promise<ResolveResult>;
+
+artifacts/api-server/src/routes/plugins.ts
+46:      "Detects N+1 queries, missing indexes, large bundle imports, and memory leaks.",
+
+artifacts/api-server/src/lib/scan-runner.ts
+20:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+189:      // D-02: emit a ProjectScanFailed event so the AI context's recentEvents
+202:      // Bust the context cache so the next AI request sees "failed" scan
+205:      invalidateContextCache(projectId);
+232:  // so a single `WHERE correlation_id = ?` retrieves the complete trace for
+459:  // Remove stale entries from in-memory maps so relationship resolution never
+690:    // Bust the context cache so the very next AI chat turn reflects the
+695:    invalidateContextCache(projectId);
+
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts
+17:  type ProjectContext,
+48:const BENCHMARK_CONTEXT: ProjectContext = {
+414:    projectContext: BENCHMARK_CONTEXT,
+
+artifacts/api-server/src/routes/git.ts
+35:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+622:    // activity feed and in the AI context's recentEvents.
+656:    invalidateContextCache(projectId);
+863:    // and in the AI context's recentEvents on the next chat request.
+882:    invalidateContextCache(project.id);
+915:        invalidateContextCache(project.id);
+944:        invalidateContextCache(project.id);
+
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+458:    projectContext: {
+
+artifacts/api-server/src/routes/discovery.ts
+23:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+616:  invalidateContextCache(projectId);
+
+artifacts/api-server/src/lib/ai-route-helpers.ts
+16:  buildProjectContext,
+369:    projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+394:    browserValidationContext?: { operationId?: string; revision?: string };
+398:     commandContext?: { operationId?: string; revision?: string; targetPaths?: readonly string[]; operation?: string };
+468:        browserValidationContext: baseParams.browserValidationContext,
+472:         commandContext: baseParams.commandContext,
+
+artifacts/api-server/src/lib/condition-evaluator.ts
+21:export interface ConditionContext {
+142:    private readonly ctx: ConditionContext,
+236:      let value: unknown = this.ctx[t.name as keyof ConditionContext];
+333:export function evaluateCondition(condition: string, ctx: ConditionContext): boolean {
+
+artifacts/api-server/src/lib/recipe-operation-runner.ts
+34: * Compile only after the server has established the project context. This is
+43:    context: {
+124:    runNode: async (node, context) => {
+125:      if (context.signal?.aborted) return { status: "blocked" as const, detail: "recipe execution cancelled" };
+130:        { rootPath: params.rootPath, operation: "recipe", signal: context.signal },
+
+artifacts/api-server/src/lib/plugin-runtime.ts
+20:// ─── Hook context ─────────────────────────────────────────────────────────────
+37:export interface ScanCompleteContext {
+69:  onScanComplete(ctx: ScanCompleteContext): Promise<ScanCompleteResult>;
+337:  ctx: ScanCompleteContext,
+
+artifacts/api-server/src/lib/audit.ts
+33:   *  rows so the full operation trace can be retrieved with one filter. */
+154:    logger.error({ err }, "failed to reload pending audit log entries; continuing with an empty in-memory queue");
+
+artifacts/api-server/src/lib/ai-execution-state.ts
+280:  node: Pick<ExecutionNode, "allowedFiles" | "validationProfile" | "executionContext">,
+288:  if (node.executionContext) {
+289:    if (node.executionContext.projectId !== binding.projectId) throw new Error("Recipe node belongs to a different project.");
+290:    if (node.executionContext.revision !== binding.sourceRevision) throw new Error("Recipe node belongs to a stale source revision.");
+291:    if (node.executionContext.scope.paths.map(normalizedRecipePath).some((file) => !approved.has(file))) {
+292:      throw new Error("Recipe node context is outside the approved path scope.");
+918: * Turns the last durable checkpoint into server-owned continuation context.
+923:export function buildAiExecutionResumeContext(
+928:    "SERVER-OWNED DURABLE RESUME CONTEXT",
+
+artifacts/api-server/src/routes/ai/providers.ts
+275: * PR-05/PR-06: Returns in-memory provider reliability metrics merged with
+
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+10:  type ProjectContext,
+34:  projectContext: ProjectContext;
+96:    projectContext: opts.projectContext,
+159:  projectContext: ProjectContext;
+227:      projectContext: opts.projectContext,
+
+artifacts/api-server/src/routes/ai/workflows.ts
+17:  buildProjectContext,
+18:  invalidateContextCache,
+50:    additionalContext: z.string().max(2_000, "additionalContext must be ≤ 2 000 characters").optional(),
+56:  const { additionalContext } = orchestrateBody.data;
+86:  const projectContext = await buildProjectContext(workflow.projectId, {
+182:      projectContext,
+183:      additionalContext,
+221:  invalidateContextCache(workflow.projectId);
+235:      evidenceReason: "The workflow decision and phase context were retained in the durable operation ledger.",
+
+artifacts/api-server/src/lib/job-reconciliation.ts
+6: * lives in the DB row plus an in-memory closure. If the process crashes or
+7: * is killed, that in-memory state is gone on restart, but the DB rows are
+44: *     them. Handles the rare case where an in-memory closure was lost without
+60:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+74: * snapshots live in memory and replaying an unknown write could overwrite
+108:    // project root; never resume from an in-memory snapshot.
+300:      // Bust the context cache so AI requests don't see stale "scanning" state.
+301:      invalidateContextCache(job.projectId);
+364:  // intermediate state (in-memory steps, partial walk results) is gone.
+419:        // it broke that contract. Log with session context so on-call can
+459: * to "running". This catches the rare case where the in-memory closure was
+639:      invalidateContextCache(task.projectId);
+652: * This is a safety net for the rare case where an in-memory closure was
+658: * Uses `enqueueWithId` so jobs already present in the in-memory queue are
+682:      // enqueueWithId returns false if the job is already in the in-memory
+970:        invalidateContextCache(task.projectId);
+1017:        invalidateContextCache(task.projectId);
+
+artifacts/api-server/src/routes/ai/tasks.ts
+17:  buildProjectContext,
+18:  invalidateContextCache,
+151:    if (lifecycle.errorCode === "context_build_failed") {
+153:        error: "Failed to build project context",
+188:  let projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+190:    projectContext = await buildProjectContext(task.projectId, {
+194:    logger.error({ err, taskId, correlationId }, "AI execution failed while building project context");
+207:      message: "AI execution failed while building project context",
+208:      metadata: { stage: "buildProjectContext", correlationId },
+213:      error: "Failed to build project context",
+222:    message: "Built project context — calling AI agent…",
+223:    metadata: { stage: "buildProjectContext", correlationId },
+253:        projectContext,
+300:    invalidateContextCache(task.projectId);
+339:  invalidateContextCache(task.projectId);
+524:      let projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+526:        projectContext = await buildProjectContext(task.projectId, {
+530:        logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed while building context");
+543:          message: "AI auto-execution failed while building context",
+553:        message: "Built project context — calling AI agent…",
+582:            projectContext,
+628:        invalidateContextCache(task.projectId);
+674:        invalidateContextCache(task.projectId);
+678:      invalidateContextCache(task.projectId);
+
+artifacts/api-server/src/routes/ai/analysis.ts
+20:  buildProjectContext,
+21:  invalidateContextCache,
+324:  if (!project) return res.status(500).json({ error: "Project context unavailable" });
+336:  const projectContext = await buildProjectContext(projectId, {
+357:      (opts) => analyzeScan(projectContext, opts),
+407:  invalidateContextCache(projectId);
+438:  if (!project) return res.status(500).json({ error: "Project context unavailable" });
+480:  const projectContext = await buildProjectContext(projectId, {
+489:      (opts) => reviewCode(projectContext, fileContents, opts),
+537:  invalidateContextCache(projectId);
+568:  if (!project) return res.status(500).json({ error: "Project context unavailable" });
+604:    recordTrace(metadata, "building-context", "started");
+605:    emit({ type: "stage", stage: "building-context" });
+606:    const projectContext = await buildProjectContext(projectId, {
+617:      (opts) => analyzeScan(projectContext, {
+660:    invalidateContextCache(projectId);
+710:  if (!project) return res.status(500).json({ error: "Project context unavailable" });
+768:    recordTrace(metadata, "building-context", "started");
+769:    emit({ type: "stage", stage: "building-context" });
+770:    const projectContext = await buildProjectContext(projectId, {
+781:      (opts) => reviewCode(projectContext, fileContents, {
+824:    invalidateContextCache(projectId);
+
+artifacts/api-server/src/lib/job-queue.ts
+11: * beyond the concurrency limit waits in-memory (cheap: each queued item is
+109:   * calling `enqueueWithId` in contexts where you want to check without
+128:   * re-enqueues any "queued" DB rows whose in-memory closure may have been
+213:          // try/catch). Log with queue depth for operational context so
+
+artifacts/api-server/src/routes/ai/chat.ts
+30:  buildProjectContext,
+31:  invalidateContextCache,
+32:  contextManifestMatches,
+33:  contextManifestAllowsExecution,
+42:  enrichContextWithMemories,
+77:  SourceRetrievalTelemetry,
+114:  buildAiExecutionResumeContext,
+367:  // Source retrieval telemetry includes read paths and is server-side
+369:  delete (projected as T & { sourceRetrieval?: unknown }).sourceRetrieval;
+676:type PlanContextGateFailure = {
+678:  code: "PLAN_CONTEXT_STALE" | "PLAN_CONTEXT_INCOMPLETE" | "PLAN_FILES_CHANGED";
+683: * Re-validate the exact context used to create a plan immediately before an
+687:async function validatePlanContextForExecution(
+691:): Promise<PlanContextGateFailure | null> {
+692:  if (!plan.contextManifest) {
+694:      error: "This plan has no verified project context. Complete a fresh scan and rebuild the plan before continuing.",
+695:      code: "PLAN_CONTEXT_INCOMPLETE",
+699:  const currentContext = await buildProjectContext(projectId);
+700:  const currentManifest = currentContext.contextManifest;
+703:      error: "No verified project context is available. Complete a fresh scan and rebuild the plan before continuing.",
+704:      code: "PLAN_CONTEXT_INCOMPLETE",
+707:  if (!contextManifestAllowsExecution(currentManifest)) {
+710:      code: "PLAN_CONTEXT_INCOMPLETE",
+713:  if (!contextManifestMatches(plan.contextManifest, currentManifest)) {
+715:      error: "This plan was created from stale project context. Complete a fresh scan, rebuild, and explicitly re-approve it.",
+716:      code: "PLAN_CONTEXT_STALE",
+739: * Planning must inspect the same source revision represented by the context
+748:async function buildPlanningFilesystemContext(
+749:  baseProjectContext: Awaited<ReturnType<typeof buildProjectContext>>,
+752:): Promise<Awaited<ReturnType<typeof buildProjectContext>>> {
+769:  const manifest = baseProjectContext.contextManifest;
+772:      ...baseProjectContext,
+779:      ...baseProjectContext,
+791:      ...baseProjectContext,
+800:      ...baseProjectContext,
+807:      ...baseProjectContext,
+814:      ...baseProjectContext,
+819:        "The source tree revision is stale relative to the context snapshot.",
+827:      ...baseProjectContext,
+835:    ...baseProjectContext,
+845:): Promise<PlanContextGateFailure | null> {
+856:      code: "PLAN_CONTEXT_INCOMPLETE",
+863:      code: "PLAN_CONTEXT_STALE",
+1464:  prefetched?: boolean;
+1471:  prefetchToolCalls?: number;
+1503:  contextFiles?: number;
+1521:  /** Structured, safe context for phase-policy rejection diagnostics. */
+1625:          ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
+1637:          ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
+1701:          contextFiles: step.contextFiles,
+1766:          contextFiles: step.contextFiles,
+1829:          prefetchToolCalls: step.prefetchToolCalls,
+1868:// ── Profile → context sections mapping ──────────────────────────────────────
+1869:// Maps the classifier's contextProfile to the DB sections buildProjectContext
+1871:type ContextSection = "tasks" | "metrics" | "graphEntities" | "graphRelationships" | "events" | "workflows";
+1872:function profileContextSections(profile: "chat-lite" | "chat-normal" | "chat-deep" | "chat"): ContextSection[] {
+2088:      return res.status(400).json({ error: "Invalid task context — task does not belong to this project", code: "INVALID_TASK_CONTEXT" });
+2182:    const baseProjectContext = await buildProjectContext(projectId, {
+2183:      sections: profileContextSections(chatClassification.contextProfile),
+2185:    const projectContext = chatClassification.implementationPlanMode
+2186:      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+2187:      : baseProjectContext;
+2188:    // Enrich context with cross-session memories (outside cache; always fresh).
+2189:    // Failure is non-fatal — agent proceeds without memory context.
+2190:    await enrichContextWithMemories(projectContext, projectId).catch((err) => {
+2191:      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
+2193:    // AI-TASK-007: Structured chat context trace.
+2208:      contextProfile: chatClassification.contextProfile,
+2234:          projectContext,
+2438:            // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+2518:    // Fire-and-forget memory write — must not block the JSON response.
+2525:      logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
+2713:    // Plans created before the context-manifest contract remain valid when
+2715:    // the immutable scan context before execution.
+2716:    if (storedPlan.contextManifest) {
+2717:      const contextFailure = await validatePlanContextForExecution(
+2722:      if (contextFailure) {
+2723:        logger.warn({ projectId, code: contextFailure.code }, "Build handoff context blocked");
+2724:        return res.status(409).json(contextFailure);
+2894:        sse({ type: "error", code: "INVALID_TASK_CONTEXT", message: "Invalid task context — task does not belong to this project" });
+3053:      const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
+3054:      if (resumeContext) {
+3055:        modelMessage = `${modelMessage}\n\n${resumeContext}`;
+3297:    sse({ type: "stage", stage: "building-context" });
+3298:    const baseProjectContext = await buildProjectContext(projectId, {
+3299:      sections: profileContextSections(streamClassification.contextProfile),
+3301:    const projectContext = streamClassification.implementationPlanMode
+3302:      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+3303:      : baseProjectContext;
+3305:    await enrichContextWithMemories(projectContext, projectId).catch((err) => {
+3306:      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
+3320:    // AI-TASK-007: Structured stream context trace.
+3335:      contextProfile: streamClassification.contextProfile,
+3360:          prefetchToolCalls: number;
+3385:          sourceRetrieval?: SourceRetrievalTelemetry;
+3494:          ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
+3505:          ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
+3641:          prefetchToolCalls: step.prefetchToolCalls,
+3650:          ...(step.sourceRetrieval ? { sourceRetrieval: step.sourceRetrieval } : {}),
+3879:          projectContext,
+3890:          browserValidationContext: {
+3900:           commandContext: {
+4192:    invalidateContextCache(projectId);
+4323:            // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+4562:    // Fire-and-forget memory write — must not block the SSE done event.
+4569:      logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
+5399:  if (body.data.decision === "approve" && current.contextManifest) {
+5404:        code: "PLAN_CONTEXT_INCOMPLETE",
+5407:    const contextFailure = await validatePlanContextForExecution(
+5412:    if (contextFailure) return res.status(409).json(contextFailure);
+7007:      invalidateContextCache(projectId);

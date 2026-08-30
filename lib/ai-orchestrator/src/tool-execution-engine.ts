@@ -27,6 +27,7 @@ import type { ProductionReachabilityTrace } from "./semantic-trace.js";
 import type { CanonicalSourceCoverage, RepairBlockReason } from "./evidence-integrity.js";
 import type { RawMessage, RawGroqResponse } from "./groq-client.js";
 import type { ProviderStrategy } from "./provider-strategy.js";
+import { createExecutionLedger, type ExecutionLedger } from "./execution-ledger.js";
 import type { ModelCapability } from "./openrouter/model-catalog.js";
 import { authorizeToolInvocation, type ToolDefinitionLike } from "./tool-policy.js";
 import type { PendingChange } from "./schemas/chat.schema.js";
@@ -1257,6 +1258,9 @@ export type ToolLoopOpts = {
    * callback cannot break the agentic loop.
    */
   onStep?: (step: AgentStep) => void;
+
+  /** Request-owned budget shared across every orchestration phase. */
+  executionLedger?: ExecutionLedger;
 };
 
 export type ToolLoopResult =
@@ -1704,7 +1708,24 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     allowTestSources = false,
     requireDependencyProof = false,
     onStep,
+    executionLedger: suppliedExecutionLedger,
   } = opts;
+  const executionLedger =
+    suppliedExecutionLedger ??
+    createExecutionLedger({
+      mode: executionMode === "forensic" ? "forensic" : executionMode === "repair_plan" ? "repair_plan" : "tool_chat",
+      signal,
+      budget: {
+        // maxIterations counts loop turns, while the request ledger counts
+        // every provider attempt (empty-response retry, model fallback and
+        // truncated-output repair included).
+        modelCalls:
+          (requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS) * 3 +
+          synthesisMaxAttempts,
+        toolCalls: requestedMaxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
+        synthesisAttempts: synthesisMaxAttempts,
+      },
+    });
   const phaseBudget = phase ? getPhaseBudget(phase) : undefined;
   const maxIterations = Math.min(
     requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS,
@@ -1714,6 +1735,35 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     requestedMaxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
     phaseBudget?.maxToolCalls ?? Number.POSITIVE_INFINITY,
   );
+  const callWithExecutionBudget = async (
+    callMessages: RawMessage[],
+    callOptions: Parameters<ProviderStrategy["call"]>[1],
+    kind: "model" | "synthesis" = "model",
+    callSignal?: AbortSignal,
+  ): Promise<RawGroqResponse> => {
+    const callStartedAt = Date.now();
+    const callModel = callOptions.model ?? model;
+    if (!executionLedger.admit(kind, { provider, model: callModel })) {
+      throw new GroqClientError(
+        executionLedger.signal.aborted ? "TIMEOUT" : "NON_200",
+        `Execution ${kind} budget exhausted.`,
+      );
+    }
+    try {
+      return await strategy.call(callMessages, {
+        ...callOptions,
+        timeoutMs: executionLedger.timeoutMs(callOptions.timeoutMs),
+        signal: callSignal ?? executionLedger.signal,
+      });
+    } finally {
+      executionLedger.complete(kind, {
+        provider,
+        model: callModel,
+        startedAt: callStartedAt,
+        status: executionLedger.signal.aborted ? "failed" : "completed",
+      });
+    }
+  };
   const boundedMaxValidationAttempts = Math.max(
     1,
     Math.min(
@@ -2116,7 +2166,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     callOptions: Parameters<ProviderStrategy["call"]>[1],
   ): Promise<{ result: RawGroqResponse; attemptCount: number }> => {
     try {
-      return { result: await strategy.call(callMessages, callOptions), attemptCount: 1 };
+      return { result: await callWithExecutionBudget(callMessages, callOptions), attemptCount: 1 };
     } catch (err) {
       if (
         !(err instanceof GroqClientError) ||
@@ -2139,7 +2189,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
       try {
         return {
-          result: await strategy.call(callMessages, callOptions),
+          result: await callWithExecutionBudget(callMessages, callOptions),
           attemptCount: 2,
         };
       } catch (retryErr) {
@@ -2191,12 +2241,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         const attemptTimeoutMs = synthesisAttempts === 1
           ? Math.min(options.timeoutMs ?? 60_000, boundedSynthesisTimeoutMs)
           : Math.min(options.timeoutMs ?? 60_000, remaining);
-        return await strategy.call(callMessages, {
+        return await callWithExecutionBudget(callMessages, {
           ...options,
           ...(opts.capability ? { capability: opts.capability } : {}),
           timeoutMs: attemptTimeoutMs,
           signal: controller.signal,
-        });
+        }, "synthesis", controller.signal);
       } catch (error) {
         lastError = error;
         if (error instanceof GroqClientError && error.code === "TIMEOUT") {
@@ -2768,7 +2818,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 ...(iterationTools != null ? { tools: iterationTools } : {}),
                 ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
             })
-          : await strategy.call(outboundMessages, {
+          : await callWithExecutionBudget(outboundMessages, {
             model: powerModel,
             ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
             timeoutMs: 60_000,
@@ -3053,7 +3103,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         },
       ]);
       try {
-        const retry = await strategy.call(retryMessages, {
+        const retry = await callWithExecutionBudget(retryMessages, {
           model: result.model || model,
           ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
           timeoutMs: 60_000,

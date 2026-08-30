@@ -1,0 +1,144 @@
+91:  prefetchFileList,
+92:  prefetchForensicRoots,
+94:} from "./speculative-prefetch.js";
+231:export const CONVERSATION_HISTORY_TURNS = 12;
+232:export const CONVERSATION_HISTORY_FETCH_TURNS = 24;
+233:export const CONVERSATION_HISTORY_FETCH_MESSAGES = CONVERSATION_HISTORY_FETCH_TURNS * 2;
+252:export function buildConversationHistoryWindow(
+254:  turns = CONVERSATION_HISTORY_TURNS,
+1848:  /^(language|branch|path|quality|status|metrics|graph|entities|relationships)$/i,
+1925: * Keep prefetch bodies as first-class forensic evidence. Prefetch seeds the
+1984:        prefetched: true,
+1991:        prefetched: true,
+2061:        /\[(?:prefetch|read) output truncated\b/i.test(content) ||
+2713: * from exactly ONE bounded file read — never a repo/graph scan or broad prefetch.
+2917:      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "refresh_project_scan", "query_knowledge_graph", "discover_project_apis"].includes(tool.function.name))
+2982: * Parses entity names from the pre-built graphSummary string and scores them
+3014:function buildQueryFocusHint(graphSummary: string, message: string): string | null {
+3015:  if (!graphSummary || graphSummary.startsWith("Knowledge graph empty")) return null;
+3017:  // Parse entity names from the already-serialized graphSummary
+3022:  while ((m = entityRe.exec(graphSummary)) !== null) {
+3399:   * will enrich its targetFiles list with paths from the knowledge graph.
+3484:   * caller. Static graph links must not be promoted to production proof.
+3552:  // deep_analysis and derives context profile, history depth, and prefetch flag.
+3905:  // loop from prefetch + loop reads, and from the direct single-file pre-read.
+4155:    structuredOutputMode || capabilityProbeRequest ? 0 : CONVERSATION_HISTORY_TURNS;
+4183:          graphModeOverride: "off" as const,
+4223:   * Deduplication cache shared between speculative-prefetch and the tool loop.
+4224:   * Seeded here with prefetch results so the engine never re-reads them.
+4228:  /** Ground-truth sources from speculative-prefetch (merged with engine sources later). */
+4229:  const prefetchSources: string[] = [];
+4230:  /** Ground-truth read bodies from speculative/plan prefetch. */
+4231:  const prefetchFileContents = new Map<string, string>(retainedEvidence ?? []);
+4236:  for (const [filePath, content] of prefetchFileContents) {
+4237:    if (!prefetchSources.includes(filePath)) prefetchSources.push(filePath);
+4241:  // First-Evidence Gate (FEG): before graph guidance, cross-file tracing,
+4242:  // dependency discovery, or broad prefetch, eagerly read the explicit primary
+4244:  // named file itself — never a planning/graph side effect — so a
+4311:          prefetchFileContents.set(relPath, content);
+4312:          prefetchSources.push(relPath);
+4333:  // target was read directly, before any graph/prefetch work. Emit the direct
+4334:  // read as a prefetched tool_call/tool_result pair (like the broad prefetch
+4341:      prefetchFileContents,
+4369:    MAX_FORENSIC_DISCOVERY_FILES - prefetchFileContents.size;
+4375:            prefetchFileContents.size,
+4378:  const prefetchExcludeFiles = (): Set<string> =>
+4379:    new Set(prefetchFileContents.keys());
+4416:      prefetch: false,
+4456:  // Resolve explicit file mentions to graph file entities before the generic
+4457:  // planner or speculative prefetch can broaden the request. The guidance
+4458:  // contains only those files and their direct graph neighbours.
+4459:  const graphGuidance =
+4464:  if (graphGuidance) {
+4469:        mentionedFiles: graphGuidance.mentionedFiles,
+4470:        resolvedFiles: graphGuidance.resolvedFiles,
+4471:        prefetchFiles: graphGuidance.prefetchFiles,
+4474:    for (const trace of graphGuidance.crossFileTraces) {
+4483:  const focusHint = buildQueryFocusHint(projectContext.graphSummary, message);
+4484:  const combinedFocusHint = [focusHint, graphGuidance?.promptHint]
+4492:  const { recentHistory, episodeSummaryMessage } = buildConversationHistoryWindow(
+4548:            "- Query planner and memory prefetch: disabled\n" +
+4558:               "- Memory prefetch and query planner are disabled\n" +
+4575:    const discovery = await prefetchForensicRoots({
+4581:      excludeFiles: prefetchExcludeFiles(),
+4608:    const accepted = recordPrefetchEvidence(discovery.cacheEntries, prefetchFileContents);
+4609:    prefetchSources.push(...accepted);
+4612:      prefetchFileContents,
+4619:  // When explicit files resolved to graph entities, use only those roots and
+4621:  // speculative and memory-seeded prefetch paths for this request.
+4623:    graphGuidance &&
+4631:    const graphPrefetch = await prefetchFileList({
+4632:      files: graphGuidance.prefetchFiles,
+4638:      excludeFiles: prefetchExcludeFiles(),
+4646:    if (graphPrefetch.injectedMessages.length > 0) {
+4647:      messages.push(...graphPrefetch.injectedMessages);
+4648:      for (const entry of graphPrefetch.cacheEntries) {
+4651:      const accepted = recordPrefetchEvidence(graphPrefetch.cacheEntries, prefetchFileContents);
+4652:      prefetchSources.push(...accepted);
+4655:        prefetchFileContents,
+4674:    !graphGuidance &&
+4677:    const prefetch = await speculativePrefetch({
+4685:      excludeFiles: prefetchExcludeFiles(),
+4688:    if (prefetch.injectedMessages.length > 0) {
+4690:      messages.push(...prefetch.injectedMessages);
+4693:      for (const entry of prefetch.cacheEntries) {
+4696:      const accepted = recordPrefetchEvidence(prefetch.cacheEntries, prefetchFileContents);
+4697:      prefetchSources.push(...accepted);
+4700:        prefetchFileContents,
+4707:  // ── Memory-seeded prefetch ────────────────────────────────────────────────
+4712:  // File paths are embedded in projectContext.sessionMemories as bullet lines
+4719:    projectContext.sessionMemories &&
+4722:    !graphGuidance &&
+4728:    while ((bm = bulletRe.exec(projectContext.sessionMemories)) !== null) {
+4732:      const memPrefetch = await prefetchFileList({
+4739:        excludeFiles: prefetchExcludeFiles(),
+4751:        const accepted = recordPrefetchEvidence(memPrefetch.cacheEntries, prefetchFileContents);
+4752:        prefetchSources.push(...accepted);
+4755:          prefetchFileContents,
+4796:    // explicit file mentions remain constrained to the deterministic graph
+4798:    if (graphGuidance && queryPlan) {
+4801:        targetFiles: graphGuidance.prefetchFiles,
+4808:    if (!graphGuidance && queryPlan?.targetFiles.length) {
+4809:      const planPrefetch = await prefetchFileList({
+4816:        excludeFiles: prefetchExcludeFiles(),
+4825:        const accepted = recordPrefetchEvidence(planPrefetch.cacheEntries, prefetchFileContents);
+4826:        prefetchSources.push(...accepted);
+4829:          prefetchFileContents,
+4838:    const executionPrefetch = await prefetchFileList({
+4844:      excludeFiles: prefetchExcludeFiles(),
+4857:      const accepted = recordPrefetchEvidence(executionPrefetch.cacheEntries, prefetchFileContents);
+4858:      prefetchSources.push(...accepted);
+4861:        prefetchFileContents,
+4978:        ...prefetchSources,
+5130:          [...prefetchFileContents.entries()]
+5449:    const coordinatedSources = [...new Set([...prefetchSources, ...nodeToolSources])];
+5499:    initialFileContents: prefetchFileContents,
+5511:      ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)
+5516:    // The tool loop may reach its synthesis window after prefetch has already
+5531:    // block every read, including already-prefetched evidence, and leave the
+5581:  // Merge prefetch sources with the engine's ground-truth sources.
+5583:  const toolSources = [...prefetchSources, ...loopResult.toolSources];
+5584:  // Keep both prefetch and in-loop read bodies available to the forensic gate.
+5596:  // Populate it here from prefetch + tool-loop reads.
+5597:  for (const [filePath, content] of prefetchFileContents) {
+5635:        (/\[(?:prefetch|read) output truncated\b/i.test(readContent) ||
+5993:    prefetchPaths: string[];
+6018:      // EI-011: fold in the prefetch completed reads the loop telemetry never
+6021:      prefetchReads: input.prefetchPaths.filter(
+6024:         prefetchPaths: input.prefetchPaths,
+6193:        prefetchPaths: [...prefetchFileContents.keys()],
+6449:        prefetchPaths: [...prefetchFileContents.keys()],
+6813:    // a repo/graph scan or broad prefetch. If the focused read lands, the run
+8709:    // EI-011: prefetch completed reads participate explicitly in the reconciled
+8712:    // well-formed prefetch-only run would report 0 completed reads and trip a
+8714:    // Dedupe: if the loop also re-read a prefetched path, its read is already
+8715:    // counted in sourceRetrieval.uniqueReads/readPaths, so only fold the prefetch
+8717:    prefetchReads: [...prefetchFileContents.keys()].filter(
+8720:    prefetchPaths: [...prefetchFileContents.keys()],
+9055:  // regardless of casing or delimiter convention. The graph convention uses
+9328:              graphGuidance?.crossFileTraces.find((trace) => trace.status === "PROVEN") ??
+9329:              graphGuidance?.crossFileTraces[0],
+9353:    ...(graphGuidance?.crossFileTraces?.length
+9354:      ? { crossFileTraces: graphGuidance.crossFileTraces.slice(0, 12) }
+9398:      ...(graphGuidance?.crossFileTraces?.length
+9399:        ? { crossFileTraces: graphGuidance.crossFileTraces.slice(0, 12) }

@@ -86,6 +86,7 @@ import {
 import { CapabilityRegistry } from "../capability-contract.js";
 import type { AnalysisToolRunner } from "../tools/analysis-tools.js";
 import type { StrategyCallOptions } from "../provider-strategy.js";
+import { createExecutionLedger, type ExecutionLedger } from "../execution-ledger.js";
 import {
   speculativePrefetch,
   prefetchFileList,
@@ -3507,6 +3508,8 @@ export async function chat(opts: {
     */
    capabilityRegistry?: CapabilityRegistry;
    capabilityCatalogRequest?: CapabilityCatalogRequest;
+   /** Request-owned budget shared with provider fallback and nested orchestration. */
+   executionLedger?: ExecutionLedger;
 }): Promise<ChatResult> {
   const {
     message,
@@ -3545,7 +3548,15 @@ export async function chat(opts: {
     retainedEvidence,
     capabilityRegistry,
     capabilityCatalogRequest,
+    executionLedger: suppliedExecutionLedger,
   } = opts;
+  const executionLedger =
+    suppliedExecutionLedger ??
+    createExecutionLedger({
+      mode: "tool_chat",
+      signal,
+      budget: { modelCalls: BUDGET_BY_SCOPE.tool_chat.maxIterations, toolCalls: BUDGET_BY_SCOPE.tool_chat.maxToolCalls },
+    });
 
   // ── Profile classification ────────────────────────────────────────────────
   // Pure sync — classifies the message into simple/code/architecture/workflow/
@@ -4790,6 +4801,8 @@ export async function chat(opts: {
       strategy,
       apiKey: apiKey ?? undefined,
       projectId,
+      signal: executionLedger.signal,
+      executionLedger,
     }).catch(() => null);
 
     // The generic planner still supplies scope and iteration estimates, but
@@ -4966,12 +4979,13 @@ export async function chat(opts: {
         powerModel,
         provider: providerId,
         apiKey: apiKey ?? undefined,
-        signal,
+        signal: executionLedger.signal,
         tools,
         rootPath,
         pendingChanges,
         cache: toolCallCache,
         compoundParts: queryPlan.compoundParts ?? [],
+        executionLedger,
       });
 
       const mergedSources = [
@@ -5556,6 +5570,7 @@ export async function chat(opts: {
     // is PRIMARY_FIRST so post-first-read traversal cannot fan out into
     // unjustified read chains.
     requireDependencyProof: firstEvidence.traversalPolicy === "PRIMARY_FIRST",
+    executionLedger,
     onStep: relayAgentStep,
   });
   if (
