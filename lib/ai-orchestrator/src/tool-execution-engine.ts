@@ -2551,6 +2551,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       attemptCount = callResult.attemptCount;
     } catch (err) {
       if (signal?.aborted) return cancelledResult();
+      if (err instanceof GroqClientError && err.code === "INVALID_TOOL_CALL") {
+        return terminalInvalidToolCall(err, iter);
+      }
       // OR-004: only fall back to powerModel on transient infrastructure errors,
       // not on user/validation errors like NON_200 or AUTH_ERROR.
       if (
@@ -2595,6 +2598,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
              ...(opts.capability ? { capability: opts.capability } : {}),
             ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
             ...(iterationTools != null ? { tools: iterationTools } : {}),
+             ...(opts.tools ? { toolManifest: opts.tools } : {}),
             ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
             });
           result = fallbackResult;
@@ -2603,6 +2607,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             emitExecutionDiagnostic("EXECUTION_PROVIDER_FAILURE", [
               `fallback provider failure code: ${fallbackErr.code}`,
             ]);
+          }
+          if (fallbackErr instanceof GroqClientError && fallbackErr.code === "INVALID_TOOL_CALL") {
+            return terminalInvalidToolCall(fallbackErr, iter);
           }
           // TIMEOUT after both primary and fallback: degrade gracefully when
           // evidence has already been collected so the caller can surface a

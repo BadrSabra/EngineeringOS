@@ -1,0 +1,400 @@
+artifacts/api-server/scripts/run-release-fixture-collision-check.mjs:77:  let cleanup;
+artifacts/api-server/scripts/run-release-fixture-collision-check.mjs:79:    cleanup = await acquireReleaseLock(lockPath);
+artifacts/api-server/scripts/run-release-fixture-collision-check.mjs:93:    await cleanup();
+scripts/release-configuration.test.ts:3:import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/release-configuration.test.ts:124:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:167:    await rm(temporaryDirectory, { recursive: true, force: true });
+scripts/release-configuration.test.ts:174:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:217:    await rm(temporaryDirectory, { recursive: true, force: true });
+scripts/release-configuration.test.ts:227:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:268:test("keeps release recovery validation before deployment cleanup", async () => {
+scripts/release-configuration.test.ts:279:  const cleanupIndex = deploymentSteps.indexOf("pnpm store prune");
+scripts/release-configuration.test.ts:282:  assert.notEqual(cleanupIndex, -1);
+scripts/release-configuration.test.ts:284:    recoveryIndex < cleanupIndex,
+scripts/release-configuration.test.ts:380:    await rm(fixture.temporaryDirectory, { recursive: true, force: true });
+scripts/release-configuration.test.ts:425:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:487:    await rm(temporaryDirectory, { recursive: true, force: true });
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+scripts/run-dashboard-journey.mjs:508:  const cleanupFailures = new Map();
+scripts/run-dashboard-journey.mjs:530:      cleanupFailures.set(port, {
+scripts/run-dashboard-journey.mjs:543:      const failure = port ? cleanupFailures.get(port) : undefined;
+scripts/run-dashboard-journey.mjs:549:        cleanupOutcome: failure
+artifacts/api-server/src/index.ts:31:import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
+artifacts/api-server/src/index.ts:66:// waiting up to 30 s for the TTL to expire.
+artifacts/api-server/src/index.ts:73:        "ctx-cache: pg_notify failed — degrading to TTL-only invalidation",
+scripts/dashboard-journey-contract.test.mjs:319:    "The live journey needs positive Playwright cleanup/reporting headroom.",
+scripts/dashboard-journey-contract.test.mjs:487:    /cleanupOutcome:/,
+scripts/dashboard-journey-contract.test.mjs:488:    "The teardown artifact must preserve cleanup outcome.",
+lib/scanner/src/python-extractor.ts:2:import { mkdtempSync, writeFileSync } from "node:fs";
+lib/scanner/src/python-extractor.ts:41:  const dir = mkdtempSync(path.join(tmpdir(), "scanner-py-"));
+scripts/verify-benchmark-rollout.test.mjs:2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/verify-benchmark-rollout.test.mjs:23:  const directory = await mkdtemp(path.join(tmpdir(), "benchmark-rollout-"));
+scripts/verify-benchmark-rollout.test.mjs:37:        BENCHMARK_LIVE_SCORECARD_PATH: livePath,
+scripts/verify-benchmark-rollout.test.mjs:38:        BENCHMARK_BASELINE_PATH: baselinePath,
+scripts/verify-benchmark-rollout.test.mjs:42:    await rm(directory, { recursive: true, force: true });
+scripts/verify-benchmark-rollout.mjs:8:  process.env.BENCHMARK_LIVE_SCORECARD_PATH ?? path.join(resultsRoot, "code-agent-benchmark-live.json"),
+scripts/verify-benchmark-rollout.mjs:11:  process.env.BENCHMARK_BASELINE_PATH ?? path.join(resultsRoot, "code-agent-benchmark-baseline.json"),
+artifacts/api-server/scripts/run-release-synthesis-telemetry.mjs:34:let cleanup;
+artifacts/api-server/scripts/run-release-synthesis-telemetry.mjs:37:  if (process.env.DATABASE_URL) cleanup = await acquireReleaseLock(lockPath);
+artifacts/api-server/scripts/run-release-synthesis-telemetry.mjs:61:  if (cleanup) await cleanup();
+scripts/validate-github-workflows.test.mjs:2:import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+scripts/validate-github-workflows.test.mjs:10:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:39:    await rm(root, { recursive: true, force: true });
+scripts/validate-github-workflows.test.mjs:44:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:80:    await rm(root, { recursive: true, force: true });
+scripts/validate-github-workflows.test.mjs:85:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:120:    await rm(root, { recursive: true, force: true });
+scripts/validate-github-workflows.test.mjs:125:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:162:    await rm(root, { recursive: true, force: true });
+scripts/validate-github-workflows.test.mjs:167:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:203:    await rm(root, { recursive: true, force: true });
+scripts/validate-github-workflows.test.mjs:208:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:266:    await rm(root, { recursive: true, force: true });
+scripts/validate-github-workflows.test.mjs:271:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:311:    await rm(root, { recursive: true, force: true });
+scripts/validate-github-workflows.test.mjs:316:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:343:    await rm(root, { recursive: true, force: true });
+artifacts/api-server/scripts/run-release-ai-stream.mjs:204:  let cleanup;
+artifacts/api-server/scripts/run-release-ai-stream.mjs:206:    cleanup = await acquireReleaseLock(lockPath);
+artifacts/api-server/scripts/run-release-ai-stream.mjs:212:    await cleanup();
+artifacts/api-server/scripts/run-release-ai-stream.mjs:216:    await cleanup();
+artifacts/api-server/scripts/run-release-ai-stream.mjs:262:  await cleanup();
+scripts/validate-benchmark-baseline.ts:15:  CODE_AGENT_BENCHMARK_CASE_COUNT,
+scripts/validate-benchmark-baseline.ts:16:  CODE_AGENT_BENCHMARK_VERSION,
+scripts/validate-benchmark-baseline.ts:23:  process.env.BENCHMARK_DETERMINISTIC_BASELINE_PATH ??
+scripts/validate-benchmark-baseline.ts:59:if (record.suiteVersion !== CODE_AGENT_BENCHMARK_VERSION) {
+scripts/validate-benchmark-baseline.ts:61:    `Suite version mismatch: baseline=${String(record.suiteVersion)}, current=${CODE_AGENT_BENCHMARK_VERSION}.`,
+scripts/validate-benchmark-baseline.ts:79:if (scorecardRecord.version !== 1 || scorecardRecord.suiteVersion !== CODE_AGENT_BENCHMARK_VERSION) {
+scripts/validate-benchmark-baseline.ts:88:if (!Array.isArray(cases) || cases.length !== CODE_AGENT_BENCHMARK_CASE_COUNT) {
+scripts/validate-benchmark-baseline.ts:90:    `Case count mismatch: expected ${CODE_AGENT_BENCHMARK_CASE_COUNT}, got ${Array.isArray(cases) ? cases.length : "missing"}.`,
+scripts/validate-benchmark-baseline.ts:109:  suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
+lib/scanner/src/__tests__/file-walker.test.ts:24:  await rm(TEST_DIR, { recursive: true, force: true });
+lib/scanner/src/__tests__/file-walker.test.ts:77:      await rm(addedPath, { force: true });
+lib/scanner/src/__tests__/file-walker.test.ts:122:      await rm(join(TEST_DIR, "src", "huge.ts"), { force: true });
+lib/scanner/src/__tests__/file-walker.test.ts:132:      await rm(join(TEST_DIR, "image.png"), { force: true });
+lib/scanner/src/__tests__/file-walker.test.ts:143:      await rm(join(TEST_DIR, ".hidden"), { recursive: true, force: true });
+artifacts/api-server/scripts/release-lock.test.mjs:2:import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/scripts/release-lock.test.mjs:9:  const root = await mkdtemp(path.join(os.tmpdir(), "engineeringos-release-lock-"));
+artifacts/api-server/scripts/release-lock.test.mjs:40:    await rm(root, { recursive: true, force: true });
+artifacts/api-server/scripts/release-lock.test.mjs:47:    const cleanup = await acquireReleaseLock(lockPath, {
+artifacts/api-server/scripts/release-lock.test.mjs:63:    await cleanup();
+artifacts/api-server/scripts/release-lock.test.mjs:66:    await rm(root, { recursive: true, force: true });
+artifacts/api-server/scripts/release-lock.test.mjs:86:    await rm(root, { recursive: true, force: true });
+artifacts/api-server/scripts/live-empty-model-response.md:42:temporary-root cleanup contract without contacting either provider.
+scripts/release-port-cleanup.test.mjs:9:const cleanupScript = resolve(
+scripts/release-port-cleanup.test.mjs:48:    const child = spawn(process.execPath, [cleanupScript], {
+scripts/release-port-cleanup.test.mjs:55:        reject(new Error(`Port cleanup exited with ${signal ?? code}.`));
+scripts/release-port-cleanup.test.mjs:102:test("release port cleanup supports consecutive runs", async () => {
+scripts/release-port-cleanup.test.mjs:115:    "a second cleanup run must remain successful after the listener is gone",
+scripts/mission-correlation-report.test.mjs:4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+scripts/mission-correlation-report.test.mjs:122:  const directory = await mkdtemp(resolve(tmpdir(), "mission-report-"));
+scripts/mission-correlation-report.test.mjs:158:    await rm(directory, { recursive: true, force: true });
+scripts/patch-generated-zod.test.ts:2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/patch-generated-zod.test.ts:13:  const directory = await mkdtemp(join(tmpdir(), "patch-generated-zod-"));
+scripts/patch-generated-zod.test.ts:20:    await rm(directory, { recursive: true, force: true });
+scripts/patch-generated-zod.test.ts:65:  const directory = await mkdtemp(
+scripts/patch-generated-zod.test.ts:88:    await rm(directory, { recursive: true, force: true });
+scripts/check-codegen-drift.ts:22:  mkdtempSync,
+scripts/check-codegen-drift.ts:60:const generatedRoot = mkdtempSync(join(tmpdir(), "api-codegen-drift-"));
+lib/knowledge-engine/src/__tests__/queries.test.ts:39:async function cleanupProject(id: string): Promise<void> {
+lib/knowledge-engine/src/__tests__/queries.test.ts:80:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:83:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:84:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:85:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:91:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:135:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:137:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:138:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:139:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:145:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:159:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:175:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:185:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:187:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:188:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:189:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:195:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:210:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:220:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:235:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:237:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:238:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:239:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:245:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:265:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:267:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:268:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:269:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:275:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:285:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:296:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:298:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:299:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:300:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:306:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:352:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:362:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:364:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:365:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:366:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:372:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:420:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:422:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:423:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:424:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:430:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:462:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:479:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:481:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:482:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:483:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:531:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:551:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:567:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:581:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:595:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:597:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:598:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:599:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:631:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:643:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:656:  const cleanupQueue: string[] = [];
+lib/knowledge-engine/src/__tests__/queries.test.ts:658:    while (cleanupQueue.length > 0) {
+lib/knowledge-engine/src/__tests__/queries.test.ts:659:      const id = cleanupQueue.pop();
+lib/knowledge-engine/src/__tests__/queries.test.ts:660:      if (id) await cleanupProject(id);
+lib/knowledge-engine/src/__tests__/queries.test.ts:666:    cleanupQueue.push(projectId);
+lib/knowledge-engine/src/__tests__/queries.test.ts:698:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/metrics.test.ts:24:async function cleanupProject(id: string): Promise<void> {
+artifacts/api-server/src/routes/metrics.test.ts:30:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/metrics.test.ts:33:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/metrics.test.ts:34:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/metrics.test.ts:35:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/metrics.test.ts:41:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/metrics.test.ts:59:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/metrics.test.ts:76:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/metrics.test.ts:92:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/git.test.ts:4:import { chmod, mkdtemp, writeFile, rm } from "node:fs/promises";
+artifacts/api-server/src/routes/git.test.ts:34:  const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-git-"));
+artifacts/api-server/src/routes/git.test.ts:143:    await rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/git.test.ts:201:    const remoteRoot = await mkdtemp(path.join(tmpdir(), "engineeringos-git-remote-"));
+artifacts/api-server/src/routes/git.test.ts:209:    const wrapperDir = await mkdtemp(path.join(tmpdir(), "engineeringos-git-wrapper-"));
+artifacts/api-server/src/routes/graph.test.ts:29:async function cleanupProject(id: string): Promise<void> {
+artifacts/api-server/src/routes/graph.test.ts:90:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:93:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:94:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:95:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:101:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:117:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:145:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:148:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:149:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:150:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:156:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:177:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:200:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:220:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:223:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:224:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:225:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:231:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:248:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:263:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:277:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:293:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:296:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:297:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:298:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:304:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:327:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:340:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:343:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:344:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:345:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:400:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:419:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:434:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:462:    cleanupQueue.push(id);
+artifacts/api-server/src/routes/graph.test.ts:474:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:477:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:478:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:479:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:485:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:522:    cleanupQueue.push(otherProjectId);
+artifacts/api-server/src/routes/graph.test.ts:543:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:546:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:547:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:548:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:554:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:600:    cleanupQueue.push(otherProjectId);
+artifacts/api-server/src/routes/graph.test.ts:619:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:622:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:623:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:624:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:630:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:673:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:695:    cleanupQueue.push(otherProjectId);
+artifacts/api-server/src/routes/graph.test.ts:707:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:710:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:711:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:712:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:718:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:767:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:770:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:771:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:772:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:806:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:835:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:838:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:839:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:840:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:846:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:871:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:914:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:1049:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:1051:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:1052:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:1053:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:1059:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1096:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1127:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1140:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:1142:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:1143:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:1144:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:1150:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1184:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1207:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1226:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:1228:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:1229:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:1230:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:1236:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1256:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1280:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:1282:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:1283:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:1284:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:1290:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1331:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:1333:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:1334:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:1335:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:1341:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1358:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/graph.test.ts:1360:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/graph.test.ts:1361:      const id = cleanupQueue.pop();
+artifacts/api-server/src/routes/graph.test.ts:1362:      if (id) await cleanupProject(id);
+artifacts/api-server/src/routes/graph.test.ts:1368:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1380:    cleanupQueue.push(projectId);
+artifacts/api-server/src/routes/ai.test.ts:525:    await fs.rm(sourceRoot, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai.test.ts:617:async function cleanupProjectFixture(projectId: string): Promise<void> {
+artifacts/api-server/src/routes/ai.test.ts:637:  // configuration. Release fixture cleanup must remain reliable if a test
+artifacts/api-server/src/routes/ai.test.ts:684:    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+artifacts/api-server/src/routes/ai.test.ts:687:    await cleanupProjectFixture(pid);
+artifacts/api-server/src/routes/ai.test.ts:943:      await fs.rm(`/tmp/lib/ai-orchestrator/${fileName}`, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:2904:    await fs.rm(operation.workspaceRoot!, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai.test.ts:3188:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3240:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3304:      await fs.rm(dangerousPath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3305:      await fs.rm(safePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3351:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3401:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3476:      await fs.rm(stalePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3477:      await fs.rm(validPath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3531:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3622:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3669:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3717:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3763:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3813:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3911:      await fs.rm(absolutePath, { force: true });
+artifacts/api-server/src/routes/ai.test.ts:3969:      await fs.rm(absolutePath, { force: true });
+lib/db/src/schema/discovery.ts:166:  // Covers: stale-session cleanup — WHERE started_at < now() - interval
+artifacts/api-server/src/routes/events.test.ts:271:    projectIds.push(id); // reuse existing afterEach cleanup
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:36:    await fs.rm(root, { recursive: true, force: true });
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:47:      const rootPath = await fs.mkdtemp("/tmp/empty-model-response-live-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:379:async function cleanupProjectFixture(projectId: string): Promise<void> {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:448:    await cleanupProjectFixture(pid);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:451:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:666:        const rootPath = await fs.mkdtemp("/tmp/stream-real-process-recovery-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:836:    const rootPath = await fs.mkdtemp("/tmp/stream-forensic-restart-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1015:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1139:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-queued-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1179:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-running-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1237:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-drift-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1392:    const rootPath = await fs.mkdtemp("/tmp/stream-non-build-correlation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1525:    const rootPath = await fs.mkdtemp("/tmp/stream-build-plan-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1545:    const rootPath = await fs.mkdtemp("/tmp/stream-build-empty-scope-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1565:    const rootPath = await fs.mkdtemp("/tmp/stream-build-read-only-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1588:    const rootPath = await fs.mkdtemp("/tmp/stream-build-scope-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1632:    const rootPath = await fs.mkdtemp("/tmp/stream-build-validation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1676:    const rootPath = await fs.mkdtemp("/tmp/stream-hostile-release-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1798:    const rootPath = await fs.mkdtemp(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1801:    const remotePath = await fs.mkdtemp("/tmp/agent-cycle-remote-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1802:    const wrapperDir = await fs.mkdtemp("/tmp/agent-cycle-git-bin-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2101:      const receiptFile: string = String(process.env.CONTROLLED_AGENT_JOURNEY_RECEIPT_PATH ?? "");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2205:    const rootPath = await fs.mkdtemp("/tmp/stream-arabic-persistence-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4379:    const rootPath = await fs.mkdtemp("/tmp/stream-native-reset-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4463:    const rootPath = await fs.mkdtemp("/tmp/stream-provider-failover-");
+lib/db/src/schema/uploads.ts:38:     * When this entry expires. Set to createdAt + TTL at insert time.
+lib/db/src/schema/uploads.ts:41:     * Default TTL: 1 hour.
+artifacts/api-server/src/routes/dashboard.test.ts:112:// Tracked IDs for cleanup in afterEach
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:289:      await fs.rm(alias, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:295:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:296:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:423:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:424:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:548:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:549:    await fs.rm(rootPath, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:631:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:632:    await fs.rm(rootPath, { recursive: true, force: true });
+lib/api-zod/src/generated/api.ts:37:}).optional().describe('Content-free status of the most recent historical AI diagnostics retention sweep. A failed sweep is retried on the next startup.\n'),
+lib/api-zod/src/generated/api.ts:46:}).optional().describe('Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.\n'),
+lib/db/src/schema/rate_limits.ts:31:    /** Updated on every increment — lets the cleanup query use an index. */
+artifacts/api-server/src/routes/ai/chat.ts:3818:            await workspace.cleanup();
+artifacts/api-server/src/routes/health.ts:7:import { getTaskExecutionRetentionHealth } from "../lib/task-execution-retention.js";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:573:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-server-session-"));
+artifacts/api-server/src/routes/discovery.ts:27:  cleanupResolveResult,
+artifacts/api-server/src/routes/discovery.ts:66:export async function cleanupOldSessions(): Promise<void> {
+artifacts/api-server/src/routes/discovery.ts:213:      await cleanupResolveResult(resolved);
+artifacts/api-server/src/routes/discovery.ts:224:        await cleanupResolveResult(resolved);
+artifacts/api-server/src/routes/discovery.ts:237:      await cleanupResolveResult(resolved);
+artifacts/api-server/src/routes/discovery.ts:249:      await cleanupResolveResult(resolved);
+artifacts/api-server/src/routes/discovery.ts:255:  cleanupOldSessions().catch(() => undefined);
+artifacts/api-server/src/routes/discovery.ts:277:    await cleanupResolveResult(resolved);
+artifacts/api-server/src/routes/discovery.ts:308:      await cleanupResolveResult(resolved).catch(() => undefined);
+artifacts/api-server/src/routes/ai/benchmark.ts:107:    process.env.BENCHMARK_OUTPUT_DIR ??
+artifacts/api-server/src/routes/ai/benchmark.ts:385:    process.env.BENCHMARK_BASELINE_PATH ??
+artifacts/api-server/src/routes/ai/benchmark.ts:392:    process.env.BENCHMARK_OUTPUT_DIR ??
+artifacts/api-server/src/routes/discovery.test.ts:6:import discoveryRouter, { cleanupOldSessions } from "./discovery.js";
+artifacts/api-server/src/routes/discovery.test.ts:123:async function cleanupSessionAndProject(): Promise<void> {
+artifacts/api-server/src/routes/discovery.test.ts:146:  const receiptPath = process.env.DISCOVERY_RELEASE_RECEIPT_PATH;
+artifacts/api-server/src/routes/discovery.test.ts:393:  afterEach(cleanupSessionAndProject);
+artifacts/api-server/src/routes/discovery.test.ts:442:describe("Discovery cleanup ownership and races", () => {
+artifacts/api-server/src/routes/discovery.test.ts:443:  afterEach(cleanupSessionAndProject);
+artifacts/api-server/src/routes/discovery.test.ts:462:    await cleanupOldSessions();
+artifacts/api-server/src/routes/discovery.test.ts:488:    await cleanupOldSessions();
+artifacts/api-server/src/routes/discovery.test.ts:505:  it("does not create an imported project when cleanup wins the ready-session race", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:515:    const [cleanupResult, importResult] = await Promise.all([
+artifacts/api-server/src/routes/discovery.test.ts:516:      cleanupOldSessions(),
+artifacts/api-server/src/routes/discovery.test.ts:519:    await cleanupResult;
+artifacts/api-server/src/routes/discovery.test.ts:542:  afterEach(cleanupSessionAndProject);
+artifacts/api-server/src/routes/discovery.test.ts:602:  afterEach(cleanupSessionAndProject);
+artifacts/api-server/src/routes/discovery.test.ts:810:    // Also clear the module-level trackers used by cleanupSessionAndProject.
+artifacts/api-server/src/routes/discovery.test.ts:811:    await cleanupSessionAndProject();
+artifacts/api-server/src/routes/discovery.test.ts:1067:      await rm(fixtureRoot, { recursive: true, force: true });
+artifacts/api-server/src/routes/discovery.test.ts:1070:    await cleanupSessionAndProject();
+artifacts/api-server/src/routes/discovery.test.ts:1073:  it("materializes the clone before temp cleanup and removes it with the project", async () => {
+artifacts/api-server/src/routes/ai/benchmark.test.ts:8:const originalOutputDir = process.env.BENCHMARK_OUTPUT_DIR;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:24:  if (originalOutputDir === undefined) delete process.env.BENCHMARK_OUTPUT_DIR;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:25:  else process.env.BENCHMARK_OUTPUT_DIR = originalOutputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:26:  await fs.rm(outputDir, { recursive: true, force: true });
+artifacts/api-server/src/routes/ai/benchmark.test.ts:31:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:78:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:88:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:99:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:153:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/tasks.test.ts:43:async function cleanupProject(id: string): Promise<void> {
+artifacts/api-server/src/routes/tasks.test.ts:55:  const cleanupQueue: string[] = [];
+artifacts/api-server/src/routes/tasks.test.ts:58:    while (cleanupQueue.length > 0) {
+artifacts/api-server/src/routes/tasks.test.ts:59:      const id = cleanupQueue.pop();

@@ -1,0 +1,193 @@
+--- tool manifest construction ---
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:31:    return `**File-system tools: NOT active in this session.**
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:44:      `File tools: read_file · list_directory · search_code · replace_text · write_file
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:45:Git tools: git_status · git_diff · git_log
+lib/ai-orchestrator/src/prompts/profile-classifier.ts:374:  // phrase is still accepted and documented in the effective manifest.
+lib/ai-orchestrator/src/tool-execution-engine.ts:282:// of these sets is an unknown tool and is rejected before touching the budget.
+lib/ai-orchestrator/src/tool-execution-engine.ts:444:  allowedToolNames?: ReadonlySet<string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:713:      ...(opts.allowedToolNames ? { allowedTools: opts.allowedToolNames } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:1046:  tools: ToolDefinitionLike[] | undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1147:  allowedToolNames?: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1620:    allowedToolNames,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1877:    const requested = allowedToolNames ? new Set(allowedToolNames) : null;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2479:              ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2494:        ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2533:                ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2545:            ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3231:            "Use only the tools listed in the effective manifest.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3830:        const REASONING_TOOLS = new Set([
+lib/ai-orchestrator/src/tool-execution-engine.ts:3840:          reasoning: REASONING_TOOLS.has(tc.function.name) && rawReasoning
+lib/ai-orchestrator/src/tool-execution-engine.ts:3890:        allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
+lib/ai-orchestrator/src/provider-tool-calls.ts:68:    `Provider returned invalid tool-call output: ${safeReason}`,
+lib/ai-orchestrator/src/provider-tool-calls.ts:111:    throw invalidToolCall("tool name is not a valid identifier", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:114:    throw invalidToolCall(`pseudo-tool "${value}" is not executable`, options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:117:    throw invalidToolCall(`tool "${value}" is not in the request manifest`, options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:154:    throw invalidToolCall("native tool calls must be an array", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:160:      throw invalidToolCall("native tool call has an invalid shape", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:217:    throw invalidToolCall("tool-call payload must contain only name and arguments", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:258:    throw invalidToolCall("legacy XML tool-call syntax is malformed", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:335:        throw invalidToolCall("tool-call end marker has no matching start", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:340:      if (closeIndex === -1) throw invalidToolCall("tool-call marker is incomplete", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:364:    if (closeIndex === -1) throw invalidToolCall("function-style tool call is incomplete", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:491:        throw invalidToolCall("stream ended with an incomplete tool-call marker", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:495:        tools: new Set(),
+lib/ai-orchestrator/src/openai-compatible-client.ts:1335:  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } = opts;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1350:  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } =
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:261:    tools: [PROBE_TOOL],
+lib/ai-orchestrator/src/tools/git-tools.ts:135:      return `[git-tools]: Unknown tool "${name}" — available tools: git_status, git_diff, git_log`;
+lib/ai-orchestrator/src/behavioral-scorecard.ts:13:  | "invalid_tool_call"
+lib/ai-orchestrator/src/behavioral-scorecard.ts:116:    const invalidToolCallCount = count("invalid_tool_call");
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:64:  tools: ToolDefinitionLike[] | undefined;
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:145:       tools: taskTools,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1265: * already-retained reads. This deliberately has no tools: recovery can repair
+lib/ai-orchestrator/src/agents/chat-agent.ts:2903:        code: "TOOLS_DISABLED_FOR_PROVIDER",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2969:        code: "TOOLS_DISABLED_FOR_PROVIDER",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4556:              "- Allowed source tools: read_file and list_directory only\n" +
+lib/ai-orchestrator/src/agents/chat-agent.ts:5534:    allowedToolNames:
+lib/ai-orchestrator/src/agents/chat-agent.ts:7363:                  tools: executableCalls.map((c) => c.function?.name ?? "unknown"),
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:11:const tools: ToolDefinition[] = [
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:6: * invalid-absolutePath test we mock file-tools to inject a malformed
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:774:        calls.push({ tools: opts.tools, timeoutMs: opts.timeoutMs, maxTokens: opts.maxTokens });
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1005:          tools: opts.tools,
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1083:        calls.push({ tools: opts.tools, maxTokens: opts.maxTokens, model: opts.model });
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1245:        calls.push({ tools: opts.tools, model: opts.model });
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1569:        calls.push({ tools: opts.tools, model: opts.model });
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1853:        calls.push({ tools: opts.tools, model: opts.model });
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2012:        calls.push({ tools: opts.tools, model: opts.model });
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2502:          tools: opts.tools,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:367:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:391:      tools: [{
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:437:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:466:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:503:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:556:      tools: [{ type: "function", function: { name: "run_validation", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:643:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:737:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:781:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:818:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:843:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:880:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:930:      tools: [{
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:974:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1012:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1074:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1103:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1133:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1163:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1194:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1224:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1260:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1292:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1324:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1347:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1377:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1419:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1474:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1516:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1566:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1608:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1656:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1705:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1737:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1768:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1803:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1835:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1866:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1912:      tools: [{
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2018:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2064:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2111:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2153:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2192:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2235:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2273:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2316:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2354:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2394:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2430:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2464:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2487:  it("fails closed for unknown tool names without consuming execution budget", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2490:      // Model requests an unknown tool, then a known one
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2505:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2508:      maxToolCalls: 1, // Budget of 1: unknown tool should NOT consume it
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2537:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2572:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2599:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2626:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2665:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2724:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2762:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2798:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2859:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2916:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2960:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3000:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3054:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3113:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3155:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3212:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3243:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3271:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3307:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3358:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3413:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3459:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3514:      tools: [{ type: "function", function: { name: "read_file_range", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3562:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3610:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3657:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3708:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3761:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3805:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3851:      tools: [
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3899:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3945:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3983:      tools: undefined,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4045:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4092:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4127:        tools: undefined,
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts:64:      tools: [{
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:60:    tools: [],
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:185:      { ...makeOpts(strategy), tools: tools as never },
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:110:      tools: [
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:118:      allowedToolNames: ["read_file", "list_directory"],
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:197:  it("blocks tools and read paths outside the effective manifest", async () => {
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:236:      tools: [
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:242:      allowedToolNames: ["read_file"],
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:290:      tools: [
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:299:      allowedToolNames: ["read_file"],
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:363:      tools: [
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:371:      allowedToolNames: ["read_file"],
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:414:      tools: [
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:422:      allowedToolNames: ["read_file"],
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:67:      tools: [
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:657:      tools: [{
+--- relevant tests ---
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts

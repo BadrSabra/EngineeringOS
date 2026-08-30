@@ -1,0 +1,158 @@
+--- task61 route changes in candidate commit ---
+diff --git a/artifacts/api-server/src/lib/ai-repair-validation.ts b/artifacts/api-server/src/lib/ai-repair-validation.ts
+index 9bb5e462..2c027ac9 100644
+--- a/artifacts/api-server/src/lib/ai-repair-validation.ts
++++ b/artifacts/api-server/src/lib/ai-repair-validation.ts
+@@ -115,6 +115,9 @@ const VALIDATION_COPY_OMIT = new Set([
+   "coverage",
+ ]);
+ 
++function normalizePendingPath(value: string): string {
++  return value.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
++}
+ type ValidationDraft = Omit<ValidationResult, "evidence">;
+ 
+ function validationNextAction(status: ValidationStatus, terminalState?: ValidationResult["terminalState"]): string {
+@@ -186,11 +189,18 @@ export async function createValidationWorkspace(
+     }
+ 
+     for (const change of pendingChanges) {
+-      const relative = change.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
++      const relative = normalizePendingPath(change.path);
+       const target = path.resolve(workspaceRoot, relative);
+-      if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`)) {
++      if (
++        !relative
++        || path.isAbsolute(relative)
++        || relative === "."
++        || relative.split("/").some((segment) => segment === "..")
++        || (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`))
++      ) {
+         throw new Error(`Pending validation path escapes the project root: ${change.path}`);
+       }
++      await assertNoSymlinkInPendingPath(workspaceRoot, relative);
+       await fs.mkdir(path.dirname(target), { recursive: true });
+       await fs.writeFile(target, change.newContent, "utf8");
+     }
+@@ -597,4 +607,21 @@ export async function runRepairPreviewValidation(input: {
+       ? "Review the browser validation evidence; approval and scope gates still apply."
+       : "Review the browser validation block or failure, then rerun the approved Preview check.",
+   };
+-}
+\ No newline at end of file
++}
++
++async function assertNoSymlinkInPendingPath(rootPath: string, relativePath: string): Promise<void> {
++  const segments = relativePath.split("/").filter(Boolean);
++  let current = rootPath;
++  for (const segment of segments) {
++    current = path.join(current, segment);
++    try {
++      const stat = await fs.lstat(current);
++      if (stat.isSymbolicLink()) {
++        throw new Error(`Pending validation path traverses a symbolic link: ${relativePath}`);
++      }
++    } catch (error) {
++      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
++      throw error;
++    }
++  }
++}
+diff --git a/artifacts/api-server/src/lib/discovery-runner.ts b/artifacts/api-server/src/lib/discovery-runner.ts
+index c477aea8..b3c052ae 100644
+--- a/artifacts/api-server/src/lib/discovery-runner.ts
++++ b/artifacts/api-server/src/lib/discovery-runner.ts
+@@ -326,7 +326,11 @@ function computeConfidence(result: Partial<DiscoveryResultData>, fileCount: numb
+  *
+  * Never throws — all errors are recorded on the session row.
+  */
+-export async function runDiscovery(sessionId: string, rootPath: string): Promise<void> {
++export async function runDiscovery(
++  sessionId: string,
++  rootPath: string,
++  options: { beforeTerminalUpdate?: () => Promise<void> } = {},
++): Promise<void> {
+   // PR-3: Acquire a PostgreSQL advisory lock keyed on this sessionId before
+   // starting execution. In a multi-instance deployment the reconciliation layer
+   // on both instances may re-enqueue the same pending session; the lock ensures
+@@ -380,6 +384,7 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
+   const setStep = async (idx: number, status: DiscoveryStep["status"], durationMs?: number) => {
+     steps[idx] = { ...steps[idx], status, durationMs };
+     const progress = Math.round(((idx + (status === "done" ? 1 : 0.5)) / STEPS.length) * 100);
++    await options.beforeTerminalUpdate?.();
+     await updateSession(sessionId, {
+       progress,
+       currentStep: steps[idx].name,
+@@ -556,6 +561,7 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
+     };
+     await setStep(8, "done", Date.now() - t8);
+ 
++    await options.beforeTerminalUpdate?.();
+     await updateSession(sessionId, {
+       status: "ready",
+       progress: 100,
+diff --git a/artifacts/api-server/src/routes/ai/chat.ts b/artifacts/api-server/src/routes/ai/chat.ts
+index f6da53d6..c2c91b95 100644
+--- a/artifacts/api-server/src/routes/ai/chat.ts
++++ b/artifacts/api-server/src/routes/ai/chat.ts
+@@ -2595,12 +2595,13 @@ router.post("/ai/chat/stream", async (req, res) => {
+     rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+   const effectiveExecutionId = isolatedConversationTurn ? undefined : executionId;
+   const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
++  // Allocate before the first asynchronous lookup so concurrent submissions
++  // retain request-arrival order even when project reads complete differently.
++  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+ 
+   const project = await loadProjectByIdForUser(projectId, req.userId, res);
+   if (!project) return;
+ 
+-  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+-
+   // Keep execution handoff fail-closed in the streaming route too. This check
+   // happens before provider resolution and before SSE headers are committed.
+   if (!sessionId && isImmediateExecutionRequest(message)) {
+@@ -3766,18 +3767,19 @@ router.post("/ai/chat/stream", async (req, res) => {
+             };
+           }
+           const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
+-          const session = await browserValidationManager!.start({
+-            projectRoot: workspace.rootPath,
+-            revision: request.revision ?? analysisCorrelation.projectRevision,
+-            port: 4300,
+-            lifetimeMs: 60_000,
+-          });
++           let session: Awaited<ReturnType<PreviewSessionManager["start"]>> | undefined;
+           let browser: PreviewBrowser | undefined;
+           try {
++             session = await browserValidationManager!.start({
++               projectRoot: workspace.rootPath,
++               revision: request.revision ?? analysisCorrelation.projectRevision,
++               port: 4300,
++               lifetimeMs: 60_000,
++             });
+             const playwright = await import("playwright");
+             browser = await playwright.chromium.launch({ headless: true }) as unknown as PreviewBrowser;
+             return await runRepairPreviewValidation({
+-              session,
++               session,
+               operationId: request.operationId ?? analysisCorrelation.operationId,
+               executionId: aiExecution?.id ?? "browser-validation",
+               revision: request.revision ?? analysisCorrelation.projectRevision,
+diff --git a/artifacts/api-server/src/routes/discovery.ts b/artifacts/api-server/src/routes/discovery.ts
+index 276c4fa9..2ce3c8f4 100644
+--- a/artifacts/api-server/src/routes/discovery.ts
++++ b/artifacts/api-server/src/routes/discovery.ts
+@@ -301,7 +301,12 @@ router.post("/projects/discover", async (req, res) => {
+   // would race on the "discovering" status update — this prevents that entirely.
+   heavyJobQueue.enqueueWithId(id, async () => {
+     try {
+-      await runDiscovery(id, scanRootPath);
++      await runDiscovery(id, scanRootPath, {
++        // A terminal session is immediately eligible for import. Complete
++        // adapter-owned cleanup before publishing ready/error so callers
++        // never observe a ready session while its temporary clone remains.
++        beforeTerminalUpdate: () => cleanupResolveResult(resolved).catch(() => undefined),
++      });
+     } catch (err) {
+       logger.error({ err, sessionId: id }, "Unhandled discovery error");
+     } finally {

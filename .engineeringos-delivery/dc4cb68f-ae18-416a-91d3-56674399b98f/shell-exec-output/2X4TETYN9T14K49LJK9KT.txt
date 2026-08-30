@@ -1,0 +1,267 @@
+package.json:30:    "truth:baseline:materialize": "pnpm --filter @workspace/scripts run generate-truth-flow -- --write",
+scripts/release-configuration.test.ts:3:import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/release-configuration.test.ts:124:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:174:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:227:  const temporaryDirectory = await mkdtemp(
+scripts/release-configuration.test.ts:425:  const temporaryDirectory = await mkdtemp(
+lib/scanner/src/python-extractor.ts:2:import { mkdtempSync, writeFileSync } from "node:fs";
+lib/scanner/src/python-extractor.ts:41:  const dir = mkdtempSync(path.join(tmpdir(), "scanner-py-"));
+scripts/patch-generated-zod.test.ts:2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/patch-generated-zod.test.ts:13:  const directory = await mkdtemp(join(tmpdir(), "patch-generated-zod-"));
+scripts/patch-generated-zod.test.ts:65:  const directory = await mkdtemp(
+scripts/mission-correlation-report.test.mjs:4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+scripts/mission-correlation-report.test.mjs:122:  const directory = await mkdtemp(resolve(tmpdir(), "mission-report-"));
+scripts/generate-truth-flow.ts:3: * Truth Flow Matrix — deterministic baseline materializer/checker.
+scripts/generate-truth-flow.ts:10: *   pnpm run truth:baseline:materialize
+scripts/generate-truth-flow.ts:45:      `      pnpm run truth:baseline:materialize\n` +
+scripts/generate-truth-flow.ts:60:      `    then run pnpm run truth:baseline:materialize and inspect the focused diff.\n` +
+scripts/check-codegen-drift.ts:22:  mkdtempSync,
+scripts/check-codegen-drift.ts:60:const generatedRoot = mkdtempSync(join(tmpdir(), "api-codegen-drift-"));
+scripts/validate-benchmark-baseline.ts:6: * baseline is not a Truth Flow source and must never be materialized from it.
+scripts/validate-truth-flow.ts:113:    Then materialize the checked-in JSON with:
+scripts/validate-truth-flow.ts:114:      pnpm run truth:baseline:materialize
+scripts/validate-github-workflows.test.mjs:2:import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+scripts/validate-github-workflows.test.mjs:10:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:44:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:85:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:125:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:167:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:208:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:271:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/validate-github-workflows.test.mjs:316:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+scripts/verify-benchmark-rollout.test.mjs:2:import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+scripts/verify-benchmark-rollout.test.mjs:23:  const directory = await mkdtemp(path.join(tmpdir(), "benchmark-rollout-"));
+lib/api-zod/src/truth-flow-matrix.schema.ts:13: *             materialized from it and reviewed together. It changes only when a
+lib/db/src/schema/ai_change_proposals.ts:54:  /** Canonical delivery-tree digest captured before candidate materialization. */
+artifacts/api-server/vitest.config.ts:5:  // Keep Vitest anchored to this artifact. A historical copy can exist under
+artifacts/api-server/scripts/run-release-fixture-collision-check.mjs:71:        "Run the test through @workspace/api-server instead of a historical artifact copy so mutable database fixtures remain isolated.",
+artifacts/api-server/scripts/run-release-ai-stream.mjs:16:  process.env.TMPDIR || "/tmp",
+artifacts/api-server/scripts/run-release-ai-stream.mjs:198:        "Run the test through @workspace/api-server instead of a historical artifact copy so mutable database fixtures remain isolated.",
+artifacts/api-server/scripts/release-lock.test.mjs:2:import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/scripts/release-lock.test.mjs:9:  const root = await mkdtemp(path.join(os.tmpdir(), "engineeringos-release-lock-"));
+artifacts/api-server/src/routes/git.test.ts:4:import { chmod, mkdtemp, writeFile, rm } from "node:fs/promises";
+artifacts/api-server/src/routes/git.test.ts:34:  const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-git-"));
+artifacts/api-server/src/routes/git.test.ts:201:    const remoteRoot = await mkdtemp(path.join(tmpdir(), "engineeringos-git-remote-"));
+artifacts/api-server/src/routes/git.test.ts:209:    const wrapperDir = await mkdtemp(path.join(tmpdir(), "engineeringos-git-wrapper-"));
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:47:      const rootPath = await fs.mkdtemp("/tmp/empty-model-response-live-");
+artifacts/api-server/src/routes/ai.test.ts:2817:      conflictReason: "Recovery stopped at /tmp/private-delivery-root after a diagnostic failure.",
+artifacts/api-server/src/routes/ai.test.ts:2840:    expect(JSON.stringify(res.body)).not.toContain("/tmp/private-delivery-root");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:666:        const rootPath = await fs.mkdtemp("/tmp/stream-real-process-recovery-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:836:    const rootPath = await fs.mkdtemp("/tmp/stream-forensic-restart-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1015:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1139:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-queued-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1179:    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-running-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1237:    const rootPath = await fs.mkdtemp("/tmp/stream-resume-drift-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1392:    const rootPath = await fs.mkdtemp("/tmp/stream-non-build-correlation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1525:    const rootPath = await fs.mkdtemp("/tmp/stream-build-plan-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1545:    const rootPath = await fs.mkdtemp("/tmp/stream-build-empty-scope-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1565:    const rootPath = await fs.mkdtemp("/tmp/stream-build-read-only-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1588:    const rootPath = await fs.mkdtemp("/tmp/stream-build-scope-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1632:    const rootPath = await fs.mkdtemp("/tmp/stream-build-validation-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1676:    const rootPath = await fs.mkdtemp("/tmp/stream-hostile-release-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1798:    const rootPath = await fs.mkdtemp(
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1801:    const remotePath = await fs.mkdtemp("/tmp/agent-cycle-remote-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1802:    const wrapperDir = await fs.mkdtemp("/tmp/agent-cycle-git-bin-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2205:    const rootPath = await fs.mkdtemp("/tmp/stream-arabic-persistence-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4379:    const rootPath = await fs.mkdtemp("/tmp/stream-native-reset-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4463:    const rootPath = await fs.mkdtemp("/tmp/stream-provider-failover-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:295:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:423:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:548:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:631:    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+artifacts/api-server/src/routes/discovery.ts:28:  materializeResolveResult,
+artifacts/api-server/src/routes/discovery.ts:33:import { removeManagedProjectRoot } from "../lib/project-materialization.js";
+artifacts/api-server/src/routes/discovery.ts:206:  // directories. Verify the source before copying it, then materialize it
+artifacts/api-server/src/routes/discovery.ts:210:  if (resolved.materializeTo) {
+artifacts/api-server/src/routes/discovery.ts:218:      durableRootPath = await materializeResolveResult(resolved, id);
+artifacts/api-server/src/routes/discovery.ts:234:        "Failed to materialize discovery source into a durable project root",
+artifacts/api-server/src/routes/discovery.ts:244:    // Validate non-materialized roots before enqueueing a job — reject
+artifacts/api-server/src/routes/discovery.test.ts:27:} from "../lib/project-materialization.js";
+artifacts/api-server/src/routes/discovery.test.ts:1073:  it("materializes the clone before temp cleanup and removes it with the project", async () => {
+artifacts/api-server/src/lib/delivery-workspace.ts:32:  ".engineeringos-delivery",
+artifacts/api-server/src/lib/delivery-workspace.ts:103:  ".engineeringos-delivery",
+artifacts/api-server/src/lib/delivery-workspace.ts:105:const MARKER = ".engineeringos-delivery-workspace";
+artifacts/api-server/src/lib/delivery-workspace.ts:129:  if (relative === ".engineeringos-delivery" || relative.startsWith(".engineeringos-delivery/")) return true;
+artifacts/api-server/src/lib/delivery-workspace.ts:260:      ? path.join("/tmp", `engineeringos-delivery-${input.operationId}`)
+artifacts/api-server/src/lib/delivery-workspace.ts:279:        // The managed delivery directory may live inside the project root
+artifacts/api-server/src/lib/delivery-workspace.ts:292:        return !normalized.includes("/.engineeringos-delivery/");
+artifacts/api-server/src/lib/delivery-workspace.test.ts:62:      await writeFile(join(fixture, ".engineeringos-delivery-runtime.sock"), "ignored");
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:67:  it("keeps validation workspaces outside a redirected TMPDIR and cleans them up", async () => {
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:68:    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-source-"));
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:69:    const hostileTmpDir = path.join(sourceRoot, ".engineeringos-delivery", "validation-tmp");
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:75:    const previousTmpDir = process.env.TMPDIR;
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:76:    process.env.TMPDIR = hostileTmpDir;
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:84:      expect(workspace.rootPath).not.toContain(".engineeringos-delivery");
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:90:      if (previousTmpDir === undefined) delete process.env.TMPDIR;
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:91:      else process.env.TMPDIR = previousTmpDir;
+artifacts/api-server/src/routes/projects.ts:34:import { removeManagedProjectRoot } from "../lib/project-materialization.js";
+artifacts/api-server/src/routes/projects.ts:307:  // Imported Git/archive projects own their durable materialized root.
+artifacts/api-server/src/routes/projects.test.ts:21:import { materializeProjectRoot } from "../lib/project-materialization.js";
+artifacts/api-server/src/routes/projects.test.ts:27: * plain os.tmpdir() path would be rejected as root_unsafe.
+artifacts/api-server/src/routes/projects.test.ts:653:    const durableRoot = await materializeProjectRoot(sourceRoot, `delete-${randomUUID()}`);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:573:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-server-session-"));
+artifacts/api-server/src/routes/ai/benchmark.test.ts:9:const outputDir = path.join(os.tmpdir(), `engineeringos-benchmark-route-${process.pid}`);
+lib/ai-orchestrator/src/execution-kernel.test.ts:2:import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+lib/ai-orchestrator/src/execution-kernel.test.ts:14:  const root = await mkdtemp(path.join(tmpdir(), "ai-execution-kernel-"));
+lib/ai-orchestrator/src/execution-kernel.test.ts:68:    const outside = await mkdtemp(path.join(tmpdir(), "ai-execution-outside-"));
+artifacts/api-server/src/lib/ai-repair-validation.ts:101:// project roots. Do not use os.tmpdir() here: TMPDIR can be redirected into
+artifacts/api-server/src/lib/ai-repair-validation.ts:102:// .engineeringos-delivery, where the host discovers copied artifact metadata
+artifacts/api-server/src/lib/ai-repair-validation.ts:112:  ".engineeringos-delivery",
+artifacts/api-server/src/lib/ai-repair-validation.ts:153:  // already exists, which would fail closed before the overlay is materialized.
+artifacts/api-server/src/lib/ai-repair-validation.ts:155:  const workspaceRoot = await fs.mkdtemp(path.join(VALIDATION_TMP_ROOT, "engineeringos-validation-"));
+artifacts/api-server/src/lib/ai-repair-validation.ts:192:        throw new Error(`Pending validation path escapes the project root: ${change.path}`);
+artifacts/api-server/src/lib/ai-repair-validation.ts:328:  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
+artifacts/api-server/src/lib/ai-repair-validation.ts:330:    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+artifacts/api-server/src/lib/ai-repair-validation.ts:331:    await fs.access(path.resolve(validationWorkspace.rootPath, "package.json"));
+artifacts/api-server/src/lib/ai-repair-validation.ts:339:        ? "The pending changes could not be materialized into an isolated validation workspace."
+artifacts/api-server/src/lib/ai-repair-validation.ts:345:    const validationRootPath = validationWorkspace.rootPath;
+artifacts/api-server/src/lib/ai-repair-validation.ts:513:  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
+artifacts/api-server/src/lib/ai-repair-validation.ts:515:    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+artifacts/api-server/src/lib/ai-repair-validation.ts:519:      rootPath: validationWorkspace.rootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:520:      cwd: validationWorkspace.rootPath,
+artifacts/api-server/src/lib/github-connector.test.ts:4:import { mkdtemp, rm, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/github-connector.test.ts:29:    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-"));
+artifacts/api-server/src/lib/github-connector.test.ts:99:    const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-github-drift-"));
+artifacts/api-server/src/lib/archive-safety.ts:58:  // junction), which must not be materialized into the scanner root either.
+artifacts/api-server/src/lib/archive-safety.test.ts:3:import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+artifacts/api-server/src/lib/archive-safety.test.ts:24:  const root = await mkdtemp(join(tmpdir(), "eos-archive-test-"));
+artifacts/api-server/src/lib/archive-safety.test.ts:30:  const source = await mkdtemp(join(tmpdir(), "eos-tar-source-"));
+artifacts/api-server/src/lib/archive-safety.test.ts:76:    const source = await mkdtemp(join(tmpdir(), "eos-tar-link-"));
+artifacts/api-server/src/lib/startup-migrations.ts:76: * durable materialization) have a root_path like `/tmp/eos-git-<uuid>`. That
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:64:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-"));
+artifacts/api-server/src/lib/project-materialization.ts:22:    throw new Error("Invalid discovery session identifier for materialized project root");
+artifacts/api-server/src/lib/project-materialization.ts:37:export async function materializeProjectRoot(
+artifacts/api-server/src/lib/project-materialization.ts:45:    throw new Error(`Cannot materialize non-directory source: ${sourcePath}`);
+artifacts/api-server/src/lib/project-materialization.test.ts:8:  materializeProjectRoot,
+artifacts/api-server/src/lib/project-materialization.test.ts:10:} from "./project-materialization.js";
+artifacts/api-server/src/lib/project-materialization.test.ts:12:const fixtureBase = `/home/runner/workspace/.test-roots/materialization-${randomUUID()}`;
+artifacts/api-server/src/lib/project-materialization.test.ts:25:describe("project materialization", () => {
+artifacts/api-server/src/lib/project-materialization.test.ts:28:    const durableRoot = await materializeProjectRoot(sourceRoot, sessionId);
+artifacts/api-server/src/lib/path-validation.test.ts:12:import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+artifacts/api-server/src/lib/path-validation.test.ts:131:    workDir = await mkdtemp(join(tmpdir(), "eos-symlink-test-"));
+artifacts/api-server/src/lib/path-validation.test.ts:208:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:215:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:222:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:229:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:236:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-valid-"));
+artifacts/api-server/src/lib/path-validation.test.ts:251:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-empty-"));
+artifacts/api-server/src/lib/path-validation.test.ts:258:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-empty-"));
+artifacts/api-server/src/lib/path-validation.test.ts:268:    tempDir = await mkdtemp(join(tmpdir(), "eos-test-unknown-"));
+artifacts/api-server/src/lib/discovery-adapters.ts:26:import { materializeProjectRoot } from "./project-materialization.js";
+artifacts/api-server/src/lib/discovery-adapters.ts:43: * exercising URL validation, clone resolution, materialization, and cleanup.
+artifacts/api-server/src/lib/discovery-adapters.ts:99:  materializeTo?: (sessionId: string) => Promise<string>;
+artifacts/api-server/src/lib/discovery-adapters.ts:248:        materializeTo: (sessionId) => materializeProjectRoot(tempDir, sessionId),
+artifacts/api-server/src/lib/discovery-adapters.ts:333:    // path is returned or materialized.
+artifacts/api-server/src/lib/discovery-adapters.ts:348:      materializeTo: (sessionId) => materializeProjectRoot(entry.extractedDir, sessionId),
+artifacts/api-server/src/lib/discovery-adapters.ts:440:export async function materializeResolveResult(
+artifacts/api-server/src/lib/discovery-adapters.ts:444:  return result.materializeTo ? result.materializeTo(sessionId) : result.rootPath;
+artifacts/api-server/src/lib/discovery-adapters.test.ts:16:  materializeResolveResult,
+artifacts/api-server/src/lib/discovery-adapters.test.ts:19:import { materializeProjectRoot, removeManagedProjectRoot } from "./project-materialization.js";
+artifacts/api-server/src/lib/discovery-adapters.test.ts:451:describe("materializeResolveResult", () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:452:  it("materializes a resolver-owned temporary result through its adapter hook", async () => {
+artifacts/api-server/src/lib/discovery-adapters.test.ts:453:    const sourcePath = `/home/runner/workspace/.test-roots/materialize-adapter-${TEST_USER}`;
+artifacts/api-server/src/lib/discovery-adapters.test.ts:461:      materializeTo: (sessionId: string) => materializeProjectRoot(sourcePath, sessionId),
+artifacts/api-server/src/lib/discovery-adapters.test.ts:464:    const durablePath = await materializeResolveResult(result, sessionId);
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:50:const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", ".engineeringos-delivery", ".engineeringos-projects", "docs", "coverage", "dist", ".vite"]);
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:176:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-airlock-"));
+artifacts/api-server/src/lib/scan-runner.ts:267:  // through discovery, which materializes to a durable workspace root.
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:95:  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-live-review-"));
+artifacts/api-server/src/lib/discovery-runner.ts:252:  // materialized as a TS template literal) would otherwise produce a false positive.
+lib/ai-orchestrator/src/benchmark/contract-oracle.test.ts:32:  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-contract-oracle-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:789:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-check-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:839:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-mutation-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:95:        rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:111:        rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:122:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:151:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:178:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:222:      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:238:    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-"));
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:271:      rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:291:      rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:311:      rootPath: os.tmpdir(),
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:18:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:43:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-budget-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:71:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-dedup-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:109:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-discovery-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:154:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-coverage-complete-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:190:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-coverage-budget-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:227:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-large-scope-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:259:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-boundary-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:282:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-source-policy-"));
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts:320:    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-forensic-generated-"));
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:134:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-"));
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:397:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-capability-probe-partial-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-chat-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:238:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-proseroot-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:291:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-dotted-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:375:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-detverdict-"));
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:447:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ep4-feg-unground-"));
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei045-chat-"));
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:161:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei041-chat-"));
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:296:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei017-chat-"));
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts:41:      const root = await fs.mkdtemp(path.join(os.tmpdir(), "ei017-siblings-"));
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:62:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-workspace-review-"));
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:154:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-scoped-verdict-fx-"));
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:197:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-scoped-verdict-py-"));
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:95:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-required-claim-"));
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:42:  const root = await fs.mkdtemp(path.join(tmpdir(), "eos-failure-after-read-"));
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:101:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-recon-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:79:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-behavior-span-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:185:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-timeout-behavior-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:307:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-behavior-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:387:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-empty-response-"));
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:84:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-grounded-behavior-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:492:      const rootPath = await fs.mkdtemp(path.join(tmpdir(), `eos-empty-final-${fixture.provider}-`));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:829:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-forensic-cancel-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:899:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-first-evidence-unavailable-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1067:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-recovery-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1216:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-recovery-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1366:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-processing-crash-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1545:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-surviving-packet-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1689:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-partial-scope-finding-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1829:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-multi-root-no-finding-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1941:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-behavioral-recovery-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2081:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-fixture-local-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2209:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-mixed-read-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2335:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-prod-no-reach-"));
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2440:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-forensic-map-recovery-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:44:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-analysis-start-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:145:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:274:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-build-handoff-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:361:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-node-transition-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:486:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-proof-retry-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:615:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-coordinated-handoff-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:777:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-coordinated-retry-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:974:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-gate-"));
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:1049:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-restore-"));
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:304:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj014-bench-"));
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:143:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-chat-"));
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:240:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-proven-"));
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:315:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-aiobj05-responsebound-"));
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts:67:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-manifest-"));
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts:89:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-prompt-manifest-"));
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts:138:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-plan-grounding-"));
+lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts:153:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-terminal-kind-"));
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:538:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-five-file-"));
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:651:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-complete-"));
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:720:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-partial-"));
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:796:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-e2e-truncated-"));
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:437:  it("rejects a packet Finding during global revalidation when another root is incomplete", () => {
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts:28:    const root = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-forensic-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:291:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s1-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:346:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s2-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:405:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s4-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:450:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s5-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:496:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s6-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:563:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s7-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:635:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s3-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:685:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s8-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:737:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s10-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:782:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s11-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:843:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s12-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:922:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s13-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:1006:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s14-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:1090:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s15-"));
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts:1171:    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s9-"));
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:117:  const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-feg018-bench-"));

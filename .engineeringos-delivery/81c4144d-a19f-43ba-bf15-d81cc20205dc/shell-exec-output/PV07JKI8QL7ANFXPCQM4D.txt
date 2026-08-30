@@ -1,0 +1,554 @@
+102:  executeToolLoop,
+2269:  loopResult: ToolLoopResult;
+2283:    loopResult,
+2296:    "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined;
+2318:    loopResult.kind === "exhausted" ||
+2319:    loopResult.kind === "stopped" ||
+2320:    (loopResult.kind === "partial" &&
+2321:      (loopResult.reason === "soft_limit" ||
+2322:        loopResult.reason === "provider_timeout" ||
+2323:        loopResult.reason === "empty_response")) ||
+2326:    (loopResult.kind === "partial" || loopResult.kind === "exhausted") &&
+2327:    loopResult.reason === "empty_response";
+3442:   * Forwarded directly to executeToolLoop; never throws.
+5168:        const childLoop = await executeToolLoop({
+5488:  const loopResult = await executeToolLoop({
+5563:    "sourceRetrieval" in loopResult &&
+5564:    loopResult.sourceRetrieval?.synthesisTimedOut
+5579:    signal?.aborted === true || loopResult.kind === "cancelled";
+5583:  const toolSources = [...prefetchSources, ...loopResult.toolSources];
+5600:  for (const [filePath, content] of loopResult.fileContents ?? []) {
+5615:        loopResult.kind === "response" || loopResult.kind === "partial"
+5616:          ? loopResult.result.model
+5617:            ? { id: loopResult.result.model, provider: providerId, free: providerId === "openrouter" }
+5683:    deterministicTaskExecution && loopResult.kind === "response" && loopResult.result.content?.trim()
+5684:      ? parseAgentResponse(loopResult.result.content, ChatResponseSchema, fallbackChatOutput)
+5689:      : loopResult.kind === "partial" && loopResult.reason === "provider_timeout"
+5691:        : loopResult.kind === "partial" && loopResult.reason === "soft_limit"
+5703:        loopResult.kind === "response" || loopResult.kind === "partial"
+5704:          ? loopResult.result.model || model
+5754:        loopResult.kind === "response" || loopResult.kind === "partial"
+5755:          ? loopResult.result.model
+5756:            ? { id: loopResult.result.model, provider: providerId, free: providerId === "openrouter" }
+5766:  if (loopResult.kind === "stopped") {
+5773:            loopResult.reason,
+5774:            loopResult.tool,
+5794:        loopResult,
+5817:  if (repairPlanExecution && loopResult.kind === "partial") {
+5823:        loopResult.reason ?? "soft_limit",
+5861:  if (loopResult.kind === "exhausted") {
+5866:      loopResult.reason === "empty_response"
+5897:            loopResult.reason,
+5918:        loopResult,
+5941:  if (loopResult.kind === "failed") {
+5944:      ? `تم حظر العملية لأن الأداة \`${loopResult.tool}\` لم تكتمل (${loopResult.diagnosticCode}). لم يتم تنفيذ العملية المطلوبة، ولا يمكنني الادعاء بأنها اكتملت.`
+5945:      : `The operation is BLOCKED because tool "${loopResult.tool}" did not complete (${loopResult.diagnosticCode}). I cannot claim the requested analysis, validation, repair, or change was completed.`;
+5954:  const result = loopResult.kind === "cancelled"
+5961:    : loopResult.result;
+6180:        sourceRetrieval: "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined,
+6233:          loopResult,
+6436:        sourceRetrieval: "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined,
+6512:          loopResult,
+8696:      "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined,
+8706:      (p) => !("sourceRetrieval" in loopResult && loopResult.sourceRetrieval?.readPaths?.includes(p)),
+8955:      loopResult,
+2253-
+2254-/**
+2255- * FEG-017: emit the terminal-failure explanation step. Replaces a flat
+2256- * NOT_PROVEN with one of the four distinct reasons (see ForensicTerminalKind),
+2257- * so an audit panel can say WHY an investigation failed instead of showing a
+2258- * bare "not proven" bubble. Emitted only for genuine failure terminals:
+2259- * - a 0-read run is always INVESTIGATION_NOT_STARTED (never NO_EVIDENCE_FOUND);
+2260- * - a run that retained evidence but never closed a required claim is
+2261- *   EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED;
+2262- * - a run that hit a budget cap after evidence is BUDGET_EXHAUSTED;
+2263- * - everything else that failed to reach a verdict is NO_EVIDENCE_FOUND.
+2264- * A proven Finding, or a basis-backed NO FINDING, is a SUCCESS — no terminal
+2265- * kind is emitted for those.
+2266- */
+2267-function relayForensicTerminal(opts: {
+2268-  onStep: ((step: AgentStep) => void) | undefined;
+2269:  loopResult: ToolLoopResult;
+2270-  fileContents: Map<string, string>;
+2271-  claimsUnclosedButEvidenceAvailable: boolean;
+2272-  report: string;
+2273-  /**
+2274-   * AI-OBJ-005: when the Objective Completion Gate refuses finalization, the
+2275-   * forensic terminal must NOT read as a completed/inventoried verdict. Passing
+2276-   * the blocked gate here downgrades the terminal to the claim-unclosed state
+2277-   * so the dashboard can never present an objective-blocked run as final.
+2278-   */
+2279-  objectiveBlocked?: boolean;
+2280-}): void {
+2281-  const {
+2282-    onStep,
+2283:    loopResult,
+2284-    fileContents,
+2285-    claimsUnclosedButEvidenceAvailable,
+2286-    report,
+2287-    objectiveBlocked = false,
+2288-  } = opts;
+2289-  if (!onStep) return;
+2290-  const findingsSection = report.match(/##\s*3\)\s*Findings([\s\S]*?)(?=##\s*\d|$)/i)?.[1] ?? "";
+2291-  const hasFinding = /(?:^|\n)\s*(?:[*-]\s*)?ID:\s*F-\d+\s*·/i.test(findingsSection);
+2292-  const finalJudgment = report.match(/##\s*6\)\s*Final Judgment([\s\S]*)$/i)?.[1] ?? report;
+2293-  const hasNoFindingBasis = /\bNO FINDING\b/i.test(finalJudgment) && /\bBasis:/i.test(finalJudgment);
+2294-  if (hasFinding || hasNoFindingBasis) return;
+2295-  const sourceRetrieval =
+2296:    "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined;
+2297-  const evidenceAcquired =
+2298-    sourceRetrieval?.firstEvidenceAcquired === true || fileContents.size > 0;
+2299-  // AI-OBJ-005: an objective-blocked run is never a completed verdict — force the
+2300-  // terminal to the claim-unclosed / unavailable state regardless of inventory.
+2301-  if (objectiveBlocked) {
+2302-    onStep({
+2303-      kind: "forensic_terminal",
+2304-      terminalKind: classifyForensicTerminal({
+2305-        evidenceAcquired,
+2306-        budgetExhausted: false,
+2307-        claimsUnclosedButEvidenceAvailable: true,
+2308-      }),
+2309-    });
+2310-    onStep({
+2311-      kind: "diagnostic",
+2312-      code: "OBJECTIVE_BLOCKED",
+2313-      details: ["declared objective not completed; no final verdict emitted"],
+2314-    });
+2315-    return;
+2316-  }
+2317-  const budgetExhausted =
+2318:    loopResult.kind === "exhausted" ||
+2319:    loopResult.kind === "stopped" ||
+2320:    (loopResult.kind === "partial" &&
+2321:      (loopResult.reason === "soft_limit" ||
+2322:        loopResult.reason === "provider_timeout" ||
+2323:        loopResult.reason === "empty_response")) ||
+2324-    sourceRetrieval?.investigationStartSla === "soft_limit_with_zero_reads";
+2325-  const recoveryBlocked =
+2326:    (loopResult.kind === "partial" || loopResult.kind === "exhausted") &&
+2327:    loopResult.reason === "empty_response";
+2328-  onStep({
+2329-    kind: "forensic_terminal",
+2330-    terminalKind: classifyForensicTerminal({
+2331-      evidenceAcquired,
+2332-      budgetExhausted,
+2333-      claimsUnclosedButEvidenceAvailable,
+2334-      recoveryBlocked,
+2335-    }),
+2336-  });
+2337-}
+2338-
+2339-const FORENSIC_RECOVERY_HEADERS = [
+2340-  "## 1) Executive Verdict",
+2341-  "## 2) Evidence Map",
+2342-  "## 3) Findings",
+2343-  "## 4) Repair Plan",
+--
+5472-      mergedSources: coordinatedSources,
+5473-      semanticBehaviorAnswer: undefined,
+5474-      structuredRepairPlan: undefined,
+5475-      acceptedBehaviorEvidence: [],
+5476-    });
+5477-    return {
+5478-      response: coordinatedFinalized.gatedResponse,
+5479-      sources: coordinatedSources,
+5480-      pendingChanges: getExecutionPendingChanges(),
+5481-      ...(coordinatedTaskResult ? { taskResult: coordinatedTaskResult } : {}),
+5482-    };
+5483-  }
+5484-
+5485-  // ── Agentic tool loop ─────────────────────────────────────────────────────
+5486-  // Delegates iteration budget, per-call budget, cache keying, tool dispatch,
+5487-  // and model fallback to the self-contained ToolExecutionEngine.
+5488:  const loopResult = await executeToolLoop({
+5489-    messages,
+5490-    strategy,
+5491-    model,
+5492-    powerModel,
+5493-    provider: providerId,
+5494-    apiKey,
+5495-    capability: modelDecision.capability,
+5496-    tools,
+5497-    rootPath: rootPath ?? "",
+5498-    pendingChanges,
+5499-    initialFileContents: prefetchFileContents,
+5500-    retainedFileContents: retainedEvidence,
+5501-    cache: toolCallCache,
+5502-    toolChoice:
+5503-      immediateIntent && priorRepairPlan && executionFilePaths.length > 0
+5504-        ? "required"
+--
+5547-    commandProfiles,
+5548-    commandRunner,
+5549-    commandContext,
+5550-    analysisToolRunner,
+5551-    validationTargetPaths,
+5552-    signal,
+5553-    // Dependency-First traversal (FEG-005/006): once the explicit primary
+5554-    // evidence target has been read, any further read of a new dependency file
+5555-    // must carry proof of why it is required. Enable the gate whenever traversal
+5556-    // is PRIMARY_FIRST so post-first-read traversal cannot fan out into
+5557-    // unjustified read chains.
+5558-    requireDependencyProof: firstEvidence.traversalPolicy === "PRIMARY_FIRST",
+5559-    onStep: relayAgentStep,
+5560-  });
+5561-  if (
+5562-    capabilityProbeRequest &&
+5563:    "sourceRetrieval" in loopResult &&
+5564:    loopResult.sourceRetrieval?.synthesisTimedOut
+5565-  ) {
+5566-    relayAgentStep({
+5567-      kind: "diagnostic",
+5568-      code: "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT",
+5569-      details: [
+5570-        "initial capability-report synthesis exhausted its server-owned deadline",
+5571-        "retained source evidence was handed to bounded recovery",
+5572-      ],
+5573-    });
+5574-  }
+5575-  // Cancellation is an incomplete forensic run even when some source reads
+5576-  // already landed. Keep the evidence for the six-section report, but never
+5577-  // allow a cancellation to reach a completed NO_FINDING fallback.
+5578-  const cancelledForensicAudit = (): boolean =>
+5579:    signal?.aborted === true || loopResult.kind === "cancelled";
+5580-
+5581-  // Merge prefetch sources with the engine's ground-truth sources.
+5582-  // Prefetch sources are prepended since they were resolved first.
+5583:  const toolSources = [...prefetchSources, ...loopResult.toolSources];
+5584-  // Keep both prefetch and in-loop read bodies available to the forensic gate.
+5585-  // The loop may read files that were not part of the initial plan.
+5586-  //
+5587-  // Normalize every body to its RAW source-aligned form at this single merge
+5588-  // choke point. Prefetch and tool-loop reads both pass through
+5589-  // executeFileTool("read_file"), which wraps the body with a 2-line
+5590-  // `File: <path>\n```\n` header — leaving that wrapper in place shifts every
+5591-  // computeSourceSpan line by +2 off the true source file. stripReadFileWrapper
+5592-  // removes it when present and leaves already-raw bodies (single-file pre-read)
+5593-  // untouched, so spans match the analyst-facing source lines in every path.
+5594-  // forensicFileContents is declared at the top of chat() so every terminal
+5595-  // finalization path can route its candidate through the Objective Gate.
+5596-  // Populate it here from prefetch + tool-loop reads.
+5597-  for (const [filePath, content] of prefetchFileContents) {
+5598-    forensicFileContents.set(filePath, stripReadFileWrapper(content));
+5599-  }
+5600:  for (const [filePath, content] of loopResult.fileContents ?? []) {
+5601-    forensicFileContents.set(filePath, stripReadFileWrapper(content));
+5602-  }
+5603-
+5604-  // A provider fallback can be text-only after the primary provider completed
+5605-  // a read. Do not let that provider turn retained evidence into a generic
+5606-  // no-access answer or imply that it proved a fresh behavioral conclusion.
+5607-  if (retainedEvidence && retainedEvidence.size > 0 && !modelHasTools && turnIntent.requiresEvidence) {
+5608-    const retainedResponse = buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents);
+5609-    onDelta?.(retainedResponse);
+5610-    return {
+5611-      response: retainedResponse,
+5612-      sources: [...forensicFileContents.keys()],
+5613-      pendingChanges: getExecutionPendingChanges(),
+5614-      resolvedModel:
+5615:        loopResult.kind === "response" || loopResult.kind === "partial"
+5616:          ? loopResult.result.model
+5617:            ? { id: loopResult.result.model, provider: providerId, free: providerId === "openrouter" }
+5618-            : undefined
+5619-          : undefined,
+5620-    };
+5621-  }
+5622-
+5623-  // ── Explicit file-scope forensic coverage ──────────────────────────────────
+5624-  // For file-scoped mode, ordered-root coverage is not relevant; instead we
+5625-  // compute a file-scoped ForensicSourceCoverage that is COMPLETE only when
+5626-  // every explicitly named target file was fully read (no truncation markers).
+5627-  // This keeps file-scope coverage separate from whole-project reachability
+5628-  // and ensures the forensic gate is fail-closed on truncation or read failure.
+5629-  if (singleFileForensicMode && singleFilePaths.length > 0) {
+5630-    const scopedRoots = singleFilePaths.map((targetPath) => {
+5631-      const readContent = forensicFileContents.get(targetPath);
+5632-      const wasRead = readContent !== undefined;
+5633-      const isTruncated =
+--
+5667-          }
+5668-        : {}),
+5669-    };
+5670-  }
+5671-
+5672-  if (repairPlanExecution && getExecutionPendingChanges().length === 0) {
+5673-    recordExecutionDiagnostic("EXECUTION_NO_EDIT_TOOL", [
+5674-      "no edit tool was called before execution stopped",
+5675-    ]);
+5676-  }
+5677-
+5678-  // ── Deterministic task-execution degradation ───────────────────────────────
+5679-  // Task execution must never ask the model to repair malformed JSON or
+5680-  // synthesize after a soft limit. The loop telemetry and server-owned pending
+5681-  // changes are enough to produce an honest partial report.
+5682-  const malformedTaskResponse =
+5683:    deterministicTaskExecution && loopResult.kind === "response" && loopResult.result.content?.trim()
+5684:      ? parseAgentResponse(loopResult.result.content, ChatResponseSchema, fallbackChatOutput)
+5685-      : null;
+5686-  const taskExecutionPartialReason: TaskExecutionPartialReason | null =
+5687-    !deterministicTaskExecution
+5688-      ? null
+5689:      : loopResult.kind === "partial" && loopResult.reason === "provider_timeout"
+5690-        ? "PROVIDER_TIMEOUT"
+5691:        : loopResult.kind === "partial" && loopResult.reason === "soft_limit"
+5692-          ? "SOFT_LIMIT"
+5693-          : malformedTaskResponse && !malformedTaskResponse.ok && malformedTaskResponse.code === "MALFORMED_JSON"
+5694-            ? "MALFORMED_JSON"
+5695-            : null;
+5696-
+5697-  if (taskExecutionPartialReason !== null) {
+5698-    if (taskExecutionPartialReason === "MALFORMED_JSON") {
+5699-      // This return path intentionally bypasses the normal parse-error
+5700-      // decorator, so annotate the scorecard before returning the
+5701-      // deterministic partial report.
+5702-      recordBehavioralFailure(
+5703:        loopResult.kind === "response" || loopResult.kind === "partial"
+5704:          ? loopResult.result.model || model
+5705-          : model,
+5706-        "malformed_json",
+5707-      );
+5708-    }
+5709-    const partialReport = buildTaskExecutionPartialReport({
+5710-      reason: taskExecutionPartialReason,
+5711-      isArabic: /[\u0600-\u06FF]/.test(message),
+5712-      taskChecklist,
+5713-      telemetry: taskTelemetry,
+5714-      toolSources,
+5715-      fileContents: forensicFileContents,
+5716-      pendingChangesCount: getExecutionPendingChanges().length,
+5717-    });
+5718-    relayAgentStep({
+5719-      kind: "diagnostic",
+5720-      code: "EXECUTION_DETERMINISTIC_PARTIAL_REPORT",
+--
+5738-    });
+5739-    const gatedPartialReport = partialReportFinalized.gatedResponse;
+5740-    // AI-008: build typed result for deterministic partial-report path.
+5741-    const partialReportTaskResult = buildTaskResult({
+5742-      forensicTaskType,
+5743-      finalResponse: gatedPartialReport,
+5744-      mergedSources: toolSources,
+5745-      semanticBehaviorAnswer: undefined,
+5746-      structuredRepairPlan: undefined,
+5747-      acceptedBehaviorEvidence: [],
+5748-    });
+5749-    return {
+5750-      response: gatedPartialReport,
+5751-      sources: toolSources,
+5752-      pendingChanges: getExecutionPendingChanges(),
+5753-      resolvedModel:
+5754:        loopResult.kind === "response" || loopResult.kind === "partial"
+5755:          ? loopResult.result.model
+5756:            ? { id: loopResult.result.model, provider: providerId, free: providerId === "openrouter" }
+5757-            : undefined
+5758-          : undefined,
+5759-      ...(partialReportTaskResult ? { taskResult: partialReportTaskResult } : {}),
+5760-    };
+5761-  }
+5762-
+5763-  // ── Deterministic execution guard ────────────────────────────────────────
+5764-  // A repeated cached read is not a successful execution. Keep this outcome
+5765-  // separate from ordinary budget exhaustion so the user sees the real cause.
+5766:  if (loopResult.kind === "stopped") {
+5767-    const stoppedResponse = repairPlanExecution
+5768-      ? finalizeTaskResponse(
+5769-          buildRepairPlanExecutionResponse(
+5770-            getExecutionPendingChanges(),
+5771-            /[\u0600-\u06FF]/.test(message),
+5772-            true,
+5773:            loopResult.reason,
+5774:            loopResult.tool,
+5775-            executionDiagnosticDetails,
+5776-          ),
+5777-        )
+5778-      : finalizeTaskResponse("The tool loop stopped after repeated identical tool calls.");
+5779-    // AI-OBJ-005/007: terminal degradation seam — route through the shared
+5780-    // Objective Completion Gate so a BLOCKED objective never lets the stopped
+5781-    // loop's partial text read as a completed answer.
+5782-    const stoppedFinalized = finalizeObjectiveAndStream({
+5783-      objective,
+5784-      fileContents: forensicFileContents,
+5785-      message,
+5786-      response: stoppedResponse,
+5787-      provenEdges: objectiveRuntimeProvenEdges,
+5788-      relayAgentStep,
+5789-    });
+5790-    const gatedStoppedResponse = stoppedFinalized.gatedResponse;
+5791-    if (isForensicOrEvidenceRun) {
+5792-      relayForensicTerminal({
+5793-        onStep,
+5794:        loopResult,
+5795-        fileContents: forensicFileContents,
+5796-        claimsUnclosedButEvidenceAvailable: false,
+5797-        report: gatedStoppedResponse,
+5798-      });
+5799-    }
+5800-    // AI-008: build typed result for stopped-loop degradation path.
+5801-    const stoppedTaskResult = buildTaskResult({
+5802-      forensicTaskType,
+5803-      finalResponse: gatedStoppedResponse,
+5804-      mergedSources: toolSources,
+5805-      semanticBehaviorAnswer: undefined,
+5806-      structuredRepairPlan: undefined,
+5807-      acceptedBehaviorEvidence: [],
+5808-    });
+5809-    return {
+5810-      response: gatedStoppedResponse,
+5811-      sources: toolSources,
+5812-      pendingChanges: getExecutionPendingChanges(),
+5813-      ...(stoppedTaskResult ? { taskResult: stoppedTaskResult } : {}),
+5814-    };
+5815-  }
+5816-
+5817:  if (repairPlanExecution && loopResult.kind === "partial") {
+5818-    const repairPartialResponse = finalizeTaskResponse(
+5819-      buildRepairPlanExecutionResponse(
+5820-        getExecutionPendingChanges(),
+5821-        /[\u0600-\u06FF]/.test(message),
+5822-        true,
+5823:        loopResult.reason ?? "soft_limit",
+5824-        undefined,
+5825-        executionDiagnosticDetails,
+5826-      ),
+5827-    );
+5828-    // AI-OBJ-005/007: terminal degradation seam — gate before returning so an
+5829-    // unanswered objective is surfaced as BLOCKED, not as a partial "done".
+5830-    const repairPartialFinalized = finalizeObjectiveAndStream({
+5831-      objective,
+5832-      fileContents: forensicFileContents,
+5833-      message,
+5834-      response: repairPartialResponse,
+5835-      provenEdges: objectiveRuntimeProvenEdges,
+5836-      relayAgentStep,
+5837-    });
+5838-    const gatedRepairPartialResponse = repairPartialFinalized.gatedResponse;
+5839-    // AI-008: build typed result for repair partial degradation path.
+--
+5845-      structuredRepairPlan: undefined,
+5846-      acceptedBehaviorEvidence: [],
+5847-    });
+5848-    return {
+5849-      response: gatedRepairPartialResponse,
+5850-      sources: toolSources,
+5851-      pendingChanges: getExecutionPendingChanges(),
+5852-      ...(repairPartialTaskResult ? { taskResult: repairPartialTaskResult } : {}),
+5853-    };
+5854-  }
+5855-
+5856-  // ── Exhausted with no text at all ────────────────────────────────────────
+5857-  // kind:"partial" falls through to the normal result-processing path below —
+5858-  // the model produced at least one text response (triggered by the soft-limit
+5859-  // synthesis hint) that we can surface as a useful answer.
+5860-  // Only the true kind:"exhausted" (zero text produced) gets the error message.
+5861:  if (loopResult.kind === "exhausted") {
+5862-    // Bilingual exhaustion message: detect Arabic by checking if the original
+5863-    // user message contains Arabic characters (Unicode block U+0600–U+06FF).
+5864-    const isArabic = /[\u0600-\u06FF]/.test(message);
+5865-    const exhaustionMessage =
+5866:      loopResult.reason === "empty_response"
+5867-        ? isArabic
+5868-          ? "لم يُرجع مزوّد الذكاء الاصطناعي استجابة نهائية نصية بعد القراءات المتاحة، لذلك لم يتم إنتاج تقرير. حاول مرة أخرى أو ضيّق نطاق السؤال."
+5869-          : "The AI provider returned no final text after the available reads, so no report was produced. Try again or narrow the question."
+5870-        : isArabic
+5871-          ? "وصلت إلى الحد الأقصى من خطوات التحليل ولم أتمكن من إنتاج إجابة كاملة. حاول طرح سؤال أكثر تحديداً."
+5872-          : "The analysis budget was exhausted before I could produce a complete answer. Try a more specific question.";
+5873-    const finalExhaustionResponse = structuredOutputMode
+5874-      ? applyForensicOutputContract(
+5875-          "",
+5876-          collectForensicEvidence(
+5877-            messages,
+5878-            toolSources,
+5879-            forensicFileContents,
+5880-            includeTestSources,
+5881-            forensicScope,
+5882-            forensicSourceCoverage,
+5883-            requireCompleteReadEvidence,
+5884-            queryPlan?.compoundParts,
+5885-            responseLanguage,
+5886-          ),
+5887-        ).response
+5888-      : isForensicOrEvidenceRun && forensicFileContents.size > 0
+5889-        ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+5890-        : exhaustionMessage;
+5891-    const exhaustionFinalResponse = repairPlanExecution
+5892-      ? finalizeTaskResponse(
+5893-          buildRepairPlanExecutionResponse(
+5894-            getExecutionPendingChanges(),
+5895-            /[\u0600-\u06FF]/.test(message),
+5896-            true,
+5897:            loopResult.reason,
+5898-            undefined,
+5899-            executionDiagnosticDetails,
+5900-          ),
+5901-        )
+5902-      : finalizeTaskResponse(finalExhaustionResponse);
+5903-    // AI-OBJ-005/007: terminal exhaustion seam — gate before returning so an
+5904-    // unanswered objective reads as BLOCKED, never as a bare "budget exhausted"
+5905-    // answer that could be mistaken for completion.
+5906-    const exhaustionFinalized = finalizeObjectiveAndStream({
+5907-      objective,
+5908-      fileContents: forensicFileContents,
+5909-      message,
+5910-      response: exhaustionFinalResponse,
+5911-      provenEdges: objectiveRuntimeProvenEdges,
+5912-      relayAgentStep,
+5913-    });
+5914-    const gatedExhaustionResponse = exhaustionFinalized.gatedResponse;
+5915-    if (isForensicOrEvidenceRun) {
+5916-      relayForensicTerminal({
+5917-        onStep,
+5918:        loopResult,
+5919-        fileContents: forensicFileContents,
+5920-        claimsUnclosedButEvidenceAvailable: false,
+5921-        report: gatedExhaustionResponse,
+5922-      });
+5923-    }
+5924-    // AI-008: build typed result for exhaustion degradation path.
+5925-    const exhaustionTaskResult = buildTaskResult({
+5926-      forensicTaskType,
+5927-      finalResponse: gatedExhaustionResponse,
+5928-      mergedSources: toolSources.length > 0 ? toolSources : [],
+5929-      semanticBehaviorAnswer: undefined,
+5930-      structuredRepairPlan: undefined,
+5931-      acceptedBehaviorEvidence: [],
+5932-    });
+5933-    return {
+5934-      response: gatedExhaustionResponse,
+5935-      sources: toolSources.length > 0 ? toolSources : [],
+5936-      pendingChanges: getExecutionPendingChanges(),
+5937-      ...(exhaustionTaskResult ? { taskResult: exhaustionTaskResult } : {}),
+5938-    };
+5939-  }
+5940-
+5941:  if (loopResult.kind === "failed") {
+5942-    const isArabic = /[\u0600-\u06FF]/.test(message);
+5943-    const blockedResponse = isArabic
+5944:      ? `تم حظر العملية لأن الأداة \`${loopResult.tool}\` لم تكتمل (${loopResult.diagnosticCode}). لم يتم تنفيذ العملية المطلوبة، ولا يمكنني الادعاء بأنها اكتملت.`
+5945:      : `The operation is BLOCKED because tool "${loopResult.tool}" did not complete (${loopResult.diagnosticCode}). I cannot claim the requested analysis, validation, repair, or change was completed.`;
+5946-    return {
+5947-      response: finalizeTaskResponse(blockedResponse),
+5948-      sources: toolSources,
+5949-      pendingChanges: getExecutionPendingChanges(),
+5950-    };
+5951-  }
+5952-
+5953-  // ── Final response from model (kind:"response" or kind:"partial") ─────────
+5954:  const result = loopResult.kind === "cancelled"
+5955-    ? {
+5956-        content: "",
+5957-        toolCalls: null,
+5958-        model,
+5959-        usage: { promptTokens: 0, completionTokens: 0 },
+5960-      }
+5961:    : loopResult.result;
+5962-
+5963-  // STORY-04: capture actual model used — may differ from initial selection if
+5964-  // the fallback engine advanced to a different model mid-request.
+5965-  const resolvedModelInfo: ResolvedModelInfo | undefined = result.model
+5966-    ? { id: result.model, provider: providerId, free: providerId === "openrouter" }
+5967-    : undefined;
+5968-
+5969-  /**
+5970-   * EI-012 (shared seam): reconcile the run ledger against the retained evidence
+5971-   * and gate the verdict. Every successful response path — the non-streaming
+5972-   * seam AND both streaming paths (non-native direct-content, native SSE) — runs

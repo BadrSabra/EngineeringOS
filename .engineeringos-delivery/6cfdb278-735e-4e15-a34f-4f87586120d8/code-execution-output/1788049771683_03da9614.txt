@@ -1,0 +1,556 @@
+stdout:
+[
+  {
+    "ref": "#1",
+    "title": "Set up the imported project",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#2",
+    "title": "Enable AI-powered reviews with a provider connection",
+    "state": "MERGED",
+    "dependsOn": [
+      "#1"
+    ]
+  },
+  {
+    "ref": "#3",
+    "title": "Keep OpenRouter’s free model list current",
+    "state": "MERGED",
+    "dependsOn": [
+      "#2"
+    ]
+  },
+  {
+    "ref": "#4",
+    "title": "Fix the runtime oracle check blocking the full test suite",
+    "state": "MERGED",
+    "dependsOn": [
+      "#3"
+    ]
+  },
+  {
+    "ref": "#5",
+    "title": "Catch broken runtime oracle fixtures before the full suite",
+    "state": "MERGED",
+    "dependsOn": [
+      "#4"
+    ]
+  },
+  {
+    "ref": "#6",
+    "title": "Reconcile the runtime oracle fix on main",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#7",
+    "title": "Catch broken benchmark fixtures before the full suite",
+    "state": "MERGED",
+    "dependsOn": [
+      "#5"
+    ]
+  },
+  {
+    "ref": "#8",
+    "title": "Stabilize OpenRouter fallback resolution",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#9",
+    "title": "Confirm catalog diagnostics stay clear in the chat API",
+    "state": "MERGED",
+    "dependsOn": [
+      "#8"
+    ]
+  },
+  {
+    "ref": "#10",
+    "title": "Establish the actual capability baseline",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#11",
+    "title": "Map the Replit Agent parity gaps",
+    "state": "MERGED",
+    "dependsOn": [
+      "#10"
+    ]
+  },
+  {
+    "ref": "#12",
+    "title": "Catch missing benchmark scenarios before release runs",
+    "state": "MERGED",
+    "dependsOn": [
+      "#7"
+    ]
+  },
+  {
+    "ref": "#13",
+    "title": "Stop validation runs from hanging before code delivery",
+    "state": "MERGED",
+    "dependsOn": [
+      "#11"
+    ]
+  },
+  {
+    "ref": "#14",
+    "title": "Prove the full Agent journey works from project import to Git delivery",
+    "state": "MERGED",
+    "dependsOn": [
+      "#11"
+    ]
+  },
+  {
+    "ref": "#15",
+    "title": "Give operators clear next steps when the AI provider is unavailable",
+    "state": "MERGED",
+    "dependsOn": [
+      "#11"
+    ]
+  },
+  {
+    "ref": "#16",
+    "title": "Catch behavior regressions in every benchmark scenario before release",
+    "state": "MERGED",
+    "dependsOn": [
+      "#12"
+    ]
+  },
+  {
+    "ref": "#17",
+    "title": "Make validation time budgets tunable for different project sizes",
+    "state": "MERGED",
+    "dependsOn": [
+      "#13"
+    ]
+  },
+  {
+    "ref": "#18",
+    "title": "Complete live Git delivery proof after release gates",
+    "state": "MERGED",
+    "dependsOn": [
+      "#14",
+      "#21"
+    ]
+  },
+  {
+    "ref": "#19",
+    "title": "Show AI provider health before a request fails",
+    "state": "MERGED",
+    "dependsOn": [
+      "#15"
+    ]
+  },
+  {
+    "ref": "#20",
+    "title": "Harden benchmark oracle integrity before release",
+    "state": "MERGED",
+    "dependsOn": [
+      "#16"
+    ]
+  },
+  {
+    "ref": "#21",
+    "title": "Make validation time limits visible to operators",
+    "state": "MERGED",
+    "dependsOn": [
+      "#17"
+    ]
+  },
+  {
+    "ref": "#22",
+    "title": "Catch subtle benchmark regressions after oracle hardening",
+    "state": "MERGED",
+    "dependsOn": [
+      "#20"
+    ]
+  },
+  {
+    "ref": "#23",
+    "title": "Bind benchmark proof to the exact candidate bytes",
+    "state": "MERGED",
+    "dependsOn": [
+      "#22"
+    ]
+  },
+  {
+    "ref": "#24",
+    "title": "Compute server-owned candidate hashes before benchmark oracles",
+    "state": "MERGED",
+    "dependsOn": [
+      "#23"
+    ]
+  },
+  {
+    "ref": "#25",
+    "title": "Bind benchmark releases to the exact source revision",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#24"
+    ]
+  },
+  {
+    "ref": "#26",
+    "title": "Bind releases to source revision",
+    "state": "MERGED",
+    "dependsOn": [
+      "#24"
+    ]
+  },
+  {
+    "ref": "#27",
+    "title": "Provision a disposable authenticated Git target for live delivery proof",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#18"
+    ]
+  },
+  {
+    "ref": "#28",
+    "title": "Confirm every provider failure keeps its safe reference details",
+    "state": "MERGED",
+    "dependsOn": [
+      "#19"
+    ]
+  },
+  {
+    "ref": "#29",
+    "title": "Keep provider failure guidance consistent in task and workflow runs",
+    "state": "MERGED",
+    "dependsOn": [
+      "#28"
+    ]
+  },
+  {
+    "ref": "#30",
+    "title": "Show the same provider recovery actions in task and workflow failures",
+    "state": "MERGED",
+    "dependsOn": [
+      "#29"
+    ]
+  },
+  {
+    "ref": "#31",
+    "title": "Catch missing recovery details in task and workflow screens",
+    "state": "MERGED",
+    "dependsOn": [
+      "#30"
+    ]
+  },
+  {
+    "ref": "#32",
+    "title": "Catch recovery redaction regressions in the browser journey",
+    "state": "MERGED",
+    "dependsOn": [
+      "#31"
+    ]
+  },
+  {
+    "ref": "#33",
+    "title": "Keep recovery guidance safe after task and workflow reloads",
+    "state": "MERGED",
+    "dependsOn": [
+      "#32"
+    ]
+  },
+  {
+    "ref": "#34",
+    "title": "Keep AI chat recovery messages free of provider secrets",
+    "state": "MERGED",
+    "dependsOn": [
+      "#33"
+    ]
+  },
+  {
+    "ref": "#35",
+    "title": "Close benchmark rollout blocker",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#36",
+    "title": "Restore the AI release checks so rollout can be verified end to end",
+    "state": "MERGED",
+    "dependsOn": [
+      "#35"
+    ]
+  },
+  {
+    "ref": "#37",
+    "title": "Update capability and parity reports",
+    "state": "MERGED",
+    "dependsOn": [
+      "#36"
+    ]
+  },
+  {
+    "ref": "#38",
+    "title": "Prove the authenticated delivery journey through Git",
+    "state": "MERGED",
+    "dependsOn": [
+      "#37"
+    ]
+  },
+  {
+    "ref": "#39",
+    "title": "Establish a reviewed live-quality benchmark baseline",
+    "state": "MERGED",
+    "dependsOn": [
+      "#37"
+    ]
+  },
+  {
+    "ref": "#40",
+    "title": "Make Git discovery proof use an approved disposable remote",
+    "state": "MERGED",
+    "dependsOn": [
+      "#38"
+    ]
+  },
+  {
+    "ref": "#41",
+    "title": "Keep authenticated browser readiness stable through restart",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#38"
+    ]
+  },
+  {
+    "ref": "#42",
+    "title": "Produce an approved clean-witness live-quality baseline",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#39"
+    ]
+  },
+  {
+    "ref": "#43",
+    "title": "Ensure abandoned repository scans never leave storage behind",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#40"
+    ]
+  },
+  {
+    "ref": "#44",
+    "title": "Refresh AI Documentation Baseline",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#45",
+    "title": "Restore Discovery Acceptance",
+    "state": "MERGED",
+    "dependsOn": [
+      "#44"
+    ]
+  },
+  {
+    "ref": "#46",
+    "title": "Stabilize and Prove Browser Recovery",
+    "state": "MERGED",
+    "dependsOn": [
+      "#44"
+    ]
+  },
+  {
+    "ref": "#47",
+    "title": "Prove One Controlled Agent Journey",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#46",
+      "#45"
+    ]
+  },
+  {
+    "ref": "#48",
+    "title": "Govern and Prove Clean Quality Baseline",
+    "state": "MERGED",
+    "dependsOn": [
+      "#44"
+    ]
+  },
+  {
+    "ref": "#49",
+    "title": "Integrate and Prove Operational Readiness",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#48",
+      "#47"
+    ]
+  },
+  {
+    "ref": "#50",
+    "title": "Complete and Prove Unified Autonomous Loop",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#49"
+    ]
+  },
+  {
+    "ref": "#51",
+    "title": "Stabilize Probe Evidence Synthesis",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#52",
+    "title": "Prevent Release Failures from Schema Drift",
+    "state": "CANCELLED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#53",
+    "title": "Restore a clean aggregate AI release validation run",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#48"
+    ]
+  },
+  {
+    "ref": "#54",
+    "title": "Normalize Model Tool Calls",
+    "state": "CANCELLED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#55",
+    "title": "Unify AI Failure Persistence",
+    "state": "CANCELLED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#56",
+    "title": "Close Candidate Commit Integrity",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#54",
+      "#52",
+      "#55"
+    ]
+  },
+  {
+    "ref": "#57",
+    "title": "Build Safe Capability Recipes",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#54",
+      "#56",
+      "#55"
+    ]
+  },
+  {
+    "ref": "#58",
+    "title": "Define Capability Contract",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#59",
+    "title": "Build Capability Catalog",
+    "state": "MERGED",
+    "dependsOn": [
+      "#58"
+    ]
+  },
+  {
+    "ref": "#60",
+    "title": "Compile Safe Recipes",
+    "state": "MERGED",
+    "dependsOn": [
+      "#59"
+    ]
+  },
+  {
+    "ref": "#61",
+    "title": "Bind Recipe Operations Safely",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#60"
+    ]
+  },
+  {
+    "ref": "#62",
+    "title": "Persist Recipe Evidence",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#61"
+    ]
+  },
+  {
+    "ref": "#63",
+    "title": "Integrate Recipe Chat Flow",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#62"
+    ]
+  },
+  {
+    "ref": "#64",
+    "title": "Expose Recipe Operations",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#63"
+    ]
+  },
+  {
+    "ref": "#65",
+    "title": "Prove Recipe Safety",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#64"
+    ]
+  },
+  {
+    "ref": "#66",
+    "title": "Document Capability Recipes",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#65"
+    ]
+  },
+  {
+    "ref": "#67",
+    "title": "Close Candidate Commit Integrity",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#68",
+    "title": "Optimize Mission Efficiency",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#65"
+    ]
+  },
+  {
+    "ref": "#69",
+    "title": "Prevent validation runs from filling the workflow list",
+    "state": "MERGED",
+    "dependsOn": []
+  },
+  {
+    "ref": "#70",
+    "title": "Prove Live Provider Readiness",
+    "state": "CANCELLED",
+    "dependsOn": [
+      "#62",
+      "#65",
+      "#63",
+      "#64"
+    ]
+  },
+  {
+    "ref": "#71",
+    "title": "Confirm release recovery stays stable after validation isolation",
+    "state": "IN_PROGRESS",
+    "dependsOn": [
+      "#69"
+    ]
+  }
+]
+total=71 truncated=false

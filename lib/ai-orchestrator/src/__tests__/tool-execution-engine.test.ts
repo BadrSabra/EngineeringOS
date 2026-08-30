@@ -1146,6 +1146,128 @@ describe("executeToolLoop", () => {
     expect(steps).not.toContainEqual(expect.objectContaining({ model: "initial-model" }));
   });
 
+  it("preserves the full authorized manifest when a fallback executes a narrowed tool list", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const readTool = { type: "function" as const, function: { name: "read_file", description: "", parameters: {} } };
+    const searchTool = { type: "function" as const, function: { name: "search_code", description: "", parameters: {} } };
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "initial model timed out"))
+      .mockResolvedValueOnce(makeResponse("", [makeToolCall("search-1", "search_code", { pattern: "search_code" })]))
+      .mockResolvedValueOnce(makeResponse("fallback completed"));
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "initial-model",
+      powerModel: "fallback-model",
+      provider: "openrouter",
+      tools: [readTool, searchTool],
+      executionMode: "repair_plan",
+      executionTargetPaths: ["src/auth.ts"],
+      initialFileContents: new Map([["src/auth.ts", "export const auth = true;"]]),
+      cache: new Map([["read_file:{\"path\":\"src/auth.ts\"}", "cached"]]),
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "search_code",
+      { pattern: "search_code" },
+      "/project",
+      [],
+    );
+    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
+    expect(fallbackOptions).toMatchObject({
+      model: "fallback-model",
+      tools: [searchTool],
+      toolManifest: [readTool, searchTool],
+    });
+  });
+
+  it("terminalizes an invalid provider tool call without dispatching or retrying it", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const steps: AgentStep[] = [];
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new GroqClientError(
+        "INVALID_TOOL_CALL",
+        'Provider returned invalid tool-call output: tool "search_code" is not in request manifest.',
+      ),
+    );
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      tool: "search_code",
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(steps).toContainEqual(expect.objectContaining({
+      kind: "tool_result",
+      tool: "search_code",
+      resultKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    }));
+    expect(steps).toContainEqual(expect.objectContaining({
+      kind: "done",
+      stopReason: "tool_failure",
+      diagnosticCodes: ["TOOL_UNAVAILABLE"],
+    }));
+    expect(steps.some((step) =>
+      step.kind === "diagnostic" && step.details?.some((detail) => detail.includes("Provider returned")),
+    )).toBe(false);
+  });
+
+  it("terminalizes an invalid tool call during the deliberate no-tools synthesis phase", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new GroqClientError(
+        "INVALID_TOOL_CALL",
+        'Provider returned invalid tool-call output: tool "search_code" is not in request manifest.',
+      ),
+    );
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      toolCallsDisabledAfter: 0,
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      tool: "search_code",
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+  });
+
   it("emits a bounded provider diagnostic for a Repair Plan timeout", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);

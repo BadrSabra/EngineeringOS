@@ -1,0 +1,376 @@
+import { createHash, randomUUID } from "node:crypto";
+import { cp, mkdir, readFile, rm, writeFile, readdir, lstat, readlink, rename } from "node:fs/promises";
+import path from "node:path";
+
+export type DeliveryLifecycle =
+  | "proposed" | "isolated" | "validated" | "applied" | "conflicted"
+  | "committed" | "cancelled" | "abandoned" | "blocked";
+
+/** Replace one live-root file without exposing a truncated file to readers. */
+export async function atomicallyPromoteFile(
+  target: string,
+  content: string,
+  operationId: string,
+): Promise<void> {
+  const temp = `${target}.engineeringos-promotion-${operationId}-${process.pid}-${randomUUID()}`;
+  await writeFile(temp, content, { encoding: "utf8", mode: 0o600 });
+  try {
+    await rename(temp, target);
+  } catch (error) {
+    await rm(temp, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+export type PromotionRecoveryResult = "PROMOTED" | "ROLLED_BACK" | "RECOVERY_REQUIRED";
+
+/** Versioned contract for every candidate and live-root content digest. */
+export const DELIVERY_TREE_DIGEST_VERSION = "delivery-tree-v1";
+export const DELIVERY_TREE_EXCLUSIONS = [
+  ".git",
+  "node_modules",
+  ".engineeringos-delivery",
+  ".engineeringos-projects",
+  ".agents",
+  ".local",
+  ".X11-unix",
+] as const;
+
+export type DeliveryTreeDigestErrorCode =
+  | "DELIVERY_TREE_ROOT_UNAVAILABLE"
+  | "DELIVERY_TREE_ENTRY_UNREADABLE"
+  | "DELIVERY_TREE_UNSAFE_PATH";
+
+export class DeliveryTreeDigestError extends Error {
+  readonly code: DeliveryTreeDigestErrorCode;
+
+  constructor(code: DeliveryTreeDigestErrorCode, message: string) {
+    super(message);
+    this.name = "DeliveryTreeDigestError";
+    this.code = code;
+  }
+}
+
+/**
+ * Reconcile an interrupted promotion from durable candidate bytes. A live file
+ * may be either its recorded base bytes or the exact candidate bytes. Any
+ * third value means a user/process changed the root and must be reviewed.
+ */
+export async function recoverPromotion(params: {
+  rootPath: string;
+  changes: readonly { path: string; newContent: string; originalContent?: string | null }[];
+  operationId: string;
+}): Promise<PromotionRecoveryResult> {
+  let changed = false;
+  for (const change of params.changes) {
+    const target = path.resolve(params.rootPath, change.path);
+    if (target !== path.resolve(params.rootPath) && !target.startsWith(`${path.resolve(params.rootPath)}${path.sep}`)) {
+      return "RECOVERY_REQUIRED";
+    }
+    let current: string | null = null;
+    try {
+      current = await readFile(target, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "RECOVERY_REQUIRED";
+    }
+    const expected = change.newContent;
+    const base = change.originalContent ?? null;
+    if (current === expected) {
+      changed = true;
+      continue;
+    }
+    if (current !== base) return "RECOVERY_REQUIRED";
+    await mkdir(path.dirname(target), { recursive: true });
+    await atomicallyPromoteFile(target, expected, params.operationId);
+    changed = true;
+  }
+  return changed ? "PROMOTED" : "ROLLED_BACK";
+}
+
+export type DeliveryWorkspace = {
+  operationId: string;
+  rootPath: string;
+  workspaceRoot: string;
+  baseRevision: string;
+  changeSetHash: string;
+  baseTreeHash: string;
+  candidateTreeHash: string;
+  lifecycle: DeliveryLifecycle;
+};
+
+const WORKSPACES_DIR = path.join(
+  process.env.WORKSPACE_PATH ?? "/home/runner/workspace",
+  ".engineeringos-delivery",
+);
+const MARKER = ".engineeringos-delivery-workspace";
+
+export function hashChangeSet(changes: readonly { path: string; newContent: string }[]): string {
+  const canonical = [...changes]
+    .map((change) => ({ path: change.path.replaceAll("\\", "/"), newContent: change.newContent }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+/**
+ * Runtime sockets, generated delivery state, and toolchain directories are
+ * excluded identically while copying and hashing. Keep this policy in one
+ * place: a candidate digest must be comparable with a live-root digest.
+ */
+export function shouldExcludeDeliveryEntry(absolutePath: string, rootPath: string): boolean {
+  const basename = path.basename(absolutePath);
+  const relative = path.relative(rootPath, absolutePath).replaceAll("\\", "/");
+  if (
+    absolutePath === rootPath
+    || absolutePath.endsWith(".pipe")
+    || absolutePath.endsWith(".sock")
+    || basename.startsWith(".org.chromium.")
+    || /^(?:SingletonSocket|SingletonCookie|SingletonLock)$/.test(basename)
+  ) return absolutePath !== rootPath;
+  if (relative === ".engineeringos-delivery" || relative.startsWith(".engineeringos-delivery/")) return true;
+  return DELIVERY_TREE_EXCLUSIONS.includes(basename as typeof DELIVERY_TREE_EXCLUSIONS[number]);
+}
+
+function normalizeDeliveryRelativePath(relativePath: string): string {
+  const normalized = relativePath.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+  if (
+    !normalized
+    || normalized.startsWith("/")
+    || path.isAbsolute(relativePath)
+    || normalized.split("/").some((segment) => !segment || segment === "..")
+  ) {
+    throw new DeliveryTreeDigestError("DELIVERY_TREE_UNSAFE_PATH", "Delivery tree contains an unsafe relative path.");
+  }
+  return normalized;
+}
+
+/**
+ * Hash a complete source/candidate tree with a deterministic, byte-oriented
+ * record format. Directories are retained (including empty directories),
+ * regular files use base64 of their exact bytes, and symlinks use base64 of
+ * their link target without following it. Other filesystem kinds are recorded
+ * by kind but never read as files.
+ */
+export async function hashDeliveryTree(rootPath: string): Promise<string> {
+  const resolvedRoot = path.resolve(rootPath);
+  const entries: Array<{ path: string; kind: "directory" | "file" | "symlink" | "other"; bytes?: string }> = [];
+  const seenPaths = new Set<string>();
+  async function visit(directory: string): Promise<void> {
+    let children;
+    try {
+      children = (await readdir(directory, { withFileTypes: true }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      throw new DeliveryTreeDigestError(
+        directory === resolvedRoot ? "DELIVERY_TREE_ROOT_UNAVAILABLE" : "DELIVERY_TREE_ENTRY_UNREADABLE",
+        "Delivery tree could not be read.",
+      );
+    }
+    for (const entry of children) {
+      const absolute = path.join(directory, entry.name);
+      if (shouldExcludeDeliveryEntry(absolute, resolvedRoot) || (directory === resolvedRoot && entry.name === MARKER)) continue;
+      const relative = normalizeDeliveryRelativePath(path.relative(resolvedRoot, absolute));
+      if (seenPaths.has(relative)) {
+        throw new DeliveryTreeDigestError("DELIVERY_TREE_UNSAFE_PATH", "Delivery tree contains duplicate normalized paths.");
+      }
+      seenPaths.add(relative);
+      let stat;
+      try {
+        stat = await lstat(absolute);
+      } catch {
+        throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree entry could not be inspected.");
+      }
+      if (stat.isDirectory()) {
+        entries.push({ path: relative, kind: "directory" });
+        await visit(absolute);
+      } else if (stat.isFile()) {
+        try {
+          entries.push({ path: relative, kind: "file", bytes: (await readFile(absolute)).toString("base64") });
+        } catch {
+          throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree file could not be read.");
+        }
+      } else if (stat.isSymbolicLink()) {
+        try {
+          entries.push({ path: relative, kind: "symlink", bytes: Buffer.from(await readlink(absolute), "utf8").toString("base64") });
+        } catch {
+          throw new DeliveryTreeDigestError("DELIVERY_TREE_ENTRY_UNREADABLE", "Delivery tree symlink could not be read.");
+        }
+      } else {
+        entries.push({ path: relative, kind: "other" });
+      }
+    }
+  }
+  try {
+    const stat = await lstat(resolvedRoot);
+    if (!stat.isDirectory()) throw new Error("not a directory");
+  } catch {
+    throw new DeliveryTreeDigestError("DELIVERY_TREE_ROOT_UNAVAILABLE", "Delivery tree root is unavailable.");
+  }
+  await visit(resolvedRoot);
+  const canonical = JSON.stringify({ version: DELIVERY_TREE_DIGEST_VERSION, entries });
+  return createHash("sha256").update(Buffer.from(canonical, "utf8")).digest("hex");
+}
+
+/** Backward-compatible name used by benchmark and recovery callers. */
+export const hashDeliveryWorkspace = hashDeliveryTree;
+
+export async function hashDeliveryFiles(
+  rootPath: string,
+  changes: readonly { path: string }[],
+): Promise<string> {
+  const entries = await Promise.all([...changes]
+    .map((change) => change.path.replaceAll("\\", "/"))
+    .sort((a, b) => a.localeCompare(b))
+    .map(async (relative) => ({
+      path: relative,
+      newContent: (await readFile(path.resolve(rootPath, relative))).toString(),
+    })));
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+}
+
+export function deliveryWorkspacePath(operationId: string): string {
+  if (!/^[0-9a-f-]{36}$/i.test(operationId)) throw new Error("Invalid delivery operation identity");
+  return path.join(WORKSPACES_DIR, operationId);
+}
+
+export async function createDeliveryWorkspace(input: {
+  rootPath: string;
+  operationId: string;
+  baseRevision: string;
+  changes: readonly { path: string; newContent: string }[];
+}): Promise<DeliveryWorkspace> {
+  const workspaceRoot = deliveryWorkspacePath(input.operationId);
+  await mkdir(WORKSPACES_DIR, { recursive: true });
+  try {
+    const baseTreeHash = await hashDeliveryTree(input.rootPath);
+    // A retry of the same operation may be recovering a failed validation.
+    // Reuse is allowed only for the exact server-owned workspace marker;
+    // another operation's workspace is never removed.
+    try {
+      if ((await readFile(path.join(workspaceRoot, MARKER), "utf8")) === `${input.operationId}\n`) {
+        await rm(workspaceRoot, { recursive: true, force: true });
+      }
+    } catch {
+      // The destination does not exist yet.
+    }
+    const resolvedInputRoot = path.resolve(input.rootPath);
+    const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+    const workspaceIsInsideSource =
+      resolvedWorkspaceRoot.startsWith(`${resolvedInputRoot}${path.sep}`);
+    const copyDestination = workspaceIsInsideSource
+      ? path.join("/tmp", `engineeringos-delivery-${input.operationId}`)
+
+--- tests ---
+import { describe, expect, it } from "vitest";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  createDeliveryWorkspace,
+  discardDeliveryWorkspace,
+  hashChangeSet,
+  hashDeliveryTree,
+  DELIVERY_TREE_DIGEST_VERSION,
+  transitionDeliveryLifecycle,
+  atomicallyPromoteFile,
+  recoverPromotion,
+} from "./delivery-workspace.js";
+
+describe("delivery workspaces", () => {
+  it("creates an operation-owned copy and overlays only the approved change set", async () => {
+    const fixture = `/tmp/delivery-fixture-${randomUUID()}`;
+    const operationId = randomUUID();
+    await mkdir(fixture, { recursive: true });
+    await writeFile(join(fixture, "app.ts"), "export const value = 1;\n");
+    try {
+      const workspace = await createDeliveryWorkspace({
+        rootPath: fixture,
+        operationId,
+        baseRevision: "base-1",
+        changes: [{ path: "app.ts", newContent: "export const value = 2;\n" }],
+      });
+      expect(workspace.lifecycle).toBe("isolated");
+      expect(workspace.workspaceRoot).not.toBe(fixture);
+      await expect(readFile(join(workspace.workspaceRoot, "app.ts"), "utf8"))
+        .resolves.toBe("export const value = 2;\n");
+      await expect(readFile(join(workspace.workspaceRoot, "proposal-omitted.ts"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      expect(hashChangeSet([{ path: "app.ts", newContent: "x" }]))
+        .toBe(hashChangeSet([{ path: "app.ts", newContent: "x" }]));
+      await expect(discardDeliveryWorkspace(workspace.workspaceRoot, operationId)).resolves.toBe(true);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("uses one deterministic tree contract for source and candidate roots", async () => {
+    const fixture = `/tmp/delivery-tree-${randomUUID()}`;
+    const operationId = randomUUID();
+    await mkdir(join(fixture, "empty"), { recursive: true });
+    await writeFile(join(fixture, "bytes.bin"), Buffer.from([0, 1, 255]));
+    await writeFile(join(fixture, "target.txt"), "target\n");
+    await symlink("target.txt", join(fixture, "link.txt"));
+    await writeFile(join(fixture, ".gitignore"), "ignored\n");
+    try {
+      const baseHash = await hashDeliveryTree(fixture);
+      const workspace = await createDeliveryWorkspace({
+        rootPath: fixture,
+        operationId,
+        baseRevision: "base-1",
+        changes: [],
+      });
+      expect(workspace.baseTreeHash).toBe(baseHash);
+      expect(workspace.candidateTreeHash).toBe(baseHash);
+      expect(DELIVERY_TREE_DIGEST_VERSION).toBe("delivery-tree-v1");
+      await writeFile(join(fixture, ".engineeringos-delivery-runtime.sock"), "ignored");
+      expect(await hashDeliveryTree(fixture)).toBe(baseHash);
+      await expect(discardDeliveryWorkspace(workspace.workspaceRoot, operationId)).resolves.toBe(true);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unsafe cleanup and impossible lifecycle jumps", async () => {
+    const operationId = randomUUID();
+    await expect(discardDeliveryWorkspace("/tmp/not-owned", operationId)).resolves.toBe(false);
+    expect(transitionDeliveryLifecycle("proposed", "isolated")).toBe(true);
+    expect(transitionDeliveryLifecycle("isolated", "committed")).toBe(false);
+    expect(transitionDeliveryLifecycle("committed", "isolated")).toBe(false);
+  });
+
+  it("recovers a mixed promotion only from exact base bytes", async () => {
+    const fixture = `/tmp/delivery-recovery-${randomUUID()}`;
+    await mkdir(fixture, { recursive: true });
+    try {
+      await writeFile(join(fixture, "a.ts"), "new\n");
+      await writeFile(join(fixture, "b.ts"), "old\n");
+      await atomicallyPromoteFile(join(fixture, "b.ts"), "new\n", randomUUID());
+      await expect(readFile(join(fixture, "b.ts"), "utf8")).resolves.toBe("new\n");
+      await expect(recoverPromotion({
+        rootPath: fixture,
+        operationId: randomUUID(),
+        changes: [
+          { path: "a.ts", originalContent: "old\n", newContent: "new\n" },
+          { path: "b.ts", originalContent: "old\n", newContent: "new\n" },
+        ],
+      })).resolves.toBe("PROMOTED");
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("classifies an unexpected live-root edit instead of overwriting it", async () => {
+    const fixture = `/tmp/delivery-recovery-${randomUUID()}`;
+    await mkdir(fixture, { recursive: true });
+    try {
+      await writeFile(join(fixture, "a.ts"), "user edit\n");
+      await expect(recoverPromotion({
+        rootPath: fixture,
+        operationId: randomUUID(),
+        changes: [{ path: "a.ts", originalContent: "old\n", newContent: "new\n" }],
+      })).resolves.toBe("RECOVERY_REQUIRED");
+      await expect(readFile(join(fixture, "a.ts"), "utf8")).resolves.toBe("user edit\n");
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+});

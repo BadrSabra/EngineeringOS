@@ -1,0 +1,274 @@
+--- manifest references ---
+lib/api-client-react/src/use-ai-chat-stream.ts:257:  /** Registered tool name, e.g. "read_file", "search_code". */
+lib/ai-orchestrator/src/capability-catalog.ts:520:    "Capability IDs and recipe versions are opaque request identifiers. This catalog is not a tool manifest and does not grant execution authority.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:290:    : name === "read_file" || name === "read_file_range" || name === "list_directory" || name === "search_code"
+lib/ai-orchestrator/src/tool-execution-engine.ts:352:    "DUPLICATE SEARCH: this exact search_code call already ran. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:357:      "Do not call search_code again."
+lib/ai-orchestrator/src/tool-execution-engine.ts:361:    return `${base} search_code is temporarily hidden for the next model turn; advance using the gathered evidence.`;
+lib/ai-orchestrator/src/tool-execution-engine.ts:377:    `- Completed search_code result for "${query}".`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:397:    "- Additional search expansion was intentionally not collected because search_code is now suppressed.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:443:  /** Server-owned effective tool manifest, checked again at dispatch. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:580:  /** FEG-015: gather calls (search_code/list_directory) issued before the first source read. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:676: * list_directory, search_code, git_status, git_diff, git_log).
+lib/ai-orchestrator/src/tool-execution-engine.ts:826:      case "search_code":
+lib/ai-orchestrator/src/tool-execution-engine.ts:1019:   * Independent novelty budget for ordinary search_code calls. A search
+lib/ai-orchestrator/src/tool-execution-engine.ts:1790:  // A search_code / list_directory call only counts as NEW evidence for the
+lib/ai-orchestrator/src/tool-execution-engine.ts:2459:        !(searchBudgetEnabled && searchBudgetExhausted && tool.function.name === "search_code"),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3231:            "Use only the tools listed in the effective manifest.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3478:        tc.function.name === "search_code" &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:3486:            "SEARCH_BUDGET_EXHAUSTED: recent search_code calls did not produce unseen results. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3487:            "search_code is unavailable now; use read_file on the matching source locations or synthesize from the confirmed evidence.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3527:            "Use search_code to locate the exact symbol or line, then read_file_range(path, startLine, endLine) to retrieve only the required window.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3537:          tc.function.name === "search_code" && searchBudgetEnabled
+lib/ai-orchestrator/src/tool-execution-engine.ts:3549:        if (tc.function.name === "search_code") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3568:          ["read_file", "list_directory", "search_code"].includes(tc.function.name)
+lib/ai-orchestrator/src/tool-execution-engine.ts:3718:        // repeated search_code calls. A Set in the scorecard keeps multiple
+lib/ai-orchestrator/src/tool-execution-engine.ts:3729:          tc.function.name === "search_code" && duplicateCount > 0;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3731:          temporarilyDisabledTools.add("search_code");
+lib/ai-orchestrator/src/tool-execution-engine.ts:3831:          "read_file", "read_file_range", "search_code", "list_directory",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3935:        tc.function.name === "search_code" && searchBudgetEnabled
+lib/ai-orchestrator/src/tool-execution-engine.ts:4075:      if (tc.function.name === "search_code") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4188:            temporarilyDisabledTools.add("search_code");
+lib/ai-orchestrator/src/tool-execution-engine.ts:4232:          temporarilyDisabledTools.add("search_code");
+lib/ai-orchestrator/src/provider-tool-calls.ts:7: * usable only when its name is present in the request's tool manifest.
+lib/ai-orchestrator/src/provider-tool-calls.ts:40:   * Full server-authorized manifest for an execution turn. `tools` can be a
+lib/ai-orchestrator/src/provider-tool-calls.ts:50:function manifestNames(tools?: ToolCallManifest): ReadonlySet<string> {
+lib/ai-orchestrator/src/provider-tool-calls.ts:117:    throw invalidToolCall(`tool "${value}" is not in the request manifest`, options);
+lib/ai-orchestrator/src/provider-tool-calls.ts:157:  const names = manifestNames(options.toolManifest ?? options.tools);
+lib/ai-orchestrator/src/provider-tool-calls.ts:309:  const names = manifestNames(options.toolManifest ?? options.tools);
+lib/ai-orchestrator/src/provider-tool-calls.ts:411:  "search_code(",
+lib/ai-orchestrator/src/provider-tool-calls.ts:466: * stream termination with an empty manifest so no stream can dispatch tools.
+lib/ai-orchestrator/src/openai-compatible-client.ts:51:  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+lib/ai-orchestrator/src/groq-client.ts:55:  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+lib/ai-orchestrator/src/errors.ts:38: *                     satisfy the strict tool-call grammar/manifest.
+lib/ai-orchestrator/src/deepseek-client.ts:41:  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:44:      `File tools: read_file · list_directory · search_code · replace_text · write_file
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:64:4. A result containing "[... output truncated ...]" or "[... prefetch output truncated ...]" is a bounded tool preview, NOT evidence that the file is truncated, corrupted, or incomplete. Never create a Finding from that marker. Use git_diff, git_status, search_code, or additional targeted reads to establish the actual file state.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:112:2. **No translation of technical terms**: Keep ALL of the following verbatim in their original English form regardless of conversation language — file names, function names, class names, route paths, tool names (read_file, list_directory, search_code, write_file), programming keywords, library names, framework names, CLI commands, error codes, HTTP methods, and any identifier that appears in source code. Only prose/explanation text is translated, never the terms themselves.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:228:4. A tool truncation marker is never evidence of a truncated or corrupted source file. Mark the claim NOT PROVEN and verify with git_diff, git_status, search_code, or tests.
+lib/ai-orchestrator/src/prompts/profile-classifier.ts:130:  /(?:لا\s+تقرأ\s+أي\s+ملف\s+آخر|لا\s+تستخدم\s+search_code|do\s+not\s+read\s+any\s+other\s+file|read_file\s+only)/i,
+lib/ai-orchestrator/src/prompts/capability-probe.ts:19:evidence: read_file, read_file_range, search_code, list_directory, and the
+lib/ai-orchestrator/src/forensic-output-guard.ts:60:  /** Exact search_code result text keyed by the concrete path it mentions. */
+lib/ai-orchestrator/src/forensic-output-guard.ts:1841:        } else if (toolCall.id && toolCall.function?.name === "search_code") {
+lib/ai-orchestrator/src/forensic-output-guard.ts:1875:    // search_code returns project-relative `path:line:snippet` rows. Associate
+lib/ai-orchestrator/src/evidence-integrity.ts:1433: * Parse the output of `search_code` (grep) and return the first line number
+lib/ai-orchestrator/src/tools/file-tools.ts:12: *   - read_file / list_directory / search_code execute immediately.
+lib/ai-orchestrator/src/tools/file-tools.ts:15: *   - search_code uses execFile (no shell) so the pattern and root path are
+lib/ai-orchestrator/src/tools/file-tools.ts:34:  "\n\n[... output truncated at 128 KB by the read tool; this is a display limit, not evidence that the file is incomplete or corrupted. Do not infer missing code from this marker. Use targeted search_code or replace_text for exact source-level evidence. ...]";
+lib/ai-orchestrator/src/tools/file-tools.ts:97:        "Read the first 128 KB of a source file. The result may be a bounded preview; a truncation marker is a tool display limit, not proof that the file is incomplete. Use search_code for targeted evidence and replace_text for focused edits.",
+lib/ai-orchestrator/src/tools/file-tools.ts:141:        "Read a specific line range of a source file (1-based, inclusive). Use this to retrieve a targeted source window (e.g. around a symbol found via search_code) instead of re-reading the whole file. The result is a bounded window; when the file is larger than a full read, this is the preferred way to obtain exact code for a claim.",
+lib/ai-orchestrator/src/tools/file-tools.ts:203:      name: "search_code",
+lib/ai-orchestrator/src/tools/file-tools.ts:522:    // ── search_code ───────────────────────────────────────────────────────────
+lib/ai-orchestrator/src/tools/file-tools.ts:523:    case "search_code": {
+lib/ai-orchestrator/src/tool-policy.ts:35:    | "tool_not_in_manifest"
+lib/ai-orchestrator/src/tool-policy.ts:41:const FILE_READ_TOOL_NAMES = new Set(["read_file", "read_file_range", "list_directory", "search_code"]);
+lib/ai-orchestrator/src/tool-policy.ts:158:    return { allowed: false, reason: "tool_not_in_manifest" };
+lib/ai-orchestrator/src/task-execution-partial-report.ts:191:    .filter((call) => call.tool === "search_code")
+lib/ai-orchestrator/src/task-execution-partial-report.ts:226:      : [isArabic ? "- لا توجد عملية search_code مكتملة." : "- No completed search_code operation."]),
+lib/ai-orchestrator/src/task-checklist.ts:168:  const searchCount = completedTools.filter((call) => call.tool === "search_code").length;
+lib/ai-orchestrator/src/task-checklist.ts:221:            evidence: [`search_code completed (${searchCount} call${searchCount === 1 ? "" : "s"})`],
+lib/ai-orchestrator/src/task-checklist.ts:227:            reason: "No completed search_code event was observed.",
+lib/ai-orchestrator/src/task-checklist.ts:256:    return "YES only if completed search_code telemetry is present; otherwise NO";
+lib/ai-orchestrator/src/quality/execution-phases.ts:56:  localization: ["search_code", "list_directory"],
+lib/ai-orchestrator/src/quality/execution-phases.ts:57:  evidence: ["read_file", "read_file_range", "search_code", "list_directory"],
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:225:  it("adds the catalog to planning context without widening the executable tool manifest", () => {
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts:245:              "\n… [prefetch output truncated — this is a display limit, not evidence that the file is incomplete. Use targeted search_code for exact evidence]"
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts:363:              "\n… [prefetch output truncated — this is a display limit, not evidence that the file is incomplete. Use targeted search_code for exact evidence]"
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:89:    "C2: PASS — read_file for contents; search_code / read_file_range for a symbol.\n" +
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:265:        "C2: PASS — read_file for contents; search_code for symbols.\n" +
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:279:      C2: "PASS — read_file for contents; search_code / read_file_range for a symbol.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7: *   search_code    — grep across the codebase
+lib/ai-orchestrator/src/agents/chat-agent.ts:33: *   search_code are recorded in toolSources during the loop. On return they
+lib/ai-orchestrator/src/agents/chat-agent.ts:492:  "search_code",
+lib/ai-orchestrator/src/agents/chat-agent.ts:1852:  /^(read_file|list_directory|search_code|write_file|git_status|git_diff|git_log)$/i,
+lib/ai-orchestrator/src/agents/chat-agent.ts:2917:      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "refresh_project_scan", "query_knowledge_graph", "discover_project_apis"].includes(tool.function.name))
+lib/ai-orchestrator/src/agents/chat-agent.ts:4515:           "After a target file has been read, do not call read_file, search_code, list_directory, or any Git tool again; move directly to replace_text. " +
+lib/ai-orchestrator/src/agents/chat-agent.ts:7625:                    // words/stopwords) as the targeted symbol for search_code. A weak
+lib/ai-orchestrator/src/agents/chat-agent.ts:7641:                        // already-retained file content directly. Using search_code
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:242:      "Audit only src/a.ts for a directly proven behavioral defect. Do not use search_code.",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:254:      expect(exposedTools).not.toContain("search_code");
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts:6: * root-wide `search_code` (grep), which caps output at 50 lines and can omit
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts:37:describe("EI-017 recovery: anchor from retained content (not search_code)", () => {
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts:47:      // Under the old search_code approach these would fill the 50-line grep
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:207:                name: "search_code",
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:260:      expect(steps.some((step) => step.kind === "tool_call" && step.tool === "search_code")).toBe(true);
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:144:        "لا تستخدم search_code ولا تقرأ أي ملف آخر.",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:197:  it("blocks tools and read paths outside the effective manifest", async () => {
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:220:          toolCall("blocked-search", "search_code", { pattern: "secret" }),
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:238:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:272:            toolCall("blocked-search", "search_code", { pattern: "eval" }),
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:292:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:629:            "[prefetch output truncated — this is a display limit, not evidence that the file is incomplete. Use targeted search_code for exact evidence]",
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:2: * Tests for the search_code error-path differentiation (PR-05).
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:7: * executeFileTool("search_code", ...).
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:41:describe("executeFileTool — search_code error handling", () => {
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:48:    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:54:    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:60:    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:66:    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:80:    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:30:      "search_code",
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:64:      "search_code",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:154:  it("dispatches search_code to executeFileTool and produces search source label", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:157:      name: "search_code",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:907:    expect(classifyReadStatus("search_code", "foo.ts:1:const x = 1;")).toBe("READ_COMPLETE");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1392:  it("does NOT count repeated CACHED search_code calls as progress: force fires and out-of-set cached searches are rejected (FEG-008)", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1402:      makeToolCall(id, "search_code", { pattern: "onStep" });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1404:      makeResponse("", [makeToolCall("fresh", "search_code", { pattern: "onStep" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1420:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1504:        makeResponse("", [makeToolCall(`dup-${index}`, "search_code", { pattern })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1517:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1554:        makeResponse("", [makeToolCall(`mix-${index}`, "search_code", { pattern })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1567:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1594:      makeResponse("", [makeToolCall("f1", "search_code", { pattern: "x" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1595:      makeResponse("", [makeToolCall("f2", "search_code", { pattern: "y" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1596:      makeResponse("", [makeToolCall("f3", "search_code", { pattern: "z" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1609:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1691:        makeToolCall("novel", "search_code", { pattern: "onStep" }),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1692:        makeToolCall("empty", "search_code", { pattern: "nothing" }),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1706:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1723:  it("does not suppress search_code when there are no duplicates", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1727:      makeResponse("", [makeToolCall("search", "search_code", { pattern: "onStep" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1738:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1748:    expect(secondCallTools?.map((tool) => tool.function.name)).toEqual(["search_code", "read_file"]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2705:      // (totalToolCalls is already 1 after the search_code call).
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2709:          return makeResponse("", [makeToolCall("p1", "search_code", { pattern: "a" })]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2724:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2748:      makeResponse("", [makeToolCall(`plan-${i}`, "search_code", { pattern: `needle-${i}` })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2762:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2784:      makeResponse("", [makeToolCall("p1", "search_code", { pattern: "a" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2798:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2945:      makeResponse("", [makeToolCall(`plan-${i}`, "search_code", { pattern: `needle-${i}` })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2960:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2984:      makeResponse("", [makeToolCall(`plan-${i}`, "search_code", { pattern: `prefetch-${i}` })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3000:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3032:      makeResponse("", [makeToolCall(`plan-${i}`, "search_code", { pattern: `needle-${i}` })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3055:        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3098:      makeResponse("", [makeToolCall(`plan-${i}`, "search_code", { pattern: `x-${i}` })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3113:      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts:24:          tool: "search_code",
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts:30:          tool: "search_code",
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts:44:    expect(report).toContain('search_code (query="TODO", path="src")');
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts:119:        { kind: "tool_call", tool: "search_code", args: { query: "test" }, cached: false },
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts:120:        { kind: "tool_result", tool: "search_code", cached: false, outputLength: 5 },
+--- orchestrator files ---
+lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-baseline.json
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-live.json
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-live.md
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-manifest.json
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-manifest.md
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-release-decision.json
+lib/ai-orchestrator/benchmark-results/code-agent-deterministic/code-agent-benchmark-deterministic-baseline.json
+lib/ai-orchestrator/benchmark-results/code-agent-deterministic/code-agent-benchmark-deterministic-replay.json
+lib/ai-orchestrator/benchmark-results/forensic-benchmark.json
+lib/ai-orchestrator/benchmark-results/forensic-benchmark.md
+lib/ai-orchestrator/benchmark-results/free-tier-shards/free-tier-quality-envelope.json
+lib/ai-orchestrator/benchmark-results/free-tier-shards/free-tier-quality-replay-corpus.json
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.md
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.json
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.md
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/review.md
+lib/ai-orchestrator/benchmark-results/paid-openrouter-auto-validation/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/paid-openrouter-auto-validation/code-agent-benchmark-airlock.run.md
+lib/ai-orchestrator/benchmark-results/paid-openrouter-final-gates/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/paid-openrouter-final-gates/code-agent-benchmark-airlock.run.md
+lib/ai-orchestrator/benchmark-results/paid-openrouter-gate-fix/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/paid-openrouter-gate-fix/code-agent-benchmark-airlock.run.md
+lib/ai-orchestrator/benchmark-results/paid-openrouter-one-time/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/paid-openrouter-one-time/code-agent-benchmark-airlock.run.md
+lib/ai-orchestrator/benchmark-results/task-176-canary/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-airlock.run.md
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-manifest.json
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-manifest.md
+lib/ai-orchestrator/benchmark-results/task-179-canary/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/task-179-canary/code-agent-benchmark-airlock.run.md
+lib/ai-orchestrator/benchmark-results/task-179-preflight/code-agent-benchmark-airlock.run.json
+lib/ai-orchestrator/benchmark-results/task-179-preflight/code-agent-benchmark-airlock.run.md
+lib/ai-orchestrator/_dbg2.mts
+lib/ai-orchestrator/dist/agent-complete.d.ts
+lib/ai-orchestrator/dist/agent-complete.d.ts.map
+lib/ai-orchestrator/dist/agents/base-agent.d.ts
+lib/ai-orchestrator/dist/agents/base-agent.d.ts.map
+lib/ai-orchestrator/dist/agents/chat-agent.d.ts
+lib/ai-orchestrator/dist/agents/chat-agent.d.ts.map
+lib/ai-orchestrator/dist/agents/code-reviewer.d.ts
+lib/ai-orchestrator/dist/agents/code-reviewer.d.ts.map
+lib/ai-orchestrator/dist/agents/hierarchical-executor.d.ts
+lib/ai-orchestrator/dist/agents/hierarchical-executor.d.ts.map
+lib/ai-orchestrator/dist/agents/implementation-planner.d.ts
+lib/ai-orchestrator/dist/agents/implementation-planner.d.ts.map
+lib/ai-orchestrator/dist/agents/query-planner.d.ts
+lib/ai-orchestrator/dist/agents/query-planner.d.ts.map
+lib/ai-orchestrator/dist/agents/scan-analyst.d.ts
+lib/ai-orchestrator/dist/agents/scan-analyst.d.ts.map
+lib/ai-orchestrator/dist/agents/speculative-prefetch.d.ts
+lib/ai-orchestrator/dist/agents/speculative-prefetch.d.ts.map
+lib/ai-orchestrator/dist/agents/speculative-prefetch.test.d.ts
+lib/ai-orchestrator/dist/agents/speculative-prefetch.test.d.ts.map
+lib/ai-orchestrator/dist/agents/task-agent.d.ts
+lib/ai-orchestrator/dist/agents/task-agent.d.ts.map
+lib/ai-orchestrator/dist/agents/workflow-orchestrator.d.ts
+lib/ai-orchestrator/dist/agents/workflow-orchestrator.d.ts.map
+lib/ai-orchestrator/dist/audit-telemetry.d.ts
+lib/ai-orchestrator/dist/audit-telemetry.d.ts.map
+lib/ai-orchestrator/dist/behavioral-scorecard.d.ts
+lib/ai-orchestrator/dist/behavioral-scorecard.d.ts.map
+lib/ai-orchestrator/dist/benchmark/autonomous-delivery-acceptance.d.ts
+lib/ai-orchestrator/dist/benchmark/autonomous-delivery-acceptance.d.ts.map
+lib/ai-orchestrator/dist/benchmark/autonomous-delivery-acceptance.test.d.ts
+lib/ai-orchestrator/dist/benchmark/autonomous-delivery-acceptance.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/baseline-approval.d.ts
+lib/ai-orchestrator/dist/benchmark/baseline-approval.d.ts.map
+lib/ai-orchestrator/dist/benchmark/baseline-approval.test.d.ts
+lib/ai-orchestrator/dist/benchmark/baseline-approval.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/behavioral-oracle-gate.test.d.ts
+lib/ai-orchestrator/dist/benchmark/behavioral-oracle-gate.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/benchmark-airlock.d.ts
+lib/ai-orchestrator/dist/benchmark/benchmark-airlock.d.ts.map
+lib/ai-orchestrator/dist/benchmark/benchmark-airlock.test.d.ts
+lib/ai-orchestrator/dist/benchmark/benchmark-airlock.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/benchmark-campaign.d.ts
+lib/ai-orchestrator/dist/benchmark/benchmark-campaign.d.ts.map
+lib/ai-orchestrator/dist/benchmark/benchmark-campaign.test.d.ts
+lib/ai-orchestrator/dist/benchmark/benchmark-campaign.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/benchmark-parity-report.d.ts
+lib/ai-orchestrator/dist/benchmark/benchmark-parity-report.d.ts.map
+lib/ai-orchestrator/dist/benchmark/benchmark-parity-report.test.d.ts
+lib/ai-orchestrator/dist/benchmark/benchmark-parity-report.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/benchmark-shards.d.ts
+lib/ai-orchestrator/dist/benchmark/benchmark-shards.d.ts.map
+lib/ai-orchestrator/dist/benchmark/benchmark-shards.test.d.ts
+lib/ai-orchestrator/dist/benchmark/benchmark-shards.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/code-agent-benchmark.d.ts
+lib/ai-orchestrator/dist/benchmark/code-agent-benchmark.d.ts.map
+lib/ai-orchestrator/dist/benchmark/code-agent-benchmark-fixtures.d.ts
+lib/ai-orchestrator/dist/benchmark/code-agent-benchmark-fixtures.d.ts.map
+lib/ai-orchestrator/dist/benchmark/code-agent-benchmark-fixtures.test.d.ts
+lib/ai-orchestrator/dist/benchmark/code-agent-benchmark-fixtures.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/code-agent-benchmark.test.d.ts
+lib/ai-orchestrator/dist/benchmark/code-agent-benchmark.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/contract-oracle.d.ts
+lib/ai-orchestrator/dist/benchmark/contract-oracle.d.ts.map
+lib/ai-orchestrator/dist/benchmark/contract-oracle.test.d.ts
+lib/ai-orchestrator/dist/benchmark/contract-oracle.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/forensic-benchmark.d.ts
+lib/ai-orchestrator/dist/benchmark/forensic-benchmark.d.ts.map
+lib/ai-orchestrator/dist/benchmark/forensic-benchmark.test.d.ts
+lib/ai-orchestrator/dist/benchmark/forensic-benchmark.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/free-only-policy.d.ts
+lib/ai-orchestrator/dist/benchmark/free-only-policy.d.ts.map
+lib/ai-orchestrator/dist/benchmark/free-only-policy.test.d.ts
+lib/ai-orchestrator/dist/benchmark/free-only-policy.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/free-tier-failure-analysis.d.ts
+lib/ai-orchestrator/dist/benchmark/free-tier-failure-analysis.d.ts.map
+lib/ai-orchestrator/dist/benchmark/free-tier-failure-analysis.test.d.ts
+lib/ai-orchestrator/dist/benchmark/free-tier-failure-analysis.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/free-tier-quality-envelope.d.ts
+lib/ai-orchestrator/dist/benchmark/free-tier-quality-envelope.d.ts.map
+lib/ai-orchestrator/dist/benchmark/free-tier-quality-envelope.test.d.ts
+lib/ai-orchestrator/dist/benchmark/free-tier-quality-envelope.test.d.ts.map
+lib/ai-orchestrator/dist/benchmark/live-code-agent-benchmark.d.ts
+lib/ai-orchestrator/dist/benchmark/live-code-agent-benchmark.d.ts.map

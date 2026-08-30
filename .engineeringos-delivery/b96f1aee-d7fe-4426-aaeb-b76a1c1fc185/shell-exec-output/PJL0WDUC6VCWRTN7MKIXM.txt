@@ -1,0 +1,650 @@
+artifacts/api-server/src/routes/ai/chat.ts-135-  type AiTerminalOutcome,
+artifacts/api-server/src/routes/ai/chat.ts-136-} from "../../lib/ai-terminal-outcome.js";
+artifacts/api-server/src/routes/ai/chat.ts-137-import { inspectAiChange } from "../../lib/ai-change-guard.js";
+artifacts/api-server/src/routes/ai/chat.ts-138-import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/chat.ts-139-import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/chat.ts-140-import {
+artifacts/api-server/src/routes/ai/chat.ts-141-  requireProvider,
+artifacts/api-server/src/routes/ai/chat.ts-142-  chatWithFallback,
+artifacts/api-server/src/routes/ai/chat.ts:143:  handleOrchestratorError,
+artifacts/api-server/src/routes/ai/chat.ts-144-  redactUserFacingText,
+artifacts/api-server/src/routes/ai/chat.ts-145-  redactUserFacingValue,
+artifacts/api-server/src/routes/ai/chat.ts-146-} from "../../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai/chat.ts-147-import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
+artifacts/api-server/src/routes/ai/chat.ts-148-import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
+artifacts/api-server/src/routes/ai/chat.ts-149-import {
+artifacts/api-server/src/routes/ai/chat.ts-150-  createDeliveryWorkspace,
+artifacts/api-server/src/routes/ai/chat.ts-151-  discardDeliveryWorkspace,
+--
+artifacts/api-server/src/routes/ai/chat.ts-312-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+artifacts/api-server/src/routes/ai/chat.ts-313-    ? parsed as Record<string, unknown>
+artifacts/api-server/src/routes/ai/chat.ts-314-    : {};
+artifacts/api-server/src/routes/ai/chat.ts-315-}
+artifacts/api-server/src/routes/ai/chat.ts-316-
+artifacts/api-server/src/routes/ai/chat.ts-317-function terminalMetadataFromTrace(value: string | null | undefined): {
+artifacts/api-server/src/routes/ai/chat.ts-318-  failureKind?: "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE";
+artifacts/api-server/src/routes/ai/chat.ts-319-  retryable?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:320:  recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
+artifacts/api-server/src/routes/ai/chat.ts-321-} {
+artifacts/api-server/src/routes/ai/chat.ts-322-  const parsed = value ? parseStoredJson(value) : undefined;
+artifacts/api-server/src/routes/ai/chat.ts-323-  if (!Array.isArray(parsed)) return {};
+artifacts/api-server/src/routes/ai/chat.ts-324-  const terminal = [...parsed].reverse().find((entry) =>
+artifacts/api-server/src/routes/ai/chat.ts-325-    entry && typeof entry === "object" && (entry as Record<string, unknown>).kind === "terminal_outcome",
+artifacts/api-server/src/routes/ai/chat.ts-326-  ) as Record<string, unknown> | undefined;
+artifacts/api-server/src/routes/ai/chat.ts-327-  const failureKind = terminal?.failureKind;
+artifacts/api-server/src/routes/ai/chat.ts-328-  return {
+artifacts/api-server/src/routes/ai/chat.ts-329-    ...(failureKind === "TOOL_FAILURE"
+artifacts/api-server/src/routes/ai/chat.ts-330-      || failureKind === "CANCELLATION"
+artifacts/api-server/src/routes/ai/chat.ts-331-      || failureKind === "RECOVERY_FAILURE"
+artifacts/api-server/src/routes/ai/chat.ts-332-      || failureKind === "INCOMPLETE"
+artifacts/api-server/src/routes/ai/chat.ts-333-        ? { failureKind }
+artifacts/api-server/src/routes/ai/chat.ts-334-        : {}),
+artifacts/api-server/src/routes/ai/chat.ts-335-    ...(typeof terminal?.retryable === "boolean" ? { retryable: terminal.retryable } : {}),
+artifacts/api-server/src/routes/ai/chat.ts-336-    ...(
+artifacts/api-server/src/routes/ai/chat.ts:337:      terminal?.recoveryState === "NONE"
+artifacts/api-server/src/routes/ai/chat.ts:338:      || terminal?.recoveryState === "REQUIRED"
+artifacts/api-server/src/routes/ai/chat.ts:339:      || terminal?.recoveryState === "INCOMPLETE"
+artifacts/api-server/src/routes/ai/chat.ts:340:        ? { recoveryState: terminal.recoveryState }
+artifacts/api-server/src/routes/ai/chat.ts-341-        : {}
+artifacts/api-server/src/routes/ai/chat.ts-342-    ),
+artifacts/api-server/src/routes/ai/chat.ts-343-  };
+artifacts/api-server/src/routes/ai/chat.ts-344-}
+artifacts/api-server/src/routes/ai/chat.ts-345-
+artifacts/api-server/src/routes/ai/chat.ts-346-function boundedPublicErrorCode(value: string | null | undefined): string | null {
+artifacts/api-server/src/routes/ai/chat.ts-347-  return typeof value === "string"
+artifacts/api-server/src/routes/ai/chat.ts-348-    && /^[A-Za-z][A-Za-z0-9_]{2,79}$/.test(value)
+--
+artifacts/api-server/src/routes/ai/chat.ts-914-async function persistFailedChatTurn(params: {
+artifacts/api-server/src/routes/ai/chat.ts-915-  sessionId: string;
+artifacts/api-server/src/routes/ai/chat.ts-916-  projectId: string;
+artifacts/api-server/src/routes/ai/chat.ts-917-  message: string;
+artifacts/api-server/src/routes/ai/chat.ts-918-  turnIntent: string;
+artifacts/api-server/src/routes/ai/chat.ts-919-  linkedTaskId?: string;
+artifacts/api-server/src/routes/ai/chat.ts-920-  createSessionIfMissing?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts-921-  executionId?: string;
+artifacts/api-server/src/routes/ai/chat.ts:922:  outcome: "FAILED" | "INTERRUPTED";
+artifacts/api-server/src/routes/ai/chat.ts-923-  errorCode: string;
+artifacts/api-server/src/routes/ai/chat.ts-924-  errorMessage: string;
+artifacts/api-server/src/routes/ai/chat.ts-925-  content?: string;
+artifacts/api-server/src/routes/ai/chat.ts-926-  sources?: unknown;
+artifacts/api-server/src/routes/ai/chat.ts-927-  taskResult?: unknown;
+artifacts/api-server/src/routes/ai/chat.ts-928-  behaviorEvidence?: unknown;
+artifacts/api-server/src/routes/ai/chat.ts-929-  repairPlanMetadata?: unknown;
+artifacts/api-server/src/routes/ai/chat.ts:930:  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "retryable" | "recoveryState">;
+artifacts/api-server/src/routes/ai/chat.ts-931-  createdAt: Date;
+artifacts/api-server/src/routes/ai/chat.ts-932-  assistantAt: Date;
+artifacts/api-server/src/routes/ai/chat.ts-933-  toolTrace?: AgentStep[];
+artifacts/api-server/src/routes/ai/chat.ts-934-}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date }> {
+artifacts/api-server/src/routes/ai/chat.ts-935-  return db.transaction(async (tx) => {
+artifacts/api-server/src/routes/ai/chat.ts-936-    if (params.createSessionIfMissing) {
+artifacts/api-server/src/routes/ai/chat.ts-937-      const [session] = await tx
+artifacts/api-server/src/routes/ai/chat.ts-938-        .select({ id: aiChatSessionsTable.id })
+--
+artifacts/api-server/src/routes/ai/chat.ts-1040-      ? (() => {
+artifacts/api-server/src/routes/ai/chat.ts-1041-          const parsed = parseStoredJson(trace);
+artifacts/api-server/src/routes/ai/chat.ts-1042-          return JSON.stringify([
+artifacts/api-server/src/routes/ai/chat.ts-1043-            ...(Array.isArray(parsed) ? parsed : []),
+artifacts/api-server/src/routes/ai/chat.ts-1044-            {
+artifacts/api-server/src/routes/ai/chat.ts-1045-              kind: "terminal_outcome",
+artifacts/api-server/src/routes/ai/chat.ts-1046-              failureKind: params.terminalOutcome.failureKind,
+artifacts/api-server/src/routes/ai/chat.ts-1047-              retryable: params.terminalOutcome.retryable,
+artifacts/api-server/src/routes/ai/chat.ts:1048:              recoveryState: params.terminalOutcome.recoveryState,
+artifacts/api-server/src/routes/ai/chat.ts-1049-            },
+artifacts/api-server/src/routes/ai/chat.ts-1050-          ]);
+artifacts/api-server/src/routes/ai/chat.ts-1051-        })()
+artifacts/api-server/src/routes/ai/chat.ts-1052-      : trace;
+artifacts/api-server/src/routes/ai/chat.ts-1053-    const assistantId = randomUUID();
+artifacts/api-server/src/routes/ai/chat.ts-1054-    const assistantContent = params.content ? sanitizeResponseText(params.content).slice(0, 12_000) : "";
+artifacts/api-server/src/routes/ai/chat.ts-1055-    const assistantErrorMessage = redactUserFacingText(params.errorMessage).slice(0, 500);
+artifacts/api-server/src/routes/ai/chat.ts-1056-    await tx.insert(aiChatMessagesTable).values({
+--
+artifacts/api-server/src/routes/ai/chat.ts-2245-          sources: [],
+artifacts/api-server/src/routes/ai/chat.ts-2246-          pendingChanges: [],
+artifacts/api-server/src/routes/ai/chat.ts-2247-          repairPlan: undefined,
+artifacts/api-server/src/routes/ai/chat.ts-2248-          taskResult: undefined,
+artifacts/api-server/src/routes/ai/chat.ts-2249-          behaviorEvidence: undefined,
+artifacts/api-server/src/routes/ai/chat.ts-2250-        };
+artifacts/api-server/src/routes/ai/chat.ts-2251-      }
+artifacts/api-server/src/routes/ai/chat.ts-2252-    } catch (err) {
+artifacts/api-server/src/routes/ai/chat.ts:2253:      if (handleOrchestratorError(err, res, {
+artifacts/api-server/src/routes/ai/chat.ts-2254-        projectId,
+artifacts/api-server/src/routes/ai/chat.ts-2255-        operation: "chat",
+artifacts/api-server/src/routes/ai/chat.ts-2256-        provider,
+artifacts/api-server/src/routes/ai/chat.ts-2257-        publicContract: "chat",
+artifacts/api-server/src/routes/ai/chat.ts-2258-      })) return;
+artifacts/api-server/src/routes/ai/chat.ts-2259-      throw err;
+artifacts/api-server/src/routes/ai/chat.ts-2260-    }
+artifacts/api-server/src/routes/ai/chat.ts-2261-
+--
+artifacts/api-server/src/routes/ai/chat.ts-2308-      // response transport-compatible with normal chat while making the
+artifacts/api-server/src/routes/ai/chat.ts-2309-      // terminal non-success explicit in every field.
+artifacts/api-server/src/routes/ai/chat.ts-2310-      return res.status(200).json({
+artifacts/api-server/src/routes/ai/chat.ts-2311-        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts-2312-        turnIntent: turnIntent.kind,
+artifacts/api-server/src/routes/ai/chat.ts-2313-        outcome: terminalOutcome.outcome,
+artifacts/api-server/src/routes/ai/chat.ts-2314-        failureKind: terminalOutcome.failureKind,
+artifacts/api-server/src/routes/ai/chat.ts-2315-        retryable: terminalOutcome.retryable,
+artifacts/api-server/src/routes/ai/chat.ts:2316:        recoveryState: terminalOutcome.recoveryState,
+artifacts/api-server/src/routes/ai/chat.ts-2317-        code: terminalOutcome.code,
+artifacts/api-server/src/routes/ai/chat.ts-2318-        error: safeMessage,
+artifacts/api-server/src/routes/ai/chat.ts-2319-        errorMessage: safeMessage,
+artifacts/api-server/src/routes/ai/chat.ts-2320-        message: {
+artifacts/api-server/src/routes/ai/chat.ts-2321-          ...failedMessage,
+artifacts/api-server/src/routes/ai/chat.ts-2322-          failureKind: terminalOutcome.failureKind,
+artifacts/api-server/src/routes/ai/chat.ts-2323-          retryable: terminalOutcome.retryable,
+artifacts/api-server/src/routes/ai/chat.ts:2324:          recoveryState: terminalOutcome.recoveryState,
+artifacts/api-server/src/routes/ai/chat.ts-2325-        },
+artifacts/api-server/src/routes/ai/chat.ts-2326-        ...(report ? { report: sanitizeResponseText(report).slice(0, 12_000) } : {}),
+artifacts/api-server/src/routes/ai/chat.ts-2327-      });
+artifacts/api-server/src/routes/ai/chat.ts-2328-    }
+artifacts/api-server/src/routes/ai/chat.ts-2329-
+artifacts/api-server/src/routes/ai/chat.ts-2330-    if (result._parseError) {
+artifacts/api-server/src/routes/ai/chat.ts-2331-      if (!result.response) {
+artifacts/api-server/src/routes/ai/chat.ts-2332-        return res.status(422).json({
+artifacts/api-server/src/routes/ai/chat.ts:2333:          error: "model_output_invalid",
+artifacts/api-server/src/routes/ai/chat.ts:2334:          code: "model_output_invalid",
+artifacts/api-server/src/routes/ai/chat.ts:2335:          outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts:2336:          failureKind: "PROVIDER_FAILURE",
+artifacts/api-server/src/routes/ai/chat.ts-2337-          retryable: false,
+artifacts/api-server/src/routes/ai/chat.ts:2338:          recoveryState: "REQUIRED",
+artifacts/api-server/src/routes/ai/chat.ts-2339-          correlationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts-2340-        });
+artifacts/api-server/src/routes/ai/chat.ts-2341-      }
+artifacts/api-server/src/routes/ai/chat.ts-2342-      logger.warn(
+artifacts/api-server/src/routes/ai/chat.ts-2343-        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+artifacts/api-server/src/routes/ai/chat.ts-2344-        "AI parse failure — using fallback response",
+artifacts/api-server/src/routes/ai/chat.ts-2345-      );
+artifacts/api-server/src/routes/ai/chat.ts-2346-    }
+--
+artifacts/api-server/src/routes/ai/chat.ts-2350-      missionCorrelationReport = serializeMissionCorrelationReport(
+artifacts/api-server/src/routes/ai/chat.ts-2351-        (result as { missionCorrelationReport?: unknown }).missionCorrelationReport,
+artifacts/api-server/src/routes/ai/chat.ts-2352-      );
+artifacts/api-server/src/routes/ai/chat.ts-2353-    } catch (error) {
+artifacts/api-server/src/routes/ai/chat.ts-2354-      if (error instanceof MissionCorrelationReportValidationError) {
+artifacts/api-server/src/routes/ai/chat.ts-2355-        return res.status(422).json({
+artifacts/api-server/src/routes/ai/chat.ts-2356-          error: "The forensic report could not be validated and was not completed.",
+artifacts/api-server/src/routes/ai/chat.ts-2357-          code: error.code,
+artifacts/api-server/src/routes/ai/chat.ts:2358:          outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts-2359-          failureKind: "RECOVERY_FAILURE",
+artifacts/api-server/src/routes/ai/chat.ts-2360-          retryable: true,
+artifacts/api-server/src/routes/ai/chat.ts:2361:          recoveryState: "REQUIRED",
+artifacts/api-server/src/routes/ai/chat.ts-2362-          correlationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts-2363-        });
+artifacts/api-server/src/routes/ai/chat.ts-2364-      }
+artifacts/api-server/src/routes/ai/chat.ts-2365-      throw error;
+artifacts/api-server/src/routes/ai/chat.ts-2366-    }
+artifacts/api-server/src/routes/ai/chat.ts-2367-
+artifacts/api-server/src/routes/ai/chat.ts-2368-    // Chat turns don't modify project data — no cache invalidation needed.
+artifacts/api-server/src/routes/ai/chat.ts-2369-    // Full invalidation happens only in /apply-changes when files are written.
+--
+artifacts/api-server/src/routes/ai/chat.ts-3961-        if (terminalOutcome.failureKind === "TOOL_FAILURE") {
+artifacts/api-server/src/routes/ai/chat.ts-3962-          sse({
+artifacts/api-server/src/routes/ai/chat.ts-3963-            type: "error",
+artifacts/api-server/src/routes/ai/chat.ts-3964-            code: terminalOutcome.code,
+artifacts/api-server/src/routes/ai/chat.ts-3965-            message: safeMessage,
+artifacts/api-server/src/routes/ai/chat.ts-3966-            outcome: terminalOutcome.outcome,
+artifacts/api-server/src/routes/ai/chat.ts-3967-            failureKind: terminalOutcome.failureKind,
+artifacts/api-server/src/routes/ai/chat.ts-3968-            retryable: terminalOutcome.retryable,
+artifacts/api-server/src/routes/ai/chat.ts:3969:            recoveryState: terminalOutcome.recoveryState,
+artifacts/api-server/src/routes/ai/chat.ts-3970-            executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts-3971-            sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts-3972-          });
+artifacts/api-server/src/routes/ai/chat.ts-3973-        } else {
+artifacts/api-server/src/routes/ai/chat.ts-3974-          // A failed/incomplete report may still be useful to an operator, but
+artifacts/api-server/src/routes/ai/chat.ts-3975-          // it must be explicitly marked non-success in the done envelope.
+artifacts/api-server/src/routes/ai/chat.ts-3976-          // It is never followed by a success-looking done event.
+artifacts/api-server/src/routes/ai/chat.ts-3977-          const publicContent = report ? sanitizeResponseText(report).slice(0, 12_000) : "";
+--
+artifacts/api-server/src/routes/ai/chat.ts-3991-              createdAt: failedMessage.createdAt,
+artifacts/api-server/src/routes/ai/chat.ts-3992-              turnIntent: streamTurnIntent.kind,
+artifacts/api-server/src/routes/ai/chat.ts-3993-              executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts-3994-              outcome: terminalOutcome.outcome,
+artifacts/api-server/src/routes/ai/chat.ts-3995-              errorCode: terminalOutcome.code,
+artifacts/api-server/src/routes/ai/chat.ts-3996-              errorMessage: safeMessage,
+artifacts/api-server/src/routes/ai/chat.ts-3997-              failureKind: terminalOutcome.failureKind,
+artifacts/api-server/src/routes/ai/chat.ts-3998-              retryable: terminalOutcome.retryable,
+artifacts/api-server/src/routes/ai/chat.ts:3999:              recoveryState: terminalOutcome.recoveryState,
+artifacts/api-server/src/routes/ai/chat.ts-4000-            },
+artifacts/api-server/src/routes/ai/chat.ts-4001-            sources: redactUserFacingValue(result.sources),
+artifacts/api-server/src/routes/ai/chat.ts-4002-            toolTrace: publicToolTrace,
+artifacts/api-server/src/routes/ai/chat.ts-4003-            pendingChanges: redactUserFacingValue(result.pendingChanges),
+artifacts/api-server/src/routes/ai/chat.ts-4004-            operationMode: streamTurnIntent.operationMode,
+artifacts/api-server/src/routes/ai/chat.ts-4005-            execution: projectPublicExecutionSummary(executionSummary, false),
+artifacts/api-server/src/routes/ai/chat.ts-4006-            telemetry: {
+artifacts/api-server/src/routes/ai/chat.ts-4007-              latencyMs: Date.now() - chatStartMs,
+--
+artifacts/api-server/src/routes/ai/chat.ts-4094-          || err.code === "SERVER_ERROR"
+artifacts/api-server/src/routes/ai/chat.ts-4095-          || err.code === "MODEL_UNAVAILABLE";
+artifacts/api-server/src/routes/ai/chat.ts-4096-        sse({
+artifacts/api-server/src/routes/ai/chat.ts-4097-          type: "error",
+artifacts/api-server/src/routes/ai/chat.ts-4098-          code: err.code,
+artifacts/api-server/src/routes/ai/chat.ts-4099-          message: retryable
+artifacts/api-server/src/routes/ai/chat.ts-4100-            ? "The AI request could not complete. Please retry."
+artifacts/api-server/src/routes/ai/chat.ts-4101-            : "The AI request was not completed because the provider configuration could not satisfy it.",
+artifacts/api-server/src/routes/ai/chat.ts:4102:          outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts:4103:          failureKind: "PROVIDER_FAILURE",
+artifacts/api-server/src/routes/ai/chat.ts-4104-          retryable,
+artifacts/api-server/src/routes/ai/chat.ts:4105:          recoveryState: "REQUIRED",
+artifacts/api-server/src/routes/ai/chat.ts-4106-          correlationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts-4107-        });
+artifacts/api-server/src/routes/ai/chat.ts-4108-      } else {
+artifacts/api-server/src/routes/ai/chat.ts-4109-        logger.error({ err }, "chat stream: unexpected non-GroqClientError");
+artifacts/api-server/src/routes/ai/chat.ts-4110-        sse({
+artifacts/api-server/src/routes/ai/chat.ts-4111-          type: "error",
+artifacts/api-server/src/routes/ai/chat.ts-4112-          code: "unknown",
+artifacts/api-server/src/routes/ai/chat.ts-4113-          message: "The AI provider could not complete the request. Retry in a moment or configure another provider.",
+--
+artifacts/api-server/src/routes/ai/chat.ts-4130-      res.end();
+artifacts/api-server/src/routes/ai/chat.ts-4131-      return;
+artifacts/api-server/src/routes/ai/chat.ts-4132-    }
+artifacts/api-server/src/routes/ai/chat.ts-4133-
+artifacts/api-server/src/routes/ai/chat.ts-4134-    if (result._parseError) {
+artifacts/api-server/src/routes/ai/chat.ts-4135-      if (!result.response) {
+artifacts/api-server/src/routes/ai/chat.ts-4136-        sse({
+artifacts/api-server/src/routes/ai/chat.ts-4137-          type: "error",
+artifacts/api-server/src/routes/ai/chat.ts:4138:          code: "model_output_invalid",
+artifacts/api-server/src/routes/ai/chat.ts-4139-          message: "The AI request returned an unsupported response and was not completed.",
+artifacts/api-server/src/routes/ai/chat.ts:4140:          outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts:4141:          failureKind: "PROVIDER_FAILURE",
+artifacts/api-server/src/routes/ai/chat.ts-4142-          retryable: false,
+artifacts/api-server/src/routes/ai/chat.ts:4143:          recoveryState: "REQUIRED",
+artifacts/api-server/src/routes/ai/chat.ts-4144-          correlationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts-4145-        });
+artifacts/api-server/src/routes/ai/chat.ts-4146-        await persistFailedChatTurn({
+artifacts/api-server/src/routes/ai/chat.ts-4147-          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts-4148-          projectId,
+artifacts/api-server/src/routes/ai/chat.ts-4149-          message,
+artifacts/api-server/src/routes/ai/chat.ts-4150-          turnIntent: streamTurnIntent.kind,
+artifacts/api-server/src/routes/ai/chat.ts-4151-          executionId: aiExecution?.id,
+artifacts/api-server/src/routes/ai/chat.ts:4152:          outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts-4153-          errorCode: "MODEL_OUTPUT_INVALID",
+artifacts/api-server/src/routes/ai/chat.ts-4154-          errorMessage: "The AI model returned an unexpected response.",
+artifacts/api-server/src/routes/ai/chat.ts-4155-          createdAt: now,
+artifacts/api-server/src/routes/ai/chat.ts-4156-          assistantAt: msgNow,
+artifacts/api-server/src/routes/ai/chat.ts-4157-          toolTrace: traceSteps,
+artifacts/api-server/src/routes/ai/chat.ts-4158-        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+artifacts/api-server/src/routes/ai/chat.ts-4159-        res.end();
+artifacts/api-server/src/routes/ai/chat.ts-4160-        return;
+--
+artifacts/api-server/src/routes/ai/chat.ts-4230-      );
+artifacts/api-server/src/routes/ai/chat.ts-4231-    } catch (error) {
+artifacts/api-server/src/routes/ai/chat.ts-4232-      if (error instanceof MissionCorrelationReportValidationError) {
+artifacts/api-server/src/routes/ai/chat.ts-4233-        const safeMessage = "The forensic report could not be validated and was not completed.";
+artifacts/api-server/src/routes/ai/chat.ts-4234-        sse({
+artifacts/api-server/src/routes/ai/chat.ts-4235-          type: "error",
+artifacts/api-server/src/routes/ai/chat.ts-4236-          code: error.code,
+artifacts/api-server/src/routes/ai/chat.ts-4237-          message: safeMessage,
+artifacts/api-server/src/routes/ai/chat.ts:4238:          outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts-4239-          failureKind: "RECOVERY_FAILURE",
+artifacts/api-server/src/routes/ai/chat.ts-4240-          retryable: true,
+artifacts/api-server/src/routes/ai/chat.ts:4241:          recoveryState: "REQUIRED",
+artifacts/api-server/src/routes/ai/chat.ts-4242-          correlationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts-4243-        });
+artifacts/api-server/src/routes/ai/chat.ts-4244-        if (aiExecution) {
+artifacts/api-server/src/routes/ai/chat.ts-4245-          await failAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts-4246-            executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts-4247-            workerId: executionWorkerId!,
+artifacts/api-server/src/routes/ai/chat.ts-4248-            error: safeMessage,
+artifacts/api-server/src/routes/ai/chat.ts-4249-            cancelled: false,
+--
+artifacts/api-server/src/routes/ai/chat.ts-4252-          });
+artifacts/api-server/src/routes/ai/chat.ts-4253-        }
+artifacts/api-server/src/routes/ai/chat.ts-4254-        await persistFailedChatTurn({
+artifacts/api-server/src/routes/ai/chat.ts-4255-          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts-4256-          projectId,
+artifacts/api-server/src/routes/ai/chat.ts-4257-          message,
+artifacts/api-server/src/routes/ai/chat.ts-4258-          turnIntent: streamTurnIntent.kind,
+artifacts/api-server/src/routes/ai/chat.ts-4259-          executionId: aiExecution?.id,
+artifacts/api-server/src/routes/ai/chat.ts:4260:          outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts-4261-          errorCode: error.code,
+artifacts/api-server/src/routes/ai/chat.ts-4262-          errorMessage: safeMessage,
+artifacts/api-server/src/routes/ai/chat.ts-4263-          createdAt: now,
+artifacts/api-server/src/routes/ai/chat.ts-4264-          assistantAt: msgNow,
+artifacts/api-server/src/routes/ai/chat.ts-4265-          toolTrace: traceSteps,
+artifacts/api-server/src/routes/ai/chat.ts-4266-          terminalOutcome: {
+artifacts/api-server/src/routes/ai/chat.ts-4267-            failureKind: "RECOVERY_FAILURE",
+artifacts/api-server/src/routes/ai/chat.ts-4268-            retryable: true,
+artifacts/api-server/src/routes/ai/chat.ts:4269:            recoveryState: "REQUIRED",
+artifacts/api-server/src/routes/ai/chat.ts-4270-          },
+artifacts/api-server/src/routes/ai/chat.ts-4271-        }).catch((persistError) => logger.error(
+artifacts/api-server/src/routes/ai/chat.ts-4272-          { persistError, sessionId: sessionIdToUse },
+artifacts/api-server/src/routes/ai/chat.ts-4273-          "chat stream: failed to persist invalid forensic report",
+artifacts/api-server/src/routes/ai/chat.ts-4274-        ));
+artifacts/api-server/src/routes/ai/chat.ts-4275-        res.end();
+artifacts/api-server/src/routes/ai/chat.ts-4276-        return;
+artifacts/api-server/src/routes/ai/chat.ts-4277-      }
+--
+artifacts/api-server/src/routes/ai/chat.ts-4486-          ? [finalValidation.result.evidence.artifactRef]
+artifacts/api-server/src/routes/ai/chat.ts-4487-          : [],
+artifacts/api-server/src/routes/ai/chat.ts-4488-      });
+artifacts/api-server/src/routes/ai/chat.ts-4489-      if (!completed) {
+artifacts/api-server/src/routes/ai/chat.ts-4490-        const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
+artifacts/api-server/src/routes/ai/chat.ts-4491-        await db
+artifacts/api-server/src/routes/ai/chat.ts-4492-          .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts-4493-          .set({
+artifacts/api-server/src/routes/ai/chat.ts:4494:            outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts-4495-            errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-4496-            errorMessage: acceptanceError,
+artifacts/api-server/src/routes/ai/chat.ts-4497-            toolTrace: JSON.stringify([
+artifacts/api-server/src/routes/ai/chat.ts-4498-              ...(Array.isArray(parseStoredJson(assistantMsg.toolTrace))
+artifacts/api-server/src/routes/ai/chat.ts-4499-                ? parseStoredJson(assistantMsg.toolTrace) as unknown[]
+artifacts/api-server/src/routes/ai/chat.ts-4500-                : []),
+artifacts/api-server/src/routes/ai/chat.ts-4501-              {
+artifacts/api-server/src/routes/ai/chat.ts-4502-                kind: "terminal_outcome",
+artifacts/api-server/src/routes/ai/chat.ts-4503-                failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-4504-                retryable: true,
+artifacts/api-server/src/routes/ai/chat.ts:4505:                recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-4506-              },
+artifacts/api-server/src/routes/ai/chat.ts-4507-            ]),
+artifacts/api-server/src/routes/ai/chat.ts-4508-          })
+artifacts/api-server/src/routes/ai/chat.ts-4509-          .where(eq(aiChatMessagesTable.id, assistantMsg.id));
+artifacts/api-server/src/routes/ai/chat.ts-4510-        await failAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts-4511-          executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts-4512-          workerId: executionWorkerId!,
+artifacts/api-server/src/routes/ai/chat.ts-4513-          error: acceptanceError,
+--
+artifacts/api-server/src/routes/ai/chat.ts-4515-          nodeStates: executionNodeStates,
+artifacts/api-server/src/routes/ai/chat.ts-4516-          operation: undefined,
+artifacts/api-server/src/routes/ai/chat.ts-4517-        });
+artifacts/api-server/src/routes/ai/chat.ts-4518-        executionTerminal = true;
+artifacts/api-server/src/routes/ai/chat.ts-4519-        sse({
+artifacts/api-server/src/routes/ai/chat.ts-4520-          type: "error",
+artifacts/api-server/src/routes/ai/chat.ts-4521-          code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-4522-          message: acceptanceError,
+artifacts/api-server/src/routes/ai/chat.ts:4523:          outcome: "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts-4524-          failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-4525-          retryable: true,
+artifacts/api-server/src/routes/ai/chat.ts:4526:          recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-4527-          executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts-4528-          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts-4529-        });
+artifacts/api-server/src/routes/ai/chat.ts-4530-        // Do not fall through to the successful done envelope. The retained
+artifacts/api-server/src/routes/ai/chat.ts-4531-        // assistant row is now explicitly failed and remains visible on reload.
+artifacts/api-server/src/routes/ai/chat.ts-4532-        res.end();
+artifacts/api-server/src/routes/ai/chat.ts-4533-        return;
+artifacts/api-server/src/routes/ai/chat.ts-4534-      }
+--
+artifacts/api-server/src/routes/ai/chat.ts-5658-    .orderBy(desc(aiChangeProposalsTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts-5659-    .limit(20);
+artifacts/api-server/src/routes/ai/chat.ts-5660-
+artifacts/api-server/src/routes/ai/chat.ts-5661-  const operations = await Promise.all(proposals.map(async (proposal) => {
+artifacts/api-server/src/routes/ai/chat.ts-5662-    const workspaceAvailable = Boolean(
+artifacts/api-server/src/routes/ai/chat.ts-5663-      proposal.operationId
+artifacts/api-server/src/routes/ai/chat.ts-5664-      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+artifacts/api-server/src/routes/ai/chat.ts-5665-    );
+artifacts/api-server/src/routes/ai/chat.ts:5666:    const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+artifacts/api-server/src/routes/ai/chat.ts-5667-      ? "discarded"
+artifacts/api-server/src/routes/ai/chat.ts-5668-      : workspaceAvailable
+artifacts/api-server/src/routes/ai/chat.ts-5669-        ? "recoverable"
+artifacts/api-server/src/routes/ai/chat.ts-5670-        : "missing_workspace";
+artifacts/api-server/src/routes/ai/chat.ts:5671:    const operatorExplanation = recoveryState === "discarded"
+artifacts/api-server/src/routes/ai/chat.ts-5672-      ? "This delivery recovery was already discarded."
+artifacts/api-server/src/routes/ai/chat.ts:5673:      : recoveryState === "missing_workspace"
+artifacts/api-server/src/routes/ai/chat.ts-5674-        ? "The saved delivery workspace is no longer available, so recovery cannot continue."
+artifacts/api-server/src/routes/ai/chat.ts-5675-        : proposal.lifecycle === "conflicted"
+artifacts/api-server/src/routes/ai/chat.ts-5676-          ? "The delivery stopped because the retained changes need review before validation can continue."
+artifacts/api-server/src/routes/ai/chat.ts-5677-          : proposal.lifecycle === "abandoned"
+artifacts/api-server/src/routes/ai/chat.ts-5678-            ? "The delivery was interrupted before it finished; its saved workspace can be checked again."
+artifacts/api-server/src/routes/ai/chat.ts-5679-            : "Validation did not complete successfully; the saved workspace can be checked again.";
+artifacts/api-server/src/routes/ai/chat.ts:5680:    const nextAction = recoveryState === "discarded"
+artifacts/api-server/src/routes/ai/chat.ts-5681-      ? "No action is required."
+artifacts/api-server/src/routes/ai/chat.ts:5682:      : recoveryState === "missing_workspace"
+artifacts/api-server/src/routes/ai/chat.ts-5683-        ? "Start a new delivery from the current project rather than retrying this recovery."
+artifacts/api-server/src/routes/ai/chat.ts-5684-        : "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.";
+artifacts/api-server/src/routes/ai/chat.ts-5685-    return {
+artifacts/api-server/src/routes/ai/chat.ts-5686-      proposalId: proposal.id,
+artifacts/api-server/src/routes/ai/chat.ts-5687-      operationId: proposal.operationId ?? proposal.messageId,
+artifacts/api-server/src/routes/ai/chat.ts-5688-      projectRevision: proposal.baseRevision,
+artifacts/api-server/src/routes/ai/chat.ts-5689-      changeSetHash: proposal.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts-5690-      sessionId: proposal.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts-5691-      lifecycle: proposal.lifecycle,
+artifacts/api-server/src/routes/ai/chat.ts-5692-      status: proposal.status,
+artifacts/api-server/src/routes/ai/chat.ts-5693-      createdAt: proposal.createdAt,
+artifacts/api-server/src/routes/ai/chat.ts-5694-      conflictReason: proposal.conflictReason
+artifacts/api-server/src/routes/ai/chat.ts-5695-        ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+artifacts/api-server/src/routes/ai/chat.ts-5696-        : null,
+artifacts/api-server/src/routes/ai/chat.ts:5697:      recoveryState,
+artifacts/api-server/src/routes/ai/chat.ts-5698-      operatorExplanation,
+artifacts/api-server/src/routes/ai/chat.ts-5699-      nextAction,
+artifacts/api-server/src/routes/ai/chat.ts-5700-      validationEvidence: proposal.validationEvidence
+artifacts/api-server/src/routes/ai/chat.ts-5701-        ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+artifacts/api-server/src/routes/ai/chat.ts-5702-        : null,
+artifacts/api-server/src/routes/ai/chat.ts-5703-      workspaceAvailable,
+artifacts/api-server/src/routes/ai/chat.ts-5704-      changeCount: (() => {
+artifacts/api-server/src/routes/ai/chat.ts-5705-        try {
+--
+artifacts/api-server/src/routes/ai/chat.ts-5734-      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+artifacts/api-server/src/routes/ai/chat.ts-5735-    );
+artifacts/api-server/src/routes/ai/chat.ts-5736-    return res.status(409).json({
+artifacts/api-server/src/routes/ai/chat.ts-5737-      error: discarded
+artifacts/api-server/src/routes/ai/chat.ts-5738-        ? "This delivery recovery was already discarded."
+artifacts/api-server/src/routes/ai/chat.ts-5739-        : "The saved delivery workspace is no longer available, so recovery cannot continue.",
+artifacts/api-server/src/routes/ai/chat.ts-5740-      code: discarded ? "DELIVERY_ALREADY_DISCARDED" : "DELIVERY_NOT_RECOVERABLE",
+artifacts/api-server/src/routes/ai/chat.ts-5741-      lifecycle: proposal.lifecycle,
+artifacts/api-server/src/routes/ai/chat.ts:5742:      recoveryState: discarded ? "discarded" : workspaceAvailable ? "recoverable" : "missing_workspace",
+artifacts/api-server/src/routes/ai/chat.ts-5743-      nextAction: discarded
+artifacts/api-server/src/routes/ai/chat.ts-5744-        ? "No action is required."
+artifacts/api-server/src/routes/ai/chat.ts-5745-        : "Start a new delivery from the current project rather than retrying this recovery.",
+artifacts/api-server/src/routes/ai/chat.ts-5746-    });
+artifacts/api-server/src/routes/ai/chat.ts-5747-  }
+artifacts/api-server/src/routes/ai/chat.ts-5748-
+artifacts/api-server/src/routes/ai/chat.ts-5749-  let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
+artifacts/api-server/src/routes/ai/chat.ts-5750-  try {
+--
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-7-  | "INCOMPLETE";
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-8-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-9-export type AiTerminalOutcome = {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-10-  outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-11-  failureKind?: AiTerminalFailureKind;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-12-  retryable: boolean;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-13-  code?: string;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-14-  message?: string;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:15:  recoveryState: "NONE" | "REQUIRED" | "INCOMPLETE";
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-16-  /** True only when the existing forensic evidence gates accepted the result. */
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-17-  evidenceAccepted: boolean;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-18-};
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-19-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-20-type TerminalClassifierInput = {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-21-  result?: unknown;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-22-  trace: readonly AgentStep[];
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-23-  cancelled?: boolean;
+--
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-108-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-109-  if (cancelled) {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-110-    return {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-111-      outcome: "INTERRUPTED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-112-      failureKind: "CANCELLATION",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-113-      retryable: true,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-114-      code: "EXECUTION_CANCELLED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-115-      message: "Execution was cancelled before completion.",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:116:      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-117-      evidenceAccepted: false,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-118-    };
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-119-  }
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-120-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-121-  if (doneRecord.stopReason === "tool_failure" || toolResult) {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-122-    const toolWasCancelled = toolRecord.resultKind === "cancelled";
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-123-    return {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-124-      outcome: toolWasCancelled ? "INTERRUPTED" : "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-125-      failureKind: toolWasCancelled ? "CANCELLATION" : "TOOL_FAILURE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-126-      retryable: true,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-127-      code: toolWasCancelled ? "TOOL_CANCELLED" : safeToolCode(toolResult),
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-128-      message: toolWasCancelled
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-129-        ? "The required project analysis was cancelled before completion."
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-130-        : safeToolMessage(toolResult),
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:131:      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-132-      evidenceAccepted: false,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-133-    };
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-134-  }
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-135-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-136-  const decision = record(latest(trace, "decision_trace"));
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-137-  const auditState = record(latest(trace, "audit_state"));
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-138-  const forensicStatus = {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-139-    ...auditState,
+--
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-153-  // delivery turns can require execution proof without becoming audits.
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-154-  const forensic = input.forensic === true;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-155-  if (forensic && (
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-156-    finalState === "FAILED"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-157-    || recoveryFailure
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-158-    || recoveryDiagnostic
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-159-  )) {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-160-    return {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:161:      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-162-      failureKind: "RECOVERY_FAILURE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-163-      retryable: true,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-164-      code: "FORENSIC_RECOVERY_FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-165-      message: "The forensic result could not be recovered into a complete, verified report.",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:166:      recoveryState: "REQUIRED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-167-      evidenceAccepted: false,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-168-    };
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-169-  }
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-170-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-171-  const text = responseText(input.result);
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-172-  const explicitIncomplete = forensic && (
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-173-    Boolean(input.endedBeforeEvidence)
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-174-      || hasDiagnostic(trace, /INCOMPLETE_BEFORE_EVIDENCE/i)
+--
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-179-      || forensicStatus.sourceCoverage === "PARTIAL"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-180-      || forensicStatus.sourceCoverage === "NONE"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-181-      || auditState.behaviorAssessment === "INCOMPLETE"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-182-      || evidenceIntegrity.consistent === false
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-183-  );
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-184-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-185-  if (explicitIncomplete) {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-186-    return {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:187:      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-188-      failureKind: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-189-      retryable: true,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-190-      code: input.endedBeforeEvidence ? "INCOMPLETE_BEFORE_EVIDENCE" : "FORENSIC_INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-191-      message: input.endedBeforeEvidence
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-192-        ? "The result is incomplete because no source evidence was read."
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-193-        : "The forensic result is incomplete and is not proven.",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:194:      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-195-      evidenceAccepted: false,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-196-    };
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-197-  }
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-198-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-199-  const acceptedNoFinding = input.requiresEvidence === true
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-200-    && forensicStatus.findingStatus === "NO_FINDING"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-201-    && forensicStatus.sourceCoverage === "COMPLETE"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-202-    && forensicStatus.behavioralAssessment === "COMPLETE"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-203-    && finalState === "VERIFIED"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-204-    && evidenceIntegrity.consistent === true;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-205-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-206-  if (forensic && forensicStatus.findingStatus === "NO_FINDING" && !acceptedNoFinding) {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-207-    return {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:208:      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-209-      failureKind: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-210-      retryable: true,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-211-      code: "FORENSIC_EVIDENCE_NOT_ACCEPTED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-212-      message: "The no-finding result did not pass the complete evidence gates.",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:213:      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-214-      evidenceAccepted: false,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-215-    };
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-216-  }
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-217-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-218-  return {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-219-    outcome: "SUCCEEDED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-220-    retryable: false,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:221:    recoveryState: "NONE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-222-    evidenceAccepted: acceptedNoFinding || input.requiresEvidence !== true,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-223-  };
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-224-}
+--
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-21-  it("gives cancellation precedence over a blocked recovery report", () => {
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-22-    expect(classify([
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-23-      { kind: "diagnostic", code: "FORENSIC_CONTRACT_RECOVERY_FAILED", details: ["AbortError"] },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-24-      { kind: "decision_trace", trace: { finalState: "FAILED", recoveryFailureKind: "MODEL_TIMEOUT" } },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-25-    ], { cancelled: true })).toMatchObject({
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-26-      outcome: "INTERRUPTED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-27-      failureKind: "CANCELLATION",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-28-      retryable: true,
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:29:      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-30-    });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-31-  });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-32-
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-33-  it("classifies a required tool failure as failed instead of successful", () => {
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-34-    expect(classify([
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-35-      { kind: "tool_result", resultKind: "failed", diagnosticCode: "TOOL_EXECUTION_FAILED", resultSummary: "Tool failed safely." },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-36-      { kind: "done", stopReason: "tool_failure" },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-37-    ])).toMatchObject({
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:38:      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-39-      failureKind: "TOOL_FAILURE",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-40-      code: "TOOL_EXECUTION_FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-41-    });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-42-  });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-43-
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-44-  it("distinguishes terminal forensic recovery failure from ordinary incompleteness", () => {
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-45-    expect(classify([
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-46-      { kind: "decision_trace", trace: { finalState: "FAILED", recoveryFailureKind: "RECOVERY_CONTRACT_FAILED" } },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-47-    ])).toMatchObject({
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:48:      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-49-      failureKind: "RECOVERY_FAILURE",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:50:      recoveryState: "REQUIRED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-51-    });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-52-    expect(classify([
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-53-      { kind: "decision_trace", trace: { finalState: "NOT_PROVEN" } },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-54-    ])).toMatchObject({
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:55:      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-56-      failureKind: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:57:      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-58-    });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-59-  });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-60-
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-61-  it("accepts only evidence-gated NO_FINDING as a normal forensic success", () => {
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-62-    expect(classify([
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-63-      { kind: "forensic_status", sourceCoverage: "COMPLETE", behavioralAssessment: "COMPLETE", findingStatus: "NO_FINDING" },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-64-      { kind: "decision_trace", trace: { finalState: "VERIFIED" } },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-65-      { kind: "evidence_integrity", consistent: true },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-66-    ])).toMatchObject({
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-67-      outcome: "SUCCEEDED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-68-      evidenceAccepted: true,
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:69:      recoveryState: "NONE",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-70-    });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-71-    expect(classify([
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-72-      { kind: "forensic_status", sourceCoverage: "PARTIAL", behavioralAssessment: "COMPLETE", findingStatus: "NO_FINDING" },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-73-      { kind: "decision_trace", trace: { finalState: "VERIFIED" } },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-74-    ])).toMatchObject({
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:75:      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-76-      failureKind: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-77-    });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-78-  });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-79-
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-80-  it("does not apply forensic prose gates to ordinary delivery turns", () => {
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-81-    expect(classify([
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-82-      { kind: "decision_trace", trace: { finalState: "NOT_PROVEN" } },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-83-    ], { forensic: false, requiresEvidence: false, result: { response: "A normal delivery response." } })).toMatchObject({
+--
+artifacts/api-server/src/lib/ai-route-helpers.ts-561-
+artifacts/api-server/src/lib/ai-route-helpers.ts-562-/**
+artifacts/api-server/src/lib/ai-route-helpers.ts-563- * Maps GroqClientError codes to typed HTTP responses so callers receive a
+artifacts/api-server/src/lib/ai-route-helpers.ts-564- * structured error body instead of a generic 500.
+artifacts/api-server/src/lib/ai-route-helpers.ts-565- *
+artifacts/api-server/src/lib/ai-route-helpers.ts-566- * @param ctx.provider  The provider that actually produced the error.
+artifacts/api-server/src/lib/ai-route-helpers.ts-567- *                      Uses the registry to build provider-accurate labels and URLs.
+artifacts/api-server/src/lib/ai-route-helpers.ts-568- */
+artifacts/api-server/src/lib/ai-route-helpers.ts:569:export function handleOrchestratorError(
+artifacts/api-server/src/lib/ai-route-helpers.ts-570-  err: unknown,
+artifacts/api-server/src/lib/ai-route-helpers.ts-571-  res: import("express").Response,
+artifacts/api-server/src/lib/ai-route-helpers.ts-572-  ctx?: {
+artifacts/api-server/src/lib/ai-route-helpers.ts-573-    projectId?: string;
+artifacts/api-server/src/lib/ai-route-helpers.ts-574-    operation?: string;
+artifacts/api-server/src/lib/ai-route-helpers.ts-575-    provider?: ProviderId;
+artifacts/api-server/src/lib/ai-route-helpers.ts-576-    incompleteReview?: { sessionId?: string; failureKind?: string };
+artifacts/api-server/src/lib/ai-route-helpers.ts-577-    /** Chat routes use the strict public contract instead of provider UI metadata. */
+--
+artifacts/api-server/src/lib/ai-route-helpers.ts-598-          ? 402
+artifacts/api-server/src/lib/ai-route-helpers.ts-599-            : err.code === "INVALID_CONFIG" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+artifacts/api-server/src/lib/ai-route-helpers.ts-600-              ? 503
+artifacts/api-server/src/lib/ai-route-helpers.ts-601-          : err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE" ||
+artifacts/api-server/src/lib/ai-route-helpers.ts-602-                err.code === "INVALID_CONFIG"
+artifacts/api-server/src/lib/ai-route-helpers.ts-603-            ? 422
+artifacts/api-server/src/lib/ai-route-helpers.ts-604-            : retryable ? 503 : 502;
+artifacts/api-server/src/lib/ai-route-helpers.ts-605-    res.status(status).json({
+artifacts/api-server/src/lib/ai-route-helpers.ts:606:      code: /^[A-Z][A-Z0-9_]{2,79}$/.test(err.code) ? err.code : "AI_PROVIDER_FAILURE",
+artifacts/api-server/src/lib/ai-route-helpers.ts-607-      error: retryable
+artifacts/api-server/src/lib/ai-route-helpers.ts-608-        ? "The AI request could not complete. Please retry."
+artifacts/api-server/src/lib/ai-route-helpers.ts-609-        : "The AI request was not completed because the provider configuration could not satisfy it.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:610:      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-route-helpers.ts-611-      retryable,

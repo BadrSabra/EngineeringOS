@@ -1,0 +1,148 @@
+stdout:
+{
+  "taskRef": "#71",
+  "title": "Confirm release recovery stays stable after validation isolation",
+  "state": "IN_PROGRESS",
+  "displayState": "IN_PROGRESS",
+  "dependsOn": [
+    "#69"
+  ],
+  "description": "# Confirm release recovery stays stable after validation isolation\n\n## What & Why\nThe validation sandbox now ignores a redirected TMPDIR and always uses the host disposable directory, while durable delivery workspaces remain unchanged. A provider-free release recovery run should confirm the fix holds across the complete recovery wrapper rather than only the focused unit tests.\n\n## Done looks like\n- Run the controlled release recovery validation with isolated output and no live provider campaign.\n- Confirm primary API, dashboard, and mockup artifact workflows stay running and no validation copy is left running.\n- Retain the recovery receipt and report any remaining historical workflow registrations without deleting tracked fixtures.\n\n## Relevant files\n- scripts/release-configuration.test.ts\n- scripts/release-port-cleanup.test.mjs\n- artifacts/api-server/scripts/run-real-process-recovery.mjs\n- artifacts/api-server/src/lib/ai-repair-validation.test.ts"
+}
+{
+  "taskRef": "#72",
+  "title": "Recover Recipe Operation Binding",
+  "state": "CANCELLED",
+  "displayState": "CANCELLED",
+  "dependsOn": [
+    "#71"
+  ],
+  "description": "# Recover Recipe Operation Binding\n\n## What & Why\nReintroduce the functional core of the cancelled recipe-binding work as a narrow, clean change on top of the current execution and delivery-integrity code. The repository already has capability contracts, catalog projection, recipe compilation, durable AI execution, and generic operation evidence, but no production path currently binds a compiled recipe node to a server-owned operation and executes a registered capability end to end.\n\nThis task deliberately separates recipe functionality from the previous mass cleanup of generated validation artifacts and from unrelated Discovery or schema changes, so the binding can be reviewed and merged independently.\n\n## Done looks like\n- A compiled one-node, low-risk, non-mutating recipe can be selected from the server-owned capability registry, compiled with a server-established project context, and attached to one durable AI execution.\n- The persisted operation binding retains and checks the project, operation identity, source revision, approved scope, candidate/workspace identity when applicable, phase, lease ownership, and bounded execution policy before a node starts or performs a follow-on action.\n- A stale revision, wrong project, changed scope, expired or stolen lease, cancelled operation, replayed request, or mismatched checkpoint is blocked fail-closed and leaves an auditable terminal reason; it never runs the capability or reports success.\n- The successful provider-free path records node progress, a bounded capability result, receipt/evidence references, and enough state to resume the same operation without duplicating completed work.\n- The first executable capability uses only business input from the recipe; command profiles, paths, process limits, root, and other execution controls remain server-owned. No arbitrary shell text or model-selected argv can enter the path.\n- Deterministic tests cover the successful one-node run plus replay, concurrent claim, cancellation, lease loss, stale revision, scope mismatch, checkpoint mismatch, and bounded failure/evidence handling.\n- The change does not include mass deletion or relocation of `.engineeringos-delivery` artifacts, unrelated Discovery fixes, live provider campaigns, or a claim that the complete Chat/Dashboard journey is finished.\n\n## Out of scope\n- New public Chat/SSE event types, recipe-specific Dashboard screens, or additional API surface.\n- Multi-node branching, mutating capabilities, promotion, commit, push, or production deployment.\n- Live provider credentials or authenticated browser validation.\n- Bulk cleanup of historical validation workspaces; that remains a separate operational/repository-hygiene change.\n- Reopening the cancelled receipts, Chat, API/Dashboard, release, and documentation tasks as an unverified sequence.\n\n## Steps\n1. **Isolate the binding contract** — Port the operation-scoped recipe identity and authorization checks onto the current durable execution state, preserving the existing generic operation contract and candidate tree-integrity behavior. Keep the change limited to recipe identity, lease, revision, scope, checkpoint, cancellation, and ownership fences; do not bring along generated-artifact cleanup or unrelated cross-cutting edits.\n2. **Register one safe executable capability** — Add the smallest useful low-risk, read-only server-registered capability backed by an existing bounded project or validation primitive. Expose only its catalog metadata and business input schema, while deriving its root, profile, timeout, output limit, and authorization context from the server.\n3. **Connect compile to execution** — Build the narrow provider-free execution path that takes the catalog-approved recipe, compiles it with the active project context, persists the compiled node and operation binding, and dispatches it through the existing dependency-aware coordinator and bounded runner. Reject plans that cannot be reconciled with the persisted server-owned node definition.\n4. **Persist recovery evidence** — Extend the existing checkpoint and operation-evidence flow so node start, completion, failure, cancellation, and resume retain bounded receipts and evidence references under the same operation and revision. Ensure an interrupted one-node run can be resumed or terminalized without replaying a completed capability action.\n5. **Exercise hostile lifecycle cases** — Add provider-free unit and integration coverage for the successful recipe, duplicate submission, concurrent worker claims, lease expiry, cancellation races, stale revision or scope, mismatched node checkpoint, unsafe input, bounded output, and missing evidence. Run the focused package checks without starting a live provider campaign or generating persistent validation workspaces.\n\n## Relevant files\n- `artifacts/api-server/src/lib/ai-execution-state.ts`\n- `artifacts/api-server/src/lib/ai-execution-state.test.ts`\n- `artifacts/api-server/src/lib/operation-evidence.ts`\n- `artifacts/api-server/src/lib/delivery-workspace.ts`\n- `artifacts/api-server/src/routes/ai/chat.ts`\n- `lib/ai-orchestrator/src/capability-contract.ts`\n- `lib/ai-orchestrator/src/capability-catalog.ts`\n- `lib/ai-orchestrator/src/recipe-contract.ts`\n- `lib/ai-orchestrator/src/recipe-compiler.ts`\n- `lib/ai-orchestrator/src/task-session-state.ts`\n- `lib/ai-orchestrator/src/execution-node-coordinator.ts`\n- `lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts`\n- `lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts`\n"
+}
+{
+  "taskRef": "#73",
+  "title": "Reduce Validation Artifact Footprint",
+  "state": "PENDING",
+  "displayState": "PENDING",
+  "dependsOn": [
+    "#71"
+  ],
+  "description": "# Reduce Validation Artifact Footprint\n\n## What & Why\nRemove the accumulated validation and delivery artifacts that are inflating the current project checkout and Git index. The workspace currently contains roughly 13 GB, 776 top-level delivery roots, and more than 724,000 files under `.engineeringos-delivery`; this creates merge, refresh, process, and disk-pressure risks and was previously bundled into the failed recipe-binding merge.\n\nThe cleanup must be conservative: distinguish generated runtime output from tracked fixtures and product artifacts, stop active writers before removal, and fix the generation policy so the same growth does not return.\n\n## Done looks like\n- A retained inventory identifies every `.engineeringos-delivery` root and classifies it as disposable generated output, tracked fixture, active/recoverable workspace, or unknown; unknown and fixture entries are preserved.\n- Historical disposable validation output is removed from the working tree and Git index without deleting the primary API server, dashboard, mockup sandbox, tracked release fixtures, or owner-scoped evidence that is still required.\n- Future validation, release, and benchmark campaigns write disposable output outside the registered artifact tree, use bounded retention and owner-scoped cleanup, and cannot recreate one persistent delivery root per attempt. Benchmark sandbox creation is safe even when `TMPDIR` is redirected into the project.\n- Interrupted or active writers are handled safely before cleanup, with stale locks and process remnants diagnosed rather than removed blindly. No cleanup leaves a running validation process pointed at a deleted workspace.\n- The checkout and Git index become materially smaller and ordinary Git inspection/refresh operations complete without the previous artifact-scale diff. Any remaining Git object-history size is reported separately; destructive history rewriting is not performed.\n- Provider-free release recovery and the focused validation-isolation checks pass after cleanup, and a retained report records removed paths, preserved fixtures, remaining historical roots, and any unresolved unknown state.\n\n## Out of scope\n- Deleting or rewriting tracked product artifacts, release fixtures, database evidence, or user-owned project data.\n- Rewriting Git history, force-pushing, garbage-collecting shared remotes, or changing published commit identities.\n- Implementing recipe operation binding or any Safe Capability Recipes feature.\n- Live provider campaigns, authenticated browser campaigns, or production deployment.\n- A blanket recursive delete of `.engineeringos-delivery` without classification and an owner-scoped safety check.\n\n## Steps\n1. **Quiesce and inventory the footprint** — Stop or isolate active validation and delivery writers, inspect process and lock ownership, and produce a bounded manifest of roots, file counts, sizes, markers, Git tracking state, and recent ownership metadata. Treat missing metadata, active leases, and unexpected file kinds as review-required rather than disposable.\n2. **Classify disposable output** — Trace each root back to the validation, release, or delivery path that created it and separate generated attempts from tracked fixtures, durable candidate workspaces, active recovery state, and unknown content. Preserve the primary artifact roots and retain a machine-readable cleanup receipt without exposing sensitive contents.\n3. **Remove only approved historical output** — Delete or untrack only classified disposable generated paths, using owner and operation boundaries so one campaign cannot remove another campaign’s active state. Handle stale locks and failed cleanup as explicit outcomes, and leave an auditable list of anything that could not be safely removed.\n4. **Harden future output routing and retention** — Verify the validation sandbox, release wrappers, benchmark helpers, and delivery workspace conventions all use disposable roots outside the registered artifact tree, including a fixed host temporary base for benchmark sandboxes rather than an environment-controlled `os.tmpdir()` location. Share the existing exclusion policy, enforce bounded cleanup, and update ignore or tracking policy where necessary so generated output cannot silently return to the source tree. Add a regression check for redirected `TMPDIR` and for cleanup after both successful and failed campaigns.\n5. **Verify repository and recovery health** — Confirm the reduced checkout, Git index, artifact registrations, and process table are healthy; run the provider-free release recovery and focused cleanup/isolation tests; then retain a summary of before/after footprint, preserved fixtures, unresolved history size, and any operator action still required.\n\n## Relevant files\n- `.engineeringos-delivery/`\n- `.gitignore`\n- `artifacts/api-server/src/lib/ai-repair-validation.ts`\n- `artifacts/api-server/src/lib/ai-repair-validation.test.ts`\n- `artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts`\n- `artifacts/api-server/src/lib/delivery-workspace.ts`\n- `artifacts/api-server/src/lib/delivery-workspace.test.ts`\n- `artifacts/api-server/src/lib/operation-evidence.ts`\n- `artifacts/api-server/scripts/run-real-process-recovery.mjs`\n- `scripts/release-configuration.test.ts`\n- `scripts/release-port-cleanup.test.mjs`\n- `scripts/run-dashboard-journey.mjs`\n"
+}
+{
+  "taskRef": "#74",
+  "title": "Recover Recipe Operation Binding",
+  "state": "PENDING",
+  "displayState": "PENDING",
+  "dependsOn": [
+    "#73"
+  ],
+  "description": "# Recover Recipe Binding\n\n## What & Why\nReintroduce the functional core of the cancelled recipe-binding work as a narrow, reviewable change after validation-artifact cleanup and routing stabilization. The repository already has capability contracts, catalog projection, recipe compilation, durable AI execution, and generic operation evidence, but no production path currently binds a compiled recipe node to a server-owned operation and executes a registered capability end to end.\n\nThis task intentionally follows the validation-footprint work so its execution and evidence behavior is built on the final workspace, retention, and cleanup conventions. It remains separate from historical artifact deletion, unrelated Discovery or schema changes, and any broader Chat/Dashboard rollout.\n\n## Done looks like\n- A compiled one-node, low-risk, non-mutating recipe can be selected from the server-owned capability registry, compiled with a server-established project context, and attached to one durable AI execution.\n- The persisted operation binding retains and checks the project, operation identity, source revision, approved scope, candidate/workspace identity when applicable, phase, lease ownership, and bounded execution policy before a node starts or performs a follow-on action.\n- A stale revision, wrong project, changed scope, expired or stolen lease, cancelled operation, replayed request, or mismatched checkpoint is blocked fail-closed and leaves an auditable terminal reason; it never runs the capability or reports success.\n- The successful provider-free path records node progress, a bounded capability result, receipt/evidence references, and enough state to resume the same operation without duplicating completed work.\n- The first executable capability uses only business input from the recipe; command profiles, paths, process limits, root, and other execution controls remain server-owned. No arbitrary shell text or model-selected argv can enter the path.\n- Deterministic tests cover the successful one-node run plus replay, concurrent claim, cancellation, lease loss, stale revision, scope mismatch, checkpoint mismatch, unsafe input, and bounded failure/evidence handling.\n- The change does not include mass deletion or relocation of `.engineeringos-delivery` artifacts, unrelated Discovery fixes, live provider campaigns, or a claim that the complete Chat/Dashboard journey is finished.\n\n## Out of scope\n- New public Chat/SSE event types, recipe-specific Dashboard screens, or additional API surface.\n- Multi-node branching, mutating capabilities, promotion, commit, push, or production deployment.\n- Live provider credentials or authenticated browser validation.\n- Bulk cleanup of historical validation workspaces; that is completed by the prerequisite cleanup task.\n- Reopening the cancelled receipts, Chat, API/Dashboard, release, and documentation tasks as an unverified sequence.\n\n## Steps\n1. **Isolate the binding contract** — Port the operation-scoped recipe identity and authorization checks onto the current durable execution state, preserving the existing generic operation contract and candidate tree-integrity behavior. Keep the change limited to recipe identity, lease, revision, scope, checkpoint, cancellation, and ownership fences; do not reintroduce generated-artifact cleanup or unrelated cross-cutting edits.\n2. **Register one safe executable capability** — Add the smallest useful low-risk, read-only server-registered capability backed by an existing bounded project or validation primitive. Expose only its catalog metadata and business input schema, while deriving its root, profile, timeout, output limit, and authorization context from the server.\n3. **Connect compile to execution** — Build the narrow provider-free execution path that takes the catalog-approved recipe, compiles it with the active project context, persists the compiled node and operation binding, and dispatches it through the existing dependency-aware coordinator and bounded runner. Reject plans that cannot be reconciled with the persisted server-owned node definition.\n4. **Persist recovery evidence** — Extend the existing checkpoint and operation-evidence flow so node start, completion, failure, cancellation, and resume retain bounded receipts and evidence references under the same operation and revision. Ensure an interrupted one-node run can be resumed or terminalized without replaying a completed capability action.\n5. **Exercise hostile lifecycle cases** — Add provider-free unit and integration coverage for the successful recipe, duplicate submission, concurrent worker claims, lease expiry, cancellation races, stale revision or scope, mismatched node checkpoint, unsafe input, bounded output, and missing evidence. Run the focused package checks without starting a live provider campaign or generating persistent validation workspaces.\n\n## Relevant files\n- `artifacts/api-server/src/lib/ai-execution-state.ts`\n- `artifacts/api-server/src/lib/ai-execution-state.test.ts`\n- `artifacts/api-server/src/lib/operation-evidence.ts`\n- `artifacts/api-server/src/lib/delivery-workspace.ts`\n- `artifacts/api-server/src/routes/ai/chat.ts`\n- `lib/ai-orchestrator/src/capability-contract.ts`\n- `lib/ai-orchestrator/src/capability-catalog.ts`\n- `lib/ai-orchestrator/src/recipe-contract.ts`\n- `lib/ai-orchestrator/src/recipe-compiler.ts`\n- `lib/ai-orchestrator/src/task-session-state.ts`\n- `lib/ai-orchestrator/src/execution-node-coordinator.ts`\n- `lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts`\n- `lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts`\n"
+}
+SEARCH normalize model tool call protocol
+[
+  {
+    "taskRef": "#54",
+    "title": "Normalize Model Tool Calls",
+    "state": "CANCELLED",
+    "displayState": "CANCELLED",
+    "snippet": "# Normalize Model Tool Calls\n\n## What & Why\nHarden the provider boundary against model responses that serialize tool calls as unsupported text markers such as `<|tool_call_start|>`, `plan(...)`, and `write_file(...)`. The current OpenAI-compatible client recognizes native `tool_calls` and one legacy `<tool_call>` XML form, so the captured session treated executable-looking text as an ordinary answer, entered forensic recovery, and performed no verified reads or writes.\n\n## Done looks like\n- P..."
+  },
+  {
+    "taskRef": "#57",
+    "title": "Build Safe Capability Recipes",
+    "state": "CANCELLED",
+    "displayState": "CANCELLED",
+    "snippet": "# Build Safe Capability Recipes\n\n## What & Why\n\nThe current execution boundary is safe but narrow: the chat route exposes one server-owned `run_command` profile (`workspace-typecheck`), while validation exposes a small fixed set of test profiles. The orchestrator already has the right building blocks for a stronger model experience—phase policies, approved implementation scopes, isolated validation workspaces, durable execution nodes, candidate/revision evidence, bounded retries, and redacted..."
+  }
+]
+SEARCH provider failure
+[
+  {
+    "taskRef": "#28",
+    "title": "Confirm every provider failure keeps its safe reference details",
+    "state": "MERGED",
+    "displayState": "MERGED",
+    "snippet": "# Confirm every provider failure keeps its safe reference details\n\n## What & Why\nThe provider health contract now covers missing credentials, authentication, incompatible models, stale catalogs, quota/rate limits, circuit-open, and outages. A focused regression suite should ensure each API and streamed failure remains consistently classified without leaking provider credentials or raw diagnostics.\n\n## Done looks like\n- API and SSE fixtures cover each health classification and assert a safe ac..."
+  },
+  {
+    "taskRef": "#29",
+    "title": "Keep provider failure guidance consistent in task and workflow runs",
+    "state": "MERGED",
+    "displayState": "MERGED",
+    "snippet": "# Keep provider failure guidance consistent in task and workflow runs\n\n## What & Why\nChat failures now retain safe provider references and never expose upstream diagnostics. Task and workflow AI routes use the same error helper but do not yet have an equivalent focused matrix proving their user-facing failures stay aligned.\n\n## Done looks like\n- Task execution and workflow orchestration API fixtures cover authentication, model, catalog, quota, rate-limit, circuit, and outage failures\n- Respon..."
+  },
+  {
+    "taskRef": "#30",
+    "title": "Show the same provider recovery actions in task and workflow failures",
+    "state": "MERGED",
+    "displayState": "MERGED",
+    "snippet": "# Show the same provider recovery actions in task and workflow failures\n\n## What & Why\nThe API now returns a consistent provider availability state, correlation ID, and safe operator action for task execution and workflow orchestration failures. The dashboard should present those actions consistently so users know whether to retry, replace credentials, wait, or configure another provider.\n\n## Done looks like\n- Task and workflow failure cards render availabilityState and operatorAction consist..."
+  },
+  {
+    "taskRef": "#70",
+    "title": "Prove Live Provider Readiness",
+    "state": "CANCELLED",
+    "displayState": "CANCELLED",
+    "snippet": "# Prove Live Provider Readiness\n\n## What & Why\nClose the remaining operational gap exposed by the chat screenshot: provider-backed execution must be validated through the real Chat API/SSE and authenticated dashboard path, not only through provider-free fixtures. The check must distinguish a genuinely invalid provider configuration from a transport, model, catalog, quota, or outage failure, while preserving the existing safe execution boundary.\n\n## Done looks like\n- A bounded, explicitly opt-..."
+  },
+  {
+    "taskRef": "#39",
+    "title": "Establish a reviewed live-quality benchmark baseline",
+    "state": "MERGED",
+    "displayState": "MERGED",
+    "snippet": "# Establish a reviewed live-quality benchmark baseline\n\n## What & Why\nThe deterministic benchmark and regression comparator now pass, but the approved baseline intentionally remains ineligible for live-quality rollout. A separate opt-in campaign is needed before changing that decision, with provider quality kept distinct from structural contract evidence.\n\n## Done looks like\n- An approved disposable provider campaign records suite/version, source revision, candidate hash, and complete case co..."
+  },
+  {
+    "taskRef": "#46",
+    "title": "Stabilize and Prove Browser Recovery",
+    "state": "MERGED",
+    "displayState": "MERGED",
+    "snippet": "# Stabilize and Prove Browser Recovery\n\n## What & Why\n\nThe browser recovery building blocks already exist: Clerk handoff, release-process ownership, API restart coordination, SSE parsing/reconnect, durable execution recovery, cancellation, and dashboard state handling. Make the authenticated browser journey reliable in a real controlled environment and prove that it renders server-owned execution state after readiness failures, stream loss, reload, cancellation, and API restart. Do not rebuil..."
+  },
+  {
+    "taskRef": "#63",
+    "title": "Integrate Recipe Chat Flow",
+    "state": "CANCELLED",
+    "displayState": "CANCELLED",
+    "snippet": "# Integrate Recipe Chat Flow\n\n## What & Why\nConnect safe recipe discovery, compilation, execution, durable receipts, and recovery to the AI chat lifecycle, while allowing the system to infer low-risk operational intent and suggest bounded actions without demanding unnecessary detail from the user. A user request should produce one operation identity and one consistent server-owned execution path across synchronous JSON, SSE streaming, reconnect, resume, and failure handling.\n\n## Done looks li..."
+  },
+  {
+    "taskRef": "#55",
+    "title": "Unify AI Failure Persistence",
+    "state": "CANCELLED",
+    "displayState": "CANCELLED",
+    "snippet": "# Unify AI Failure Persistence\n\n## What & Why\nMake required tool failures and terminal recovery failures durable and visible with the same semantics on JSON and SSE chat routes. The tool loop already emits typed failure telemetry, but the streaming route has its own trace inspection while the JSON route always persists and returns `SUCCEEDED`; recovery failures can likewise leave a successful-looking assistant message beside a failed execution.\n\n## Done looks like\n- A required `tool_failure` ..."
+  },
+  {
+    "taskRef": "#16",
+    "title": "Catch behavior regressions in every benchmark scenario before release",
+    "state": "MERGED",
+    "displayState": "MERGED",
+    "snippet": "# Catch behavior regressions in every benchmark scenario before release\n\n## What & Why\nRelease validation now confirms that every manifest case has retained fixture setup, scope, and an executable oracle contract. Most scenario fixtures still rely on contract-level proof rather than running each scenario’s focused runtime behavior check, so a semantic regression could remain hidden until a provider-backed campaign.\n\n## Done looks like\n- Every manifest scenario has a provider-free focused runt..."
+  },
+  {
+    "taskRef": "#53",
+    "title": "Restore a clean aggregate AI release validation run",
+    "state": "CANCELLED",
+    "displayState": "CANCELLED",
+    "snippet": "# Restore a clean aggregate AI release validation run\n\n## What & Why\nThe benchmark and deterministic governance lanes are green, but the aggregate provider-free AI release decision is currently blocked by unrelated route/stream fixtures. A clean aggregate run is needed before the protected release report can be considered fully green.\n\n## Done looks like\n- The route and stream integration suites run in isolation and together without shared database root collisions.\n- Arabic stream session ass..."
+  }
+]
+SEARCH invalid tool call
+[
+  {
+    "taskRef": "#54",
+    "title": "Normalize Model Tool Calls",
+    "state": "CANCELLED",
+    "displayState": "CANCELLED",
+    "snippet": "# Normalize Model Tool Calls\n\n## What & Why\nHarden the provider boundary against model responses that serialize tool calls as unsupported text markers such as `<|tool_call_start|>`, `plan(...)`, and `write_file(...)`. The current OpenAI-compatible client recognizes native `tool_calls` and one legacy `<tool_call>` XML form, so the captured session treated executable-looking text as an ordinary answer, entered forensic recovery, and performed no verified reads or writes.\n\n## Done looks like\n- P..."
+  },
+  {
+    "taskRef": "#57",
+    "title": "Build Safe Capability Recipes",
+    "state": "CANCELLED",
+    "displayState": "CANCELLED",
+    "snippet": "# Build Safe Capability Recipes\n\n## What & Why\n\nThe current execution boundary is safe but narrow: the chat route exposes one server-owned `run_command` profile (`workspace-typecheck`), while validation exposes a small fixed set of test profiles. The orchestrator already has the right building blocks for a stronger model experience—phase policies, approved implementation scopes, isolated validation workspaces, durable execution nodes, candidate/revision evidence, bounded retries, and redacted..."
+  }
+]

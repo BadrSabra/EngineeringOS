@@ -1,0 +1,785 @@
+106:      capabilityId: "validation.followup",
+107:      recipeVersion: 1,
+110:        revision: "rev-1",
+115:    expect(first.plan.transitions[0]?.id).toBe("recipe:safe-check:transition:auto-check");
+119:    const unknown = compileCapabilityRecipe(recipe({
+120:      nodes: [{ ...recipe().nodes[0], capabilityId: "missing.capability" }],
+124:    const version = compileCapabilityRecipe(recipe({
+125:      nodes: [{ ...recipe().nodes[0], recipeVersion: 2 }],
+129:    const invalidInput = compileCapabilityRecipe(recipe({
+130:      nodes: [{ ...recipe().nodes[0], input: { value: "" } }],
+137:    const approval = compileCapabilityRecipe(recipe(), options(approvalRegistry));
+142:    const duplicate = compileCapabilityRecipe(recipe({
+143:      nodes: [recipe().nodes[0], recipe().nodes[0]],
+147:    const dependency = compileCapabilityRecipe(recipe({
+148:      nodes: [{ ...recipe().nodes[0], dependsOn: ["missing"] }],
+152:    const cycle = compileCapabilityRecipe(recipe({
+154:        { ...recipe().nodes[0], id: "first", dependsOn: ["second"] },
+155:        { ...recipe().nodes[0], id: "second", dependsOn: ["first"] },
+161:    const output = compileCapabilityRecipe(recipe({
+163:        ...recipe().outcome,
+170:      const control = compileCapabilityRecipe(recipe({
+172:          ...recipe().nodes[0],
+182:    const branching = compileCapabilityRecipe(recipe({
+196:    const contradictory = compileCapabilityRecipe(recipe({
+198:        ...recipe().outcome,
+210:    const nonTerminating = compileCapabilityRecipe(recipe({
+222:    const overBudget = compileCapabilityRecipe(recipe(), {
+230:    const compiled = compileCapabilityRecipe(recipe(), options());
+262:    expect(() => compileCapabilityRecipeOrThrow(recipe({
+263:      nodes: [{ ...recipe().nodes[0], capabilityId: "missing.capability" }],
+
+lib/ai-orchestrator/src/task-session-state.ts
+19:import { CapabilityIdSchema, RecipeVersionSchema } from "./capability-contract.js";
+27:} from "./recipe-contract.js";
+75:  revision: z.string().min(1).max(240).optional(),
+94:  /** Present only on compiler-produced capability nodes. */
+95:  capabilityId: CapabilityIdSchema.optional(),
+96:  recipeVersion: RecipeVersionSchema.optional(),
+97:  capabilityInput: z.unknown().optional(),
+124:  /** Capability recipe fields are nullable for legacy forensic plans. */
+125:  recipe: CapabilityRecipeSchema.nullable().default(null),
+136:  recipeContext: RecipeContextSchema.nullable().default(null),
+137:  recipeState: RecipeStateSchema.nullable().default(null),
+147:  scope: z.object({
+193: * contract used by forensic Repair Plans. Only scoped mutating steps become
+221: * execution nodes. Phases with overlapping write scopes retain the verified
+265: * file scope from every other selected node.
+322:  if (phase.scopedFindingStatus === "NOT_PROVEN" || phase.verdictScope === "NOT_PROVEN") {
+325:  if (phase.scopedFindingStatus) return "PROVEN";
+401:      .filter((scope): scope is NonNullable<typeof scope> => Boolean(scope)),
+414:        phase.scopedFindingStatus === "NOT_PROVEN" || phase.verdictScope === "NOT_PROVEN",
+417:      : phases.every((phase) => Boolean(phase.scopedFindingStatus))
+527:    scope: {
+581:    state.scope.projectId.length === 0 ||
+
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts
+5:} from "../execution-node-coordinator.js";
+187:  it("recovers running and failed nodes from a durable checkpoint", async () => {
+
+lib/ai-orchestrator/src/execution-node-coordinator.ts
+12:   * validation evidence. The coordinator never infers success from a callback
+27:   * validation failure, but they may not expand the approved scope or rewrite
+256: * `passed` only after validation has actually passed. The coordinator owns all
+
+lib/ai-orchestrator/src/recipe-compiler.ts
+4:} from "./capability-contract.js";
+28:} from "./recipe-contract.js";
+89:export type RecipeCompilationContext = Omit<RecipeContext, "operation" | "scope"> & {
+90:  operation?: string;
+91:  scope?: RecipeContext["scope"];
+122:function nodeId(recipeId: string, sourceId: string): string {
+123:  return `recipe:${recipeId}:${sourceId}`;
+126:function transitionId(recipeId: string, sourceId: string): string {
+127:  return `recipe:${recipeId}:transition:${sourceId}`;
+328:function parseRecipe(value: unknown): { recipe?: CapabilityRecipe; diagnostics: RecipeCompilationDiagnostic[] } {
+330:  if (parsed.success) return { recipe: parsed.data, diagnostics: [] };
+338:  recipe: CapabilityRecipe,
+346:  const recipeContext = RecipeContextSchema.parse({
+349:    revision: context.revision,
+350:    operation: context.operation,
+351:    scope: context.scope,
+362:    capabilityId: source.capabilityId,
+363:    recipeVersion: source.recipeVersion,
+364:    capabilityInput: source.input,
+368:    executionContext: recipeContext,
+373:  recipe: CapabilityRecipe,
+390:      id: transitionId(recipe.recipeId, `auto-${source.id}`),
+407:  if (!parsed.recipe) return { ok: false, diagnostics: parsed.diagnostics };
+408:  const recipe = parsed.recipe;
+413:    revision: options.context.revision,
+414:    operation: options.context.operation,
+415:    scope: options.context.scope,
+426:    operation: contextParsed.data.operation,
+427:    scope: contextParsed.data.scope,
+429:  const operation = context.operation ?? contextParsed.data.operation;
+430:  const scope = context.scope ?? contextParsed.data.scope;
+432:  if (recipe.recipeVersion !== 1) {
+433:    diagnostics.push(diagnostic("RECIPE_VERSION_UNSUPPORTED", "recipeVersion", "Only recipe version 1 is supported."));
+435:  if (recipe.nodes.length > policy.maxNodes) {
+443:  for (const [index, source] of recipe.nodes.entries()) {
+452:  const compiledIds = new Map(ordered.map((source) => [source.id, nodeId(recipe.recipeId, source.id)]));
+454:  for (const [index, source] of recipe.nodes.entries()) {
+455:    const adapter = options.registry.get(source.capabilityId);
+456:    const validation = options.registry.validateInput(source.capabilityId, source.recipeVersion, source.input);
+458:      diagnostics.push(diagnostic("CAPABILITY_UNKNOWN_ID", `nodes[${index}].capabilityId`, "The capability ID is not registered."));
+464:    if (!adapter.policy.allowedOperations.includes(operation)) {
+465:      diagnostics.push(diagnostic("CAPABILITY_OPERATION_NOT_ALLOWED", `nodes[${index}].capabilityId`, "The capability is not approved for this operation."));
+468:      diagnostics.push(diagnostic("CAPABILITY_APPROVAL_REQUIRED", `nodes[${index}].capabilityId`, "The capability requires server approval."));
+471:      diagnostics.push(diagnostic("CAPABILITY_PROFILE_NOT_APPROVED", `nodes[${index}].capabilityId`, "The capability requires an approved command profile."));
+474:      diagnostics.push(diagnostic("CAPABILITY_AUTHORIZATION_REQUIRED", `nodes[${index}].capabilityId`, "The capability requires server authorization."));
+477:      diagnostics.push(diagnostic("CAPABILITY_RISK_NOT_ALLOWED", `nodes[${index}].capabilityId`, "The capability risk exceeds the server budget."));
+479:    if (adapter.catalog && !adapter.catalog.supportedScopes.includes(scope.kind)) {
+480:      diagnostics.push(diagnostic("CAPABILITY_SCOPE_UNSUPPORTED", `nodes[${index}].scope`, "The capability does not support the requested scope."));
+485:    ...recipe.outcome,
+486:    success: mapPredicate(recipe.outcome.success, byId, compiledIds, diagnostics, "outcome.success"),
+487:    outputs: recipe.outcome.outputs.map((output, index) => {
+497:  if (predicateDepth(recipe.outcome.success) > policy.maxPredicateDepth) {
+500:  if (findContradiction(recipe.outcome.success)) {
+506:  for (const [index, transition] of recipe.transitions.entries()) {
+525:      id: transitionId(recipe.recipeId, transition.id),
+532:  addAutomaticTransitions(recipe, ordered, compiledIds, compiledTransitions, policy, mappedOutcome.success);
+556:  const nodes = ordered.map((source) => buildNode(recipe, source, compiledIds, context, policy));
+593:  const recipeContext = RecipeContextSchema.parse({
+596:    revision: context.revision,
+597:    operation,
+598:    scope,
+600:  const recipeState: RecipeState = RecipeStateSchema.parse({
+617:        revision: context.revision,
+626:      recipe,
+630:      recipeContext,
+631:      recipeState,
+707:  const state = RecipeStateSchema.parse(plan.recipeState ?? {
+
+lib/ai-orchestrator/src/capability-contract.ts
+4: * The capability contract is intentionally independent from provider/tool
+5: * prompts. A model may name a capability and provide business input, but it
+15:  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "capability IDs must be opaque safe identifiers");
+26: * not an execution recipe: command names, argv, cwd, environment, profiles,
+108:        message: "supported scopes must be unique",
+115:        message: "the default scope must be supported",
+149:     * accepted from capability input and are checked against invocation
+162:        message: "allowed operations must be unique",
+189:        message: "supported recipe versions must be unique",
+198:        message: "registration includes a recipe version unsupported by this contract",
+242:  /** Server-established project root; it is never read from capability input. */
+244:  /** Server-established operation name used for policy authorization. */
+245:  operation: string;
+246:  /** Server-owned approved profile set, if the capability uses profiles. */
+275:  capabilityId: string;
+276:  recipeVersion: number;
+282:  | { ok: true; capability: CapabilityAdapter<Input>; input: Input }
+288:      capabilityId: CapabilityId;
+289:      recipeVersion: RecipeVersion;
+295:  capabilityId: string,
+296:  recipeVersion: number,
+300:  return { ok: false, capabilityId, recipeVersion, code, detail };
+339:    return failure("", 0, "CAPABILITY_CONTRACT_INVALID", "A capability registration must be an object.");
+352:      "The server capability registration does not satisfy the capability contract.",
+360:      "A capability requires input and output schemas plus an implementation.",
+369:      "A capability requires runtime-valid input and output schemas.",
+403: * Deterministic registry of server-approved capability adapters.
+406: * validate the opaque ID, recipe version, input, operation, and output before
+431:  public has(capabilityId: string): boolean {
+432:    return this.adapters.has(capabilityId as CapabilityId);
+435:  public get(capabilityId: string): CapabilityAdapter | undefined {
+436:    const parsed = CapabilityIdSchema.safeParse(capabilityId);
+447:    capabilityId: string,
+448:    recipeVersion: number,
+451:    const id = CapabilityIdSchema.safeParse(capabilityId);
+452:    if (!id.success) return failure(capabilityId, recipeVersion, "CAPABILITY_UNKNOWN_ID", "The capability ID is not registered.");
+455:    if (!adapter) return failure(id.data, recipeVersion, "CAPABILITY_UNKNOWN_ID", "The capability ID is not registered.");
+456:    if (!RecipeVersionSchema.safeParse(recipeVersion).success ||
+457:        !adapter.supportedRecipeVersions.includes(recipeVersion as RecipeVersion)) {
+458:      return failure(id.data, recipeVersion, "CAPABILITY_RECIPE_VERSION_UNSUPPORTED", "The recipe version is not supported by this capability.");
+463:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input must be JSON-serializable.");
+466:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_TOO_LARGE", "Capability input exceeds the server input limit.");
+469:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input contains a server-owned execution control.");
+476:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input could not be validated.");
+479:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input does not match the registered input schema.");
+481:    return { ok: true, capability: adapter, input: parsedInput.data };
+485:    capabilityId: string,
+486:    recipeVersion: number,
+490:    const validation = this.validateInput(capabilityId, recipeVersion, input);
+492:    const { capability } = validation;
+494:    if (capability.policy.requiresApproval && context.approvalState !== "APPROVED") {
+495:      return failure(capability.id, recipeVersion, "CAPABILITY_APPROVAL_REQUIRED", "The capability requires server approval before execution.");
+497:    if (!capability.policy.allowedOperations.includes(context.operation)) {
+498:      return failure(capability.id, recipeVersion, "CAPABILITY_OPERATION_NOT_ALLOWED", "The capability is not approved for this operation.");
+500:    if (capability.policy.approvedCommandProfiles.some(
+503:      return failure(capability.id, recipeVersion, "CAPABILITY_PROFILE_NOT_APPROVED", "The capability requires a server-approved command profile.");
+508:      output = await capability.execute(validation.input, context);
+510:      return failure(capability.id, recipeVersion, "CAPABILITY_EXECUTION_FAILED", "The registered capability failed during execution.");
+513:    let parsedOutput: ReturnType<typeof capability.outputSchema.safeParse>;
+515:      parsedOutput = capability.outputSchema.safeParse(output);
+517:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_INVALID", "Capability output could not be validated.");
+520:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_INVALID", "The capability produced output outside its registered schema.");
+523:    if (outputBytes === undefined || outputBytes > capability.policy.maxOutputBytes) {
+524:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_TOO_LARGE", "Capability output exceeds the server output limit.");
+528:      capabilityId: capability.id,
+529:      recipeVersion: recipeVersion as RecipeVersion,
+551:  allowedOperations: ["recipe"],
+
+lib/ai-orchestrator/src/capability-catalog.ts
+13:} from "./capability-contract.js";
+30:    operation: z.string().min(1).max(80).optional(),
+55:  "operation_not_allowed",
+59:  "scope_not_supported",
+68:    confirmationReasons: z.array(z.enum(["mutation", "cost", "risk", "approval", "scope"])).max(5),
+97:    capabilityId: CapabilityIdSchema,
+98:    recipeVersion: RecipeVersionSchema,
+109:    kind: z.literal("capability_catalog"),
+129:    kind: z.literal("capability_gap"),
+131:    capabilityId: z.string().max(80),
+132:    recipeVersion: z.number().int().min(1).max(100),
+141:  capabilityId: string;
+142:  recipeVersion: number;
+153:  purpose: `Use ${adapter.id} for its registered project operation.`,
+163:  expectedEvidence: ["A server-owned capability result matching the registered output schema."],
+187:      operatorGuidance: "Refresh the server capability registration before requesting this capability.",
+196:      operatorGuidance: "Refresh the server capability registration before requesting this capability.",
+203:      operatorGuidance: "Select an active project before requesting this capability.",
+210:      operatorGuidance: "Request this capability from a project explicitly approved by its registration.",
+217:      operatorGuidance: "Wait for a server-approved execution phase for this capability.",
+220:  const operation = request.operation ?? "recipe";
+221:  if (!adapter.policy.allowedOperations.includes(operation)) {
+224:      reason: "operation_not_allowed",
+225:      operatorGuidance: "Use the capability only from an operation named in its server policy.",
+232:      operatorGuidance: "An authorized project session is required before requesting this capability.",
+239:      operatorGuidance: "Obtain explicit server approval before requesting this capability.",
+246:      operatorGuidance: "Choose a lower-risk capability or obtain a policy allowing this risk level.",
+252:      reason: "scope_not_supported",
+253:      operatorGuidance: "Narrow or change the requested scope to one supported by this capability.",
+266:      operatorGuidance: "Ask for confirmation before using this mutation, cost, risk, or approval-gated capability.",
+272:    operatorGuidance: "This capability is available within the active server policy.",
+286:  if (requestedScope && requestedScope !== metadata.defaultScope) confirmationReasons.push("scope");
+342:        `The request fits the ${metadata.defaultScope} default scope.`,
+348:        capabilityId: adapter.id,
+349:        recipeVersion: entry.supportedRecipeVersions[0],
+359:      left.capabilityId.localeCompare(right.capabilityId),
+384:    kind: "capability_catalog",
+393:  capabilityId: string,
+394:  recipeVersion: number,
+400:    kind: "capability_gap",
+402:    capabilityId: capabilityId.slice(0, 80),
+403:    recipeVersion: Number.isInteger(recipeVersion) ? Math.max(1, Math.min(100, recipeVersion)) : 1,
+411: * Resolve a model/requested capability against the same filtered catalog used
+413: * recipe binding and invocation remain separate server-owned operations.
+421:      capabilityId: z.string().max(80).optional(),
+422:      recipeVersion: z.number().int().min(1).max(100).optional(),
+427:  if (!parsed.success || !parsed.data.capabilityId || parsed.data.recipeVersion === undefined) {
+430:      typeof (rawRequest as Record<string, unknown> | null)?.capabilityId === "string"
+431:        ? String((rawRequest as Record<string, unknown>).capabilityId)
+433:      typeof (rawRequest as Record<string, unknown> | null)?.recipeVersion === "number"
+434:        ? Number((rawRequest as Record<string, unknown>).recipeVersion)
+436:      "The capability request is malformed or incomplete.",
+437:      "Provide only a capability ID, a supported recipe version, and server-owned discovery context.",
+440:  const id = CapabilityIdSchema.safeParse(parsed.data.capabilityId);
+441:  if (!id.success || !registry.has(parsed.data.capabilityId)) {
+444:      parsed.data.capabilityId,
+445:      parsed.data.recipeVersion,
+446:      "The requested capability is not registered.",
+447:      "Choose an ID from the current capability catalog.",
+451:  const adapter = registry.get(parsed.data.capabilityId);
+452:  if (!adapter || !adapter.supportedRecipeVersions.includes(parsed.data.recipeVersion as never)) {
+455:      parsed.data.capabilityId,
+456:      parsed.data.recipeVersion,
+457:      "The requested recipe version is not supported by this capability.",
+458:      "Choose one of the supported recipe versions shown in the current catalog.",
+466:    const policyReason = entry?.availability.reason === "scope_not_supported"
+474:      parsed.data.recipeVersion,
+475:      entry?.availability.operatorGuidance ?? "The capability is unavailable in the current server context.",
+492:      "The capability catalog request is malformed.",
+511:    return `- ${entry.id} v${entry.supportedRecipeVersions.join("/")} — ${entry.purpose}; input {${fields}}; scope ${entry.defaultScope}; cost ${entry.cost}; risk ${entry.risk}; ${availability}; automatic execution ${entry.autonomy.automaticExecution}`;
+515:      `- ${suggestion.capabilityId} v${suggestion.recipeVersion}: ${suggestion.reason} (confidence ${suggestion.confidence})`,
+520:    "Capability IDs and recipe versions are opaque request identifiers. This catalog is not a tool manifest and does not grant execution authority.",
+524:    "To request a capability, name only its capability ID, recipe version, and business input. Never provide commands, argv, cwd, environment, profiles, or process settings.",
+
+lib/ai-orchestrator/src/recipe-contract.ts
+6:} from "./capability-contract.js";
+19:  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "recipe IDs must be safe identifiers");
+26:  .regex(/^[A-Za-z][A-Za-z0-9._:-]*$/, "recipe node IDs must be safe identifiers");
+33:  .regex(/^[A-Za-z][A-Za-z0-9._:-]*$/, "recipe output names must be safe identifiers");
+38:  "recipe values must be present",
+145:  capabilityId: CapabilityIdSchema,
+146:  recipeVersion: RecipeVersionSchema,
+192:  recipeId: RecipeIdSchema,
+193:  recipeVersion: RecipeVersionSchema,
+201: * These values are written by the compiler, never accepted from a recipe.
+218:  revision: z.string().min(1).max(240),
+219:  operation: z.string().min(1).max(80).default("recipe"),
+220:  scope: z.object({
+260:export function recipeVersionIsSupported(version: number): version is RecipeVersion {
+
+artifacts/api-server/src/lib/ai-execution-state.ts
+16: * The durable operation state is intentionally separate from the provider
+18: * this state answers "which guarded operation stage owns the next action?"
+61:  kind: "scope" | "behavior" | "validation" | "evidence";
+67:  operationId: string;
+69:  revisionManifest: string;
+101:  operation: AutonomousOperationContract,
+105:  if (operation.state === nextState) return operation;
+106:  if (!OPERATION_TRANSITIONS[operation.state].includes(nextState)) {
+107:    throw new Error(`Illegal autonomous operation transition: ${operation.state} -> ${nextState}`);
+110:    && operation.nodes.some((node) => node.status === "failed" || node.status === "blocked")) {
+111:    throw new Error("Autonomous operation cannot advance with failed or blocked nodes.");
+114:    const completion = validateAutonomousOperationCompletion(operation, {
+119:      throw new Error(`Autonomous operation success is blocked: ${completion.reasons.join("; ")}`);
+123:    ...operation,
+125:    evidenceRefs: [...new Set([...operation.evidenceRefs, ...evidenceRefs])].slice(0, 48),
+138: * lease is not evidence that the requested bytes or behavior were accepted.
+141:  operation: AutonomousOperationContract,
+151:  if (!operation.objective.trim()) reasons.push("objective is missing");
+152:  if (!operation.revisionManifest.trim() || operation.revisionManifest === "unbound") {
+153:    reasons.push("workspace revision is unbound");
+155:  if (!operation.expectedBehavior.trim()) reasons.push("expected behavior is missing");
+156:  if (operation.acceptanceChecks.length === 0) reasons.push("acceptance checks are missing");
+157:  if (params.workspaceRevision && operation.revisionManifest !== params.workspaceRevision) {
+158:    reasons.push("workspace revision does not match the execution request");
+160:  if (params.candidateIdentity !== undefined && operation.candidateIdentity !== params.candidateIdentity) {
+161:    reasons.push("candidate identity does not match the operation");
+163:  const requiredChecks = operation.acceptanceChecks.filter((check) => check.required);
+167:  const nodes = params.nodeStates ?? operation.nodes;
+169:  const mutatingOperation = operation.nodes.some((node) =>
+172:  if (mutatingOperation && operation.targetPaths.length === 0) {
+173:    reasons.push("mutating operation has no approved target scope");
+175:  if (operation.targetPaths.length > 0) {
+176:    const approved = new Set(operation.targetPaths);
+177:    const outOfScope = operation.nodes
+180:    if (outOfScope) reasons.push(`execution node is outside approved target scope: ${outOfScope}`);
+183:    ...operation.evidenceRefs,
+199:    "operationId",
+201:    "revisionManifest",
+208:      throw new Error(`Autonomous operation identity changed: ${key}`);
+212:    throw new Error("Autonomous operation identity changed: targetPaths");
+215:    throw new Error("Autonomous operation acceptance checks changed without policy approval.");
+218:    throw new Error("Autonomous operation retry budget is invalid.");
+224:  /** Stable server-owned identity shared by all phases of one operation. */
+225:  operationId?: string;
+229:  /** Workspace revision captured when this durable analysis operation began. */
+274:  operation?: AutonomousOperationContract;
+299:  operationId: string;
+301:  revisionManifest?: string;
+312:    operationId: params.operationId,
+314:    revisionManifest: (params.revisionManifest ?? "unbound").slice(0, 2_000),
+324:        description: "Registered validation passes for the approved scope.",
+330:        description: "Completion evidence is bound to this operation and revision.",
+349:      (value.operationId !== undefined && typeof value.operationId !== "string") ||
+446:    const operation = value.operation && typeof value.operation === "object"
+447:      ? parseAutonomousOperation(value.operation)
+449:    if (value.operation !== undefined && !operation) return undefined;
+478:      ...(operation ? { operation } : {}),
+490:    typeof candidate.operationId !== "string"
+492:    || typeof candidate.revisionManifest !== "string"
+532:      || !["scope", "behavior", "validation", "evidence"].includes(item.kind ?? "")
+550:    operationId: candidate.operationId.slice(0, 160),
+552:    revisionManifest: candidate.revisionManifest.slice(0, 2_000),
+568:function operationStateForCheckpoint(stage: AiExecutionCheckpoint["stage"]): AutonomousOperationState | undefined {
+578:  operation: AutonomousOperationContract,
+581:  const target = operationStateForCheckpoint(stage);
+582:  if (!target || operation.state === target) return operation;
+591:  let current = operation;
+610: * Reconcile checkpointed node progress with the server-owned plan that will be
+611: * resumed. The checkpoint may advance status and attempts, but it must never
+612: * redefine a node's title, scope, dependency graph, or validation profile.
+618:  checkpointNodes: AiExecutionCheckpoint["nodeStates"] | undefined,
+620:  if (!checkpointNodes || checkpointNodes.length === 0) return [...planNodes];
+621:  if (planNodes.length !== checkpointNodes.length) return undefined;
+623:  const checkpointById = new Map(checkpointNodes.map((node) => [node.id, node]));
+624:  if (checkpointById.size !== planNodes.length) return undefined;
+627:    const checkpointNode = checkpointById.get(planNode.id);
+629:      !checkpointNode
+630:      || !sameStringArray(planNode.allowedFiles, checkpointNode.allowedFiles)
+631:      || !sameStringArray(planNode.dependencies, checkpointNode.dependencies)
+632:      || planNode.validationProfile !== checkpointNode.validationProfile
+633:      || checkpointNode.attempts < planNode.attempts
+634:      || checkpointNode.validationAttempts < planNode.validationAttempts
+637:          planNode.lastFailure.status !== checkpointNode.lastFailure?.status
+638:          || planNode.lastFailure.attempt > (checkpointNode.lastFailure?.attempt ?? 0)
+640:      || (planNode.status === "passed" && checkpointNode.status !== "passed")
+641:      || (planNode.status === "blocked" && checkpointNode.status !== "blocked")
+642:      || (checkpointNode.status === "running" && checkpointNode.attempts < 1)
+649:    const checkpointNode = checkpointById.get(planNode.id)!;
+652:      status: checkpointNode.status,
+653:      attempts: checkpointNode.attempts,
+654:      validationAttempts: checkpointNode.validationAttempts,
+655:      ...(checkpointNode.lastFailure ? { lastFailure: checkpointNode.lastFailure } : {}),
+661: * Turns the last durable checkpoint into server-owned continuation context.
+663: * the bounded checkpoint and can continue from the last observed stage instead
+667:  checkpoint: AiExecutionCheckpoint | undefined,
+669:  if (!checkpoint || checkpoint.stage === "queued") return "";
+672:    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+675:    formatUntrustedContent(JSON.stringify(checkpoint), {
+676:      source: "checkpoint",
+677:      revision: checkpoint.updatedAt,
+713:  const operationId = params.request.operationId ?? params.buildPlanMessageId ?? executionId;
+714:  const operation = createAutonomousOperationContract({
+715:    operationId,
+719:    revisionManifest: params.request.workspaceRevision,
+729:      operationId,
+738:      checkpoint: JSON.stringify({
+741:        operation,
+826:  return parseAiExecutionCheckpoint(execution.checkpoint);
+837:    operation?: AutonomousOperationContract;
+840:  const previous = parseAiExecutionCheckpoint(execution.checkpoint);
+842:  const operation = params.operation
+843:    ?? previous?.operation;
+848:    ...(operation
+850:          operation: params.cancelled
+851:            ? { ...operation, state: "cancelled", updatedAt: now }
+852:            : operation,
+870: * Operator recovery is deliberately narrower than the legacy capability
+871: * endpoint. Only a paused execution whose server-owned operation is uncertain
+872: * can be resumed or abandoned. The checkpoint and operation identity are
+879:  revision?: string;
+883:  const checkpoint = recoveryCheckpoint(current);
+884:  const operation = checkpoint?.operation;
+885:  const storedRevision = operation?.revisionManifest ?? null;
+886:  if (params.revision && params.revision !== storedRevision) {
+889:  const priorRecovery = checkpoint && typeof checkpoint === "object"
+890:    ? (checkpoint as AiExecutionCheckpoint & { recovery?: { action?: string } }).recovery
+901:  if (current.status !== "paused" || operation?.state !== "uncertain") {
+908:      ...checkpoint,
+913:      checkpoint: JSON.stringify(nextCheckpoint),
+927:    ...checkpoint,
+935:    checkpoint: JSON.stringify(nextCheckpoint),
+936:    checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+939:    leaseUntil: null,
+963:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+980:export async function checkpointAiExecution(params: {
+983:  checkpoint: AiExecutionCheckpoint;
+985:  // Keep this update atomic: the worker lease and checkpoint version are the
+986:  // concurrency boundary. Callers that advance an operation include its
+987:  // server-validated contract in the checkpoint; legacy stage-only writers
+989:  const durableOperation = params.checkpoint.operation
+990:    ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
+993:    ? { ...params.checkpoint, operation: durableOperation }
+994:    : params.checkpoint;
+998:      checkpoint: JSON.stringify(durableCheckpoint),
+999:      checkpointVersion: durableCheckpoint.sequence,
+1002:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+1008:      // A stale worker must not overwrite a newer durable checkpoint.
+1009:      lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+1023:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+1040:  operation?: AutonomousOperationContract;
+1050:      checkpoint: aiExecutionsTable.checkpoint,
+1060:  const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+1062:  const operation = params.operation ?? checkpoint?.operation;
+1064:    if (!operation) return false;
+1065:    const completion = validateAutonomousOperationCompletion(operation, {
+1069:      candidateIdentity: operation.candidateIdentity,
+1085:      leaseUntil: null,
+1087:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+1088:      checkpoint: JSON.stringify({
+1091:        ...(params.operation ? { operation: params.operation } : {}),
+1127:  operation?: AutonomousOperationContract;
+1152:      leaseUntil: null,
+1154:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+1155:      ...(terminalCheckpoint ? { checkpoint: JSON.stringify(terminalCheckpoint) } : {}),
+1180:        leaseUntil: null,
+1182:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+1183:        ...(cancellationCheckpoint ? { checkpoint: JSON.stringify(cancellationCheckpoint) } : {}),
+1217:      checkpoint: cancelledCheckpoint,
+1218:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+1220:      leaseUntil: null,
+1263:    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+1274:        leaseUntil: null,
+1277:        checkpoint: JSON.stringify(terminalCheckpoint),
+1278:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+1286:    const operation = checkpoint?.operation;
+1287:    const uncertainOperation = operation
+1288:      ? { ...operation, state: "uncertain" as const, updatedAt: now.toISOString() }
+1290:    const nextCheckpoint = checkpoint
+1292:          ...checkpoint,
+1293:          ...(uncertainOperation ? { operation: uncertainOperation } : {}),
+1296:            phase: operation?.state ?? null,
+1307:      leaseUntil: null,
+1310:      ...(nextCheckpoint ? { checkpoint: JSON.stringify(nextCheckpoint) } : {}),
+
+artifacts/api-server/src/lib/operation-evidence.ts
+12:import { evaluateReadinessFromEvidence, type OperationalReadinessDecision } from "./operational-readiness-gate.js";
+34:  source: "execution" | "checkpoint" | "event" | "audit" | "task-log" | "journal" | "proposal" | "revision";
+50:  operationId: string;
+52:  revision: string | null;
+67:    checkpoints: number;
+80:  execution: Pick<AiExecution, "id" | "projectId" | "operationId" | "correlationId" | "status" | "attempt" | "checkpoint" | "checkpointVersion" | "request" | "baseRevision" | "error" | "createdAt" | "startedAt" | "completedAt">;
+88:    revision: number;
+136:  const checkpoint = record(parseJson(execution.checkpoint));
+138:  const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
+181:  const revision = text(request.workspaceRevision, 200) ?? text(input.proposal?.baseRevision, 200) ?? text(execution.baseRevision, 200) ?? null;
+182:  if (!revision) addGap(gaps, { kind: "unrecorded", source: "revision", detail: "The operation revision was not retained." });
+183:  if (execution.checkpointVersion <= 0 || Object.keys(checkpoint).length === 0) {
+184:    addGap(gaps, { kind: "missing", source: "checkpoint", detail: "No durable checkpoint was retained." });
+186:  if (events.length === 0) addGap(gaps, { kind: "missing", source: "event", detail: "No correlated operational events were retained." });
+193:  if (input.proposal?.baseRevision && revision && input.proposal.baseRevision !== revision) {
+194:    addGap(gaps, { kind: "mismatch", source: "revision", detail: "Evidence revisions do not agree." });
+203:  else if (execution.status === "completed" && gaps.some((gap) => gap.kind === "mismatch" || gap.source === "revision")) completeness = "uncertain";
+211:    operationId,
+213:    revision,
+228:      checkpoints: execution.checkpointVersion > 0 ? 1 : 0,
+238:  const operation = checkpoint.operation as { nodes?: Array<{
+249:    requiredNodes: Array.isArray(operation?.nodes)
+250:      ? operation.nodes.map((node) => ({
+256:    terminalVerdict: typeof checkpoint.evidenceVerdict === "string" ? checkpoint.evidenceVerdict : null,
+266:  const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
+271:    }).from(eventsTable).where(and(eq(eventsTable.projectId, execution.projectId), eq(eventsTable.correlationId, operationId))),
+275:    }).from(auditLogsTable).where(and(eq(auditLogsTable.projectId, execution.projectId), eq(auditLogsTable.correlationId, operationId))),
+280:        }).from(taskLogsTable).where(and(eq(taskLogsTable.taskId, execution.linkedTaskId), eq(taskLogsTable.correlationId, operationId)))
+285:    }).from(aiApplyJournalTable).where(and(eq(aiApplyJournalTable.projectId, execution.projectId), eq(aiApplyJournalTable.operationId, operationId))),
+288:           revision: aiChangeProposalsTable.revision, baseRevision: aiChangeProposalsTable.baseRevision,
+
+artifacts/api-server/src/routes/ai/chat.ts
+115:  checkpointAiExecution,
+159:import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
+171:  checkpoint: Record<string, unknown>;
+174:  const explicit = params.checkpoint.evidenceVerdict;
+179:  const recentSteps = Array.isArray(params.checkpoint.recentSteps)
+180:    ? params.checkpoint.recentSteps
+223:      logger.warn({ scope: "chat-route", action: "sanitize_envelope", preview: trimmed.slice(0, 120) }, "AI-02: stripped JSON envelope from response before storage");
+401:      operationId: result.evidence.operationId,
+442:        ...(typeof evidence.operationId === "string" ? { operationId: evidence.operationId } : {}),
+479:    operationId: string | null;
+481:    checkpoint: string;
+482:    checkpointVersion: number;
+512:  const operationId = params.execution?.operationId
+513:    ?? (typeof request.operationId === "string" ? request.operationId : undefined)
+525:  const checkpoint = parseJsonRecord(params.execution?.checkpoint);
+543:      ? Math.min(1, Math.max(0, params.execution.checkpointVersion > 0 || Object.keys(checkpoint).length > 0 ? 1 : 0))
+554:    checkpoints: counts.executionCheckpoints > 0,
+564:    operationId,
+679:  reasonCode?: "invalid_profile" | "stale_revision";
+729:  if (!liveWalk || liveWalk.revision !== currentManifest.projectRevision) {
+739: * Planning must inspect the same source revision represented by the context
+741: * but it is not itself a source revision; the scanner walk is the immutable
+742: * revision contract shared with scan, approval, mutation, and delivery.
+812:  if (liveWalk.revision !== completeManifest.projectRevision) {
+819:        "The source tree revision is stale relative to the context snapshot.",
+848:    revision: browserValidationProfilesTable.revision,
+860:  if (profile.revision !== projectRevision) {
+862:      error: "The selected browser validation profile belongs to an older project revision. Register a fresh browser check before continuing.",
+864:      reasonCode: "stale_revision",
+967:          // route fixture only exposes its terminal for() operation.
+1389:    // repair-ready: production scope, complete source coverage, a verified
+1404:        phase.scopedFindingStatus !== "PRODUCTION_PROVEN",
+1458:  kind: AgentStep["kind"] | "audit_scope";
+1459:  scopeDescription?: string;
+1485:  /** Structured audit scope derived from isFixtureLocal. */
+1558:  /** Task #46: verdict's proof scope persisted from the final runtime ledger. */
+1560:  scopedFindingStatus?: "PRODUCTION_PROVEN" | "FIXTURE_PROVEN" | "TEST_PROVEN" | "MIXED_EVIDENCE" | "NOT_PROVEN";
+1590:  scopeDescription?: string,
+1592:  if (steps.length === 0 && !scopeDescription) return null;
+1730:          // Task #46: persist the verdict's proof scope for later reconciliation.
+1732:          ...(step.trace.scopedFindingStatus
+1733:            ? { scopedFindingStatus: step.trace.scopedFindingStatus }
+1800:           ...(step.scopeExpansions ? { scopeExpansions: step.scopeExpansions } : {}),
+1835:  if (scopeDescription) entries.unshift({ kind: "audit_scope", scopeDescription });
+1892:  return state?.scope.projectId === projectId ? state : null;
+2122:    operationId: string;
+2128:    operationId: randomUUID(),
+2162:    : { acquired: true, release: async () => undefined };
+2183:      scope: "chat-route",
+2255:        operation: "chat",
+2472:        const operationId = msg.id;
+2478:          messageId: operationId,
+2490:          correlationId: operationId,
+2491:          payload: { messageId: operationId, proposalId: proposalId ?? null },
+2545:    await applyProbe.release();
+2561:     * declared file scope before creating a change proposal.
+2697:        error: "This implementation plan has no safe file scope and cannot enter Build Mode",
+2702:    // their approved file scope is present; newer plans are checked against
+2738:        error: "This implementation plan is not executable by the server-owned Build coordinator",
+2803:  // Keep this compatible with consumers that still resolve the pre-scope
+2810:    operationId: string;
+2816:    operationId: randomUUID(),
+2838:    : { acquired: true, release: async () => undefined };
+2935:        scopeDescription: streamAuditScopeDescription,
+2999:          message: "Execution does not match the requested session, plan, or validation scope.",
+3034:      // The original request owns the analysis revision. A reconnect must not
+3035:      // silently move the same operation onto a newer workspace revision.
+3040:      resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
+3062:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+3074:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+3092:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+3095:    let checkpointSequence = aiExecution.checkpointVersion;
+3096:    const streamCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
+3097:    let checkpointFailure: unknown;
+3117:        error: "Execution node checkpoint does not match the server-owned plan.",
+3131:    const checkpointOperation = resumeCheckpoint?.operation;
+3132:    autonomousOperation = checkpointOperation ?? createAutonomousOperationContract({
+3133:      operationId: aiExecution.operationId ?? aiExecution.id,
+3137:      revisionManifest: executionRequest.workspaceRevision,
+3155:    let checkpointChain: Promise<void> = Promise.resolve();
+3160:    const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
+3161:      const sequence = ++checkpointSequence;
+3163:        ...checkpoint,
+3166:              operation: {
+3201:      checkpointChain = checkpointChain
+3203:          const persisted = await checkpointAiExecution({
+3206:            checkpoint: completeCheckpoint,
+3209:            const error = new Error("AI execution checkpoint rejected by lease/state gate");
+3210:            checkpointFailure = error;
+3215:          checkpointFailure = err;
+3216:          logger.warn({ err, executionId: aiExecution!.id }, "AI execution checkpoint failed");
+3302:      operationMode: streamTurnIntent.operationMode,
+3310:      scope: "chat-route",
+3390:          { scope: "chat-route", action: "stream_reset", provider, streamedBytes: streamedContent.length },
+3536:            ? { scopeDescription: streamAuditScopeDescription }
+3576:          ...(step.scopeExpansions ? { scopeExpansions: step.scopeExpansions } : {}),
+3590:          // Task #58: surface the verdict's proof scope live on the audit panel.
+3592:          ...(step.trace.scopedFindingStatus
+3593:            ? { scopedFindingStatus: step.trace.scopedFindingStatus }
+3692:      onStep({ kind: "plan_activity", stage: "scope", status: "done", files: safePlanFiles(current?.files, validRootPath) });
+3743:    // A profile is valid only for the exact project revision it was registered
+3746:      && registeredBrowserProfile.revision === analysisCorrelation.projectRevision
+3752:      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+3768:                  ? "stale_revision"
+3775:            revision: request.revision ?? analysisCorrelation.projectRevision,
+3785:              operationId: request.operationId ?? analysisCorrelation.operationId,
+3787:              revision: request.revision ?? analysisCorrelation.projectRevision,
+3789:                revision: request.revision ?? analysisCorrelation.projectRevision,
+3805:                evidenceId: `browser-start:${request.operationId ?? "unknown"}`,
+3811:                ? "stale_revision"
+3867:            operationId: analysisCorrelation.operationId,
+3868:            revision: analysisCorrelation.projectRevision,
+3877:             operationId: analysisCorrelation.operationId,
+3878:             revision: analysisCorrelation.projectRevision,
+3880:             operation: "build",
+4004:            operationMode: streamTurnIntent.operationMode,
+4035:              scope: "chat-route",
+4058:          message: "Build Mode completed and produced a scoped proposal",
+4100:            ? "The AI request could not complete. Please retry."
+4179:          { scope: "chat-route", action: "language_anomaly", projectId, provider,
+4280:    let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
+4352:        const operationId = assistantOperationId ?? proposalMessageId;
+4353:        assistantOperationId = operationId;
+4375:          correlationId: operationId,
+4378:            operationId,
+4402:    await checkpointChain;
+4445:    if (checkpointFailure && !activeExecutionAbortController.signal.aborted) {
+4446:      throw new Error("AI execution checkpoint persistence failed before finalization");
+4455:        operation: autonomousOperation,
+4472:        operation: autonomousOperation,
+4480:        operation: autonomousOperation,
+4490:        const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
+4516:          operation: undefined,
+4550:    const operationMode =
+4556:        : streamTurnIntent.operationMode;
+4592:      operationId: assistantOperationId,
+4593:      operationMode,
+4638:    await applyLock.release();
+4671:    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+4672:    const checkpointRecord = checkpoint && typeof checkpoint === "object"
+4673:      ? checkpoint as Record<string, unknown>
+4678:      checkpoint: checkpointRecord,
+4698:      evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+4699:        ? safeText(checkpointRecord.evidenceReason, "", 500)
+4705:          : "Execution is paused at a durable checkpoint.",
+4706:      proofRequired: checkpointRecord.proofRequired === true
+4713:      checkpointVersion: execution.checkpointVersion,
+4714:      operationId: execution.operationId,
+4726:  let checkpoint: unknown = {};
+4728:    checkpoint = JSON.parse(execution.checkpoint);
+4730:    checkpoint = { stage: "unknown", detail: "Checkpoint is unavailable." };
+4732:  const checkpointRecord =
+4733:    checkpoint && typeof checkpoint === "object"
+4734:      ? checkpoint as Record<string, unknown>
+4737:  let operationId = execution.operationId ?? execution.buildPlanMessageId ?? execution.proposalId ?? null;
+4738:  if (!execution.operationId && execution.proposalId) {
+4744:    operationId = proposal?.messageId ?? operationId;
+4746:  const operationEvents = operationId
+4752:        eq(eventsTable.correlationId, operationId),
+4755:  const hasAppliedChanges = operationEvents.some((event) => event.type === "AiChangesApplied");
+4756:  const hasCommittedChanges = operationEvents.some((event) => event.type === "GitCommitCreated");
+4757:  const hasPushedChanges = operationEvents.some((event) => event.type === "GitPushed");
+4759:  const proofRequired = checkpointRecord.proofRequired === true
+4763:    checkpoint: checkpointRecord,
+4766:  const operationRecord = checkpointRecord.operation && typeof checkpointRecord.operation === "object"
+4767:    ? checkpointRecord.operation as Record<string, unknown>
+4769:  const recoveryRecord = checkpointRecord.recovery && typeof checkpointRecord.recovery === "object"
+4770:    ? checkpointRecord.recovery as Record<string, unknown>
+4772:  const operationEvidence = await loadOperationEvidence(execution);
+4788:      checkpointStage: typeof checkpointRecord.stage === "string" ? checkpointRecord.stage : undefined,
+4789:      repairState: typeof checkpointRecord.repairState === "string" ? checkpointRecord.repairState : undefined,
+4799:    evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+4800:      ? checkpointRecord.evidenceReason
+4803:      ?? (typeof checkpointRecord.detail === "string" ? checkpointRecord.detail : null),
+4804:         checkpoint: sanitizeExecutionCheckpointForClient(checkpoint),
+4805:    checkpointVersion: execution.checkpointVersion,
+4808:    operationId,
+4820:      uncertain: operationRecord?.state === "uncertain",
+4821:      operationId,
+4822:      revision: typeof storedRequest?.workspaceRevision === "string" ? storedRequest.workspaceRevision : null,
+4823:      phase: typeof operationRecord?.state === "string" ? operationRecord.state : null,
+4826:    // Keep the operator proof chain on the same owner-scoped status response
+4829:    operationEvidence: redactOperationEvidence(operationEvidence),
+4835: * not reuse the full execution response: checkpoints may contain model
+4842:  const operationEvidence = await loadOperationEvidence(execution);
+4855:  const checkpoint = parseRecord(execution.checkpoint);
+4868:  const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
+4881:      eq(eventsTable.correlationId, operationId),
+4895:      for (const key of ["status", "phase", "profile", "scenario", "exitCode", "attempt", "checkpointVersion"]) {
+4921:      detail: safeText(execution.error ?? checkpoint.detail ?? `Execution ${execution.status}`, 500),
+4925:  const checkpointNodes = Array.isArray(checkpoint.nodeStates) ? checkpoint.nodeStates : [];
+4928:    ...checkpointNodes.flatMap((node) => node && typeof node === "object"
+4932:  const validations = Array.isArray(checkpoint.recentSteps)
+4933:    ? checkpoint.recentSteps.flatMap((step) => {
+4948:          || validation.reasonCode === "stale_revision"
+4961:      operationId,
+4966:      revision: safeText(request.workspaceRevision, 200) ?? null,
+4968:        required: checkpoint.proofRequired === true,
+4969:        verdict: safeText(checkpoint.evidenceVerdict, 80) ?? "NOT_RECORDED",
+4970:        reason: safeText(checkpoint.evidenceReason, 500) ?? null,
+4972:      checkpointVersion: execution.checkpointVersion,
+4976:      terminalReason: safeText(execution.error ?? checkpoint.detail, 500) ?? null,
+4978:    operationEvidence: redactOperationEvidence(operationEvidence),
+4993:    revision: z.string().min(1).max(2_000).optional(),
+5003:    return res.status(409).json({ error: "This recovery request targets a stale workspace revision.", code: "EXECUTION_STALE" });
+5010:    operationId: recovered.execution.operationId,
+5017:router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+5193:        operationId: aiExecutionsTable.operationId,
+5195:        checkpoint: aiExecutionsTable.checkpoint,
+5196:        checkpointVersion: aiExecutionsTable.checkpointVersion,
+5212:  const operationId = execution?.operationId ?? execution?.id ?? target.executionId ?? messageId;
+5218:      eq(eventsTable.correlationId, operationId),
+5372:  // Older pending plans predate the revision manifest. Keep their review
+5398:        error: "This implementation plan has no verified file scope and cannot enter Build Mode",
+5413:    logger.error({ scope: "chat-route", code: "PLAN_DECISION_SCHEMA_FAILED", issues: parsed.error.issues });
+5578:  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
+5583:      operationId: aiExecutionsTable.operationId,
+5593:  const canonicalOperationId = proposalExecution?.operationId
+5604:      operationId: canonicalOperationId,
+5607:      revision: proposal.status === "pending" ? proposal.revision : null,
+5661:  const operations = await Promise.all(proposals.map(async (proposal) => {
+5663:      proposal.operationId
+5664:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+5687:      operationId: proposal.operationId ?? proposal.messageId,
+5714:  return res.json({ operations });
+5720:  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+5725:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+5729:    || !proposal.operationId
+5730:    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+5733:      proposal.operationId
+5734:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+5782:      operationId: proposal.operationId,
+5808:      result.evidence.operationId = proposal.operationId ?? proposal.messageId;
+5831:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+5835:    operationId: proposal.operationId,
+5844:  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+5858:  if (updated && proposal.workspaceRoot && proposal.operationId) {
+5859:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+5934:      hint: "Another apply or rebase operation is already in progress for this project.",
+6109:      const nextRevision = proposal.revision + 1;
+6114:          revision: nextRevision,
+6144:      revision: proposal.revision + 1,
+6155:    await applyLock.release();
+6162:// the user approves the new revision. The compare-and-set prevents an approval
+6167:    revision: z.number().int().min(0),
+6176:  const { projectId, revision } = body.data;
+6202:      revision: proposal.revision,
+6215:        eq(aiChangeProposalsTable.revision, revision),
+6229:        revision,
+6246:    revision,
+6275:  if (proposal.workspaceRoot && proposal.operationId) {
+6276:    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+6321:    operationId: z.string().uuid().optional(),
+6334:  const { changes, projectId, proposalId, operationId } = applyBody.data;
+6378:      hint: "An apply operation is already in progress for this project — wait for it to complete before starting another.",
+6420:        revision: proposal.revision,
+6455:        operationId: aiExecutionsTable.operationId,
+6465:    const canonicalOperationId = proposalExecution?.operationId
+6469:    if (operationId && operationId !== canonicalOperationId) {
+6477:    // Materialize the approved change set into an operation-owned workspace
+6480:    // revision, path, and validation gates below pass.
+6483:      operationId: applyCorrelationId,
+6491:        operationId: applyCorrelationId,
+6517:        operationId: applyCorrelationId,
+6524:        operationId: applyCorrelationId,
+6537:      operationId: applyCorrelationId,
+6761:        validation.evidence.operationId = applyCorrelationId;
+6811:        operationId: applyCorrelationId,
+7007:    // proposalId is the durable operation identity. Reusing it makes the
+7017:        operationId: applyCorrelationId,
+7039:        // across retries of the same plan/apply operation.
+7052:          operationId: applyCorrelationId,
+7086:          operationId: applyCorrelationId,
+7168:    await applyLock.release();

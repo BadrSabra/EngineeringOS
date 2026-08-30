@@ -1,0 +1,550 @@
+artifacts/api-server/src/routes/ai/chat.ts-320-  recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
+artifacts/api-server/src/routes/ai/chat.ts-321-} {
+artifacts/api-server/src/routes/ai/chat.ts-322-  const parsed = value ? parseStoredJson(value) : undefined;
+artifacts/api-server/src/routes/ai/chat.ts-323-  if (!Array.isArray(parsed)) return {};
+artifacts/api-server/src/routes/ai/chat.ts-324-  const terminal = [...parsed].reverse().find((entry) =>
+artifacts/api-server/src/routes/ai/chat.ts:325:    entry && typeof entry === "object" && (entry as Record<string, unknown>).kind === "terminal_outcome",
+artifacts/api-server/src/routes/ai/chat.ts-326-  ) as Record<string, unknown> | undefined;
+artifacts/api-server/src/routes/ai/chat.ts-327-  const failureKind = terminal?.failureKind;
+artifacts/api-server/src/routes/ai/chat.ts-328-  return {
+artifacts/api-server/src/routes/ai/chat.ts-329-    ...(failureKind === "TOOL_FAILURE"
+artifacts/api-server/src/routes/ai/chat.ts-330-      || failureKind === "CANCELLATION"
+--
+artifacts/api-server/src/routes/ai/chat.ts-1040-      ? (() => {
+artifacts/api-server/src/routes/ai/chat.ts-1041-          const parsed = parseStoredJson(trace);
+artifacts/api-server/src/routes/ai/chat.ts-1042-          return JSON.stringify([
+artifacts/api-server/src/routes/ai/chat.ts-1043-            ...(Array.isArray(parsed) ? parsed : []),
+artifacts/api-server/src/routes/ai/chat.ts-1044-            {
+artifacts/api-server/src/routes/ai/chat.ts:1045:              kind: "terminal_outcome",
+artifacts/api-server/src/routes/ai/chat.ts-1046-              failureKind: params.terminalOutcome.failureKind,
+artifacts/api-server/src/routes/ai/chat.ts-1047-              retryable: params.terminalOutcome.retryable,
+artifacts/api-server/src/routes/ai/chat.ts-1048-              recoveryState: params.terminalOutcome.recoveryState,
+artifacts/api-server/src/routes/ai/chat.ts-1049-            },
+artifacts/api-server/src/routes/ai/chat.ts-1050-          ]);
+--
+artifacts/api-server/src/routes/ai/chat.ts-1468-  message?: string;
+artifacts/api-server/src/routes/ai/chat.ts-1469-  iterations?: number;
+artifacts/api-server/src/routes/ai/chat.ts-1470-  toolCalls?: number;
+artifacts/api-server/src/routes/ai/chat.ts-1471-  prefetchToolCalls?: number;
+artifacts/api-server/src/routes/ai/chat.ts-1472-  loopToolCalls?: number;
+artifacts/api-server/src/routes/ai/chat.ts:1473:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts-1474-  synthesisStarted?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts-1475-  synthesisAttempts?: number;
+artifacts/api-server/src/routes/ai/chat.ts-1476-  synthesisMaxAttempts?: number;
+artifacts/api-server/src/routes/ai/chat.ts-1477-  synthesisTimeoutMs?: number;
+artifacts/api-server/src/routes/ai/chat.ts-1478-  synthesisElapsedMs?: number;
+--
+artifacts/api-server/src/routes/ai/chat.ts-3345-          iterations: number;
+artifacts/api-server/src/routes/ai/chat.ts-3346-          maxIterations: number;
+artifacts/api-server/src/routes/ai/chat.ts-3347-          toolCalls: number;
+artifacts/api-server/src/routes/ai/chat.ts-3348-          prefetchToolCalls: number;
+artifacts/api-server/src/routes/ai/chat.ts-3349-          loopToolCalls: number;
+artifacts/api-server/src/routes/ai/chat.ts:3350:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts-3351-          synthesisStarted: boolean;
+artifacts/api-server/src/routes/ai/chat.ts-3352-           synthesisAttempts?: number;
+artifacts/api-server/src/routes/ai/chat.ts-3353-           synthesisMaxAttempts?: number;
+artifacts/api-server/src/routes/ai/chat.ts-3354-           synthesisTimeoutMs?: number;
+artifacts/api-server/src/routes/ai/chat.ts-3355-           synthesisElapsedMs?: number;
+--
+artifacts/api-server/src/routes/ai/chat.ts-4497-            toolTrace: JSON.stringify([
+artifacts/api-server/src/routes/ai/chat.ts-4498-              ...(Array.isArray(parseStoredJson(assistantMsg.toolTrace))
+artifacts/api-server/src/routes/ai/chat.ts-4499-                ? parseStoredJson(assistantMsg.toolTrace) as unknown[]
+artifacts/api-server/src/routes/ai/chat.ts-4500-                : []),
+artifacts/api-server/src/routes/ai/chat.ts-4501-              {
+artifacts/api-server/src/routes/ai/chat.ts:4502:                kind: "terminal_outcome",
+artifacts/api-server/src/routes/ai/chat.ts-4503-                failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-4504-                retryable: true,
+artifacts/api-server/src/routes/ai/chat.ts-4505-                recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-4506-              },
+artifacts/api-server/src/routes/ai/chat.ts-4507-            ]),
+--
+artifacts/api-server/src/routes/ai/analysis.ts-113-
+artifacts/api-server/src/routes/ai/analysis.ts-114-  const prompt = params.task === "review"
+artifacts/api-server/src/routes/ai/analysis.ts-115-    ? "Review the codebase and identify the most critical quality issues."
+artifacts/api-server/src/routes/ai/analysis.ts-116-    : "Analyze the latest scan results and suggest the top 3 improvements.";
+artifacts/api-server/src/routes/ai/analysis.ts-117-  const trace = JSON.stringify([{
+artifacts/api-server/src/routes/ai/analysis.ts:118:    kind: "structured_task_failure",
+artifacts/api-server/src/routes/ai/analysis.ts-119-    task: params.task,
+artifacts/api-server/src/routes/ai/analysis.ts-120-    failureKind: params.failureKind,
+artifacts/api-server/src/routes/ai/analysis.ts-121-    retryable: params.retryable,
+artifacts/api-server/src/routes/ai/analysis.ts-122-  }]);
+artifacts/api-server/src/routes/ai/analysis.ts-123-
+--
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-116-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-117-      evidenceAccepted: false,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-118-    };
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-119-  }
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-120-
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:121:  if (doneRecord.stopReason === "tool_failure" || toolResult) {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-122-    const toolWasCancelled = toolRecord.resultKind === "cancelled";
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-123-    return {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-124-      outcome: toolWasCancelled ? "INTERRUPTED" : "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-125-      failureKind: toolWasCancelled ? "CANCELLATION" : "TOOL_FAILURE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts-126-      retryable: true,
+--
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-31-  });
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-32-
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-33-  it("classifies a required tool failure as failed instead of successful", () => {
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-34-    expect(classify([
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-35-      { kind: "tool_result", resultKind: "failed", diagnosticCode: "TOOL_EXECUTION_FAILED", resultSummary: "Tool failed safely." },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:36:      { kind: "done", stopReason: "tool_failure" },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-37-    ])).toMatchObject({
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-38-      outcome: "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-39-      failureKind: "TOOL_FAILURE",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-40-      code: "TOOL_EXECUTION_FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts-41-    });
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-4- * Extracts the tool-calling machinery from chat-agent.ts so it can be tested
+lib/ai-orchestrator/src/tool-execution-engine.ts-5- * and evolved independently.
+lib/ai-orchestrator/src/tool-execution-engine.ts-6- *
+lib/ai-orchestrator/src/tool-execution-engine.ts-7- *   executeSingleTool(opts)  — dispatches one tool call by name (file-tools or
+lib/ai-orchestrator/src/tool-execution-engine.ts-8- *                              git-tools), enforces the registry.
+lib/ai-orchestrator/src/tool-execution-engine.ts:9: *   executeToolLoop(opts)    — runs the loop until a non-tool response or the
+lib/ai-orchestrator/src/tool-execution-engine.ts-10- *                              budget is exhausted.
+lib/ai-orchestrator/src/tool-execution-engine.ts-11- *
+lib/ai-orchestrator/src/tool-execution-engine.ts-12- * Budget rules: maxIterations caps model API calls; maxToolCalls caps real tool
+lib/ai-orchestrator/src/tool-execution-engine.ts-13- * executions; cache is a Map shared with speculative-prefetch — duplicate calls
+lib/ai-orchestrator/src/tool-execution-engine.ts-14- * hit the cache for free.
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-1584- *   4. If maxIterations exhausted without a text response: return kind:"exhausted".
+lib/ai-orchestrator/src/tool-execution-engine.ts-1585- *
+lib/ai-orchestrator/src/tool-execution-engine.ts-1586- * NON_200 from model: retried once with powerModel before re-throwing.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1587- * Other errors: re-thrown immediately.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1588- */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1589:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1590-  const {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1591-    messages,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1592-    strategy,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1593-    model,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1594-    powerModel,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2317-      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts-2318-        kind: "done",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2319-        iterations: 0,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2320-        maxIterations,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2321-        ...executionCounts(),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2322:        stopReason: "tool_failure",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2323-        synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2324-        diagnosticCodes: [diagnosticCode],
+lib/ai-orchestrator/src/tool-execution-engine.ts-2325-        sourceRetrieval,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2326-      });
+lib/ai-orchestrator/src/tool-execution-engine.ts-2327-    } catch { /* observers must not change the terminal result */ }
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-3912-          "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3913-          "The requested tool is not available. The operation did not complete.",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3914-        );
+lib/ai-orchestrator/src/tool-execution-engine.ts-3915-      }
+lib/ai-orchestrator/src/tool-execution-engine.ts-3916-
+lib/ai-orchestrator/src/tool-execution-engine.ts:3917:      if (toolResult.kind === "failed") {
+lib/ai-orchestrator/src/tool-execution-engine.ts-3918-        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts-3919-          role: "tool",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3920-          tool_call_id: tc.id,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3921-          content: `${toolResult.safeMessage} Diagnostic code: ${toolResult.diagnosticCode}.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3922-        });
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-5163-              `Implement only node ${node.id}. Read the approved file scope, make the smallest exact patch, ` +
+lib/ai-orchestrator/src/agents/chat-agent.ts-5164-              `then run validation profile "${node.validationProfile}". Do not claim completion without a passed result.`,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5165-          },
+lib/ai-orchestrator/src/agents/chat-agent.ts-5166-        ];
+lib/ai-orchestrator/src/agents/chat-agent.ts-5167-
+lib/ai-orchestrator/src/agents/chat-agent.ts:5168:        const childLoop = await executeToolLoop({
+lib/ai-orchestrator/src/agents/chat-agent.ts-5169-          messages: nodeMessages,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5170-          strategy,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5171-          model,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5172-          powerModel,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5173-          provider: providerId,
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-5483-  }
+lib/ai-orchestrator/src/agents/chat-agent.ts-5484-
+lib/ai-orchestrator/src/agents/chat-agent.ts-5485-  // ── Agentic tool loop ─────────────────────────────────────────────────────
+lib/ai-orchestrator/src/agents/chat-agent.ts-5486-  // Delegates iteration budget, per-call budget, cache keying, tool dispatch,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5487-  // and model fallback to the self-contained ToolExecutionEngine.
+lib/ai-orchestrator/src/agents/chat-agent.ts:5488:  const loopResult = await executeToolLoop({
+lib/ai-orchestrator/src/agents/chat-agent.ts-5489-    messages,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5490-    strategy,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5491-    model,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5492-    powerModel,
+lib/ai-orchestrator/src/agents/chat-agent.ts-5493-    provider: providerId,
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-5936-      pendingChanges: getExecutionPendingChanges(),
+lib/ai-orchestrator/src/agents/chat-agent.ts-5937-      ...(exhaustionTaskResult ? { taskResult: exhaustionTaskResult } : {}),
+lib/ai-orchestrator/src/agents/chat-agent.ts-5938-    };
+lib/ai-orchestrator/src/agents/chat-agent.ts-5939-  }
+lib/ai-orchestrator/src/agents/chat-agent.ts-5940-
+lib/ai-orchestrator/src/agents/chat-agent.ts:5941:  if (loopResult.kind === "failed") {
+lib/ai-orchestrator/src/agents/chat-agent.ts-5942-    const isArabic = /[\u0600-\u06FF]/.test(message);
+lib/ai-orchestrator/src/agents/chat-agent.ts-5943-    const blockedResponse = isArabic
+lib/ai-orchestrator/src/agents/chat-agent.ts-5944-      ? `تم حظر العملية لأن الأداة \`${loopResult.tool}\` لم تكتمل (${loopResult.diagnosticCode}). لم يتم تنفيذ العملية المطلوبة، ولا يمكنني الادعاء بأنها اكتملت.`
+lib/ai-orchestrator/src/agents/chat-agent.ts-5945-      : `The operation is BLOCKED because tool "${loopResult.tool}" did not complete (${loopResult.diagnosticCode}). I cannot claim the requested analysis, validation, repair, or change was completed.`;
+lib/ai-orchestrator/src/agents/chat-agent.ts-5946-    return {
+--
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-133-    { role: "system", content: systemPrompt },
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-134-    { role: "user", content: task.intent },
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-135-  ];
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-136-
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-137-  try {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:138:    const loopResult = await executeToolLoop({
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-139-      messages: taskMessages,
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-140-      strategy,
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-141-      model,
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-142-      powerModel,
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-143-      provider,
+--
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-99-        yield "";
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-100-      },
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-101-    };
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-102-    const messages: RawMessage[] = [{ role: "user", content: "ordered forensic audit" }];
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-103-
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:104:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-105-      messages,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-106-      strategy,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-107-      model: "test",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-108-      powerModel: "test-power",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-109-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-225-        yield "";
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-226-      },
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-227-    };
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-228-    const messages: RawMessage[] = [{ role: "user", content: "single file test" }];
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-229-
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:230:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-231-      messages,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-232-      strategy,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-233-      model: "test",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-234-      powerModel: "test-power",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-235-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-279-        yield "";
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-280-      },
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-281-    };
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-282-    const messages: RawMessage[] = [{ role: "user", content: `audit ${knownDefectPath} only` }];
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-283-
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:284:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-285-      messages,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-286-      strategy,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-287-      model: "test",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-288-      powerModel: "test-power",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-289-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-352-    // With the pre-seeded cache, the read_file call must be a cache hit so no
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-353-    // fresh tool budget is consumed. maxToolCalls:0 proves this — if the file
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-354-    // were re-read fresh the loop would serve a "budget exhausted" response and
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-355-    // fileContents would remain empty.
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-356-    const messages: RawMessage[] = [{ role: "user", content: `audit ${knownDefectPath} only` }];
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:357:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-358-      messages,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-359-      strategy,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-360-      model: "test",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-361-      powerModel: "test-power",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-362-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-403-        yield "";
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-404-      },
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-405-    };
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-406-    const messages: RawMessage[] = [{ role: "user", content: `audit ${knownDefectPath} only` }];
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-407-
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:408:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-409-      messages,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-410-      strategy,
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-411-      model: "test",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-412-      powerModel: "test-power",
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts-413-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-47-
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-48-/** A plain `.ts` production path that defines the queried symbol. */
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-49-const TARGET = "src/executor.ts";
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-50-const TARGET_CONTENT = [
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-51-  'import { MAX_LOOPS } from "./caller";',
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts:52:  "export function executeToolLoop(opts?: { maxIterations?: number }) {",
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-53-  "  let iter = 0;",
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-54-  "  const cap = opts?.maxIterations ?? MAX_LOOPS;",
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-55-  "  while (iter < cap) iter += 1;",
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-56-  "  return iter;",
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts-57-  "}",
+--
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-157-      validationTargetPaths: ["src/example.ts"],
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-158-      allowExecutionTools: false,
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-159-    });
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-160-
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-161-    expect(result.kind).toBe("failed");
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:162:    expect(result.kind === "failed" && result.diagnosticCode).toBe("TOOL_UNAVAILABLE");
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:163:    expect(result.kind === "failed" && result.safeMessage).toMatch(/did not complete/i);
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-164-    expect(runner).not.toHaveBeenCalled();
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-165-  });
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-166-
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-167-  it("uses the server runner and server-owned paths inside Build mode", async () => {
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts-168-    const runner = vi.fn().mockResolvedValue({
+--
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-50-        yield "";
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-51-      },
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-52-    };
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-53-    const steps: Array<Record<string, unknown>> = [];
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-54-
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts:55:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-56-      messages: [{ role: "user", content: "inspect verified.ts" }],
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-57-      strategy,
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-58-      model: "test-model",
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-59-      powerModel: "test-power-model",
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts-60-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-356-  });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-357-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-358-  it("returns kind:response immediately when model emits no tool calls", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-359-    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-360-    const strategy = makeStrategy([makeResponse("final answer")]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:361:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-362-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-363-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-364-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-365-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-366-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-380-        path: "src/example.ts",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-381-        content: "unsafe",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-382-      })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-383-      makeResponse("phase stopped"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-384-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:385:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-386-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-387-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-388-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-389-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-390-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-426-        }),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-427-      ),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-428-      stream: async function* () { yield ""; },
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-429-    };
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-430-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:431:    const pending = executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-432-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-433-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-434-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-435-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-436-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-455-    const diagnostics: AgentStep[] = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-456-    const strategy = makeStrategy([
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-457-      makeResponse("", [makeToolCall("scope-1", "read_file", { path: "src/unrelated.ts" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-458-      makeResponse("blocked"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-459-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:460:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-461-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-462-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-463-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-464-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-465-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-492-    FILE_TOOL_MOCK.mockResolvedValue("File: src/caller.ts\n```\nreturn target();\n```");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-493-    const strategy = makeStrategy([
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-494-      makeResponse("", [makeToolCall("scope-2", "read_file", { path: "src/caller.ts" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-495-      makeResponse("done"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-496-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:497:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-498-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-499-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-500-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-501-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-502-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-545-      detail: "typecheck failed",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-546-    }));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-547-    const validationSteps: Array<Extract<AgentStep, { kind: "validation" }>> = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-548-    const repairStates: Array<Extract<AgentStep, { kind: "repair_state" }>> = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-549-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:550:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-551-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-552-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-553-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-554-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-555-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-632-      exitCode: changes?.[0]?.newContent === "const value = 2;\n" ? 0 : 1,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-633-      detail: "Pending workspace validation completed.",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-634-    }));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-635-    const steps: AgentStep[] = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-636-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:637:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-638-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-639-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-640-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-641-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-642-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-726-      changedFiles: changes?.map((change) => change.path) ?? [],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-727-      detail: "typecheck failed",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-728-    }));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-729-    const steps: AgentStep[] = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-730-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:731:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-732-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-733-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-734-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-735-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-736-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-764-  it("links a successful execution read to the model claim that preceded it", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-765-    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-766-    FILE_TOOL_MOCK.mockResolvedValue("File: src/auth.ts\n```\nreturn verifyScope(token);\n```");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-767-    const steps: AgentStep[] = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-768-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:769:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-770-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-771-      strategy: makeStrategy([
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-772-        makeResponse(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-773-          "I am reading src/auth.ts because the repair must verify the token scope.",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-774-          [makeToolCall("read-1", "read_file", { path: "src/auth.ts" })],
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-801-  it("does not link read evidence during forensic runs", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-802-    const { executeToolLoop } = await import("../tool-execution-engine.js");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-803-    FILE_TOOL_MOCK.mockResolvedValue("File: src/auth.ts\n```\nreturn verifyScope(token);\n```");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-804-    const steps: AgentStep[] = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-805-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:806:    await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-807-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-808-      strategy: makeStrategy([
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-809-        makeResponse(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-810-          "This source read is part of the audit evidence.",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-811-          [makeToolCall("read-1", "read_file", { path: "src/auth.ts" })],
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-832-    const strategy = makeStrategy([
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-833-      makeResponse("The answer was cut off…", undefined, "length"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-834-      makeResponse("The complete answer."),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-835-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-836-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:837:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-838-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-839-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-840-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-841-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-842-      provider: "openrouter",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-869-    const strategy = makeStrategy([
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-870-      makeResponse("", [makeToolCall("tc1", "read_file", { path: "src/big.ts" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-871-      makeResponse("", [makeToolCall("tc2", "read_file", { path: "src/big.ts" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-872-      makeResponse("final"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-873-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:874:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-875-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-876-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-877-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-878-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-879-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-919-        }),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-920-      ]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-921-      makeResponse("final"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-922-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-923-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:924:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-925-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-926-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-927-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-928-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-929-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-963-    const prefetched = new Map([["src/forensic.ts", "export function inspected() { return true; }\n"]]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-964-    const cache = new Map([
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-965-      [toolCacheKey("read_file", { path: "src/forensic.ts" }), prefetched.get("src/forensic.ts")!],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-966-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-967-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:968:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-969-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-970-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-971-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-972-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-973-      provider: "openrouter",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1001-      makeResponse('{"response":"fallback forensic report","sources":[]}'),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1002-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1003-    const prefetched = new Map([["src/forensic.ts", "export const inspected = true;\n"]]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1004-    const cache = new Map<string, string>();
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1005-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1006:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1007-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1008-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1009-      model: "initial-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1010-      powerModel: "powerful-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1011-      provider: "openrouter",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1063-      // Iteration 2: model gives final answer
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1064-      makeResponse("final answer"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1065-    ]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1066-    const messages = makeMessages();
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1067-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1068:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1069-      messages,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1070-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1071-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1072-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1073-      provider: "test",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1092-      .mockRejectedValueOnce(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1093-        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1094-      )
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1095-      .mockResolvedValueOnce(makeResponse("recovered answer"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1096-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1097:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1098-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1099-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1100-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1101-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1102-      provider: "openrouter",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1122-        ...makeResponse("fallback answer"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1123-        model: "actual-fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1124-      });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1125-    const steps: AgentStep[] = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1126-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1127:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1128-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1129-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1130-      model: "initial-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1131-      powerModel: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1132-      provider: "openrouter",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1152-    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1153-      new GroqClientError("TIMEOUT", "provider timed out with internal details"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1154-    );
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1155-    const steps: AgentStep[] = [];
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1156-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1157:    await expect(executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1158-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1159-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1160-      model: "initial-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1161-      powerModel: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1162-      provider: "openrouter",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1183-    const strategy = makeStrategy([]);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1184-    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1185-      new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1186-    );
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1187-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1188:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1189-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1190-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1191-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1192-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1193-      provider: "openrouter",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1213-      )
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1214-      .mockRejectedValue(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1215-        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1216-      );
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1217-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1218:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1219-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1220-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1221-      model: "fast",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1222-      powerModel: "powerful",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1223-      provider: "openrouter",
+--
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1249-      )
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1250-      .mockRejectedValue(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1251-        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1252-      );
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1253-
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1254:    const result = await executeToolLoop({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1255-      messages: makeMessages(),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1256-      strategy,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts-1257-      model: "fast",

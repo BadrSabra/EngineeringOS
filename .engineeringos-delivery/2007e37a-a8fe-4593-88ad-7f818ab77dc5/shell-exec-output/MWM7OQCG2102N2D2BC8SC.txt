@@ -1,0 +1,500 @@
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-17-  providerId: "groq",
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-18-  supportsNativeStream: true,
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-19-
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-20-  call(messages: RawMessage[], opts: StrategyCallOptions) {
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:21:    return completeRaw(messages, opts);
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-22-  },
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-23-
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-24-  stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-25-    return completeStream(messages, opts);
+--
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-1-/**
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-2- * Gemini provider strategy.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-3- *
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:4: * Wraps `geminiCompleteRaw` and `geminiCompleteStream` from
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-5- * openai-compatible-client.ts behind the `ProviderStrategy` interface.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-6- *
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-7- * `supportsNativeStream: false` — the Gemini shim strips tools and
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-8- * responseFormat, and the free-tier endpoint is not reliable for SSE.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-9- * The agent re-emits the non-streaming response word-by-word.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-10- *
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:11: * Tool payloads are stripped inside `geminiCompleteRaw` (the Gemini
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-12- * OpenAI-compatible shim currently returns 404 with tools attached).
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-13- */
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-14-import {
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:15:  geminiCompleteRaw,
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-16-  geminiCompleteStream,
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-17-} from "../openai-compatible-client.js";
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-18-import { GroqClientError } from "../errors.js";
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-19-import type { RawMessage } from "../groq-client.js";
+--
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-33-        "INVALID_CONFIG",
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-34-        "Gemini requires an API key — save one in the AI settings panel",
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-35-      );
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-36-    }
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:37:    // geminiCompleteRaw already strips tools and responseFormat internally.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:38:    return geminiCompleteRaw(messages, { ...opts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-39-  },
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-40-
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-41-  stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-42-    if (!opts.apiKey) {
+--
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-1-/**
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-2- * DeepSeek provider strategy.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-3- *
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:4: * Wraps `deepseekCompleteRaw` and `deepseekCompleteStream` from
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-5- * deepseek-client.ts behind the `ProviderStrategy` interface.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-6- * DeepSeek supports native SSE streaming for the final synthesis step.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-7- *
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-8- * Both `call` and `stream` require a non-empty `apiKey` — DeepSeek has no
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-9- * server-side env fallback (unlike Groq). A missing key throws
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-10- * `GroqClientError("INVALID_CONFIG", ...)` before the network request.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-11- */
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:12:import { deepseekCompleteRaw, deepseekCompleteStream } from "../deepseek-client.js";
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-13-import { GroqClientError } from "../errors.js";
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-14-import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-15-import type {
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-16-  ProviderStrategy,
+--
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-28-        "INVALID_CONFIG",
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-29-        "DeepSeek requires an API key — save one in the AI settings panel",
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-30-      );
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-31-    }
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:32:    return deepseekCompleteRaw(messages, { ...opts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-33-  },
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-34-
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-35-  stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-36-    if (!opts.apiKey) {
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-998-
+lib/ai-orchestrator/src/tool-execution-engine.ts-999-  /** Provider name used only for structured log attribution. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1000-  provider: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1001-
+lib/ai-orchestrator/src/tool-execution-engine.ts:1002:  /** Optional per-user API key forwarded to every strategy.call(). */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1003-  apiKey?: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1004-
+lib/ai-orchestrator/src/tool-execution-engine.ts-1005-  /** Capability contract for every model call in this loop. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1006-  capability?: ModelCapability;
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-1987-    callMessages: RawMessage[],
+lib/ai-orchestrator/src/tool-execution-engine.ts-1988-    callOptions: Parameters<ProviderStrategy["call"]>[1],
+lib/ai-orchestrator/src/tool-execution-engine.ts-1989-  ): Promise<{ result: RawGroqResponse; attemptCount: number }> => {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1990-    try {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1991:      return { result: await strategy.call(callMessages, callOptions), attemptCount: 1 };
+lib/ai-orchestrator/src/tool-execution-engine.ts-1992-    } catch (err) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1993-      if (
+lib/ai-orchestrator/src/tool-execution-engine.ts-1994-        !(err instanceof GroqClientError) ||
+lib/ai-orchestrator/src/tool-execution-engine.ts-1995-        err.code !== "EMPTY_RESPONSE" ||
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2010-      );
+lib/ai-orchestrator/src/tool-execution-engine.ts-2011-
+lib/ai-orchestrator/src/tool-execution-engine.ts-2012-      try {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2013-        return {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2014:          result: await strategy.call(callMessages, callOptions),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2015-          attemptCount: 2,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2016-        };
+lib/ai-orchestrator/src/tool-execution-engine.ts-2017-      } catch (retryErr) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2018-        if (retryErr instanceof GroqClientError) {
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2062-        // deadline; retries use the remaining time.
+lib/ai-orchestrator/src/tool-execution-engine.ts-2063-        const attemptTimeoutMs = synthesisAttempts === 1
+lib/ai-orchestrator/src/tool-execution-engine.ts-2064-          ? Math.min(options.timeoutMs ?? 60_000, boundedSynthesisTimeoutMs)
+lib/ai-orchestrator/src/tool-execution-engine.ts-2065-          : Math.min(options.timeoutMs ?? 60_000, remaining);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2066:        return await strategy.call(callMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2067-          ...options,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2068-          ...(opts.capability ? { capability: opts.capability } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2069-          timeoutMs: attemptTimeoutMs,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2070-          signal: controller.signal,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2476-              taskType,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2477-              ...(opts.capability ? { capability: opts.capability } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2478-              ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2479-              ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2480:              ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2481-              ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2482-            }),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2483-            attemptCount: synthesisAttempts - synthesisAttemptsBeforeCall,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2484-          }
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2491-        taskType,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2492-        ...(opts.capability ? { capability: opts.capability } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2493-        ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2494-        ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2495:        ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2496-        ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2497-      });
+lib/ai-orchestrator/src/tool-execution-engine.ts-2498-      result = callResult.result;
+lib/ai-orchestrator/src/tool-execution-engine.ts-2499-      attemptCount = callResult.attemptCount;
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2532-                 ...(opts.capability ? { capability: opts.capability } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2533-                ...(iterationTools != null ? { tools: iterationTools } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2534-                ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2535-            })
+lib/ai-orchestrator/src/tool-execution-engine.ts:2536:          : await strategy.call(outboundMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2537-            model: powerModel,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2538-            ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2539-            timeoutMs: 60_000,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2540-            apiKey,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2813-            "Preserve the requested response format and do not call tools.",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2814-        },
+lib/ai-orchestrator/src/tool-execution-engine.ts-2815-      ]);
+lib/ai-orchestrator/src/tool-execution-engine.ts-2816-      try {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2817:        const retry = await strategy.call(retryMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2818-          model: result.model || model,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2819-          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2820-          timeoutMs: 60_000,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2821-          apiKey,
+--
+lib/ai-orchestrator/src/provider-tool-calls.ts-41-   * narrower per-iteration exposure (for example after a cached read), while
+lib/ai-orchestrator/src/provider-tool-calls.ts-42-   * this keeps stale provider responses on the same authorized execution path.
+lib/ai-orchestrator/src/provider-tool-calls.ts-43-   * It is intentionally omitted for no-tool synthesis calls.
+lib/ai-orchestrator/src/provider-tool-calls.ts-44-   */
+lib/ai-orchestrator/src/provider-tool-calls.ts:45:  toolManifest?: ToolCallManifest;
+lib/ai-orchestrator/src/provider-tool-calls.ts-46-  providerName?: string;
+lib/ai-orchestrator/src/provider-tool-calls.ts-47-  model?: string;
+lib/ai-orchestrator/src/provider-tool-calls.ts-48-};
+lib/ai-orchestrator/src/provider-tool-calls.ts-49-
+--
+lib/ai-orchestrator/src/provider-tool-calls.ts-153-  if (!Array.isArray(calls)) {
+lib/ai-orchestrator/src/provider-tool-calls.ts-154-    throw invalidToolCall("native tool calls must be an array", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts-155-  }
+lib/ai-orchestrator/src/provider-tool-calls.ts-156-  if (calls.length === 0) return [];
+lib/ai-orchestrator/src/provider-tool-calls.ts:157:  const names = manifestNames(options.toolManifest ?? options.tools);
+lib/ai-orchestrator/src/provider-tool-calls.ts-158-  return calls.map((rawCall, index) => {
+lib/ai-orchestrator/src/provider-tool-calls.ts-159-    if (!isRecord(rawCall) || rawCall.type !== "function" || !isRecord(rawCall.function)) {
+lib/ai-orchestrator/src/provider-tool-calls.ts-160-      throw invalidToolCall("native tool call has an invalid shape", options);
+lib/ai-orchestrator/src/provider-tool-calls.ts-161-    }
+--
+lib/ai-orchestrator/src/provider-tool-calls.ts-305-export function normalizeProviderText(
+lib/ai-orchestrator/src/provider-tool-calls.ts-306-  content: string,
+lib/ai-orchestrator/src/provider-tool-calls.ts-307-  options: ProviderToolCallOptions = {},
+lib/ai-orchestrator/src/provider-tool-calls.ts-308-): { content: string | null; toolCalls: ToolCall[] } {
+lib/ai-orchestrator/src/provider-tool-calls.ts:309:  const names = manifestNames(options.toolManifest ?? options.tools);
+lib/ai-orchestrator/src/provider-tool-calls.ts-310-  const textual: Array<{ name: string; arguments: string }> = [];
+lib/ai-orchestrator/src/provider-tool-calls.ts-311-  const kept: string[] = [];
+lib/ai-orchestrator/src/provider-tool-calls.ts-312-  let cursor = 0;
+lib/ai-orchestrator/src/provider-tool-calls.ts-313-
+--
+lib/ai-orchestrator/src/provider-tool-calls.ts-492-      }
+lib/ai-orchestrator/src/provider-tool-calls.ts-493-      const result = normalizeProviderText(pending, {
+lib/ai-orchestrator/src/provider-tool-calls.ts-494-        ...options,
+lib/ai-orchestrator/src/provider-tool-calls.ts-495-        tools: new Set(),
+lib/ai-orchestrator/src/provider-tool-calls.ts:496:        toolManifest: new Set(),
+lib/ai-orchestrator/src/provider-tool-calls.ts-497-      });
+lib/ai-orchestrator/src/provider-tool-calls.ts-498-      pending = "";
+lib/ai-orchestrator/src/provider-tool-calls.ts-499-      return result.content ? [result.content] : [];
+lib/ai-orchestrator/src/provider-tool-calls.ts-500-    },
+--
+lib/ai-orchestrator/src/provider-strategy.ts-44-  /** Caller-owned cancellation signal for the active provider request. */
+lib/ai-orchestrator/src/provider-strategy.ts-45-  signal?: AbortSignal;
+lib/ai-orchestrator/src/provider-strategy.ts-46-  tools?: ToolDefinition[];
+lib/ai-orchestrator/src/provider-strategy.ts-47-  /** Full authorized execution manifest used to validate stale per-iteration calls. */
+lib/ai-orchestrator/src/provider-strategy.ts:48:  toolManifest?: ToolDefinition[];
+lib/ai-orchestrator/src/provider-strategy.ts-49-  /**
+lib/ai-orchestrator/src/provider-strategy.ts-50-   * Tool selection policy for agentic execution. `required` is used only for
+lib/ai-orchestrator/src/provider-strategy.ts-51-   * an explicit repair-plan handoff that has concrete files to modify.
+lib/ai-orchestrator/src/provider-strategy.ts-52-   */
+--
+lib/ai-orchestrator/src/openai-compatible-client.ts-48-  /** Bearer API key — required. */
+lib/ai-orchestrator/src/openai-compatible-client.ts-49-  apiKey: string;
+lib/ai-orchestrator/src/openai-compatible-client.ts-50-  tools?: ToolDefinition[];
+lib/ai-orchestrator/src/openai-compatible-client.ts-51-  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:52:  toolManifest?: ToolDefinition[];
+lib/ai-orchestrator/src/openai-compatible-client.ts-53-  toolChoice?: "auto" | "required";
+lib/ai-orchestrator/src/openai-compatible-client.ts-54-  responseFormat?: { type: "json_object" };
+lib/ai-orchestrator/src/openai-compatible-client.ts-55-  /** Override base URL (e.g. "https://openrouter.ai/api/v1"). */
+lib/ai-orchestrator/src/openai-compatible-client.ts-56-  baseUrl: string;
+--
+lib/ai-orchestrator/src/openai-compatible-client.ts-606-}
+lib/ai-orchestrator/src/openai-compatible-client.ts-607-
+lib/ai-orchestrator/src/openai-compatible-client.ts-608-/**
+lib/ai-orchestrator/src/openai-compatible-client.ts-609- * Non-streaming chat completion against any OpenAI-compatible endpoint.
+lib/ai-orchestrator/src/openai-compatible-client.ts:610: * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
+lib/ai-orchestrator/src/openai-compatible-client.ts-611- */
+lib/ai-orchestrator/src/openai-compatible-client.ts:612:export async function oacCompleteRaw(
+lib/ai-orchestrator/src/openai-compatible-client.ts-613-  messages: RawMessage[],
+lib/ai-orchestrator/src/openai-compatible-client.ts-614-  opts: OpenAICompatibleOptions,
+lib/ai-orchestrator/src/openai-compatible-client.ts-615-): Promise<RawGroqResponse> {
+lib/ai-orchestrator/src/openai-compatible-client.ts-616-  const {
+--
+lib/ai-orchestrator/src/openai-compatible-client.ts-779-      reasoningContent,
+lib/ai-orchestrator/src/openai-compatible-client.ts-780-      outputText,
+lib/ai-orchestrator/src/openai-compatible-client.ts-781-      reasoningTokens,
+lib/ai-orchestrator/src/openai-compatible-client.ts-782-    },
+lib/ai-orchestrator/src/openai-compatible-client.ts:783:    { tools, toolManifest: opts.toolManifest, providerName, model },
+lib/ai-orchestrator/src/openai-compatible-client.ts-784-  );
+lib/ai-orchestrator/src/openai-compatible-client.ts-785-  content = normalized.content;
+lib/ai-orchestrator/src/openai-compatible-client.ts-786-  const normalizedCalls = normalized.toolCalls ?? [];
+lib/ai-orchestrator/src/openai-compatible-client.ts-787-  const toolCalls = normalizedCalls.length > 0 ? normalizedCalls : null;
+--
+lib/ai-orchestrator/src/openai-compatible-client.ts-991-    extraHeaders: OPENROUTER_EXTRA_HEADERS,
+lib/ai-orchestrator/src/openai-compatible-client.ts-992-  };
+lib/ai-orchestrator/src/openai-compatible-client.ts-993-
+lib/ai-orchestrator/src/openai-compatible-client.ts-994-  try {
+lib/ai-orchestrator/src/openai-compatible-client.ts:995:    return await oacCompleteRaw(trimmed, fullOpts);
+lib/ai-orchestrator/src/openai-compatible-client.ts-996-  } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts-997-    // OpenRouter-compatible models do not all implement JSON mode consistently.
+lib/ai-orchestrator/src/openai-compatible-client.ts-998-    // A 400 caused by response_format must not consume the whole Recovery chain:
+lib/ai-orchestrator/src/openai-compatible-client.ts-999-    // retry the same model once with the prompt-only contract.
+--
+lib/ai-orchestrator/src/openai-compatible-client.ts-1010-          model: fullOpts.model,
+lib/ai-orchestrator/src/openai-compatible-client.ts-1011-          action: "retry_without_response_format",
+lib/ai-orchestrator/src/openai-compatible-client.ts-1012-        }),
+lib/ai-orchestrator/src/openai-compatible-client.ts-1013-      );
+lib/ai-orchestrator/src/openai-compatible-client.ts:1014:      return oacCompleteRaw(trimmed, { ...fullOpts, responseFormat: undefined });
+lib/ai-orchestrator/src/openai-compatible-client.ts-1015-    }
+lib/ai-orchestrator/src/openai-compatible-client.ts-1016-    if (
+lib/ai-orchestrator/src/openai-compatible-client.ts-1017-      err instanceof GroqClientError &&
+lib/ai-orchestrator/src/openai-compatible-client.ts-1018-      err.code === "RATE_LIMITED" &&
+--
+lib/ai-orchestrator/src/openai-compatible-client.ts-1029-        backoffMs: 1500,
+lib/ai-orchestrator/src/openai-compatible-client.ts-1030-      }),
+lib/ai-orchestrator/src/openai-compatible-client.ts-1031-    );
+lib/ai-orchestrator/src/openai-compatible-client.ts-1032-    await sleep(1500);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1033:    return oacCompleteRaw(trimmed, fullOpts);
+lib/ai-orchestrator/src/openai-compatible-client.ts-1034-  }
+lib/ai-orchestrator/src/openai-compatible-client.ts-1035-}
+lib/ai-orchestrator/src/openai-compatible-client.ts-1036-
+lib/ai-orchestrator/src/openai-compatible-client.ts-1037-/**
+--
+lib/ai-orchestrator/src/openai-compatible-client.ts-1327-/**
+lib/ai-orchestrator/src/openai-compatible-client.ts-1328- * Non-streaming completion via Google Gemini (OpenAI-compatible endpoint).
+lib/ai-orchestrator/src/openai-compatible-client.ts-1329- * Free tier: 15 RPM / 1,500 RPD / 1M TPD on gemini-2.0-flash-lite.
+lib/ai-orchestrator/src/openai-compatible-client.ts-1330- */
+lib/ai-orchestrator/src/openai-compatible-client.ts:1331:export function geminiCompleteRaw(
+lib/ai-orchestrator/src/openai-compatible-client.ts-1332-  messages: RawMessage[],
+lib/ai-orchestrator/src/openai-compatible-client.ts-1333-  opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+lib/ai-orchestrator/src/openai-compatible-client.ts-1334-): Promise<RawGroqResponse> {
+lib/ai-orchestrator/src/openai-compatible-client.ts-1335-  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } = opts;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1336:  return oacCompleteRaw(messages, {
+lib/ai-orchestrator/src/openai-compatible-client.ts-1337-    ...safeOpts,
+lib/ai-orchestrator/src/openai-compatible-client.ts-1338-    baseUrl: GEMINI_BASE_URL,
+lib/ai-orchestrator/src/openai-compatible-client.ts-1339-    providerName: "Gemini",
+lib/ai-orchestrator/src/openai-compatible-client.ts-1340-  });
+--
+lib/ai-orchestrator/src/groq-client.ts-52-  toolChoice?: "auto" | "required";
+lib/ai-orchestrator/src/groq-client.ts-53-  /** Tool definitions for agentic calls. */
+lib/ai-orchestrator/src/groq-client.ts-54-  tools?: ToolDefinition[];
+lib/ai-orchestrator/src/groq-client.ts-55-  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+lib/ai-orchestrator/src/groq-client.ts:56:  toolManifest?: ToolDefinition[];
+lib/ai-orchestrator/src/groq-client.ts-57-  /**
+lib/ai-orchestrator/src/groq-client.ts-58-   * Force a structured JSON response from the model.
+lib/ai-orchestrator/src/groq-client.ts-59-   * Only use when tools are NOT present in the request — Groq rejects
+lib/ai-orchestrator/src/groq-client.ts-60-   * response_format + tools together.
+--
+lib/ai-orchestrator/src/groq-client.ts-161-  return "reject";
+lib/ai-orchestrator/src/groq-client.ts-162-}
+lib/ai-orchestrator/src/groq-client.ts-163-
+lib/ai-orchestrator/src/groq-client.ts-164-/**
+lib/ai-orchestrator/src/groq-client.ts:165: * Record the outcome of one complete()/completeRaw() call (after all retries).
+lib/ai-orchestrator/src/groq-client.ts-166- * A success resets the breaker; a failure increments the counter and may open it.
+lib/ai-orchestrator/src/groq-client.ts-167- */
+lib/ai-orchestrator/src/groq-client.ts-168-function circuitRecord(key: string, success: boolean): void {
+lib/ai-orchestrator/src/groq-client.ts-169-  const cb = getCircuit(key);
+--
+lib/ai-orchestrator/src/groq-client.ts-275-function readRawResponse(
+lib/ai-orchestrator/src/groq-client.ts-276-  completion: Awaited<ReturnType<Groq["chat"]["completions"]["create"]>>,
+lib/ai-orchestrator/src/groq-client.ts-277-  opts: {
+lib/ai-orchestrator/src/groq-client.ts-278-    tools?: ToolDefinition[];
+lib/ai-orchestrator/src/groq-client.ts:279:    toolManifest?: ToolDefinition[];
+lib/ai-orchestrator/src/groq-client.ts-280-    providerName: string;
+lib/ai-orchestrator/src/groq-client.ts-281-    model: string;
+lib/ai-orchestrator/src/groq-client.ts-282-  },
+lib/ai-orchestrator/src/groq-client.ts-283-): RawGroqResponse {
+--
+lib/ai-orchestrator/src/groq-client.ts-326- * returns both the text content and any tool calls the model wants to make.
+lib/ai-orchestrator/src/groq-client.ts-327- * The caller is responsible for executing tools and looping until the model
+lib/ai-orchestrator/src/groq-client.ts-328- * returns a final text response with no tool calls.
+lib/ai-orchestrator/src/groq-client.ts-329- */
+lib/ai-orchestrator/src/groq-client.ts:330:export async function completeRaw(
+lib/ai-orchestrator/src/groq-client.ts-331-  messages: RawMessage[],
+lib/ai-orchestrator/src/groq-client.ts-332-  opts: CompleteOptions & { tools?: ToolDefinition[] } = {},
+lib/ai-orchestrator/src/groq-client.ts-333-): Promise<RawGroqResponse> {
+lib/ai-orchestrator/src/groq-client.ts-334-  const {
+--
+lib/ai-orchestrator/src/groq-client.ts-376-    try {
+lib/ai-orchestrator/src/groq-client.ts-377-      const completion = await sendRequest(client, request, timeoutMs, signal);
+lib/ai-orchestrator/src/groq-client.ts-378-      const result = readRawResponse(completion, {
+lib/ai-orchestrator/src/groq-client.ts-379-        tools,
+lib/ai-orchestrator/src/groq-client.ts:380:        toolManifest: opts.toolManifest,
+lib/ai-orchestrator/src/groq-client.ts-381-        providerName: "Groq",
+lib/ai-orchestrator/src/groq-client.ts-382-        model,
+lib/ai-orchestrator/src/groq-client.ts-383-      });
+lib/ai-orchestrator/src/groq-client.ts-384-      logOutcome({ model: result.model, durationMs: Date.now() - startedAt, attempt, outcome: "success" });
+--
+lib/ai-orchestrator/src/deepseek-client.ts-38-  apiKey:     string;               // required — no server-side fallback for DeepSeek
+lib/ai-orchestrator/src/deepseek-client.ts-39-  signal?: AbortSignal;
+lib/ai-orchestrator/src/deepseek-client.ts-40-  tools?:     ToolDefinition[];
+lib/ai-orchestrator/src/deepseek-client.ts-41-  /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
+lib/ai-orchestrator/src/deepseek-client.ts:42:  toolManifest?: ToolDefinition[];
+lib/ai-orchestrator/src/deepseek-client.ts-43-  toolChoice?: "auto" | "required";
+lib/ai-orchestrator/src/deepseek-client.ts-44-  /**
+lib/ai-orchestrator/src/deepseek-client.ts-45-   * Force a structured JSON response.
+lib/ai-orchestrator/src/deepseek-client.ts-46-   * Mutually exclusive with `tools` — when both are present, tools take precedence
+--
+lib/ai-orchestrator/src/deepseek-client.ts-215-}
+lib/ai-orchestrator/src/deepseek-client.ts-216-
+lib/ai-orchestrator/src/deepseek-client.ts-217-/**
+lib/ai-orchestrator/src/deepseek-client.ts-218- * Send a chat-completion request to DeepSeek and return a RawGroqResponse.
+lib/ai-orchestrator/src/deepseek-client.ts:219: * The returned shape is identical to completeRaw() so chat-agent.ts can
+lib/ai-orchestrator/src/deepseek-client.ts-220- * call either function through the same code path.
+lib/ai-orchestrator/src/deepseek-client.ts-221- */
+lib/ai-orchestrator/src/deepseek-client.ts:222:export async function deepseekCompleteRaw(
+lib/ai-orchestrator/src/deepseek-client.ts-223-  messages: RawMessage[],
+lib/ai-orchestrator/src/deepseek-client.ts-224-  opts: DeepSeekCompleteOptions,
+lib/ai-orchestrator/src/deepseek-client.ts-225-): Promise<RawGroqResponse> {
+lib/ai-orchestrator/src/deepseek-client.ts-226-  const {
+--
+lib/ai-orchestrator/src/deepseek-client.ts-309-  if (!content && !hasCalls) {
+lib/ai-orchestrator/src/deepseek-client.ts-310-    if (rawToolCalls !== undefined) {
+lib/ai-orchestrator/src/deepseek-client.ts-311-      normalizeProviderToolCalls(rawToolCalls, {
+lib/ai-orchestrator/src/deepseek-client.ts-312-        tools,
+lib/ai-orchestrator/src/deepseek-client.ts:313:        toolManifest: opts.toolManifest,
+lib/ai-orchestrator/src/deepseek-client.ts-314-        providerName: "DeepSeek",
+lib/ai-orchestrator/src/deepseek-client.ts-315-        model,
+lib/ai-orchestrator/src/deepseek-client.ts-316-      });
+lib/ai-orchestrator/src/deepseek-client.ts-317-    }
+--
+lib/ai-orchestrator/src/deepseek-client.ts-325-    usage: {
+lib/ai-orchestrator/src/deepseek-client.ts-326-      promptTokens:       data.usage?.prompt_tokens  ?? 0,
+lib/ai-orchestrator/src/deepseek-client.ts-327-      completionTokens:   data.usage?.completion_tokens ?? 0,
+lib/ai-orchestrator/src/deepseek-client.ts-328-    },
+lib/ai-orchestrator/src/deepseek-client.ts:329:  }, { tools, toolManifest: opts.toolManifest, providerName: "DeepSeek", model });
+lib/ai-orchestrator/src/deepseek-client.ts-330-}
+--
+lib/ai-orchestrator/src/agent-complete.ts-5- * the provider configuration itself now flows through the registry helpers so
+lib/ai-orchestrator/src/agent-complete.ts-6- * selection, defaults, and validation share one source of truth.
+lib/ai-orchestrator/src/agent-complete.ts-7- */
+lib/ai-orchestrator/src/agent-complete.ts-8-import { complete, completeRaw } from "./groq-client.js";
+lib/ai-orchestrator/src/agent-complete.ts:9:import { deepseekCompleteRaw } from "./deepseek-client.js";
+lib/ai-orchestrator/src/agent-complete.ts:10:import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
+lib/ai-orchestrator/src/agent-complete.ts-11-import { loadProvider } from "./provider-registry.js";
+lib/ai-orchestrator/src/agent-complete.ts-12-import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
+lib/ai-orchestrator/src/agent-complete.ts-13-import { GroqClientError } from "./errors.js";
+lib/ai-orchestrator/src/agent-complete.ts-14-import type { Message } from "./groq-client.js";
+--
+lib/ai-orchestrator/src/agent-complete.ts-94-  const probeModelDecision = resolveExecutionModel(provider.providerId, probePlan);
+lib/ai-orchestrator/src/agent-complete.ts-95-
+lib/ai-orchestrator/src/agent-complete.ts-96-  switch (provider.providerId) {
+lib/ai-orchestrator/src/agent-complete.ts-97-    case "deepseek":
+lib/ai-orchestrator/src/agent-complete.ts:98:      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
+lib/ai-orchestrator/src/agent-complete.ts-99-      return;
+lib/ai-orchestrator/src/agent-complete.ts-100-    case "openrouter":
+lib/ai-orchestrator/src/agent-complete.ts-101-      // Use the same decision engine as the main call path so the validation
+lib/ai-orchestrator/src/agent-complete.ts-102-      // probe exercises the same model-selection rules.
+--
+lib/ai-orchestrator/src/agent-complete.ts-110-        requireTools: probePlan.strictHints.requireTools ?? false,
+lib/ai-orchestrator/src/agent-complete.ts-111-      });
+lib/ai-orchestrator/src/agent-complete.ts-112-      return;
+lib/ai-orchestrator/src/agent-complete.ts-113-    case "gemini":
+lib/ai-orchestrator/src/agent-complete.ts:114:      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
+lib/ai-orchestrator/src/agent-complete.ts-115-      return;
+lib/ai-orchestrator/src/agent-complete.ts-116-    default:
+lib/ai-orchestrator/src/agent-complete.ts-117-      // groq — uses high-level client with 10s timeout for the probe
+lib/ai-orchestrator/src/agent-complete.ts:118:      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000, model: probeModelDecision.model });
+lib/ai-orchestrator/src/agent-complete.ts-119-      return;
+lib/ai-orchestrator/src/agent-complete.ts-120-  }
+lib/ai-orchestrator/src/agent-complete.ts-121-}
+lib/ai-orchestrator/src/agent-complete.ts-122-
+--
+lib/ai-orchestrator/src/agent-complete.ts-172-
+lib/ai-orchestrator/src/agent-complete.ts-173-  switch (provider.providerId) {
+lib/ai-orchestrator/src/agent-complete.ts-174-    case "deepseek": {
+lib/ai-orchestrator/src/agent-complete.ts-175-      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+lib/ai-orchestrator/src/agent-complete.ts:176:      const result = await deepseekCompleteRaw(messages, {
+lib/ai-orchestrator/src/agent-complete.ts-177-        model: modelDecision.model,
+lib/ai-orchestrator/src/agent-complete.ts-178-        apiKey,
+lib/ai-orchestrator/src/agent-complete.ts-179-        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+lib/ai-orchestrator/src/agent-complete.ts-180-        signal: opts.signal,
+--
+lib/ai-orchestrator/src/agent-complete.ts-203-    }
+lib/ai-orchestrator/src/agent-complete.ts-204-
+lib/ai-orchestrator/src/agent-complete.ts-205-    case "gemini": {
+lib/ai-orchestrator/src/agent-complete.ts-206-      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+lib/ai-orchestrator/src/agent-complete.ts:207:      const result = await geminiCompleteRaw(messages, {
+lib/ai-orchestrator/src/agent-complete.ts-208-        model: modelDecision.model,
+lib/ai-orchestrator/src/agent-complete.ts-209-        apiKey,
+lib/ai-orchestrator/src/agent-complete.ts-210-        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+lib/ai-orchestrator/src/agent-complete.ts-211-        signal: opts.signal,
+--
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-17-  providerId: "groq",
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-18-  supportsNativeStream: true,
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-19-
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-20-  call(messages: RawMessage[], opts: StrategyCallOptions) {
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:21:    return completeRaw(messages, opts);
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-22-  },
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-23-
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-24-  stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+lib/ai-orchestrator/src/strategies/groq.strategy.ts-25-    return completeStream(messages, opts);
+--
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-1-/**
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-2- * Gemini provider strategy.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-3- *
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:4: * Wraps `geminiCompleteRaw` and `geminiCompleteStream` from
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-5- * openai-compatible-client.ts behind the `ProviderStrategy` interface.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-6- *
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-7- * `supportsNativeStream: false` — the Gemini shim strips tools and
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-8- * responseFormat, and the free-tier endpoint is not reliable for SSE.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-9- * The agent re-emits the non-streaming response word-by-word.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-10- *
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:11: * Tool payloads are stripped inside `geminiCompleteRaw` (the Gemini
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-12- * OpenAI-compatible shim currently returns 404 with tools attached).
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-13- */
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-14-import {
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:15:  geminiCompleteRaw,
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-16-  geminiCompleteStream,
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-17-} from "../openai-compatible-client.js";
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-18-import { GroqClientError } from "../errors.js";
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-19-import type { RawMessage } from "../groq-client.js";
+--
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-33-        "INVALID_CONFIG",
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-34-        "Gemini requires an API key — save one in the AI settings panel",
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-35-      );
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-36-    }
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:37:    // geminiCompleteRaw already strips tools and responseFormat internally.
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts:38:    return geminiCompleteRaw(messages, { ...opts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-39-  },
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-40-
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-41-  stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts-42-    if (!opts.apiKey) {
+--
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-1-/**
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-2- * DeepSeek provider strategy.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-3- *
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:4: * Wraps `deepseekCompleteRaw` and `deepseekCompleteStream` from
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-5- * deepseek-client.ts behind the `ProviderStrategy` interface.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-6- * DeepSeek supports native SSE streaming for the final synthesis step.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-7- *
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-8- * Both `call` and `stream` require a non-empty `apiKey` — DeepSeek has no
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-9- * server-side env fallback (unlike Groq). A missing key throws
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-10- * `GroqClientError("INVALID_CONFIG", ...)` before the network request.
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-11- */
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:12:import { deepseekCompleteRaw, deepseekCompleteStream } from "../deepseek-client.js";
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-13-import { GroqClientError } from "../errors.js";
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-14-import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-15-import type {
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-16-  ProviderStrategy,
+--
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-28-        "INVALID_CONFIG",
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-29-        "DeepSeek requires an API key — save one in the AI settings panel",
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-30-      );
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-31-    }
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts:32:    return deepseekCompleteRaw(messages, { ...opts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-33-  },
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-34-
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-35-  stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts-36-    if (!opts.apiKey) {
+--
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts-265-      : {}),
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts-266-  };
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts-267-
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts-268-  try {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:269:    return parseProbeArguments(await strategy.call(messages, callOptions), options, startedAt);
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts-270-  } catch (error) {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts-271-    const isProviderError = error instanceof GroqClientError;
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts-272-    const attemptedModels = isProviderError
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts-273-      ? error.providerAttemptedModels
+--
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-412-  ];
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts-413-

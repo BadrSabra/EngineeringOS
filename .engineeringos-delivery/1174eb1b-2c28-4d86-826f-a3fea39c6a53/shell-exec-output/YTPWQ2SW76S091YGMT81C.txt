@@ -1,0 +1,99 @@
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2501:      register(key: string) {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2571:      barrier.register(key);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2640:      barrier.register(key);
+lib/ai-orchestrator/src/task-session-state.ts:95:  capabilityId: CapabilityIdSchema.optional(),
+lib/ai-orchestrator/src/recipe-contract.ts:145:  capabilityId: CapabilityIdSchema,
+lib/ai-orchestrator/src/recipe-compiler.ts:2:  CapabilityRegistry,
+lib/ai-orchestrator/src/recipe-compiler.ts:101:  registry: CapabilityRegistry;
+lib/ai-orchestrator/src/recipe-compiler.ts:362:    capabilityId: source.capabilityId,
+lib/ai-orchestrator/src/index.ts:196:  CapabilityRegistry,
+lib/ai-orchestrator/src/index.ts:197:  CapabilityRegistryError,
+lib/ai-orchestrator/src/index.ts:233:  CapabilityAdapter,
+lib/ai-orchestrator/src/capability-contract.ts:253:export type CapabilityAdapter<Input = unknown, Output = unknown> = CapabilityRegistration & {
+lib/ai-orchestrator/src/capability-contract.ts:275:  capabilityId: string;
+lib/ai-orchestrator/src/capability-contract.ts:282:  | { ok: true; capability: CapabilityAdapter<Input>; input: Input }
+lib/ai-orchestrator/src/capability-contract.ts:288:      capabilityId: CapabilityId;
+lib/ai-orchestrator/src/capability-contract.ts:295:  capabilityId: string,
+lib/ai-orchestrator/src/capability-contract.ts:337:function validateRegistration(adapter: CapabilityAdapter | null | undefined): CapabilityFailure | undefined {
+lib/ai-orchestrator/src/capability-contract.ts:375:function cloneRegistration(adapter: CapabilityAdapter): CapabilityAdapter {
+lib/ai-orchestrator/src/capability-contract.ts:399:  }) as unknown as CapabilityAdapter;
+lib/ai-orchestrator/src/capability-contract.ts:409:export class CapabilityRegistry {
+lib/ai-orchestrator/src/capability-contract.ts:410:  private readonly adapters = new Map<CapabilityId, CapabilityAdapter>();
+lib/ai-orchestrator/src/capability-contract.ts:412:  public constructor(adapters: readonly CapabilityAdapter[] = []) {
+lib/ai-orchestrator/src/capability-contract.ts:413:    for (const adapter of adapters) this.register(adapter);
+lib/ai-orchestrator/src/capability-contract.ts:416:  public register(adapter: CapabilityAdapter): void {
+lib/ai-orchestrator/src/capability-contract.ts:419:      throw new CapabilityRegistryError("CAPABILITY_CONTRACT_INVALID", invalid.detail);
+lib/ai-orchestrator/src/capability-contract.ts:423:      throw new CapabilityRegistryError(
+lib/ai-orchestrator/src/capability-contract.ts:431:  public has(capabilityId: string): boolean {
+lib/ai-orchestrator/src/capability-contract.ts:435:  public get(capabilityId: string): CapabilityAdapter | undefined {
+lib/ai-orchestrator/src/capability-contract.ts:447:    capabilityId: string,
+lib/ai-orchestrator/src/capability-contract.ts:485:    capabilityId: string,
+lib/ai-orchestrator/src/capability-contract.ts:528:      capabilityId: capability.id,
+lib/ai-orchestrator/src/capability-contract.ts:535:export class CapabilityRegistryError extends Error {
+lib/ai-orchestrator/src/capability-contract.ts:543:    this.name = "CapabilityRegistryError";
+lib/ai-orchestrator/src/capability-catalog.ts:7:  CapabilityRegistry,
+lib/ai-orchestrator/src/capability-catalog.ts:9:  type CapabilityAdapter,
+lib/ai-orchestrator/src/capability-catalog.ts:97:    capabilityId: CapabilityIdSchema,
+lib/ai-orchestrator/src/capability-catalog.ts:131:    capabilityId: z.string().max(80),
+lib/ai-orchestrator/src/capability-catalog.ts:141:  capabilityId: string;
+lib/ai-orchestrator/src/capability-catalog.ts:152:const FALLBACK_METADATA = (adapter: CapabilityAdapter): CapabilityCatalogMetadata => ({
+lib/ai-orchestrator/src/capability-catalog.ts:166:function metadataFor(adapter: CapabilityAdapter): CapabilityCatalogMetadata {
+lib/ai-orchestrator/src/capability-catalog.ts:178:  adapter: CapabilityAdapter,
+lib/ai-orchestrator/src/capability-catalog.ts:277:  adapter: CapabilityAdapter,
+lib/ai-orchestrator/src/capability-catalog.ts:293:function projectEntry(adapter: CapabilityAdapter, request: CapabilityCatalogRequest): CapabilityCatalogEntry {
+lib/ai-orchestrator/src/capability-catalog.ts:323:  adapters: readonly CapabilityAdapter[],
+lib/ai-orchestrator/src/capability-catalog.ts:348:        capabilityId: adapter.id,
+lib/ai-orchestrator/src/capability-catalog.ts:371:  registry: CapabilityRegistry,
+lib/ai-orchestrator/src/capability-catalog.ts:377:    .filter((adapter): adapter is CapabilityAdapter => adapter !== undefined)
+lib/ai-orchestrator/src/capability-catalog.ts:393:  capabilityId: string,
+lib/ai-orchestrator/src/capability-catalog.ts:402:    capabilityId: capabilityId.slice(0, 80),
+lib/ai-orchestrator/src/capability-catalog.ts:416:  registry: CapabilityRegistry,
+lib/ai-orchestrator/src/capability-catalog.ts:421:      capabilityId: z.string().max(80).optional(),
+lib/ai-orchestrator/src/capability-catalog.ts:483:  registry: CapabilityRegistry,
+lib/ai-orchestrator/src/agents/chat-agent.ts:86:import { CapabilityRegistry } from "../capability-contract.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:3508:   capabilityRegistry?: CapabilityRegistry;
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:5:  CapabilityRegistry,
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:7:  type CapabilityAdapter,
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:19:  overrides: Partial<CapabilityAdapter> = {},
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:20:): CapabilityAdapter {
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:41:      capabilityId: "validation.check",
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:62:function options(registry = new CapabilityRegistry([makeCapability()])) {
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:76:    const registry = new CapabilityRegistry([makeCapability(), makeCapability("validation.followup")]);
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:82:          capabilityId: "validation.followup",
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:106:      capabilityId: "validation.followup",
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:120:      nodes: [{ ...recipe().nodes[0], capabilityId: "missing.capability" }],
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:134:    const approvalRegistry = new CapabilityRegistry([makeCapability("validation.check", {
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:263:      nodes: [{ ...recipe().nodes[0], capabilityId: "missing.capability" }],
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:5:  CapabilityRegistry,
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:7:  type CapabilityAdapter,
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:45:  overrides: Partial<CapabilityAdapter> = {},
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:46:): CapabilityAdapter {
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:74:    const registry = new CapabilityRegistry([
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:100:    const registry = new CapabilityRegistry([
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:146:    const registry = new CapabilityRegistry([
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:178:    const registry = new CapabilityRegistry([makeCapability("behavior.inspect")]);
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:185:      capabilityId: "missing.capability",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:192:      capabilityId: "behavior.inspect",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:200:      capabilityId: "behavior.inspect",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:207:    const registry = new CapabilityRegistry([makeCapability("behavior.inspect")]);
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:226:    const registry = new CapabilityRegistry([makeCapability("behavior.inspect", {
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:5:  CapabilityRegistry,
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:6:  CapabilityRegistryError,
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:8:  type CapabilityAdapter,
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:12:  overrides: Partial<CapabilityAdapter> = {},
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:13:): CapabilityAdapter {
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:28:    const registry = new CapabilityRegistry([
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:39:    expect(() => new CapabilityRegistry([
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:42:    ])).toThrowError(new CapabilityRegistryError("CAPABILITY_DUPLICATE_ID", 'Capability "test.echo" is already registered.'));
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:44:    expect(() => new CapabilityRegistry([
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:46:    ])).toThrowError(CapabilityRegistryError);
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:48:    expect(() => new CapabilityRegistry([
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:50:    ])).toThrowError(CapabilityRegistryError);
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:52:    expect(() => new CapabilityRegistry([
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:54:    ])).toThrowError(CapabilityRegistryError);
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:58:    const registry = new CapabilityRegistry([makeCapability()]);
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:77:    const registry = new CapabilityRegistry([makeCapability({ execute })]);
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:98:    const registry = new CapabilityRegistry([makeCapability({
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:127:    const registry = new CapabilityRegistry([makeCapability({
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:143:    const registry = new CapabilityRegistry([makeCapability({
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:152:    const invalidOutput = new CapabilityRegistry([makeCapability({

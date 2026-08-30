@@ -1,0 +1,701 @@
+--- recipe contract/catalog/compiler public APIs ---
+import { z } from "zod";
+
+/**
+ * The capability contract is intentionally independent from provider/tool
+ * prompts. A model may name a capability and provide business input, but it
+ * cannot provide an executable command, profile, path, or process settings.
+ */
+export const CAPABILITY_CONTRACT_VERSION = 1 as const;
+export const SUPPORTED_RECIPE_VERSIONS = [1] as const;
+
+export const CapabilityIdSchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "capability IDs must be opaque safe identifiers");
+export type CapabilityId = z.infer<typeof CapabilityIdSchema>;
+
+export const RecipeVersionSchema = z.number().int().min(1).max(100);
+export type RecipeVersion = z.infer<typeof RecipeVersionSchema>;
+
+export const CapabilityRiskSchema = z.enum(["low", "medium", "high", "critical"]);
+export type CapabilityRisk = z.infer<typeof CapabilityRiskSchema>;
+
+/**
+ * Catalog metadata is deliberately a small, descriptive projection. It is
+ * not an execution recipe: command names, argv, cwd, environment, profiles,
+ * and process limits are not representable here.
+ */
+const CATALOG_RESERVED_INPUT_NAMES = new Set([
+  "args",
+  "argv",
+  "command",
+  "commandline",
+  "commandtext",
+  "cwd",
+  "env",
+  "environment",
+  "executable",
+  "executablepath",
+  "profile",
+  "shell",
+  "shellcommand",
+  "workdir",
+  "workingdir",
+  "workingdirectory",
+]);
+
+export const CapabilityScopeKindSchema = z.enum([
+  "none",
+  "project",
+  "paths",
+  "file",
+  "workspace",
+]);
+export type CapabilityScopeKind = z.infer<typeof CapabilityScopeKindSchema>;
+
+export const CapabilityCostSchema = z.enum(["low", "medium", "high"]);
+export type CapabilityCost = z.infer<typeof CapabilityCostSchema>;
+
+export const CapabilityInputFieldSchema = z
+  .object({
+    name: z.string().min(1).max(64).regex(/^[A-Za-z][A-Za-z0-9_-]*$/),
+    type: z.enum(["string", "number", "boolean", "object", "array"]),
+    required: z.boolean(),
+    description: z.string().min(1).max(180),
+  })
+  .strict()
+  .superRefine((field, ctx) => {
+    if (CATALOG_RESERVED_INPUT_NAMES.has(field.name.replace(/[_-]/g, "").toLowerCase())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["name"],
+        message: "catalog input fields cannot contain server-owned execution controls",
+      });
+    }
+  });
+export type CapabilityInputField = z.infer<typeof CapabilityInputFieldSchema>;
+
+export const CapabilityInputShapeSchema = z
+  .object({
+    type: z.literal("object"),
+    fields: z.array(CapabilityInputFieldSchema).max(24),
+  })
+  .strict();
+export type CapabilityInputShape = z.infer<typeof CapabilityInputShapeSchema>;
+
+export const CapabilityCatalogMetadataSchema = z
+  .object({
+    purpose: z.string().min(1).max(240),
+    inputShape: CapabilityInputShapeSchema,
+    defaultScope: CapabilityScopeKindSchema,
+    supportedScopes: z.array(CapabilityScopeKindSchema).min(1).max(5),
+    estimatedCost: CapabilityCostSchema,
+    mutatesProject: z.boolean(),
+    keywords: z.array(z.string().min(1).max(40)).max(16),
+    allowedPhases: z.array(z.string().min(1).max(40)).max(8),
+    /** Empty means all projects; values are never emitted in catalog output. */
+    projectIds: z.array(z.string().min(1).max(160)).max(64),
+    requiresAuthorization: z.boolean(),
+    expectedEvidence: z.array(z.string().min(1).max(160)).max(5),
+  })
+  .strict()
+  .superRefine((metadata, ctx) => {
+    if (new Set(metadata.supportedScopes).size !== metadata.supportedScopes.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["supportedScopes"],
+        message: "supported scopes must be unique",
+      });
+    }
+    if (!metadata.supportedScopes.includes(metadata.defaultScope)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["defaultScope"],
+        message: "the default scope must be supported",
+      });
+    }
+    if (new Set(metadata.allowedPhases).size !== metadata.allowedPhases.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["allowedPhases"],
+        message: "allowed phases must be unique",
+      });
+    }
+    if (new Set(metadata.projectIds).size !== metadata.projectIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["projectIds"],
+        message: "project IDs must be unique",
+      });
+    }
+    if (new Set(metadata.inputShape.fields.map((field) => field.name)).size !== metadata.inputShape.fields.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["inputShape", "fields"],
+        message: "input field names must be unique",
+      });
+    }
+  });
+export type CapabilityCatalogMetadata = z.infer<typeof CapabilityCatalogMetadataSchema>;
+
+export const CapabilityPolicySchema = z
+  .object({
+    risk: CapabilityRiskSchema,
+    requiresApproval: z.boolean(),
+    allowedOperations: z.array(z.string().min(1).max(80)).max(32),
+    /**
+     * These profiles are part of the server-owned registration. They are not
+     * accepted from capability input and are checked against invocation
+     * context before an adapter can run.
+     */
+    approvedCommandProfiles: z.array(z.string().min(1).max(120)).max(32),
+    maxInputBytes: z.number().int().min(1).max(1024 * 1024),
+    maxOutputBytes: z.number().int().min(1).max(8 * 1024 * 1024),
+  })
+  .strict()
+  .superRefine((policy, ctx) => {
+    if (new Set(policy.allowedOperations).size !== policy.allowedOperations.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["allowedOperations"],
+        message: "allowed operations must be unique",
+      });
+    }
+    if (new Set(policy.approvedCommandProfiles).size !== policy.approvedCommandProfiles.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["approvedCommandProfiles"],
+        message: "approved command profiles must be unique",
+      });
+    }
+  });
+export type CapabilityPolicy = z.infer<typeof CapabilityPolicySchema>;
+
+export const CapabilityDescriptorSchema = z
+  .object({
+    contractVersion: z.literal(CAPABILITY_CONTRACT_VERSION),
+    id: CapabilityIdSchema,
+    supportedRecipeVersions: z.array(RecipeVersionSchema).min(1).max(32),
+    policy: CapabilityPolicySchema,
+    catalog: CapabilityCatalogMetadataSchema.optional(),
+  })
+  .strict()
+  .superRefine((descriptor, ctx) => {
+    if (new Set(descriptor.supportedRecipeVersions).size !== descriptor.supportedRecipeVersions.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["supportedRecipeVersions"],
+        message: "supported recipe versions must be unique",
+      });
+    }
+    if (descriptor.supportedRecipeVersions.some(
+      (version) => !(SUPPORTED_RECIPE_VERSIONS as readonly number[]).includes(version),
+    )) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["supportedRecipeVersions"],
+        message: "registration includes a recipe version unsupported by this contract",
+      });
+    }
+  });
+export type CapabilityDescriptor = z.infer<typeof CapabilityDescriptorSchema>;
+
+/**
+ * This is the serializable portion of a registration. The implementation is
+ * deliberately kept out of the public contract schema.
+ */
+export const CapabilityRegistrationSchema = CapabilityDescriptorSchema;
+export type CapabilityRegistration = CapabilityDescriptor;
+
+/**
+ * Names that could turn model-controlled input into process controls. The
+ * check is recursive so a dangerous control cannot hide in a nested object.
+ */
+const RESERVED_INPUT_KEYS = new Set([
+  "args",
+  "argv",
+  "command",
+  "commandline",
+  "commandtext",
+  "cwd",
+  "env",
+  "environment",
+  "executable",
+  "executablepath",
+  "environmentoverrides",
+  "envoverrides",
+  "profile",
+  "shell",
+  "shellcommand",
+  "workdir",
+  "workingdir",
+  "workingdirectory",
+]);
+
+export const CAPABILITY_INPUT_LIMITS = {
+  maxDepth: 12,
+  maxKeys: 256,
+} as const;
+
+import { z } from "zod";
+import {
+  CapabilityIdSchema,
+  RecipeVersionSchema,
+  type RecipeVersion,
+} from "./capability-contract.js";
+
+/**
+ * Recipe input is a request for business intent only. The strict schemas in
+ * this file intentionally have no command, argv, cwd, environment, profile,
+ * timeout, retry, or process-control fields.
+ */
+export const RECIPE_CONTRACT_VERSION = 1 as const;
+
+export const RecipeIdSchema = z
+  .string()
+  .min(1)
+  .max(120)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "recipe IDs must be safe identifiers");
+export type RecipeId = z.infer<typeof RecipeIdSchema>;
+
+export const RecipeNodeIdSchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[A-Za-z][A-Za-z0-9._:-]*$/, "recipe node IDs must be safe identifiers");
+export type RecipeNodeId = z.infer<typeof RecipeNodeIdSchema>;
+
+export const RecipeOutputNameSchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[A-Za-z][A-Za-z0-9._:-]*$/, "recipe output names must be safe identifiers");
+export type RecipeOutputName = z.infer<typeof RecipeOutputNameSchema>;
+
+const RequiredRecipeValueSchema = z.custom<unknown>(
+  (value) => value !== undefined,
+  "recipe values must be present",
+);
+
+const RecipeNodeStatusSchema = z.enum(["queued", "running", "passed", "failed", "blocked"]);
+export type RecipeNodeStatus = z.infer<typeof RecipeNodeStatusSchema>;
+
+export type EvidencePredicate =
+  | { kind: "node_status"; nodeId: string; status: RecipeNodeStatus }
+  | { kind: "output_present"; nodeId: string; output: string }
+  | { kind: "output_equals"; nodeId: string; output: string; value: unknown }
+  | { kind: "evidence"; nodeId: string; evidenceType: "validation_passed" | "browser_verified" | "artifact_retained" }
+  | { kind: "all"; predicates: EvidencePredicate[] }
+  | { kind: "any"; predicates: EvidencePredicate[] }
+  | { kind: "not"; predicate: EvidencePredicate };
+
+export const EvidencePredicateSchema = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("node_status"),
+      nodeId: RecipeNodeIdSchema,
+      status: RecipeNodeStatusSchema,
+    }).strict(),
+    z.object({
+      kind: z.literal("output_present"),
+      nodeId: RecipeNodeIdSchema,
+      output: RecipeOutputNameSchema,
+    }).strict(),
+    z.object({
+      kind: z.literal("output_equals"),
+      nodeId: RecipeNodeIdSchema,
+      output: RecipeOutputNameSchema,
+      value: RequiredRecipeValueSchema,
+    }).strict(),
+    z.object({
+      kind: z.literal("evidence"),
+      nodeId: RecipeNodeIdSchema,
+      evidenceType: z.enum(["validation_passed", "browser_verified", "artifact_retained"]),
+    }).strict(),
+    z.object({
+      kind: z.literal("all"),
+      predicates: z.array(z.lazy(() => EvidencePredicateSchema)).min(1).max(4),
+    }).strict(),
+    z.object({
+      kind: z.literal("any"),
+      predicates: z.array(z.lazy(() => EvidencePredicateSchema)).min(1).max(4),
+    }).strict(),
+    z.object({
+      kind: z.literal("not"),
+      predicate: z.lazy(() => EvidencePredicateSchema),
+    }).strict(),
+  ]),
+) as unknown as z.ZodType<EvidencePredicate>;
+
+/** Same typed predicate after source node IDs have been namespaced by the compiler. */
+export const CompiledEvidencePredicateSchema = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("node_status"),
+      nodeId: z.string().min(1).max(180),
+      status: RecipeNodeStatusSchema,
+    }).strict(),
+    z.object({
+      kind: z.literal("output_present"),
+      nodeId: z.string().min(1).max(180),
+      output: RecipeOutputNameSchema,
+    }).strict(),
+    z.object({
+      kind: z.literal("output_equals"),
+      nodeId: z.string().min(1).max(180),
+      output: RecipeOutputNameSchema,
+      value: RequiredRecipeValueSchema,
+    }).strict(),
+    z.object({
+      kind: z.literal("evidence"),
+      nodeId: z.string().min(1).max(180),
+      evidenceType: z.enum(["validation_passed", "browser_verified", "artifact_retained"]),
+    }).strict(),
+    z.object({
+      kind: z.literal("all"),
+      predicates: z.array(z.lazy(() => CompiledEvidencePredicateSchema)).min(1).max(4),
+    }).strict(),
+    z.object({
+      kind: z.literal("any"),
+      predicates: z.array(z.lazy(() => CompiledEvidencePredicateSchema)).min(1).max(4),
+    }).strict(),
+    z.object({
+      kind: z.literal("not"),
+      predicate: z.lazy(() => CompiledEvidencePredicateSchema),
+    }).strict(),
+  ]),
+) as unknown as z.ZodType<EvidencePredicate>;
+
+export const RecipeTargetSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("node"),
+    nodeId: RecipeNodeIdSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal("terminal"),
+    status: z.enum(["success", "failure"]),
+  }).strict(),
+]);
+export type RecipeTarget = z.infer<typeof RecipeTargetSchema>;
+
+export const CapabilityRecipeNodeSchema = z.object({
+  id: RecipeNodeIdSchema,
+  title: z.string().min(1).max(240),
+  capabilityId: CapabilityIdSchema,
+  recipeVersion: RecipeVersionSchema,
+  input: RequiredRecipeValueSchema,
+  dependsOn: z.array(RecipeNodeIdSchema).max(12).default([]),
+  declaredOutputs: z.array(RecipeOutputNameSchema).max(16).default([]),
+}).strict().superRefine((node, ctx) => {
+  if (new Set(node.dependsOn).size !== node.dependsOn.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dependsOn"],
+      message: "node dependencies must be unique",
+    });
+  }
+  if (new Set(node.declaredOutputs).size !== node.declaredOutputs.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["declaredOutputs"],
+      message: "declared outputs must be unique",
+    });
+  }
+});
+export type CapabilityRecipeNode = z.infer<typeof CapabilityRecipeNodeSchema>;
+
+export const RecipeTransitionSchema = z.object({
+  id: RecipeNodeIdSchema,
+  fromNodeId: RecipeNodeIdSchema,
+  predicate: EvidencePredicateSchema,
+  then: RecipeTargetSchema,
+  otherwise: RecipeTargetSchema,
+}).strict();
+export type RecipeTransition = z.infer<typeof RecipeTransitionSchema>;
+
+export const RecipeOutcomeOutputSchema = z.object({
+  name: RecipeOutputNameSchema,
+  nodeId: RecipeNodeIdSchema,
+  output: RecipeOutputNameSchema,
+}).strict();
+export type RecipeOutcomeOutput = z.infer<typeof RecipeOutcomeOutputSchema>;
+
+export const RecipeOutcomeContractSchema = z.object({
+  success: EvidencePredicateSchema,
+  outputs: z.array(RecipeOutcomeOutputSchema).max(24).default([]),
+}).strict();
+export type RecipeOutcomeContract = z.infer<typeof RecipeOutcomeContractSchema>;
+
+export const CapabilityRecipeSchema = z.object({
+  contractVersion: z.literal(RECIPE_CONTRACT_VERSION),
+  recipeId: RecipeIdSchema,
+  recipeVersion: RecipeVersionSchema,
+  nodes: z.array(CapabilityRecipeNodeSchema).min(1).max(24),
+  transitions: z.array(RecipeTransitionSchema).max(48).default([]),
+  outcome: RecipeOutcomeContractSchema,
+}).strict();
+export type CapabilityRecipe = z.infer<typeof CapabilityRecipeSchema>;
+
+/**
+ * These values are written by the compiler, never accepted from a recipe.
+ * They are kept in a schema so persisted plans can be checked on recovery.
+ */
+export const RecipeExecutionPolicySchema = z.object({
+  maxNodes: z.number().int().min(1).max(24),
+  maxTransitions: z.number().int().min(1).max(48),
+  maxBranchesPerNode: z.number().int().min(1).max(8),
+  maxPredicateDepth: z.number().int().min(1).max(12),
+  maxAttempts: z.number().int().min(1).max(3),
+  nodeTimeoutMs: z.number().int().min(1).max(120_000),
+  maxTotalTimeoutMs: z.number().int().min(1).max(900_000),
+}).strict();
+export type RecipeExecutionPolicy = z.infer<typeof RecipeExecutionPolicySchema>;
+
+export const RecipeContextSchema = z.object({
+  projectId: z.string().min(1).max(160),
+  rootPath: z.string().min(1).nullable().default(null),
+  revision: z.string().min(1).max(240),
+  operation: z.string().min(1).max(80).default("recipe"),
+  scope: z.object({
+    kind: z.enum(["none", "project", "paths", "file", "workspace"]),
+    paths: z.array(z.string().min(1).max(500)).max(48),
+  }).strict().default({ kind: "project", paths: [] }),
+}).strict();
+export type RecipeContext = z.infer<typeof RecipeContextSchema>;
+
+export const CompiledRecipeTransitionSchema = z.object({
+  id: z.string().min(1).max(180),
+  fromNodeId: z.string().min(1).max(180),
+  predicate: CompiledEvidencePredicateSchema,
+  then: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("node"), nodeId: z.string().min(1).max(180) }).strict(),
+    z.object({ kind: z.literal("terminal"), status: z.enum(["success", "failure"]) }).strict(),
+  ]),
+  otherwise: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("node"), nodeId: z.string().min(1).max(180) }).strict(),
+    z.object({ kind: z.literal("terminal"), status: z.enum(["success", "failure"]) }).strict(),
+  ]),
+}).strict();
+export type CompiledRecipeTransition = z.infer<typeof CompiledRecipeTransitionSchema>;
+import {
+  CapabilityRegistry,
+  type CapabilityFailure,
+} from "./capability-contract.js";
+import {
+  ActiveTaskExecutionPlanSchema,
+  ExecutionNodeSchema,
+  type ActiveTaskExecutionPlan,
+  type ExecutionNode,
+} from "./task-session-state.js";
+import { ValidationProfileSchema, type ValidationProfile } from "./schemas/chat.schema.js";
+import {
+  CapabilityRecipeSchema,
+  CompiledEvidencePredicateSchema,
+  CompiledRecipeTransitionSchema,
+  RecipeContextSchema,
+  RecipeExecutionPolicySchema,
+  RecipeStateSchema,
+  type CapabilityRecipe,
+  type CapabilityRecipeNode,
+  type CompiledRecipeTransition,
+  type EvidencePredicate,
+  type RecipeContext,
+  type RecipeEvidence,
+  type RecipeExecutionPolicy,
+  type RecipeState,
+  type RecipeTarget,
+} from "./recipe-contract.js";
+
+export const DEFAULT_RECIPE_EXECUTION_POLICY: RecipeExecutionPolicy = {
+  maxNodes: 24,
+  maxTransitions: 48,
+  maxBranchesPerNode: 4,
+  maxPredicateDepth: 6,
+  maxAttempts: 3,
+  nodeTimeoutMs: 120_000,
+  maxTotalTimeoutMs: 900_000,
+};
+
+export type RecipeCompilationDiagnosticCode =
+  | "RECIPE_INVALID"
+  | "RECIPE_VERSION_UNSUPPORTED"
+  | "RECIPE_TOO_LARGE"
+  | "DUPLICATE_NODE_ID"
+  | "UNKNOWN_DEPENDENCY"
+  | "DEPENDENCY_CYCLE"
+  | "CAPABILITY_UNKNOWN_ID"
+  | "CAPABILITY_RECIPE_VERSION_UNSUPPORTED"
+  | "CAPABILITY_INPUT_INVALID"
+  | "CAPABILITY_INPUT_TOO_LARGE"
+  | "CAPABILITY_OPERATION_NOT_ALLOWED"
+  | "CAPABILITY_PROFILE_NOT_APPROVED"
+  | "CAPABILITY_APPROVAL_REQUIRED"
+  | "CAPABILITY_AUTHORIZATION_REQUIRED"
+  | "CAPABILITY_SCOPE_UNSUPPORTED"
+  | "CAPABILITY_RISK_NOT_ALLOWED"
+  | "DUPLICATE_TRANSITION_ID"
+  | "UNKNOWN_TRANSITION_NODE"
+  | "UNKNOWN_TRANSITION_TARGET"
+  | "UNDECLARED_OUTPUT"
+  | "CONTRADICTORY_PREDICATE"
+  | "PREDICATE_TOO_DEEP"
+  | "TOO_MANY_BRANCHES"
+  | "PLAN_TOO_LARGE"
+  | "UNREACHABLE_NODE"
+  | "NON_TERMINATING_PLAN"
+  | "INVALID_VALIDATION_PROFILE";
+
+export type RecipeCompilationDiagnostic = {
+  code: RecipeCompilationDiagnosticCode;
+  path: string;
+  detail: string;
+};
+
+export type RecipeCompilationResult =
+  | { ok: true; plan: ActiveTaskExecutionPlan }
+  | { ok: false; diagnostics: RecipeCompilationDiagnostic[] };
+
+export class RecipeCompilationError extends Error {
+  public readonly diagnostics: readonly RecipeCompilationDiagnostic[];
+
+  public constructor(diagnostics: readonly RecipeCompilationDiagnostic[]) {
+    super(diagnostics.map((diagnostic) => `${diagnostic.code} at ${diagnostic.path}: ${diagnostic.detail}`).join("; "));
+    this.name = "RecipeCompilationError";
+    this.diagnostics = diagnostics;
+  }
+}
+
+export type RecipeCompilationContext = Omit<RecipeContext, "operation" | "scope"> & {
+  operation?: string;
+  scope?: RecipeContext["scope"];
+  allowedFiles?: readonly string[];
+  authorized?: boolean;
+  approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+  approvedCommandProfiles?: ReadonlySet<string>;
+  maxRisk?: "low" | "medium" | "high" | "critical";
+  validationProfile?: ValidationProfile;
+};
+
+export type CompileCapabilityRecipeOptions = {
+  registry: CapabilityRegistry;
+  context: RecipeCompilationContext;
+  policy?: RecipeExecutionPolicy;
+};
+
+const RISK_ORDER = ["low", "medium", "high", "critical"] as const;
+const CONTROL_KEYS = new Set([
+  "args", "argv", "command", "commandline", "commandtext", "cwd", "env",
+  "environment", "executable", "executablepath", "profile", "shell",
+  "shellcommand", "timeout", "timeoutms", "retries", "retry", "workdir",
+  "workingdir", "workingdirectory",
+]);
+
+function diagnostic(
+  code: RecipeCompilationDiagnosticCode,
+  path: string,
+  detail: string,
+): RecipeCompilationDiagnostic {
+  return { code, path, detail };
+}
+
+function nodeId(recipeId: string, sourceId: string): string {
+  return `recipe:${recipeId}:${sourceId}`;
+}
+
+function transitionId(recipeId: string, sourceId: string): string {
+  return `recipe:${recipeId}:transition:${sourceId}`;
+}
+
+function normalizedPath(value: string): string {
+  return value.trim().replace(/^\.\/+/, "").replace(/\\/g, "/");
+}
+
+function hasControlKey(value: unknown, depth = 0, seen = new WeakSet<object>()): boolean {
+  if (depth > 12 || value === null || typeof value !== "object") return depth > 12;
+  if (seen.has(value)) return true;
+  seen.add(value);
+  if (Array.isArray(value)) return value.some((item) => hasControlKey(item, depth + 1, seen));
+  return Object.entries(value).some(([key, child]) =>
+    CONTROL_KEYS.has(key.replace(/[_-]/g, "").toLowerCase()) || hasControlKey(child, depth + 1, seen),
+  );
+}
+
+function predicateDepth(predicate: EvidencePredicate, depth = 1): number {
+  if (predicate.kind === "all" || predicate.kind === "any") {
+    return Math.max(depth, ...predicate.predicates.map((child) => predicateDepth(child, depth + 1)));
+  }
+  if (predicate.kind === "not") return predicateDepth(predicate.predicate, depth + 1);
+  return depth;
+}
+
+function predicateKey(predicate: EvidencePredicate): string {
+  return JSON.stringify(predicate);
+}
+
+function findContradiction(predicate: EvidencePredicate): boolean {
+  if (predicate.kind === "all") {
+    const keys = new Set(predicate.predicates.map(predicateKey));
+    for (const child of predicate.predicates) {
+      if (child.kind === "not" && keys.has(predicateKey(child.predicate))) return true;
+    }
+    const statuses = new Map<string, string>();
+    for (const child of predicate.predicates) {
+      if (child.kind !== "node_status") continue;
+      const previous = statuses.get(child.nodeId);
+      if (previous && previous !== child.status) return true;
+      statuses.set(child.nodeId, child.status);
+    }
+    return predicate.predicates.some(findContradiction);
+  }
+  if (predicate.kind === "any") return predicate.predicates.some(findContradiction);
+  if (predicate.kind === "not") return findContradiction(predicate.predicate);
+  return false;
+}
+
+function mapPredicate(
+  predicate: EvidencePredicate,
+  sourceNodes: ReadonlyMap<string, CapabilityRecipeNode>,
+  compiledIds: ReadonlyMap<string, string>,
+  diagnostics: RecipeCompilationDiagnostic[],
+  path: string,
+): EvidencePredicate {
+  const mapNode = (sourceId: string, childPath: string): string => {
+    const id = compiledIds.get(sourceId);
+    if (!sourceNodes.has(sourceId)) {
+      diagnostics.push(diagnostic("UNKNOWN_TRANSITION_NODE", childPath, `Node "${sourceId}" is not declared.`));
+    }
+    return id ?? nodeId("invalid", sourceId);
+  };
+  if (predicate.kind === "all" || predicate.kind === "any") {
+    return {
+      ...predicate,
+      predicates: predicate.predicates.map((child, index) =>
+        mapPredicate(child, sourceNodes, compiledIds, diagnostics, `${path}.predicates[${index}]`)),
+    };
+  }
+  if (predicate.kind === "not") {
+    return {
+      kind: "not",
+      predicate: mapPredicate(predicate.predicate, sourceNodes, compiledIds, diagnostics, `${path}.predicate`),
+    };
+  }
+  const mapped = { ...predicate, nodeId: mapNode(predicate.nodeId, `${path}.nodeId`) };
+  if (predicate.kind === "output_present" || predicate.kind === "output_equals") {
+    const source = sourceNodes.get(predicate.nodeId);
+    if (source && !source.declaredOutputs.includes(predicate.output)) {
+      diagnostics.push(diagnostic(
+        "UNDECLARED_OUTPUT",
+        `${path}.output`,
+        `Output "${predicate.output}" is not declared by node "${predicate.nodeId}".`,
+      ));
+    }
+  }
+  return mapped;
+}
+
+function mapTarget(
+  target: RecipeTarget,
+  compiledIds: ReadonlyMap<string, string>,
+  diagnostics: RecipeCompilationDiagnostic[],

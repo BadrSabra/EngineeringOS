@@ -1,0 +1,644 @@
+artifacts/api-server/src/routes/ai.test.ts-351-    return { ok: true, phases: raw };
+artifacts/api-server/src/routes/ai.test.ts-352-  }),
+artifacts/api-server/src/routes/ai.test.ts:353:  // GroqClientError must be a real class so handleOrchestratorError can use
+artifacts/api-server/src/routes/ai.test.ts-354-  // `instanceof` checks. Without it vitest throws "No GroqClientError export".
+artifacts/api-server/src/routes/ai.test.ts-355-  GroqClientError: class GroqClientError extends Error {
+artifacts/api-server/src/routes/ai.test.ts-356-    readonly code: string;
+artifacts/api-server/src/routes/ai.test.ts-357-    readonly providerCode?: string;
+artifacts/api-server/src/routes/ai.test.ts-358-    readonly catalogStatus?: "never" | "success" | "failed" | "empty";
+artifacts/api-server/src/routes/ai.test.ts-359-    readonly catalogError?: string;
+artifacts/api-server/src/routes/ai.test.ts-360-    constructor(
+artifacts/api-server/src/routes/ai.test.ts-361-      code: string,
+--
+artifacts/api-server/src/routes/ai.test.ts-1135-
+artifacts/api-server/src/routes/ai.test.ts-1136-    const res = await request(app)
+artifacts/api-server/src/routes/ai.test.ts-1137-      .post("/api/ai/chat")
+artifacts/api-server/src/routes/ai.test.ts-1138-      .send({ projectId, message: "trigger hard parse failure" });
+artifacts/api-server/src/routes/ai.test.ts-1139-    expect(res.status).toBe(422);
+artifacts/api-server/src/routes/ai.test.ts-1140-    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts-1141-    expect(res.body.code).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts-1142-    expect(res.body.outcome).toBe("FAILED");
+artifacts/api-server/src/routes/ai.test.ts:1143:    expect(res.body.failureKind).toBe("PROVIDER_FAILURE");
+artifacts/api-server/src/routes/ai.test.ts-1144-    expect(res.body.retryable).toBe(false);
+artifacts/api-server/src/routes/ai.test.ts-1145-    expect(res.body.recoveryState).toBe("REQUIRED");
+artifacts/api-server/src/routes/ai.test.ts-1146-    expect(res.body.hint).toBeUndefined();
+artifacts/api-server/src/routes/ai.test.ts-1147-    expect(res.body.raw).toBeUndefined();
+artifacts/api-server/src/routes/ai.test.ts-1148-    expect(res.body.parseCode).toBeUndefined();
+artifacts/api-server/src/routes/ai.test.ts-1149-  });
+artifacts/api-server/src/routes/ai.test.ts-1150-
+artifacts/api-server/src/routes/ai.test.ts-1151-  it("reuses an existing session when sessionId is provided", async () => {
+--
+artifacts/api-server/src/routes/ai.test.ts-2366-      content: "",
+artifacts/api-server/src/routes/ai.test.ts-2367-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai.test.ts-2368-      errorCode: "model_output_invalid",
+artifacts/api-server/src/routes/ai.test.ts-2369-      errorMessage: "The AI returned an unexpected response format.",
+artifacts/api-server/src/routes/ai.test.ts-2370-    });
+artifacts/api-server/src/routes/ai.test.ts-2371-    expect(JSON.parse(firstFailure!.toolTrace!)).toEqual([{
+artifacts/api-server/src/routes/ai.test.ts-2372-      kind: "structured_task_failure",
+artifacts/api-server/src/routes/ai.test.ts-2373-      task: "analyze",
+artifacts/api-server/src/routes/ai.test.ts:2374:      failureKind: "PROVIDER_FORMAT",
+artifacts/api-server/src/routes/ai.test.ts-2375-      retryable: true,
+artifacts/api-server/src/routes/ai.test.ts-2376-    }]);
+artifacts/api-server/src/routes/ai.test.ts-2377-
+artifacts/api-server/src/routes/ai.test.ts-2378-    const retry = await request(app)
+artifacts/api-server/src/routes/ai.test.ts-2379-      .post(`/api/ai/projects/${projectId}/analyze/stream`)
+artifacts/api-server/src/routes/ai.test.ts-2380-      .send({ sessionId });
+artifacts/api-server/src/routes/ai.test.ts-2381-    expect(retry.status).toBe(200);
+artifacts/api-server/src/routes/ai.test.ts-2382-    const retryEvent = lastSseEvent(retry.text);
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-459-    }
+lib/ai-orchestrator/src/tool-execution-engine.ts-460-  | {
+lib/ai-orchestrator/src/tool-execution-engine.ts-461-      kind: "unknown_tool";
+lib/ai-orchestrator/src/tool-execution-engine.ts-462-      /** Human-readable error forwarded to the model as the tool message. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-463-      errorMessage: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts-464-    }
+lib/ai-orchestrator/src/tool-execution-engine.ts-465-  | {
+lib/ai-orchestrator/src/tool-execution-engine.ts-466-      kind: "failed";
+lib/ai-orchestrator/src/tool-execution-engine.ts:467:      failureKind: "execution" | "unavailable" | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts-468-      diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+lib/ai-orchestrator/src/tool-execution-engine.ts-469-      /** Safe, bounded context forwarded to the model. Raw diagnostics stay in logs. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-470-      safeMessage: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts-471-    };
+lib/ai-orchestrator/src/tool-execution-engine.ts-472-
+lib/ai-orchestrator/src/tool-execution-engine.ts-473-/**
+lib/ai-orchestrator/src/tool-execution-engine.ts-474- * Only a real, complete file response can become forensic source evidence.
+lib/ai-orchestrator/src/tool-execution-engine.ts-475- * Error strings, directory listings, synthesis hints, and bounded/truncated
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-694-      errorMessage: `Tool "${name}" is not registered — use one of the tools listed in the system prompt.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts-695-    };
+lib/ai-orchestrator/src/tool-execution-engine.ts-696-  }
+lib/ai-orchestrator/src/tool-execution-engine.ts-697-
+lib/ai-orchestrator/src/tool-execution-engine.ts-698-  try {
+lib/ai-orchestrator/src/tool-execution-engine.ts-699-    if (isExecutionTool && !opts.allowExecutionTools) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-700-      return {
+lib/ai-orchestrator/src/tool-execution-engine.ts-701-        kind: "failed",
+lib/ai-orchestrator/src/tool-execution-engine.ts:702:        failureKind: "unavailable",
+lib/ai-orchestrator/src/tool-execution-engine.ts-703-        diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/tool-execution-engine.ts-704-        safeMessage: `Tool "${name}" is unavailable in this agent mode; the operation did not complete.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts-705-      };
+lib/ai-orchestrator/src/tool-execution-engine.ts-706-    }
+lib/ai-orchestrator/src/tool-execution-engine.ts-707-    const authorization = authorizeToolInvocation({
+lib/ai-orchestrator/src/tool-execution-engine.ts-708-      toolName: name,
+lib/ai-orchestrator/src/tool-execution-engine.ts-709-      args,
+lib/ai-orchestrator/src/tool-execution-engine.ts-710-      approvalState: opts.approvalState,
+lib/ai-orchestrator/src/tool-execution-engine.ts-711-      ...(opts.approvedFilePaths ? { approvedFilePaths: opts.approvedFilePaths } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-712-      ...(opts.approvedValidationProfiles ? { approvedValidationProfiles: opts.approvedValidationProfiles } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-713-      ...(opts.allowedToolNames ? { allowedTools: opts.allowedToolNames } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts-714-    });
+lib/ai-orchestrator/src/tool-execution-engine.ts-715-    if (!authorization.allowed) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-716-      return {
+lib/ai-orchestrator/src/tool-execution-engine.ts-717-        kind: "failed",
+lib/ai-orchestrator/src/tool-execution-engine.ts:718:        failureKind: "unavailable",
+lib/ai-orchestrator/src/tool-execution-engine.ts-719-        diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/tool-execution-engine.ts-720-        safeMessage: `Tool "${name}" was blocked by the server authorization gate (${authorization.reason}).`,
+lib/ai-orchestrator/src/tool-execution-engine.ts-721-      };
+lib/ai-orchestrator/src/tool-execution-engine.ts-722-    }
+lib/ai-orchestrator/src/tool-execution-engine.ts-723-    if (isAnalysisTool && !opts.analysisToolRunner) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-724-      return {
+lib/ai-orchestrator/src/tool-execution-engine.ts-725-        kind: "failed",
+lib/ai-orchestrator/src/tool-execution-engine.ts:726:        failureKind: "unavailable",
+lib/ai-orchestrator/src/tool-execution-engine.ts-727-        diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/tool-execution-engine.ts-728-        safeMessage: `Tool "${name}" is unavailable for this turn; the operation did not complete.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts-729-      };
+lib/ai-orchestrator/src/tool-execution-engine.ts-730-    }
+lib/ai-orchestrator/src/tool-execution-engine.ts-731-    let analysisStatus: "complete" | "unavailable" | "failed" | undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts-732-    let analysisFailure:
+lib/ai-orchestrator/src/tool-execution-engine.ts-733-      | {
+lib/ai-orchestrator/src/tool-execution-engine.ts:734:          failureKind: "execution" | "unavailable" | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts-735-          diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+lib/ai-orchestrator/src/tool-execution-engine.ts-736-          safeMessage: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts-737-        }
+lib/ai-orchestrator/src/tool-execution-engine.ts-738-      | undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts-739-    const output = await (isGitTool
+lib/ai-orchestrator/src/tool-execution-engine.ts-740-      ? await executeGitTool(name, effectiveArgs, rootPath)
+lib/ai-orchestrator/src/tool-execution-engine.ts-741-      : isFileTool
+lib/ai-orchestrator/src/tool-execution-engine.ts-742-        ? await executeFileTool(name, effectiveArgs, rootPath, pendingChanges)
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-768-            // This is deliberately the same request-owned envelope on every
+lib/ai-orchestrator/src/tool-execution-engine.ts-769-            // provider retry/resume; the analysis tool validates it before
+lib/ai-orchestrator/src/tool-execution-engine.ts-770-            // accepting evidence.
+lib/ai-orchestrator/src/tool-execution-engine.ts-771-            opts.analysisCorrelation,
+lib/ai-orchestrator/src/tool-execution-engine.ts-772-          )
+lib/ai-orchestrator/src/tool-execution-engine.ts-773-            .then((result) => {
+lib/ai-orchestrator/src/tool-execution-engine.ts-774-              analysisStatus = result.status;
+lib/ai-orchestrator/src/tool-execution-engine.ts-775-              if (result.status === "complete") return result.output;
+lib/ai-orchestrator/src/tool-execution-engine.ts:776:              const failureKind = opts.signal?.aborted
+lib/ai-orchestrator/src/tool-execution-engine.ts-777-                ? "cancelled"
+lib/ai-orchestrator/src/tool-execution-engine.ts-778-                : result.status === "unavailable"
+lib/ai-orchestrator/src/tool-execution-engine.ts-779-                  ? "unavailable"
+lib/ai-orchestrator/src/tool-execution-engine.ts-780-                  : "execution";
+lib/ai-orchestrator/src/tool-execution-engine.ts:781:              const diagnosticCode = failureKind === "cancelled"
+lib/ai-orchestrator/src/tool-execution-engine.ts-782-                ? "TOOL_CANCELLED"
+lib/ai-orchestrator/src/tool-execution-engine.ts-783-                : result.status === "unavailable"
+lib/ai-orchestrator/src/tool-execution-engine.ts-784-                  ? "TOOL_UNAVAILABLE"
+lib/ai-orchestrator/src/tool-execution-engine.ts-785-                  : "TOOL_EXECUTION_FAILED";
+lib/ai-orchestrator/src/tool-execution-engine.ts-786-              analysisFailure = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:787:                failureKind,
+lib/ai-orchestrator/src/tool-execution-engine.ts-788-                diagnosticCode,
+lib/ai-orchestrator/src/tool-execution-engine.ts-789-                safeMessage: result.output,
+lib/ai-orchestrator/src/tool-execution-engine.ts-790-              };
+lib/ai-orchestrator/src/tool-execution-engine.ts-791-              return result.output;
+lib/ai-orchestrator/src/tool-execution-engine.ts-792-            })
+lib/ai-orchestrator/src/tool-execution-engine.ts-793-          : executeBrowserValidationTool(
+lib/ai-orchestrator/src/tool-execution-engine.ts-794-              name,
+lib/ai-orchestrator/src/tool-execution-engine.ts-795-              effectiveArgs,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-800-              pendingChanges,
+lib/ai-orchestrator/src/tool-execution-engine.ts-801-            ));
+lib/ai-orchestrator/src/tool-execution-engine.ts-802-
+lib/ai-orchestrator/src/tool-execution-engine.ts-803-    if (analysisFailure) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-804-      console.error(JSON.stringify({
+lib/ai-orchestrator/src/tool-execution-engine.ts-805-        scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts-806-        code: analysisFailure.diagnosticCode,
+lib/ai-orchestrator/src/tool-execution-engine.ts-807-        tool: name,
+lib/ai-orchestrator/src/tool-execution-engine.ts:808:        failureKind: analysisFailure.failureKind,
+lib/ai-orchestrator/src/tool-execution-engine.ts-809-      }));
+lib/ai-orchestrator/src/tool-execution-engine.ts-810-      return {
+lib/ai-orchestrator/src/tool-execution-engine.ts-811-        kind: "failed",
+lib/ai-orchestrator/src/tool-execution-engine.ts-812-        ...analysisFailure,
+lib/ai-orchestrator/src/tool-execution-engine.ts-813-      };
+lib/ai-orchestrator/src/tool-execution-engine.ts-814-    }
+lib/ai-orchestrator/src/tool-execution-engine.ts-815-
+lib/ai-orchestrator/src/tool-execution-engine.ts-816-    // Ground-truth source label for observable reads.
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-846-    console.error(JSON.stringify({
+lib/ai-orchestrator/src/tool-execution-engine.ts-847-      scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts-848-      code: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+lib/ai-orchestrator/src/tool-execution-engine.ts-849-      tool: name,
+lib/ai-orchestrator/src/tool-execution-engine.ts-850-      error: errorMessage,
+lib/ai-orchestrator/src/tool-execution-engine.ts-851-    }));
+lib/ai-orchestrator/src/tool-execution-engine.ts-852-    return {
+lib/ai-orchestrator/src/tool-execution-engine.ts-853-      kind: "failed",
+lib/ai-orchestrator/src/tool-execution-engine.ts:854:      failureKind: cancelled ? "cancelled" : "execution",
+lib/ai-orchestrator/src/tool-execution-engine.ts-855-      diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+lib/ai-orchestrator/src/tool-execution-engine.ts-856-      safeMessage: cancelled
+lib/ai-orchestrator/src/tool-execution-engine.ts-857-        ? `Tool "${name}" was cancelled; the operation did not complete.`
+lib/ai-orchestrator/src/tool-execution-engine.ts-858-        : `Tool "${name}" failed; the operation did not complete. Do not claim that it completed.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts-859-    };
+lib/ai-orchestrator/src/tool-execution-engine.ts-860-  }
+lib/ai-orchestrator/src/tool-execution-engine.ts-861-}
+lib/ai-orchestrator/src/tool-execution-engine.ts-862-
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-1205-   * Optional observer called at each significant step in the loop:
+lib/ai-orchestrator/src/tool-execution-engine.ts-1206-   * iteration start, model call, each tool call/result, soft limit, and done.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1207-   * Never throws — errors inside onStep are silently swallowed so a buggy
+lib/ai-orchestrator/src/tool-execution-engine.ts-1208-   * callback cannot break the agentic loop.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1209-   */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1210-  onStep?: (step: AgentStep) => void;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1211-};
+lib/ai-orchestrator/src/tool-execution-engine.ts-1212-
+lib/ai-orchestrator/src/tool-execution-engine.ts:1213:export type ToolLoopResult =
+lib/ai-orchestrator/src/tool-execution-engine.ts-1214-  | {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1215-      kind: "response";
+lib/ai-orchestrator/src/tool-execution-engine.ts-1216-      /** Raw model response — contains content but no tool_calls. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1217-      result: RawGroqResponse;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1218-      /** Ground-truth file/search/git accesses accumulated during the loop. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1219-      toolSources: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts-1220-      /** Completed read_file bodies keyed by project-relative path. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1221-      fileContents?: Map<string, string>;
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-1251-    }
+lib/ai-orchestrator/src/tool-execution-engine.ts-1252-  | {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1253-      /** A required tool failed; no completed operation may be claimed. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1254-      kind: "failed";
+lib/ai-orchestrator/src/tool-execution-engine.ts-1255-      toolSources: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts-1256-      fileContents?: Map<string, string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1257-      sourceRetrieval?: SourceRetrievalTelemetry;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1258-      tool: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1259:      failureKind: "execution" | "unavailable" | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts-1260-      diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1261-    }
+lib/ai-orchestrator/src/tool-execution-engine.ts-1262-  | {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1263-      /**
+lib/ai-orchestrator/src/tool-execution-engine.ts-1264-       * Deterministic safety stop after a repeated tool-call loop. The caller
+lib/ai-orchestrator/src/tool-execution-engine.ts-1265-       * must surface this reason instead of describing the run as successful.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1266-       */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1267-      kind: "stopped";
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-1549-      loopToolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1550-      stopReason:
+lib/ai-orchestrator/src/tool-execution-engine.ts-1551-        | "response"
+lib/ai-orchestrator/src/tool-execution-engine.ts-1552-        | "iteration_budget"
+lib/ai-orchestrator/src/tool-execution-engine.ts-1553-        | "soft_limit"
+lib/ai-orchestrator/src/tool-execution-engine.ts-1554-        | "repeated_tool_call"
+lib/ai-orchestrator/src/tool-execution-engine.ts-1555-        | "empty_response"
+lib/ai-orchestrator/src/tool-execution-engine.ts-1556-         | "provider_timeout"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1557:         | "tool_failure"
+lib/ai-orchestrator/src/tool-execution-engine.ts-1558-        | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts-1559-      synthesisStarted: boolean;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1560-      /** Bounded final-synthesis telemetry for operator diagnostics. */
+lib/ai-orchestrator/src/tool-execution-engine.ts-1561-      synthesisAttempts?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1562-      synthesisMaxAttempts?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1563-      synthesisTimeoutMs?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1564-      synthesisElapsedMs?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts-1565-      synthesisTimedOut?: boolean;
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-1581- *        d. Execute via executeSingleTool, cache result, record source.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1582- *      Append all results to messages and loop.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1583- *   3. If the model returns no tool_calls: return kind:"response".
+lib/ai-orchestrator/src/tool-execution-engine.ts-1584- *   4. If maxIterations exhausted without a text response: return kind:"exhausted".
+lib/ai-orchestrator/src/tool-execution-engine.ts-1585- *
+lib/ai-orchestrator/src/tool-execution-engine.ts-1586- * NON_200 from model: retried once with powerModel before re-throwing.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1587- * Other errors: re-thrown immediately.
+lib/ai-orchestrator/src/tool-execution-engine.ts-1588- */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1589:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1590-  const {
+lib/ai-orchestrator/src/tool-execution-engine.ts-1591-    messages,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1592-    strategy,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1593-    model,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1594-    powerModel,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1595-    provider,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1596-    apiKey,
+lib/ai-orchestrator/src/tool-execution-engine.ts-1597-    taskType,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2270-        kind: "diagnostic",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2271-        code: "INCOMPLETE_BEFORE_EVIDENCE",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2272-        details: [
+lib/ai-orchestrator/src/tool-execution-engine.ts-2273-          `run ended (${when}) with zero source reads; no evidence was ever acquired`,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2274-        ],
+lib/ai-orchestrator/src/tool-execution-engine.ts-2275-      });
+lib/ai-orchestrator/src/tool-execution-engine.ts-2276-    } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts-2277-  };
+lib/ai-orchestrator/src/tool-execution-engine.ts:2278:  const cancelledResult = (): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2279-    try {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2280-      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts-2281-        kind: "done",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2282-        iterations: 0,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2283-        maxIterations,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2284-        ...executionCounts(),
+lib/ai-orchestrator/src/tool-execution-engine.ts-2285-        stopReason: "cancelled",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2286-        synthesisStarted,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-2294-        diagnosticCodes: [],
+lib/ai-orchestrator/src/tool-execution-engine.ts-2295-        sourceRetrieval,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2296-      });
+lib/ai-orchestrator/src/tool-execution-engine.ts-2297-    } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts-2298-    return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
+lib/ai-orchestrator/src/tool-execution-engine.ts-2299-  };
+lib/ai-orchestrator/src/tool-execution-engine.ts-2300-  const failedToolResult = (
+lib/ai-orchestrator/src/tool-execution-engine.ts-2301-    tool: string,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2302:    failureKind: "execution" | "unavailable" | "cancelled",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2303-    diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2304-    safeMessage: string,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2305:  ): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2306-    try {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2307:      onStep?.({ kind: "diagnostic", code: diagnosticCode, details: [`${tool}: ${failureKind}`] });
+lib/ai-orchestrator/src/tool-execution-engine.ts-2308-      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts-2309-        kind: "tool_result",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2310-        tool,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2311-        cached: false,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2312-        outputLength: safeMessage.length,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2313:        resultKind: failureKind === "execution" ? "failed" : failureKind,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2314-        diagnosticCode,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2315-        resultSummary: safeMessage,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2316-      });
+lib/ai-orchestrator/src/tool-execution-engine.ts-2317-      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts-2318-        kind: "done",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2319-        iterations: 0,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2320-        maxIterations,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2321-        ...executionCounts(),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2322:        stopReason: "tool_failure",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2323-        synthesisStarted,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2324-        diagnosticCodes: [diagnosticCode],
+lib/ai-orchestrator/src/tool-execution-engine.ts-2325-        sourceRetrieval,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2326-      });
+lib/ai-orchestrator/src/tool-execution-engine.ts-2327-    } catch { /* observers must not change the terminal result */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts-2328-    return {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2329-      kind: "failed",
+lib/ai-orchestrator/src/tool-execution-engine.ts-2330-      toolSources,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2331-      fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2332-      sourceRetrieval,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2333-      tool,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2334:      failureKind,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2335-      diagnosticCode,
+lib/ai-orchestrator/src/tool-execution-engine.ts-2336-    };
+lib/ai-orchestrator/src/tool-execution-engine.ts-2337-  };
+lib/ai-orchestrator/src/tool-execution-engine.ts-2338-
+lib/ai-orchestrator/src/tool-execution-engine.ts-2339-  for (let iter = 0; iter < maxIterations; iter++) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-2340-    if (signal?.aborted) return cancelledResult();
+lib/ai-orchestrator/src/tool-execution-engine.ts-2341-    try { onStep?.({ kind: "iteration_start", iter, maxIterations }); } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts-2342-    // Reset per-iteration progress attribution before any tool calls dispatch.
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-3917-      if (toolResult.kind === "failed") {
+lib/ai-orchestrator/src/tool-execution-engine.ts-3918-        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts-3919-          role: "tool",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3920-          tool_call_id: tc.id,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3921-          content: `${toolResult.safeMessage} Diagnostic code: ${toolResult.diagnosticCode}.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3922-        });
+lib/ai-orchestrator/src/tool-execution-engine.ts-3923-        return failedToolResult(
+lib/ai-orchestrator/src/tool-execution-engine.ts-3924-          tc.function.name,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3925:          toolResult.failureKind,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3926-          toolResult.diagnosticCode,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3927-          toolResult.safeMessage,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3928-        );
+lib/ai-orchestrator/src/tool-execution-engine.ts-3929-      }
+lib/ai-orchestrator/src/tool-execution-engine.ts-3930-
+lib/ai-orchestrator/src/tool-execution-engine.ts-3931-      // Successful execution — consume budget, cache, record source.
+lib/ai-orchestrator/src/tool-execution-engine.ts-3932-      totalToolCalls++;
+lib/ai-orchestrator/src/tool-execution-engine.ts-3933-      toolCallCache.set(key, toolResult.output);
+--
+lib/ai-orchestrator/src/provider-tool-calls.ts-59-}
+lib/ai-orchestrator/src/provider-tool-calls.ts-60-
+lib/ai-orchestrator/src/provider-tool-calls.ts-61-function invalidToolCall(
+lib/ai-orchestrator/src/provider-tool-calls.ts-62-  reason: string,
+lib/ai-orchestrator/src/provider-tool-calls.ts-63-  options: ProviderToolCallOptions,
+lib/ai-orchestrator/src/provider-tool-calls.ts-64-): GroqClientError {
+lib/ai-orchestrator/src/provider-tool-calls.ts-65-  const safeReason = reason.replace(/[\r\n]+/g, " ").slice(0, MAX_PROVIDER_DIAGNOSTIC);
+lib/ai-orchestrator/src/provider-tool-calls.ts-66-  return new GroqClientError(
+lib/ai-orchestrator/src/provider-tool-calls.ts:67:    "INVALID_TOOL_CALL",
+lib/ai-orchestrator/src/provider-tool-calls.ts-68-    `Provider returned invalid tool-call output: ${safeReason}`,
+lib/ai-orchestrator/src/provider-tool-calls.ts-69-    {
+lib/ai-orchestrator/src/provider-tool-calls.ts-70-      context: {
+lib/ai-orchestrator/src/provider-tool-calls.ts-71-        providerName: options.providerName,
+lib/ai-orchestrator/src/provider-tool-calls.ts-72-        providerModel: options.model,
+lib/ai-orchestrator/src/provider-tool-calls.ts:73:        providerCode: "INVALID_TOOL_CALL",
+lib/ai-orchestrator/src/provider-tool-calls.ts-74-        providerMessage: safeReason,
+lib/ai-orchestrator/src/provider-tool-calls.ts-75-      },
+lib/ai-orchestrator/src/provider-tool-calls.ts-76-    },
+lib/ai-orchestrator/src/provider-tool-calls.ts-77-  );
+lib/ai-orchestrator/src/provider-tool-calls.ts-78-}
+lib/ai-orchestrator/src/provider-tool-calls.ts-79-
+lib/ai-orchestrator/src/provider-tool-calls.ts-80-function isRecord(value: unknown): value is Record<string, unknown> {
+lib/ai-orchestrator/src/provider-tool-calls.ts-81-  return typeof value === "object" && value !== null && !Array.isArray(value);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-260-        diagnosticCodes: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-261-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-262-      return {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-263-        result:            { response: "Hello world", sources: ["context"], pendingChanges: [] },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-264-        effectiveProvider: "groq" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-265-      };
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-266-    },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-267-  ),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:268:  handleOrchestratorError: vi.fn((err: unknown) => { throw err; }),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-269-  resolveProvider:          vi.fn(async () => ({ provider: "groq", apiKey: "test-dummy-key" })),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-270-  collectAvailableProviders: vi.fn(async () => [{ provider: "groq", apiKey: "test-dummy-key" }]),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-271-  };
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-272-});
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-273-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-274-const defaultChatWithFallback = vi.mocked(chatWithFallback).getMockImplementation();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-275-const defaultRequireProvider = vi.mocked(requireProvider).getMockImplementation();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-276-
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1336-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1337-    expect(resumed.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1338-    const resumedEvents = parseSseEvents(resumed.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1339-    const resumedDone = resumedEvents.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1340-    expect(resumedDone).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1341-    expect(resumedEvents.find((event) => event["type"] === "error")).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1342-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1343-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1344:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1345-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1346-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1347-    return;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1348-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1349-    const proposalId = resumedDone!["proposalId"] as string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1350-    const drifted = `// user edit\n${original}`;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1351-    await fs.writeFile(absolutePath, drifted, "utf8");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1352-
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1465-    const proposalId = done?.["proposalId"] as string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1466-    const operationId = done?.["operationId"] as string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1467-    const assistantMessageId = (done?.["message"] as { id?: string } | undefined)?.id;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1468-    const error = parseSseEvents(stream.text).find((event) => event["type"] === "error");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1469-    expect(done).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1470-    expect(error).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1471-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1472-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1473:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1474-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1475-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1476-    expect(proposalId).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1477-    expect(operationId).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1478-    expect(assistantMessageId).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1479-    return;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1480-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1481-    const [execution] = await db
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1662-    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1663-    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1664-    const doneEvent = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1665-    const errorEvent = events.find((event) => event["type"] === "error");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1666-    expect(doneEvent).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1667-    expect(errorEvent).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1668-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1669-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1670:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1671-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1672-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1673-  });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1674-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1675-  it("keeps hostile repository evidence from changing the approved Build contract", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1676-    const rootPath = await fs.mkdtemp("/tmp/stream-hostile-release-");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1677-    rootPaths.push(rootPath);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1678-    const projectId = await insertProject(rootPath);
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1938-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1939-    expect(build.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1940-    const buildEvents = parseSseEvents(build.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1941-    const buildDone = buildEvents.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1942-    expect(buildDone).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1943-    expect(buildEvents.find((event) => event["type"] === "error")).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1944-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1945-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1946:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1947-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1948-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1949-    return;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1950-    await expect(fs.access(proposedChange.absolutePath)).rejects.toThrow();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1951-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1952-    const proposalId = buildDone!["proposalId"] as string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1953-    const operationId = plan.messageId;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-1954-    const pending = await request(app)
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3543-    const executionCall = calls[calls.length - 1];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3544-    const executionInput = executionCall?.[1] as { history: Array<{ role: string; content: string }> };
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3545-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3546-    expect(executionRes.status).toBe(200);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3547-    expect(executionDone).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3548-    expect(executionError).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3549-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3550-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3551:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3552-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3553-    });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3554-    expect(executionInput.history).toContainEqual({ role: "assistant", content: auditReport });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3555-    expect(executionInput.history.some((entry) => entry.content === "نفذ Repair Plan")).toBe(false);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3556-
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3557-    const handoffTrace = infoSpy.mock.calls
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3558-      .map(([payload]) => payload)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-3559-      .find(
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4095-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4096-      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4097-        kind: "done",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4098-        iterations: 1,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4099-        maxIterations: 24,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4100-        toolCalls: 0,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4101-        prefetchToolCalls: 0,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4102-        loopToolCalls: 0,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4103:        stopReason: "tool_failure",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4104-        synthesisStarted: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4105-        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4106-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4107-      return {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4108-        result: {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4109-          response: "The analysis was unavailable.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4110-          sources: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4111-          pendingChanges: [],
+--
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4170-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4171-      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4172-        kind: "done",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4173-        iterations: 1,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4174-        maxIterations: 24,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4175-        toolCalls: 0,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4176-        prefetchToolCalls: 0,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4177-        loopToolCalls: 0,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4178:        stopReason: "tool_failure",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4179-        synthesisStarted: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4180-        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4181-      });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4182-      return {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4183-        result: {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4184-          response: "The analysis was unavailable.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4185-          sources: [],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts-4186-          pendingChanges: [],
+--
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-361-      repairState: "READY_FOR_REVIEW",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-362-      profile: "workspace-typecheck",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-363-      attempt: 1,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-364-    });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-365-    expect(doneEvent).toBeUndefined();
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-366-    expect(errorEvent).toMatchObject({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-367-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-368-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:369:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-370-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-371-    });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-372-
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-373-    expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-374-    expect(harness.strategy.call).toHaveBeenCalledTimes(4);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-375-    expect(harness.calls.some((call) => call.toolNames.includes("run_validation"))).toBe(true);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-376-    const scopedInstructions = harness.calls
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-377-      .flatMap((call) => call.messages)
+--
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-527-    expect(validationEvents[0]).not.toHaveProperty("failedTests");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-528-    expect(validationEvents[0]).not.toHaveProperty("affectedFiles");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-529-    expect(validationEvents[0].validation).not.toHaveProperty("failedTests");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-530-    expect(validationEvents[0].validation).not.toHaveProperty("changedFiles");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-531-    expect(doneEvent).toBeUndefined();
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-532-    expect(errorEvent).toMatchObject({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-533-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-534-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:535:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-536-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-537-    });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-538-    expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-539-    expect(harness.validationResults).toHaveLength(0);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-540-  }, 60_000);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-541-
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-542-  it("blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal", async () => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-543-    const workspaceRoot = path.resolve(process.cwd(), "../..");
+--
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-610-      ]);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-611-    expect(validationEvents[1]).toMatchObject({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-612-      detail: expect.stringContaining("pending changes are identical"),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-613-    });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-614-    expect(doneEvent).toBeUndefined();
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-615-    expect(errorEvent).toMatchObject({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-616-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-617-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:618:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-619-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-620-    });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-621-    expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-622-    expect(harness.validationResults).toHaveLength(0);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-623-  }, 60_000);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-624-
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-625-  it("blocks an unavailable validator without a proposal, apply path, or source mutation", async () => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-626-    const workspaceRoot = path.resolve(process.cwd(), "../..");
+--
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-697-      attempt: 1,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-698-      maxAttempts: 3,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-699-      detail: "The registered validator is unavailable in the isolated environment.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-700-    });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-701-    expect(doneEvent).toBeUndefined();
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-702-    expect(errorEvent).toMatchObject({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-703-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-704-      outcome: "FAILED",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:705:      failureKind: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-706-      recoveryState: "INCOMPLETE",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-707-    });
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-708-    expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-709-
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-710-    const proposals = await db
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-711-      .select({ id: aiChangeProposalsTable.id })
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-712-      .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts-713-      .where(eq(aiChangeProposalsTable.projectId, projectId));
+--
+lib/ai-orchestrator/src/openai-compatible-client.ts-332-        terminal: false,
+lib/ai-orchestrator/src/openai-compatible-client.ts-333-        evidenceStatus: "incomplete",
+lib/ai-orchestrator/src/openai-compatible-client.ts-334-      };
+lib/ai-orchestrator/src/openai-compatible-client.ts-335-    case "NON_200":
+lib/ai-orchestrator/src/openai-compatible-client.ts-336-      return { action: "narrow-request", terminal: true, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts-337-    case "AUTH_ERROR":
+lib/ai-orchestrator/src/openai-compatible-client.ts-338-    case "QUOTA":
+lib/ai-orchestrator/src/openai-compatible-client.ts-339-    case "INVALID_CONFIG":
+lib/ai-orchestrator/src/openai-compatible-client.ts:340:    case "INVALID_TOOL_CALL":
+lib/ai-orchestrator/src/openai-compatible-client.ts-341-      return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts-342-  }
+lib/ai-orchestrator/src/openai-compatible-client.ts-343-}
+lib/ai-orchestrator/src/openai-compatible-client.ts-344-
+lib/ai-orchestrator/src/openai-compatible-client.ts-345-/**
+lib/ai-orchestrator/src/openai-compatible-client.ts-346- * PR-003 / PR-004 / PR-008: true for errors that indicate the model itself is
+lib/ai-orchestrator/src/openai-compatible-client.ts-347- * unusable and the fallback engine should advance to the next candidate.
+lib/ai-orchestrator/src/openai-compatible-client.ts-348- * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier),
+--
+lib/ai-orchestrator/src/errors.ts-29- *
+lib/ai-orchestrator/src/errors.ts-30- * Model availability
+lib/ai-orchestrator/src/errors.ts-31- *   MODEL_NOT_FOUND    404: model permanently discontinued.
+lib/ai-orchestrator/src/errors.ts-32- *   PLAN_RESTRICTED    402: model requires paid tier / free-tier restriction.
+lib/ai-orchestrator/src/errors.ts-33- *   MODEL_UNAVAILABLE  422/410: model temporarily offline or being retired.
+lib/ai-orchestrator/src/errors.ts-34- *
+lib/ai-orchestrator/src/errors.ts-35- * Response
+lib/ai-orchestrator/src/errors.ts-36- *   EMPTY_RESPONSE    Response received but contained no content or tool calls.
+lib/ai-orchestrator/src/errors.ts:37: *   INVALID_TOOL_CALL Provider returned executable-looking output that did not
+lib/ai-orchestrator/src/errors.ts-38- *                     satisfy the strict tool-call grammar/manifest.
+lib/ai-orchestrator/src/errors.ts-39- *
+lib/ai-orchestrator/src/errors.ts-40- * Configuration
+lib/ai-orchestrator/src/errors.ts-41- *   INVALID_CONFIG    GROQ_API_KEY is absent or empty at startup.
+lib/ai-orchestrator/src/errors.ts-42- */
+lib/ai-orchestrator/src/errors.ts-43-
+lib/ai-orchestrator/src/errors.ts-44-export type AgentErrorCode = "EMPTY_MODEL_RESPONSE" | "MALFORMED_JSON" | "SCHEMA_VALIDATION_FAILED";
+lib/ai-orchestrator/src/errors.ts-45-
+--
+lib/ai-orchestrator/src/errors.ts-54-  | "SERVER_ERROR"
+lib/ai-orchestrator/src/errors.ts-55-  | "NON_200"
+lib/ai-orchestrator/src/errors.ts-56-  // model availability — distinct from each other (PR-004 / PR-008)
+lib/ai-orchestrator/src/errors.ts-57-  | "MODEL_NOT_FOUND"     // 404 — model permanently discontinued
+lib/ai-orchestrator/src/errors.ts-58-  | "PLAN_RESTRICTED"     // 402 — model requires paid plan / free-tier restriction
+lib/ai-orchestrator/src/errors.ts-59-  | "MODEL_UNAVAILABLE"   // 422/410 — model temporarily offline (PR-008)
+lib/ai-orchestrator/src/errors.ts-60-  // response
+lib/ai-orchestrator/src/errors.ts-61-  | "EMPTY_RESPONSE"
+lib/ai-orchestrator/src/errors.ts:62:  | "INVALID_TOOL_CALL"
+lib/ai-orchestrator/src/errors.ts-63-  // configuration
+lib/ai-orchestrator/src/errors.ts-64-  | "INVALID_CONFIG";
+lib/ai-orchestrator/src/errors.ts-65-
+lib/ai-orchestrator/src/errors.ts-66-/** PR-007: structured fields carried alongside the error message. */
+lib/ai-orchestrator/src/errors.ts-67-export type ProviderErrorContext = {
+lib/ai-orchestrator/src/errors.ts-68-  /** Raw HTTP status code from the provider. */
+lib/ai-orchestrator/src/errors.ts-69-  providerStatus?: number;
+lib/ai-orchestrator/src/errors.ts-70-  /** Provider-specific error code extracted from the response body. */
+--
+lib/ai-orchestrator/src/evidence-integrity.ts-802-  }
+lib/ai-orchestrator/src/evidence-integrity.ts-803-  if (bound.length === 0) {
+lib/ai-orchestrator/src/evidence-integrity.ts-804-    reasons.push("declared evidenceIds resolve to no records (EI-005 REJECTED)");
+lib/ai-orchestrator/src/evidence-integrity.ts-805-    return { claimId: claim.claimId, result: "REJECTED", reasons };
+lib/ai-orchestrator/src/evidence-integrity.ts-806-  }
+lib/ai-orchestrator/src/evidence-integrity.ts-807-  // A claim is PROVEN iff it has at least one DIRECT-capable, same-run, fresh,
+lib/ai-orchestrator/src/evidence-integrity.ts-808-  // production, symbol-linked, relevance-gated record. CONTEXT_ONLY / cached /
+lib/ai-orchestrator/src/evidence-integrity.ts-809-  // TEST / relevance-rejected windows cannot be proof (EI-006/003/007#3/AI-OBJ-007).
+lib/ai-orchestrator/src/evidence-integrity.ts:810:  const failureKinds: string[] = [];
+lib/ai-orchestrator/src/evidence-integrity.ts-811-  for (const record of bound) {
+lib/ai-orchestrator/src/evidence-integrity.ts-812-    if (record.strength === "CONTEXT_ONLY") {

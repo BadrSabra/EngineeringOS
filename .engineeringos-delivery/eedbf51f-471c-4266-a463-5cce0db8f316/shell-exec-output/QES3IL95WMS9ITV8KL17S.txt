@@ -1,0 +1,395 @@
+--- task61 vs main key diff: execution state ---
+diff --git a/artifacts/api-server/src/lib/ai-execution-state.ts b/artifacts/api-server/src/lib/ai-execution-state.ts
+index 96c7e357..dd21b283 100644
+--- a/artifacts/api-server/src/lib/ai-execution-state.ts
++++ b/artifacts/api-server/src/lib/ai-execution-state.ts
+@@ -1,5 +1,5 @@
+ import { createHash, randomUUID } from "node:crypto";
+-import { and, eq, inArray, lt, sql } from "drizzle-orm";
++import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+ import { db, aiExecutionsTable } from "@workspace/db";
+ import type { AiExecution } from "@workspace/db";
+ import type { ExecutionNode, FlightDeckEvidenceVerdict } from "@workspace/ai-orchestrator";
+@@ -56,6 +56,265 @@ export type AutonomousOperationNode = {
+   evidenceRefs: string[];
+ };
+ 
++export const RECIPE_OPERATION_PHASES = [
++  "planned",
++  "queued",
++  "running",
++  "mutating",
++  "validating",
++  "completed",
++  "failed",
++  "cancelled",
++] as const;
++export type RecipeOperationPhase = (typeof RECIPE_OPERATION_PHASES)[number];
++
++export type RecipeOperationBudget = {
++  maxNodes: number;
++  maxParallelNodes: number;
++  maxTotalTimeoutMs: number;
++  maxProcessCount: number;
++  maxOutputBytes: number;
++};
++
++/**
++ * The recipe binding is the server-owned capability boundary. It is stored
++ * inside the operation checkpoint rather than reconstructed from provider
++ * output, so a resumed or concurrent worker cannot select a different project,
++ * revision, candidate, scope, or resource budget.
++ */
++export type RecipeOperationBinding = {
++  projectId: string;
++  operationId: string;
++  sourceRevision: string;
++  candidateIdentity: string | null;
++  candidateWorkspace: string | null;
++  approvedPaths: string[];
++  phase: RecipeOperationPhase;
++  leaseOwner: string | null;
++  leaseUntil: string | null;
++  missionBudget: RecipeOperationBudget;
++  concurrencyBudget: {
++    maxInFlightNodes: number;
++    maxProcesses: number;
++  };
++};
++
++export type RecipeBindingExpectation = {
++  projectId?: string;
++  operationId?: string;
++  sourceRevision?: string;
++  candidateIdentity?: string | null;
++  candidateWorkspace?: string | null;
++  leaseOwner?: string | null;
++  phase?: RecipeOperationPhase;
++  now?: Date;
++  requireLease?: boolean;
++  approvedPaths?: readonly string[];
++};
++
++export type RecipeBindingCheck = {
++  allowed: boolean;
++  reason:
++    | "allowed"
++    | "invalid_binding"
++    | "project_mismatch"
++    | "operation_mismatch"
++    | "revision_mismatch"
++    | "candidate_mismatch"
++    | "workspace_mismatch"
++    | "scope_mismatch"
++    | "phase_mismatch"
++    | "lease_owner_mismatch"
++    | "lease_expired"
++    | "budget_exceeded";
++  detail: string;
++};
++
++const RECIPE_PATH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!\.\.?$).+$/;
++
++function normalizedRecipePath(value: string): string {
++  return value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "");
++}
++
++function validRecipeBudget(value: unknown): value is RecipeOperationBudget {
++  if (!value || typeof value !== "object") return false;
++  const budget = value as Partial<RecipeOperationBudget>;
++  return Number.isInteger(budget.maxNodes) && budget.maxNodes! >= 1 && budget.maxNodes! <= AI_EXECUTION_NODE_LIMIT
++    && Number.isInteger(budget.maxParallelNodes) && budget.maxParallelNodes! >= 1 && budget.maxParallelNodes! <= 8
++    && Number.isInteger(budget.maxTotalTimeoutMs) && budget.maxTotalTimeoutMs! >= 1 && budget.maxTotalTimeoutMs! <= 900_000
++    && Number.isInteger(budget.maxProcessCount) && budget.maxProcessCount! >= 1 && budget.maxProcessCount! <= 24
++    && Number.isInteger(budget.maxOutputBytes) && budget.maxOutputBytes! >= 1 && budget.maxOutputBytes! <= 8 * 1024 * 1024;
++}
++
++function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | undefined {
++  if (!value || typeof value !== "object") return undefined;
++  const candidate = value as Partial<RecipeOperationBinding> & {
++    concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
++  };
++  const approvedPaths = Array.isArray(candidate.approvedPaths)
++    ? candidate.approvedPaths.filter((item): item is string => typeof item === "string").map(normalizedRecipePath)
++    : [];
++  const leaseUntil = candidate.leaseUntil;
++  const concurrencyBudget = candidate.concurrencyBudget;
++  if (
++    typeof candidate.projectId !== "string" || candidate.projectId.length < 1 || candidate.projectId.length > 160
++    || typeof candidate.operationId !== "string" || candidate.operationId.length < 1 || candidate.operationId.length > 160
++    || typeof candidate.sourceRevision !== "string" || candidate.sourceRevision.length < 1 || candidate.sourceRevision.length > 240
++    || candidate.sourceRevision === "unbound"
++    || (candidate.candidateIdentity !== null && typeof candidate.candidateIdentity !== "string")
++    || (candidate.candidateWorkspace !== null && typeof candidate.candidateWorkspace !== "string")
++    || !RECIPE_OPERATION_PHASES.includes(candidate.phase as RecipeOperationPhase)
++    || (candidate.leaseOwner !== null && typeof candidate.leaseOwner !== "string")
++    || (leaseUntil !== null && typeof leaseUntil !== "string")
++    || (leaseUntil !== null && Number.isNaN(Date.parse(leaseUntil)))
++    || approvedPaths.length > 48
++    || approvedPaths.some((item) => !RECIPE_PATH_PATTERN.test(item))
++    || !validRecipeBudget(candidate.missionBudget)
++    || !concurrencyBudget
++    || !Number.isInteger(concurrencyBudget.maxInFlightNodes)
++    || concurrencyBudget.maxInFlightNodes < 1 || concurrencyBudget.maxInFlightNodes > 8
++    || !Number.isInteger(concurrencyBudget.maxProcesses)
++    || concurrencyBudget.maxProcesses < 1 || concurrencyBudget.maxProcesses > 24
++  ) return undefined;
++  return {
++    projectId: candidate.projectId,
++    operationId: candidate.operationId,
++    sourceRevision: candidate.sourceRevision,
++    candidateIdentity: candidate.candidateIdentity ?? null,
++    candidateWorkspace: candidate.candidateWorkspace ?? null,
++    approvedPaths: [...new Set(approvedPaths)],
++    phase: candidate.phase as RecipeOperationPhase,
++    leaseOwner: candidate.leaseOwner ?? null,
++    leaseUntil: leaseUntil ?? null,
++    missionBudget: { ...candidate.missionBudget },
++    concurrencyBudget: {
++      maxInFlightNodes: concurrencyBudget.maxInFlightNodes,
++      maxProcesses: concurrencyBudget.maxProcesses,
++    },
++  };
++}
++
++export function createRecipeOperationBinding(params: {
++  projectId: string;
++  operationId: string;
++  sourceRevision: string;
++  candidateIdentity?: string | null;
++  candidateWorkspace?: string | null;
++  approvedPaths?: readonly string[];
++  phase?: RecipeOperationPhase;
++  leaseOwner?: string | null;
++  leaseUntil?: Date | string | null;
++  missionBudget?: Partial<RecipeOperationBudget>;
++  concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
++}): RecipeOperationBinding {
++  const binding = parseRecipeOperationBinding({
++    projectId: params.projectId,
++    operationId: params.operationId,
++    sourceRevision: params.sourceRevision,
++    candidateIdentity: params.candidateIdentity ?? null,
++    candidateWorkspace: params.candidateWorkspace ?? null,
++    approvedPaths: (params.approvedPaths ?? []).map(normalizedRecipePath),
++    phase: params.phase ?? "planned",
++    leaseOwner: params.leaseOwner ?? null,
++    leaseUntil: params.leaseUntil instanceof Date
++      ? params.leaseUntil.toISOString()
++      : params.leaseUntil ?? null,
++    missionBudget: {
++      maxNodes: params.missionBudget?.maxNodes ?? AI_EXECUTION_NODE_LIMIT,
++      maxParallelNodes: params.missionBudget?.maxParallelNodes ?? 3,
++      maxTotalTimeoutMs: params.missionBudget?.maxTotalTimeoutMs ?? 900_000,
++      maxProcessCount: params.missionBudget?.maxProcessCount ?? 24,
++      maxOutputBytes: params.missionBudget?.maxOutputBytes ?? 8 * 1024 * 1024,
++    },
++    concurrencyBudget: {
++      maxInFlightNodes: params.concurrencyBudget?.maxInFlightNodes ?? 3,
++      maxProcesses: params.concurrencyBudget?.maxProcesses ?? 8,
++    },
++  });
++  if (!binding) throw new Error("Invalid server-owned recipe operation binding.");
++  return binding;
++}
++
++export function checkRecipeOperationBinding(
++  binding: RecipeOperationBinding,
++  expected: RecipeBindingExpectation = {},
++): RecipeBindingCheck {
++  const parsed = parseRecipeOperationBinding(binding);
++  if (!parsed) return { allowed: false, reason: "invalid_binding", detail: "Recipe operation binding is invalid." };
++  if (expected.projectId !== undefined && parsed.projectId !== expected.projectId) {
++    return { allowed: false, reason: "project_mismatch", detail: "Recipe operation belongs to a different project." };
++  }
++  if (expected.operationId !== undefined && parsed.operationId !== expected.operationId) {
++    return { allowed: false, reason: "operation_mismatch", detail: "Recipe operation identity does not match the durable execution." };
++  }
++  if (expected.sourceRevision !== undefined && parsed.sourceRevision !== expected.sourceRevision) {
++    return { allowed: false, reason: "revision_mismatch", detail: "Recipe source revision is stale." };
++  }
++  if (expected.candidateIdentity !== undefined && parsed.candidateIdentity !== expected.candidateIdentity) {
++    return { allowed: false, reason: "candidate_mismatch", detail: "Recipe candidate identity does not match the durable execution." };
++  }
++  if (expected.candidateWorkspace !== undefined && parsed.candidateWorkspace !== expected.candidateWorkspace) {
++    return { allowed: false, reason: "workspace_mismatch", detail: "Recipe candidate workspace does not match the durable execution." };
++  }
++  if (expected.phase !== undefined && parsed.phase !== expected.phase) {
++    return { allowed: false, reason: "phase_mismatch", detail: "Recipe operation is not in the required phase." };
++  }
++  if (expected.leaseOwner !== undefined && parsed.leaseOwner !== expected.leaseOwner) {
++    return { allowed: false, reason: "lease_owner_mismatch", detail: "Recipe worker does not own the operation lease." };
++  }
++  if (expected.approvedPaths !== undefined) {
++    const approved = new Set(parsed.approvedPaths);
++    const outside = expected.approvedPaths.map(normalizedRecipePath).find((item) => !approved.has(item));
++    if (outside) return { allowed: false, reason: "scope_mismatch", detail: "Recipe action is outside the approved path scope." };
++  }
++  if (expected.requireLease) {
++    if (!parsed.leaseOwner || !parsed.leaseUntil || Date.parse(parsed.leaseUntil) <= (expected.now ?? new Date()).getTime()) {
++      return { allowed: false, reason: "lease_expired", detail: "Recipe operation lease is missing or expired." };
++    }
++  }
++  if (parsed.missionBudget.maxParallelNodes > parsed.concurrencyBudget.maxInFlightNodes
++    || parsed.missionBudget.maxProcessCount > parsed.concurrencyBudget.maxProcesses) {
++    return { allowed: false, reason: "budget_exceeded", detail: "Recipe mission budget exceeds its concurrency budget." };
++  }
++  return { allowed: true, reason: "allowed", detail: "Recipe operation binding is authorized." };
++}
++
++export function assertRecipeOperationBinding(
++  binding: RecipeOperationBinding,
++  expected: RecipeBindingExpectation = {},
++): void {
++  const result = checkRecipeOperationBinding(binding, expected);
++  if (!result.allowed) throw new Error(`Recipe operation binding rejected: ${result.reason}`);
++}
++
++export function assertRecipeNodeBinding(
++  binding: RecipeOperationBinding,
++  node: Pick<ExecutionNode, "allowedFiles" | "validationProfile" | "executionContext">,
++  expected: RecipeBindingExpectation = {},
++): void {
++  assertRecipeOperationBinding(binding, expected);
++  const approved = new Set(binding.approvedPaths);
++  const outOfScope = node.allowedFiles
++    .map(normalizedRecipePath)
++    .find((file) => !approved.has(file));
++  if (outOfScope) throw new Error("Recipe node is outside the approved path scope.");
++  if (node.executionContext) {
++    if (node.executionContext.projectId !== binding.projectId) {
++      throw new Error("Recipe node belongs to a different project.");
+--- coordinator diff summary ---
+diff --git a/lib/ai-orchestrator/src/execution-node-coordinator.ts b/lib/ai-orchestrator/src/execution-node-coordinator.ts
+index 298e5633..58d61b4c 100644
+--- a/lib/ai-orchestrator/src/execution-node-coordinator.ts
++++ b/lib/ai-orchestrator/src/execution-node-coordinator.ts
+@@ -34,4 +34,11 @@ export type ExecutionNodeRunContext = {
+ };
+ 
++export type ExecutionNodeAuthorizationPhase = "start" | "completion" | "retry";
++
++export type ExecutionNodeAuthorization = {
++  allowed: boolean;
++  reason?: string;
++};
++
+ export type ExecutionNodeCoordinatorEvent =
+   | "recovered"
+@@ -51,4 +58,14 @@ export type ExecutionNodeCoordinatorOptions = {
+   maxParallelNodes?: number;
+   signal?: AbortSignal;
++  /**
++   * Server-owned lifecycle fence for capability recipe nodes. It should
++   * re-check the live operation binding, lease, cancellation, revision,
++   * candidate workspace, and approved scope at every supplied phase.
++   */
++  authorizeNodeExecution?: (args: {
++    node: ExecutionNode;
++    phase: ExecutionNodeAuthorizationPhase;
++    attempt: number;
++  }) => Promise<ExecutionNodeAuthorization> | ExecutionNodeAuthorization;
+   onChange?: (args: {
+     nodes: ExecutionNode[];
+@@ -167,4 +184,44 @@ function transitionToBlocked(
+ }
+ 
++function isRecipeNode(node: ExecutionNode): boolean {
++  return Boolean(node.capabilityId || node.executionContext);
++}
++
++async function authorizeNode(
++  opts: ExecutionNodeCoordinatorOptions,
++  node: ExecutionNode,
++  phase: ExecutionNodeAuthorizationPhase,
++  attempt: number,
++): Promise<ExecutionNodeAuthorization> {
++  if (opts.signal?.aborted) return { allowed: false, reason: "execution cancellation requested" };
++  if (!opts.authorizeNodeExecution) {
++    return isRecipeNode(node)
++      ? { allowed: false, reason: "recipe node has no server-owned operation authorization" }
++      : { allowed: true };
++  }
++  try {
++    const result = await opts.authorizeNodeExecution({ node, phase, attempt });
++    return result?.allowed
++      ? { allowed: true }
++      : { allowed: false, reason: result?.reason ?? "server-owned operation authorization rejected the node" };
++  } catch (error) {
++    return {
++      allowed: false,
++      reason: error instanceof Error ? error.message : "server-owned operation authorization failed",
++    };
++  }
++}
++
++function blockUnauthorizedNode(
++  nodes: ExecutionNode[],
++  nodeId: string,
++  opts: ExecutionNodeCoordinatorOptions,
++  reason: string,
++): ExecutionNode[] {
++  let next = transitionToBlocked(nodes, nodeId, opts, reason);
++  next = setLastFailure(next, nodeId, "blocked", reason);
++  return next;
++}
++
+ /**
+  * Recover a plan after a process restart or a previously interrupted worker.
+@@ -295,9 +352,20 @@ export async function executeExecutionNodePlan(
+     const wave = runnable.slice(0, maxParallelNodes);
+     for (const node of wave) {
++      const authorization = await authorizeNode(opts, node, "start", node.attempts + 1);
++      if (!authorization.allowed) {
++        nodes = blockUnauthorizedNode(
++          nodes,
++          node.id,
++          opts,
++          authorization.reason ?? "node authorization rejected before execution",
++        );
++        continue;
++      }
+       nodes = updateNode(nodes, node.id, "running");
+       emit(opts, nodes, "started", node.id);
+     }
+ 
+-    const outcomes = await Promise.all(wave.map(async (node) => {
++    const activeWave = wave.filter((node) => nodes.find((candidate) => candidate.id === node.id)?.status === "running");
++    const outcomes = await Promise.all(activeWave.map(async (node) => {
+       try {
+         return {
+@@ -339,4 +407,19 @@ export async function executeExecutionNodePlan(
+       const current = nodes.find((candidate) => candidate.id === node.id);
+       if (!current || current.status !== "running") continue;
++      const completionAuthorization = await authorizeNode(
++        opts,
++        current,
++        "completion",
++        current.attempts,
++      );
++      if (!completionAuthorization.allowed) {
++        nodes = blockUnauthorizedNode(
++          nodes,
++          node.id,
++          opts,
++          completionAuthorization.reason ?? "node authorization rejected after execution",
++        );
++        continue;
++      }
+       nodes = recordValidationAttempts(nodes, node.id, outcome.validationAttempts);
+ 
+@@ -364,4 +447,14 @@ export async function executeExecutionNodePlan(
+           !opts.signal?.aborted
+         ) {
++          const retryAuthorization = await authorizeNode(opts, failed, "retry", failed.attempts + 1);
++          if (!retryAuthorization.allowed) {
++            nodes = blockUnauthorizedNode(
++              nodes,
++              node.id,
++              opts,
++              retryAuthorization.reason ?? "node authorization rejected before retry",
++            );
++            continue;
++          }
+           previousFailures.set(node.id, {
+             attempt: failed.attempts,

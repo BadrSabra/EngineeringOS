@@ -1,0 +1,280 @@
+artifacts/api-server/src/routes/ai.test.ts:1100:  // PR-E (updated): _parseError with a non-empty fallback response → 200, not 422.
+artifacts/api-server/src/routes/ai.test.ts:1102:  // compliance; the fallback extracts the response and the route should deliver it.
+artifacts/api-server/src/routes/ai.test.ts:1103:  it("returns 200 with fallback when chat has _parseError but non-empty response", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1106:      response: "fallback text",
+artifacts/api-server/src/routes/ai.test.ts:2221:    // is readable) — that fallback would let any project-authorized user pull in
+artifacts/api-server/src/routes/ai.test.ts:2284:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2285:      overallAssessment: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2287:      topPriority: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2288:      estimatedImpact: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2330:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2331:      overallAssessment: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2333:      topPriority: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2334:      estimatedImpact: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2433:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2517:      reasoning: "fallback — model output could not be parsed",
+artifacts/api-server/src/routes/ai.test.ts:4090:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4091:      result: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4226:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4227:      result: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4266:    // Clear every server-wide fallback, not only Groq: OpenRouter, DeepSeek,
+lib/ai-orchestrator/src/context-builder.test.ts:297:      { id: "e2", name: "UserRepo", type: "repository", confidence: 0.4, sourceType: "regex-fallback", path: "user.ts" },
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:68:      "provider-fallback",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4: * Validates the POST /api/ai/chat/stream route end-to-end:
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:250:        model: "actual-fallback-model",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:739:        const firstStream = fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:779:        const resumed = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:888:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:951:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1099:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1328:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1457:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1532:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1552:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1574:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1611:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1654:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1739:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1932:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2276:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2410:        .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2414:        .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2462:      prompt: "Which technology handles the provider fallback?",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2463:      response: "Technology answer: the fallback router selects the next provider.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2464:      source: "src/providers/fallback.ts",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2465:      citation: "provider fallback selection",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2669:        .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2673:        .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2709:describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2715:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2806:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2932:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3102:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3264:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3302:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3312:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3391:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3440:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3450:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3495:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3525:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3536:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3580:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3690:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3751:        onDelta?.("Safe fallback report");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3769:          result: { response: "Safe fallback report", sources: [], pendingChanges: [] },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3776:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3787:    expect(message?.content).toBe("Safe fallback report");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3894:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4042:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4093:        diagnosticCode: "TOOL_UNAVAILABLE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4105:        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4118:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4124:      expect.objectContaining({ type: "error", code: "TOOL_UNAVAILABLE" }),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4145:      errorCode: "TOOL_UNAVAILABLE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4168:        diagnosticCode: "TOOL_UNAVAILABLE",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4180:        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4196:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4211:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4224:      expect.objectContaining({ type: "error", code: "TOOL_UNAVAILABLE" }),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4319:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4349:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4365:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4377:describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4422:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4462:  it("retains a completed read when the primary fails and the text-only fallback is resumed", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4488:          "SSE failover fixture exhausted: expected only the initial fallback and one resumed read-only turn.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4503:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4535:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4565:        `All AI model fallbacks exhausted — no model was available (${sensitivePath}, ${internalId}).`,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4571:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4622:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4638:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4662:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4677:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4698:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4738:  // opening any SSE/model turn. Without this, a real /api/ai/chat/stream request
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4754:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4774:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4795:      new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted"),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4801:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4836:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4844:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:118:    fallbackChain: ["repair-loop-fixture-model"],
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:334:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:479:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:581:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:668:      .post("/api/ai/chat/stream")
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:136:      runId: "airlock-fallback",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:204:      runId: "airlock-model-lane-fallback",
+artifacts/api-server/src/routes/graph.test.ts:798:      confidence: 0.5, sourceType: "regex-fallback", evidenceCount: 0,
+artifacts/api-server/src/routes/graph.test.ts:826:    expect(res.body.layered.heuristic.sourceTypeBreakdown["regex-fallback"]).toBe(1);
+artifacts/api-server/src/routes/graph.test.ts:1074:    // regex-fallback edge (should be excluded)
+artifacts/api-server/src/routes/graph.test.ts:1078:      sourceType: "regex-fallback", createdAt: now,
+artifacts/api-server/src/routes/graph.test.ts:1165:    // regex-fallback edge A→C (should be excluded by sourceType filter)
+artifacts/api-server/src/routes/graph.test.ts:1169:      sourceType: "regex-fallback", createdAt: now,
+artifacts/api-server/src/routes/ai-route-parity.test.ts:117:  const SPEC_EXEMPTIONS = new Set(["POST /api/ai/chat/stream"]);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:5: * `POST /api/ai/chat/stream` route in `artifacts/api-server/src/routes/ai/chat.ts`.
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:292:    fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:553:    fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:568:describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:590:      fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:618:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:639:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:681:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:713:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:757:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:791:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:836:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:869:        fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:874:        fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:893:    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:933:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:981:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1006:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1029:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1053:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1078:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1099:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1130:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1160:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1188:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1209:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1235:describe("POST /api/ai/chat/stream — validation privacy boundary", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1248:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1295:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1332:describe("POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1362:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1384:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1412:      .post("/api/ai/chat/stream")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1447:      .post("/api/ai/chat/stream")
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:162:    expect(result.kind === "failed" && result.diagnosticCode).toBe("TOOL_UNAVAILABLE");
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:171:  it("buildRuntimeLedger fails closed when a cited prefetched file has ZERO recorded reads (EI-011 fallback removed)", () => {
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:388: *          must be `undefined` (no fallback to line 1).
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:521:    // With the title supplying a real identifier, it is used as the fallback.
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:81:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:382:    // fallback can produce the final source-grounded verdict.
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:417:      // 2. The deterministic no-finding fallback fired to produce the verdict.
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:117:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:286:      diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1001:      makeResponse('{"response":"fallback forensic report","sources":[]}'),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1024:      expect(result.result.content).toBe('{"response":"fallback forensic report","sources":[]}');
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1028:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[2]?.[1] as Record<string, unknown>;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1029:    expect(fallbackOptions).toMatchObject({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1033:    expect(fallbackOptions).not.toHaveProperty("tools");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1116:  it("records the model returned by a successful fallback response", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1122:        ...makeResponse("fallback answer"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1123:        model: "actual-fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1131:      powerModel: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1143:      model: "actual-fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1149:  it("preserves the full authorized manifest when a fallback executes a narrowed tool list", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1157:      .mockResolvedValueOnce(makeResponse("fallback completed"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1163:      powerModel: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1182:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1183:    expect(fallbackOptions).toMatchObject({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1184:      model: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1186:      toolManifest: [readTool, searchTool],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1196:        "INVALID_TOOL_CALL",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1218:      diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1226:      diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1231:      diagnosticCodes: ["TOOL_UNAVAILABLE"],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1243:        "INVALID_TOOL_CALL",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1265:      diagnosticCode: "TOOL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1283:      powerModel: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1296:      details: ["fallback provider failure code: TIMEOUT"],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2635:      expect(result.diagnosticCode).toBe("TOOL_UNAVAILABLE");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4054:  it("keeps synthesis fallback within its independent attempt budget", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4059:      .mockResolvedValueOnce(makeResponse("fallback report"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4078:      expect(result.result.content).toBe("fallback report");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4138:    // inner fallback retry).  totalToolCalls is 1 at that point so evidence
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4185:  it("returns kind:partial/provider_timeout when both primary and fallback time out after a tool call", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4186:    // primary !== powerModel so the inner fallback retry path is taken.
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4188:    // must NOT rethrow after the fallback also fails.
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:126:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:261:      fallbackChain: ["initial-model", "recovery-model", "final-model"],
+artifacts/api-server/src/lib/task-execution-service.test.ts:26:      stages: ["claim", "context", "provider_call", "provider_fallback", "finalize"],
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts:37:    expect(error).toMatchObject({ code: "INVALID_TOOL_CALL" });
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:53:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:374:              // Non-streaming fallback (used in synthesis/correction calls).
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:125:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:488:      // requirement retries) is still finite and provider-fallback-free.
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:64:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:2: * Provider-free release coverage for structured code-review fallback.
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:111:describe("structured review provider fallback release check", () => {
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:146:      // before the fallback chain advances.
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:181:      // successful fallback response. The transport fallback itself must
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:64:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:69:      fallbackChain: ["fixture-model"],
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:212:  it("stops after a provider timeout with preserved reads and no generic blocked fallback", async () => {
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:234:      // The engine may make one bounded provider fallback attempt before
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:249:  it("uses request-retained evidence on a text-only fallback without rereading", async () => {
+lib/ai-orchestrator/src/__tests__/quality-engine.test.ts:33:  it("flags fallback-style task output for retry", () => {
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:23: *   fallback regression: a cited prefetched file with ZERO recorded completed
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:77:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:202: * Native-SSE strategy for the ENTER_HEADLESS / getStrategy fallback is
+lib/ai-orchestrator/src/__tests__/live-review-receipt.test.ts:39:  it("accepts only a selected-file finding as fallback success", () => {
+lib/ai-orchestrator/src/__tests__/live-review-receipt.test.ts:48:      outcomeClass: "fallback-success",
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:10: * SECOND (safe fallback) branch. We assert the produced BEHAVIOR_ANSWER_RESULT
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:60:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:78:  it("locates the evidence span at the second occurrence (safe fallback), not the first match", async () => {
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:83:    // safe fallback branch, so the ground-truth span must be line 7.
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:90:      '    console.log("safe fallback");\n' +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:103:      // It cites the safe fallback branch, mentions the source, and quotes the
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:111:              "In the safe fallback branch:\n" +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:113:              "The function returns the partial result in the fallback.",
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:177:      expect(result.response).toContain("safe fallback");
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:188:      "async function finishProviderAttempt(primaryTimedOut: boolean, fallbackTimedOut: boolean) {\n" +
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:189:      "  if (primaryTimedOut && fallbackTimedOut) {\n" +
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:5: *   • Model Removed (404)           → MODEL_NOT_FOUND, automatic fallback
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:6: *   • Free Tier Restricted (402)    → PLAN_RESTRICTED, automatic fallback
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:7: *   • Invalid API Key (401)         → AUTH_ERROR, no fallback
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:10: *   • Empty Model Catalog           → static fallback, never throws
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:148:describe("model-resolver — empty catalog fallback", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:577:      .mockResolvedValueOnce(streamResponse([sseDelta("fallback"), "data: [DONE]\n\n"]));
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:593:    expect(chunks.join("")).toBe("fallback");
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:946:    // Fast-tier models must be available as the downgrade fallback
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:953:    // No fallback to the raw static pool (RC-01: catalog loaded → no re-insertion of paid models)
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:67:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:138:  ])("fails closed for %s with a wait fallback and parse marker", async (_label, response) => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1106:        // first fallback candidate returns a six-section report with a stale
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1109:        if (calls.length === 5 && calls[4]?.model === "fallback-model") {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1126:            model: "fallback-model",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1157:        fallbackChain: ["llama-3.1-8b-instant", "fallback-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1195:      expect(calls[4]?.model).toBe("fallback-model");
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1303:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1484:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1542:    // its recovery attempts (here: parse failure with no fallback model),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1637:        // Single-model chain: no fallback, so packet 1 exhausts after one attempt.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1638:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1642:      // No fallback models: packet 1's failure is terminal after one attempt.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1782:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1897:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2035:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2152:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2285:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2396:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2589:        fallbackChain: ["initial-model", "recovery-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2966:describe("chat agent — fallback output normalization", () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2978:  it("strips markdown fences and normalizes fallback text", async () => {
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:132:  opts: { fallbackChain?: string[]; openrouterChain?: string[] } = {},
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:137:  const fallbackChain = opts.fallbackChain ?? ["initial-model"];
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:156:      fallbackChain,
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:765:      fallbackChain: ["initial-model", "recovery-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:31:        ["src/provider.ts", "return fallback;"],
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:377:      '  if (url === "http://host") return fallback;\n' +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:385:        'Evidence: `if (url === "http://host") return fallback`\n' +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:386:        "The function returns the fallback value.",
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:430:    // *second* occurrence (the safe fallback), computeSourceSpan must prefer
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:438:      '    console.log("safe fallback");\n' +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:447:        "In the safe fallback branch:\n" +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:449:        "The function returns the partial result in the fallback.",
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:115:    const fallback = buildTaskValidationFallback("FULL_FORENSIC_AUDIT", true);
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:116:    expect(fallback).toContain("## 1) Executive Verdict");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:117:    expect(fallback).toContain("## 6) Final Judgment");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:118:    expect(fallback).toContain("ANALYSIS_INCOMPLETE");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:119:    expect(fallback).not.toContain("FINDING PROVEN");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:120:    expect(validateTaskResponse("FULL_FORENSIC_AUDIT", fallback, { responseLanguage: "ar" }).valid).toBe(true);
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:123:  it("returns an informative incomplete behavior fallback after source reads", () => {
+lib/ai-orchestrator/src/__tests__/task-checklist.test.ts:136:  it("adds an explicit unfinished section to a fallback response", () => {
+lib/ai-orchestrator/src/__tests__/behavioral-scorecard.test.ts:77:  it("demotes task_execution fallback candidates without removing them", () => {
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:111:      fallbackChain: ["initial-model"],

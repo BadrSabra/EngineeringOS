@@ -1,0 +1,934 @@
+stdout:
+{
+  "tasks": [
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T01:32:02.051Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#1",
+      "title": "Set up the imported project",
+      "updatedAt": "2026-08-25T01:44:13.936Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T01:34:45.348Z",
+      "dependsOn": [
+        "#1"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#1",
+      "state": "MERGED",
+      "taskRef": "#2",
+      "title": "Enable AI-powered reviews with a provider connection",
+      "updatedAt": "2026-08-25T01:57:39.162Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T01:48:31.871Z",
+      "dependsOn": [
+        "#2"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "tech_debt",
+      "proposedFromRef": "#2",
+      "state": "MERGED",
+      "taskRef": "#3",
+      "title": "Keep OpenRouter’s free model list current",
+      "updatedAt": "2026-08-25T02:09:46.907Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T01:59:35.501Z",
+      "dependsOn": [
+        "#3"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#3",
+      "state": "MERGED",
+      "taskRef": "#4",
+      "title": "Fix the runtime oracle check blocking the full test suite",
+      "updatedAt": "2026-08-25T02:22:06.407Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T02:11:03.735Z",
+      "dependsOn": [
+        "#4"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#4",
+      "state": "MERGED",
+      "taskRef": "#5",
+      "title": "Catch broken runtime oracle fixtures before the full suite",
+      "updatedAt": "2026-08-25T02:58:35.683Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T02:28:55.860Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#6",
+      "title": "Reconcile the runtime oracle fix on main",
+      "updatedAt": "2026-08-25T02:43:00.703Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T02:44:37.068Z",
+      "dependsOn": [
+        "#5"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#5",
+      "state": "MERGED",
+      "taskRef": "#7",
+      "title": "Catch broken benchmark fixtures before the full suite",
+      "updatedAt": "2026-08-25T03:26:51.486Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T02:47:09.483Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#8",
+      "title": "Stabilize OpenRouter fallback resolution",
+      "updatedAt": "2026-08-25T03:14:46.486Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T03:02:33.736Z",
+      "dependsOn": [
+        "#8"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#8",
+      "state": "MERGED",
+      "taskRef": "#9",
+      "title": "Confirm catalog diagnostics stay clear in the chat API",
+      "updatedAt": "2026-08-25T03:42:20.704Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T03:07:53.688Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#10",
+      "title": "Establish the actual capability baseline",
+      "updatedAt": "2026-08-25T04:08:53.235Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T03:07:53.688Z",
+      "dependsOn": [
+        "#10"
+      ],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#11",
+      "title": "Map the Replit Agent parity gaps",
+      "updatedAt": "2026-08-25T04:22:10.860Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T03:16:56.777Z",
+      "dependsOn": [
+        "#7"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#7",
+      "state": "MERGED",
+      "taskRef": "#12",
+      "title": "Catch missing benchmark scenarios before release runs",
+      "updatedAt": "2026-08-25T12:31:22.548Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T04:10:36.579Z",
+      "dependsOn": [
+        "#11"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#11",
+      "state": "MERGED",
+      "taskRef": "#13",
+      "title": "Stop validation runs from hanging before code delivery",
+      "updatedAt": "2026-08-25T12:52:00.747Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T04:10:36.579Z",
+      "dependsOn": [
+        "#11"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#11",
+      "state": "MERGED",
+      "taskRef": "#14",
+      "title": "Prove the full Agent journey works from project import to Git delivery",
+      "updatedAt": "2026-08-25T13:32:37.531Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T04:10:36.579Z",
+      "dependsOn": [
+        "#11"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#11",
+      "state": "MERGED",
+      "taskRef": "#15",
+      "title": "Give operators clear next steps when the AI provider is unavailable",
+      "updatedAt": "2026-08-25T13:55:28.823Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T04:25:06.957Z",
+      "dependsOn": [
+        "#12"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#12",
+      "state": "MERGED",
+      "taskRef": "#16",
+      "title": "Catch behavior regressions in every benchmark scenario before release",
+      "updatedAt": "2026-08-25T14:20:31.101Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T12:41:59.931Z",
+      "dependsOn": [
+        "#13"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "tech_debt",
+      "proposedFromRef": "#13",
+      "state": "MERGED",
+      "taskRef": "#17",
+      "title": "Make validation time budgets tunable for different project sizes",
+      "updatedAt": "2026-08-25T14:25:28.297Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T13:18:58.171Z",
+      "dependsOn": [
+        "#14",
+        "#21"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "incomplete_scope",
+      "proposedFromRef": "#14",
+      "state": "MERGED",
+      "taskRef": "#18",
+      "title": "Complete live Git delivery proof after release gates",
+      "updatedAt": "2026-08-25T20:13:52.850Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T13:38:58.465Z",
+      "dependsOn": [
+        "#15"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#15",
+      "state": "MERGED",
+      "taskRef": "#19",
+      "title": "Show AI provider health before a request fails",
+      "updatedAt": "2026-08-25T20:39:59.161Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T13:58:22.225Z",
+      "dependsOn": [
+        "#16"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#16",
+      "state": "MERGED",
+      "taskRef": "#20",
+      "title": "Harden benchmark oracle integrity before release",
+      "updatedAt": "2026-08-25T15:06:15.339Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T14:14:14.272Z",
+      "dependsOn": [
+        "#17"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#17",
+      "state": "MERGED",
+      "taskRef": "#21",
+      "title": "Make validation time limits visible to operators",
+      "updatedAt": "2026-08-25T15:30:25.329Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T14:58:32.492Z",
+      "dependsOn": [
+        "#20"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#20",
+      "state": "MERGED",
+      "taskRef": "#22",
+      "title": "Catch subtle benchmark regressions after oracle hardening",
+      "updatedAt": "2026-08-25T15:41:21.696Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T15:33:04.310Z",
+      "dependsOn": [
+        "#22"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#22",
+      "state": "MERGED",
+      "taskRef": "#23",
+      "title": "Bind benchmark proof to the exact candidate bytes",
+      "updatedAt": "2026-08-25T15:58:32.359Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T15:49:04.000Z",
+      "dependsOn": [
+        "#23"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#23",
+      "state": "MERGED",
+      "taskRef": "#24",
+      "title": "Compute server-owned candidate hashes before benchmark oracles",
+      "updatedAt": "2026-08-25T16:41:05.071Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T16:08:19.819Z",
+      "dependsOn": [
+        "#24"
+      ],
+      "displayState": "CANCELLED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#24",
+      "state": "CANCELLED",
+      "taskRef": "#25",
+      "title": "Bind benchmark releases to the exact source revision",
+      "updatedAt": "2026-08-25T18:20:01.409Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T18:22:27.189Z",
+      "dependsOn": [
+        "#24"
+      ],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#26",
+      "title": "Bind releases to source revision",
+      "updatedAt": "2026-08-25T18:37:13.973Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T18:46:09.652Z",
+      "dependsOn": [
+        "#18"
+      ],
+      "displayState": "CANCELLED",
+      "followUpCategory": "incomplete_scope",
+      "proposedFromRef": "#18",
+      "state": "CANCELLED",
+      "taskRef": "#27",
+      "title": "Provision a disposable authenticated Git target for live delivery proof",
+      "updatedAt": "2026-08-25T20:16:56.029Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T20:24:06.825Z",
+      "dependsOn": [
+        "#19"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#19",
+      "state": "MERGED",
+      "taskRef": "#28",
+      "title": "Confirm every provider failure keeps its safe reference details",
+      "updatedAt": "2026-08-25T21:00:16.373Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T20:46:15.955Z",
+      "dependsOn": [
+        "#28"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#28",
+      "state": "MERGED",
+      "taskRef": "#29",
+      "title": "Keep provider failure guidance consistent in task and workflow runs",
+      "updatedAt": "2026-08-25T21:18:31.108Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T21:05:45.322Z",
+      "dependsOn": [
+        "#29"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#29",
+      "state": "MERGED",
+      "taskRef": "#30",
+      "title": "Show the same provider recovery actions in task and workflow failures",
+      "updatedAt": "2026-08-25T21:36:59.354Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T21:22:52.364Z",
+      "dependsOn": [
+        "#30"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#30",
+      "state": "MERGED",
+      "taskRef": "#31",
+      "title": "Catch missing recovery details in task and workflow screens",
+      "updatedAt": "2026-08-25T22:01:48.971Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T21:39:09.049Z",
+      "dependsOn": [
+        "#31"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#31",
+      "state": "MERGED",
+      "taskRef": "#32",
+      "title": "Catch recovery redaction regressions in the browser journey",
+      "updatedAt": "2026-08-25T22:51:25.468Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T22:40:01.531Z",
+      "dependsOn": [
+        "#32"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#32",
+      "state": "MERGED",
+      "taskRef": "#33",
+      "title": "Keep recovery guidance safe after task and workflow reloads",
+      "updatedAt": "2026-08-25T23:09:57.345Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T22:55:35.727Z",
+      "dependsOn": [
+        "#33"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#33",
+      "state": "MERGED",
+      "taskRef": "#34",
+      "title": "Keep AI chat recovery messages free of provider secrets",
+      "updatedAt": "2026-08-25T23:27:31.870Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T23:07:44.849Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#35",
+      "title": "Close benchmark rollout blocker",
+      "updatedAt": "2026-08-26T00:03:17.733Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-25T23:19:31.925Z",
+      "dependsOn": [
+        "#35"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "incomplete_scope",
+      "proposedFromRef": "#35",
+      "state": "MERGED",
+      "taskRef": "#36",
+      "title": "Restore the AI release checks so rollout can be verified end to end",
+      "updatedAt": "2026-08-26T00:32:08.748Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-26T00:18:28.936Z",
+      "dependsOn": [
+        "#36"
+      ],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#37",
+      "title": "Update capability and parity reports",
+      "updatedAt": "2026-08-26T00:42:59.756Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-26T00:37:28.355Z",
+      "dependsOn": [
+        "#37"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#37",
+      "state": "MERGED",
+      "taskRef": "#38",
+      "title": "Prove the authenticated delivery journey through Git",
+      "updatedAt": "2026-08-26T01:41:23.991Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-26T00:37:28.355Z",
+      "dependsOn": [
+        "#37"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "next_steps",
+      "proposedFromRef": "#37",
+      "state": "MERGED",
+      "taskRef": "#39",
+      "title": "Establish a reviewed live-quality benchmark baseline",
+      "updatedAt": "2026-08-26T01:49:59.767Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-26T00:57:41.731Z",
+      "dependsOn": [
+        "#38"
+      ],
+      "displayState": "MERGED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#38",
+      "state": "MERGED",
+      "taskRef": "#40",
+      "title": "Make Git discovery proof use an approved disposable remote",
+      "updatedAt": "2026-08-26T02:14:34.874Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-26T00:57:41.731Z",
+      "dependsOn": [
+        "#38"
+      ],
+      "displayState": "CANCELLED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#38",
+      "state": "CANCELLED",
+      "taskRef": "#41",
+      "title": "Keep authenticated browser readiness stable through restart",
+      "updatedAt": "2026-08-27T02:52:20.150Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-26T01:14:28.348Z",
+      "dependsOn": [
+        "#39"
+      ],
+      "displayState": "CANCELLED",
+      "followUpCategory": "incomplete_scope",
+      "proposedFromRef": "#39",
+      "state": "CANCELLED",
+      "taskRef": "#42",
+      "title": "Produce an approved clean-witness live-quality baseline",
+      "updatedAt": "2026-08-27T02:52:24.239Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-26T01:57:27.137Z",
+      "dependsOn": [
+        "#40"
+      ],
+      "displayState": "CANCELLED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#40",
+      "state": "CANCELLED",
+      "taskRef": "#43",
+      "title": "Ensure abandoned repository scans never leave storage behind",
+      "updatedAt": "2026-08-27T02:52:27.828Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T02:51:22.438Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#44",
+      "title": "Refresh AI Documentation Baseline",
+      "updatedAt": "2026-08-27T03:48:47.569Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T03:12:18.702Z",
+      "dependsOn": [
+        "#44"
+      ],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#45",
+      "title": "Restore Discovery Acceptance",
+      "updatedAt": "2026-08-27T13:59:16.346Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T03:12:18.702Z",
+      "dependsOn": [
+        "#44"
+      ],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#46",
+      "title": "Stabilize and Prove Browser Recovery",
+      "updatedAt": "2026-08-27T15:34:52.330Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T03:12:18.702Z",
+      "dependsOn": [
+        "#46",
+        "#45"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#47",
+      "title": "Prove One Controlled Agent Journey",
+      "updatedAt": "2026-08-27T20:40:06.537Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T03:12:18.702Z",
+      "dependsOn": [
+        "#44"
+      ],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#48",
+      "title": "Govern and Prove Clean Quality Baseline",
+      "updatedAt": "2026-08-28T03:37:17.045Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T03:12:18.702Z",
+      "dependsOn": [
+        "#48",
+        "#47"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#49",
+      "title": "Integrate and Prove Operational Readiness",
+      "updatedAt": "2026-08-27T20:40:06.537Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T03:12:18.702Z",
+      "dependsOn": [
+        "#49"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#50",
+      "title": "Complete and Prove Unified Autonomous Loop",
+      "updatedAt": "2026-08-27T20:40:06.537Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T03:32:43.440Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#51",
+      "title": "Stabilize Probe Evidence Synthesis",
+      "updatedAt": "2026-08-27T13:04:48.654Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T13:09:02.296Z",
+      "dependsOn": [],
+      "displayState": "CANCELLED",
+      "followUpCategory": "incomplete_scope",
+      "state": "CANCELLED",
+      "taskRef": "#52",
+      "title": "Prevent Release Failures from Schema Drift",
+      "updatedAt": "2026-08-28T22:35:13.316Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-27T21:47:21.164Z",
+      "dependsOn": [
+        "#48"
+      ],
+      "displayState": "CANCELLED",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#48",
+      "state": "CANCELLED",
+      "taskRef": "#53",
+      "title": "Restore a clean aggregate AI release validation run",
+      "updatedAt": "2026-08-28T22:35:35.036Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T00:21:25.099Z",
+      "dependsOn": [],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#54",
+      "title": "Normalize Model Tool Calls",
+      "updatedAt": "2026-08-28T22:35:35.245Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T00:21:25.099Z",
+      "dependsOn": [],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#55",
+      "title": "Unify AI Failure Persistence",
+      "updatedAt": "2026-08-28T22:35:42.143Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T01:30:16.004Z",
+      "dependsOn": [
+        "#54",
+        "#52",
+        "#55"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#56",
+      "title": "Close Candidate Commit Integrity",
+      "updatedAt": "2026-08-28T22:35:13.316Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T02:25:15.912Z",
+      "dependsOn": [
+        "#54",
+        "#56",
+        "#55"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#57",
+      "title": "Build Safe Capability Recipes",
+      "updatedAt": "2026-08-28T22:35:13.316Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#58",
+      "title": "Define Capability Contract",
+      "updatedAt": "2026-08-28T23:04:53.013Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [
+        "#58"
+      ],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#59",
+      "title": "Build Capability Catalog",
+      "updatedAt": "2026-08-28T23:35:34.072Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [
+        "#59"
+      ],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#60",
+      "title": "Compile Safe Recipes",
+      "updatedAt": "2026-08-29T00:36:03.431Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [
+        "#60"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#61",
+      "title": "Bind Recipe Operations Safely",
+      "updatedAt": "2026-08-29T22:58:01.167Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [
+        "#61"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#62",
+      "title": "Persist Recipe Evidence",
+      "updatedAt": "2026-08-29T22:58:01.167Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [
+        "#62"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#63",
+      "title": "Integrate Recipe Chat Flow",
+      "updatedAt": "2026-08-29T22:58:01.167Z"
+    },
+    {
+      "artifactKinds": [
+        "web"
+      ],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [
+        "#63"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#64",
+      "title": "Expose Recipe Operations",
+      "updatedAt": "2026-08-29T22:58:01.167Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [
+        "#64"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#65",
+      "title": "Prove Recipe Safety",
+      "updatedAt": "2026-08-29T22:58:01.167Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:44:26.014Z",
+      "dependsOn": [
+        "#65"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#66",
+      "title": "Document Capability Recipes",
+      "updatedAt": "2026-08-29T22:58:01.167Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T22:45:39.274Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "state": "MERGED",
+      "taskRef": "#67",
+      "title": "Close Candidate Commit Integrity",
+      "updatedAt": "2026-08-30T00:25:13.272Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-28T23:25:16.337Z",
+      "dependsOn": [
+        "#65"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#68",
+      "title": "Optimize Mission Efficiency",
+      "updatedAt": "2026-08-28T23:26:03.141Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-29T01:18:03.140Z",
+      "dependsOn": [],
+      "displayState": "MERGED",
+      "followUpCategory": "tech_debt",
+      "state": "MERGED",
+      "taskRef": "#69",
+      "title": "Prevent validation runs from filling the workflow list",
+      "updatedAt": "2026-08-29T13:35:21.776Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-29T02:02:09.178Z",
+      "dependsOn": [
+        "#62",
+        "#65",
+        "#63",
+        "#64"
+      ],
+      "displayState": "CANCELLED",
+      "state": "CANCELLED",
+      "taskRef": "#70",
+      "title": "Prove Live Provider Readiness",
+      "updatedAt": "2026-08-29T02:02:51.496Z"
+    },
+    {
+      "artifactKinds": [],
+      "createdAt": "2026-08-29T13:25:55.309Z",
+      "dependsOn": [
+        "#69"
+      ],
+      "displayState": "IN_PROGRESS",
+      "followUpCategory": "test_gaps",
+      "proposedFromRef": "#69",
+      "state": "IN_PROGRESS",
+      "taskRef": "#71",
+      "title": "Confirm release recovery stays stable after validation isolation",
+      "updatedAt": "2026-08-30T00:25:17.066Z"
+    },
+    {
+      "artifactKinds": [],
+      "blockedBy": "PARENT",
+      "createdAt": "2026-08-30T00:31:42.842Z",
+      "dependsOn": [
+        "#71"
+      ],
+      "displayState": "PENDING",
+      "state": "PENDING",
+      "taskRef": "#72",
+      "title": "Recover Recipe Operation Binding",
+      "updatedAt": "2026-08-30T00:43:41.101Z"
+    }
+  ],
+  "totalCount": 73,
+  "truncated": true
+}
