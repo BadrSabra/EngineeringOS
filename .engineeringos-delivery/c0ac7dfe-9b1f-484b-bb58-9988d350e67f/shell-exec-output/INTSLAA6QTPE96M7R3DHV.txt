@@ -1,0 +1,524 @@
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does NOT gate the very FIRST source read even when dependency proof is required (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does NOT gate the very FIRST source read even when dependency proof is required (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS an unproven read of a NEW dependency file after the first read and reports READ_BLOCKED_NO_DEPENDENCY_PROOF (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS an unproven read of a NEW dependency file after the first read and reports READ_BLOCKED_NO_DEPENDENCY_PROOF (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS an unproven read of a NEW dependency file after the first read and reports READ_BLOCKED_NO_DEPENDENCY_PROOF (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > merges graph-sourced paths into targetFiles
+{"scope":"query-planner","code":"GRAPH_ENRICH_DONE","projectId":"proj-1","addedFiles":2,"totalFiles":3}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > merges graph-sourced paths into targetFiles
+{"scope":"query-planner","code":"PLAN_READY","scopeEstimate":"narrow","suggestedIterations":8,"targetFileCount":3,"graphEnriched":true,"subQueryCount":0,"requiresToolUse":true}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > returns the original plan when the graph call times out
+{"scope":"query-planner","code":"GRAPH_ENRICH_TIMEOUT","projectId":"proj-1","timeoutMs":2000}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > returns the original plan when the graph call times out
+{"scope":"query-planner","code":"PLAN_READY","scopeEstimate":"narrow","suggestedIterations":8,"targetFileCount":1,"graphEnriched":false,"subQueryCount":0,"requiresToolUse":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > skips graph enrichment when metricsVerified is false
+{"scope":"query-planner","code":"PLAN_READY","scopeEstimate":"narrow","suggestedIterations":8,"targetFileCount":1,"graphEnriched":false,"subQueryCount":0,"requiresToolUse":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > skips graph enrichment when targetEntities is empty
+{"scope":"query-planner","code":"PLAN_READY","scopeEstimate":"narrow","suggestedIterations":8,"targetFileCount":0,"graphEnriched":false,"subQueryCount":0,"requiresToolUse":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > caps total targetFiles at 15 even when the graph returns many paths
+{"scope":"query-planner","code":"GRAPH_ENRICH_DONE","projectId":"proj-1","addedFiles":5,"totalFiles":15}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > caps total targetFiles at 15 even when the graph returns many paths
+{"scope":"query-planner","code":"PLAN_READY","scopeEstimate":"narrow","suggestedIterations":8,"targetFileCount":15,"graphEnriched":true,"subQueryCount":0,"requiresToolUse":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > ALLOWS a subsequent read whose dependency proof is grounded in acquired evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > ALLOWS a subsequent read whose dependency proof is grounded in acquired evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > ALLOWS a subsequent read whose dependency proof is grounded in acquired evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose from_file was never successfully read (fabricated provenance) (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose from_file was never successfully read (fabricated provenance) (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose from_file was never successfully read (fabricated provenance) (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose reference does not occur in the from_file's retained evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose reference does not occur in the from_file's retained evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > BLOCKS a proof whose reference does not occur in the from_file's retained evidence (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > applies the grounded proof gate to read_file_range dependency reads (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > applies the grounded proof gate to read_file_range dependency reads (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > applies the grounded proof gate to read_file_range dependency reads (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > applies the grounded proof gate to read_file_range dependency reads (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > grounds from_file through a normalized-path alias of an actually-read file (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > grounds from_file through a normalized-path alias of an actually-read file (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > grounds from_file through a normalized-path alias of an actually-read file (FEG-005/006)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a FAILED source read clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":3}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":3}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":7,"softLimitIter":7,"maxIterations":10}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after a CACHED read clears forced mode (reusable cached force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > does not let a range read with No-content/empty window clear the force or count as progress (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > counts a valid non-target read as FIRST source read, independent of the forced-target (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > counts a valid non-target read as FIRST source read, independent of the forced-target (FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":7,"softLimitIter":7,"maxIterations":10}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop > re-forces primary evidence after an intervening successful read (reusable force lifecycle, FEG-008)
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > enforces a real bounded synthesis timeout and preserves operator telemetry
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":0,"softLimitIter":0,"maxIterations":1}
+
+xxx·············································································
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs one tool loop per task and then calls the synthesiser exactly once
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs one tool loop per task and then calls the synthesiser exactly once
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"What is the auth flow?","sourceCount":1,"textLength":47}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs one tool loop per task and then calls the synthesiser exactly once
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"What are the main API endpoints?","sourceCount":2,"textLength":51}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs one tool loop per task and then calls the synthesiser exactly once
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"What is the database schema?","sourceCount":1,"textLength":38}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs one tool loop per task and then calls the synthesiser exactly once
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":3,"uniqueSourceCount":4,"synthesisLength":43}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs read-only sub-tasks in bounded parallel waves
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":2,"maxParallelTasks":2,"readOnlyTasks":2}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs read-only sub-tasks in bounded parallel waves
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q1","sourceCount":0,"textLength":2}
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q2","sourceCount":0,"textLength":2}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":2,"readOnlyTasks":1}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs read-only sub-tasks in bounded parallel waves
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q3","sourceCount":0,"textLength":2}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > runs read-only sub-tasks in bounded parallel waves
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":3,"uniqueSourceCount":0,"synthesisLength":18}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > keeps overlapping write scopes out of the same scheduling wave
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":2,"maxParallelTasks":2,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > keeps overlapping write scopes out of the same scheduling wave
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"writes A","sourceCount":0,"textLength":2}
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"writes B","sourceCount":0,"textLength":2}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":2,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > keeps overlapping write scopes out of the same scheduling wave
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"writes A again","sourceCount":0,"textLength":2}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > keeps overlapping write scopes out of the same scheduling wave
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":3,"uniqueSourceCount":0,"synthesisLength":18}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > removes write and validation tools from read-only sub-tasks
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":1}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > removes write and validation tools from read-only sub-tasks
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"read only","sourceCount":0,"textLength":2}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > removes write and validation tools from read-only sub-tasks
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":1,"uniqueSourceCount":0,"synthesisLength":18}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > passes all sub-results to the synthesiser in the user turn
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > passes all sub-results to the synthesiser in the user turn
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"sub-query alpha","sourceCount":0,"textLength":12}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > passes all sub-results to the synthesiser in the user turn
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"sub-query beta","sourceCount":0,"textLength":11}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > passes all sub-results to the synthesiser in the user turn
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":2,"uniqueSourceCount":0,"synthesisLength":9}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > passes each sub-task's configured maxIter to the tool loop
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > passes each sub-task's configured maxIter to the tool loop
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q1","sourceCount":0,"textLength":2}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > passes each sub-task's configured maxIter to the tool loop
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q2","sourceCount":0,"textLength":2}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > passes each sub-task's configured maxIter to the tool loop
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":2,"uniqueSourceCount":0,"synthesisLength":18}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > merges and deduplicates tool sources from all sub-loops
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > merges and deduplicates tool sources from all sub-loops
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q1","sourceCount":2,"textLength":1}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > merges and deduplicates tool sources from all sub-loops
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q2","sourceCount":2,"textLength":1}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — core behaviour > merges and deduplicates tool sources from all sub-loops
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":2,"uniqueSourceCount":3,"synthesisLength":18}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > preserves partial results even when one sub-loop is exhausted
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > preserves partial results even when one sub-loop is exhausted
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"Explain the scanner internals","sourceCount":0,"textLength":113}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > preserves partial results even when one sub-loop is exhausted
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"Explain the knowledge engine","sourceCount":1,"textLength":25}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > preserves partial results even when one sub-loop is exhausted
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":2,"uniqueSourceCount":1,"synthesisLength":33}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > falls back to concatenated sub-results when the synthesis call throws
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > falls back to concatenated sub-results when the synthesis call throws
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q1","sourceCount":0,"textLength":11}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > falls back to concatenated sub-results when the synthesis call throws
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q2","sourceCount":0,"textLength":11}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > falls back to concatenated sub-results when the synthesis call throws
+{"scope":"hierarchical-executor","code":"SYNTHESIS_ERROR","reason":"provider unavailable"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > falls back to concatenated sub-results when the synthesis call throws
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":2,"uniqueSourceCount":0,"synthesisLength":45}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > does not throw when a sub-loop itself throws
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > does not throw when a sub-loop itself throws
+{"scope":"hierarchical-executor","code":"SUBTASK_ERROR","intent":"q1","reason":"network timeout"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > does not throw when a sub-loop itself throws
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q1","sourceCount":0,"textLength":40}
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > does not throw when a sub-loop itself throws
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q2","sourceCount":0,"textLength":11}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > does not throw when a sub-loop itself throws
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":2,"uniqueSourceCount":0,"synthesisLength":21}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > synthesis call receives no tools so it cannot make additional file reads
+{"scope":"hierarchical-executor","code":"SCHEDULING_WAVE_STARTED","taskCount":1,"maxParallelTasks":3,"readOnlyTasks":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > synthesis call receives no tools so it cannot make additional file reads
+{"scope":"hierarchical-executor","code":"SUBTASK_COMPLETE","intent":"q","sourceCount":0,"textLength":2}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts > executeHierarchical — resilience > synthesis call receives no tools so it cannot make additional file reads
+{"scope":"hierarchical-executor","code":"HIERARCHICAL_COMPLETE","taskCount":1,"uniqueSourceCount":0,"synthesisLength":18}
+
+················································································
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > enforces a real bounded synthesis timeout and preserves operator telemetry
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"test","model":"fast","iter":0,"errorCode":"TIMEOUT","reason":"bounded synthesis timeout"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"test","model":"fast","iter":0,"reason":"provider timed out; returning partial from collected evidence"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":0,"softLimitIter":0,"maxIterations":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"tool-execution-engine","code":"MODEL_FALLBACK","from":"fast","to":"powerful","provider":"test","iter":0,"errorCode":"TIMEOUT","reason":"fixture synthesis timeout"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"provider-telemetry","provider":"test","model":"test-model","fallbackReason":"TIMEOUT","attemptCount":2,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > does not retry synthesis after the shared deadline is exhausted
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":0,"softLimitIter":0,"maxIterations":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > does not retry synthesis after the shared deadline is exhausted
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"test","model":"fast","iter":0,"errorCode":"TIMEOUT","reason":"fixture synthesis timeout"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"test","model":"fast","iter":0,"reason":"provider timed out; returning partial from collected evidence"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when primary model times out after a tool call (totalToolCalls > 0)
+{"scope":"provider-telemetry","provider":"openrouter","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when primary model times out after a tool call (totalToolCalls > 0)
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"openrouter","model":"same-model","iter":1,"errorCode":"TIMEOUT","reason":"Provider request timed out"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"openrouter","model":"same-model","iter":1,"reason":"provider timed out; returning partial from collected evidence"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"provider-telemetry","provider":"openrouter","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"tool-execution-engine","code":"MODEL_FALLBACK","from":"fast-model","to":"power-model","provider":"openrouter","iter":1,"errorCode":"TIMEOUT","reason":"Provider request timed out"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"openrouter","iter":1,"reason":"both primary and fallback timed out; returning partial from collected evidence"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > propagates TIMEOUT as an error when no tool calls or evidence exist yet
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"openrouter","model":"same-model","iter":0,"errorCode":"TIMEOUT","reason":"Immediate timeout"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > drops a tool message whose id is absent from the preceding assistant turn
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > drops a tool message that references an id from a NON-adjacent (earlier) assistant turn
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > resets the valid-id set after a user message (tool results after user are always orphans)
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+················································································
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > enforces a real bounded synthesis timeout and preserves operator telemetry
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"test","model":"fast","iter":0,"errorCode":"TIMEOUT","reason":"bounded synthesis timeout"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"test","model":"fast","iter":0,"reason":"provider timed out; returning partial from collected evidence"}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":0,"softLimitIter":0,"maxIterations":1}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"tool-execution-engine","code":"MODEL_FALLBACK","from":"fast","to":"powerful","provider":"test","iter":0,"errorCode":"TIMEOUT","reason":"fixture synthesis timeout"}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > keeps synthesis fallback within its independent attempt budget
+{"scope":"provider-telemetry","provider":"test","model":"test-model","fallbackReason":"TIMEOUT","attemptCount":2,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > does not retry synthesis after the shared deadline is exhausted
+{"scope":"tool-execution-engine","code":"SOFT_LIMIT_TRIGGER","iter":0,"softLimitIter":0,"maxIterations":1}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > bounded synthesis budget > does not retry synthesis after the shared deadline is exhausted
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"test","model":"fast","iter":0,"errorCode":"TIMEOUT","reason":"fixture synthesis timeout"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"test","model":"fast","iter":0,"reason":"provider timed out; returning partial from collected evidence"}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when primary model times out after a tool call (totalToolCalls > 0)
+{"scope":"provider-telemetry","provider":"openrouter","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when primary model times out after a tool call (totalToolCalls > 0)
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"openrouter","model":"same-model","iter":1,"errorCode":"TIMEOUT","reason":"Provider request timed out"}
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"openrouter","model":"same-model","iter":1,"reason":"provider timed out; returning partial from collected evidence"}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"provider-telemetry","provider":"openrouter","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"tool-execution-engine","code":"MODEL_FALLBACK","from":"fast-model","to":"power-model","provider":"openrouter","iter":1,"errorCode":"TIMEOUT","reason":"Provider request timed out"}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > returns kind:partial/provider_timeout when both primary and fallback time out after a tool call
+{"scope":"tool-execution-engine","code":"TIMEOUT_PARTIAL_DEGRADATION","provider":"openrouter","iter":1,"reason":"both primary and fallback timed out; returning partial from collected evidence"}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > executeToolLoop — TIMEOUT degradation (task #67) > propagates TIMEOUT as an error when no tool calls or evidence exist yet
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"openrouter","model":"same-model","iter":0,"errorCode":"TIMEOUT","reason":"Immediate timeout"}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > drops a tool message whose id is absent from the preceding assistant turn
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > drops a tool message that references an id from a NON-adjacent (earlier) assistant turn
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+stderr | lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts > _stripOrphanedToolMessages > resets the valid-id set after a user message (tool results after user are always orphans)
+{"scope":"tool-execution-engine","code":"ORPHANED_TOOL_MESSAGES_STRIPPED","count":1}
+
+·······················
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > merges graph-sourced paths into targetFiles
+AssertionError: expected [] to include 'src/auth.ts'
+ ❯ lib/ai-orchestrator/src/__tests__/query-planner.test.ts:95:32
+     93|
+     94|     // Original file should still be present
+     95|     expect(result.targetFiles).toContain("src/auth.ts");
+       |                                ^
+     96|     // Graph-discovered files should be added
+     97|     expect(result.targetFiles).toContain("src/token.service.ts");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > returns the original plan when the graph call times out
+AssertionError: expected [] to deeply equal [ 'src/auth.ts' ]
+
+- Expected
++ Received
+
+- [
+-   "src/auth.ts",
+- ]
++ []
+
+ ❯ lib/ai-orchestrator/src/__tests__/query-planner.test.ts:133:32
+    131|
+    132|     // Should still return a valid plan (original, not enriched)
+    133|     expect(result.targetFiles).toEqual(["src/auth.ts"]);
+       |                                ^
+    134|     expect(result.targetEntities).toEqual(["AuthService"]);
+    135|     // Graph search was attempted
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/query-planner.test.ts > query-planner — knowledge-graph enrichment > skips graph enrichment when metricsVerified is false
+AssertionError: expected [] to deeply equal [ 'src/auth.ts' ]
+
+- Expected
++ Received
+
+- [
+-   "src/auth.ts",
+- ]
++ []
+
+ ❯ lib/ai-orchestrator/src/__tests__/query-planner.test.ts:152:32
+    150|
+    151|     expect(mockSearchNodes).not.toHaveBeenCalled();
+    152|     expect(result.targetFiles).toEqual(["src/auth.ts"]);
+       |                                ^
+    153|   });
+    154|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  3 failed | 260 passed (263)
+   Start at  15:39:15
+   Duration  2.60s (transform 2.37s, setup 0ms, import 1.48s, tests 4.39s, environment 1ms)
+

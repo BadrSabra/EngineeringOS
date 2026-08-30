@@ -1,0 +1,300 @@
+lib/ai-orchestrator/src/tool-execution-engine.ts:9: *   executeToolLoop(opts)    — runs the loop until a non-tool response or the
+lib/ai-orchestrator/src/tool-execution-engine.ts:27:import type { CanonicalSourceCoverage, RepairBlockReason } from "./evidence-integrity.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:34:import { getPhaseBudget, isToolAllowedInPhase, type ExecutionPhase } from "./quality/execution-phases.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:98:  const evidenceId = randomUUID();
+lib/ai-orchestrator/src/tool-execution-engine.ts:109:    evidence: {
+lib/ai-orchestrator/src/tool-execution-engine.ts:110:      evidenceId,
+lib/ai-orchestrator/src/tool-execution-engine.ts:112:      artifactRef: `validation-attempt:${evidenceId}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:133: * without ever acquiring source evidence. The EVIDENCE share is PROTECTED:
+lib/ai-orchestrator/src/tool-execution-engine.ts:135: * the loop is forced toward a primary-evidence action instead of letting
+lib/ai-orchestrator/src/tool-execution-engine.ts:140:  evidence: 0.3, // protected primary-evidence allocation
+lib/ai-orchestrator/src/tool-execution-engine.ts:142:  recovery: 0.1, // reserved to force a first read on a zero-evidence run
+lib/ai-orchestrator/src/tool-execution-engine.ts:147:  evidence: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:154:  const evidence = Math.max(1, Math.floor(maxIterations * BUDGET_CATEGORY_SHARES.evidence));
+lib/ai-orchestrator/src/tool-execution-engine.ts:156:  const recovery = Math.max(1, maxIterations - planning - evidence - reasoning);
+lib/ai-orchestrator/src/tool-execution-engine.ts:157:  return { planning, evidence, reasoning, recovery };
+lib/ai-orchestrator/src/tool-execution-engine.ts:160: * Prefetch first source evidence marker (incl. eager read in chat-agent).
+lib/ai-orchestrator/src/tool-execution-engine.ts:361:    return `${base} search_code is temporarily hidden for the next model turn; advance using the gathered evidence.`;
+lib/ai-orchestrator/src/tool-execution-engine.ts:396:      : "- No uncollected matching file was inferred; distinguish search evidence from behavioral proof.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:406:    "Synthesis constraint: answer from this summary and the confirmed evidence only; do not call tools.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:474: * Only a real, complete file response can become forensic source evidence.
+lib/ai-orchestrator/src/tool-execution-engine.ts:476: * previews must remain tool output but must not enter the evidence map.
+lib/ai-orchestrator/src/tool-execution-engine.ts:482:  if (/^Synthesis phase is active\./i.test(trimmed)) return false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:492: *   the body itself is not source evidence (an Error, listing, synthesis or
+lib/ai-orchestrator/src/tool-execution-engine.ts:516:    // evidence, so neither may qualify as a successful read (SR-001 gate,
+lib/ai-orchestrator/src/tool-execution-engine.ts:544: * can never clear forced-evidence mode, reset the no-progress streak, or set
+lib/ai-orchestrator/src/tool-execution-engine.ts:545: * first-read telemetry despite carrying no evidence.
+lib/ai-orchestrator/src/tool-execution-engine.ts:565:  evidenceWindows: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:570:  /** FEG-015: true once any source evidence was acquired (first read or usable prefetch). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:574:  /** FEG-015: iterations elapsed with no source evidence. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:579:  evidenceIterations: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:592:   * broken by forcing a primary-evidence action.
+lib/ai-orchestrator/src/tool-execution-engine.ts:604:   * between planning, protected evidence acquisition, and recovery.
+lib/ai-orchestrator/src/tool-execution-engine.ts:608:    evidence: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:621:   * surfaces may use this to say "investigation never reached evidence" instead
+lib/ai-orchestrator/src/tool-execution-engine.ts:625:  /** AI-OBJ-008: bounded scope changes observed while retrieving evidence. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:637:  evidenceWindows: 0,
+lib/ai-orchestrator/src/tool-execution-engine.ts:645:  evidenceIterations: 0,
+lib/ai-orchestrator/src/tool-execution-engine.ts:653:/** Final reporting is a bounded phase, not another open-ended tool-loop turn. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:769:            // provider retry/resume; the analysis tool validates it before
+lib/ai-orchestrator/src/tool-execution-engine.ts:770:            // accepting evidence.
+lib/ai-orchestrator/src/tool-execution-engine.ts:858:        : `Tool "${name}" failed; the operation did not complete. Do not claim that it completed.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:931: * Keep the forensic source bodies private and complete for the evidence gate,
+lib/ai-orchestrator/src/tool-execution-engine.ts:943:  "[bounded synthesis excerpt omitted; the complete source read remains available to the server evidence gate]";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1012:   * Whether a zero-read terminal is an evidence failure. Ordinary chat,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1014:   * evidence and must not emit INCOMPLETE_BEFORE_EVIDENCE diagnostics.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1056:  /** Server-owned phase; caps budgets and filters tools when provided. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1057:  phase?: ExecutionPhase;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1061:   * complete evidence window instead of the normal bounded preview.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1077:   * Optional per-request evidence handoff shared by provider retries. Only
+lib/ai-orchestrator/src/tool-execution-engine.ts:1092:   * evidence. This prevents a large analysis from consuming its entire budget
+lib/ai-orchestrator/src/tool-execution-engine.ts:1171:   * AI-OBJ-008: objective-specific evidence scope. Primary paths are ordinary
+lib/ai-orchestrator/src/tool-execution-engine.ts:1178:   * First-Evidence Gate: the explicit primary evidence target. When set this
+lib/ai-orchestrator/src/tool-execution-engine.ts:1210:  onStep?: (step: AgentStep) => void;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1213:export type ToolLoopResult =
+lib/ai-orchestrator/src/tool-execution-engine.ts:1253:      /** A required tool failed; no completed operation may be claimed. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1278:      /** Cancellation preserves evidence but never represents a completed audit. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1324:  // First-Evidence Gate: the explicit primary evidence target is read directly
+lib/ai-orchestrator/src/tool-execution-engine.ts:1329:  // single primary evidence target directly — never a repo/graph scan or broad
+lib/ai-orchestrator/src/tool-execution-engine.ts:1341:  // so the loop is forced toward the primary evidence target instead of
+lib/ai-orchestrator/src/tool-execution-engine.ts:1345:  // acquired. This is classified as incomplete-before-evidence - it is NOT a
+lib/ai-orchestrator/src/tool-execution-engine.ts:1353:  // Required-Claim closure (FEG-011/012): the run retained source evidence but
+lib/ai-orchestrator/src/tool-execution-engine.ts:1354:  // closed no claim with it. An evidence inventory alone is never a completed
+lib/ai-orchestrator/src/tool-execution-engine.ts:1365: * Discriminated union of observable events emitted during executeToolLoop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1369:export type AgentStep =
+lib/ai-orchestrator/src/tool-execution-engine.ts:1453:      /** Structured audit scope: FIXTURE_LOCAL when all impl evidence is from test/spec paths. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1474:       * True when the proven Finding is supported only by evidence from
+lib/ai-orchestrator/src/tool-execution-engine.ts:1484:      kind: "evidence_integrity";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1490:      evidenceFileCount: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1496:      evidenceSourceCoverage?: CanonicalSourceCoverage;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1532:      /** Server-owned context for phase-policy rejections only. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1533:      phase?: ExecutionPhase;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1589:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1598:    phase,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1632:  const phaseBudget = phase ? getPhaseBudget(phase) : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1635:    phaseBudget?.maxModelCalls ?? Number.POSITIVE_INFINITY,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1639:    phaseBudget?.maxToolCalls ?? Number.POSITIVE_INFINITY,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1724:      // Duplicate = repeat of SUCCESSFUL evidence, not of an attempted path.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1741:        sourceRetrieval.evidenceWindows += 1;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1749:  // Whether the path previously yielded completed source evidence (as opposed
+lib/ai-orchestrator/src/tool-execution-engine.ts:1751:  // evidence; a truncated recovery window is NOT a duplicate (FEG-015).
+lib/ai-orchestrator/src/tool-execution-engine.ts:1790:  // A search_code / list_directory call only counts as NEW evidence for the
+lib/ai-orchestrator/src/tool-execution-engine.ts:1791:  // no-progress streak when it returned USABLE, genuinely NOVEL output.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1793:  // canonical output already seen this run is not new evidence either — so a
+lib/ai-orchestrator/src/tool-execution-engine.ts:1796:  // enter dispatch-enforced evidence mode. This tracker is INDEPENDENT of the
+lib/ai-orchestrator/src/tool-execution-engine.ts:1810:  // Neutral, evidence-free outputs the tools return when they found nothing.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1811:  // These carry no usable evidence, so they must be rejected BEFORE novelty
+lib/ai-orchestrator/src/tool-execution-engine.ts:1814:  // the no-progress streak forever. Classify them as non-usable up front.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1878:    if (!phase) return requested;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1879:    const phaseTools = new Set(
+lib/ai-orchestrator/src/tool-execution-engine.ts:1882:        .filter((name) => isToolAllowedInPhase(phase, name)),
+lib/ai-orchestrator/src/tool-execution-engine.ts:1885:      ? new Set([...requested].filter((name) => phaseTools.has(name)))
+lib/ai-orchestrator/src/tool-execution-engine.ts:1886:      : phaseTools;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1888:  // First-Evidence Gate: the explicit primary evidence target is always
+lib/ai-orchestrator/src/tool-execution-engine.ts:1903:  // FEG-009/010: whether this run even has a route to source evidence (a read
+lib/ai-orchestrator/src/tool-execution-engine.ts:1904:  // tool configured OR an explicit primary-evidence target). The protected
+lib/ai-orchestrator/src/tool-execution-engine.ts:1905:  // evidence-allocation guard and the recovery-bounds first-read force are only
+lib/ai-orchestrator/src/tool-execution-engine.ts:1907:  // cannot be forced toward evidence, so those guards stay inert there.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1911:  const evidenceRouteAvailable = fegTarget !== null || readToolConfigured;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1964:  const terminalInvalidToolCall = (error: GroqClientError, iter: number): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2031:    const claim = modelContent?.trim().replace(/\s+/g, " ").slice(0, 300);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2034:      claim ? `claim: ${claim}` : "claim: none stated before the read",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2148:   * produce the no-tools answer before handing the evidence to recovery.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2194:  // a few iterations, and each planning iteration must produce new evidence;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2203:  // maxIterations is split into planning / evidence / reasoning / recovery
+lib/ai-orchestrator/src/tool-execution-engine.ts:2206:  // evidence. The EVIDENCE allocation is PROTECTED: once the PLANNING share is
+lib/ai-orchestrator/src/tool-execution-engine.ts:2208:  // toward a first-evidence action instead of being allowed to keep planning.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2211:  let evidenceIterations = 0;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2215:    evidence: runBudget.evidence,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2220:  // True once the progress guard has forced a primary-evidence action, so the
+lib/ai-orchestrator/src/tool-execution-engine.ts:2223:  // Persistent forced-evidence state (FEG-008). Once the guard trips, the loop
+lib/ai-orchestrator/src/tool-execution-engine.ts:2228:  // or the model synthesizes, so a planner cannot resume orbiting.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2232:  // A read (fresh or cached) that satisfies the forced-evidence mandate. A
+lib/ai-orchestrator/src/tool-execution-engine.ts:2236:  // acquiring real source evidence. This is the DISPATCH gate only: it restricts
+lib/ai-orchestrator/src/tool-execution-engine.ts:2249:  // A SUCCESSFUL source-evidence read: a nonempty, permitted source path whose
+lib/ai-orchestrator/src/tool-execution-engine.ts:2251:  // A failed read (error, empty, directory listing) is NOT source evidence, so
+lib/ai-orchestrator/src/tool-execution-engine.ts:2252:  // it neither records a first read nor resets the no-progress streak, and it
+lib/ai-orchestrator/src/tool-execution-engine.ts:2271:  // (including the eager first-evidence read in `chat-agent`). Those are real,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2273:  // later replay is recognized as already-read (not "unseen new evidence"),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2275:  // that prefetched valid evidence and then merely continued planning until
+lib/ai-orchestrator/src/tool-execution-engine.ts:2278:  // evidence. The negative sentinel PREFETCH_FIRST_READ_ITER is unambiguous
+lib/ai-orchestrator/src/tool-execution-engine.ts:2302:  // A run that exits the loop with ZERO source reads never acquired evidence to
+lib/ai-orchestrator/src/tool-execution-engine.ts:2319:    sourceRetrieval.evidenceIterations = evidenceIterations;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2325:          `run ended (${when}) with zero source reads; no evidence was ever acquired`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2330:  const cancelledResult = (): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2357:  ): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2420:                (fegTarget ? `; primary evidence target was "${fegTarget}"` : ""),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2462:             : "This is a Repair Plan execution, not a new audit. Do not reread the same file. If the gathered evidence is sufficient, call replace_text or write_file now; otherwise end the phase clearly without claiming the change was applied.")
+lib/ai-orchestrator/src/tool-execution-engine.ts:2514:    // Keep the complete messages in memory for provenance/evidence validation,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2615:          // evidence has already been collected so the caller can surface a
+lib/ai-orchestrator/src/tool-execution-engine.ts:2631:                reason: "both primary and fallback timed out; returning partial from collected evidence",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2687:        // gracefully when evidence has already been collected so the caller can
+lib/ai-orchestrator/src/tool-execution-engine.ts:2703:                reason: "provider timed out; returning partial from collected evidence",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2740:          // No evidence yet — fall through and rethrow so the SSE route can
+lib/ai-orchestrator/src/tool-execution-engine.ts:2749:        // against the completed evidence already collected.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2769:          // after evidence collection, before the loop has emitted its
+lib/ai-orchestrator/src/tool-execution-engine.ts:2917:      // are attached. If the model immediately decides it has enough evidence,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2993:          // collected evidence. Keep the original response and let the
+lib/ai-orchestrator/src/tool-execution-engine.ts:3001:          // path, so a failed formatting pass cannot weaken evidence gates.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3037:    // removed for the synthesis phase. Do not append synthetic tool results
+lib/ai-orchestrator/src/tool-execution-engine.ts:3041:    // bounded no-tools contract-recovery pass against the evidence already
+lib/ai-orchestrator/src/tool-execution-engine.ts:3105:    // replayed evidence is detected, do not execute the remainder of that
+lib/ai-orchestrator/src/tool-execution-engine.ts:3140:            "Synthesis phase is active. No further tools may run. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3141:            "Produce the final answer from the evidence already gathered.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3151:            "Forensic collection stopped. This batched tool call was not executed after cached evidence was detected. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3231:      // ── Persistent forced-evidence gate (FEG-008) ───────────────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:3233:      // loop stays in forced-evidence mode and ENFORCES it here at dispatch:
+lib/ai-orchestrator/src/tool-execution-engine.ts:3238:      // resume orbiting around the evidence requirement. The state clears when a
+lib/ai-orchestrator/src/tool-execution-engine.ts:3240:      // Build-mode validation is server-authorized execution evidence, not a
+lib/ai-orchestrator/src/tool-execution-engine.ts:3254:              ? `Forced-evidence mode: only a read of the primary evidence target \`${fegTarget}\` is permitted now. ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3255:                "Gather that source evidence, then synthesize."
+lib/ai-orchestrator/src/tool-execution-engine.ts:3256:              : "Forced-evidence mode: a source read is required now. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3263:      if (phase && !isToolAllowedInPhase(phase, tc.function.name)) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3269:            `Tool "${tc.function.name}" is not allowed during the ${phase} phase. ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3270:            "Wait for the server to advance the execution phase.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3276:            details: [`${rejectedTool} is not allowed in ${phase}`],
+lib/ai-orchestrator/src/tool-execution-engine.ts:3277:            phase,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3317:                `objective evidence scope expanded to ${expansion.path}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3328:                `blocked objective evidence read outside declared scope: ${expansion.path}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3418:      // primary evidence target (fegTarget) is always the needed first read so
+lib/ai-orchestrator/src/tool-execution-engine.ts:3444:        //      evidence rather than claimed.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3446:        // names which symbol and why, but only (1) and (2) are evidence-bound.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3455:        let evidenceGrounded = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3466:          // reference must appear in the retained evidence of from_file (after
+lib/ai-orchestrator/src/tool-execution-engine.ts:3472:          evidenceGrounded = fromSuccessful && referenceOccurs;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3474:        if (!evidenceGrounded && !alreadyRead && !isPrimaryTarget && depPath !== "") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3480:                `read blocked for "${depPath}" after first source read (dependency proof not grounded in acquired evidence)`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3489:              "requires evidence-grounded dependency proof. Set from_file to a file you have ALREADY " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3546:            "search_code is unavailable now; use read_file on the matching source locations or synthesize from the confirmed evidence.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3584:            `REDUNDANT_FULL_READ_BLOCKED: "${args.path}" was already read and exceeded the safe evidence window. ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3605:        // evidence gate purely by re-issuing cached gather calls. The separate
+lib/ai-orchestrator/src/tool-execution-engine.ts:3646:            "Move to replace_text/write_file using the evidence already gathered, or return a final response.";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3692:        // new evidence (a read, a novel search hit, or a directory listing)
+lib/ai-orchestrator/src/tool-execution-engine.ts:3698:          // A cached READ of a path whose COMPLETED evidence is already in hand
+lib/ai-orchestrator/src/tool-execution-engine.ts:3699:          // is a repeat, not NEW evidence. Only the FIRST completed read of a
+lib/ai-orchestrator/src/tool-execution-engine.ts:3703:          // no-progress streak. A failed/malformed cached read is NOT source
+lib/ai-orchestrator/src/tool-execution-engine.ts:3704:          // evidence and does not clear the forced-evidence state. Judged by
+lib/ai-orchestrator/src/tool-execution-engine.ts:3705:          // completed-evidence status (isCompletedPath), never mere attempt
+lib/ai-orchestrator/src/tool-execution-engine.ts:3710:            // persistent force (the required source evidenced on this path is
+lib/ai-orchestrator/src/tool-execution-engine.ts:3713:            // a LATER no-progress streak (after this cache-hit clear) re-enters
+lib/ai-orchestrator/src/tool-execution-engine.ts:3717:            // controller resets the no-progress streak to zero and the force
+lib/ai-orchestrator/src/tool-execution-engine.ts:3831:                "For a Repair Plan, call replace_text/write_file now if the evidence is sufficient, or return a final response."
+lib/ai-orchestrator/src/tool-execution-engine.ts:3836:                    ? "\n\nDUPLICATE_TOOL_ESCALATION: stop repeating this exact tool call and synthesize from the evidence already gathered."
+lib/ai-orchestrator/src/tool-execution-engine.ts:3928:        // blocked no-progress attempt above must not become the baseline for
+lib/ai-orchestrator/src/tool-execution-engine.ts:4019:            && parsed.evidence
+lib/ai-orchestrator/src/tool-execution-engine.ts:4020:            && typeof parsed.evidence.evidenceId === "string"
+lib/ai-orchestrator/src/tool-execution-engine.ts:4026:          const evidenceId = randomUUID();
+lib/ai-orchestrator/src/tool-execution-engine.ts:4037:            evidence: {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4038:              evidenceId,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4040:              artifactRef: `validation-attempt:${evidenceId}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4083:          // A validation failure is new, actionable execution evidence. Do not
+lib/ai-orchestrator/src/tool-execution-engine.ts:4084:          // let a stale forced-evidence latch reject the bounded repair patch
+lib/ai-orchestrator/src/tool-execution-engine.ts:4094:        // Only a SUCCESSFUL source-evidence read counts as progress and clears
+lib/ai-orchestrator/src/tool-execution-engine.ts:4095:        // forced-evidence mode. A failed read (error, empty body, directory
+lib/ai-orchestrator/src/tool-execution-engine.ts:4096:        // listing, malformed path) is not source evidence, so it must neither
+lib/ai-orchestrator/src/tool-execution-engine.ts:4097:        // reset the no-progress streak, set first-read telemetry, nor let a
+lib/ai-orchestrator/src/tool-execution-engine.ts:4100:          // FEG-015: evidence-iteration progress is only a read that acquires
+lib/ai-orchestrator/src/tool-execution-engine.ts:4101:          // NEW completed evidence for its path. A duplicate re-read of an
+lib/ai-orchestrator/src/tool-execution-engine.ts:4102:          // already-completed path is NOT new evidence (it counts as planning),
+lib/ai-orchestrator/src/tool-execution-engine.ts:4103:          // so it must not reset the no-progress streak.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4108:          // that resumes AFTER this successful read can be re-forced by a later
+lib/ai-orchestrator/src/tool-execution-engine.ts:4109:          // no-progress pair (reusable force lifecycle).
+lib/ai-orchestrator/src/tool-execution-engine.ts:4121:      // A fresh evidence-gathering call — read, symbol search, or dependency
+lib/ai-orchestrator/src/tool-execution-engine.ts:4123:      // produced USABLE, GENUINELY NOVEL evidence (non-empty, non-error output
+lib/ai-orchestrator/src/tool-execution-engine.ts:4127:      // resetting noProgressStreak and never enter dispatch-enforced evidence
+lib/ai-orchestrator/src/tool-execution-engine.ts:4155:        // Retain the body as source evidence so a later dependency proof may
+lib/ai-orchestrator/src/tool-execution-engine.ts:4191:    // A "planning iteration" issued tool calls but gathered no new evidence.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4192:    // Two consecutive NO_PROGRESS iterations force a primary-evidence action
+lib/ai-orchestrator/src/tool-execution-engine.ts:4198:      // read is evidence work; any other tool-calling iteration is planning.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4201:        evidenceIterations += 1;
+lib/ai-orchestrator/src/tool-execution-engine.ts:4202:        sourceRetrieval.evidenceIterations = evidenceIterations;
+lib/ai-orchestrator/src/tool-execution-engine.ts:4232:                `${noProgressStreak} consecutive planning iterations without new evidence` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:4234:                    ? `; forcing read of primary evidence target "${fegTarget}"`
+lib/ai-orchestrator/src/tool-execution-engine.ts:4239:          // Force the primary evidence target into the allow/read policy on the
+lib/ai-orchestrator/src/tool-execution-engine.ts:4244:            // a read (or a synthesis of already-gathered evidence). The
+lib/ai-orchestrator/src/tool-execution-engine.ts:4245:            // dispatch-level forced-evidence gate independently rejects
+lib/ai-orchestrator/src/tool-execution-engine.ts:4252:      // FEG-009/010 protected primary-evidence allocation. Unlike a (brief)
+lib/ai-orchestrator/src/tool-execution-engine.ts:4253:      // no-progress streak, a planner can keep issuing NOVEL-but-useless
+lib/ai-orchestrator/src/tool-execution-engine.ts:4258:      // a first-evidence action so planning cannot exhaust the evidence
+lib/ai-orchestrator/src/tool-execution-engine.ts:4259:      // budget. Only meaningful when an evidence route actually exists.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4264:      // evidence starvation — the model may naturally read next turn — so we
+lib/ai-orchestrator/src/tool-execution-engine.ts:4266:      // run has had more than a single planning turn to reach evidence.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4272:        evidenceRouteAvailable
+lib/ai-orchestrator/src/tool-execution-engine.ts:4284:                  ? `; forcing read of primary evidence target "${fegTarget}"`
+lib/ai-orchestrator/src/tool-execution-engine.ts:4298:      // evidence budget.
+lib/api-spec/openapi.yaml:658:      summary: Advance the running execution to its next phase (or complete it if on the last phase)
+lib/api-spec/openapi.yaml:678:  /api/workflows/{workflowId}/fail-phase:
+lib/api-spec/openapi.yaml:681:      summary: Mark the running execution's current phase as failed
+lib/api-spec/openapi.yaml:706:  /api/workflows/{workflowId}/executions/{executionId}/retry-phase:
+lib/api-spec/openapi.yaml:709:      summary: Retry a failed execution's current phase in place
+lib/api-spec/openapi.yaml:734:  /api/workflows/{workflowId}/executions/{executionId}/rollback-phase:
+lib/api-spec/openapi.yaml:737:      summary: Roll a workflow execution back to a previously completed phase
+lib/api-spec/openapi.yaml:764:          description: Target phase is missing
+lib/api-spec/openapi.yaml:768:          description: Target phase is invalid or execution state changed
+lib/api-spec/openapi.yaml:1216:  /api/graph/evidence/{entityId}:
+lib/api-spec/openapi.yaml:1219:      summary: Return all evidence records attached to outgoing relationships from an entity
+lib/api-spec/openapi.yaml:1229:          description: Entity with its evidence bundles
+lib/api-spec/openapi.yaml:1526:                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence]
+lib/api-spec/openapi.yaml:1550:                  evidenceVerdict:
+lib/api-spec/openapi.yaml:1556:                    description: Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence
+lib/api-spec/openapi.yaml:1557:                  evidenceReason:
+lib/api-spec/openapi.yaml:1560:                    description: Bounded explanation for the current evidence verdict
+lib/api-spec/openapi.yaml:1571:                  resumable: { type: boolean }
+lib/api-spec/openapi.yaml:1574:                    required: [uncertain, operationId, revision, phase, outcome]
+lib/api-spec/openapi.yaml:1579:                      phase: { type: string, nullable: true }
+lib/api-spec/openapi.yaml:1598:      description: Returns a redacted, owner-scoped and project-scoped review list. Raw requests, provider diagnostics, credentials, and unrestricted evidence are excluded.
+lib/api-spec/openapi.yaml:1618:                  required: [id, projectId, status, objective, evidenceVerdict, proofRequired, disposition, recommendedAction, resumable, checkpointVersion, createdAt, updatedAt]
+lib/api-spec/openapi.yaml:1625:                    evidenceVerdict: { type: string, enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED] }
+lib/api-spec/openapi.yaml:1626:                    evidenceReason: { type: string, nullable: true }
+lib/api-spec/openapi.yaml:1631:                    resumable: { type: boolean }
+lib/api-spec/openapi.yaml:1696:  /api/ai/executions/{executionId}/resume-capability:
+lib/api-spec/openapi.yaml:1699:      summary: Rotate and return a one-time opaque resume capability
+lib/api-spec/openapi.yaml:1711:          description: Newly rotated resume capability
+lib/api-spec/openapi.yaml:1716:                required: [executionId, resumeToken]
+lib/api-spec/openapi.yaml:1719:                  resumeToken: { type: string, minLength: 32 }
+lib/api-spec/openapi.yaml:1730:      description: Owner-scoped, bounded recovery for an uncertain paused operation. The original operation, evidence, and user turn are retained.
+lib/api-spec/openapi.yaml:1755:                  outcome: { type: string, enum: [resume_accepted, abandoned, already_abandoned, already_running] }
+lib/api-spec/openapi.yaml:1756:                  resumeToken: { type: string, nullable: true }
+lib/api-spec/openapi.yaml:1868:  /api/ai/delivery/{proposalId}/resume-validation:
+lib/api-spec/openapi.yaml:1870:      operationId: resumeAiDeliveryValidation
+lib/api-spec/openapi.yaml:1880:          description: Validation resumed or already complete
+lib/api-spec/openapi.yaml:1948:             "resumeToken": "..." | undefined, "resumable": true }
+lib/api-spec/openapi.yaml:1949:             — Durable execution identity. Store the executionId and resumeToken outside
+lib/api-spec/openapi.yaml:1951:             execution status endpoint and explicitly resume with the token after a
+lib/api-spec/openapi.yaml:1952:             server restart. The token is only returned on the initial claim.
+lib/api-spec/openapi.yaml:1984:               | { "kind": "FORENSIC_REPORT_RESULT", "report": "...", "evidence": [...] }
+lib/api-spec/openapi.yaml:1985:               | { "kind": "WORKSPACE_REVIEW_RESULT", "report": "...", "evidence": [...] }
+lib/api-spec/openapi.yaml:1986:               | { "kind": "REPAIR_RESULT", "phases": [...], "readiness": "READY" | "BLOCKED" | "NOT_PROVEN" }
+lib/api-spec/openapi.yaml:2000:              fixture/test/spec evidence (not production source). Such entries also carry
+lib/api-spec/openapi.yaml:2003:              input-path evidence from non-fixture production source is required.
+lib/api-spec/openapi.yaml:2036:               — Structured server-owned validation evidence. Every result carries
+lib/api-spec/openapi.yaml:2037:               a stable evidenceId, observedAt timestamp, and artifactRef. A passed
+lib/api-spec/openapi.yaml:2038:               result without all three evidence fields is not proof and must remain
+lib/api-spec/openapi.yaml:2049:                PROVEN only when every supplied link has runtime evidence.
+lib/api-spec/openapi.yaml:2056:            { "type": "evidence_integrity",
+lib/api-spec/openapi.yaml:2059:             "readAttempts"?: 12, "uniqueFilesRead"?: 8, "evidenceFileCount"?: 6,
+lib/api-spec/openapi.yaml:2061:              "evidenceSourceCoverage"?: {
+lib/api-spec/openapi.yaml:2073:             "taskType": "BEHAVIOR_QUERY", "evidenceSelected": 1, "validator": "behavior-answer",
+lib/api-spec/openapi.yaml:2088:               are rejected and the model must write from gathered evidence.
+lib/api-spec/openapi.yaml:2097:               limited failure labels/codes, and are not report content or evidence.
+lib/api-spec/openapi.yaml:2117:             "evidenceCount": 1,
+lib/api-spec/openapi.yaml:2120:             — Bounded response/evidence verification telemetry.
+lib/api-spec/openapi.yaml:2140:             "evidenceConsistent"?: true | false }`, and
+lib/api-spec/openapi.yaml:2142:         `execution.evidenceConsistent` (EI-012) is true when this turn's
+lib/api-spec/openapi.yaml:2143:         run-ledger telemetry reconciled with its cited evidence, and
+lib/api-spec/openapi.yaml:2449:      summary: Get the real source lines behind a behavior-evidence span
+lib/api-spec/openapi.yaml:2453:        excerpt) so analysts can verify the exact code a claim cites. The
+lib/api-spec/openapi.yaml:3248:        action: { type: string, enum: [resume, abandon] }
+lib/api-spec/openapi.yaml:3254:      description: Server-validated completion objective used to scope evidence and prevent incomplete claims from being reported as success.
+lib/api-spec/openapi.yaml:3267:            required: [claimId, text]
+lib/api-spec/openapi.yaml:3269:              claimId: { type: string, minLength: 1 }
+lib/api-spec/openapi.yaml:3316:        - evidence
+lib/api-spec/openapi.yaml:3341:        evidence:
+lib/api-spec/openapi.yaml:3381:      required: [evidenceId, observedAt, artifactRef]
+lib/api-spec/openapi.yaml:3383:        evidenceId:
+lib/api-spec/openapi.yaml:3619:         validationFailures, evidence, checkpointVersion, eventCount,
+lib/api-spec/openapi.yaml:3621:         evidenceProjection, createdAt, updatedAt]
+lib/api-spec/openapi.yaml:3641:        evidence:
+lib/api-spec/openapi.yaml:3659:        evidenceProjection:
+lib/api-spec/openapi.yaml:3884:        receipt retention sweep. Active and resumable executions are retained.
+lib/api-spec/openapi.yaml:4341:          description: Durable execution to resume; must belong to the same user, project, and session

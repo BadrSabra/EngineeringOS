@@ -1,0 +1,113 @@
+docs/replit-agent-parity-gaps.md:204:- **Acceptance:** every blocked, conflicted, cancelled, unavailable, and
+lib/ai-orchestrator/src/tool-execution-engine.ts:120:): "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error" | undefined {
+lib/ai-orchestrator/src/tool-execution-engine.ts:124:      status === "cancelled" || status === "spawn_error" ? status : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:467:      failureKind: "execution" | "unavailable" | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts:734:          failureKind: "execution" | "unavailable" | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts:777:                ? "cancelled"
+lib/ai-orchestrator/src/tool-execution-engine.ts:781:              const diagnosticCode = failureKind === "cancelled"
+lib/ai-orchestrator/src/tool-execution-engine.ts:782:                ? "TOOL_CANCELLED"
+lib/ai-orchestrator/src/tool-execution-engine.ts:845:    const cancelled = opts.signal?.aborted === true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:848:      code: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+lib/ai-orchestrator/src/tool-execution-engine.ts:854:      failureKind: cancelled ? "cancelled" : "execution",
+lib/ai-orchestrator/src/tool-execution-engine.ts:855:      diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+lib/ai-orchestrator/src/tool-execution-engine.ts:856:      safeMessage: cancelled
+lib/ai-orchestrator/src/tool-execution-engine.ts:857:        ? `Tool "${name}" was cancelled; the operation did not complete.`
+lib/ai-orchestrator/src/tool-execution-engine.ts:1259:      failureKind: "execution" | "unavailable" | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1279:      kind: "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1323:  | "TOOL_CANCELLED"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1407:       resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1410:      commandStatus?: "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1558:        | "cancelled";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2330:  const cancelledResult = (): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2337:        stopReason: "cancelled",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2350:    return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
+lib/ai-orchestrator/src/tool-execution-engine.ts:2354:    failureKind: "execution" | "unavailable" | "cancelled",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2392:    if (signal?.aborted) return cancelledResult();
+lib/ai-orchestrator/src/tool-execution-engine.ts:2553:      if (signal?.aborted) return cancelledResult();
+docs/golden-repair-matrix.md:14:| Cancellation arrives before work starts | Terminal `cancelled`; no node callback runs | `golden-repair-matrix.test.ts`, `ai-stream-integration.test.ts` |
+docs/golden-repair-matrix.md:28:- `cancelled`, `blocked`, `timed_out`, and `failed` never count as validation
+docs/golden-repair-matrix.md:36:- Every interrupted or cancelled path remains resumable or terminally
+docs/architecture.md:437:- proposed or cancelled follow-up work is never treated as merged evidence.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:59:`lib/db/src/schema/ai_executions.ts` stores queued/running/paused/cancelling/cancelled/completed/failed state, worker lease, heartbeat, checkpoint/version, request, operation/proposal/workspace/revision identity, and terminal linkage. `checkpointAiExecution` requires worker ownership, running status, and a strictly newer sequence; checkpoint contents are bounded and cannot redefine plan scope/dependencies/profile. Startup reconciliation pauses interrupted AI executions. The dashboard tracks execution identity and an opaque token, polls state, hydrates local state, and can obtain a replacement token for paused/failed execution.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:283:cancelled follow-up work as evidence. The gate is reproducible from source and
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:343:* cancelled audit-preview recovery after service restart;
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:348:The cancelled/proposed follow-up work is not counted as merged acceptance
+lib/ai-orchestrator/src/execution-kernel.ts:22:export type BoundedCommandStatus = "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
+lib/ai-orchestrator/src/execution-kernel.ts:151:  let cancelled = false;
+lib/ai-orchestrator/src/execution-kernel.ts:192:      cancelled = true;
+lib/ai-orchestrator/src/execution-kernel.ts:225:        status: cancelled ? "cancelled" : "spawn_error",
+lib/ai-orchestrator/src/execution-kernel.ts:238:        status: cancelled ? "cancelled" : timedOut ? "timed_out" : exitCode === 0 ? "passed" : "failed",
+lib/ai-orchestrator/src/recipe-contract.ts:243:  status: z.enum(["pending", "running", "succeeded", "failed", "cancelled"]),
+lib/ai-orchestrator/src/recipe-compiler.ts:697:  status: "advanced" | "succeeded" | "failed" | "blocked" | "cancelled";
+lib/ai-orchestrator/src/recipe-compiler.ts:713:  if (signal?.aborted) return { status: "cancelled", state: { ...state, status: "cancelled" } };
+lib/ai-orchestrator/src/recipe-compiler.ts:714:  if (state.status === "succeeded" || state.status === "failed" || state.status === "cancelled") {
+lib/ai-orchestrator/src/execution-node-coordinator.ts:43:  | "cancelled";
+lib/ai-orchestrator/src/execution-node-coordinator.ts:65:  status: "passed" | "blocked" | "cancelled";
+lib/ai-orchestrator/src/execution-node-coordinator.ts:278:      emit(opts, nodes, "cancelled", undefined, "execution cancellation requested");
+lib/ai-orchestrator/src/execution-node-coordinator.ts:281:        status: "cancelled",
+lib/ai-orchestrator/src/execution-node-coordinator.ts:324:    // A cancelled child may reject or return a partial result after the
+lib/ai-orchestrator/src/execution-node-coordinator.ts:329:      emit(opts, nodes, "cancelled", undefined, "execution cancellation requested during wave");
+lib/ai-orchestrator/src/execution-node-coordinator.ts:332:        status: "cancelled",
+lib/ai-orchestrator/src/flight-deck-state.ts:10:  | "CANCELLED"
+lib/ai-orchestrator/src/flight-deck-state.ts:38:  if (input.executionStatus === "cancelled" || input.executionStatus === "cancelling") {
+lib/ai-orchestrator/src/flight-deck-state.ts:39:    return "CANCELLED";
+lib/ai-orchestrator/src/execution-kernel.test.ts:134:    expect(result.status).toBe("cancelled");
+lib/ai-orchestrator/src/tools/execution-tools.ts:238:      : status === "cancelled" ? "COMMAND_CANCELLED"
+lib/ai-orchestrator/src/tools/execution-tools.ts:248:      : result.status === "cancelled"
+lib/ai-orchestrator/src/tools/execution-tools.ts:249:        ? "Registered command was cancelled before completion."
+lib/ai-orchestrator/src/tools/analysis-tools.ts:106:      output: "Analysis was cancelled before it started.",
+lib/ai-orchestrator/src/tools/analysis-tools.ts:147:      code: signal?.aborted ? "ANALYSIS_CANCELLED" : "ANALYSIS_FAILED",
+lib/ai-orchestrator/src/tools/analysis-tools.ts:154:        ? `Analysis tool "${name}" was cancelled; the operation did not complete.`
+lib/ai-orchestrator/src/forensic-recovery.ts:450:    cancelled?: boolean;
+lib/ai-orchestrator/src/forensic-recovery.ts:560:    : options.cancelled
+lib/ai-orchestrator/src/agents/chat-agent.ts:521:    const error = new Error("capability probe recovery cancelled");
+lib/ai-orchestrator/src/agents/chat-agent.ts:522:    Object.assign(error, { code: "CANCELLED" });
+lib/ai-orchestrator/src/agents/chat-agent.ts:543:  const cancelled = parentSignal
+lib/ai-orchestrator/src/agents/chat-agent.ts:546:          const error = new Error("capability probe recovery cancelled");
+lib/ai-orchestrator/src/agents/chat-agent.ts:547:          Object.assign(error, { code: "CANCELLED" });
+lib/ai-orchestrator/src/agents/chat-agent.ts:553:          const error = new Error("capability probe recovery cancelled");
+lib/ai-orchestrator/src/agents/chat-agent.ts:554:          Object.assign(error, { code: "CANCELLED" });
+lib/ai-orchestrator/src/agents/chat-agent.ts:561:      cancelled ? [providerOperation, timeout, cancelled] : [providerOperation, timeout],
+lib/ai-orchestrator/src/agents/chat-agent.ts:4094:      // A cancelled forensic audit intentionally keeps canonical English
+lib/ai-orchestrator/src/agents/chat-agent.ts:4098:      if (forensicOutputMode && cancelledForensicAudit()) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:5578:  const cancelledForensicAudit = (): boolean =>
+lib/ai-orchestrator/src/agents/chat-agent.ts:5579:    signal?.aborted === true || loopResult.kind === "cancelled";
+lib/ai-orchestrator/src/agents/chat-agent.ts:5954:  const result = loopResult.kind === "cancelled"
+lib/ai-orchestrator/src/agents/chat-agent.ts:6808:      !cancelledForensicAudit()
+lib/ai-orchestrator/src/agents/chat-agent.ts:6838:    const deterministicBehavioralEnvelope = behavioralAssessmentRequested && !cancelledForensicAudit()
+lib/ai-orchestrator/src/agents/chat-agent.ts:6856:      behavioralAssessmentRequested && !cancelledForensicAudit() && !deterministicBehavioralEnvelope
+lib/ai-orchestrator/src/agents/chat-agent.ts:7186:          !cancelledForensicAudit() &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:8195:  if (structuredOutputMode && cancelledForensicAudit()) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:8196:    const cancelledEvidence = collectForensicEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8207:    const cancelledReport = buildStructuredForensicReport(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8209:      cancelledEvidence,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8210:      { emptyVerdict: "ANALYSIS_INCOMPLETE", language: responseLanguage, cancelled: true },
+lib/ai-orchestrator/src/agents/chat-agent.ts:8217:        response: cancelledReport,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8218:        sources: [...cancelledEvidence.fileContents.keys()],
+lib/ai-orchestrator/src/agents/chat-agent.ts:8294:        : cancelledForensicAudit()
+lib/ai-orchestrator/src/agents/chat-agent.ts:8398:    !cancelledForensicAudit() &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:8530:    !cancelledForensicAudit() &&
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:140:    token: "CANCELLED_OPERATION",
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:141:    instruction: "the in-flight operation was cancelled; preserve the running checkpoint and remain BLOCKED",
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:347: * Always resolves — synthesis errors fall back to a plain concatenation of
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:429:        code: "SYNTHESIS_ERROR",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:414:  it("returns a cancelled result when AbortSignal interrupts the provider turn", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:448:    expect(result.kind).toBe("cancelled");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:450:    expect(steps.some((step) => step.kind === "done" && step.stopReason === "cancelled")).toBe(true);
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:252:    const cancelled = advanceCompiledRecipeTransition(compiled.plan, {}, controller.signal);
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:253:    expect(cancelled.status).toBe("cancelled");
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:254:    expect(cancelled.state.status).toBe("cancelled");
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:219:  it("returns cancelled without starting queued work when cancellation is already requested", async () => {
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:233:    expect(result.status).toBe("cancelled");
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:255:    expect(result.status).toBe("cancelled");
+lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts:82:      throw new Error("cancelled");
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:362:    const strategy = makeStrategy("synthesis after error");
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:86:      nodes: [node("cancelled")],
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:97:    expect(result.status).toBe("cancelled");
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:117:      status: "cancelled",
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:194:    expect(result.status).toBe("cancelled");
+lib/ai-orchestrator/src/__tests__/flight-deck-state.test.ts:70:    expect(deriveFlightDeckState({ executionStatus: "cancelled", hasPushedChanges: true }))
+lib/ai-orchestrator/src/__tests__/flight-deck-state.test.ts:71:      .toBe("CANCELLED");
+lib/ai-orchestrator/src/__tests__/flight-deck-state.test.ts:72:    expect(deriveFlightDeckState({ executionStatus: "cancelled" })).toBe("CANCELLED");
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:84:  it("keeps a cancelled Arabic audit incomplete and exposes blocked Recovery in Repair Plan", () => {
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:99:        cancelled: true,

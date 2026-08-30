@@ -1,0 +1,200 @@
+lib/ai-orchestrator/src/tool-execution-engine.ts:370:  fileContents: Map<string, string>,
+lib/ai-orchestrator/src/tool-execution-engine.ts:373:  const readFiles = [...fileContents.keys()].sort();
+lib/ai-orchestrator/src/tool-execution-engine.ts:390:  const uncollectedMatches = matches.filter((match) => !fileContents.has(match.path));
+lib/ai-orchestrator/src/tool-execution-engine.ts:1221:      fileContents?: Map<string, string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1236:      fileContents?: Map<string, string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1246:      fileContents?: Map<string, string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1256:      fileContents?: Map<string, string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1270:      fileContents?: Map<string, string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1281:      fileContents?: Map<string, string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1651:  const fileContents = new Map<string, string>(opts.initialFileContents ?? []);
+lib/ai-orchestrator/src/tool-execution-engine.ts:1657:  const sourceEvidenceByCanonical = new Map<string, string>();
+lib/ai-orchestrator/src/tool-execution-engine.ts:1659:    sourceEvidenceByCanonical.set(canonicalRel(path), body);
+lib/ai-orchestrator/src/tool-execution-engine.ts:1663:      sourceEvidenceByCanonical.set(canonicalRel(path), output);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2012:      fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2350:    return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
+lib/ai-orchestrator/src/tool-execution-engine.ts:2383:      fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2451:          fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2622:              fileContents.size > 0 ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2664:              fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2693:            fileContents.size > 0 ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2736:              fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2766:            return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+lib/ai-orchestrator/src/tool-execution-engine.ts:2774:          if (synthesisStarted || (executionMode === "forensic" && fileContents.size > 0)) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2797:              fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2815:          return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+lib/ai-orchestrator/src/tool-execution-engine.ts:3033:      return { kind: "response", result, toolSources, fileContents, sourceRetrieval };
+lib/ai-orchestrator/src/tool-execution-engine.ts:3059:        return { kind: "response", result: terminalResult, toolSources, fileContents, sourceRetrieval };
+lib/ai-orchestrator/src/tool-execution-engine.ts:3070:        fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3463:            sourceEvidenceByCanonical.get(fromRel) ??
+lib/ai-orchestrator/src/tool-execution-engine.ts:3464:            sourceEvidenceByCanonical.get(canonicalRel(rawPath)) ??
+lib/ai-orchestrator/src/tool-execution-engine.ts:3465:            sourceEvidenceByCanonical.get(fromFile);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3681:            fileContents,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3849:          fileContents.set(args.path, cached);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3855:            content: duplicateSearchSynthesisSummary(args, cached, toolSources, fileContents),
+lib/ai-orchestrator/src/tool-execution-engine.ts:4151:        fileContents.set(args.path, toolResult.output);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4330:    return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "soft_limit" };
+lib/ai-orchestrator/src/tool-execution-engine.ts:4346:  return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "iteration_budget" };
+lib/ai-orchestrator/src/required-claims.ts:94: * @param fileContents Completed read bodies retained during the run, keyed by
+lib/ai-orchestrator/src/required-claims.ts:100:  fileContents: ReadonlyMap<string, string>;
+lib/ai-orchestrator/src/required-claims.ts:102:  const { question, evidence, fileContents } = input;
+lib/ai-orchestrator/src/required-claims.ts:105:  const evidenceAvailable = fileContents.size > 0 || evidence.length > 0;
+lib/ai-orchestrator/src/required-claims.ts:216: *      (the evidence inventory `fileContents` / completed reads), AND
+lib/ai-orchestrator/src/required-claims.ts:233:  fileContents?: ReadonlyMap<string, string>;
+lib/ai-orchestrator/src/required-claims.ts:235:  const { objective, response = "", evidence = [], fileContents = new Map() } = input;
+lib/ai-orchestrator/src/required-claims.ts:245:  for (const [path, body] of fileContents) {
+lib/ai-orchestrator/src/task-contracts.ts:966:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/task-contracts.ts:979:  for (const [source, content] of fileContents) {
+lib/ai-orchestrator/src/task-contracts.ts:1077:  if (fileContents.size === 0) {
+lib/ai-orchestrator/src/task-execution-partial-report.ts:16:  fileContents?: Map<string, string>;
+lib/ai-orchestrator/src/task-execution-partial-report.ts:54:  fileContents: Map<string, string> | undefined,
+lib/ai-orchestrator/src/task-execution-partial-report.ts:57:  for (const file of fileContents?.keys() ?? []) files.add(normalizePath(file));
+lib/ai-orchestrator/src/task-execution-partial-report.ts:185:    fileContents,
+lib/ai-orchestrator/src/task-execution-partial-report.ts:189:  const files = readFiles(telemetry, toolSources, fileContents);
+lib/ai-orchestrator/src/prompts/review.prompt.ts:45:export function buildCodeReviewUserPrompt(context: ProjectContext, fileContents?: Record<string, string>): string {
+lib/ai-orchestrator/src/prompts/review.prompt.ts:47:    fileContents && Object.keys(fileContents).length > 0
+lib/ai-orchestrator/src/prompts/review.prompt.ts:50:          Object.entries(fileContents)
+lib/ai-orchestrator/src/prompts/review.prompt.ts:63:    fileContents && Object.keys(fileContents).length > 0
+lib/ai-orchestrator/src/evidence-integrity.ts:699:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/evidence-integrity.ts:702:  for (const [file, content] of fileContents) {
+lib/ai-orchestrator/src/evidence-integrity.ts:1309:  fileContents: ReadonlyMap<string, string>;
+lib/ai-orchestrator/src/evidence-integrity.ts:1354:    fileContents,
+lib/ai-orchestrator/src/evidence-integrity.ts:1367:  for (const [file, content] of fileContents) {
+lib/ai-orchestrator/src/evidence-integrity.ts:1681:  fileContents: ReadonlyMap<string, string>;
+lib/ai-orchestrator/src/evidence-integrity.ts:1684:  if (edges.length === 0 || input.fileContents.size === 0) return [];
+lib/ai-orchestrator/src/evidence-integrity.ts:1692:    for (const [file, body] of input.fileContents) {
+lib/ai-orchestrator/src/forensic-recovery.ts:159:  const sourceEntry = [...evidence.fileContents.entries()].find(([file]) => {
+lib/ai-orchestrator/src/forensic-recovery.ts:204:  if (evidence.fileContents.size === 0) return null;
+lib/ai-orchestrator/src/forensic-recovery.ts:207:  const candidates = [...evidence.fileContents.entries()]
+lib/ai-orchestrator/src/forensic-recovery.ts:405:    if (phaseFiles.some((file) => !evidence.fileContents.has(file))) {
+lib/ai-orchestrator/src/forensic-recovery.ts:470:    evidence.fileContents.size === 0 || evidence.sourceCoverage?.complete === false;
+lib/ai-orchestrator/src/forensic-output-guard.ts:59:  fileContents: Map<string, string>;
+lib/ai-orchestrator/src/forensic-output-guard.ts:375:  const matchingFiles = candidateFiles.filter((file) => readSources.has(file) || evidence.fileContents.has(file));
+lib/ai-orchestrator/src/forensic-output-guard.ts:380:    matchingFiles.some((file) => !evidence.fileContents.has(file))
+lib/ai-orchestrator/src/forensic-output-guard.ts:394:  // toolSources label without fileContents must never satisfy this branch.
+lib/ai-orchestrator/src/forensic-output-guard.ts:397:    matchingFiles.every((file) => evidence.fileContents.has(file))
+lib/ai-orchestrator/src/forensic-output-guard.ts:409:    const content = evidence.fileContents.get(file);
+lib/ai-orchestrator/src/forensic-output-guard.ts:611:    if (evidence && evidence.fileContents.size > 0) {
+lib/ai-orchestrator/src/forensic-output-guard.ts:671:            ...evidence.fileContents.keys(),
+lib/ai-orchestrator/src/forensic-output-guard.ts:681:        recordFiles.every((file) => evidence?.fileContents.has(file));
+lib/ai-orchestrator/src/forensic-output-guard.ts:697:        hasDisplayTruncationMarker(evidence?.fileContents.get(file) ?? ""),
+lib/ai-orchestrator/src/forensic-output-guard.ts:736:      ...evidence.fileContents.keys(),
+lib/ai-orchestrator/src/forensic-output-guard.ts:752:    const uncoveredReads = [...evidence.fileContents.keys()]
+lib/ai-orchestrator/src/forensic-output-guard.ts:967:  if (!evidence || evidence.fileContents.size === 0) {
+lib/ai-orchestrator/src/forensic-output-guard.ts:980:  const inventory = [...evidence.fileContents.keys()].reduce(
+lib/ai-orchestrator/src/forensic-output-guard.ts:996:    ...[...evidence.fileContents.entries()]
+lib/ai-orchestrator/src/forensic-output-guard.ts:1137:    ? [...evidence.fileContents.entries()].sort(([left], [right]) => left.localeCompare(right))
+lib/ai-orchestrator/src/forensic-output-guard.ts:1155:    evidence && evidence.fileContents.size > 0
+lib/ai-orchestrator/src/forensic-output-guard.ts:1377:    [...(evidence?.fileContents.keys() ?? [])]
+lib/ai-orchestrator/src/forensic-output-guard.ts:1440:  if (!evidence || evidence.fileContents.size === 0) return null;
+lib/ai-orchestrator/src/forensic-output-guard.ts:1534:  const hasCompletedEvidence = (evidence?.fileContents.size ?? 0) > 0;
+lib/ai-orchestrator/src/forensic-output-guard.ts:1665:    evidence.fileContents.size > 0 &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:1721:      .map((file) => evidence.fileContents.get(file) ?? evidence.searchResults?.get(file))
+lib/ai-orchestrator/src/forensic-output-guard.ts:1811:  const fileContents = new Map<string, string>();
+lib/ai-orchestrator/src/forensic-output-guard.ts:1818:      fileContents.set(normalizedPath, content);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1868:      fileContents.set(sourcePath, content);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1894:    fileContents,
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:84:  const files = [...evidence.fileContents.keys()]
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:105:      const fileContents = new Map(
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:106:        packetFiles.map((file) => [file, evidence.fileContents.get(file) ?? ""]),
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:123:        fileContents,
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:133:        const content = fileContents.get(file) ?? "";
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:148:          acc.sourceChars += fileContents.get(file)?.length ?? 0;
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:99:  for (const [file, source] of evidence.fileContents.entries()) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:425:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:433:  const files = [...fileContents.entries()].sort(([a], [b]) => a.localeCompare(b));
+lib/ai-orchestrator/src/agents/chat-agent.ts:754:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:756:  if (fileContents.size !== CAPABILITY_PROBE_SOURCE_FILES.length) return false;
+lib/ai-orchestrator/src/agents/chat-agent.ts:758:    const body = fileContents.get(file);
+lib/ai-orchestrator/src/agents/chat-agent.ts:814:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:819:  return [...fileContents].some(([source, body]) => {
+lib/ai-orchestrator/src/agents/chat-agent.ts:837:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:839:  const verifiedSources = [...fileContents.keys()];
+lib/ai-orchestrator/src/agents/chat-agent.ts:930:  fileContents: ReadonlyMap<string, string>;
+lib/ai-orchestrator/src/agents/chat-agent.ts:945:        fileContents: opts.fileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:982: * the already-gated fileContents on the streaming seams, where the full ledger is
+lib/ai-orchestrator/src/agents/chat-agent.ts:988:  fileContents: Map<string, string>;
+lib/ai-orchestrator/src/agents/chat-agent.ts:1015:      fileContents: opts.fileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1034:    fileContents: opts.fileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1052:      evidenceRecords: [...opts.fileContents.keys()].map((file) => ({
+lib/ai-orchestrator/src/agents/chat-agent.ts:1063:      uniqueFilesRead: opts.fileContents.size,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1064:      evidenceFileCount: opts.fileContents.size,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1065:      acceptedEvidenceCount: opts.fileContents.size,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1067:      readAttempts: opts.fileContents.size,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1116:  fileContents: Map<string, string>;
+lib/ai-orchestrator/src/agents/chat-agent.ts:1126:    fileContents: opts.fileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1168:  const records = [...evidence.fileContents.entries()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:1185:  const manifest = [...evidence.fileContents.keys()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:1269:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1273:  const records = [...fileContents.entries()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:1329:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1332:  const candidates = buildBehaviorRecoverySourceCandidates(question, fileContents);
+lib/ai-orchestrator/src/agents/chat-agent.ts:1338:  const manifest = [...fileContents.keys()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:1458:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1463:  const file = [...fileContents.keys()].find((item) => item.endsWith("profile-classifier.ts"));
+lib/ai-orchestrator/src/agents/chat-agent.ts:1464:  const content = file ? fileContents.get(file) : undefined;
+lib/ai-orchestrator/src/agents/chat-agent.ts:1490:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1493:  const records = [...fileContents.entries()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:1511:  const candidates = buildCapabilityMicroProbeEvidenceCandidates(group.name, fileContents);
+lib/ai-orchestrator/src/agents/chat-agent.ts:1647:  fileContents: ReadonlyMap<string, string>;
+lib/ai-orchestrator/src/agents/chat-agent.ts:1657:      const microProbePacket = buildCapabilityMicroProbeMessages(group, opts.fileContents);
+lib/ai-orchestrator/src/agents/chat-agent.ts:1750:        [...opts.fileContents.values()].some((body) => body.includes(fragment)),
+lib/ai-orchestrator/src/agents/chat-agent.ts:1776:  const readObserved = opts.fileContents.size > 0;
+lib/ai-orchestrator/src/agents/chat-agent.ts:1827:      `\nVerified source reads: ${[...opts.fileContents.keys()].join(", ")}`,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1828:    sources: [...opts.fileContents.keys()],
+lib/ai-orchestrator/src/agents/chat-agent.ts:1970:  fileContents: Map<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1976:    const content = fileContents.get(source);
+lib/ai-orchestrator/src/agents/chat-agent.ts:2041:  fileContents: Map<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:2057:  const files = [...fileContents.keys()];
+lib/ai-orchestrator/src/agents/chat-agent.ts:2059:    [...fileContents.entries()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:2079:  //   3. All fileContents keys (coarsest: entire session read set)
+lib/ai-orchestrator/src/agents/chat-agent.ts:2270:  fileContents: Map<string, string>;
+lib/ai-orchestrator/src/agents/chat-agent.ts:2284:    fileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:2298:    sourceRetrieval?.firstEvidenceAcquired === true || fileContents.size > 0;
+lib/ai-orchestrator/src/agents/chat-agent.ts:3353:  fileContents: ReadonlyMap<string, string>,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3356:  const files = [...fileContents.keys()].sort();
+lib/ai-orchestrator/src/agents/chat-agent.ts:4962:      const hierarchicalResult = await executeHierarchical(hierarchicalTasks, {
+lib/ai-orchestrator/src/agents/chat-agent.ts:4981:      for (const evidence of hierarchicalResult.sourceEvidence) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:5000:            hierarchicalResult.sourceEvidence,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5027:        fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5201:        for (const [file, content] of childLoop.fileContents ?? []) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:5462:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5600:  for (const [filePath, content] of loopResult.fileContents ?? []) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:5715:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5732:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5784:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5795:        fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5832:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5908:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5919:        fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6004:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6194:        fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6203:        fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6234:          fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6453:        fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6463:        fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6513:          fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6805:      forensicEvidence.fileContents.size === 0 &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:6825:        if (forensicEvidence.fileContents.size > 0) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:6914:        completedReadCount: forensicEvidence.fileContents.size,
+lib/ai-orchestrator/src/agents/chat-agent.ts:6928:      const completedImplementationFiles = [...forensicEvidence.fileContents.keys()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:6987:      if (forensicEvidence.fileContents.size === 0) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:7052:          files: [...forensicEvidence.fileContents.keys()],
+lib/ai-orchestrator/src/agents/chat-agent.ts:7057:          sourceChars: [...forensicEvidence.fileContents.values()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:7060:          evidenceWindows: [...forensicEvidence.fileContents.keys()]
+lib/ai-orchestrator/src/agents/chat-agent.ts:7165:              sources: [...forensicEvidence.fileContents.keys()],
+lib/ai-orchestrator/src/agents/chat-agent.ts:7195:            recoveryPacket.files.length === forensicEvidence.fileContents.size;
+lib/ai-orchestrator/src/agents/chat-agent.ts:7638:                      if (!forensicEvidence.fileContents.has(findingFile)) continue;
+lib/ai-orchestrator/src/agents/chat-agent.ts:7646:                        const retainedContent = forensicEvidence.fileContents.get(findingFile) ?? "";
+lib/ai-orchestrator/src/agents/chat-agent.ts:7989:            behavioralAssessmentRequired && forensicEvidence.fileContents.size > 0
+lib/ai-orchestrator/src/agents/chat-agent.ts:8013:            forensicEvidence.fileContents.size > 0 &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:8084:          behavioralAssessmentRequired && forensicEvidence.fileContents.size > 0
+lib/ai-orchestrator/src/agents/chat-agent.ts:8166:          forensicEvidence.fileContents.size > 0 &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:8218:        sources: [...cancelledEvidence.fileContents.keys()],
+lib/ai-orchestrator/src/agents/chat-agent.ts:8543:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8648:    fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8693:    fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8773:        fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8823:            fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8956:      fileContents: forensicFileContents,
+lib/ai-orchestrator/src/agents/code-reviewer.ts:69:  constructor(private readonly fileContents?: Record<string, string>) {
