@@ -1,0 +1,471 @@
+hestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":20,"completionTokens":10,"durationMs":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'T', \"The authen\"... is not valid JSON","action":"json_correction_retry"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":4,"attempt":0,"outcome":"success"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > attaches model reasoning text to a fresh read_file tool_call step
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"chat","taskType":"chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"chat","wantPowerful":false,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"chat","requireTools":false,"requireThinking":false,"requireReasoning":false,"minimumContext":0}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"chat","selectedBudget":{"maxIterations":64,"maxToolCalls":180},"appliedBudget":{"maxIterations":64,"maxToolCalls":180},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'D', \"Done.\" is not valid JSON","action":"json_correction_retry"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > does not attach reasoning to cached (duplicate) read_file tool_call steps
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"chat","taskType":"chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"chat","wantPowerful":false,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"chat","requireTools":false,"requireThinking":false,"requireReasoning":false,"minimumContext":0}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"chat","selectedBudget":{"maxIterations":64,"maxToolCalls":180},"appliedBudget":{"maxIterations":64,"maxToolCalls":180},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":10,"completionTokens":5,"durationMs":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":1,"attempt":0,"outcome":"success"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"provider-telemetry","provider":"groq","model":"mock-reasoning-model","attemptCount":1,"promptTokens":20,"completionTokens":10,"durationMs":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"MALFORMED_JSON","message":"Unexpected token 'T', \"The authen\"... is not valid JSON","action":"json_correction_retry"}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"groq-client","model":"mock-reasoning-model","durationMs":1,"attempt":0,"outcome":"success"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts > flight-recorder reasoning field on tool_call steps > truncates reasoning text to 500 characters
+{"scope":"chat-agent","code":"JSON_CORRECTION_FAILED","original":"MALFORMED_JSON","provider":"groq"}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-terminal-kind-G1uQLr","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"plan-prefetch","code":"PLAN_PREFETCH_COMPLETE","files":["src/loop.ts"],"bytesLoaded":110}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":8,"maxToolCalls":640},"appliedBudget":{"maxIterations":8,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":2}
+
+stderr | lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_RECOVERY_REJECTED","reason":"corrected response still lacked a verified executable excerpt"}
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_REJECTED","violations":["behavior response does not cite a relevant control-flow excerpt with a verifiable source span from a completed source read"]}
+
+················································································
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"BEHAVIOR_ANSWER","validator":"AnswerValidator","category":"code","turnIntent":"FORENSIC_AUDIT","requiresTools":true,"requiresEvidence":true,"agentScope":"analysis","taskType":"analysis","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"openrouter","rootPath":"/tmp/eos-terminal-kind-q87VNZ","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"plan-prefetch","code":"PLAN_PREFETCH_COMPLETE","files":["src/loop.ts"],"bytesLoaded":110}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"analysis","selectedBudget":{"maxIterations":8,"maxToolCalls":640},"appliedBudget":{"maxIterations":8,"maxToolCalls":260},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"provider-telemetry","provider":"openrouter","model":"initial-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts > chat() emits a forensic_terminal step explaining a NOT_PROVEN run (task #56) > surfaces EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED when evidence is retained but no claim is closed
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_RECOVERY_REJECTED","reason":"corrected response still lacked a verified executable excerpt"}
+{"scope":"chat-agent","code":"BEHAVIOR_EVIDENCE_REJECTED","violations":["behavior response does not cite a relevant control-flow excerpt with a verifiable source span from a completed source read"]}
+
+················································································
+stdout | lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts > implementation-plan filesystem grounding > rejects provider plans that reference unverified existing paths
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"json","wantPowerful":true,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"chat","requireTools":false,"requireThinking":true,"requireReasoning":true,"minimumContext":16000}
+
+stdout | lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts > implementation-plan filesystem grounding > rejects provider plans that reference unverified existing paths
+{"scope":"groq-client","model":"grounding-test-model","durationMs":0,"attempt":0,"outcome":"success"}
+
+stderr | lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts > implementation-plan filesystem grounding > rejects provider plans that reference unverified existing paths
+{"scope":"implementation-plan","code":"QUALITY_REVIEW_LOW","qualityProfile":"analysis","score":0.6,"threshold":0.78,"reasons":["analysis insights are empty","overall assessment looks like placeholder text","top priority is missing or placeholder","quality score 0.60 is below threshold 0.78"]}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts > implementation-plan filesystem grounding > rejects provider plans that reference unverified existing paths
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"groq","capability":"reasoning","wantPowerful":true,"model":"llama-3.3-70b-versatile","powerModel":"llama-3.3-70b-versatile","fallbackChain":["llama-3.3-70b-versatile"],"source":"provider-registry","taskType":"chat","requireTools":false,"requireThinking":true,"requireReasoning":true,"minimumContext":16000}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts > implementation-plan filesystem grounding > rejects provider plans that reference unverified existing paths
+{"scope":"groq-client","model":"grounding-test-model","durationMs":1,"attempt":0,"outcome":"success"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts > implementation-plan filesystem grounding > rejects provider plans that reference unverified existing paths
+{"scope":"implementation-plan","code":"QUALITY_REVIEW_LOW","qualityProfile":"analysis","score":0.6,"threshold":0.78,"reasons":["analysis insights are empty","overall assessment looks like placeholder text","top priority is missing or placeholder","quality score 0.60 is below threshold 0.78"]}
+
+················································································
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/behavioral-scorecard.test.ts > behavioral model scorecards > demotes task_execution fallback candidates without removing them
+{"scope":"model-resolver","action":"resolve_fallback_chain","capability":"chat","quality":"fast","requireTools":false,"preferFreeTier":true,"catalogLoaded":false,"candidates":["inclusionai/ling-3.0-flash:free","nvidia/nemotron-nano-9b-v2:free","nvidia/nemotron-nano-12b-v2-vl:free","openai/gpt-oss-20b:free","poolside/laguna-xs-2.1:free","google/gemma-4-26b-a4b-it:free","poolside/laguna-s-2.1:free","google/gemma-4-31b-it:free","nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free","nvidia/nemotron-3-nano-30b-a3b:free","nvidia/nemotron-3-super-120b-a12b:free","nvidia/nemotron-3-ultra-550b-a55b:free"],"chainLength":12,"poolFallback":null}
+{"scope":"model-resolver","action":"resolve_fallback_chain","capability":"chat","quality":"fast","requireTools":false,"preferFreeTier":true,"catalogLoaded":false,"candidates":["nvidia/nemotron-nano-9b-v2:free","nvidia/nemotron-nano-12b-v2-vl:free","openai/gpt-oss-20b:free","poolside/laguna-xs-2.1:free","google/gemma-4-26b-a4b-it:free","inclusionai/ling-3.0-flash:free","poolside/laguna-s-2.1:free","google/gemma-4-31b-it:free","nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free","nvidia/nemotron-3-nano-30b-a3b:free","nvidia/nemotron-3-super-120b-a12b:free","nvidia/nemotron-3-ultra-550b-a55b:free"],"chainLength":12,"poolFallback":null}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/behavioral-scorecard.test.ts > behavioral model scorecards > restores the original ordering after the model recovers
+{"scope":"model-resolver","action":"resolve_fallback_chain","capability":"chat","quality":"fast","requireTools":false,"preferFreeTier":true,"catalogLoaded":false,"candidates":["inclusionai/ling-3.0-flash:free","nvidia/nemotron-nano-9b-v2:free","nvidia/nemotron-nano-12b-v2-vl:free","openai/gpt-oss-20b:free","poolside/laguna-xs-2.1:free","google/gemma-4-26b-a4b-it:free","poolside/laguna-s-2.1:free","google/gemma-4-31b-it:free","nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free","nvidia/nemotron-3-nano-30b-a3b:free","nvidia/nemotron-3-super-120b-a12b:free","nvidia/nemotron-3-ultra-550b-a55b:free"],"chainLength":12,"poolFallback":null}
+
+stdout | lib/ai-orchestrator/src/__tests__/behavioral-scorecard.test.ts > behavioral model scorecards > demotes task_execution fallback candidates without removing them
+{"scope":"model-resolver","action":"resolve_fallback_chain","capability":"chat","quality":"fast","requireTools":false,"preferFreeTier":true,"catalogLoaded":false,"candidates":["liquid/lfm-2.5-2.6b:free","nvidia/nemotron-3.5-lightning:free","dots-studio/dots-3-note-preview:free","thinkingmachines/inkling-small:free","poolside/laguna-xs-2.1:free","thinkingmachines/inkling:free","poolside/laguna-s-2.1:free","z-ai/glm-5.2:free","google/gemma-4-26b-a4b-it:free","google/gemma-4-31b-it:free","nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free","nvidia/nemotron-3-super-120b-a12b:free","nvidia/nemotron-3-ultra-550b-a55b:free"],"chainLength":13,"poolFallback":null}
+{"scope":"model-resolver","action":"resolve_fallback_chain","capability":"chat","quality":"fast","requireTools":false,"preferFreeTier":true,"catalogLoaded":false,"candidates":["nvidia/nemotron-3.5-lightning:free","dots-studio/dots-3-note-preview:free","thinkingmachines/inkling-small:free","poolside/laguna-xs-2.1:free","thinkingmachines/inkling:free","liquid/lfm-2.5-2.6b:free","poolside/laguna-s-2.1:free","z-ai/glm-5.2:free","google/gemma-4-26b-a4b-it:free","google/gemma-4-31b-it:free","nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free","nvidia/nemotron-3-super-120b-a12b:free","nvidia/nemotron-3-ultra-550b-a55b:free"],"chainLength":13,"poolFallback":null}
+
+stdout | lib/ai-orchestrator/src/__tests__/behavioral-scorecard.test.ts > behavioral model scorecards > restores the original ordering after the model recovers
+{"scope":"model-resolver","action":"resolve_fallback_chain","capability":"chat","quality":"fast","requireTools":false,"preferFreeTier":true,"catalogLoaded":false,"candidates":["liquid/lfm-2.5-2.6b:free","nvidia/nemotron-3.5-lightning:free","dots-studio/dots-3-note-preview:free","thinkingmachines/inkling-small:free","poolside/laguna-xs-2.1:free","thinkingmachines/inkling:free","poolside/laguna-s-2.1:free","z-ai/glm-5.2:free","google/gemma-4-26b-a4b-it:free","google/gemma-4-31b-it:free","nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free","nvidia/nemotron-3-super-120b-a12b:free","nvidia/nemotron-3-ultra-550b-a55b:free"],"chainLength":13,"poolFallback":null}
+
+················································································
+stderr | lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts > analysis tool correlation contract > preserves unavailable status without exposing the runner diagnostic
+{"scope":"analysis-tools","code":"ANALYSIS_UNAVAILABLE","tool":"query_knowledge_graph","diagnostic":"database password and internal connection details"}
+
+stderr | lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts > analysis tool correlation contract > maps runner failures to a bounded failed result
+{"scope":"analysis-tools","code":"ANALYSIS_FAILED","tool":"query_knowledge_graph","diagnostic":"raw internal failure"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts > analysis tool correlation contract > preserves unavailable status without exposing the runner diagnostic
+{"scope":"analysis-tools","code":"ANALYSIS_UNAVAILABLE","tool":"query_knowledge_graph","diagnostic":"database password and internal connection details"}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts > analysis tool correlation contract > maps runner failures to a bounded failed result
+{"scope":"analysis-tools","code":"ANALYSIS_FAILED","tool":"query_knowledge_graph","diagnostic":"raw internal failure"}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts > forensic live read path > executes a real read_file and returns its source body to the forensic loop
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stderr | lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts > forensic live read path > executes a real read_file and returns its source body to the forensic loop
+{"scope":"tool-execution-engine","code":"FORENSIC_CACHED_READ_GUARD","tool":"read_file","iter":1,"duplicateCount":1}
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":1}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts > forensic live read path > executes a real read_file and returns its source body to the forensic loop
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts > forensic live read path > executes a real read_file and returns its source body to the forensic loop
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts > forensic live read path > executes a real read_file and returns its source body to the forensic loop
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts > forensic live read path > executes a real read_file and returns its source body to the forensic loop
+{"scope":"tool-execution-engine","code":"FORENSIC_CACHED_READ_GUARD","tool":"read_file","iter":1,"duplicateCount":1}
+{"scope":"tool-execution-engine","code":"DUPLICATE_TOOL_CALL","tool":"read_file","iter":1}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts > forensic live read path > executes a real read_file and returns its source body to the forensic loop
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts > forensic live read path > executes a real read_file and returns its source body to the forensic loop
+{"scope":"provider-telemetry","provider":"test","model":"test-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+················································································
+stdout | lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > disables tools when the project root is missing
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":null,"mode":"workspace","enabled":false,"allowFileRead":false,"allowFileWrite":false,"allowGit":false,"allowExecution":false,"allowAnalysis":false,"reason":"tool policy requires a project root path","supportsTools":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > disables tools for providers marked as text-only
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"gemini","rootPath":"/tmp/project","mode":"workspace","enabled":false,"allowFileRead":false,"allowFileWrite":false,"allowGit":false,"allowExecution":false,"allowAnalysis":false,"reason":"provider registry marks this endpoint as text-only","supportsTools":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > exposes the full tool suite in workspace mode
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/project","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > exposes validation only when the caller opts into execution
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/project","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":true,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > removes write_file in read-only mode while keeping read tools
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/project","mode":"read-only","enabled":true,"allowFileRead":true,"allowFileWrite":false,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > disables tools when the project root is missing
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":null,"mode":"workspace","enabled":false,"allowFileRead":false,"allowFileWrite":false,"allowGit":false,"allowExecution":false,"allowAnalysis":false,"reason":"tool policy requires a project root path","supportsTools":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > disables tools for providers marked as text-only
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"gemini","rootPath":"/tmp/project","mode":"workspace","enabled":false,"allowFileRead":false,"allowFileWrite":false,"allowGit":false,"allowExecution":false,"allowAnalysis":false,"reason":"provider registry marks this endpoint as text-only","supportsTools":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > exposes the full tool suite in workspace mode
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/project","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > exposes validation only when the caller opts into execution
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/project","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":true,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts > tool policy > removes write_file in read-only mode while keeping read tools
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/project","mode":"read-only","enabled":true,"allowFileRead":true,"allowFileWrite":false,"allowGit":true,"allowExecution":false,"allowAnalysis":false,"reason":null,"supportsTools":true}
+
+················································································
+stdout | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > marks a valid-looking empty finding list incomplete
+{"scope":"retry-controller","action":"decide_retry","attempt":1,"limit":3,"shouldRetry":true,"useRelaxedHints":true,"reason":"quality score 0.67 below threshold 0.78","parseErrorCode":null,"assessmentDecision":"retry","assessmentScore":0.6699999999999999,"transportErrorCode":null,"isTransientTransport":false}
+
+stderr | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > marks a valid-looking empty finding list incomplete
+{"scope":"code-reviewer","code":"MODEL_RETRY","reason":"quality score 0.67 below threshold 0.78","qualityProfile":"code_review"}
+
+stdout | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > marks a valid-looking empty finding list incomplete
+{"scope":"retry-controller","action":"decide_retry","attempt":2,"limit":3,"shouldRetry":true,"useRelaxedHints":true,"reason":"quality score 0.67 below threshold 0.78","parseErrorCode":null,"assessmentDecision":"retry","assessmentScore":0.6699999999999999,"transportErrorCode":null,"isTransientTransport":false}
+
+stderr | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > marks a valid-looking empty finding list incomplete
+{"scope":"code-reviewer","code":"MODEL_RETRY","reason":"quality score 0.67 below threshold 0.78","qualityProfile":"code_review"}
+
+stderr | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > marks a valid-looking empty finding list incomplete
+{"scope":"code-reviewer","code":"QUALITY_REVIEW_LOW","qualityProfile":"code_review","score":0.6699999999999999,"threshold":0.78,"reasons":["quality score 0.67 is below threshold 0.78"]}
+
+stdout | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > accepts a finding that cites one of the selected files
+{"scope":"retry-controller","action":"decide_retry","attempt":1,"limit":3,"shouldRetry":true,"useRelaxedHints":true,"reason":"quality score 0.71 below threshold 0.78","parseErrorCode":null,"assessmentDecision":"retry","assessmentScore":0.71,"transportErrorCode":null,"isTransientTransport":false}
+
+stderr | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > accepts a finding that cites one of the selected files
+{"scope":"code-reviewer","code":"MODEL_RETRY","reason":"quality score 0.71 below threshold 0.78","qualityProfile":"code_review"}
+
+stdout | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > accepts a finding that cites one of the selected files
+{"scope":"retry-controller","action":"decide_retry","attempt":2,"limit":3,"shouldRetry":true,"useRelaxedHints":true,"reason":"quality score 0.71 below threshold 0.78","parseErrorCode":null,"assessmentDecision":"retry","assessmentScore":0.71,"transportErrorCode":null,"isTransientTransport":false}
+
+stderr | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > accepts a finding that cites one of the selected files
+{"scope":"code-reviewer","code":"MODEL_RETRY","reason":"quality score 0.71 below threshold 0.78","qualityProfile":"code_review"}
+
+stderr | lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts > reviewCode selected-file acceptance > accepts a finding that cites one of the selected files
+{"scope":"code-reviewer","code":"QUALITY_REVIEW_LOW","qualityProfile":"code_review","score":0.71,"threshold":0.78,"reasons":["quality score 0.71 is below threshold 0.78"]}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts > chat agent provider tool gating > does not pass tools to Gemini when the provider is tools-disabled
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE","validator":"AnswerValidator","category":"simple","turnIntent":"CHAT","requiresTools":false,"requiresEvidence":false,"agentScope":"chat","taskType":"chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"gemini","capability":"chat","wantPowerful":false,"model":"gemini-2.0-flash","powerModel":"gemini-2.0-flash","fallbackChain":["gemini-2.0-flash"],"source":"provider-registry","taskType":"chat","requireTools":false,"requireThinking":false,"requireReasoning":false,"minimumContext":0}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"chat","selectedBudget":{"maxIterations":64,"maxToolCalls":180},"appliedBudget":{"maxIterations":64,"maxToolCalls":180},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts > chat agent provider tool gating > does not pass tools to Gemini when the provider is tools-disabled
+{"scope":"provider-telemetry","provider":"gemini","model":"gemini-2.0-flash","attemptCount":1,"promptTokens":1,"completionTokens":1,"durationMs":1}
+
+stdout | lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts > chat agent provider tool gating > does not pass tools to Gemini when the provider is tools-disabled
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":false,"repairPlanExecution":false,"historyMessageCount":0,"priorPlanRecovered":false,"structuredPlanRecovered":false,"structuredPlanPhaseCount":0,"executionFilePaths":[],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE","validator":"AnswerValidator","category":"simple","turnIntent":"CHAT","requiresTools":false,"requiresEvidence":false,"agentScope":"chat","taskType":"chat","immediateExecution":false,"priorPlanRecovered":false,"priorPlanChars":0,"executionFilePaths":[]}
+{"scope":"model-resolver","action":"resolve_execution_model","providerId":"gemini","capability":"chat","wantPowerful":false,"model":"gemini-2.0-flash","powerModel":"gemini-2.0-flash","fallbackChain":["gemini-2.0-flash"],"source":"provider-registry","taskType":"chat","requireTools":false,"requireThinking":false,"requireReasoning":false,"minimumContext":0}
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"chat","selectedBudget":{"maxIterations":64,"maxToolCalls":180},"appliedBudget":{"maxIterations":64,"maxToolCalls":180},"implementationTaskMode":false,"repairPlanExecution":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts > chat agent provider tool gating > does not pass tools to Gemini when the provider is tools-disabled
+{"scope":"provider-telemetry","provider":"gemini","model":"gemini-2.0-flash","attemptCount":1,"promptTokens":1,"completionTokens":1,"durationMs":1}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts > forensic benchmark > passes the deterministic guardrail baseline
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":5}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts > forensic benchmark > passes the deterministic guardrail baseline
+{"scope":"forensic-output-guard","code":"FORENSIC_EVIDENCE_GATE","violations":[{"findingId":"F-001","reasons":["the implementation caps maxDepth at 6 and bounds traversal by the capped depth"]}]}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_GATE","violations":["missing required section: ## 1) Executive Verdict","missing required section: ## 2) Evidence Map","missing required section: ## 3) Findings","missing required section: ## 4) Repair Plan","missing required section: ## 5) Validation Checklist","missing required section: ## 6) Final Judgment"]}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts > forensic benchmark > renders a provider-neutral scorecard
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":5}
+
+stderr | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts > forensic benchmark > renders a provider-neutral scorecard
+{"scope":"forensic-output-guard","code":"FORENSIC_EVIDENCE_GATE","violations":[{"findingId":"F-001","reasons":["the implementation caps maxDepth at 6 and bounds traversal by the capped depth"]}]}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_GATE","violations":["missing required section: ## 1) Executive Verdict","missing required section: ## 2) Evidence Map","missing required section: ## 3) Findings","missing required section: ## 4) Repair Plan","missing required section: ## 5) Validation Checklist","missing required section: ## 6) Final Judgment"]}
+
+stdout | lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts > forensic benchmark > passes the deterministic guardrail baseline
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":5}
+
+stderr | lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts > forensic benchmark > passes the deterministic guardrail baseline
+{"scope":"forensic-output-guard","code":"FORENSIC_EVIDENCE_GATE","violations":[{"findingId":"F-001","reasons":["the implementation caps maxDepth at 6 and bounds traversal by the capped depth"]}]}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_GATE","violations":["missing required section: ## 1) Executive Verdict","missing required section: ## 2) Evidence Map","missing required section: ## 3) Findings","missing required section: ## 4) Repair Plan","missing required section: ## 5) Validation Checklist","missing required section: ## 6) Final Judgment"]}
+
+stdout | lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts > forensic benchmark > renders a provider-neutral scorecard
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":1}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_REPAIRED_FROM_EVIDENCE","originalViolationCount":5}
+
+stderr | lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts > forensic benchmark > renders a provider-neutral scorecard
+{"scope":"forensic-output-guard","code":"FORENSIC_EVIDENCE_GATE","violations":[{"findingId":"F-001","reasons":["the implementation caps maxDepth at 6 and bounds traversal by the capped depth"]}]}
+{"scope":"forensic-output-guard","code":"FORENSIC_CONTRACT_GATE","violations":["missing required section: ## 1) Executive Verdict","missing required section: ## 2) Evidence Map","missing required section: ## 3) Findings","missing required section: ## 4) Repair Plan","missing required section: ## 5) Validation Checklist","missing required section: ## 6) Final Judgment"]}
+
+stdout | lib/ai-orchestrator/src/__tests__/retry-controller.test.ts > decideRetry > retries on parse failure while budget remains
+{"scope":"retry-controller","action":"decide_retry","attempt":1,"limit":2,"shouldRetry":true,"useRelaxedHints":true,"reason":"parse failure (MALFORMED_JSON)","parseErrorCode":"MALFORMED_JSON","assessmentDecision":null,"assessmentScore":null,"transportErrorCode":null,"isTransientTransport":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/retry-controller.test.ts > decideRetry > retries on low-quality structured output
+{"scope":"retry-controller","action":"decide_retry","attempt":1,"limit":2,"shouldRetry":true,"useRelaxedHints":true,"reason":"quality score 0.40 below threshold 0.72","parseErrorCode":null,"assessmentDecision":"retry","assessmentScore":0.4,"transportErrorCode":null,"isTransientTransport":false}
+
+stdout | lib/ai-orchestrator/src/__tests__/retry-controller.test.ts > decideRetry > stops when the retry budget is exhausted
+{"scope":"retry-controller","action":"decide_retry","attempt":2,"limit":2,"shouldRetry":false,"useRelaxedHints":false,"reason":"retry budget exhausted","parseErrorCode":"SCHEMA_VALIDATION_FAILED","assessmentDecision":null,"assessmentScore":null,"transportErrorCode":null,"isTransientTransport":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/retry-controller.test.ts > decideRetry > retries on parse failure while budget remains
+{"scope":"retry-controller","action":"decide_retry","attempt":1,"limit":2,"shouldRetry":true,"useRelaxedHints":true,"reason":"parse failure (MALFORMED_JSON)","parseErrorCode":"MALFORMED_JSON","assessmentDecision":null,"assessmentScore":null,"transportErrorCode":null,"isTransientTransport":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/retry-controller.test.ts > decideRetry > retries on low-quality structured output
+{"scope":"retry-controller","action":"decide_retry","attempt":1,"limit":2,"shouldRetry":true,"useRelaxedHints":true,"reason":"quality score 0.40 below threshold 0.72","parseErrorCode":null,"assessmentDecision":"retry","assessmentScore":0.4,"transportErrorCode":null,"isTransientTransport":false}
+
+stdout | .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/retry-controller.test.ts > decideRetry > stops when the retry budget is exhausted
+{"scope":"retry-controller","action":"decide_retry","attempt":2,"limit":2,"shouldRetry":false,"useRelaxedHints":false,"reason":"retry budget exhausted","parseErrorCode":"SCHEMA_VALIDATION_FAILED","assessmentDecision":null,"assessmentScore":null,"transportErrorCode":null,"isTransientTransport":false}
+
+················································································
+···x··
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/chat-agent.test.ts > chat agent — fallback output normalization > strips markdown fences and normalizes fallback text
+Error: [vitest] No "isCatalogFreeModelForCapability" export is defined on the "../openrouter/model-resolver.js" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("../openrouter/model-resolver.js"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ Object.call lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:95:13
+     93|       const pinnedModelIsCurrent = opts.model
+     94|         ? (opts.capability
+     95|           ? isCatalogFreeModelForCapability(opts.model, {
+       |             ^
+     96|               capability: opts.capability,
+     97|               requireTools: Boolean(opts.tools?.length),
+ ❯ callWithEmptyResponseRetry lib/ai-orchestrator/src/tool-execution-engine.ts:2119:24
+ ❯ executeToolLoop lib/ai-orchestrator/src/tool-execution-engine.ts:2717:11
+ ❯ chat lib/ai-orchestrator/src/agents/chat-agent.ts:5488:22
+ ❯ lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2988:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/chat-agent.test.ts > chat agent — fallback output normalization > appends deterministic unfinished items after provider parse failure
+Error: [vitest] No "isCatalogFreeModelForCapability" export is defined on the "../openrouter/model-resolver.js" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("../openrouter/model-resolver.js"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ Object.call lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:95:13
+     93|       const pinnedModelIsCurrent = opts.model
+     94|         ? (opts.capability
+     95|           ? isCatalogFreeModelForCapability(opts.model, {
+       |             ^
+     96|               capability: opts.capability,
+     97|               requireTools: Boolean(opts.tools?.length),
+ ❯ callWithEmptyResponseRetry lib/ai-orchestrator/src/tool-execution-engine.ts:2119:24
+ ❯ executeToolLoop lib/ai-orchestrator/src/tool-execution-engine.ts:2717:11
+ ❯ chat lib/ai-orchestrator/src/agents/chat-agent.ts:5488:22
+ ❯ lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3010:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file forensic isolation > enforces ordered forensic roots and blocks outside or backward reads
+AssertionError: expected [ 'directory: lib/knowledge-engine' ] to include 'lib/knowledge-engine/src/queries.ts'
+ ❯ lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:127:32
+    125|     if (result.kind !== "response") return;
+    126|     expect(result.toolSources).toContain("directory: lib/knowledge-eng…
+    127|     expect(result.toolSources).toContain("lib/knowledge-engine/src/que…
+       |                                ^
+    128|     expect(result.toolSources).toContain("lib/ai-orchestrator/src/tool…
+    129|     expect(messages.some((message) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file forensic isolation > reads the known-defect fixture completely while blocking expansion to other files and tools
+AssertionError: expected [] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+- [
+-   "src/__tests__/fixtures/known-defect.ts",
+- ]
++ []
+
+ ❯ lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:307:32
+    305|     expect(result.kind).toBe("response");
+    306|     if (result.kind !== "response") return;
+    307|     expect(result.toolSources).toEqual([knownDefectPath]);
+       |                                ^
+    308|     expect([...result.fileContents?.keys() ?? []]).toEqual([knownDefec…
+    309|     expect(result.fileContents?.get(knownDefectPath)).toContain("retur…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file forensic isolation > enforces ordered forensic roots and blocks outside or backward reads
+AssertionError: expected [ 'directory: lib/knowledge-engine' ] to include 'lib/knowledge-engine/src/queries.ts'
+ ❯ .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:127:32
+    125|     if (result.kind !== "response") return;
+    126|     expect(result.toolSources).toContain("directory: lib/knowledge-eng…
+    127|     expect(result.toolSources).toContain("lib/knowledge-engine/src/que…
+       |                                ^
+    128|     expect(result.toolSources).toContain("lib/ai-orchestrator/src/tool…
+    129|     expect(messages.some((message) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts > single-file forensic isolation > reads the known-defect fixture completely while blocking expansion to other files and tools
+AssertionError: expected [] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+- [
+-   "src/__tests__/fixtures/known-defect.ts",
+- ]
++ []
+
+ ❯ .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts:307:32
+    305|     expect(result.kind).toBe("response");
+    306|     if (result.kind !== "response") return;
+    307|     expect(result.toolSources).toEqual([knownDefectPath]);
+       |                                ^
+    308|     expect([...result.fileContents?.keys() ?? []]).toEqual([knownDefec…
+    309|     expect(result.fileContents?.get(knownDefectPath)).toContain("retur…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts > runtime oracle > proves the pending behavior
+AssertionError: expected 'broken' to be 'fixed' // Object.is equality
+
+Expected: "fixed"
+Received: "broken"
+
+ ❯ .engineeringos-projects/c40dae75-8cff-4130-8935-09afa38def11/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts:6:57
+      4|
+      5| describe("runtime oracle", () => {
+      6|   it("proves the pending behavior", () => expect(value).toBe("fixed"));
+       |                                                         ^
+      7| });
+      8|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  4 failed | 202 passed (206)
+      Tests  7 failed | 2959 passed (2966)
+   Start at  15:43:41
+   Duration  58.53s (transform 12.46s, setup 0ms, import 44.53s, tests 91.96s, environment 24ms)
+

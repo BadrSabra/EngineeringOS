@@ -1,0 +1,83 @@
+docs/golden-repair-matrix.md:36:- Every interrupted or cancelled path remains resumable or terminally
+docs/ai-orchestrator-executive-table.md:20:| `lib/ai-orchestrator/src/tools/file-tools.ts` | Filesystem Adapter — يوفر للـ agents أدوات قراءة الملفات وبحث الكود وقائمة الدلائل وإضافة الكتابة للـ pending queue. | (1) `read_file` يقرأ فعلاً من disk — `write_file` لا يكتب (deferred) — عدم تماثل دلالي: agent يقرأ الحالة الحقيقية ولكن يكتب لحالة افتراضية. (2) `safePath` يستخدم `fs.realpath` — يفشل على ملفات غير موجودة (جديدة)، وهو سيناريو `write_file` الطبيعي. (3) grep عبر `execFile` بلا timeout per-call — ملف كبير أو pattern معقد يحجب الـ agent loop. (4) `write_file` لا يتحقق من امتداد الملف — يمكن نظرياً كتابة `.env` أو `.sh`. تحقق: إضافة timeout لـ grep، فلترة امتدادات الملفات الحساسة من `write_file`. |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:18:* **Missing:** a continuously resumable server-owned plan→apply-in-isolation→validate→repair→delivery loop with a single authoritative operation state.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:61:There are still semantic and race gaps. `recoverAiExecutionResumeToken` unconditionally replaces the token hash for paused/failed rows; two concurrent recovery calls invalidate the first returned token. Chat checkpoint writes are best-effort in the stream path, so a rejected checkpoint can leave the UI ahead of durable state. A database `paused` state, a `client_disconnected` checkpoint stage, and dashboard “failed is resumable” semantics are not one unified state vocabulary. Task lifecycle now passes an owned `AbortSignal` through provider fallback and task execution and gates finalization under the execution lock, but every downstream tool/validation path and restart continuation still needs the unified operation contract.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:67:Workflow CRUD and execution transitions are transactional. `/advance`, failure, retry, and rollback use an advisory lock and atomic state guards. AI workflow orchestration chooses a decision but does not itself constitute an autonomous phase worker; actual advancement remains an explicit endpoint/state transition. Therefore workflows are a coordination substrate, not evidence of a complete autonomous agent loop.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:105:| Git commit/push delivery / partial capability | `routes/git.ts` → AI commit/push guards; `git-tools.ts` read-only tools | Guarded user/API delivery exists and checks content/evidence/HEAD. The model cannot independently commit/push, and production success is not source-verifiable. | high | Treat commit/push as terminal operation nodes with durable receipts, explicit policy, and resumable recovery. | partial |
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:265:* Retention at just-before/at/after 30- and 90-day boundaries, active/resumable protection, and incomplete export behavior.
+docs/ai-orchestrator-forensic-analysis.md:32:| Durable execution | Streamed executions persist identity, checkpoints, failure state, and resumable outcomes; reconnects must not turn incomplete work into success. | `artifacts/api-server/src/routes/ai/chat.ts`, `artifacts/dashboard/src/pages/AiChat.tsx` |
+docs/ai-orchestrator-forensic-analysis.md:142:- **LLM Call:** `chat()` agent loop (max 6 iterations). Uses `MODEL_FAST` (fallback `MODEL_POWERFUL` on error). Tools: `read_file`, `list_directory`, `search_code`, `git_*`.
+docs/ai-orchestrator-forensic-analysis.md:330:- **`toolCallCache` (lib/ai-orchestrator/src/agents/chat-agent.ts):** `Map<string, string>`. Keyed by `toolName + JSON.stringify(args)`. Local to a single `chat()` invocation (request-level). Prevents redundant execution of identical tool calls within one agent loop.
+docs/ai-orchestrator-forensic-analysis.md:362:- **Limits:** `maxTokens` (4096) per request. `MAX_TOOL_ITERATIONS` (6) and `MAX_TOOL_CALLS` (10) per agent loop to prevent runaways.
+docs/replit-agent-parity-gaps.md:83:| Audit/export | Operation evidence projects allowlisted events, receipts, revisions, proposals, commit, and push data; audit export is exposed by API ([operation evidence](../artifacts/api-server/src/lib/operation-evidence.ts#L118-L282); [chat audit route](../artifacts/api-server/src/routes/ai/chat.ts#L4481-L4500)). | **Parity for scoped product goal** | It is intentionally an audit artifact, not an IDE transcript or arbitrary workspace export. No download smoke check was run. |
+docs/replit-agent-parity-gaps.md:85:| Arbitrary shell execution | Tool policy accepts server-owned command profiles; the model cannot provide shell text or arbitrary argv ([baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Not a gap; intentional safer difference** | Some Replit-like workflows may be faster with broad shell access, but adding it would violate the product safety boundary and is a non-goal. |
+docs/replit-agent-parity-gaps.md:132:- **Non-goals:** no new benchmark scenario set, no live provider requirement,
+docs/replit-agent-parity-gaps.md:144:- **Non-goals:** no model-supplied commands, no weakening candidate/revision
+docs/replit-agent-parity-gaps.md:155:- **Non-goals:** no optimistic “success” after disconnect and no deletion of
+docs/replit-agent-parity-gaps.md:169:- **Non-goals:** no production deployment, no broad live campaign, and no claim
+docs/replit-agent-parity-gaps.md:181:- **Non-goals:** do not treat a failed refresh as proof that the provider has no
+docs/replit-agent-parity-gaps.md:196:- **Non-goals:** no new repository providers or import UX redesign.
+docs/replit-agent-parity-gaps.md:208:- **Non-goals:** no automatic apply, silent retry, or removal of evidence
+docs/replit-agent-parity-gaps.md:221:- **Non-goals:** no arbitrary shell execution, no removal of approval or
+docs/architecture.md:319:> resumable: reconciliation requeues it within its retry budget; an interrupted
+lib/api-client-react/src/use-ai-chat-stream.ts:179:  resumable: boolean;
+lib/api-client-react/src/use-ai-chat-stream.test.ts:169:  it('treats EOF after execution_started as an interrupted resumable stream', async () => {
+lib/api-client-react/src/use-ai-chat-stream.test.ts:177:        resumable: true,
+lib/api-client-react/src/use-ai-chat-stream.test.ts:193:          resumable: true,
+lib/api-client-react/src/use-ai-chat-stream.test.ts:224:        resumable: true,
+lib/api-client-react/src/generated/api.schemas.ts:566: * Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.
+lib/api-client-react/src/generated/api.schemas.ts:3214:  resumable: boolean;
+lib/api-client-react/src/generated/api.schemas.ts:3281:  resumable: boolean;
+lib/api-client-react/src/generated/api.ts:5588: *      "resumeToken": "..." | undefined, "resumable": true }
+lib/db/src/schema/ai_chats.ts:25:   * Verified resumable task contract for short continuation messages such as
+lib/ai-orchestrator/src/tool-execution-engine.ts:544: * can never clear forced-evidence mode, reset the no-progress streak, or set
+lib/ai-orchestrator/src/tool-execution-engine.ts:1546:      /** Tool-call events emitted before the agent loop (forensic prefetch). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1548:      /** Tool-call events emitted by the agent loop, including cache hits. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1791:  // no-progress streak when it returned USABLE, genuinely NOVEL output.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1814:  // the no-progress streak forever. Classify them as non-usable up front.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2252:  // it neither records a first read nor resets the no-progress streak, and it
+lib/ai-orchestrator/src/tool-execution-engine.ts:3703:          // no-progress streak. A failed/malformed cached read is NOT source
+lib/ai-orchestrator/src/tool-execution-engine.ts:3713:            // a LATER no-progress streak (after this cache-hit clear) re-enters
+lib/ai-orchestrator/src/tool-execution-engine.ts:3717:            // controller resets the no-progress streak to zero and the force
+lib/ai-orchestrator/src/tool-execution-engine.ts:3928:        // blocked no-progress attempt above must not become the baseline for
+lib/ai-orchestrator/src/tool-execution-engine.ts:4097:        // reset the no-progress streak, set first-read telemetry, nor let a
+lib/ai-orchestrator/src/tool-execution-engine.ts:4103:          // so it must not reset the no-progress streak.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4109:          // no-progress pair (reusable force lifecycle).
+lib/ai-orchestrator/src/tool-execution-engine.ts:4253:      // no-progress streak, a planner can keep issuing NOVEL-but-useless
+lib/ai-orchestrator/src/task-session-state.ts:118:  /** The original implementation contract is server-owned and resumable. */
+lib/ai-orchestrator/src/task-session-state.ts:546: * Carry only bounded source-path metadata between resumable turns. Source
+lib/api-zod/src/generated/api.ts:46:}).optional().describe('Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.\n'),
+lib/api-zod/src/generated/api.ts:3413:  "resumable": zod.boolean(),
+lib/api-zod/src/generated/api.ts:3483:  "resumable": zod.boolean(),
+lib/api-zod/src/generated/api.ts:3800: *      "resumeToken": "..." | undefined, "resumable": true }
+lib/ai-orchestrator/src/capability-catalog.ts:42:    goal: z.string().max(400).optional(),
+lib/ai-orchestrator/src/capability-catalog.ts:318:function goalTokens(goal: string | undefined): string[] {
+lib/ai-orchestrator/src/capability-catalog.ts:319:  return [...new Set((goal ?? "").toLocaleLowerCase().match(/[a-z0-9][a-z0-9._:-]*/g) ?? [])].slice(0, 32);
+lib/ai-orchestrator/src/capability-catalog.ts:327:  const tokens = goalTokens(request.goal);
+lib/ai-orchestrator/src/capability-catalog.ts:350:        reason: cleanText(`Matches the requested goal through ${metadata.purpose.toLocaleLowerCase()}`, 180),
+lib/ai-orchestrator/src/capability-catalog.ts:517:    : ["- No ranked suggestion matched the current goal."];
+lib/ai-orchestrator/src/groq-client.ts:296:  // consumer (chat-agent loop, parseAgentResponse, conversation history)
+lib/api-zod/src/generated/types/taskExecutionRetentionHealth.ts:11: * Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.
+lib/api-spec/openapi.yaml:1526:                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence]
+lib/api-spec/openapi.yaml:1571:                  resumable: { type: boolean }
+lib/api-spec/openapi.yaml:1618:                  required: [id, projectId, status, objective, evidenceVerdict, proofRequired, disposition, recommendedAction, resumable, checkpointVersion, createdAt, updatedAt]
+lib/api-spec/openapi.yaml:1631:                    resumable: { type: boolean }
+lib/api-spec/openapi.yaml:1948:             "resumeToken": "..." | undefined, "resumable": true }
+lib/api-spec/openapi.yaml:3884:        receipt retention sweep. Active and resumable executions are retained.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4045:  // goal is tool calls (read affected files → write_file), not a new audit.
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3010:    // no-progress streak) — judged by completed-evidence status, not bare map
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3056:    // planning, so the no-progress streak was correctly reset at that point.
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3148:    // and the FEG-008 consecutive no-progress guard NEVER fires. But cumulative
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3157:    // FEG-008 consecutive no-progress force) and only cumulative planning is
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3316:    // the SAME path, which must NOT reset the no-progress streak. So the guard
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3946:    // mode, a NEW pair of no-progress planning iterations must re-enter
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:25:        name: "goal",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:53:    inputSchema: z.object({ goal: z.string() }).strict(),
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:145:  it("returns ranked, bounded suggestions based on the inferred goal", () => {
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:164:      goal: "inspect behavior",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:209:      goal: "x",
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:217:      goal: "inspect behavior",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:22:  it("round-trips a validated resumable task state", () => {
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:114:  it("stores executable phases, claims, and boundaries as a resumable plan", () => {
+lib/api-zod/src/generated/types/listAiExecutionHistory200Item.ts:25:  resumable: boolean;
+lib/api-zod/src/generated/types/getAiExecution200.ts:48:  resumable: boolean;

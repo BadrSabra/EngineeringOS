@@ -1,0 +1,271 @@
+6: *   - executeToolLoop:   budget exhaustion, cache hits, tool dispatch, exhausted iterations
+9: * executeSingleTool and executeToolLoop never touch the real filesystem.  The
+17:import type { AgentStep } from "../tool-execution-engine.js";
+345:// ── executeToolLoop ───────────────────────────────────────────────────────────
+347:describe("executeToolLoop", () => {
+359:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+361:    const result = await executeToolLoop({
+376:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+377:    const diagnostics: AgentStep[] = [];
+385:    const result = await executeToolLoop({
+415:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+417:    const steps: AgentStep[] = [];
+431:    const pending = executeToolLoop({
+454:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+455:    const diagnostics: AgentStep[] = [];
+460:    const result = await executeToolLoop({
+491:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+497:    const result = await executeToolLoop({
+524:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+547:    const validationSteps: Array<Extract<AgentStep, { kind: "validation" }>> = [];
+548:    const repairStates: Array<Extract<AgentStep, { kind: "repair_state" }>> = [];
+550:    const result = await executeToolLoop({
+590:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+635:    const steps: AgentStep[] = [];
+637:    const result = await executeToolLoop({
+678:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+729:    const steps: AgentStep[] = [];
+731:    await executeToolLoop({
+753:      (step): step is Extract<AgentStep, { kind: "diagnostic" }> =>
+765:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+767:    const steps: AgentStep[] = [];
+769:    await executeToolLoop({
+791:      (step): step is Extract<AgentStep, { kind: "diagnostic" }> =>
+802:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+804:    const steps: AgentStep[] = [];
+806:    await executeToolLoop({
+831:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+837:    const result = await executeToolLoop({
+861:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+874:    const result = await executeToolLoop({
+911:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+924:    const result = await executeToolLoop({
+958:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+968:    const result = await executeToolLoop({
+997:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1006:    const result = await executeToolLoop({
+1059:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1068:    const result = await executeToolLoop({
+1089:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1097:    const result = await executeToolLoop({
+1117:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1125:    const steps: AgentStep[] = [];
+1127:    const result = await executeToolLoop({
+1150:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1159:    const result = await executeToolLoop({
+1191:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1192:    const steps: AgentStep[] = [];
+1201:    const result = await executeToolLoop({
+1239:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1248:    const result = await executeToolLoop({
+1272:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1277:    const steps: AgentStep[] = [];
+1279:    await expect(executeToolLoop({
+1304:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1310:    const result = await executeToolLoop({
+1330:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1340:    const result = await executeToolLoop({
+1366:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1376:    const result = await executeToolLoop({
+1401:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1408:    const result = await executeToolLoop({
+1431:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1440:    const result = await executeToolLoop({
+1457:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1463:    await executeToolLoop({
+1481:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1493:    const result = await executeToolLoop({
+1515:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1533:    const steps: AgentStep[] = [];
+1535:    const result = await executeToolLoop({
+1555:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+1573:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1588:    const steps: AgentStep[] = [];
+1590:    const result = await executeToolLoop({
+1610:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+1616:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1623:    const searches = ["onStep", "onDelta", "relayAgentStep", "toolSources", "fileContents"];
+1630:    const steps: AgentStep[] = [];
+1632:    const result = await executeToolLoop({
+1653:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+1666:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1680:    const steps: AgentStep[] = [];
+1682:    const result = await executeToolLoop({
+1710:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1722:    const steps: AgentStep[] = [];
+1724:    const result = await executeToolLoop({
+1744:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+1754:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1770:    const steps: AgentStep[] = [];
+1772:    const result = await executeToolLoop({
+1792:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+1802:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1819:    const steps: AgentStep[] = [];
+1821:    const result = await executeToolLoop({
+1839:    expect(result.sourceRetrieval?.progressForced).toBe(false);
+1846:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1853:    const result = await executeToolLoop({
+1874:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1882:    const steps: AgentStep[] = [];
+1884:    const result = await executeToolLoop({
+1906:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1919:    const result = await executeToolLoop({
+1941:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1951:    const result = await executeToolLoop({
+1970:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+1981:    const steps: AgentStep[] = [];
+1982:    const result = await executeToolLoop({
+2011:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2026:    const steps: AgentStep[] = [];
+2028:    const result = await executeToolLoop({
+2071:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2132:    const steps: AgentStep[] = [];
+2134:    const result = await executeToolLoop({
+2169:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+2180:    const result = await executeToolLoop({
+2198:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+2209:    const steps: AgentStep[] = [
+2227:    const result = await executeToolLoop({
+2242:    const done = [...steps].reverse().find((step): step is Extract<AgentStep, { kind: "done" }> => step.kind === "done");
+2254:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+2269:    const result = await executeToolLoop({
+2293:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+2308:    const result = await executeToolLoop({
+2332:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+2351:    const result = await executeToolLoop({
+2377:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+2389:    const result = await executeToolLoop({
+2420:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2432:    const result = await executeToolLoop({
+2456:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2470:    const result = await executeToolLoop({
+2491:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2510:    const result = await executeToolLoop({
+2535:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2546:    const result = await executeToolLoop({
+2567:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2578:    const result = await executeToolLoop({
+2610:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2621:    const result = await executeToolLoop({
+2647:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2649:    const steps: AgentStep[] = [];
+2651:    const result = await executeToolLoop({
+2678:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2688:    const result = await executeToolLoop({
+2707:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2715:    const result = await executeToolLoop({
+2734:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2740:    const steps: AgentStep[] = [];
+2742:    const result = await executeToolLoop({
+2765:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2779:    const steps: AgentStep[] = [];
+2781:    const result = await executeToolLoop({
+2817:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2838:    const steps: AgentStep[] = [];
+2840:    const result = await executeToolLoop({
+2855:    expect(result.sourceRetrieval?.incompleteBeforeEvidence).toBe(true);
+2858:    const done = [...steps].reverse().find((step): step is Extract<AgentStep, { kind: "done" }> => step.kind === "done");
+2862:    expect(done?.sourceRetrieval?.incompleteBeforeEvidence).toBe(true);
+2867:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2878:    const result = await executeToolLoop({
+2893:    expect(sr?.incompleteBeforeEvidence).toBe(true);
+2901:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2912:    const steps: AgentStep[] = [];
+2914:    const result = await executeToolLoop({
+2931:    expect(sr?.incompleteBeforeEvidence).toBe(true);
+2939:    const done = [...steps].reverse().find((step): step is Extract<AgentStep, { kind: "done" }> => step.kind === "done");
+2944:    expect(done?.sourceRetrieval?.incompleteBeforeEvidence).toBe(true);
+2949:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+2975:    const result = await executeToolLoop({
+3003:    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+3032:    const result = await executeToolLoop({
+3061:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3074:    const steps: AgentStep[] = [];
+3076:    const result = await executeToolLoop({
+3098:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3113:    const steps: AgentStep[] = [];
+3116:    const result = await executeToolLoop({
+3139:    expect(result.sourceRetrieval?.incompleteBeforeEvidence).toBeFalsy();
+3146:    const { executeToolLoop, splitRunBudget } = await import("../tool-execution-engine.js");
+3168:    const steps: AgentStep[] = [];
+3170:    const result = await executeToolLoop({
+3199:      (s): s is Extract<AgentStep, { kind: "diagnostic" }> =>
+3204:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+3210:    expect(result.sourceRetrieval?.incompleteBeforeEvidence).toBeFalsy();
+3214:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3227:    const steps: AgentStep[] = [];
+3229:    const result = await executeToolLoop({
+3245:    expect(result.sourceRetrieval?.incompleteBeforeEvidence).toBe(true);
+3255:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3260:    // it from the provider's tool definitions — so the model cannot resume
+3269:    const steps: AgentStep[] = [];
+3271:    const result = await executeToolLoop({
+3292:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+3314:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3326:    const steps: AgentStep[] = [];
+3328:    const result = await executeToolLoop({
+3341:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+3348:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3357:    const steps: AgentStep[] = [];
+3359:    const result = await executeToolLoop({
+3379:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3385:    const steps: AgentStep[] = [];
+3387:    const result = await executeToolLoop({
+3412:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3421:    const steps: AgentStep[] = [];
+3423:    const result = await executeToolLoop({
+3449:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3472:    const steps: AgentStep[] = [];
+3474:    const result = await executeToolLoop({
+3504:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3527:    const steps: AgentStep[] = [];
+3529:    const result = await executeToolLoop({
+3553:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3573:    const steps: AgentStep[] = [];
+3575:    const result = await executeToolLoop({
+3598:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3628:    const steps: AgentStep[] = [];
+3630:    const result = await executeToolLoop({
+3654:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3676:    const steps: AgentStep[] = [];
+3678:    const result = await executeToolLoop({
+3707:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3724:    const steps: AgentStep[] = [];
+3726:    const result = await executeToolLoop({
+3758:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3771:    const steps: AgentStep[] = [];
+3773:    const result = await executeToolLoop({
+3801:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3822:    const steps: AgentStep[] = [];
+3824:    const result = await executeToolLoop({
+3851:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+3855:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3875:    const steps: AgentStep[] = [];
+3877:    const result = await executeToolLoop({
+3908:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3919:    const steps: AgentStep[] = [];
+3921:    const result = await executeToolLoop({
+3940:    expect(result.sourceRetrieval?.progressForced).toBe(false);
+3944:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+3965:    const steps: AgentStep[] = [];
+3967:    const result = await executeToolLoop({
+3993:    // Telemetry reflects the guard (progressForced true) after re-entry.
+3994:    expect(result.sourceRetrieval?.progressForced).toBe(true);
+4000:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+4001:    const steps: AgentStep[] = [];
+4015:    const result = await executeToolLoop({
+4055:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+4061:    const result = await executeToolLoop({
+4093:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+4099:    const result = await executeToolLoop({
+4125:describe("executeToolLoop — TIMEOUT degradation (task #67)", () => {
+4140:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+4159:    const steps: AgentStep[] = [];
+4160:    const result = await executeToolLoop({
+4180:    const done = steps.find((s): s is Extract<AgentStep, { kind: "done" }> => s.kind === "done");
+4189:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+4207:    const steps: AgentStep[] = [];
+4208:    const result = await executeToolLoop({
+4225:    const done = steps.find((s): s is Extract<AgentStep, { kind: "done" }> => s.kind === "done");
+4232:    const { executeToolLoop } = await import("../tool-execution-engine.js");
+4243:      executeToolLoop({

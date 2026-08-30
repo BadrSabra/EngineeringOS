@@ -1,0 +1,174 @@
+stdout:
+sendFollowup: Subagent hierarchical-receipts-audit returned with text: "Prioritized implementation plan (no edits ...[TRUNCATED]...tiline/truncated evidence line metadata`.". If you haven't already captured it, the full text is in `(await waitForJob({ jobId: "hierarchical-receipts-audit:1272" })).text`. To continue this subagent with its context intact, call `sendFollowup({ name: "hierarchical-receipts-audit", message: "..." })` — do not re-call `subagent` (that starts a fresh one) and do not pass a jobId to continue it.
+Subagent loop-state-audit returned with text: "Prioritized smallest safe plan (limited to...[TRUNCATED]...(`:414-451`) is the base regression test.". If you haven't already captured it, the full text is in `(await waitForJob({ jobId: "loop-state-audit:1270" })).text`. To continue this subagent with its context intact, call `sendFollowup({ name: "loop-state-audit", message: "..." })` — do not re-call `subagent` (that starts a fresh one) and do not pass a jobId to continue it.
+Subagent planner-contract-audit returned with text: "### Priority 1 — Fail-closed plan validati...[TRUNCATED]...entities/scope/subqueries/compound parts.". If you haven't already captured it, the full text is in `(await waitForJob({ jobId: "planner-contract-audit:1271" })).text`. To continue this subagent with its context intact, call `sendFollowup({ name: "planner-contract-audit", message: "..." })` — do not re-call `subagent` (that starts a fresh one) and do not pass a jobId to continue it.
+--- loop-state-audit ---
+Prioritized smallest safe plan (limited to `executeToolLoop`; no chat-agent persistence redesign):
+
+1. Add a typed objective snapshot and enforce it at the loop boundary.
+   - In `lib/ai-orchestrator/src/tool-execution-engine.ts`, add `AgentLoopObjective` (`goal`, `requiredClaims`, optional `requiredEvidenceEdges`) and `AgentClaimState` (`claimId`, `status: "PENDING" | "PROVEN" | "BLOCKED"`, `evidenceRefs`). Add optional `objective?: AgentLoopObjective` and `claimState?: AgentClaimState[]` to `ToolLoopOpts`.
+   - Add `objectiveState?: { goal; claims; completed; missing }` to every terminal `ToolLoopResult` variant (or factor a shared result base).
+   - Before the current no-tool `kind: "response"` return (`:3013-3033`), mark claims from the structured response/evidence adapter; if required claims remain missing, return `kind: "incomplete", reason: "claim_unclosed"` rather than success. Preserve behavior when `objective` is omitted.
+   - Tests in `lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts`: final text with no objective remains `response`; objective with missing claim returns `incomplete`; objective with all claims closed returns `response`.
+
+2. Make terminal reasons explicit without changing callers’ normal success path.
+   - Extend `ToolLoopResult` with `kind: "incomplete"` and reasons: `"evidence_incomplete" | "claim_unclosed" | "no_progress" | "phase_blocked" | "validation_incomplete"`; extend `AgentStep.done.stopReason` with the same values.
+   - Centralize a small `emitDone/terminalResult` helper around existing duplicated terminal blocks (`:1964-2014`, `:2330-2388`, `:3016-3033`, `:3665-3686`, `:4317-4347`) so `diagnosticCodes`, actual iteration count, and terminal state cannot diverge. Keep existing `response`, `partial`, `exhausted`, `failed`, `cancelled` discriminants for compatibility.
+   - Tests: assert actual iteration count on tool failure; assert zero-read terminal is `incomplete/evidence_incomplete`; assert repeated-tool stop remains `stopped/repeated_tool_call` for backward compatibility.
+
+3. Convert existing no-progress force logic into a bounded, observable stop.
+   - Reuse `noProgressStreak`, `forcedNoProgressStreak`, and `forcedEvidenceActive` (`:2199-2231`); after the forced recovery attempt still produces no progress (`:4211-4218`), return `incomplete/no_progress` instead of falling through to generic synthesis/`empty_response` or `iteration_budget`.
+   - Add `noProgressStreak`, `lastProgressKind`, and `forcedRecoveryAttempted` to a small `AgentProgressSnapshot` included in `AgentStep.done` and terminal results.
+   - Tests extend the existing FEG-008 cases (`:3254-3346`, `:3706-3800`) with a model that keeps issuing rejected/duplicate planning calls and assert the distinct terminal reason and bounded call count.
+
+4. Represent phase state as an optional snapshot, not a new persistence system.
+   - Add `phaseState?: { phase: ExecutionPhase; completed: ExecutionPhase[]; validationEvidence?: ...; repairAttempts: number }` to `ToolLoopOpts`, reusing `ExecutionPhaseState` from `quality/execution-phases.ts:24-29`; return the updated snapshot and include it in `AgentStep.done`/`diagnostic`.
+   - At dispatch, keep current `isToolAllowedInPhase` enforcement (`:3263-3281`); on phase rejection, return `incomplete/phase_blocked` only when the provider cannot produce a valid next action within the bounded loop. Do not invoke `transitionExecutionPhase` automatically—chat-agent remains the owner of phase advancement.
+   - Tests: phase-rejected write remains non-success if no valid follow-up; validation phase without passed evidence cannot yield a completed objective; existing phase rejection test (`:375-412`) remains unchanged for a valid follow-up response.
+
+5. Add resumability as an in-memory continuation contract only.
+   - Add optional `resume?: { checkpointId: string; iteration: number; toolCalls: number; progress: AgentProgressSnapshot; objectiveState?: ...; phaseState?: ... }` and `onCheckpoint?: (checkpoint: AgentLoopCheckpoint) => void` to `ToolLoopOpts`; invoke after each completed iteration and immediately before `cancelled`, `failed`, `incomplete`, or budget returns. Add `checkpoint?: AgentLoopCheckpoint` to non-success `ToolLoopResult`.
+   - Checkpoint only bounded metadata: no message bodies/source bodies; include pending-change fingerprint and evidence paths/counts. This complements, rather than changes, `task-session-state.ts` persistence.
+   - Tests: callback receives monotonically increasing checkpoints; cancellation returns its latest checkpoint; a second invocation seeded with the checkpoint preserves counters and does not reset no-progress/claim state. Existing cancellation coverage (`:414-451`) is the base regression test.
+
+--- planner-contract-audit ---
+### Priority 1 — Fail-closed plan validation
+
+In `lib/ai-orchestrator/src/agents/query-planner.ts`:
+
+1. Add types near `QueryPlan`:
+   ```ts
+   type PlanValidationIssue = {
+     field: string;
+     reason: string;
+   };
+
+   type PlanParseResult =
+     | { kind: "valid"; plan: QueryPlan }
+     | { kind: "invalid"; issues: PlanValidationIssue[] };
+   ```
+
+2. Add constants:
+   ```ts
+   const MAX_TARGET_ENTITIES = 10;
+   const MAX_COMPOUND_PARTS = 8;
+   const SCOPE_ITERATION_RANGES = {
+     narrow: [5, 16],
+     medium: [18, 35],
+     broad: [40, 60],
+   } as const;
+   ```
+
+3. Replace permissive `parsePlannerResponse()` (`164-221`) with:
+   - `extractPlannerJson(raw: string): unknown`
+   - `validatePlannerPayload(value: unknown): PlanParseResult`
+   - `normalizeStringList(value, max, field)` for bounded, nonblank, deduplicated strings
+   - `validateCompoundParts(value)` for strict part shape, unique nonblank IDs/questions, finite positive integer `requiredCount`, and boolean `requiresCitation`.
+
+Compatibility rules:
+- Continue accepting omitted legacy fields: `originalIntent`, `compoundParts`, and `subQueries` default to existing safe values.
+- Reject wrong types, invalid scope, non-finite iterations, invalid compound entries, and invalid broad-subquery cardinality.
+- Preserve `originalIntent: message` when omitted or empty.
+- Do not silently convert invalid scope/types into `"medium"` or booleans.
+
+4. Add `fallbackPlan(originalIntent: string): QueryPlan` so fallback preserves the user message instead of using `FALLBACK_PLAN.originalIntent === ""`.
+
+5. Enforce scope/iteration compatibility in `validatePlannerPayload()`:
+   - narrow: 5–16
+   - medium: 18–35
+   - broad: 40–60
+   - broad requires 2–5 subqueries
+   - narrow/medium normalize omitted subqueries to `[]`, but reject nonempty incompatible subqueries if strict validation is desired.
+
+### Priority 2 — Explicit telemetry
+
+Add `emitPlanTelemetry()` near the main export and emit:
+
+- `PLAN_VALID`: validated plan plus scope and counts.
+- `PLAN_INVALID`: schema/semantic issues; then return `fallbackPlan(message)`.
+- `PLAN_FALLBACK`: reason `timeout`, `model_error`, `json_parse`, or `schema`.
+
+Keep `GRAPH_ENRICH_TIMEOUT` and `GRAPH_ENRICH_DONE` unchanged. Revalidate final `targetFiles` after enrichment and retain the 15-file cap.
+
+### Priority 3 — Tests in `query-planner.test.ts`
+
+Add focused `planQuery` tests:
+
+1. **Valid shape**
+   - all fields preserved
+   - `originalIntent` preserved
+   - exact scope-specific iteration range
+   - deduped bounded files/entities/subqueries.
+
+2. **Fail-closed field validation**
+   - invalid `scopeEstimate`
+   - string/object `suggestedIterations`
+   - `NaN`/`Infinity`
+   - nonboolean `requiresToolUse`
+   - non-array target fields
+   - blank/duplicate entries
+   - malformed compound parts
+   - invalid `requiredCount`/`requiresCitation`.
+
+3. **Scope/cardinality**
+   - broad with 1 or 6 subqueries falls back
+   - broad with 2–5 succeeds
+   - narrow/medium behavior is deterministic.
+
+4. **Compatibility**
+   - legacy response omitting `originalIntent` and `compoundParts` remains valid
+   - fallback retains the input message.
+
+5. **Fallback paths**
+   - malformed JSON
+   - model rejection
+   - planner timeout
+   - assert safe plan shape and fallback reason telemetry.
+
+6. **Telemetry**
+   - spy on `console.info/warn`
+   - assert `PLAN_VALID` only for validated plans
+   - assert invalid semantic payloads emit `PLAN_INVALID` and `PLAN_FALLBACK`, never `PLAN_READY`.
+
+7. **Existing enrichment coverage**
+   - retain current tests
+   - add assertion that enrichment cannot exceed 15 files and cannot alter validated entities/scope/subqueries/compound parts.
+
+--- hierarchical-receipts-audit ---
+Prioritized implementation plan (no edits made):
+
+1. Add typed per-subtask receipts and aggregate state in `hierarchical-executor.ts`.
+   - Export `HierarchicalSubtaskStatus = "complete" | "partial" | "failed" | "cancelled"`.
+   - Export `HierarchicalSubtaskReceipt` with `{ taskIndex, intent, status, reason?, tool?, failureKind?, diagnosticCode?, text?, toolSources, sourceEvidence }`; keep `text` optional/absent for failed/cancelled outcomes.
+   - Extend `HierarchicalResult` with `receipts: HierarchicalSubtaskReceipt[]` and aggregate `status: "complete" | "partial" | "failed" | "cancelled"` (optionally `synthesisStatus`).
+   - Replace internal `SubResult` with a receipt-bearing type; add `mapToolLoopResultToReceipt(task, taskIndex, loopResult)` to map response→complete, partial/exhausted/stopped→partial or failed per contract, failed→failed, cancelled→cancelled. Preserve `fileContents`/sources for every result.
+
+2. Make thrown errors typed rather than textual.
+   - Change `runSubTask` to return a receipt and catch into `{status:"failed", reason:"subtask_exception", ...}`.
+   - If an exception carries loop metadata, retain its sources/evidence; never synthesize `[...encountered an error]` as analysis text.
+   - Add `aggregateHierarchicalStatus(receipts)` with precedence cancelled > failed > partial > complete (or document the selected precedence).
+
+3. Enforce cancellation at scheduler boundaries.
+   - Add `isCancellationRequested(signal)` and check before each wave and before each task starts; if aborted, create cancelled receipts for all unstarted tasks without invoking `executeToolLoop`.
+   - After each wave, stop scheduling when aborted. Skip synthesis when cancelled; return preserved receipts/evidence and a deterministic cancellation response/status.
+   - Pass the signal unchanged to subtask and synthesis calls; test cancellation during an active wave and before execution.
+
+4. Separate trusted evidence from untrusted outcome text in synthesis.
+   - Change `buildSynthesisUserTurn` to accept receipts and emit structured, explicit sections: `STATUS`, `OUTCOME`, `VERIFIED EVIDENCE`; state that failed/cancelled/error/reason text is diagnostic context only and cannot support facts.
+   - Include only complete/partial result text as candidate findings; redact or clearly delimit failure diagnostics.
+   - Add `validateSynthesisSafety(response, receipts, sourceEvidence)` (or extend `validateCompoundSynthesis`) to reject claims attributed to failed/cancelled receipts, require citations to verified evidence, and fail closed when no evidence exists.
+   - On synthesis failure or safety rejection, return a deterministic evidence/status report—not raw concatenation of error placeholders.
+
+5. Preserve and test evidence fidelity.
+   - Keep `fileContents` from failed/cancelled results in their receipts and aggregate `sourceEvidence`; bind each evidence item to `taskIndex`/receipt.
+   - Replace fabricated line ranges in `runSubTask` with ranges derived from original content, and define behavior for truncated excerpts (e.g., mark `truncated: true`).
+
+Tests to add in `hierarchical-executor.test.ts`:
+- `returns typed receipts for response/partial/failed/cancelled`, asserting statuses, reasons/diagnostic fields, task order, and aggregate status.
+- `retains sources/evidence on failed and cancelled loop results`.
+- `does not start queued tasks when signal is pre-aborted` and `stops scheduling after cancellation during a wave`; assert no synthesis call and cancelled receipts for unstarted tasks.
+- `does not treat failure/cancellation diagnostics as synthesis facts`; inject error text plus an unsupported model FACT and assert safety validation rejects it.
+- `does not concatenate raw error placeholders when synthesis throws`; assert deterministic status/evidence fallback.
+- `rejects citations tied to failed/cancelled receipts but accepts verified evidence from partial receipts`.
+- `maps stopped/exhausted distinctly and never labels them complete`.
+- `preserves accurate multiline/truncated evidence line metadata`.
