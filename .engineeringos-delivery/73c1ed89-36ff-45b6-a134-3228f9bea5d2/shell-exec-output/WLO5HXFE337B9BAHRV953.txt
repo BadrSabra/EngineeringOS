@@ -1,0 +1,78 @@
+- [Clerk setup](clerk-setup.md) — Clerk provisioned via setupClerkWhitelabelAuth; proxy middleware already in api-server; all env vars auto-set.
+- [Project root boundary](project-root-boundary.md) — all project roots must go through establishProjectRoot; eos-git prefix trusted only for discovery import; Git-import 409 is intentional interim.
+- [Discovery materialization](discovery-materialization.md) — Git/archive sources use managed durable roots; upload lookup and cleanup stay owner-scoped; stale-session GC retires rows before deleting roots.
+- [Scan root fail-closed](scan-root-fail-closed.md) — scans re-establish the persisted root and fail root_unavailable; never rebind dead roots to the workspace; temp git prefix is never provenance at scan time.
+- [Broad forensic bootstrap](broad-forensic-bootstrap.md) — gap/root-cause audits without explicit paths bootstrap "." under the project root; explicit-file audits keep their narrower scope.
+- [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.
+- [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
+- [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
+- [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
+- [AI fixture determinism](ai-fixture-determinism.md) — injected AI validation and provider-turn fixtures must fail closed when queues are exhausted; real execution requires explicit opt-in.
+- [Arabic fixture guards](arabic-fixture-guards.md) — Arabic response fixtures must be checked at construction time so English-only regressions name the fixture before scenario assertions.
+- [Forensic fixture language](forensic-fixture-language.md) — deterministic forensic prompts and natural-language reports must use the same language.
+- [Preview port cleanup](preview-port-cleanup.md) — this environment provides lsof, not fuser; port cleanup must wait for listeners to disappear before startup.
+- [Validation workflow accumulation](validation-workflow-accumulation.md) — stale generated validation workflows can exhaust process slots and collide on artifact ports; stop them before recovery work.
+- [Forensic empty verdicts](forensic-empty-verdicts.md) — complete reads with no accepted Finding use NO_VERIFIED_FINDING; missing or partial reads use ANALYSIS_INCOMPLETE.
+- [Forensic Recovery deadline](forensic-recovery-deadline.md) — Recovery needs per-attempt and run-level bounds; provider fallback must not multiply audit latency.
+- [Forensic Recovery formatting](forensic-recovery-formatting.md) — tolerate harmless heading styles only; contract, coverage, Finding, and repair gates remain strict.
+- [Forensic cancellation](forensic-cancellation.md) — cancellation preserves collected evidence but always renders ANALYSIS_INCOMPLETE, never NO_VERIFIED_FINDING.
+- [Audit scope consent](audit-scope-consent.md) — vague broad reviews must get an explicit boundary before tool discovery; architecture questions remain ordinary project queries.
+- [Shared package type lag](shared-package-type-lag.md) — workspace consumers can briefly retain older shared declarations; isolate additive compatibility casts at the boundary.
+- [Composite declaration freshness](composite-declaration-freshness.md) — stale TypeScript build metadata can skip missing ignored declarations; force referenced builds before API typechecks.
+- [Optional process recovery tests](optional-process-recovery-tests.md) — resolve API build entrypoints relative to the package working directory when spawning real child servers.
+- [Behavior evidence recovery](behavior-evidence-recovery.md) — normal behavior answers get one bounded citation-correction pass; missing proof remains ANALYSIS_INCOMPLETE.
+- [Directed citation recovery](directed-citation-recovery.md) — show source-owned executable windows and preserve literal multiline code before the strict evidence gate.
+- [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
+- [Controlled release validation](controlled-release-validation.md) — live recovery checks are opt-in; keep provider-free configuration tests isolated from deployment credentials.
+- [Live campaign isolation](live-campaign-isolation.md) — provider campaigns require explicit opt-in, disposable output/workspaces, bounded duration, and review-only artifacts.
+- [Release browser runtime](release-browser-runtime.md) — Playwright release jobs need Chromium plus native Nix libraries before Clerk setup can run.
+- [Dashboard evidence assertions](dashboard-evidence-assertions.md) — E2E assertions for completed AI runs must open collapsed activity/proof panels and disambiguate repeated evidence text.
+- [Concurrent test barriers](concurrent-test-barriers.md) — concurrent request fixtures should dispatch by request identity and use bounded readiness barriers, not queued mock order or unbounded polling.
+- [Session state concurrency](session-state-concurrency.md) — qualify resumable state writes by turn timestamp; a conditional value expression can still lose after row-lock waits.
+- [Release test isolation](release-test-isolation.md) — release API tests must pin the owning artifact and serialize shared-database fixtures.
+- [Live recovery provider isolation](live-recovery-provider-isolation.md) — real child-process release checks must not inherit mock-only provider credentials from the surrounding fixture suite.
+- [Capability probe evidence boundary](capability-probe-evidence.md) — C1–C7 completion requires both named source bodies retained without truncation.
+- [Codegen working directory](codegen-working-directory.md) — delegated Zod post-processing paths are resolved from the scripts package, while drift checks use an explicit output root.
+- [Durable session-state ordering](session-state-ordering.md) — streamed resumable state must reject late older completions using the state-owned progress timestamp.
+- [Resumable chat idempotency](resumable-chat-idempotency.md) — resume attempts preserve one user turn while assistant outcomes remain independently auditable.
+- [Live mission correlation](live-correlation-release.md) — live-provider acceptance is opt-in, disposable, redacted, and validates all mission surfaces by operation and revision.
+- [Release wrapper teardown](release-wrapper-teardown.md) — release wrappers can pass assertions yet end with SIGTERM/SIGHUP during child-server cleanup; separate test assertions from lifecycle status.
+- [Analysis correlation](analysis-correlation.md) — scanner, graph, and discovery evidence must match the active operation and revision, with cancellation checked before writes.
+- [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
+- [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
+- [Analysis failure replay](analysis-failure-replay.md) — required analysis failures stay terminal and visibly incomplete across reconnects and dashboard reloads.
+- [GitHub PR file filtering](github-pr-file-filter.md) — pull_request.changed_files is a count; use an API-backed changed-path filter for conditional jobs.
+- [Workflow transition serialization](workflow-transition-lock.md) — phase advancement must lock the full read/check/claim sequence to prevent sequential double-advances.
+- [Workflow phase ledger](workflow-phase-ledger.md) — each workflow execution/phase pair uses one idempotent shared operation with server-owned evidence and recovery.
+- [Graph project boundaries](graph-project-boundaries.md) — traversal must validate both endpoint entities; legacy null edge ownership is safe only with project-scoped endpoints.
+- [Browser paging assertions](browser-paging-assertions.md) — page transitions can be served from query cache; assert visible state, not a repeated request.
+- [Browser stream abort fixtures](browser-stream-abort-fixtures.md) — route EOF is clean completion; reject a browser ReadableStream after the durable identity frame to test network recovery.
+- [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
+- [OpenAPI/Zod compatibility](openapi-zod-compatibility.md) — uuid formats can generate unsupported zod.uuid() in the workspace's Zod 3 runtime; verify generated typechecks.
+- [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
+- [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks into a safe blocking decision; live providers and Preview stay opt-in.
+- [AI cancellation checkpoint handling](ai-cancellation-checkpoint.md) — expected lease rejection after user cancellation must preserve the incomplete report, not become a stream 500.
+- [Task execution lifecycle](task-execution-lifecycle.md) — standalone task AI runs use durable ownership, idempotency, leases, checkpoints, and bounded receipts.
+- [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
+- [Execution audit exports](execution-audit-export.md) — portable audits use owner-scoped durable state with allowlisted fields and explicit redaction.
+- [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
+- [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.
+- [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
+- [Release CORS harness](release-cors-harness.md) — provider-free listener checks use Node's tsx loader without the inherited input-type flag and probe the API directly.
+- [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
+- [Browser validation block reasons](browser-validation-block-reasons.md) — preserve only allowlisted preflight reasons and translate them into safe operator actions.
+- [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
+- [Terminal ownership fences](terminal-ownership-fences.md) — durable terminal writes and follow-on mutations must verify the current worker owns the live row.
+- [Objective execution binding](objective-execution-binding.md) — terminal autonomous success needs bound acceptance checks, revision, scope, passed nodes, retained evidence, and a PROVEN verdict.
+- [OpenAPI recovery schemas](openapi-recovery-schemas.md) — inline operation request bodies can collide in generated Zod exports; use a named component schema for new contracts.
+- [Durable job boundary](durable-job-boundary.md) — Postgres rows plus leases are the durable queue; local dispatch is a recovery handle, not a source of truth.
+- [Dashboard process campaign](dashboard-process-campaign.md) — release browser campaigns coordinate real API restarts through a bounded localhost control surface.
+- [Dashboard freshness watermarks](dashboard-freshness-watermarks.md) — aggregated snapshots need server-owned monotonic revisions so delayed reconnect responses cannot roll visible state back.
+- [OpenRouter catalog state](openrouter-catalog-state.md) — only a successful usable live snapshot is authoritative; failed or expired refreshes retain static compatibility candidates.
+- [Benchmark behavior gates](benchmark-behavior-gates.md) — release validation must execute every fixture oracle against an isolated passing candidate, not only check registration.
+- [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
+- [Browser readiness fixture boundary](browser-readiness-fixture-boundary.md) — fixture mode validates a non-empty authenticated project response; live mode validates its explicit disposable project ID.
+- [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.
+- [Recipe contract schemas](recipe-contract-schemas.md) — required recipe values need explicit guards, and compiled predicates need wider namespaced-ID validation than source recipes.
+- [Groq model lifecycle](groq-model-lifecycle.md) — validate hardcoded Groq defaults against the live model catalog; valid keys can still fail when Groq retires a slug.
+--- status ---

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
@@ -206,6 +206,23 @@ async function expectNoHorizontalOverflow(page: Page) {
   }));
   expect(overflow.document).toBeLessThanOrEqual(overflow.viewport + 1);
   expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
+}
+
+async function expectWithinViewport(
+  locator: Locator,
+  viewport: { width: number; height: number },
+  label: string,
+) {
+  const box = await locator.boundingBox();
+  expect(box, `${label} should have a layout box`).not.toBeNull();
+  expect(box!.x, `${label} left edge`).toBeGreaterThanOrEqual(-1);
+  expect(box!.y, `${label} top edge`).toBeGreaterThanOrEqual(-1);
+  expect(box!.x + box!.width, `${label} right edge`).toBeLessThanOrEqual(
+    viewport.width + 1,
+  );
+  expect(box!.y + box!.height, `${label} bottom edge`).toBeLessThanOrEqual(
+    viewport.height + 1,
+  );
 }
 
 async function expectDashboardReady(page: Page) {
@@ -4385,6 +4402,63 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByRole("button", { name: "Open sessions" }),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
+  });
+
+  test("keeps all provider cards and controls reachable at narrow phone widths", async ({
+    page,
+  }) => {
+    const fixture = await installArabicAiFixture(page);
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+
+    for (const width of [320, 390]) {
+      const viewport = { width, height: 844 };
+      await page.setViewportSize(viewport);
+      await page.goto(`${DASHBOARD_PATH}ai`);
+
+      const composer = page.locator("textarea").first();
+      await expect(composer).toBeVisible();
+      await expectWithinViewport(composer, viewport, `composer at ${width}px`);
+
+      await page.getByRole("button", { name: "Open sessions" }).click();
+      const drawer = page.getByTestId("sessions-drawer");
+      await expect(drawer).toBeVisible();
+      await expectWithinViewport(drawer, viewport, `sessions drawer at ${width}px`);
+      await expectNoHorizontalOverflow(page);
+
+      const providerCards = drawer.locator(".provider-key-card");
+      await expect(providerCards).toHaveCount(4);
+      for (const provider of ["OpenRouter", "Gemini", "DeepSeek", "Groq"]) {
+        const card = providerCards.filter({
+          hasText: `${provider} API Key`,
+        });
+        await expect(card).toHaveCount(1);
+        await card.scrollIntoViewIfNeeded();
+        await expect(card).toBeVisible();
+
+        const input = card.locator('input[type="password"]');
+        const save = card.getByRole("button", { name: "Save", exact: true });
+        await expect(input).toBeVisible();
+        await expect(save).toBeVisible();
+        await input.scrollIntoViewIfNeeded();
+        await save.scrollIntoViewIfNeeded();
+        await expectWithinViewport(
+          input,
+          viewport,
+          `${provider} key input at ${width}px`,
+        );
+        await expectWithinViewport(
+          save,
+          viewport,
+          `${provider} Save control at ${width}px`,
+        );
+      }
+
+      await expectWithinViewport(composer, viewport, `composer with drawer at ${width}px`);
+      await expectNoHorizontalOverflow(page);
+      await page.getByRole("button", { name: "Close sidebar" }).click();
+      await expect(drawer).toBeHidden();
+    }
   });
 
   test("renders a user-visible API failure state", async ({ page }) => {

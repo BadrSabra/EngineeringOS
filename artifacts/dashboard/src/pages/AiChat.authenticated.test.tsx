@@ -840,6 +840,12 @@ describe('AiChat authenticated generated mutations', () => {
     expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
     expect(drawer.querySelector('.provider-key-cards')).toHaveClass('max-h-[45%]', 'overflow-y-auto', 'overscroll-contain');
     expect(drawer.querySelectorAll('.provider-key-card')).toHaveLength(4);
+    for (const provider of ['OpenRouter', 'Gemini', 'DeepSeek', 'Groq']) {
+      const card = within(drawer).getByText(`${provider} API Key`, { exact: true }).closest('.provider-key-card');
+      expect(card).not.toBeNull();
+      expect(card?.querySelector('input[type="password"]')).toBeInTheDocument();
+      expect(within(card as HTMLElement).getByRole('button', { name: 'Save', exact: true })).toBeInTheDocument();
+    }
     expect(document.querySelectorAll('input[type="password"]')).toHaveLength(4);
     expect(document.body.style.overflow).toBe('hidden');
 

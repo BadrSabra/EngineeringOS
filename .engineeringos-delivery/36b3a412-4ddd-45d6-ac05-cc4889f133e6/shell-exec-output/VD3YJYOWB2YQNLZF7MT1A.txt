@@ -1,0 +1,220 @@
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:205:    useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:381:  it('renders provider-unavailable benchmark evidence without counting it as Grade F', () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:385:          provider: 'openrouter',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:390:            providerUnavailableCount: 1,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:393:          rolloutBlockers: ['provider unavailable for 1 observed case'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:404:    expect(missionControl).toHaveTextContent('provider unavailable for 1 observed case');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:409:      'provider outage: model secret-model-name failed at /home/runner/workspace/artifacts/api-server/src/chat.ts',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:410:      'apiKey=sk-live-provider-secret',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:431:      expect(visibleText).not.toMatch(/secret-model-name|\/home\/runner|sk-live-provider-secret/i);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:676:    expect(screen.getByText(/The AI provider could not complete this request/i)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:686:    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:687:    fireEvent.change(composer, { target: { value: 'Audit src/app.ts' } });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:688:    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:769:    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:770:    fireEvent.change(composer, { target: { value: 'Inspect src/app.ts' } });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:771:    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:802:  it('sends a provider key through the generated mutation and reports success/error', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:817:    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:820:    mocks.mutationOptions.saveDeepSeek?.onError?.(new Error('provider rejected key'));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:823:      description: 'provider rejected key',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:828:  it('keeps the authenticated mobile chat focused on conversation and protects provider inputs', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:838:    const drawer = screen.getByTestId('sessions-drawer');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:839:    expect(await within(drawer).findByRole('button', { name: 'Existing session' })).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:840:    expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:841:    expect(drawer.querySelector('.provider-key-cards')).toHaveClass('max-h-[45%]', 'overflow-y-auto', 'overscroll-contain');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:842:    expect(drawer.querySelectorAll('.provider-key-card')).toHaveLength(4);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:847:    expect(drawer).toHaveClass('hidden');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:851:    fireEvent.click(within(drawer).getByRole('button', { name: 'Existing session' }));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:852:    expect(drawer).toHaveClass('hidden');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1780:          'AbortError: recovery provider request was cancelled',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1781:          'provider recovery-provider diagnostic: cancellation requested by user',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1796:          'AbortError: recovery provider request was cancelled',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1797:          'provider recovery-provider diagnostic: cancellation requested by user',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1819:    expect(screen.queryByText(/provider recovery-provider diagnostic/)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1937:      summary: 'A safe implementation plan could not be structured by the provider.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2121:        provider: 'test-provider',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2227:        provider: 'history-provider',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2309:        provider: 'history-provider',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2963:      }).onError?.(new Error('provider failed'));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3021:        provider: 'test-provider',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3100:        message: 'The AI provider configuration needs attention before this can run.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3286:          'provider recovery exhausted without an accepted six-section report',
+artifacts/dashboard/e2e/dashboard.journey.ts:10:const DASHBOARD_PATH = "/dashboard/";
+artifacts/dashboard/e2e/dashboard.journey.ts:22:const TEST_MODES = new Set(["fixture", "live-provider"]);
+artifacts/dashboard/e2e/dashboard.journey.ts:35:  "provider-outage",
+artifacts/dashboard/e2e/dashboard.journey.ts:44:      "Live campaign requires DASHBOARD_E2E_LIVE_SCENARIO=provider-outage, malformed-output, or delivery-success.",
+artifacts/dashboard/e2e/dashboard.journey.ts:55:  if (scenario === "provider-outage") {
+artifacts/dashboard/e2e/dashboard.journey.ts:56:    return "Run a bounded forensic audit and report the OpenRouter rate-limit/provider-exhaustion outage as a failed or incomplete operation. Do not use prior analysis as a current answer; include the current operation and revision.";
+artifacts/dashboard/e2e/dashboard.journey.ts:59:    return "Run a bounded forensic audit and treat malformed provider output as failed or incomplete. Do not claim success, apply, commit, or push without candidate-bound evidence.";
+artifacts/dashboard/e2e/dashboard.journey.ts:102:          dashboardTestMode() === "live-provider"
+artifacts/dashboard/e2e/dashboard.journey.ts:205:    viewport: window.innerWidth,
+artifacts/dashboard/e2e/dashboard.journey.ts:207:  expect(overflow.document).toBeLessThanOrEqual(overflow.viewport + 1);
+artifacts/dashboard/e2e/dashboard.journey.ts:208:  expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
+artifacts/dashboard/e2e/dashboard.journey.ts:333:        // The normal provider-free fallback below handles malformed requests.
+artifacts/dashboard/e2e/dashboard.journey.ts:351:        // The normal provider-free fallback below handles malformed requests.
+artifacts/dashboard/e2e/dashboard.journey.ts:378:      // The default provider-unavailable response handles malformed requests.
+artifacts/dashboard/e2e/dashboard.journey.ts:781:    if (hasConfiguredAiFixture && path === "/api/ai/active-provider") {
+artifacts/dashboard/e2e/dashboard.journey.ts:783:        jsonResponse({ provider: "openrouter", configured: true }),
+artifacts/dashboard/e2e/dashboard.journey.ts:874:    // verifies the user-visible unavailable/empty state without a provider.
+artifacts/dashboard/e2e/dashboard.journey.ts:877:        jsonResponse({ error: "AI provider not configured" }, 428),
+artifacts/dashboard/e2e/dashboard.journey.ts:899:    "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+artifacts/dashboard/e2e/dashboard.journey.ts:907:            excerpt: "provider timeout is handled here",
+artifacts/dashboard/e2e/dashboard.journey.ts:914:            excerpt: 'return partialFromCollectedEvidence("provider timeout");',
+artifacts/dashboard/e2e/dashboard.journey.ts:1139:    "The model started an answer, but the provider disconnected before completion.";
+artifacts/dashboard/e2e/dashboard.journey.ts:1144:      stopReason: "provider_timeout",
+artifacts/dashboard/e2e/dashboard.journey.ts:1153:        "The provider disconnected after visible response text.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1165:    errorMessage: "The provider disconnected before completion.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1181:    // The real route emits this after a provider disconnect so the client
+artifacts/dashboard/e2e/dashboard.journey.ts:1196:    source: "provider",
+artifacts/dashboard/e2e/dashboard.journey.ts:1409:  return `${new URL(DASHBOARD_PATH, page.url()).toString()}sign-in?__clerk_ticket=${encodeURIComponent(token)}`;
+artifacts/dashboard/e2e/dashboard.journey.ts:1412:async function programmaticSignIn(page: Page) {
+artifacts/dashboard/e2e/dashboard.journey.ts:1413:  await page.goto(DASHBOARD_PATH);
+artifacts/dashboard/e2e/dashboard.journey.ts:1429:      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:1437:    basePath: DASHBOARD_PATH,
+artifacts/dashboard/e2e/dashboard.journey.ts:1441:    new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:1454:  if (mode === "live-provider") {
+artifacts/dashboard/e2e/dashboard.journey.ts:1458:        provider: { status: "blocked", reason: "live_provider_not_enabled" },
+artifacts/dashboard/e2e/dashboard.journey.ts:1461:        "BLOCKED: live-provider mode requires DASHBOARD_E2E_LIVE_PROVIDER=1.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1467:        provider: { status: "ready" },
+artifacts/dashboard/e2e/dashboard.journey.ts:1474:        "BLOCKED: live-provider mode requires an explicitly disposable project.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1483:    provider: {
+artifacts/dashboard/e2e/dashboard.journey.ts:1484:      status: mode === "live-provider" ? "ready" : "ready",
+artifacts/dashboard/e2e/dashboard.journey.ts:1485:      ...(mode === "fixture" ? { reason: "provider_free_fixture" } : {}),
+artifacts/dashboard/e2e/dashboard.journey.ts:1488:      status: mode === "live-provider" ? "ready" : "ready",
+artifacts/dashboard/e2e/dashboard.journey.ts:1530:          mode === "live-provider"
+artifacts/dashboard/e2e/dashboard.journey.ts:1879:  test("exports one redacted live-provider mission correlation report", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:1882:    // The Playwright deadline must leave room for the provider-bound request
+artifacts/dashboard/e2e/dashboard.journey.ts:1887:      "Live-provider release journey is opt-in.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1891:        "Live-provider journey requires DASHBOARD_E2E_LIVE_DISPOSABLE=1 and a disposable project.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1898:        "DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1901:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:1913:        `Live-provider mission failed to start (${streamResponse.status}).`,
+artifacts/dashboard/e2e/dashboard.journey.ts:1925:      throw new Error("Live-provider stream did not emit execution_started.");
+artifacts/dashboard/e2e/dashboard.journey.ts:1938:        "Live-provider stream did not emit a terminal done event for its execution.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1956:        "Live-provider mission did not reach a terminal state within its bound.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2000:      throw new Error("Live-provider mission is missing its project revision.");
+artifacts/dashboard/e2e/dashboard.journey.ts:2050:        `Live-provider mission reported ${terminalState} without accepted evidence and validation ` +
+artifacts/dashboard/e2e/dashboard.journey.ts:2166:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:2184:    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2190:    await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2198:    await openNavigation(page, "AI Assistant", `${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2203:          /AI provider not configured|No AI key configured|AI Assistant/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:2211:      `${DASHBOARD_PATH}mission-control`,
+artifacts/dashboard/e2e/dashboard.journey.ts:2217:    await page.goto(`${DASHBOARD_PATH}flight-deck?executionId=${EXECUTION_ID}`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2220:        `${DASHBOARD_PATH.replaceAll("/", "\\/")}flight-deck\\?executionId=`,
+artifacts/dashboard/e2e/dashboard.journey.ts:2237:    const rawDiagnostic = "provider diagnostic: upstream returned raw response";
+artifacts/dashboard/e2e/dashboard.journey.ts:2242:      provider_outage: "support-workflow-outage-32",
+artifacts/dashboard/e2e/dashboard.journey.ts:2249:        description: "The provider authentication test task failed.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2252:        relatedFiles: ["src/provider.ts"],
+artifacts/dashboard/e2e/dashboard.journey.ts:2260:          operatorAction: "Replace the provider API key with a valid key, then retry.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2261:          provider: "openrouter",
+artifacts/dashboard/e2e/dashboard.journey.ts:2273:        description: "The provider quota test task failed.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2283:          provider: "openrouter",
+artifacts/dashboard/e2e/dashboard.journey.ts:2299:          name: "Recover provider outage",
+artifacts/dashboard/e2e/dashboard.journey.ts:2323:              availabilityState: "provider_outage",
+artifacts/dashboard/e2e/dashboard.journey.ts:2324:              correlationId: supportReferences.provider_outage,
+artifacts/dashboard/e2e/dashboard.journey.ts:2326:                "Retry in a moment; configure another provider if the issue persists.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2333:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:2335:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2345:      "Replace the provider API key with a valid key, then retry.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2369:      "Replace the provider API key with a valid key, then retry.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2386:    await openNavigation(page, "Workflows", `${DASHBOARD_PATH}workflows`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2387:    await expect(page.getByText("Recover provider outage")).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts:2394:      "The provider is temporarily unavailable",
+artifacts/dashboard/e2e/dashboard.journey.ts:2397:      "Retry in a moment; configure another provider if the issue persists.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2400:      `Support reference: ${supportReferences.provider_outage}`,
+artifacts/dashboard/e2e/dashboard.journey.ts:2403:    await expect(page.getByText("Recover provider outage")).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts:2410:      "The provider is temporarily unavailable",
+artifacts/dashboard/e2e/dashboard.journey.ts:2413:      "Retry in a moment; configure another provider if the issue persists.",
+artifacts/dashboard/e2e/dashboard.journey.ts:2416:      `Support reference: ${supportReferences.provider_outage}`,
+artifacts/dashboard/e2e/dashboard.journey.ts:2432:    const rawDiagnostic = "raw-provider-diagnostic-should-never-render";
+artifacts/dashboard/e2e/dashboard.journey.ts:2579:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:2580:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2762:      await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
+artifacts/dashboard/e2e/dashboard.journey.ts:2764:        page.goto(DASHBOARD_PATH),
+artifacts/dashboard/e2e/dashboard.journey.ts:2765:        secondPage.goto(`${DASHBOARD_PATH}ai`),
+artifacts/dashboard/e2e/dashboard.journey.ts:2812:      await secondPage.goto(DASHBOARD_PATH);
+artifacts/dashboard/e2e/dashboard.journey.ts:2874:          "provider secrets",
+artifacts/dashboard/e2e/dashboard.journey.ts:2888:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:2905:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2921:    await expect(preview).toContainText("provider secrets");
+artifacts/dashboard/e2e/dashboard.journey.ts:2989:          "provider secrets",
+artifacts/dashboard/e2e/dashboard.journey.ts:3005:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3022:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3055:    await expect(preview).toContainText("provider secrets");
+artifacts/dashboard/e2e/dashboard.journey.ts:3102:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3132:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3170:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3172:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3225:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3227:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3290:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3291:    await page.goto(`${DASHBOARD_PATH}events`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3363:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3364:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3366:    const composer = page.locator("textarea").first();
+artifacts/dashboard/e2e/dashboard.journey.ts:3367:    await expect(composer).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts:3368:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3369:    const sendButton = composer.locator("xpath=..").getByRole("button");
+artifacts/dashboard/e2e/dashboard.journey.ts:3399:        .getByText('return partialFromCollectedEvidence("provider timeout");', {
+artifacts/dashboard/e2e/dashboard.journey.ts:3411:  test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3414:    await page.setViewportSize({ width: 390, height: 844 });
+artifacts/dashboard/e2e/dashboard.journey.ts:3417:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3418:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3420:    const composer = page.locator("textarea").first();
+artifacts/dashboard/e2e/dashboard.journey.ts:3421:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3422:    await composer.locator("xpath=..").getByRole("button").click();
+artifacts/dashboard/e2e/dashboard.journey.ts:3446:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:3455:      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
+artifacts/dashboard/e2e/dashboard.journey.ts:3466:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3467:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3469:    const composer = page.locator("textarea").first();
+artifacts/dashboard/e2e/dashboard.journey.ts:3470:    await composer.fill(blocked.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3471:    await composer.locator("xpath=..").getByRole("button").click();
+artifacts/dashboard/e2e/dashboard.journey.ts:3484:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:3493:      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
+artifacts/dashboard/e2e/dashboard.journey.ts:3524:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3525:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3582:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:3591:      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
+artifacts/dashboard/e2e/dashboard.journey.ts:3602:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3603:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3641:        /MISSING_LITERAL_MATCH|rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:3650:    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3653:      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:3663:      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}projects$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:3667:      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:3679:    await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3682:      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:3692:      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}events$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:3696:      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:3710:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3711:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3713:    const composer = page.locator("textarea").first();
+artifacts/dashboard/e2e/dashboard.journey.ts:3714:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3715:    await composer.locator("xpath=..").getByRole("button").click();
+artifacts/dashboard/e2e/dashboard.journey.ts:3744:  test("keeps the failed AI session drawer overlaid on a phone viewport", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3747:    await page.setViewportSize({ width: 390, height: 844 });
+artifacts/dashboard/e2e/dashboard.journey.ts:3750:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3751:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3753:    const composer = page.locator("textarea").first();
+artifacts/dashboard/e2e/dashboard.journey.ts:3754:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3755:    await composer.locator("xpath=..").getByRole("button").click();
+artifacts/dashboard/e2e/dashboard.journey.ts:3786:  test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3791:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3792:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3794:    const composer = page.locator("textarea").first();
+artifacts/dashboard/e2e/dashboard.journey.ts:3795:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3796:    await composer.locator("xpath=..").getByRole("button").click();
+artifacts/dashboard/e2e/dashboard.journey.ts:3802:      page.getByText("provider failure", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:3805:      page.getByText("stopped: provider timeout", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:3808:      page.getByText("The provider disconnected after visible response text.", {
+artifacts/dashboard/e2e/dashboard.journey.ts:3821:      page.getByText("provider failure", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:3824:      page.getByText("stopped: provider timeout", { exact: false }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:3827:      page.getByText("The provider disconnected after visible response text.", {
+artifacts/dashboard/e2e/dashboard.journey.ts:3841:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3868:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3964:    await programmaticSignIn(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3965:    await page.goto(`${DASHBOARD_PATH}ai`);
+artifacts/dashboard/e2e/dashboard.journey.ts:3984:    const composer = page.locator("textarea").first();

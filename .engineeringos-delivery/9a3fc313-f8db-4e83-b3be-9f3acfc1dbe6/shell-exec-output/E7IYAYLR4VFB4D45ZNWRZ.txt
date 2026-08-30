@@ -1,0 +1,327 @@
+238:async function installApiFixtures(
+2165:    await installApiFixtures(page);
+2293:    await installApiFixtures(page, {
+2572:    await installApiFixtures(page, {
+2761:      await Promise.all([installApiFixtures(page), installApiFixtures(secondPage)]);
+2880:    await installApiFixtures(page, {
+2995:    await installApiFixtures(page, {
+3090:    await installApiFixtures(page, {
+3160:    await installApiFixtures(page, {
+3214:    await installApiFixtures(page, {
+3276:    await installApiFixtures(page, {
+3362:    await installApiFixtures(page, { arabicAi: fixture });
+3416:    await installApiFixtures(page, { arabicAi: fixture });
+3462:    await installApiFixtures(page, {
+3500:    await installApiFixtures(page, {
+3598:    await installApiFixtures(page, {
+3709:    await installApiFixtures(page, { arabicAi: fixture });
+3749:    await installApiFixtures(page, { arabicAi: fixture });
+3790:    await installApiFixtures(page, { disconnectAi: fixture });
+3837:    await installApiFixtures(page, {
+3911:    await installApiFixtures(page, { interruptedResume: recovery });
+4113:    await installApiFixtures(page, { deliveryRecovery: recovery });
+4254:    await installApiFixtures(page, { deliveryRecovery: recovery });
+4325:    await installApiFixtures(page, { deliveryRecovery: recovery });
+4363:    await installApiFixtures(page, { arabicAi: fixture });
+4391:    await installApiFixtures(page);
+          task.status = "running";
+          task.updatedAt = "2026-01-01T00:02:00.000Z";
+        } else {
+          task.status = "queued";
+          task.retryCount = Number(task.retryCount ?? 0) + 1;
+          task.updatedAt = "2026-01-01T00:02:00.000Z";
+        }
+        return route.fulfill(jsonResponse(task, 202));
+      }
+    }
+    if (path === "/api/tasks") {
+      return route.fulfill(
+        jsonResponse(
+          overrides?.taskActions?.tasks ??
+            overrides?.recoveryTasks ??
+            (overrides?.liveTask
+              ? [
+                  {
+                    id: overrides.liveTask.id,
+                    projectId: overrides.liveTask.projectId,
+                    title: overrides.liveTask.title,
+                    description: "A task used to verify live dashboard updates.",
+                    status: "running",
+                    priority: "p1",
+                    relatedFiles: [],
+                    retryCount: 0,
+                    maxRetries: 2,
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                    updatedAt: "2026-01-01T00:00:01.000Z",
+                  },
+                ]
+              : []),
+        ),
+      );
+    }
+    if (path === "/api/workflows") {
+      return route.fulfill(
+        jsonResponse(overrides?.recoveryWorkflows ?? []),
+      );
+    }
+    const workflowExecutionsMatch = path.match(
+      /^\/api\/workflows\/([^/]+)\/executions$/,
+    );
+    if (workflowExecutionsMatch) {
+      return route.fulfill(
+        jsonResponse(
+          overrides?.recoveryWorkflowExecutions?.[workflowExecutionsMatch[1]] ??
+            [],
+        ),
+      );
+    }
+    if (
+      overrides?.auditExport &&
+      path === `/api/ai/executions/${EXECUTION_ID}/audit-export`
+    ) {
+      overrides.auditExport.requests.push(route.request().url());
+      if (
+        overrides.auditExport.failFirstPreview &&
+        overrides.auditExport.requests.length === 1
+      ) {
+        return route.fulfill(
+          jsonResponse(
+            { error: "Temporary preview network failure." },
+            503,
+          ),
+        );
+      }
+      return route.fulfill(
+        jsonResponse(overrides.auditExport.body, 200, {
+          "Content-Disposition": `attachment; filename="${overrides.auditExport.filename}"`,
+        }),
+      );
+    }
+    if (overrides?.archiveUpload && path === "/api/upload/archive") {
+      const contentType = route.request().headers()["content-type"] ?? "";
+      if (!contentType.startsWith("multipart/form-data;")) {
+        return route.fulfill(
+          jsonResponse({ error: "Expected multipart archive upload." }, 400),
+        );
+      }
+      const body = route.request().postDataBuffer();
+      if (!body?.includes(Buffer.from("dashboard-journey.zip"))) {
+        return route.fulfill(
+          jsonResponse({ error: "Expected the journey archive payload." }, 400),
+        );
+      }
+      return route.fulfill(
+        jsonResponse(
+          {
+            uploadId: overrides.archiveUpload.uploadId,
+            originalName: overrides.archiveUpload.originalName,
+          },
+          201,
+          {
+            "access-control-allow-origin": new URL(page.url()).origin,
+            "access-control-allow-credentials": "true",
+          },
+        ),
+      );
+    }
+    if (overrides?.liveTask && path === "/api/tasks") {
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: overrides.liveTask.id,
+            projectId: overrides.liveTask.projectId,
+            title: overrides.liveTask.title,
+            description: "A task used to verify live dashboard updates.",
+            status: "running",
+            phase: "Execution",
+            relatedFiles: [],
+            retryCount: 0,
+            maxRetries: 2,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:01.000Z",
+          },
+        ]),
+      );
+    }
+    if (
+      overrides?.liveTask &&
+      path === `/api/tasks/${overrides.liveTask.id}/logs`
+    ) {
+      return route.fulfill(jsonResponse(overrides.liveTask.initialLogs ?? []));
+    }
+    if (
+      overrides?.liveTask &&
+      path === `/api/tasks/${overrides.liveTask.id}/logs/stream`
+    ) {
+      const streamRequests = overrides.liveTask.streamRequests;
+      streamRequests?.push(route.request().url());
+      if (
+        (overrides.liveTask.failFirstStream && streamRequests?.length === 1) ||
+        (overrides.liveTask.failStreamAttempts &&
+          streamRequests &&
+          streamRequests.length <= overrides.liveTask.failStreamAttempts)
+      ) {
+        // Exercise the browser's reconnect path without changing the task
+        // lifecycle or synthesizing a successful response for the first try.
+        return route.abort("connectionreset");
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        headers: {
+          "Cache-Control": "no-cache",
+          "access-control-allow-origin": new URL(page.url()).origin,
+          "access-control-allow-credentials": "true",
+        },
+        body: `event: log\ndata: ${JSON.stringify(overrides.liveTask.log)}\n\n`,
+      });
+    }
+    if (path === "/api/projects") {
+      return route.fulfill(
+        jsonResponse(
+          overrides?.projects ?? [
+            {
+              id: "e2e-project",
+              name: "Smoke Project",
+              language: "TypeScript",
+              framework: "React",
+              status: "active",
+              rootPath: "/controlled/smoke",
+              qualityScore: 92,
+            },
+          ],
+        ),
+      );
+    }
+    if (path === "/api/readiness") {
+      return route.fulfill(
+        jsonResponse({
+          status: "ready",
+          checks: {
+            api: { status: "ready" },
+            database: { status: "ready" },
+            schema: { status: "ready" },
+          },
+        }),
+      );
+    }
+    if (hasConfiguredAiFixture && path === "/api/ai/active-provider") {
+      return route.fulfill(
+        jsonResponse({ provider: "openrouter", configured: true }),
+      );
+    }
+    if (
+      overrides?.deliveryRecovery &&
+      path === "/api/ai/delivery/recoverable"
+    ) {
+      overrides.deliveryRecovery.requests.push(route.request().url());
+      return route.fulfill(
+        jsonResponse({ operations: overrides.deliveryRecovery.operations }),
+      );
+    }
+    if (
+      overrides?.deliveryRecovery?.recoveryAction &&
+      path ===
+        `/api/ai/delivery/${overrides.deliveryRecovery.recoveryAction.proposalId}/${overrides.deliveryRecovery.recoveryAction.action}`
+    ) {
+      overrides.deliveryRecovery.actionRequests?.push(route.request().url());
+      if (overrides.deliveryRecovery.recoveryAction.nextOperations) {
+        overrides.deliveryRecovery.operations =
+          overrides.deliveryRecovery.recoveryAction.nextOperations;
+      }
+      return route.fulfill(
+        jsonResponse(
+          overrides.deliveryRecovery.recoveryAction.response,
+          overrides.deliveryRecovery.recoveryAction.status ?? 409,
+        ),
+      );
+    }
+    if (path === "/api/events") {
+      const events = overrides?.events ?? dashboardFixture.recentEvents;
+      const search = url.searchParams.get("search")?.toLowerCase();
+      const filteredEvents = events.filter((event) => {
+        const projectId = url.searchParams.get("projectId");
+        const severity = url.searchParams.get("severity");
+        const correlationId = url.searchParams.get("correlationId");
+        return (
+          (!projectId || event.projectId === projectId) &&
+          (!severity || event.severity === severity) &&
+          (!correlationId || event.correlationId === correlationId) &&
+          (!search ||
+            [event.message, event.type, event.correlationId]
+              .filter((value): value is string => typeof value === "string")
+              .some((value) => value.toLowerCase().includes(search)))
+        );
+      });
+      const limit = Number(url.searchParams.get("limit")) || 50;
+      const page = Number(url.searchParams.get("page")) || 1;
+      return route.fulfill(
+        jsonResponse({
+          events: filteredEvents.slice((page - 1) * limit, page * limit),
+          total: filteredEvents.length,
+        }),
+      );
+    }
+    if (
+      overrides?.resumeFailure &&
+      path ===
+        `/api/ai/executions/${overrides.resumeFailure.fixture.executionId}`
+    ) {
+      return route.fulfill(jsonResponse(overrides.resumeFailure.execution));
+    }
+    if (
+      overrides?.interruptedResume &&
+      path ===
+        `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}`
+    ) {
+      return route.fulfill(jsonResponse(overrides.interruptedResume.execution));
+    }
+    if (
+      overrides?.interruptedResume &&
+      path ===
+        `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}/resume-capability`
+    ) {
+      return route.fulfill(
+        jsonResponse({
+          executionId: overrides.interruptedResume.fixture.executionId,
+          resumeToken: overrides.interruptedResume.recoveredToken,
+        }),
+      );
+    }
+    if (path === `/api/ai/executions/${EXECUTION_ID}`)
+      return route.fulfill(
+        jsonResponse(overrides?.auditExport?.execution ?? executionFixture),
+      );
+    if (path === "/api/ai/mission-control")
+      return route.fulfill(
+        jsonResponse({ updatedAt: "2026-01-01T00:01:00.000Z", executions: [] }),
+      );
+
+    // AI is deliberately not executed in this smoke journey. This response
+    // verifies the user-visible unavailable/empty state without a provider.
+    if (path.startsWith("/api/ai/"))
+      return route.fulfill(
+        jsonResponse({ error: "AI provider not configured" }, 428),
+      );
+
+    return route.continue();
+  });
+}
+
+async function installArabicAiFixture(
+  page: Page,
+  options?: {
+    blocked?: boolean;
+    sessionId?: string;
+    question?: string;
+    projectId?: string;
+  },
+) {
+  const sessionId = options?.sessionId ?? "e2e-arabic-ai-session";
+  const messageId = "e2e-arabic-ai-message";
+  const source = "src/execution-tools.ts";
+  const blocked = options?.blocked === true;
+  const question =
+    options?.question ??
+    "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+  const answer =
