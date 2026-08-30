@@ -835,10 +835,27 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByRole('button', { name: 'Existing session' }).closest('div.absolute')).toHaveClass('hidden');
 
     fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
-    expect(await screen.findByRole('button', { name: 'Existing session' })).toBeInTheDocument();
+    const drawer = screen.getByTestId('sessions-drawer');
+    expect(await within(drawer).findByRole('button', { name: 'Existing session' })).toBeInTheDocument();
+    expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
+    expect(drawer.querySelector('.provider-key-cards')).toHaveClass('max-h-[45%]', 'overflow-y-auto', 'overscroll-contain');
+    expect(drawer.querySelectorAll('.provider-key-card')).toHaveLength(4);
     expect(document.querySelectorAll('input[type="password"]')).toHaveLength(4);
+    expect(document.body.style.overflow).toBe('hidden');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close sessions backdrop' }));
+    expect(drawer).toHaveClass('hidden');
+    expect(document.body.style.overflow).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Existing session' }));
+    expect(drawer).toHaveClass('hidden');
+    expect(document.body.style.overflow).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close sidebar' }));
     expect(screen.getByRole('button', { name: 'Existing session' }).closest('div.absolute')).toHaveClass('hidden');
+    expect(document.body.style.overflow).toBe('');
   });
 
   it('shows persisted forensic session statuses and distinguishes incomplete audits from no findings', async () => {

@@ -164,6 +164,28 @@
  * are intentionally scoped to AI chat and only apply below the desktop
  * breakpoint; desktop sizing and evidence hierarchy remain unchanged. */
 @media (max-width: 767px) {
+  .sessions-drawer,
+  .provider-key-cards,
+  .provider-key-card,
+  .chat-header,
+  .chat-input-bar {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .provider-key-card {
+    overflow-wrap: anywhere;
+  }
+
+  .provider-key-card .font-mono {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .chat-input-bar {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
   .chat-content,
   .chat-message,
   .chat-message-content,

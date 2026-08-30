@@ -4598,28 +4598,28 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
   }
 
   return (
-    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Key className="w-3 h-3 text-muted-foreground" />
-        <span className="font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
-        <span className="ml-auto text-[10px] text-muted-foreground">Optional</span>
+    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
+        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Optional</span>
       </div>
 
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : status?.configured ? (
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-green-500">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
             <Check className="w-3 h-3" />
-            <span>···{status.last4}</span>
+            <span className="break-all">···{status.last4}</span>
           </div>
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+          <div className="flex shrink-0 gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
               Change
             </Button>
             <Button
               size="sm" variant="ghost"
-              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -4628,21 +4628,21 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
           </div>
         </div>
       ) : (
-        <p className="text-muted-foreground mb-2">
-          Get a free API key at <span className="font-mono">platform.deepseek.com</span> to use DeepSeek as your AI provider.
+        <p className="mb-2 break-words text-muted-foreground">
+          Get a free API key at <span className="font-mono break-all">platform.deepseek.com</span> to use DeepSeek as your AI provider.
         </p>
       )}
 
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (
-        <div className="flex gap-1 mt-2">
+        <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder="sk-…"
-            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
             onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
             autoComplete="new-password"
           />
@@ -4707,28 +4707,28 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
   }
 
   return (
-    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Key className="w-3 h-3 text-muted-foreground" />
-        <span className="font-mono text-muted-foreground uppercase tracking-wider">Groq API Key</span>
+    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Groq API Key</span>
       </div>
 
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : status?.configured ? (
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-green-500">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
             <Check className="w-3 h-3" />
-            <span>···{status.last4}</span>
+            <span className="break-all">···{status.last4}</span>
           </div>
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+          <div className="flex shrink-0 gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
               Change
             </Button>
             <Button
               size="sm"
               variant="ghost"
-              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -4737,19 +4737,19 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
           </div>
         </div>
       ) : (
-        <p className="text-muted-foreground mb-2">No personal key saved — the server's key will be used if one is configured.</p>
+        <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
       )}
 
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (
-        <div className="flex gap-1 mt-2">
+        <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder="gsk_…"
-            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
             onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
             autoComplete="new-password"
           />
@@ -4817,28 +4817,28 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
   }
 
   return (
-    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Key className="w-3 h-3 text-muted-foreground" />
-        <span className="font-mono text-muted-foreground uppercase tracking-wider">Gemini API Key</span>
-        <span className="ml-auto text-[10px] text-muted-foreground">Free · Priority</span>
+    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Gemini API Key</span>
+        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Free · Priority</span>
       </div>
 
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : status?.configured ? (
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-green-500">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
             <Check className="w-3 h-3" />
-            <span>···{status.last4}</span>
+            <span className="break-all">···{status.last4}</span>
           </div>
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+          <div className="flex shrink-0 gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
               Change
             </Button>
             <Button
               size="sm" variant="ghost"
-              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -4847,21 +4847,21 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
           </div>
         </div>
       ) : (
-        <p className="text-muted-foreground mb-2">
-          Free key at <span className="font-mono">aistudio.google.com/apikey</span> — 1,500 req/day, 1M tokens/day.
+        <p className="mb-2 break-words text-muted-foreground">
+          Free key at <span className="font-mono break-all">aistudio.google.com/apikey</span> — 1,500 req/day, 1M tokens/day.
         </p>
       )}
 
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (
-        <div className="flex gap-1 mt-2">
+        <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder="AIza…"
-            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
             onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
             autoComplete="new-password"
           />
@@ -4929,28 +4929,28 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
   }
 
   return (
-    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Key className="w-3 h-3 text-muted-foreground" />
-        <span className="font-mono text-muted-foreground uppercase tracking-wider">OpenRouter API Key</span>
-        <span className="ml-auto text-[10px] text-muted-foreground">Priority</span>
+    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">OpenRouter API Key</span>
+        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Priority</span>
       </div>
 
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : status?.configured ? (
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-green-500">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-green-500">
             <Check className="w-3 h-3" />
-            <span>···{status.last4}</span>
+            <span className="break-all">···{status.last4}</span>
           </div>
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+          <div className="flex shrink-0 gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
               Change
             </Button>
             <Button
               size="sm" variant="ghost"
-              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -4959,21 +4959,21 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
           </div>
         </div>
       ) : (
-        <p className="text-muted-foreground mb-2">
-          Get a free key at <span className="font-mono">openrouter.ai/keys</span> — routes to 300+ models, used first when configured.
+        <p className="mb-2 break-words text-muted-foreground">
+          Get a free key at <span className="font-mono break-all">openrouter.ai/keys</span> — routes to 300+ models, used first when configured.
         </p>
       )}
 
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (
-        <div className="flex gap-1 mt-2">
+        <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder="sk-or-…"
-            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            className="h-7 min-w-0 basis-0 text-xs font-mono bg-background border-border flex-1"
             onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
             autoComplete="new-password"
           />
@@ -9228,13 +9228,30 @@ export default function AiChat() {
     typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches,
   );
 
+  useEffect(() => {
+    if (!sidebarOpen || window.matchMedia('(min-width: 768px)').matches) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [sidebarOpen]);
+
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden">
+    <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden overscroll-contain">
       {/* UI-01: closeable mobile drawer backdrop */}
       {sidebarOpen && (
         <button
           type="button"
           onClick={() => setSidebarOpen(false)}
+          onWheel={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onTouchMove={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
           className="absolute inset-0 z-20 bg-black/55 md:hidden"
           aria-label="Close sessions backdrop"
         />
@@ -9244,9 +9261,12 @@ export default function AiChat() {
       {/* UI-01: desktop sidebar; mobile drawer overlays the chat instead of
        * shrinking it to a narrow unreadable column. */}
       <div
-        className={`${sidebarOpen ? 'flex' : 'hidden'} absolute inset-y-0 left-0 z-30 w-64 max-w-[calc(100vw-1rem)] min-w-0 border-r border-border flex-col shrink-0 bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:w-56 md:max-w-none md:shadow-none`}
+        data-testid="sessions-drawer"
+        className={`${sidebarOpen ? 'flex' : 'hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:h-auto md:w-56 md:max-w-none md:shadow-none`}
+        onWheel={(event) => event.stopPropagation()}
+        onTouchMove={(event) => event.stopPropagation()}
       >
-        <div className="p-3 border-b border-border flex items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between border-b border-border p-3">
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Sessions</span>
           <div className="flex items-center gap-1">
             <Button
@@ -9265,6 +9285,7 @@ export default function AiChat() {
               className="h-6 w-6 p-0 md:hidden"
               onClick={() => setSidebarOpen(false)}
               title="Close sidebar"
+              aria-label="Close sidebar"
             >
               <X className="w-3.5 h-3.5" />
             </Button>
@@ -9279,7 +9300,7 @@ export default function AiChat() {
               onChange={(e) => {
                 resetConversationView({ forgetCurrentExecution: false });
                 setSelectedProjectId(e.target.value);
-                if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false);
+                if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
               }}
               className="w-full text-xs bg-secondary border border-border rounded-md px-2 py-1.5 text-foreground appearance-none pr-6"
             >
@@ -9308,7 +9329,7 @@ export default function AiChat() {
                   setProposalRequiresApproval(false);
                   setProposalRevision(undefined);
                   setVerificationResults({});
-                  if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false);
+                  if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
                 }}
                 className={`text-left px-2 py-1.5 rounded text-xs truncate transition-colors ${
                   s.id === sessionId
@@ -9417,7 +9438,7 @@ export default function AiChat() {
         </ScrollArea>
 
         {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
-        <div className="border-t border-border pt-2">
+        <div className="provider-key-cards min-h-0 shrink-0 max-h-[45%] overflow-y-auto overscroll-contain border-t border-border pt-2 md:max-h-none md:overflow-visible">
           <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
           <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
           <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />
@@ -9426,9 +9447,9 @@ export default function AiChat() {
       </div>
 
       {/* Main chat area */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 sm:px-4">
+        <div className="chat-header flex h-12 min-w-0 max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 sm:px-4">
           {!sidebarOpen && (
             <Button
               size="icon"
@@ -9773,7 +9794,7 @@ export default function AiChat() {
         </ScrollArea>
 
         {/* Input */}
-         <div className="shrink-0 border-t border-border p-3 sm:p-4">
+         <div className="chat-input-bar min-w-0 shrink-0 border-t border-border p-3 sm:p-4">
           {activeExecution && !isAgentBusy && (
             <div className="mx-auto mb-3 flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
               <div className="min-w-0">
