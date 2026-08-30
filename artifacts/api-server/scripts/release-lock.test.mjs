@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   acquireReleaseLock,
-  lockPath: configuredLockPath,
+  lockPath as configuredLockPath,
   RELEASE_LOCK_ROOT,
 } from "./run-release-ai-stream.mjs";
 

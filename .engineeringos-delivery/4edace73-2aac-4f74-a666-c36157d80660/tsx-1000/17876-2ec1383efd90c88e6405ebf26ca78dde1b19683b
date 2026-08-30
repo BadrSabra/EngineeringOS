@@ -1,1 +1,0 @@
-{"code":"const AiPendingChangeRisk={low:\"low\",medium:\"medium\",high:\"high\"};export{AiPendingChangeRisk};\n","warnings":[],"map":{"version":3,"mappings":"AAcO,MAAM,oBAAsB,CACjC,IAAK,MACL,OAAQ,SACR,KAAM,MACR","names":[],"ignoreList":[],"sources":["/home/runner/workspace/lib/api-zod/src/generated/types/aiPendingChangeRisk.ts"],"sourcesContent":[null]}}

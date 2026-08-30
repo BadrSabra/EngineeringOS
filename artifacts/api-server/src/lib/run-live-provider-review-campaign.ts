@@ -7,7 +7,6 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -17,6 +16,7 @@ import {
   type CodeReviewCampaignScenario,
   type ProviderId,
 } from "@workspace/ai-orchestrator";
+import { createHostDisposableTempDirectory } from "./disposable-temp.js";
 
 const providerKeys: Record<ProviderId, string> = {
   openrouter: "OPENROUTER_API_KEY",
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
     projectId: campaignProjectId,
     outputPath: campaignOutputPath,
   } = configuration;
-  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-live-review-"));
+  const rootPath = await createHostDisposableTempDirectory("engineeringos-live-review-");
   try {
     await fs.mkdir(path.dirname(path.join(rootPath, selectedFile)), { recursive: true });
     await fs.writeFile(path.join(rootPath, selectedFile), fixtureContents, "utf8");

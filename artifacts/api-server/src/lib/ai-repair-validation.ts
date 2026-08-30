@@ -16,6 +16,7 @@ import {
   type PreviewValidationContract,
 } from "./browser-preview-verification.js";
 import { config } from "../config.js";
+import { createHostDisposableTempDirectory } from "./disposable-temp.js";
 
 export type RepairVerificationStatus = ValidationStatus;
 export type ValidationFailure = SharedValidationFailure;
@@ -101,7 +102,6 @@ const VALIDATION_DETAIL_LIMIT = 4_000;
 // project roots. Do not use os.tmpdir() here: TMPDIR can be redirected into
 // .engineeringos-delivery, where the host discovers copied artifact metadata
 // and registers every validation copy as a workflow.
-const VALIDATION_TMP_ROOT = "/tmp";
 const VALIDATION_COPY_OMIT = new Set([
   ".git",
   "node_modules",
@@ -152,7 +152,7 @@ export async function createValidationWorkspace(
   // passed as the directory source as a non-directory when the destination
   // already exists, which would fail closed before the overlay is materialized.
   const sourceRoot = await fs.realpath(rootPath);
-  const workspaceRoot = await fs.mkdtemp(path.join(VALIDATION_TMP_ROOT, "engineeringos-validation-"));
+  const workspaceRoot = await createHostDisposableTempDirectory("engineeringos-validation-");
   try {
     await fs.cp(sourceRoot, workspaceRoot, {
       recursive: true,

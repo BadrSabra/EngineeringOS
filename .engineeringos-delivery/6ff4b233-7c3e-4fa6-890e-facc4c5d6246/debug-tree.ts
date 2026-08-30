@@ -1,5 +1,0 @@
-import { mkdir, writeFile, symlink, rm, lstat, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { createDeliveryWorkspace, hashDeliveryTree } from '/home/runner/workspace/artifacts/api-server/src/lib/delivery-workspace.ts';
-(async()=>{const f='/tmp/dbg-'+randomUUID(); await mkdir(join(f,'empty'),{recursive:true}); await writeFile(join(f,'bytes.bin'),Buffer.from([0,1,255])); await writeFile(join(f,'target.txt'),'target\n'); await symlink('target.txt',join(f,'link.txt')); console.log('source',await readdir(f),await hashDeliveryTree(f)); const w=await createDeliveryWorkspace({rootPath:f,operationId:randomUUID(),baseRevision:'x',changes:[]}); console.log('workspace',w.workspaceRoot,await readdir(w.workspaceRoot),await hashDeliveryTree(w.workspaceRoot), w.baseTreeHash,w.candidateTreeHash); console.log(await lstat(join(w.workspaceRoot,'link.txt'))); await rm(f,{recursive:true,force:true}); await rm(w.workspaceRoot,{recursive:true,force:true});})();
