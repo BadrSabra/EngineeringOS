@@ -12,8 +12,9 @@ export const expectedTest = path.join(
   "routes",
   "ai-stream-integration.test.ts",
 );
+export const RELEASE_LOCK_ROOT = "/tmp";
 export const lockPath = path.join(
-  process.env.TMPDIR || "/tmp",
+  RELEASE_LOCK_ROOT,
   "engineeringos-api-stream-release.lock",
 );
 

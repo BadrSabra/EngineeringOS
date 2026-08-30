@@ -1,5 +1,4 @@
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -18,6 +17,7 @@ import {
   type ProjectContext,
   type ProviderId,
 } from "@workspace/ai-orchestrator";
+import { createHostDisposableTempDirectory } from "./disposable-temp.js";
 import {
   defaultApiBenchmarkAllowedPaths,
   defaultApiBenchmarkHistory,
@@ -61,7 +61,7 @@ async function createIsolatedBenchmarkRoot(sourceRoot: string): Promise<{
 }> {
   const resolvedSource = await fs.realpath(sourceRoot);
   await fs.access(path.join(resolvedSource, "package.json"));
-  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-"));
+  const rootPath = await createHostDisposableTempDirectory("engineeringos-code-agent-");
 
   try {
     await fs.cp(resolvedSource, rootPath, {

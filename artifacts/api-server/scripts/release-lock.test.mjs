@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { acquireReleaseLock } from "./run-release-ai-stream.mjs";
+import {
+  acquireReleaseLock,
+  lockPath: configuredLockPath,
+  RELEASE_LOCK_ROOT,
+} from "./run-release-ai-stream.mjs";
 
 async function lockFixture(metadata) {
   const root = await mkdtemp(path.join(os.tmpdir(), "engineeringos-release-lock-"));
@@ -19,6 +23,14 @@ const owner = {
   createdAt: "2026-08-21T12:00:00.000Z",
   token: "owner-token",
 };
+
+test("release lock stays outside a redirected TMPDIR", () => {
+  assert.equal(
+    configuredLockPath,
+    path.join(RELEASE_LOCK_ROOT, "engineeringos-api-stream-release.lock"),
+  );
+  assert.equal(RELEASE_LOCK_ROOT, "/tmp");
+});
 
 test("active release owner fails with the database-isolation collision", async () => {
   const { root, lockPath } = await lockFixture(owner);

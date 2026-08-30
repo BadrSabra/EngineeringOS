@@ -1,5 +1,4 @@
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { execFile } from "node:child_process";
@@ -40,6 +39,7 @@ import {
   runApiCodeAgentBenchmarkAirlock,
   type ApiCodeAgentBenchmarkProvider,
 } from "./ai-code-agent-benchmark.js";
+import { createHostDisposableTempDirectory } from "./disposable-temp.js";
 
 const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
   openrouter: "OPENROUTER_API_KEY",
@@ -173,7 +173,7 @@ async function writeJsonAtomically(filePath: string, value: unknown): Promise<vo
 async function createIsolatedBenchmarkRoot(): Promise<{ rootPath: string; cleanup: () => Promise<void> }> {
   const resolvedSource = await fs.realpath(sourceRoot);
   await fs.access(path.join(resolvedSource, "package.json"));
-  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-code-agent-airlock-"));
+  const rootPath = await createHostDisposableTempDirectory("engineeringos-code-agent-airlock-");
   try {
     await fs.cp(resolvedSource, rootPath, {
       recursive: true,
