@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -13,10 +14,32 @@ const workspaceRoot = path.resolve(
   "..",
 );
 
+async function buildValidationEnv() {
+  const env = { ...process.env };
+  if (!env.AI_CREDENTIALS_ENCRYPTION_KEY) {
+    try {
+      const persistedKey = (await readFile(
+        path.join(workspaceRoot, ".local", "encryption.key"),
+        "utf8",
+      )).trim();
+      if (/^[0-9a-f]{64}$/i.test(persistedKey)) {
+        env.AI_CREDENTIALS_ENCRYPTION_KEY = persistedKey;
+      }
+    } catch {
+      // The API startup migration reports a clear warning when no key can be
+      // loaded or generated. Keep release validation's existing behavior when
+      // neither an environment nor persisted key is available.
+    }
+  }
+  return env;
+}
+
+const validationEnv = await buildValidationEnv();
+
 if (!process.env.DATABASE_URL) {
   const child = spawn("pnpm", ["run", "validate:release"], {
     cwd: workspaceRoot,
-    env: process.env,
+    env: validationEnv,
     stdio: "inherit",
   });
   child.once("exit", (code, signal) => {
@@ -35,7 +58,7 @@ if (!process.env.DATABASE_URL) {
 
   const child = spawn("pnpm", ["run", "validate:release"], {
     cwd: workspaceRoot,
-    env: process.env,
+    env: validationEnv,
     stdio: "inherit",
   });
   const exitCode = await new Promise((resolve) => {

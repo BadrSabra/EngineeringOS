@@ -2,7 +2,7 @@
  * PR-012 — Regression tests for the OpenAI-compatible client.
  *
  * Covers:
- *   • Gemini strips tools / response_format (existing)
+ *   • Gemini strips tools but preserves response_format for structured output
  *   • 400 invalid model id → MODEL_NOT_FOUND + fallback (existing)
  *   • 404 → MODEL_NOT_FOUND + fallback (PR-003)
  *   • 410 → MODEL_UNAVAILABLE + fallback (PR-003)
@@ -65,7 +65,7 @@ describe("geminiCompleteRaw", () => {
     delete (globalThis as unknown as { __capturedGeminiBody?: Record<string, unknown> }).__capturedGeminiBody;
   });
 
-  it("strips tools and response_format from Gemini requests", async () => {
+  it("strips tools but preserves response_format for Gemini requests", async () => {
     const result = await geminiCompleteRaw(baseMessages as any, {
       apiKey: "test-key",
       maxTokens: 1,
@@ -89,7 +89,7 @@ describe("geminiCompleteRaw", () => {
     expect(body).toBeDefined();
     expect(body).not.toHaveProperty("tools");
     expect(body).not.toHaveProperty("tool_choice");
-    expect(body).not.toHaveProperty("response_format");
+    expect(body).toHaveProperty("response_format", { type: "json_object" });
   });
 
   it("redacts credential-like transport failures while retaining NETWORK_ERROR", async () => {

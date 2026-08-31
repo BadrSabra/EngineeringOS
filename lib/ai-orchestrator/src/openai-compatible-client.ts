@@ -685,7 +685,7 @@ async function oacCompleteRawUntracked(
   if (hasTools) {
     body.tools = tools;
     body.tool_choice = opts.toolChoice ?? "auto";
-  } else if (!isGemini && opts.responseFormat) {
+  } else if (opts.responseFormat) {
     body.response_format = opts.responseFormat;
   }
 
@@ -1561,7 +1561,7 @@ export function geminiCompleteRaw(
   messages: RawMessage[],
   opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): Promise<RawGroqResponse> {
-  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } = opts;
+  const { tools: _tools, ...safeOpts } = opts;
   return oacCompleteRaw(messages, {
     ...safeOpts,
     baseUrl: GEMINI_BASE_URL,
@@ -1576,7 +1576,7 @@ export function geminiCompleteStream(
   messages: RawMessage[],
   opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): AsyncGenerator<string> {
-  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } =
+  const { tools: _tools, ...safeOpts } =
     opts as OpenAICompatibleOptions & { tools?: unknown; responseFormat?: unknown };
   return oacCompleteStream(messages, {
     ...safeOpts,

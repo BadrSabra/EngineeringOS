@@ -9,7 +9,8 @@
  * The agent re-emits the non-streaming response word-by-word.
  *
  * Tool payloads are stripped inside `geminiCompleteRaw` (the Gemini
- * OpenAI-compatible shim currently returns 404 with tools attached).
+ * OpenAI-compatible shim currently returns 404 with tools attached), while
+ * response-format hints are preserved for structured JSON output.
  */
 import {
   geminiCompleteRaw,
