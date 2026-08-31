@@ -1164,7 +1164,11 @@ export function buildForensicRecoveryMessages(
     startLine: number;
     endLine: number;
   }[] = [],
+  responseLanguage: "ar" | "en" = "en",
 ): RawMessage[] {
+  const naturalLanguageInstruction = responseLanguage === "ar"
+    ? "Write all explanatory natural-language report prose in Arabic. Keep the six canonical section headers, protocol/status labels, Finding IDs, file paths, identifiers, registered validation profile names, and exact source/code excerpts unchanged in English."
+    : "Write all explanatory natural-language report prose in English. Keep the six canonical section headers, protocol/status labels, Finding IDs, file paths, identifiers, registered validation profile names, and exact source/code excerpts unchanged.";
   let remaining = MAX_RECOVERY_EVIDENCE_CHARS;
   const records = [...evidence.fileContents.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
@@ -1238,7 +1242,8 @@ export function buildForensicRecoveryMessages(
         "When a candidate is merely unusual or needs runtime/context evidence that is not present, emit NO_FINDING with a source-grounded noFindingBasis instead. " +
         "Never emit a Repair Plan without a matching Finding ID; every repair step must remediate the same proven behavior and include a validation scenario. " +
         "Never invent Finding IDs, citations, failures, test results, scores, or repair phases. " +
-        "The caller will run a strict evidence gate after this response.",
+        "The caller will run a strict evidence gate after this response. " +
+        naturalLanguageInstruction,
     },
     {
       role: "user",
@@ -1247,6 +1252,9 @@ export function buildForensicRecoveryMessages(
         "",
         "VERIFIED COMPLETED READ MANIFEST:",
         manifest || "(none)",
+        "",
+        `REQUESTED RESPONSE LANGUAGE: ${responseLanguage === "ar" ? "Arabic" : "English"}`,
+        naturalLanguageInstruction,
         packetScope,
         "",
         "VERIFIED SOURCE EXCERPTS:",
@@ -1897,6 +1905,7 @@ function gateForensicResponse(
   scope?: { roots?: readonly string[]; files?: readonly string[] },
   sourceCoverage?: ForensicSourceCoverage,
   requireCompleteReadEvidence = false,
+  responseLanguage: "ar" | "en" = "en",
 ): string {
   if (!enabled) return response;
   const evidence = collectForensicEvidence(
@@ -1907,6 +1916,9 @@ function gateForensicResponse(
     scope,
     sourceCoverage,
     requireCompleteReadEvidence,
+    undefined,
+    undefined,
+    responseLanguage,
   );
   if (
     sourceCoverage?.complete === false &&
@@ -1916,12 +1928,12 @@ function gateForensicResponse(
   ) {
     return response;
   }
-  const contract = applyForensicOutputContract(response, evidence);
+  const contract = applyForensicOutputContract(response, evidence, { responseLanguage });
   // finalizeMergedRecovery builds a deliberately non-executable report for a
   // Finding proven in a complete packet when another requested root is
   // partial. Preserve that packet-local Finding through the final pass; the
   // report is already marked NOT PROVEN and contains no executable phase.
-  return applyForensicEvidenceGate(contract.response, evidence).response;
+  return applyForensicEvidenceGate(contract.response, evidence, { responseLanguage }).response;
 }
 
 /**
@@ -3354,8 +3366,11 @@ function emptyResponseMessage(message: string, forensic = false): string {
 export function buildBehaviorEvidenceIncompleteResponse(
   message: string,
   fileContents: ReadonlyMap<string, string>,
+  responseLanguage?: "ar" | "en",
 ): string {
-  const isArabic = /[\u0600-\u06FF]/.test(message);
+  const isArabic = responseLanguage === "ar" || (
+    responseLanguage === undefined && /[\u0600-\u06FF]/.test(message)
+  );
   const files = [...fileContents.keys()].sort();
   if (isArabic) {
     return [
@@ -4122,8 +4137,11 @@ export async function chat(opts: {
       // If source reads already completed, do not hide the truthful partial
       // state behind a generic language error. The user needs to know that
       // evidence was collected but no behavioral conclusion was accepted.
+      if (forensicOutputMode) {
+        return buildTaskValidationFallback(forensicTaskType, responseLanguage);
+      }
       if (turnIntent.requiresEvidence && forensicFileContents.size > 0) {
-        return buildTaskValidationFallback(forensicTaskType, responseLanguage === "ar");
+        return buildTaskValidationFallback(forensicTaskType, responseLanguage);
       }
       return buildResponseLanguageFallback(responseLanguage);
     }
@@ -4148,7 +4166,7 @@ export async function chat(opts: {
     );
     return buildTaskValidationFallback(
       validationTaskType,
-      /[\u0600-\u06FF]/.test(message),
+      responseLanguage,
     );
   };
   // Structured forensic responses and Repair Plan handoffs must be validated
@@ -5622,7 +5640,11 @@ export async function chat(opts: {
   // a read. Do not let that provider turn retained evidence into a generic
   // no-access answer or imply that it proved a fresh behavioral conclusion.
   if (retainedEvidence && retainedEvidence.size > 0 && !modelHasTools && turnIntent.requiresEvidence) {
-    const retainedResponse = buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents);
+    const retainedResponse = buildBehaviorEvidenceIncompleteResponse(
+      message,
+      forensicFileContents,
+      responseLanguage,
+    );
     onDelta?.(retainedResponse);
     return {
       response: retainedResponse,
@@ -5899,11 +5921,17 @@ export async function chat(opts: {
             forensicSourceCoverage,
             requireCompleteReadEvidence,
             queryPlan?.compoundParts,
+            undefined,
             responseLanguage,
           ),
+          { responseLanguage },
         ).response
       : isForensicOrEvidenceRun && forensicFileContents.size > 0
-        ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+        ? buildBehaviorEvidenceIncompleteResponse(
+            message,
+            forensicFileContents,
+            responseLanguage,
+          )
         : exhaustionMessage;
     const exhaustionFinalResponse = repairPlanExecution
       ? finalizeTaskResponse(
@@ -6152,7 +6180,11 @@ export async function chat(opts: {
         normalizeAssistantText(parsedDirect.data.response) ||
         normalizeAssistantText(directContent) ||
         (isForensicOrEvidenceRun && forensicFileContents.size > 0
-          ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+          ? buildBehaviorEvidenceIncompleteResponse(
+              message,
+              forensicFileContents,
+              responseLanguage,
+            )
           : emptyResponseMessage(message, forensicOutputMode));
       const gatedResponseText = validateResponseForTask(finalizeTaskResponse(
         repairPlanExecution
@@ -6174,6 +6206,7 @@ export async function chat(opts: {
               forensicScope,
               forensicSourceCoverage,
               requireCompleteReadEvidence,
+              responseLanguage,
             ),
       ));
       if (structuredOutputMode) {
@@ -6434,6 +6467,7 @@ export async function chat(opts: {
               forensicScope,
               forensicSourceCoverage,
               requireCompleteReadEvidence,
+              responseLanguage,
             ),
       ));
 
@@ -6660,8 +6694,10 @@ export async function chat(opts: {
         forensicSourceCoverage,
         requireCompleteReadEvidence,
         queryPlan?.compoundParts,
+        undefined,
         responseLanguage,
       ),
+      { responseLanguage },
     );
     if (initialMarkdownContract.valid && !initialMarkdownContract.evidenceMapRebuilt) {
       parsed = {
@@ -6716,6 +6752,7 @@ export async function chat(opts: {
     const incompleteResponse = buildBehaviorEvidenceIncompleteResponse(
       message,
       forensicFileContents,
+      responseLanguage,
     );
     parsed = {
       ok: true,
@@ -6826,6 +6863,7 @@ export async function chat(opts: {
       forensicSourceCoverage,
       requireCompleteReadEvidence,
       queryPlan?.compoundParts,
+      undefined,
       responseLanguage,
     );
     // RECOVERY_MODE = FIRST_EVIDENCE (FEG-013/014): a run that ends with ZERO
@@ -6853,6 +6891,7 @@ export async function chat(opts: {
           forensicSourceCoverage,
           requireCompleteReadEvidence,
           queryPlan?.compoundParts,
+          undefined,
           responseLanguage,
         );
         if (forensicEvidence.fileContents.size > 0) {
@@ -6903,7 +6942,11 @@ export async function chat(opts: {
       );
       if (executable.plans.length > 0) structuredRepairPlan = executable.plans;
     }
-    const initialContract = applyForensicOutputContract(parsed.data.response, forensicEvidence);
+    const initialContract = applyForensicOutputContract(
+      parsed.data.response,
+      forensicEvidence,
+      { responseLanguage },
+    );
     const behavioralAssessmentRequired = behavioralAssessmentRequested;
     const recoveryPackets = buildForensicEvidencePackets(forensicEvidence, orderedForensicRoots);
     const reportHasEmptyFindings = (report: string): boolean => {
@@ -6921,9 +6964,17 @@ export async function chat(opts: {
       report: string,
       packetEvidence: ForensicEvidence,
     ): string | null => {
-      const packetContract = applyForensicOutputContract(report, packetEvidence);
+      const packetContract = applyForensicOutputContract(
+        report,
+        packetEvidence,
+        { responseLanguage },
+      );
       if (!packetContract.valid || packetContract.evidenceMapRebuilt) return null;
-      const globalContract = applyForensicOutputContract(report, forensicEvidence);
+      const globalContract = applyForensicOutputContract(
+        report,
+        forensicEvidence,
+        { responseLanguage },
+      );
       if (!globalContract.valid || globalContract.evidenceMapRebuilt) return null;
       if (
         behavioralAssessmentRequired &&
@@ -6932,7 +6983,11 @@ export async function chat(opts: {
       ) {
         return null;
       }
-      const evidenceGate = applyForensicEvidenceGate(globalContract.response, forensicEvidence);
+      const evidenceGate = applyForensicEvidenceGate(
+        globalContract.response,
+        forensicEvidence,
+        { responseLanguage },
+      );
       return evidenceGate.violations.length === 0 ? evidenceGate.response : null;
     };
     const objectiveRequiresSemanticRecovery =
@@ -7265,6 +7320,7 @@ export async function chat(opts: {
             // attempts is fed back to the model on the NEXT attempt so it can
             // self-correct against actual source windows instead of re-guessing.
             recoveredReadData,
+             responseLanguage,
           );
           const remainingRecoveryMs = Math.max(1, recoveryDeadline - Date.now());
           const recoveryOptions = buildForensicRecoveryOptions(providerId, model, apiKey, undefined, signal);
@@ -7799,6 +7855,7 @@ export async function chat(opts: {
               const recoveredContract = applyForensicOutputContract(
                 recoveryParsed.data.response,
                 forensicEvidence,
+                { responseLanguage },
               );
               const globallyAcceptedRecoveredReport =
                 packetsForRecovery.length === 1 &&
@@ -8021,7 +8078,11 @@ export async function chat(opts: {
           }
           const semanticAssessmentFallback =
             behavioralAssessmentRequired && forensicEvidence.fileContents.size > 0
-              ? applyForensicOutputContract("", forensicEvidence).response
+              ? applyForensicOutputContract(
+                  "",
+                  forensicEvidence,
+                  { responseLanguage },
+                ).response
               : null;
           const incompleteRecoveryReport = buildStructuredForensicReport(
             EMPTY_FORENSIC_RECOVERY_ENVELOPE,
@@ -8116,7 +8177,11 @@ export async function chat(opts: {
         // error. Findings and repair phases remain blocked.
         const semanticAssessmentFallback =
           behavioralAssessmentRequired && forensicEvidence.fileContents.size > 0
-            ? applyForensicOutputContract("", forensicEvidence).response
+            ? applyForensicOutputContract(
+                "",
+                forensicEvidence,
+                { responseLanguage },
+              ).response
             : null;
         const incompleteRecoveryReport = buildStructuredForensicReport(
           EMPTY_FORENSIC_RECOVERY_ENVELOPE,
@@ -8171,6 +8236,7 @@ export async function chat(opts: {
             semanticAssessmentFallback ??
             incompleteScopeFallback,
           forensicEvidence,
+          { responseLanguage },
         );
         useForensicFallback(evidenceOnlyFallback.response);
         if (deterministicBehavioralReport) {
@@ -8236,6 +8302,7 @@ export async function chat(opts: {
       forensicSourceCoverage,
       requireCompleteReadEvidence,
       queryPlan?.compoundParts,
+      undefined,
       responseLanguage,
     );
     const cancelledReport = buildStructuredForensicReport(
@@ -8312,8 +8379,12 @@ export async function chat(opts: {
     parseError?.code === "EMPTY_MODEL_RESPONSE" &&
     isForensicOrEvidenceRun &&
     forensicFileContents.size > 0
-      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
-      : parsed.data.response;
+    ? buildBehaviorEvidenceIncompleteResponse(
+        message,
+        forensicFileContents,
+        responseLanguage,
+      )
+    : parsed.data.response;
   let responseBeforeBehaviorEvidence = validateResponseForTask(
     finalizeTaskResponse(
       repairPlanExecution
@@ -8336,6 +8407,8 @@ export async function chat(opts: {
               includeTestSources,
               forensicScope,
               forensicSourceCoverage,
+              undefined,
+              responseLanguage,
             ),
     ),
   );
@@ -8781,7 +8854,7 @@ export async function chat(opts: {
     );
     responseBeforeBehaviorEvidence = buildTaskValidationFallback(
       "FULL_FORENSIC_AUDIT",
-      /[\u0600-\u06FF]/.test(message),
+      responseLanguage,
     );
     relayAgentStep({
       kind: "diagnostic",
@@ -8966,9 +9039,17 @@ export async function chat(opts: {
       : capabilityProbeClaimUnclosed
       ? "ANALYSIS_INCOMPLETE — the capability probe retained both named source bodies, but strict evidence validation could not close every C1–C7 claim."
       : providerReturnedEmptyEvidenceResponse
-      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+          ? buildBehaviorEvidenceIncompleteResponse(
+              message,
+              forensicFileContents,
+              responseLanguage,
+            )
       : insufficientAcceptedBehaviorEvidence
-      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+      ? buildBehaviorEvidenceIncompleteResponse(
+          message,
+          forensicFileContents,
+          responseLanguage,
+        )
       : behaviorAnswerRejected || anyRequiredClaimUnclosed || telemetryBlocksVerdict || objectiveBlocksVerdict
       ? /[\u0600-\u06FF]/.test(message)
         ? objectiveBlocksVerdict

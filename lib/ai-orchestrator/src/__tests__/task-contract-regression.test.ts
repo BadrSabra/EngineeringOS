@@ -87,6 +87,7 @@ describe("task contract regression matrix", () => {
     expect(result.violations).toContain(
       "BEHAVIOR_QUERY response did not use the Arabic language requested by the user",
     );
+    expect(result.failureKind).toBe("LANGUAGE_MISMATCH");
   });
 
   it("accepts an Arabic response to an Arabic BEHAVIOR_QUERY", () => {
@@ -162,6 +163,25 @@ describe("task contract regression matrix", () => {
     );
     expect(result.valid).toBe(false);
     expect(result.violations).toContain(
+      "response used English prose for an Arabic request",
+    );
+  });
+
+  it("distinguishes a language-only mismatch from an invalid forensic report", () => {
+    const languageOnly = validateTaskResponse(
+      "FULL_FORENSIC_AUDIT",
+      `${FULL_FORENSIC_SHAPE}\nThe report is complete.`,
+      { responseLanguage: "ar" },
+    );
+    expect(languageOnly.failureKind).toBe("LANGUAGE_MISMATCH");
+
+    const structural = validateTaskResponse(
+      "FULL_FORENSIC_AUDIT",
+      "تقرير عربي غير مكتمل",
+      { responseLanguage: "ar" },
+    );
+    expect(structural.failureKind).toBe("CONTRACT");
+    expect(structural.violations).not.toContain(
       "response used English prose for an Arabic request",
     );
   });

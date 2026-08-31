@@ -173,6 +173,12 @@ export function capBudgetForTask(
 export type TaskValidationResult = {
   valid: boolean;
   violations: string[];
+  /**
+   * Distinguish a language-only rejection from a report/task-contract
+   * rejection. Callers use this to choose a truthful fallback: a malformed
+   * forensic report must not be described as a language mismatch.
+   */
+  failureKind?: "LANGUAGE_MISMATCH" | "CONTRACT";
 };
 
 /**
@@ -205,7 +211,9 @@ export function validateResponseLanguage(
     violations.push("response used Arabic prose for an English request");
   }
 
-  return { valid: violations.length === 0, violations };
+  return violations.length === 0
+    ? { valid: true, violations: [] }
+    : { valid: false, violations, failureKind: "LANGUAGE_MISMATCH" };
 }
 
 export function buildResponseLanguageFallback(responseLanguage: "ar" | "en"): string {
@@ -374,8 +382,12 @@ export function validateTaskResponse(
     trimmed.includes(header),
   );
   const violations: string[] = [];
+  const languageViolations: string[] = [];
   if (options.responseLanguage) {
-    violations.push(...validateResponseLanguage(trimmed, options.responseLanguage).violations);
+    languageViolations.push(
+      ...validateResponseLanguage(trimmed, options.responseLanguage).violations,
+    );
+    violations.push(...languageViolations);
   }
 
   switch (taskType) {
@@ -453,18 +465,34 @@ export function validateTaskResponse(
     }
   }
 
-  return { valid: violations.length === 0, violations };
+  return violations.length === 0
+    ? { valid: true, violations: [] }
+    : {
+        valid: false,
+        violations,
+        failureKind:
+          languageViolations.length > 0 &&
+          violations.every((violation) =>
+            /(?:used (?:English|Arabic) prose|did not use the (?:Arabic|English) language requested)/i.test(
+              violation,
+            ),
+          )
+            ? "LANGUAGE_MISMATCH"
+            : "CONTRACT",
+      };
 }
 
 export function buildTaskValidationFallback(
   taskType: ForensicTaskType,
-  isArabic = false,
+  responseLanguage: "ar" | "en" | boolean = "en",
 ): string {
+  // `boolean` is retained for callers from older integrations.
+  const isArabic = responseLanguage === true || responseLanguage === "ar";
   if (isArabic) {
     if (taskType === "FULL_FORENSIC_AUDIT" || taskType === "WORKSPACE_REVIEW") {
       return [
         "## 1) Executive Verdict",
-        "غير مكتمل — تعذر اعتماد تقرير التدقيق لأن الاستجابة لم تلتزم بلغة الطلب.",
+        "ANALYSIS_INCOMPLETE — تعذر اعتماد تقرير التدقيق لأن عقد التقرير أو الدليل لم يكتمل.",
         "",
         "## 2) Evidence Map",
         "لم يتم اعتماد خريطة أدلة قابلة للتحقق لهذه الاستجابة.",
@@ -473,7 +501,7 @@ export function buildTaskValidationFallback(
         "لا يوجد Finding مثبت. لا يجوز استنتاج وجود خلل من استجابة غير مكتملة أو غير مطابقة.",
         "",
         "## 4) Repair Plan",
-        "لا توجد مرحلة إصلاح قابلة للتنفيذ قبل اكتمال تقرير مصدرّي مطابق.",
+        "لا توجد مراحل إصلاح قابلة للتنفيذ قبل اكتمال تقرير مصدرّي مطابق.",
         "",
         "## 5) Validation Checklist",
         "ANALYSIS_INCOMPLETE — لا يمكن تشغيل تحقق سلوكي قبل اعتماد الأدلة والتقرير.",

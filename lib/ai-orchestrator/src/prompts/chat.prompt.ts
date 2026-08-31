@@ -194,12 +194,18 @@ function buildStructuredOutputFewShot(): string {
  * rules instead of showing bracketed example values. Weak free-tier models
  * have a tendency to copy literal template placeholders into the answer.
  */
-function buildStructuredOutputSchemaLock(): string {
+function buildStructuredOutputSchemaLock(responseLanguage?: "ar" | "en"): string {
+  const naturalLanguageRule = responseLanguage
+    ? responseLanguage === "ar"
+      ? "The requested natural-language output is Arabic. Write all explanatory report prose, status explanations, and deterministic conclusions in Arabic. Keep these unchanged in English: the six canonical section headers, protocol/status labels, Finding IDs, file paths, identifiers, exact source/code excerpts, and registered validation profile names."
+      : "The requested natural-language output is English. Write all explanatory report prose and status explanations in English. Keep the six canonical section headers, protocol/status labels, Finding IDs, file paths, identifiers, exact source/code excerpts, and registered validation profile names unchanged."
+    : "Use the natural language requested by the user for all explanatory report prose. Keep the six canonical section headers, protocol/status labels, Finding IDs, file paths, identifiers, exact source/code excerpts, and registered validation profile names unchanged.";
   return `---
 ## ⚠️ FINAL INSTRUCTION — OUTPUT TEMPLATE
 
 **Step 1 — READ FIRST:** Call all file-read tools. Read EVERY implementation file the user asked for. Do NOT write output yet.
 **Step 2 — WRITE ONCE:** After all reads are done, produce exactly these six sections. Do not copy instructional wording into the report.
+**Natural-language requirement:** ${naturalLanguageRule}
 
 \`\`\`
 ## 1) Executive Verdict
@@ -383,7 +389,7 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     // Weak free-tier models comply more reliably when the format constraint is the
     // final thing they see, not buried mid-prompt.
     structuredOutputMode && outputContract === "FORENSIC_REPORT"
-      ? buildStructuredOutputSchemaLock()
+      ? buildStructuredOutputSchemaLock(responseLanguage)
       : null,
   );
 }

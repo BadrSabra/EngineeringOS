@@ -71,6 +71,57 @@ export const ForensicRecoveryEnvelopeSchema = z
 
 export type ForensicRecoveryEnvelope = z.infer<typeof ForensicRecoveryEnvelopeSchema>;
 
+function recoveryNarrativeLanguageViolations(
+  envelope: ForensicRecoveryEnvelope,
+  responseLanguage: "ar" | "en",
+): string[] {
+  const values: Array<{ label: string; value: string }> = [];
+  for (const finding of envelope.findings) {
+    values.push(
+      { label: `finding ${finding.id} title`, value: finding.title },
+      { label: `finding ${finding.id} whyItMatters`, value: finding.whyItMatters },
+      { label: `finding ${finding.id} rootCause`, value: finding.rootCause },
+      { label: `finding ${finding.id} fix`, value: finding.fix },
+    );
+  }
+  envelope.repairPlan.forEach((phase, phaseIndex) => {
+    phase.steps.forEach((step, stepIndex) => {
+      values.push({
+        label: `repair phase ${phaseIndex + 1} step ${stepIndex + 1}`,
+        value: step,
+      });
+    });
+  });
+  envelope.validationChecklist.forEach((item, index) => {
+    values.push({ label: `validation checklist item ${index + 1}`, value: item });
+  });
+  if (envelope.noFindingBasis) {
+    values.push({ label: "noFindingBasis", value: envelope.noFindingBasis });
+  }
+
+  const violations: string[] = [];
+  for (const { label, value } of values) {
+    // Evidence fields are intentionally excluded above: exact source/code
+    // excerpts and identifiers may be English even in an Arabic report.
+    const prose = value
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/`[^`]*`/g, " ")
+      .replace(/\b(?:src|lib|app|test|tests)\/[\w./-]+\b/gi, " ")
+      .trim();
+    const hasArabic = /[\u0600-\u06FF]/.test(prose);
+    const hasLatin = /[A-Za-z]/.test(prose);
+    if (
+      (responseLanguage === "ar" && hasLatin && !hasArabic) ||
+      (responseLanguage === "en" && hasArabic && !hasLatin)
+    ) {
+      violations.push(
+        `${label} did not use the requested ${responseLanguage === "ar" ? "Arabic" : "English"} narrative language`,
+      );
+    }
+  }
+  return violations;
+}
+
 /**
  * Combine packet-local Recovery envelopes without allowing local Finding IDs
  * to collide in the final report. The returned envelope is still only a
@@ -450,7 +501,12 @@ export function buildStructuredForensicReport(
     cancelled?: boolean;
   } = {},
 ): string {
-  const isArabic = options.language === "ar";
+  const responseLanguage = options.language ?? evidence.responseLanguage ?? "en";
+  const reportEvidence =
+    evidence.responseLanguage !== responseLanguage
+      ? { ...evidence, responseLanguage }
+      : evidence;
+  const isArabic = responseLanguage === "ar";
   const noFindingSourceText = isArabic
     ? "لم يتم إثبات Finding موثوق من الشيفرة المصدرية التي جرى فحصها."
     : "No verified finding identified from inspected source code.";
@@ -467,14 +523,23 @@ export function buildStructuredForensicReport(
     ? "BLOCKED — لا ينطبق سيناريو تحقق سلوكي لأن أي Finding لم يُقبل."
     : "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.";
   const analysisIncomplete =
-    evidence.fileContents.size === 0 || evidence.sourceCoverage?.complete === false;
-  const emptyClassification =
+    evidence.fileContents.size === 0 ||
+    evidence.sourceCoverage?.complete === false ||
+    (evidence.incompleteFiles?.size ?? 0) > 0 ||
+    [...evidence.fileContents.values()].some((content) =>
+      /\[(?:prefetch output truncated|display truncated|output truncated)/i.test(content),
+    );
+  const requestedEmptyClassification =
     options.emptyVerdict === "NO FINDING"
       ? "NO_VERIFIED_FINDING"
       : options.emptyVerdict === "NOT PROVEN"
         ? "ANALYSIS_INCOMPLETE"
-        : options.emptyVerdict ??
-          (analysisIncomplete ? "ANALYSIS_INCOMPLETE" : "NO_VERIFIED_FINDING");
+        : options.emptyVerdict;
+  const emptyClassification =
+    analysisIncomplete && requestedEmptyClassification === "NO_VERIFIED_FINDING"
+      ? "ANALYSIS_INCOMPLETE"
+      : requestedEmptyClassification ??
+        (analysisIncomplete ? "ANALYSIS_INCOMPLETE" : "NO_VERIFIED_FINDING");
   const noFindingBehaviorChecks = isArabic
     ? [
         "- graph-empty: تحقق من أن الرسم البياني الفارغ لا ينتج Finding.",
@@ -621,7 +686,7 @@ export function buildStructuredForensicReport(
         : `${emptyClassification} — no verified Finding was established from the completed source reads.`,
     "",
     "## 2) Evidence Map",
-    ...buildForensicEvidenceMap(evidence, {
+    ...buildForensicEvidenceMap(reportEvidence, {
       findingAccepted: findings.length > 0,
       findingEvidence: findings.map((finding) => finding.evidence),
     }),
@@ -674,11 +739,25 @@ export function validateStructuredForensicRecovery(
   violations: string[];
   verdict: "FINDING_PROVEN" | "NO_FINDING" | "NOT_PROVEN";
 } {
+  const responseLanguage =
+    options.responseLanguage ?? evidence.responseLanguage ?? "en";
   const verdict = normalizeVerdict(envelope);
   const report = buildStructuredForensicReport(envelope, evidence, {
-    language: options.responseLanguage,
+    language: responseLanguage,
     allowPartialScopeFinding: options.allowPartialScopeFinding,
   });
+  const languageViolations = recoveryNarrativeLanguageViolations(
+    envelope,
+    responseLanguage,
+  );
+  if (languageViolations.length > 0) {
+    return {
+      accepted: false,
+      report,
+      verdict: "NOT_PROVEN",
+      violations: languageViolations,
+    };
+  }
   const executablePlan = buildExecutableRepairPlan(envelope, evidence);
   if (verdict === "NO_FINDING" && envelope.findings.length > 0) {
     return {
@@ -701,7 +780,11 @@ export function validateStructuredForensicRecovery(
       options.allowPartialScopeFinding === true &&
       evidence.sourceCoverage?.complete === false;
     if (partialScopeFinding) {
-      const contract = applyForensicOutputContract(report);
+      const contract = applyForensicOutputContract(
+        report,
+        evidence,
+        { responseLanguage: options.responseLanguage },
+      );
       if (!contract.valid) {
         return {
           accepted: false,
@@ -713,7 +796,10 @@ export function validateStructuredForensicRecovery(
       const evidenceGate = applyForensicEvidenceGate(
         contract.response,
         evidence,
-        { allowPartialScopeFinding: true },
+        {
+          allowPartialScopeFinding: true,
+          responseLanguage: options.responseLanguage,
+        },
       );
       return {
         accepted: evidenceGate.violations.length === 0,
@@ -744,7 +830,11 @@ export function validateStructuredForensicRecovery(
           ],
         };
       }
-      const contract = applyForensicOutputContract(report);
+      const contract = applyForensicOutputContract(
+        report,
+        evidence,
+        { responseLanguage: options.responseLanguage },
+      );
       if (!contract.valid) {
         return {
           accepted: false,
@@ -755,7 +845,11 @@ export function validateStructuredForensicRecovery(
             : ["Structured Recovery report failed its contract"],
         };
       }
-      const evidenceGate = applyForensicEvidenceGate(contract.response, evidence);
+      const evidenceGate = applyForensicEvidenceGate(
+        contract.response,
+        evidence,
+        { responseLanguage: options.responseLanguage },
+      );
       return {
         accepted: evidenceGate.violations.length === 0,
         report: evidenceGate.response,
@@ -824,7 +918,11 @@ export function validateStructuredForensicRecovery(
   // deterministic map as "rebuilt" and discard otherwise valid Findings/plan
   // phases. Validate the report shape without re-repairing its map, then use
   // the evidence gate for the only model-authored claims: Findings.
-  const contract = applyForensicOutputContract(report);
+  const contract = applyForensicOutputContract(
+    report,
+    evidence,
+    { responseLanguage: options.responseLanguage },
+  );
   if (!contract.valid) {
     return {
       accepted: false,
@@ -836,7 +934,11 @@ export function validateStructuredForensicRecovery(
     };
   }
 
-  const evidenceGate = applyForensicEvidenceGate(contract.response, evidence);
+  const evidenceGate = applyForensicEvidenceGate(
+    contract.response,
+    evidence,
+    { responseLanguage: options.responseLanguage },
+  );
   return {
     accepted: evidenceGate.violations.length === 0,
     report: evidenceGate.response,

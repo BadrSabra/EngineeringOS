@@ -10,6 +10,7 @@ import {
   validateStructuredForensicRecovery,
   type ForensicRecoveryEnvelope,
 } from "../forensic-recovery.js";
+import { assertArabicForensicFixture } from "./fixture-guards.js";
 
 const sourcePath = "lib/ai-orchestrator/src/__tests__/fixtures/known-defect.ts";
 const source = readFileSync(new URL("./fixtures/known-defect.ts", import.meta.url), "utf8");
@@ -21,6 +22,54 @@ const evidence = {
 };
 
 describe("staged forensic Recovery", () => {
+  it("keeps exhausted Arabic Recovery evidence-only and truthful", () => {
+    const prompt = "راجع هذا السلوك في تدقيق جنائي كامل.";
+    const report = buildStructuredForensicReport(
+      EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+      {
+        ...evidence,
+        responseLanguage: "ar" as const,
+        sourceCoverage: { complete: false, roots: [] },
+      },
+      { emptyVerdict: "ANALYSIS_INCOMPLETE", language: "ar" },
+    );
+    const guarded = assertArabicForensicFixture(prompt, report, "arabic-recovery-fallback");
+
+    expect(guarded).toContain("ANALYSIS_INCOMPLETE");
+    expect(guarded).toContain("## 1) Executive Verdict");
+    expect(guarded).toContain("## 6) Final Judgment");
+    expect(guarded).not.toContain("لغة الطلب");
+    expect(guarded).not.toContain("FINDING PROVEN");
+  });
+
+  it("rejects an English structured Recovery candidate for an Arabic request", () => {
+    const result = validateStructuredForensicRecovery(
+      {
+        verdict: "FINDING_PROVEN",
+        findings: [{
+          id: "F-01",
+          title: "Dynamic evaluation executes untrusted input",
+          files: [sourcePath],
+          evidence: "`return eval(expression);`",
+          whyItMatters: "Input can execute arbitrary code.",
+          rootCause: "The implementation evaluates the caller-provided string directly.",
+          fix: "Replace dynamic evaluation with an allow-listed parser.",
+        }],
+        repairPlan: [{
+          findingId: "F-01",
+          steps: ["Replace dynamic evaluation with an allow-listed parser."],
+        }],
+        validationChecklist: ["Run the security test."],
+      },
+      { ...evidence, responseLanguage: "ar" as const },
+      { responseLanguage: "ar" },
+    );
+
+    expect(result.accepted).toBe(false);
+    expect(result.verdict).toBe("NOT_PROVEN");
+    expect(result.violations.some((violation) => violation.includes("Arabic"))).toBe(true);
+  });
+
   it("keeps Arabic empty-result classifications and the six-section contract", () => {
     const envelope: ForensicRecoveryEnvelope = {
       verdict: "NO_FINDING",

@@ -105,6 +105,21 @@ describe("forensic prompt safety", () => {
     expect(prompt).toContain("do not emit the six-section forensic report");
   });
 
+  it("repeats the Arabic narrative requirement in the final forensic schema lock", () => {
+    const prompt = buildChatSystemPrompt({
+      context: makeContext(),
+      hasTools: true,
+      structuredOutputMode: true,
+      outputContract: "FORENSIC_REPORT",
+      responseLanguage: "ar",
+    });
+
+    expect(prompt).toContain("Natural-language requirement:");
+    expect(prompt).toContain("Write all explanatory report prose, status explanations, and deterministic conclusions in Arabic");
+    expect(prompt).toContain("Keep these unchanged in English");
+    expect(prompt).toContain("exact source/code excerpts");
+  });
+
   it("suppresses historical session memory for evidence-bound prompts", () => {
     const prompt = buildChatSystemPrompt({
       context: {

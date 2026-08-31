@@ -77,6 +77,8 @@ export type ForensicEvidence = {
   compoundParts?: readonly CompoundReportPart[];
   /** User-request language used by deterministic compound fallbacks. */
   compoundLanguage?: "ar" | "en";
+  /** User-request language used by every deterministic forensic fallback. */
+  responseLanguage?: "ar" | "en";
 };
 
 type EvidenceMessage = {
@@ -172,6 +174,25 @@ const DISPLAY_TRUNCATION_MARKERS = [
 
 function hasDisplayTruncationMarker(content: string): boolean {
   return DISPLAY_TRUNCATION_MARKERS.some((pattern) => pattern.test(content));
+}
+
+function validateResponseLanguageForensic(
+  response: string,
+  responseLanguage: "ar" | "en",
+): string[] {
+  const prose = response
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]*`/g, " ")
+    .trim();
+  const hasArabic = /[\u0600-\u06FF]/.test(prose);
+  const hasLatin = /[A-Za-z]/.test(prose);
+  if (responseLanguage === "ar" && hasLatin && !hasArabic) {
+    return ["response used English prose for an Arabic request"];
+  }
+  if (responseLanguage === "en" && hasArabic && !hasLatin) {
+    return ["response used Arabic prose for an English request"];
+  }
+  return [];
 }
 
 /**
@@ -962,10 +983,20 @@ function repairPlanContractViolations(response: string): string[] {
 
 function fallbackEvidenceMap(
   evidence?: ForensicEvidence,
-  options: { findingAccepted?: boolean; findingEvidence?: string[] } = {},
+  options: {
+    findingAccepted?: boolean;
+    findingEvidence?: string[];
+    responseLanguage?: "ar" | "en";
+  } = {},
 ): string[] {
+  const isArabic =
+    (options.responseLanguage ?? evidence?.responseLanguage) === "ar";
   if (!evidence || evidence.fileContents.size === 0) {
-    return ["No verified evidence map was produced because no completed source-file read was available."];
+    return [
+      isArabic
+        ? "لم يتم إنتاج خريطة أدلة موثوقة لعدم توفر قراءة مكتملة لملف مصدر."
+        : "No verified evidence map was produced because no completed source-file read was available.",
+    ];
   }
 
   const classifyEvidenceFile = (file: string): "implementation" | "context" | "generated" => {
@@ -985,9 +1016,15 @@ function fallbackEvidenceMap(
     { implementation: 0, context: 0, generated: 0 },
   );
   const inventoryLine = [
-    `Evidence inventory: ${inventory.implementation} implementation file(s)`,
-    `${inventory.context} context/config file(s)`,
-    `${inventory.generated} generated artifact(s).`,
+    isArabic
+      ? `جرد الأدلة: ${inventory.implementation} ملف تنفيذ`
+      : `Evidence inventory: ${inventory.implementation} implementation file(s)`,
+    isArabic
+      ? `${inventory.context} ملف سياق/إعداد`
+      : `${inventory.context} context/config file(s)`,
+    isArabic
+      ? `${inventory.generated} أثر مولد.`
+      : `${inventory.generated} generated artifact(s).`,
   ].join(" · ");
 
   return [
@@ -1028,22 +1065,40 @@ function fallbackEvidenceMap(
         ? lines.map((line) => line.trim()).find((line) => line.includes(acceptedEvidence))
         : undefined;
       const reference = hasDisplayTruncationMarker(content)
-        ? `completed read_file result; display truncation marker detected; targeted complete read required (read proof only; no behavioral finding accepted)`
+        ? isArabic
+          ? "نتيجة read_file مكتملة؛ وُجد مؤشر اقتطاع العرض؛ تلزم قراءة كاملة مستهدفة (إثبات قراءة فقط؛ لم يُقبل Finding سلوكي)"
+          : `completed read_file result; display truncation marker detected; targeted complete read required (read proof only; no behavioral finding accepted)`
         : options.findingAccepted && acceptedEvidence
-        ? `completed read_file result; exact Finding evidence: \`${(acceptedEvidenceLine ?? acceptedEvidence).slice(0, 180)}\` (exact source evidence used by the accepted Finding)`
+        ? isArabic
+          ? `نتيجة read_file مكتملة؛ دليل Finding المطابق: \`${(acceptedEvidenceLine ?? acceptedEvidence).slice(0, 180)}\` (دليل المصدر المطابق المستخدم في Finding المقبول)`
+          : `completed read_file result; exact Finding evidence: \`${(acceptedEvidenceLine ?? acceptedEvidence).slice(0, 180)}\` (exact source evidence used by the accepted Finding)`
         : behavioralCode
-        ? `completed read_file result; executable source fragment at line ${behavioralCode.lineNumber}: \`${behavioralCode.line.slice(0, 180)}\` ${
-            options.findingAccepted
-              ? "(exact source evidence used by the accepted Finding)"
-              : "(read proof only; no behavioral finding accepted)"
-          }`
-        : firstCode
-          ? `completed read_file result; source fragment at line ${firstCode.lineNumber}: \`${firstCode.line.slice(0, 180)}\` ${
+        ? isArabic
+          ? `نتيجة read_file مكتملة؛ مقتطف مصدر قابل للتنفيذ في السطر ${behavioralCode.lineNumber}: \`${behavioralCode.line.slice(0, 180)}\` ${
               options.findingAccepted
-                ? "(source evidence retained for the accepted Finding)"
+                ? "(دليل المصدر المطابق المستخدم في Finding المقبول)"
+                : "(إثبات قراءة فقط؛ لم يُقبل Finding سلوكي)"
+            }`
+          : `completed read_file result; executable source fragment at line ${behavioralCode.lineNumber}: \`${behavioralCode.line.slice(0, 180)}\` ${
+              options.findingAccepted
+                ? "(exact source evidence used by the accepted Finding)"
                 : "(read proof only; no behavioral finding accepted)"
             }`
-        : "completed read_file result; no verifiable source fragment was available";
+        : firstCode
+          ? isArabic
+            ? `نتيجة read_file مكتملة؛ مقتطف مصدر في السطر ${firstCode.lineNumber}: \`${firstCode.line.slice(0, 180)}\` ${
+                options.findingAccepted
+                  ? "(دليل المصدر محفوظ للـFinding المقبول)"
+                  : "(إثبات قراءة فقط؛ لم يُقبل Finding سلوكي)"
+              }`
+            : `completed read_file result; source fragment at line ${firstCode.lineNumber}: \`${firstCode.line.slice(0, 180)}\` ${
+                options.findingAccepted
+                  ? "(source evidence retained for the accepted Finding)"
+                  : "(read proof only; no behavioral finding accepted)"
+              }`
+        : isArabic
+          ? "نتيجة read_file مكتملة؛ لم يتوفر مقتطف مصدر قابل للتحقق"
+          : "completed read_file result; no verifiable source fragment was available";
       const category = classifyEvidenceFile(file);
       const isConfig = category === "context";
       const isGenerated = category === "generated";
@@ -1055,20 +1110,38 @@ function fallbackEvidenceMap(
         : "NOT PROVEN · INCOMPLETE_READ";
       const role = options.findingAccepted
         ? isGenerated
-          ? "generated artifact read during the forensic scan; not the Finding source"
+          ? isArabic
+            ? "أثر مولد قُرئ أثناء التدقيق؛ ليس مصدر Finding"
+            : "generated artifact read during the forensic scan; not the Finding source"
           : isConfig
-          ? "project configuration read during the forensic scan; not the Finding source"
-          : "implementation source read during the forensic scan; exact evidence linked to an accepted Finding"
+          ? isArabic
+            ? "إعداد المشروع قُرئ أثناء التدقيق؛ ليس مصدر Finding"
+            : "project configuration read during the forensic scan; not the Finding source"
+          : isArabic
+            ? "مصدر تنفيذ قُرئ أثناء التدقيق؛ الدليل المطابق مرتبط بـFinding مقبول"
+            : "implementation source read during the forensic scan; exact evidence linked to an accepted Finding"
         : isConfig
-          ? "project configuration read during the forensic scan; no behavioral inference made"
+          ? isArabic
+            ? "إعداد المشروع قُرئ أثناء التدقيق؛ لم يُستنتج سلوك"
+            : "project configuration read during the forensic scan; no behavioral inference made"
           : isGenerated
-            ? "generated artifact read during the forensic scan; no behavioral inference made"
-          : "implementation source read during the forensic scan; no behavioral inference made";
+            ? isArabic
+              ? "أثر مولد قُرئ أثناء التدقيق؛ لم يُستنتج سلوك"
+              : "generated artifact read during the forensic scan; no behavioral inference made"
+            : isArabic
+              ? "مصدر تنفيذ قُرئ أثناء التدقيق؛ لم يُستنتج سلوك"
+              : "implementation source read during the forensic scan; no behavioral inference made";
       const risk = options.findingAccepted
-        ? "the cited source fragment was verified against the completed read and accepted by the evidence gate"
+        ? isArabic
+          ? "تم التحقق من مقتطف المصدر المذكور مقابل القراءة المكتملة وقبلته بوابة الأدلة"
+          : "the cited source fragment was verified against the completed read and accepted by the evidence gate"
         : firstCode
-          ? "the source was read, but no executable finding was accepted from the rejected report; targeted analysis is still required"
-          : "the file read did not expose a verifiable source fragment";
+          ? isArabic
+            ? "تمت قراءة المصدر، لكن لم يُقبل Finding قابل للتنفيذ من التقرير المرفوض؛ ما زال التحليل المستهدف مطلوبًا"
+            : "the source was read, but no executable finding was accepted from the rejected report; targeted analysis is still required"
+          : isArabic
+            ? "لم تكشف قراءة الملف عن مقتطف مصدر قابل للتحقق"
+            : "the file read did not expose a verifiable source fragment";
       return [
         `File: \`${file}\`  `,
         `Role: ${role}  `,
@@ -1423,6 +1496,7 @@ function repairContractFromEvidence(
   response: string,
   evidence: ForensicEvidence | undefined,
   violations: string[],
+  responseLanguage?: "ar" | "en",
 ): string | null {
   const repairable = violations.every((reason) =>
     reason.startsWith("Evidence Map") ||
@@ -1436,6 +1510,10 @@ function repairContractFromEvidence(
     reason.includes("Every accepted Finding requires a behavior-specific validation checklist") ||
     reason.includes("Validation Checklist is generic"),
   );
+  // A language mismatch cannot be repaired by removing malformed sections:
+  // doing so could turn an English-only provider report into an apparently
+  // accepted Arabic audit. Use the language-aware deterministic fallback.
+  if (violations.some((reason) => reason.startsWith("response used "))) return null;
   if (!repairable) return null;
   if (!evidence || evidence.fileContents.size === 0) return null;
 
@@ -1468,7 +1546,12 @@ function repairContractFromEvidence(
       repaired,
       FORENSIC_SECTION_HEADERS[1],
       FORENSIC_SECTION_HEADERS[2],
-      fallbackEvidenceMap(evidence).join("\n"),
+      fallbackEvidenceMap(
+        responseLanguage && evidence
+          ? { ...evidence, responseLanguage }
+          : evidence,
+        { responseLanguage },
+      ).join("\n"),
     );
   }
 
@@ -1482,7 +1565,9 @@ function repairContractFromEvidence(
       repaired,
       FORENSIC_SECTION_HEADERS[0],
       FORENSIC_SECTION_HEADERS[1],
-      "NOT PROVEN — the available source evidence does not establish a broad quality or completeness claim.",
+      responseLanguage === "ar"
+        ? "NOT PROVEN — لا تثبت أدلة المصدر المتاحة ادعاءً واسعًا عن الجودة أو الاكتمال."
+        : "NOT PROVEN — the available source evidence does not establish a broad quality or completeness claim.",
     );
   }
 
@@ -1491,14 +1576,18 @@ function repairContractFromEvidence(
       repaired,
       FORENSIC_SECTION_HEADERS[2],
       FORENSIC_SECTION_HEADERS[3],
-      "No verified finding identified from inspected source code.",
+      responseLanguage === "ar"
+        ? "لم يتم إثبات Finding موثوق من الشيفرة المصدرية التي جرى فحصها."
+        : "No verified finding identified from inspected source code.",
     );
     if (headerCount(repaired, FORENSIC_SECTION_HEADERS[4]) === 1) {
       repaired = replaceSection(
         repaired,
         FORENSIC_SECTION_HEADERS[4],
         FORENSIC_SECTION_HEADERS[5],
-        "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.",
+        responseLanguage === "ar"
+          ? "BLOCKED — لا ينطبق سيناريو تحقق سلوكي لأن أي Finding لم يُقبل."
+          : "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.",
       );
     }
   }
@@ -1508,7 +1597,9 @@ function repairContractFromEvidence(
       repaired,
       FORENSIC_SECTION_HEADERS[3],
       FORENSIC_SECTION_HEADERS[4],
-      "No repair phases identified because no executable Finding was accepted.",
+      responseLanguage === "ar"
+        ? "لا توجد مراحل إصلاح قابلة للتنفيذ لأن أي Finding لم يُقبل."
+        : "No repair phases identified because no executable Finding was accepted.",
     );
   }
 
@@ -1523,50 +1614,90 @@ function repairContractFromEvidence(
       repaired,
       FORENSIC_SECTION_HEADERS[5],
       "",
-      "NOT PROVEN — the available evidence does not establish a repair scope or numeric quality score.",
+      responseLanguage === "ar"
+        ? "NOT PROVEN — لا تثبت الأدلة المتاحة نطاق إصلاح أو درجة جودة رقمية."
+        : "NOT PROVEN — the available evidence does not establish a repair scope or numeric quality score.",
     );
   }
 
   return contractViolations(repaired, evidence).length === 0 ? repaired : null;
 }
 
-function safeForensicContractFallback(evidence?: ForensicEvidence): string {
+function safeForensicContractFallback(
+  evidence?: ForensicEvidence,
+  responseLanguage?: "ar" | "en",
+): string {
+  const language = responseLanguage ?? evidence?.responseLanguage ?? "en";
+  const isArabic = language === "ar";
   const hasCompletedEvidence = (evidence?.fileContents.size ?? 0) > 0;
-  const classification = hasCompletedEvidence
+  const evidenceIncomplete =
+    evidence?.sourceCoverage?.complete === false ||
+    (evidence?.incompleteFiles?.size ?? 0) > 0 ||
+    [...(evidence?.fileContents.values() ?? [])].some(hasDisplayTruncationMarker);
+  const classification = hasCompletedEvidence && !evidenceIncomplete
     ? "NO_VERIFIED_FINDING"
     : "ANALYSIS_INCOMPLETE";
-  const executiveVerdict = hasCompletedEvidence
-    ? `${classification} — no verified Finding was established from the completed source reads.`
-    : `${classification} — the analysis could not establish a Finding because no completed source-file read was available.`;
-  const validation = hasCompletedEvidence
-    ? [
-        "- Graph empty: verify the audit remains safe when the knowledge graph has no nodes.",
-        "- Invalid relationship: reject relationships whose endpoints are invalid or disconnected.",
-        "- Missing provenance: reject evidence and edges that lack source provenance.",
-        "- Nonexistent node: return a bounded no-finding result for a node that is not present.",
-      ].join("\n")
-    : [
-        "- BLOCKED — graph-empty behavior cannot be verified without a completed source read.",
-        "- BLOCKED — invalid-relationship behavior cannot be verified without a completed source read.",
-        "- BLOCKED — missing-provenance behavior cannot be verified without a completed source read.",
-        "- BLOCKED — nonexistent-node behavior cannot be verified without a completed source read.",
-      ].join("\n");
-  const finalJudgment = hasCompletedEvidence
-    ? `${classification} — completed source reads were preserved, but no verified defect was established. No Repair Plan is executable.`
-    : `${classification} — the report could not be verified because source evidence is incomplete. No Repair Plan is executable.`;
+  const executiveVerdict = hasCompletedEvidence && !evidenceIncomplete
+    ? isArabic
+      ? `${classification} — لم يتم إثبات Finding موثوق من قراءات المصدر المكتملة.`
+      : `${classification} — no verified Finding was established from the completed source reads.`
+    : isArabic
+      ? `${classification} — تعذر إثبات Finding لأن قراءة مكتملة لملف مصدر لم تكن متاحة.`
+      : `${classification} — the analysis could not establish a Finding because no completed source-file read was available.`;
+  const validation = hasCompletedEvidence && !evidenceIncomplete
+    ? isArabic
+      ? [
+          "- graph-empty: تحقق من بقاء التدقيق آمنًا عندما لا يحتوي knowledge graph على عقد.",
+          "- invalid-relationship: ارفض العلاقات التي تملك أطرافًا غير صالحة أو غير متصلة.",
+          "- missing-provenance: ارفض الأدلة والحواف التي تفتقد source provenance.",
+          "- nonexistent-node: أعد نتيجة محدودة بلا Finding للعقدة غير الموجودة.",
+        ].join("\n")
+      : [
+          "- Graph empty: verify the audit remains safe when the knowledge graph has no nodes.",
+          "- Invalid relationship: reject relationships whose endpoints are invalid or disconnected.",
+          "- Missing provenance: reject evidence and edges that lack source provenance.",
+          "- Nonexistent node: return a bounded no-finding result for a node that is not present.",
+        ].join("\n")
+    : isArabic
+      ? [
+          "- BLOCKED — لا يمكن التحقق من سلوك graph-empty دون قراءة مكتملة لملف مصدر.",
+          "- BLOCKED — لا يمكن التحقق من سلوك invalid-relationship دون قراءة مكتملة لملف مصدر.",
+          "- BLOCKED — لا يمكن التحقق من سلوك missing-provenance دون قراءة مكتملة لملف مصدر.",
+          "- BLOCKED — لا يمكن التحقق من سلوك nonexistent-node دون قراءة مكتملة لملف مصدر.",
+        ].join("\n")
+      : [
+          "- BLOCKED — graph-empty behavior cannot be verified without a completed source read.",
+          "- BLOCKED — invalid-relationship behavior cannot be verified without a completed source read.",
+          "- BLOCKED — missing-provenance behavior cannot be verified without a completed source read.",
+          "- BLOCKED — nonexistent-node behavior cannot be verified without a completed source read.",
+        ].join("\n");
+  const finalJudgment = hasCompletedEvidence && !evidenceIncomplete
+    ? isArabic
+      ? `${classification} — حُفظت قراءات المصدر المكتملة، لكن لم يُثبت عيب موثوق. لا توجد Repair Plan قابلة للتنفيذ.`
+      : `${classification} — completed source reads were preserved, but no verified defect was established. No Repair Plan is executable.`
+    : isArabic
+      ? `${classification} — تعذر التحقق من التقرير لأن دليل المصدر غير مكتمل. لا توجد Repair Plan قابلة للتنفيذ.`
+      : `${classification} — the report could not be verified because source evidence is incomplete. No Repair Plan is executable.`;
 
   return [
     "## 1) Executive Verdict",
     executiveVerdict,
     "",
     "## 2) Evidence Map",
-    ...fallbackEvidenceMap(evidence),
+    ...fallbackEvidenceMap(
+      responseLanguage && evidence ? { ...evidence, responseLanguage } : evidence,
+      { responseLanguage },
+    ),
     "",
     "## 3) Findings",
-    "No verified finding identified from inspected source code.",
+    isArabic
+      ? "لم يتم إثبات Finding موثوق من الشيفرة المصدرية التي جرى فحصها."
+      : "No verified finding identified from inspected source code.",
     "",
     "## 4) Repair Plan",
-    "No repair phases identified because no executable Finding was accepted.",
+    isArabic
+      ? "لا توجد مراحل إصلاح قابلة للتنفيذ لأن أي Finding لم يُقبل."
+      : "No repair phases identified because no executable Finding was accepted.",
     "",
     "## 5) Validation Checklist",
     validation,
@@ -1577,9 +1708,12 @@ function safeForensicContractFallback(evidence?: ForensicEvidence): string {
 }
 
 function compoundForensicContractFallback(evidence: ForensicEvidence): string {
-  const isArabic = evidence.compoundParts?.some((part) =>
-    /[\u0600-\u06FF]/.test(`${part.id} ${part.question}`),
-  ) ?? false;
+  const isArabic =
+    evidence.responseLanguage === "ar" ||
+    evidence.compoundLanguage === "ar" ||
+    (evidence.compoundParts?.some((part) =>
+      /[\u0600-\u06FF]/.test(`${part.id} ${part.question}`),
+    ) ?? false);
   const parts = evidence.compoundParts ?? [];
   const coverage = parts.map((part) => [
     `${part.id} (${part.kind}): ${isArabic ? "غير مثبت — لا توجد قراءة مكتملة تثبت هذا الجزء." : "NOT PROVEN — no completed read establishes this part."}`,
@@ -1587,7 +1721,9 @@ function compoundForensicContractFallback(evidence: ForensicEvidence): string {
     "INFERENCE: NOT PROVEN",
     "PROPOSAL: NOT PROVEN",
   ].join("\n")).join("\n\n");
-  const evidenceMap = fallbackEvidenceMap(evidence).join("\n");
+  const evidenceMap = fallbackEvidenceMap(evidence, {
+    responseLanguage: isArabic ? "ar" : "en",
+  }).join("\n");
   return [
     "## 1) Executive Verdict",
     isArabic
@@ -1607,7 +1743,9 @@ function compoundForensicContractFallback(evidence: ForensicEvidence): string {
     isArabic ? "ANALYSIS_INCOMPLETE — يجب إكمال كل جزء من السؤال وقراءة مصدره." : "ANALYSIS_INCOMPLETE — each requested part must be completed from a retained read.",
     "",
     "## 6) Final Judgment",
-    "NOT PROVEN — compound report coverage or citation integrity was not established.",
+    isArabic
+      ? "NOT PROVEN — لم يتم إثبات تغطية أجزاء التقرير المركب أو سلامة الاستشهادات."
+      : "NOT PROVEN — compound report coverage or citation integrity was not established.",
   ].join("\n");
 }
 
@@ -1619,18 +1757,37 @@ function compoundForensicContractFallback(evidence: ForensicEvidence): string {
 export function applyForensicOutputContract(
   response: string,
   evidence?: ForensicEvidence,
+  options: { responseLanguage?: "ar" | "en" } = {},
 ): ForensicContractResult {
+  const responseLanguage = options.responseLanguage ?? evidence?.responseLanguage;
   const normalizedResponse =
     normalizeCompactForensicReport(response, evidence) ??
     normalizeForensicSectionHeadings(stripRecoveryMetadata(response)) ??
     stripRecoveryMetadata(response);
-  const violations = contractViolations(normalizedResponse, evidence);
+  const languageViolations = responseLanguage
+    ? (() => {
+        const result = validateResponseLanguageForensic(
+          normalizedResponse,
+          responseLanguage,
+        );
+        return result;
+      })()
+    : [];
+  const violations = [
+    ...languageViolations,
+    ...contractViolations(normalizedResponse, evidence),
+  ];
 
   if (violations.length === 0) {
     return { response: normalizedResponse, valid: true, violations: [] };
   }
 
-  const repaired = repairContractFromEvidence(normalizedResponse, evidence, violations);
+  const repaired = repairContractFromEvidence(
+    normalizedResponse,
+    evidence,
+    violations,
+    responseLanguage,
+  );
   if (repaired) {
     console.info(
       JSON.stringify({
@@ -1647,7 +1804,11 @@ export function applyForensicOutputContract(
     violations.some((reason) => reason.startsWith("compound part"))
   ) {
     return {
-      response: compoundForensicContractFallback(evidence),
+      response: compoundForensicContractFallback(
+        responseLanguage && evidence
+          ? { ...evidence, responseLanguage }
+          : evidence!,
+      ),
       valid: true,
       violations: [],
       evidenceMapRebuilt: true,
@@ -1665,7 +1826,10 @@ export function applyForensicOutputContract(
     evidence.fileContents.size > 0 &&
     violations.some((reason) => reason.startsWith("Evidence Map"))
   ) {
-    const deterministicFallback = safeForensicContractFallback(evidence);
+    const deterministicFallback = safeForensicContractFallback(
+      evidence,
+      responseLanguage,
+    );
     console.info(
       JSON.stringify({
         scope: "forensic-output-guard",
@@ -1689,7 +1853,7 @@ export function applyForensicOutputContract(
     }),
   );
   return {
-    response: safeForensicContractFallback(evidence),
+    response: safeForensicContractFallback(evidence, responseLanguage),
     valid: false,
     violations,
   };
@@ -1702,8 +1866,12 @@ export function applyForensicOutputContract(
 export function applyForensicEvidenceGate(
   response: string,
   evidence: ForensicEvidence,
-  options: { allowPartialScopeFinding?: boolean } = {},
+  options: {
+    allowPartialScopeFinding?: boolean;
+    responseLanguage?: "ar" | "en";
+  } = {},
 ): ForensicGateResult {
+  const isArabic = (options.responseLanguage ?? evidence.responseLanguage) === "ar";
   const blocks = findingBlocks(response);
   if (blocks.length === 0) return { response, violations: [] };
 
@@ -1759,8 +1927,11 @@ export function applyForensicEvidenceGate(
       end,
       text:
         `${downgraded}\n` +
-        `* Evidence Gate: NOT PROVEN — ${reasons.join("; ")}. ` +
-        "Verify the source and reproduce the failure before proposing a repair.",
+        `* Evidence Gate: NOT PROVEN — ${
+          isArabic
+            ? `لم يُقبل هذا Finding لأن بوابة الأدلة رفضت الدليل أو نطاق المصدر: ${reasons.join("; ")}. تحقّق من المصدر وأعد إنتاج الفشل قبل اقتراح إصلاح.`
+            : `${reasons.join("; ")}. Verify the source and reproduce the failure before proposing a repair.`
+        }`,
     };
   });
 
@@ -1777,7 +1948,9 @@ export function applyForensicEvidenceGate(
     });
     gated = rewriteFinalJudgment(
       gated,
-      "NOT PROVEN — one or more candidate Findings failed the evidence or semantic gate. Blocked repair phases are not executable.",
+      isArabic
+        ? "NOT PROVEN — لم تجتز Findings المرشحة بوابة الأدلة أو الدلالة. مراحل الإصلاح المحجوبة غير قابلة للتنفيذ."
+        : "NOT PROVEN — one or more candidate Findings failed the evidence or semantic gate. Blocked repair phases are not executable.",
     );
     console.warn(
       JSON.stringify({
@@ -1807,6 +1980,7 @@ export function collectForensicEvidence(
   requireCompleteReadEvidence = false,
   compoundParts?: readonly CompoundReportPart[],
   compoundLanguage?: "ar" | "en",
+  responseLanguage?: "ar" | "en",
 ): ForensicEvidence {
   const fileContents = new Map<string, string>();
   const incompleteFiles = new Set<string>();
@@ -1900,5 +2074,10 @@ export function collectForensicEvidence(
     requireCompleteReadEvidence,
     ...(compoundParts?.length ? { compoundParts } : {}),
     ...(compoundLanguage ? { compoundLanguage } : {}),
+    ...(responseLanguage
+      ? { responseLanguage }
+      : compoundLanguage
+        ? { responseLanguage: compoundLanguage }
+        : {}),
   };
 }

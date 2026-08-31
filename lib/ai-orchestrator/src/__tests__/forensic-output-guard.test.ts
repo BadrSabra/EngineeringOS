@@ -26,6 +26,87 @@ function readEvidence(path: string, content: string) {
 }
 
 describe("forensic output evidence gate", () => {
+  it("uses Arabic for deterministic contract fallbacks without weakening the six-section gate", () => {
+    const result = applyForensicOutputContract(
+      "تقرير عربي غير مكتمل",
+      undefined,
+      { responseLanguage: "ar" },
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.response).toContain("## 1) Executive Verdict");
+    expect(result.response).toContain("## 6) Final Judgment");
+    expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(result.response).toContain("تعذر التحقق");
+    expect(result.response).not.toContain("لغة الطلب");
+  });
+
+  it("localizes evidence-map rebuilds while retaining exact source paths and snippets", () => {
+    const evidence = {
+      ...readEvidence("src/runtime.ts", "export const runtime = true;\n"),
+      responseLanguage: "ar" as const,
+    };
+    const result = applyForensicOutputContract(
+      [
+        "## 1) Executive Verdict",
+        "تقرير غير مكتمل.",
+        "## 2) Evidence Map",
+        "File: `src/not-read.ts`",
+        "Role: implementation",
+        "Evidence: `const missing = true`",
+        "Risk: unknown",
+        "Notes: FACT",
+        "## 3) Findings",
+        "لا يوجد Finding مثبت.",
+        "## 4) Repair Plan",
+        "لا توجد خطة.",
+        "## 5) Validation Checklist",
+        "ANALYSIS_INCOMPLETE",
+        "## 6) Final Judgment",
+        "NOT PROVEN — التقرير غير مكتمل.",
+      ].join("\n"),
+      evidence,
+      { responseLanguage: "ar" },
+    );
+
+    expect(result.evidenceMapRebuilt).toBe(true);
+    expect(result.response).toContain("src/runtime.ts");
+    expect(result.response).toContain("جرد الأدلة");
+    expect(result.response).not.toContain("No verified forensic verdict was produced");
+  });
+
+  it("reports Arabic evidence-gate blocks without the language-mismatch diagnosis", () => {
+    const evidence = {
+      ...readEvidence("src/runtime.ts", "export const runtime = true;\n"),
+      responseLanguage: "ar" as const,
+      sourceCoverage: {
+        complete: false,
+        roots: [],
+        reason: "the requested scope was only partially read",
+      },
+    };
+    const result = applyForensicEvidenceGate(
+      [
+        "## 3) Findings",
+        "ID: F-01 · Runtime defect",
+        "* File(s): `src/runtime.ts`",
+        "* Evidence: `export const runtime = true;`",
+        "* Why it matters: السلوك غير آمن.",
+        "* Root cause: الحماية ناقصة.",
+        "* Fix: أصلح الحماية.",
+        "",
+        "## 4) Repair Plan",
+        "Phase 1 (F-01): أصلح الحماية.",
+      ].join("\n"),
+      evidence,
+      { responseLanguage: "ar" },
+    );
+
+    expect(result.response).toContain("لم يُقبل هذا Finding");
+    expect(result.response).toContain("NOT PROVEN");
+    expect(result.response).not.toContain("لغة الطلب");
+  });
+
   it("downgrades Findings when the requested forensic scope is only partially read", () => {
     const evidence = {
       ...readEvidence("src/runtime.ts", "export const runtime = true;\n"),
@@ -638,6 +719,8 @@ describe("forensic output evidence gate", () => {
     expect(fallback.response).toContain("Notes: NOT PROVEN");
     expect(fallback.response).toContain("display truncation marker");
     expect(fallback.response).toContain("targeted complete read required");
+    expect(fallback.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(fallback.response).not.toContain("NO_VERIFIED_FINDING");
     expect(fallback.response).not.toContain("Notes: FACT");
     expect(applyForensicOutputContract(fallback.response, evidence).valid).toBe(true);
   });

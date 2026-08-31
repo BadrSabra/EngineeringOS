@@ -79,3 +79,4 @@
 - [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.
 - [CI private-key scan safety](ci-private-key-scan.md) — tracked-file security scans must skip non-regular paths and cap content reads.
 - [Dashboard effect fixtures](dashboard-test-effect-fixtures.md) — Strict Mode replay needs fresh network responses and cleanup-safe in-flight markers.
+- [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
