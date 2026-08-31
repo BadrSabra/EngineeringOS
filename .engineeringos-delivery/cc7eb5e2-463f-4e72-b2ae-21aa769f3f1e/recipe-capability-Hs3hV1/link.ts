@@ -1,1 +1,0 @@
-/tmp/recipe-capability-outside-xpv4ek/secret.ts

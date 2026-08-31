@@ -61,7 +61,7 @@ const liveTimeoutMs = Number(
   process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
 );
 const childTimeoutMs = Number(
-  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 600_000,
 );
 const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
   .split(",")

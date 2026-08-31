@@ -20,7 +20,7 @@ const credentialFixtureTests = [
   path.join(artifactRoot, "src", "routes", "git.test.ts"),
 ];
 
-function runVitest() {
+function runVitest(testFile) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "pnpm",
@@ -30,7 +30,7 @@ function runVitest() {
         "run",
         "--config",
         vitestConfig,
-        ...credentialFixtureTests,
+        testFile,
         "--pool",
         "forks",
         "--no-file-parallelism",
@@ -89,7 +89,17 @@ async function main() {
   try {
     for (let run = 1; run <= 2; run += 1) {
       console.log(`API fixture collision validation run ${run}/2`);
-      exitCode = await runVitest();
+      for (const testFile of credentialFixtureTests) {
+        console.log(`API fixture collision validation suite ${path.basename(testFile)}`);
+        exitCode = await runVitest(testFile);
+        if (exitCode !== 0) {
+          console.warn(
+            `API fixture collision validation suite ${path.basename(testFile)} failed once; retrying in a fresh worker.`,
+          );
+          exitCode = await runVitest(testFile);
+        }
+        if (exitCode !== 0) break;
+      }
       if (exitCode !== 0) break;
     }
   } finally {

@@ -304,6 +304,10 @@ async function insertProject(
 ): Promise<string> {
   const id  = randomUUID();
   const now = new Date();
+  if (rootPath.startsWith("/tmp/stream-test-")) {
+    await fs.mkdir(rootPath, { recursive: true });
+    rootPaths.push(rootPath);
+  }
   await db.insert(projectsTable).values({
     id,
     ownerId:  "test-user",

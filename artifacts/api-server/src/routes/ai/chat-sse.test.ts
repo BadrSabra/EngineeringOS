@@ -288,9 +288,9 @@ vi.mock("../../lib/db-rate-limiter.js", () => ({
 
 vi.mock("../../lib/rootpath-validator.js", () => ({
   resolveRootPath: vi.fn().mockResolvedValue({
-    validRootPath: undefined,
+    validRootPath: "/tmp/test-project",
     fallbackUsed: false,
-    originalPath: null,
+    originalPath: "/tmp/test-project",
   }),
 }));
 
@@ -549,9 +549,9 @@ beforeEach(async () => {
     release: vi.fn().mockResolvedValue(undefined),
   });
   vi.mocked(resolveRootPath).mockResolvedValue({
-    validRootPath: undefined,
+    validRootPath: FAKE_PROJECT.rootPath,
     fallbackUsed: false,
-    originalPath: null,
+    originalPath: FAKE_PROJECT.rootPath,
   });
   // Task #59: reset the captured persisted columns between tests.
   chatCapture.assistantToolTrace = null;

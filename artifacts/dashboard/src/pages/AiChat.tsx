@@ -1560,6 +1560,31 @@ function extractEvidenceIntegrity(trace: ToolTraceEntry[]): {
 } {
   const entry = [...trace].reverse().find((e) => e.kind === 'evidence_integrity');
   if (!entry) return { evidenceIntegrity: null };
+  // Some persisted runs contain the canonical file projection but predate the
+  // nested evidenceSourceCoverage object. Keep those runs readable by
+  // rebuilding the display-only manifest from the server-owned file lists.
+  const canonicalFiles = [
+    ...(Array.isArray(entry.completedReadFiles) ? entry.completedReadFiles : []),
+    ...(Array.isArray(entry.retainedBodyFiles) ? entry.retainedBodyFiles : []),
+  ].filter(
+    (path, index, paths): path is string =>
+      typeof path === 'string' && path.trim().length > 0 && paths.indexOf(path) === index,
+  );
+  const sourceCoverage = entry.evidenceSourceCoverage ?? (
+    canonicalFiles.length > 0
+      ? {
+          status: 'COMPLETE' as const,
+          requestedFiles: canonicalFiles,
+          roots: canonicalFiles.map((root) => ({
+            root,
+            discoveredFiles: 1,
+            readFiles: 1,
+            unreadFiles: 0,
+            status: 'COMPLETE' as const,
+          })),
+        }
+      : undefined
+  );
   return {
     evidenceIntegrity: {
       code: typeof entry.code === 'string' ? entry.code : '',
@@ -1595,7 +1620,7 @@ function extractEvidenceIntegrity(trace: ToolTraceEntry[]): {
         ? entry.acceptedEvidenceFiles.filter((path): path is string => typeof path === 'string')
         : [],
       acceptedClaimCount: typeof entry.acceptedClaimCount === 'number' ? entry.acceptedClaimCount : 0,
-      sourceCoverage: entry.evidenceSourceCoverage,
+      sourceCoverage,
       scopeExpansions: Array.isArray(entry.scopeExpansions)
         ? entry.scopeExpansions.filter((item): item is {
             kind: 'JUSTIFIED_SCOPE_EXPANSION' | 'UNJUSTIFIED_SCOPE_EXPANSION';
@@ -2102,6 +2127,9 @@ function ForensicEvidenceCard({
                   {evidence.evidenceIntegrity.sourceCoverage.requestedFiles &&
                     evidence.evidenceIntegrity.sourceCoverage.requestedFiles.length > 0 && (
                       <div className="mt-1 space-y-0.5">
+                        {!evidence.forensicStatus && (
+                          <div className="text-muted-foreground">requested files</div>
+                        )}
                         <div className="text-muted-foreground">canonical manifest</div>
                         {evidence.evidenceIntegrity.sourceCoverage.requestedFiles.map((file) => (
                           <code key={file} className="block break-all text-foreground/80">{file}</code>
@@ -7662,6 +7690,12 @@ export default function AiChat() {
       });
     return () => {
       cancelled = true;
+      // In React Strict Mode an effect is mounted, cleaned up, and mounted
+      // again. Clear the lease marker during cleanup so the second mount can
+      // retry instead of being blocked by the canceled first request.
+      if (resumeRecoveryPendingRef.current === execution.id) {
+        resumeRecoveryPendingRef.current = null;
+      }
     };
   }, [
     activeExecution?.id,
@@ -8219,7 +8253,25 @@ export default function AiChat() {
         ? 'A historical mission report could not be loaded. Your conversation is still available.'
         : null,
     );
-    setLocalMessages(safeMessages);
+    // A newly-created session starts its messages query with an empty result
+    // while the SSE stream is already running. Do not let that initial empty
+    // response erase the optimistic user bubble (or a structured-task
+    // placeholder), otherwise the page falls back to the empty-chat hero and
+    // hides all live progress until the assistant finishes.
+    setLocalMessages((previous) => {
+      const transientMessages = previous.filter((message) =>
+        message.id.startsWith('opt-') || message.id.endsWith('-placeholder'),
+      );
+      if (transientMessages.length === 0) return safeMessages;
+
+      const stillPending = transientMessages.filter((transient) =>
+        !safeMessages.some((serverMessage) =>
+          serverMessage.role === transient.role &&
+          serverMessage.content === transient.content,
+        ),
+      );
+      return [...safeMessages, ...stillPending];
+    });
   }, [messagesFetched, serverMessages]);
 
   useEffect(() => {
@@ -9476,7 +9528,7 @@ export default function AiChat() {
         </div>
 
         <div className="drawer-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain md:flex md:flex-col md:overflow-hidden">
-          <div className="sessions-history shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
+          <div className="sessions-history relative z-10 shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
             <div className="p-2 flex flex-col gap-1">
             {sessions.map((s) => (
               <button
@@ -9602,7 +9654,7 @@ export default function AiChat() {
           </div>
 
           {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
-          <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">
+          <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-[45%] md:overflow-y-auto">
             <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
             <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
             <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />

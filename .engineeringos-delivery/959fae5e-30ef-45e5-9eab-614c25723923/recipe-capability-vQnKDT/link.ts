@@ -1,1 +1,0 @@
-/tmp/recipe-capability-outside-ouSrNA/secret.ts

@@ -12,7 +12,7 @@ import type {
   AnalysisToolResult,
   AnalysisToolRunner,
 } from "@workspace/ai-orchestrator";
-import { performScan } from "./scan-runner.js";
+import { performScan, ScanRootUnavailableError } from "./scan-runner.js";
 
 const MAX_OUTPUT = 24_000;
 const HARD_MAX_MS = 30_000;
@@ -48,6 +48,29 @@ function hasUsableCorrelation(
 
 function entityView(entity: GraphEntity) {
   return { id: entity.id, type: entity.type, name: entity.name, path: entity.path, confidence: entity.confidence };
+}
+
+function isRootUnavailableError(error: unknown): boolean {
+  return error instanceof ScanRootUnavailableError
+    || (
+      error !== null
+      && typeof error === "object"
+      && (error as { outcome?: unknown }).outcome === "root_unavailable"
+    );
+}
+
+export function classifyAnalysisFailure(
+  error: unknown,
+  parentSignal?: AbortSignal,
+  deadlineAt?: number,
+): AnalysisFailureCategory {
+  if (parentSignal?.aborted) return "cancellation";
+  if (deadlineAt !== undefined && Date.now() >= deadlineAt) return "timeout";
+  if (isRootUnavailableError(error)) return "root_unavailable";
+  if (/stale/i.test(error instanceof Error ? error.message : String(error))) {
+    return "stale_revision";
+  }
+  return "execution_failure";
 }
 
 export function createProjectAnalysisToolRunner(
@@ -234,14 +257,7 @@ export function createProjectAnalysisToolRunner(
       );
       return result;
     } catch (error) {
-      const timedOutByDeadline = attemptDeadline !== undefined && Date.now() >= attemptDeadline;
-      const failureCategory: AnalysisFailureCategory = parentSignal?.aborted
-        ? "cancellation"
-        : timedOutByDeadline
-          ? "timeout"
-          : /stale/i.test(error instanceof Error ? error.message : String(error))
-            ? "stale_revision"
-            : "execution_failure";
+      const failureCategory = classifyAnalysisFailure(error, parentSignal, attemptDeadline);
       return unavailable(
         failureCategory === "cancellation"
           ? "Analysis was cancelled before completion."
@@ -249,6 +265,8 @@ export function createProjectAnalysisToolRunner(
             ? "Analysis exceeded its execution deadline and was not completed."
             : failureCategory === "stale_revision"
               ? "Analysis observed a workspace revision change and was rejected."
+              : failureCategory === "root_unavailable"
+                ? "The project analysis root is unavailable."
               : "The project analysis dependency failed before completion.",
         failureCategory,
       );

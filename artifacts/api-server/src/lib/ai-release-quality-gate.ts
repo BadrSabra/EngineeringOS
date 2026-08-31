@@ -83,7 +83,7 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
   {
     id: "ai-contract-and-json",
     kind: "contract",
-    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-route-parity.test.ts src/routes/ai.test.ts",
+    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-route-parity.test.ts && pnpm --filter @workspace/api-server exec vitest run src/routes/ai.test.ts",
     blocking: true,
     coverage: ["JSON contract", "structured audits", "tool policy", "false-success handling"],
   },
@@ -103,7 +103,7 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
   {
     id: "ai-sse-and-redaction",
     kind: "contract",
-    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts",
+    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts && pnpm --filter @workspace/api-server exec vitest run src/routes/ai/chat-sse.test.ts",
     blocking: true,
     coverage: ["SSE contract", "redaction", "stale revision", "resume"],
   },

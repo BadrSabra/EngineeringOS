@@ -540,10 +540,13 @@ describe('AiChat authenticated generated mutations', () => {
       sessionId: 'session-1',
       message: 'Continue after refresh',
     }));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
-      JSON.stringify({ error: 'This AI execution is no longer eligible for resume.' }),
-      { status: 409, headers: { 'Content-Type': 'application/json' } },
-    ));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(new Response(
+      JSON.stringify({
+        executionId: 'execution-missing-token',
+        resumeToken: 'recovered-opaque-resume-token',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )));
 
     renderAiChat();
 
@@ -720,6 +723,45 @@ describe('AiChat authenticated generated mutations', () => {
       operationMode: 'FORENSIC_AUDIT',
     }));
     expect(screen.queryByText('Late stale response')).not.toBeInTheDocument();
+  });
+
+  it('keeps the live user turn visible while a new session is created', async () => {
+    renderAiChat();
+
+    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(composer, { target: { value: 'Inspect the new session root' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+
+    expect(await screen.findByText('Inspect the new session root')).toBeInTheDocument();
+
+    act(() => {
+      // The real query cache is patched by onSessionStarted. Keep the mock's
+      // session list in sync so the ownership guard does not reject the newly
+      // created session before the messages query can settle.
+      mocks.sessions = [
+        ...mocks.sessions,
+        {
+          id: 'session-new',
+          title: 'Inspect the new session root',
+          updatedAt: '2026-08-31T00:00:00.000Z',
+        },
+      ];
+      (mocks.streamCallbacks as {
+        onSessionStarted?: (event: Record<string, unknown>) => void;
+      }).onSessionStarted?.({
+        type: 'session_started',
+        sessionId: 'session-new',
+        title: 'Inspect the new session root',
+        updatedAt: '2026-08-31T00:00:00.000Z',
+      });
+    });
+
+    // The newly-enabled messages query returns [] before the stream completes.
+    // The optimistic turn must remain visible instead of returning to the
+    // empty-chat hero.
+    expect(screen.getByText('Inspect the new session root', {
+      selector: 'div.chat-message-bubble',
+    })).toBeInTheDocument();
   });
 
   it('preserves each project execution pointer when switching away and back', async () => {
@@ -1275,7 +1317,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    const panel = await screen.findByRole('generic', { name: 'Why this file?' });
+    const panel = await screen.findByText('Behavior evidence · 2 excerpts');
     expect(panel).toBeInTheDocument();
     // Span-bearing excerpt shows the copyable file:start–end anchor.
     expect(screen.getByText('src/routes/ai/chat.ts:1396–1426')).toBeInTheDocument();
@@ -1338,7 +1380,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.getByText('src/routes/ai/chat.ts')).toBeInTheDocument();
     expect(screen.getAllByText('8').length).toBeGreaterThan(0); // uniqueFilesRead + legacy completed-read fallback
-    const objectiveProof = within(proofPanel).getByLabelText('Objective proof details');
+    const objectiveProof = await screen.findByLabelText('Objective proof details');
     expect(objectiveProof).toHaveTextContent('PARTIALLY_PROVEN');
     expect(objectiveProof).toHaveTextContent('2'); // required edges
     expect(objectiveProof).toHaveTextContent('1'); // proven edges
@@ -1349,6 +1391,13 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
   it('uses canonical evidence files when prefetch reads are absent from the persisted trace', async () => {
     mocks.serverProposal = { proposalId: 'canonical-prefetch-proposal', changes: [] };
+    const requestedFiles = [
+      'src/routes/ai/chat.ts',
+      'lib/ai-orchestrator/src/agents/chat-agent.ts',
+      'lib/ai-orchestrator/src/evidence-integrity.ts',
+      'artifacts/dashboard/src/pages/AiChat.tsx',
+      'lib/ai-orchestrator/src/tool-execution-engine.ts',
+    ];
     mocks.proposalMessages[0].content = [
       '## 1) Executive Summary',
       'Canonical evidence retained five source bodies.',
@@ -1452,9 +1501,10 @@ it('shows Groq model readiness without requiring a personal key when the server 
     const card = await screen.findByRole('button', { name: /Forensic evidence/ });
     fireEvent.click(card);
 
-    expect(await screen.findByText('Source reads (2 unique)')).toBeInTheDocument();
-    expect(screen.getByText('2 source reads')).toBeInTheDocument();
-    expect(screen.queryByText('No completed source reads were recorded. Directory listings and failed reads are not source evidence.')).not.toBeInTheDocument();
+    expect(await screen.findByText('These lines prove this behavior')).toBeInTheDocument();
+    expect(screen.getAllByText('src/routes/ai/chat.ts:1396–1426').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('DIRECT').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Source reads \(\d+ unique\)/)).not.toBeInTheDocument();
   });
 
   it('keeps a proven fixture Finding visible when the final report blocks repair', async () => {
@@ -2735,17 +2785,14 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
     const recorder = await screen.findByRole('generic', { name: 'Flight Recorder' });
     fireEvent.click(screen.getByRole('button', { name: /Flight Recorder/ }));
-    expect(recorder).toHaveTextContent('3 events');
+    expect(recorder).toHaveTextContent('4 events');
 
     fireEvent.change(screen.getByLabelText('Flight Recorder filter'), {
-      target: { value: 'phase_rejections' },
+      target: { value: 'guards' },
     });
 
-    expect(recorder).toHaveTextContent('Phase policy blocked action');
-    expect(recorder).toHaveTextContent('active phase: evidence');
-    expect(recorder).toHaveTextContent('rejected tool: write_file');
+    expect(recorder).toHaveTextContent('Execution guard');
     expect(recorder).not.toHaveTextContent('Called read_file');
-    expect(recorder).not.toHaveTextContent('Execution guard');
   });
 
   it('renders the evidence claim linked to an execution read', async () => {
@@ -2767,28 +2814,14 @@ it('shows Groq model readiness without requiring a personal key when the server 
     const recorder = await screen.findByRole('generic', { name: 'Flight Recorder' });
     fireEvent.click(screen.getByRole('button', { name: /Flight Recorder/ }));
 
-    expect(recorder).toHaveTextContent('Repair attempt diff');
-    expect(recorder).toHaveTextContent('attempt 2 vs 1');
+    expect(recorder).toHaveTextContent('Evidence linked');
+    expect(recorder).toHaveTextContent('src/auth.ts');
     expect(recorder).not.toHaveTextContent('What changed in this repair attempt?');
+    expect(screen.queryByRole('button', { name: 'Show repair attempt diff' })).toBeNull();
 
-    const showDiff = screen.getByRole('button', { name: 'Show repair attempt diff' });
-    fireEvent.click(showDiff);
-
-    const diffPanel = await screen.findByRole('generic', { name: 'Repair attempt diff' });
-    expect(diffPanel).toHaveTextContent('What changed in this repair attempt?');
-    expect(diffPanel).toHaveTextContent('-const scope = "user";');
-    expect(diffPanel).toHaveTextContent('+const scope = token.scope;');
-    const removedLine = [...diffPanel.querySelectorAll('span')].find(
-      (line) => line.textContent === '-const scope = "user";',
-    );
-    const addedLine = [...diffPanel.querySelectorAll('span')].find(
-      (line) => line.textContent === '+const scope = token.scope;',
-    );
-    expect(removedLine).toHaveClass('text-red-300');
-    expect(addedLine).toHaveClass('text-green-300');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hide repair attempt diff' }));
-    expect(screen.queryByRole('generic', { name: 'Repair attempt diff' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show read evidence link' }));
+    const evidencePanel = await screen.findByRole('generic', { name: 'Read evidence link' });
+    expect(evidencePanel).toHaveTextContent('requireAuth verifies the token scope before calling next().');
   });
 
   it('distinguishes phase-policy rejections in rehydrated execution activity', async () => {

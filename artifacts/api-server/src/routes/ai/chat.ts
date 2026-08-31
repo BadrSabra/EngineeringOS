@@ -2131,7 +2131,7 @@ router.post("/ai/chat", async (req, res) => {
     resumed: classificationResolution.resumed,
     implementationPlanResume,
   });
-  const modelHasTools = Boolean(validRootPath && turnIntent.requiresTools);
+  const modelHasTools = turnIntent.requiresTools;
   let analysisCorrelation: {
     operationId: string;
     projectId: string;
@@ -2145,9 +2145,19 @@ router.post("/ai/chat", async (req, res) => {
     rootAvailable: Boolean(validRootPath),
     evidenceProvenance: "project-analysis",
   };
-  const analysisToolRunner = validRootPath
-    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+  const analysisToolRunner = turnIntent.requiresTools
+    ? createProjectAnalysisToolRunner(projectId, validRootPath ?? project.rootPath ?? "")
     : undefined;
+  if (turnIntent.requiresTools && !validRootPath) {
+    return res.status(409).json({
+      error: "project_root_unavailable",
+      code: "TOOL_ANALYSIS_ROOT_UNAVAILABLE",
+      failureCategory: "root_unavailable",
+      outcome: "FAILED",
+      message: "The project analysis root is unavailable; no completed analysis was produced.",
+      retryable: true,
+    });
+  }
   const immediateExecutionRequest = isImmediateExecutionRequest(message);
   // Fetch a stable bounded history for every ordinary request. chat-agent
   // keeps the latest complete turns verbatim and summarizes older turns,
@@ -2833,9 +2843,19 @@ router.post("/ai/chat/stream", async (req, res) => {
     rootAvailable: Boolean(validRootPath),
     evidenceProvenance: "project-analysis",
   };
-  const analysisToolRunner = validRootPath
-    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+  const analysisToolRunner = streamModelHasTools
+    ? createProjectAnalysisToolRunner(projectId, validRootPath ?? project.rootPath ?? "")
     : undefined;
+  if (streamModelHasTools && !validRootPath) {
+    return res.status(409).json({
+      error: "project_root_unavailable",
+      code: "TOOL_ANALYSIS_ROOT_UNAVAILABLE",
+      failureCategory: "root_unavailable",
+      outcome: "FAILED",
+      message: "The project analysis root is unavailable; no completed analysis was produced.",
+      retryable: true,
+    });
+  }
 
   // Provider/model routing must use the same authoritative intent as the
   // downstream agent. In particular, a terse continuation can inherit a

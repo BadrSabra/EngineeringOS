@@ -163,7 +163,16 @@ async function walkDir(
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    // A failure at the canonical root is not a partial branch: it means the
+    // project disappeared or became inaccessible after the initial stat.
+    // Preserve that signal so scan-runner can fail closed instead of
+    // publishing an empty successful inventory.
+    if (depth === 0) {
+      throw new Error(`Project root became inaccessible during walk: ${rootPath}`, {
+        cause: error,
+      });
+    }
     return;
   }
 

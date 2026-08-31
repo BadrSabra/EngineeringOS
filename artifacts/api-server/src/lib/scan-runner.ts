@@ -274,7 +274,16 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
   const now = new Date();
 
   // ── 1. Walk the project directory ──────────────────────────────────────
-  const walkResult = await walkProject(effectiveRootPath);
+  let walkResult;
+  try {
+    walkResult = await walkProject(effectiveRootPath);
+  } catch (error) {
+    throw new ScanRootUnavailableError(
+      project[0].rootPath,
+      "root_unavailable",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   checkCancelled();
   const { files } = walkResult;
 

@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-31T05:20:46.763Z",
+  "generatedAt": "2026-08-31T13:13:02.722Z",
   "status": "passed",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -25,7 +25,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 27884
+      "durationMs": 30884
     },
     {
       "id": "dashboard-typecheck",
@@ -37,7 +37,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 6205
+      "durationMs": 10701
     },
     {
       "id": "openapi-client-parity",
@@ -50,7 +50,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 5523
+      "durationMs": 7200
     },
     {
       "id": "truth-flow-parity",
@@ -62,12 +62,12 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1116
+      "durationMs": 1701
     },
     {
       "id": "ai-contract-and-json",
       "kind": "contract",
-      "command": "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-route-parity.test.ts src/routes/ai.test.ts",
+      "command": "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-route-parity.test.ts && pnpm --filter @workspace/api-server exec vitest run src/routes/ai.test.ts",
       "blocking": true,
       "coverage": [
         "JSON contract",
@@ -77,7 +77,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 67066
+      "durationMs": 80776
     },
     {
       "id": "ai-structured-review-fallback",
@@ -93,12 +93,12 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1318
+      "durationMs": 1448
     },
     {
       "id": "ai-sse-and-redaction",
       "kind": "contract",
-      "command": "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts",
+      "command": "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts && pnpm --filter @workspace/api-server exec vitest run src/routes/ai/chat-sse.test.ts",
       "blocking": true,
       "coverage": [
         "SSE contract",
@@ -108,7 +108,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 17824
+      "durationMs": 28442
     },
     {
       "id": "ai-operational-safety",
@@ -124,7 +124,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 54013
+      "durationMs": 61835
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -139,7 +139,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 731
+      "durationMs": 793
     },
     {
       "id": "benchmark-baseline-regression",
@@ -152,7 +152,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 817
+      "durationMs": 1072
     },
     {
       "id": "dashboard-preview-contract",

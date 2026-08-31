@@ -1,1 +1,0 @@
-/tmp/recipe-capability-outside-XF966S/secret.ts

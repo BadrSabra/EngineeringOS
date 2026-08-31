@@ -416,11 +416,14 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
 async function insertProject(): Promise<string> {
   const id = randomUUID();
   const now = new Date();
+  const rootPath = `/tmp/ai-test-${id}`;
+  await fs.mkdir(rootPath, { recursive: true });
+  await fs.writeFile(`${rootPath}/package.json`, JSON.stringify({ name: `ai-test-${id}` }));
   await db.insert(projectsTable).values({
     id,
     ownerId: "test-user",
     name: `ai-test-${id.slice(0, 8)}`,
-    rootPath: `/tmp/ai-test-${id}`,
+    rootPath,
     language: "typescript",
     status: "active",
     createdAt: now,
@@ -695,6 +698,7 @@ afterEach(async () => {
   }
   for (const pid of projectIds.splice(0)) {
     await cleanupProjectFixture(pid);
+    await fs.rm(`/tmp/ai-test-${pid}`, { recursive: true, force: true }).catch(() => undefined);
   }
   // Also clear any lingering workflow ids
   for (const wid of workflowIds.splice(0)) {
@@ -801,6 +805,32 @@ describe("POST /api/ai/chat", () => {
       .send({ projectId: randomUUID(), message: "   " });
     expect(res.status).toBe(400);
   });
+
+  it.each(["/api/ai/chat", "/api/ai/chat/stream"])(
+    "returns a typed root-unavailable terminal response for analysis requests (%s)",
+    async (endpoint) => {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      await db
+        .update(projectsTable)
+        .set({ rootPath: `/tmp/ai-test-gone-${projectId}` })
+        .where(eq(projectsTable.id, projectId));
+
+      const res = await request(app)
+        .post(endpoint)
+        .send({ projectId, message: "Perform a forensic audit of src/app.ts" });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({
+        error: "project_root_unavailable",
+        code: "TOOL_ANALYSIS_ROOT_UNAVAILABLE",
+        failureCategory: "root_unavailable",
+        outcome: "FAILED",
+        retryable: true,
+      });
+      expect(res.body.message).toContain("no completed analysis");
+    },
+  );
 
   it.each([
     {
