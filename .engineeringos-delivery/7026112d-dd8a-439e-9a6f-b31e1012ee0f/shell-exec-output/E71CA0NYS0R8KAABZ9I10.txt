@@ -1,0 +1,186 @@
+1818:  let forceSynthesisNext = false;
+2723:      forceSynthesisNext ||
+3248:        (objective && forceSynthesisNext && noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD
+3300:        (objective && forceSynthesisNext && noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD
+3379:    let forensicBatchStopped = false;
+3418:      if (forensicBatchStopped) {
+3812:        forceSynthesisNext = true;
+3901:          forceSynthesisNext = true;
+3902:          forensicBatchStopped = true;
+4057:          forceSynthesisNext = true;
+4065:          forceSynthesisNext = true;
+4489:            forceSynthesisNext = true;
+4591:      objective && forceSynthesisNext && noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD
+4615:    objective && forceSynthesisNext && noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD
+          onStep?.({
+            kind: "tool_result",
+            tool: tc.function.name,
+            source: cachedSource,
+            cached: true,
+            outputLength: cached.length,
+           ...(tc.function.name === "run_command"
+             ? { commandStatus: parseCommandStatus(cached) }
+             : {}),
+            ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
+              ? { resultSummary: `Read completed (${cached.length} characters).` }
+              : {}),
+          });
+        } catch { /* ignore */ }
+        console.warn(
+          JSON.stringify({
+            scope: "tool-execution-engine",
+            code: "DUPLICATE_TOOL_CALL",
+            tool: tc.function.name,
+            iter,
+            ...(searchBudgetState
+              ? {
+                  searchBudgetRemaining: searchBudgetState.remaining,
+                  searchResultNew: searchBudgetState.isNew,
+                }
+              : {}),
+          }),
+        );
+        // Every cached duplicate is a behavioral failure sample, not only
+        // repeated search_code calls. A Set in the scorecard keeps multiple
+        // duplicate tool calls in one model turn from inflating its rate.
+        recordBehavioralFailure(result.model || lastModelUsed || model, "loop");
+        const generalDuplicateEscalation = executionMode !== "repair_plan";
+        if (generalDuplicateEscalation && duplicateCount >= 2) {
+          temporarilyDisabledTools.add(tc.function.name);
+        }
+        if (generalDuplicateEscalation && duplicateCount >= 3) {
+          forceSynthesisNext = true;
+        }
+        const searchDuplicate =
+          tc.function.name === "search_code" && duplicateCount > 0;
+        if (searchDuplicate && duplicateCount >= 2) {
+          temporarilyDisabledTools.add("search_code");
+        }
+        if (searchDuplicate && duplicateCount >= 3) {
+          forceSynthesisNext = true;
+        }
+        if (searchDuplicate) {
+          console.warn(
+            JSON.stringify({
+              scope: "tool-execution-engine",
+              code: "DUPLICATE_SEARCH_ESCALATION",
+              rung: Math.min(duplicateCount, 3),
+              duplicateCount,
+              nextTurn:
+                duplicateCount >= 3
+            profile: validationProfile ?? "",
+            status: "unavailable",
+            scenario: "Validation returned an unreadable result.",
+            exitCode: null,
+            command: "",
+            stdout: "",
+            stderr: "",
+            failedTests: [],
+            changedFiles: [],
+            evidence: {
+              evidenceId,
+              observedAt: new Date().toISOString(),
+              artifactRef: `validation-attempt:${evidenceId}`,
+            },
+            detail: "Validation returned an unreadable result.",
+          };
+        }
+        const repairState: RepairLoopState =
+          validation.status === "passed"
+            ? "READY_FOR_REVIEW"
+            : validation.status === "failed" && validationAttempt! < boundedMaxValidationAttempts
+              ? "REPAIRING"
+              : "BLOCKED";
+        try {
+          onStep?.({
+            kind: "validation",
+            result: validation,
+            repairState,
+            attempt: validationAttempt!,
+            maxAttempts: boundedMaxValidationAttempts,
+            status: validation.status,
+            profile: validation.profile,
+            scenario: validation.scenario,
+            command: validation.command,
+            exitCode: validation.exitCode,
+            failedTests: validation.failedTests.map((failure) => failure.name || failure.message),
+            affectedFiles: validation.changedFiles,
+            failedTestDetails: validation.failedTests,
+            changedFiles: validation.changedFiles,
+            detail: validation.detail,
+          });
+          onStep?.({
+            kind: "repair_state",
+            state: repairState,
+            detail: repairState === "REPAIRING"
+              ? "Validation failed; bounded repair correction is still allowed."
+              : repairState === "READY_FOR_REVIEW"
+                ? "Validation passed; pending changes are ready for review."
+                : "Validation did not produce an approved repair state.",
+          });
+        } catch { /* ignore */ }
+        if (repairState === "REPAIRING") {
+          if (executionMode === "repair_plan" && validationFingerprint) {
+            failedValidationFingerprints.set(validationProfile ?? "", validationFingerprint);
+          }
+          // A validation failure is new, actionable execution evidence. Do not
+          // let a stale forced-evidence latch reject the bounded repair patch
+          // that is allowed to respond to that failure.
+          forcedEvidenceActive = false;
+          forcedPrimaryEvidence = false;
+          noProgressStreak = 0;
+        } else if (executionMode === "repair_plan" && validation.status === "passed") {
+          failedValidationFingerprints.delete(validationProfile ?? "");
+        }
+      }
+      if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
+        // Only a SUCCESSFUL source-evidence read counts as progress and clears
+        // forced-evidence mode. A failed read (error, empty body, directory
+        // listing, malformed path) is not source evidence, so it must neither
+        // reset the no-progress streak, set first-read telemetry, nor let a
+        // planner escape the force with a bogus read attempt.
+        if (isSuccessfulSourceRead(tc.function.name, typeof args.path === "string" ? args.path : undefined, toolResult.output)) {
+          // FEG-015: evidence-iteration progress is only a read that acquires
+          // NEW completed evidence for its path. A duplicate re-read of an
+          // already-completed path is NOT new evidence (it counts as planning),
+          // so it must not reset the no-progress streak.
+          if (!isCompletedPath(typeof args.path === "string" ? args.path : undefined)) {
+            iterationNewRead = true;
+          }
+          // Force-clearing re-arms the one-run fire latch so circular planning
+          // that resumes AFTER this successful read can be re-forced by a later
+          // no-progress pair (reusable force lifecycle).
+          forcedEvidenceActive = false;
+          forcedPrimaryEvidence = false;
+          if (firstSourceReadIter === null) {
+            firstSourceReadIter = iter;
+            sourceRetrieval.iterationsUntilFirstSourceRead = iter;
+            sourceRetrieval.iterationsUntilFirstRead = iter;
+            sourceRetrieval.firstEvidenceAcquired = true;
+            sourceRetrieval.iterationsWithoutEvidence = iter;
+          }
+        }
+      }
+      // A fresh evidence-gathering call — read, symbol search, or dependency
+      // listing — counts as progress for the FEG-008 gating only when it
+      // produced USABLE, GENUINELY NOVEL evidence (non-empty, non-error output
+      // whose canonical form was not already surfaced this run). An Error,
+      // empty, or repeated result is NO_PROGRESS: otherwise a circled planner
+      // could issue endless distinct-but-useless searches/listings that keep
+      // resetting noProgressStreak and never enter dispatch-enforced evidence
+      // mode. Reads are gated separately by isSuccessfulSourceRead above.
+      if (tc.function.name === "list_directory") {
+        // OR-accumulate: a later duplicate/failed call in the same turn must
+        // not erase an earlier novel call's progress.
+        iterationListDir = isNovelGatherResult(toolResult.output) || iterationListDir;
+      }
+      if (tc.function.name === "search_code") {
+        if (firstSourceReadIter === null) {
+          sourceRetrieval.crossFileQueriesBeforeFirstRead += 1;
+        }
+        iterationNewSearch = isNovelGatherResult(toolResult.output) || iterationNewSearch;
+      }
+      if (tc.function.name === "list_directory" && firstSourceReadIter === null) {
+        sourceRetrieval.crossFileQueriesBeforeFirstRead += 1;
+      }
+      const usableRead =

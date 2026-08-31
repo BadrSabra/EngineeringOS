@@ -1,0 +1,403 @@
+artifacts/api-server/src/lib/ai-route-helpers.test.ts
+113:      error: new GroqClientError("RATE_LIMITED", "429 raw upstream response"),
+
+artifacts/api-server/src/routes/ai.test.ts
+276:    groq: { providerId: "groq", label: "Groq", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "console.groq.com", statusUrl: "status.groq.com", defaultModels: { fast: "llama-3.1-8b-instant", powerful: "llama-3.3-70b-versatile" } },
+277:    deepseek: { providerId: "deepseek", label: "DeepSeek", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "platform.deepseek.com", statusUrl: "platform.deepseek.com", defaultModels: { fast: "deepseek-chat", powerful: "deepseek-chat" } },
+278:    gemini: { providerId: "gemini", label: "Gemini", supportsStreaming: true, supportsTools: false, supportsJsonMode: true, consoleUrl: "aistudio.google.com/apikey", statusUrl: "status.cloud.google.com", defaultModels: { fast: "gemini-2.0-flash", powerful: "gemini-2.0-flash" } },
+279:    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "openrouter.ai/keys", statusUrl: "openrouter.ai", defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+1161:  // PR-E (updated): _parseError with a non-empty fallback response → 200, not 422.
+1163:  // compliance; the fallback extracts the response and the route should deliver it.
+1164:  it("returns 200 with fallback when chat has _parseError but non-empty response", async () => {
+1167:      response: "fallback text",
+2282:    // is readable) — that fallback would let any project-authorized user pull in
+2345:      summary: "fallback",
+2346:      overallAssessment: "fallback",
+2348:      topPriority: "fallback",
+2349:      estimatedImpact: "fallback",
+2391:      summary: "fallback",
+2392:      overallAssessment: "fallback",
+2394:      topPriority: "fallback",
+2395:      estimatedImpact: "fallback",
+2494:      summary: "fallback",
+2578:      reasoning: "fallback — model output could not be parsed",
+2658:      new GroqClientError("TIMEOUT", "provider request req-secret failed at /srv/provider/workflow.ts"),
+2667:    expect(res.body.code).toBe("TIMEOUT");
+4153:      summary: "fallback",
+4154:      result: "fallback",
+4289:      summary: "fallback",
+4290:      result: "fallback",
+4329:    // Clear every server-wide fallback, not only Groq: OpenRouter, DeepSeek,
+4471:      errorCode: "RATE_LIMITED",
+4474:      expectedStatus: 429,
+4608:      const resolved = await resolveProvider("test-user", { requireTools: true });
+
+lib/ai-orchestrator/src/context-builder.test.ts
+297:      { id: "e2", name: "UserRepo", type: "repository", confidence: 0.4, sourceType: "regex-fallback", path: "user.ts" },
+
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts
+58:      ? { failureCode: "RATE_LIMITED" as const, failureReason: "probe unavailable" }
+136:      runId: "airlock-fallback",
+204:      runId: "airlock-model-lane-fallback",
+
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts
+89:        throw new Error("429 provider quota exhausted with private response body");
+157:      failureCode: "RATE_LIMITED" as const,
+
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts
+171:  it("buildRuntimeLedger fails closed when a cited prefetched file has ZERO recorded reads (EI-011 fallback removed)", () => {
+388: *          must be `undefined` (no fallback to line 1).
+521:    // With the title supplying a real identifier, it is used as the fallback.
+
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+1084:      makeResponse('{"response":"fallback forensic report","sources":[]}'),
+1107:      expect(result.result.content).toBe('{"response":"fallback forensic report","sources":[]}');
+1111:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[2]?.[1] as Record<string, unknown>;
+1112:    expect(fallbackOptions).toMatchObject({
+1116:    expect(fallbackOptions).not.toHaveProperty("tools");
+1199:  it("records the model returned by a successful fallback response", async () => {
+1203:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "initial model timed out"))
+1205:        ...makeResponse("fallback answer"),
+1206:        model: "actual-fallback-model",
+1214:      powerModel: "fallback-model",
+1226:      model: "actual-fallback-model",
+1232:  it("preserves the full authorized manifest when a fallback executes a narrowed tool list", async () => {
+1238:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "initial model timed out"))
+1240:      .mockResolvedValueOnce(makeResponse("fallback completed"));
+1246:      powerModel: "fallback-model",
+1265:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
+1266:    expect(fallbackOptions).toMatchObject({
+1267:      model: "fallback-model",
+1358:      new GroqClientError("TIMEOUT", "provider timed out with internal details"),
+1366:      powerModel: "fallback-model",
+1379:      details: ["fallback provider failure code: TIMEOUT"],
+2946:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+2951:      // Same model for both so the TIMEOUT reaches the partial branch directly
+4133:            reject(new GroqClientError("TIMEOUT", "bounded synthesis timeout"));
+4179:  it("keeps synthesis fallback within its independent attempt budget", async () => {
+4183:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "fixture synthesis timeout"))
+4184:      .mockResolvedValueOnce(makeResponse("fallback report"));
+4203:      expect(result.result.content).toBe("fallback report");
+4221:      new GroqClientError("TIMEOUT", "fixture synthesis timeout"),
+4248:// ── TIMEOUT → kind:"partial"/"provider_timeout" degradation ──────────────────
+4250:describe("executeToolLoop — TIMEOUT degradation (task #67)", () => {
+4262:    // model === powerModel so the TIMEOUT goes straight to the else branch (no
+4263:    // inner fallback retry).  totalToolCalls is 1 at that point so evidence
+4266:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+4288:      // Use the same model for both so TIMEOUT reaches the else branch directly.
+4310:  it("returns kind:partial/provider_timeout when both primary and fallback time out after a tool call", async () => {
+4311:    // primary !== powerModel so the inner fallback retry path is taken.
+4313:    // must NOT rethrow after the fallback also fails.
+4315:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+4354:  it("propagates TIMEOUT as an error when no tool calls or evidence exist yet", async () => {
+4356:    // With model===powerModel (else branch), TIMEOUT should still be rethrown.
+4358:    const timeoutErr = new GroqClientError("TIMEOUT", "Immediate timeout");
+
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts
+81:      fallbackChain: ["initial-model"],
+382:    // fallback can produce the final source-grounded verdict.
+417:      // 2. The deterministic no-finding fallback fired to produce the verdict.
+
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts
+117:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/parsing.test.ts
+6:const fallback = (raw: string) => ({ foo: `fallback:${raw}`, count: -1 });
+90:    const result = parseAgentResponse('{"foo":"bar","count":1}', schema, fallback);
+95:    const result = parseAgentResponse("", schema, fallback);
+97:    expect(result.data).toEqual({ foo: "fallback:", count: -1 });
+103:    const result = parseAgentResponse(raw, schema, fallback);
+105:    expect(result.data).toEqual({ foo: `fallback:${raw}`, count: -1 });
+111:    const result = parseAgentResponse(raw, schema, fallback);
+113:    expect(result.data).toEqual({ foo: `fallback:${raw}`, count: -1 });
+119:    const result = parseAgentResponse(raw, schema, fallback);
+126:      expect(() => parseAgentResponse(raw, schema, fallback)).not.toThrow();
+132:    const result = parseAgentResponse("", schema, fallback);
+139:    const result = parseAgentResponse(raw, schema, fallback);
+146:    const result = parseAgentResponse(raw, schema, fallback);
+
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts
+126:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts
+261:      fallbackChain: ["initial-model", "recovery-model", "final-model"],
+
+lib/ai-orchestrator/src/benchmark/free-only-policy.test.ts
+10:    supportsTools: true,
+20:    supportsTools: true,
+30:    supportsTools: false,
+40:    supportsTools: true,
+
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts
+5: *   • Model Removed (404)           → MODEL_NOT_FOUND, automatic fallback
+6: *   • Free Tier Restricted (402)    → PLAN_RESTRICTED, automatic fallback
+7: *   • Invalid API Key (401)         → AUTH_ERROR, no fallback
+8: *   • Rate Limit (429)              → RATE_LIMITED, transient retry
+9: *   • Credits Exhausted (429+body)  → QUOTA
+10: *   • Empty Model Catalog           → static fallback, never throws
+148:describe("model-resolver — empty catalog fallback", () => {
+149:  it("returns at least one model even with requireTools filter", () => {
+150:    const chain = resolveFallbackChain({ capability: "chat", requireTools: true });
+478:  it("429 without billing keywords → RATE_LIMITED", async () => {
+480:      callWithStatus(429, { error: { message: "too many requests" } }),
+482:      e instanceof GroqClientError && e.code === "RATE_LIMITED",
+486:  it("429 with billing body → QUOTA", async () => {
+488:      callWithStatus(429, { error: { message: "insufficient credits, please add balance" } }),
+522:    expect(classifyOpenRouterFailure("RATE_LIMITED").action).toBe("wait");
+523:    expect(classifyOpenRouterFailure("TIMEOUT").action).toBe("retry");
+577:      .mockResolvedValueOnce(streamResponse([sseDelta("fallback"), "data: [DONE]\n\n"]));
+593:    expect(chunks.join("")).toBe("fallback");
+946:    // Fast-tier models must be available as the downgrade fallback
+953:    // No fallback to the raw static pool (RC-01: catalog loaded → no re-insertion of paid models)
+
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts
+53:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts
+68:      "provider-fallback",
+
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts
+205:      await expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
+235:      ).rejects.toMatchObject({ code: "TIMEOUT" });
+290:  it("retries a 429 rate-limit error up to maxRetries", async () => {
+292:    // the RATE_LIMITED base (2 000 ms × jitter).  Without this the test is
+297:      const create = vi.fn().mockRejectedValue(Object.assign(new Error("Too Many Requests"), { status: 429 }));
+375:    process.env.GROQ_API_KEY = "env-fallback-key";
+378:    expect(capturedKey).toBe("env-fallback-key");
+
+lib/ai-orchestrator/src/__tests__/live-review-receipt.test.ts
+39:  it("accepts only a selected-file finding as fallback success", () => {
+48:      outcomeClass: "fallback-success",
+71:      error: new GroqClientError("RATE_LIMITED", "raw provider response sk-or-v1-secret", {
+89:    expect(outageReceipt.failureCode).toBe("RATE_LIMITED");
+
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts
+374:              // Non-streaming fallback (used in synthesis/correction calls).
+
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts
+347:    // Must still return a non-empty response (the concatenated fallback)
+
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts
+64:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts
+64:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
+6: *   • 400 invalid model id → MODEL_NOT_FOUND + fallback (existing)
+7: *   • 404 → MODEL_NOT_FOUND + fallback (PR-003)
+8: *   • 410 → MODEL_UNAVAILABLE + fallback (PR-003)
+9: *   • 422 → MODEL_UNAVAILABLE + fallback (PR-003)
+10: *   • 429 rate-limit → RATE_LIMITED
+11: *   • 429 quota/credits body → QUOTA (PR-008)
+14: *   • All fallback candidates exhausted → throws MODEL_NOT_FOUND
+109:// ── OpenRouter fallback ────────────────────────────────────────────────────────
+168:  it("400 with invalid-model body → MODEL_NOT_FOUND → triggers fallback", async () => {
+185:          choices: [{ message: { content: '{"response":"fallback-ok"}' } }],
+199:    expect(result.content).toBe('{"response":"fallback-ok"}');
+203:  it("400 with unsupported response_format body → MODEL_UNAVAILABLE → triggers fallback", async () => {
+220:          choices: [{ message: { content: '{"response":"fallback-after-400"}' } }],
+234:    expect(result.content).toBe('{"response":"fallback-after-400"}');
+238:  it("404 → MODEL_NOT_FOUND → triggers fallback (PR-003)", async () => {
+259:  it("410 → MODEL_UNAVAILABLE → triggers fallback (PR-003)", async () => {
+279:  it("422 → MODEL_UNAVAILABLE → triggers fallback (PR-003)", async () => {
+341:  it("429 with no quota keywords → RATE_LIMITED (not fallback-worthy)", async () => {
+343:      ok: false, status: 429,
+350:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
+356:      status: 429,
+375:        err.code === "RATE_LIMITED" &&
+376:        err.retryAfterMs === 60_000,
+381:  it("keeps a short Retry-After hint precise for fallback callers", async () => {
+384:      status: 429,
+400:        err.code === "RATE_LIMITED" &&
+401:        err.retryAfterMs === 2_000,
+409:      status: 429,
+425:        err.code === "RATE_LIMITED" &&
+426:        typeof err.retryAfterMs === "number" &&
+427:        err.retryAfterMs > 0 &&
+428:        err.retryAfterMs <= 60_000,
+432:  it("skips transient retry when the caller owns bounded fallback", async () => {
+443:        status: 429,
+456:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
+461:  it("bounds provider-owned fallback candidates for short recovery calls", async () => {
+470:        status: 429,
+493:        err.code === "RATE_LIMITED" &&
+567:        err.code === "TIMEOUT" &&
+572:  it("429 with 'quota' in body → QUOTA (PR-008)", async () => {
+574:      ok: false, status: 429,
+584:  it("429 with 'credits' in body → QUOTA (PR-008)", async () => {
+586:      ok: false, status: 429,
+596:  it("401 → AUTH_ERROR (not fallback-worthy)", async () => {
+626:  it("shares provider-attempt budget across fallback candidates", async () => {
+
+lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts
+117:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts
+528:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/behavioral-scorecard.test.ts
+77:  it("demotes task_execution fallback candidates without removing them", () => {
+
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts
+138:  ])("fails closed for %s with a wait fallback and parse marker", async (_label, response) => {
+191:      { code: "TIMEOUT" },
+202:    ).rejects.toMatchObject({ code: "TIMEOUT" });
+
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts
+132:  opts: { fallbackChain?: string[]; openrouterChain?: string[] } = {},
+137:  const fallbackChain = opts.fallbackChain ?? ["initial-model"];
+156:      fallbackChain,
+765:      fallbackChain: ["initial-model", "recovery-model", "final-model"],
+
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts
+111:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts
+69:      fallbackChain: ["fixture-model"],
+212:  it("stops after a provider timeout with preserved reads and no generic blocked fallback", async () => {
+222:      const timeout = new GroqClientError("TIMEOUT", "fixture provider timeout");
+234:      // The engine may make one bounded provider fallback attempt before
+249:  it("uses request-retained evidence on a text-only fallback without rereading", async () => {
+
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts
+67:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts
+308:    const fallbackValidation = applyForensicOutputContract(result.response);
+309:    expect(fallbackValidation.valid).toBe(true);
+310:    expect(fallbackValidation.violations).toEqual([]);
+347:    const fallbackValidation = applyForensicOutputContract(result.response, evidence);
+348:    expect(fallbackValidation.valid).toBe(true);
+349:    expect(fallbackValidation.violations).toEqual([]);
+350:    expect(fallbackValidation.response).toContain("No verified finding identified");
+566:  it("does not leak stale original-report violations into the reconstructed fallback", () => {
+580:          "const DEFAULT_TIMEOUT_MS = 30_000;\n",
+636:    const fallback = applyForensicOutputContract("invalid response", evidence);
+638:    expect(fallback.response).toContain("Notes: NOT PROVEN");
+639:    expect(fallback.response).toContain("display truncation marker");
+640:    expect(fallback.response).toContain("targeted complete read required");
+641:    expect(fallback.response).not.toContain("Notes: FACT");
+642:    expect(applyForensicOutputContract(fallback.response, evidence).valid).toBe(true);
+801:    const fallback = applyForensicOutputContract(
+819:    expect(fallback.valid).toBe(true);
+820:    expect(fallback.response).toContain(
+823:    expect(fallback.response).not.toContain(
+826:    const fallbackValidation = applyForensicOutputContract(
+827:      fallback.response,
+830:    expect(fallbackValidation.valid).toBe(true);
+904:  it("skips comment-only lines when choosing a fallback source fragment", () => {
+928:  it("prefers executable fallback evidence over imports and labels it as read proof only", () => {
+1860:  it("does not call a logged graceful fallback silent", () => {
+1865:      "* Evidence: `return fallback; inside catch block in safeLoad`",
+1878:          "  return fallback;",
+1886:      "fallback path emits structured console telemetry",
+1992:  it("renders an Arabic not-proven fallback while preserving every requested part", () => {
+
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts
+23: *   fallback regression: a cited prefetched file with ZERO recorded completed
+77:      fallbackChain: ["initial-model"],
+202: * Native-SSE strategy for the ENTER_HEADLESS / getStrategy fallback is
+
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+217:    expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: false, requireTools: false });
+1106:        // first fallback candidate returns a six-section report with a stale
+1109:        if (calls.length === 5 && calls[4]?.model === "fallback-model") {
+1126:            model: "fallback-model",
+1157:        fallbackChain: ["llama-3.1-8b-instant", "fallback-model", "final-model"],
+1195:      expect(calls[4]?.model).toBe("fallback-model");
+1258:          throw new GroqClientError("TIMEOUT", "first forensic packet timed out");
+1303:        fallbackChain: ["initial-model", "recovery-model"],
+1340:          reason: "TIMEOUT",
+1484:        fallbackChain: ["initial-model"],
+1542:    // its recovery attempts (here: parse failure with no fallback model),
+1637:        // Single-model chain: no fallback, so packet 1 exhausts after one attempt.
+1638:        fallbackChain: ["initial-model"],
+1642:      // No fallback models: packet 1's failure is terminal after one attempt.
+1782:        fallbackChain: ["initial-model"],
+1897:        fallbackChain: ["initial-model", "recovery-model"],
+2035:        fallbackChain: ["initial-model", "recovery-model"],
+2152:        fallbackChain: ["initial-model", "recovery-model"],
+2285:        fallbackChain: ["initial-model"],
+2396:        fallbackChain: ["initial-model"],
+2589:        fallbackChain: ["initial-model", "recovery-model", "final-model"],
+2807:    expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: true, requireTools: true });
+2966:describe("chat agent — fallback output normalization", () => {
+2978:  it("strips markdown fences and normalizes fallback text", async () => {
+3032:// ── TIMEOUT degradation: partial report instead of generic error ──────────────
+3035:describe("chat agent — TIMEOUT degradation (task #67)", () => {
+3114:    expect(result.response).toContain("PROVIDER_TIMEOUT");
+
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts
+125:      fallbackChain: ["initial-model"],
+348:          throw new GroqClientError("TIMEOUT", "simulated synthesis timeout");
+488:      // requirement retries) is still finite and provider-fallback-free.
+
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts
+10: * SECOND (safe fallback) branch. We assert the produced BEHAVIOR_ANSWER_RESULT
+60:      fallbackChain: ["initial-model"],
+78:  it("locates the evidence span at the second occurrence (safe fallback), not the first match", async () => {
+83:    // safe fallback branch, so the ground-truth span must be line 7.
+90:      '    console.log("safe fallback");\n' +
+103:      // It cites the safe fallback branch, mentions the source, and quotes the
+111:              "In the safe fallback branch:\n" +
+113:              "The function returns the partial result in the fallback.",
+177:      expect(result.response).toContain("safe fallback");
+188:      "async function finishProviderAttempt(primaryTimedOut: boolean, fallbackTimedOut: boolean) {\n" +
+189:      "  if (primaryTimedOut && fallbackTimedOut) {\n" +
+
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+31:        ["src/provider.ts", "return fallback;"],
+609:    expect(classifyRecoveryFailure({ kind: "provider", code: "TIMEOUT" })).toBe("TIMEOUT");
+
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts
+108:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts
+75:  it("includes bilingual timeout note and unproven items for PROVIDER_TIMEOUT", () => {
+77:      reason: "PROVIDER_TIMEOUT",
+99:    expect(report).toContain("Trigger: PROVIDER_TIMEOUT");
+110:  it("includes bilingual stop-reason note for PROVIDER_TIMEOUT in Arabic", () => {
+113:      reason: "PROVIDER_TIMEOUT",
+127:    expect(report).toContain("Trigger: PROVIDER_TIMEOUT");
+130:    // With no pending changes and searches done, hits the PROVIDER_TIMEOUT retry recommendation.
+
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts
+377:      '  if (url === "http://host") return fallback;\n' +
+385:        'Evidence: `if (url === "http://host") return fallback`\n' +
+386:        "The function returns the fallback value.",
+430:    // *second* occurrence (the safe fallback), computeSourceSpan must prefer
+438:      '    console.log("safe fallback");\n' +
+447:        "In the safe fallback branch:\n" +
+449:        "The function returns the partial result in the fallback.",
+
+lib/ai-orchestrator/src/__tests__/quality-engine.test.ts
+12:    const ordered = sortProviderIdsByQuality(["gemini", "groq", "openrouter"], "tool_chat", { requireTools: true });
+33:  it("flags fallback-style task output for retry", () => {
+49:    const plan = buildQualityPlan("capability_probe", { requireTools: true });
+51:    expect(plan.strictHints.requireTools).toBe(true);
+
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts
+599:      // the R4 "no recognisable invocation" fallback).
+
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts
+62:      fallbackChain: ["initial-model"],
+
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts
+2: * Provider-free release coverage for structured code-review fallback.
+111:describe("structured review provider fallback release check", () => {
+146:      // before the fallback chain advances.
+153:      }, 429, new Headers({ "Retry-After": "1" })),
+181:      // successful fallback response. The transport fallback itself must
+
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts
+115:    const fallback = buildTaskValidationFallback("FULL_FORENSIC_AUDIT", true);
+116:    expect(fallback).toContain("## 1) Executive Verdict");
+117:    expect(fallback).toContain("## 6) Final Judgment");
+118:    expect(fallback).toContain("ANALYSIS_INCOMPLETE");
+119:    expect(fallback).not.toContain("FINDING PROVEN");
+120:    expect(validateTaskResponse("FULL_FORENSIC_AUDIT", fallback, { responseLanguage: "ar" }).valid).toBe(true);
+123:  it("returns an informative incomplete behavior fallback after source reads", () => {
+
+lib/ai-orchestrator/src/__tests__/task-checklist.test.ts
+136:  it("adds an explicit unfinished section to a fallback response", () => {

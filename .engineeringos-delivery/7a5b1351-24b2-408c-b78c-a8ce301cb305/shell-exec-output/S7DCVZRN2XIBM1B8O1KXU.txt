@@ -1,0 +1,137 @@
+
+  useEffect(() => {
+    return () => {
+      cancelStream();
+      cancelTaskStream();
+    };
+  }, [cancelStream, cancelTaskStream]);
+
+  // Live agent tool-step tracking — updated in real time via SSE callbacks.
+  const [agentSteps, setAgentSteps] = useState<LiveAgentToolStep[]>([]);
+  const [agentActivityEvents, setAgentActivityEvents] = useState<LiveAgentActivityEvent[]>([]);
+  const agentActivityEventsRef = useRef<LiveAgentActivityEvent[]>([]);
+  const agentActivityIdRef = useRef(0);
+  const [agentIter, setAgentIter] = useState<{ iter: number; max: number } | null>(null);
+  const [agentModel, setAgentModel] = useState<string | null>(null);
+  const [agentStartedAt, setAgentStartedAt] = useState<number | null>(null);
+  const [agentElapsedSeconds, setAgentElapsedSeconds] = useState(0);
+  const [agentModelHistory, setAgentModelHistory] = useState<Array<{ id: string; provider: string }>>([]);
+  const [agentDiagnostics, setAgentDiagnostics] = useState<string[]>([]);
+  const [structuredRetryMessageId, setStructuredRetryMessageId] = useState<string | null>(null);
+  const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
+  const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
+  const [historicalExecutionId, setHistoricalExecutionId] = useState<string | null>(null);
+  const [executionControlPending, setExecutionControlPending] = useState(false);
+  const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
+  const [resumeRecoveryAttempt, setResumeRecoveryAttempt] = useState(0);
+  const resumeRecoveryPendingRef = useRef<string | null>(null);
+  const [executionNodes, setExecutionNodes] = useState<AiExecutionNodeSnapshot[]>([]);
+  const activeExecutionRef = useRef<ActiveExecution | null>(null);
+  /** True once a live forensic_status SSE step reports isFixtureLocal — lets
+   *  LiveAgentActivity show the FIXTURE-LOCAL badge before the report lands. */
+  const [liveFixtureLocal, setLiveFixtureLocal] = useState(false);
+  /** Task #58: live verdict proof scope + scoped finding status from the
+   *  decision_trace SSE event — surfaced during the run, cleared on done so the
+   *  persisted forensic card takes over. */
+  const [liveVerdictScope, setLiveVerdictScope] = useState<{
+    scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
+    findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
+  } | null>(null);
+  const [liveAuditScopeDescription, setLiveAuditScopeDescription] = useState<string | null>(null);
+  /** NI-35: live evidence_integrity (EI-012) reconciliation shown during the
+   *  stream; cleared on done so the persisted forensic card takes over. */
+  const [liveEvidenceIntegrity, setLiveEvidenceIntegrity] = useState<{
+    consistent: boolean;
+    violations: string[];
+    objectiveType?: string;
+    requiredEdges: string[];
+    provenEdges: string[];
+    completionGateResult?: string;
+    finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
+  } | null>(null);
+
+  // Keep the opaque resume token across tab refreshes. The server stores only
+  // its hash, so losing this browser copy would make a paused execution look
+  // resumable while making the actual resume impossible.
+  const executionPointerKey = selectedProjectId
+    ? `eos_ai_execution_current_${selectedProjectId}`
+    : undefined;
+  const pointedExecutionSessionId = (() => {
+    if (!executionPointerKey || sessionId) return undefined;
+    const value = localStorage.getItem(executionPointerKey);
+    return value && value.trim() ? value : undefined;
+  })();
+  const executionStorageSessionId = sessionId ?? pointedExecutionSessionId;
+  const executionStorageKey = selectedProjectId && executionStorageSessionId
+    ? `eos_ai_execution_${selectedProjectId}_${executionStorageSessionId}`
+    : undefined;
+  const hydratedExecutionScopeRef = useRef<string | null>(null);
+  const storedExecution = (() => {
+    if (!executionStorageKey) return null;
+    try {
+  // Cancellation is a terminal audit state. Keep its persisted execution
+  // summary available after history reload so the incomplete report's
+  // recovery context is not replaced by a clean/no-finding fallback.
+  'cancelled',
+] as const;
+
+type DashboardExecutionSummary = AiStreamExecutionSummary & {
+  synthesisAttempts?: number;
+  synthesisMaxAttempts?: number;
+  synthesisTimeoutMs?: number;
+  synthesisElapsedMs?: number;
+  synthesisTimedOut?: boolean;
+};
+
+function parseExecutionSummary(trace: ToolTraceEntry[]): DashboardExecutionSummary | null {
+  const done = [...trace].reverse().find((entry) => entry.kind === 'done');
+  if (!done || !EXECUTION_STOP_REASONS.includes(done.stopReason as typeof EXECUTION_STOP_REASONS[number])) {
+    return null;
+  }
+
+  const recordedToolCalls = trace.filter((entry) => entry.kind === 'tool_call').length;
+  const recordedPrefetchToolCalls = trace.filter(
+    (entry) => entry.kind === 'tool_call' && entry.prefetched === true,
+  ).length;
+  const recordedLoopToolCalls = recordedToolCalls - recordedPrefetchToolCalls;
+  const diagnosticCodes = new Set<string>();
+  const diagnosticDetails = new Set<string>();
+  for (const entry of trace) {
+    if (entry.kind === 'diagnostic' && entry.code) diagnosticCodes.add(entry.code);
+    if (entry.kind === 'diagnostic') {
+      for (const detail of entry.details ?? []) diagnosticDetails.add(detail);
+    }
+    for (const code of entry.diagnosticCodes ?? []) diagnosticCodes.add(code);
+    for (const detail of entry.diagnosticDetails ?? []) diagnosticDetails.add(detail);
+  }
+  const capabilityProbeRecoveryStarted = [...diagnosticCodes].some(
+    (code) =>
+      code === 'CAPABILITY_PROBE_EVIDENCE_RECOVERED' ||
+      code.startsWith('CAPABILITY_PROBE_EVIDENCE_RECOVERY_'),
+  );
+
+  return {
+    iterations: typeof done.iterations === 'number' ? done.iterations : 0,
+    maxIterations: typeof done.maxIterations === 'number' ? done.maxIterations : 0,
+    toolCalls: typeof done.toolCalls === 'number' ? done.toolCalls : recordedToolCalls,
+    prefetchToolCalls:
+      typeof done.prefetchToolCalls === 'number'
+        ? done.prefetchToolCalls
+        : recordedPrefetchToolCalls,
+    loopToolCalls:
+      typeof done.loopToolCalls === 'number'
+        ? done.loopToolCalls
+        : recordedLoopToolCalls,
+    stopReason: done.stopReason as AiStreamExecutionSummary['stopReason'],
+    synthesisStarted: done.synthesisStarted === true,
+    ...(typeof done.synthesisAttempts === 'number' ? { synthesisAttempts: done.synthesisAttempts } : {}),
+lib/api-client-react/src/generated/api.ts:4782:export type GetAiExecutionQueryResult = NonNullable<Awaited<ReturnType<typeof getAiExecution>>>
+lib/api-client-react/src/generated/api.ts:4783:export type GetAiExecutionQueryError = ErrorType<ApiError>
+lib/api-client-react/src/generated/api.schemas.ts:3323:export type GetAiExecution200Objective = { [key: string]: unknown } | null;
+lib/api-client-react/src/generated/api.schemas.ts:3325:export type GetAiExecution200Status = typeof GetAiExecution200Status[keyof typeof GetAiExecution200Status];
+lib/api-client-react/src/generated/api.schemas.ts:3341:export type GetAiExecution200FlightState = typeof GetAiExecution200FlightState[keyof typeof GetAiExecution200FlightState];
+lib/api-client-react/src/generated/api.schemas.ts:3360:export type GetAiExecution200EvidenceVerdict = typeof GetAiExecution200EvidenceVerdict[keyof typeof GetAiExecution200EvidenceVerdict];
+lib/api-client-react/src/generated/api.schemas.ts:3371:export type GetAiExecution200Checkpoint = { [key: string]: unknown };
+lib/api-client-react/src/generated/api.schemas.ts:3373:export type GetAiExecution200Recovery = {
+lib/api-client-react/src/generated/api.schemas.ts:3381:export type GetAiExecution200 = {
+lib/api-client-react/src/generated/api.schemas.ts:3402:  recipeReceipt?: RecipeReceipt | null;

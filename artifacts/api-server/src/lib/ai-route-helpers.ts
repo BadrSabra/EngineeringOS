@@ -20,6 +20,7 @@ import {
   sortProviderIdsByQuality,
   isCircuitOpen,
   createExecutionLedger,
+  validateGroqDefaultModels,
 } from "@workspace/ai-orchestrator";
 import type {
   ProviderId,
@@ -72,6 +73,50 @@ type ProviderSelectionOptions = {
   qualityProfile?: QualityProfile;
 };
 
+const GROQ_MODEL_VALIDATION_TTL_MS = 5 * 60 * 1_000;
+const groqModelValidationCache = new Map<
+  string,
+  { expiresAt: number; valid: boolean }
+>();
+
+async function groqCanUseConfiguredModels(apiKey: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = groqModelValidationCache.get(apiKey);
+  if (cached && cached.expiresAt > now) return cached.valid;
+
+  try {
+    const validation = await validateGroqDefaultModels(apiKey);
+    groqModelValidationCache.set(apiKey, {
+      expiresAt: now + GROQ_MODEL_VALIDATION_TTL_MS,
+      valid: validation.valid,
+    });
+    if (!validation.valid) {
+      logger.warn(
+        {
+          provider: "groq",
+          modelCheck: "missing",
+          missingRoles: validation.missing,
+        },
+        "Skipping Groq: configured model is not present in the live catalog",
+      );
+    }
+    return validation.valid;
+  } catch (error) {
+    // A temporary catalog outage must not turn a usable provider into a
+    // permanent configuration failure. The completion path still classifies
+    // MODEL_NOT_FOUND and can fall back if the request proves unusable.
+    logger.warn(
+      {
+        provider: "groq",
+        modelCheck: "unavailable",
+        reason: error instanceof GroqClientError ? error.code : "UNKNOWN",
+      },
+      "Groq model catalog unavailable; retaining provider as a best-effort candidate",
+    );
+    return true;
+  }
+}
+
 function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
   const config = PROVIDER_REGISTRY[provider];
   if (!config) return false;
@@ -99,6 +144,10 @@ async function collectAvailableProviders(
         "Skipping provider that cannot satisfy the current request",
       );
       skipped.push({ provider, reason });
+      continue;
+    }
+    if (provider === "groq" && !(await groqCanUseConfiguredModels(key))) {
+      skipped.push({ provider, reason: "model_not_found" });
       continue;
     }
     // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).

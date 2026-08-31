@@ -1,0 +1,106 @@
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx
+99:      path: 'src/routes/ai/chat.ts',
+107:        { line: 1396, text: '  const result = await chat(req, res);' },
+412:  it('keeps failed chat recovery guidance safe after the conversation is reloaded', async () => {
+414:      'provider outage: model secret-model-name failed at /home/runner/workspace/artifacts/api-server/src/chat.ts',
+416:      'Support reference: support-chat-outage-34',
+426:    mocks.serverProposal = { proposalId: 'failed-chat-recovery', changes: [] };
+435:      expect(visibleText).toContain('Support reference: support-chat-outage-34');
+629:  it('hydrates persisted chat data and keeps the audit pointer when the server completed offline', async () => {
+705:    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+880:  it('keeps the authenticated mobile chat focused on conversation and protects provider inputs', async () => {
+890:    const drawer = screen.getByTestId('sessions-drawer');
+918:    const drawer = screen.getByTestId('sessions-drawer');
+1211:            { id: 'route', name: 'POST /api/ai/chat', stage: 'API_ROUTE' },
+1212:            { id: 'chat', name: 'chat()', stage: 'ORCHESTRATOR' },
+1216:            to: 'chat',
+1220:            sourceSpan: { file: 'src/routes/ai/chat.ts', line: 42, column: 8 },
+1230:            { id: 'route', name: 'chat.ts', path: 'src/routes/ai/chat.ts', stage: 'API_ROUTE' },
+1231:            { id: 'agent', name: 'chat-agent.ts', path: 'lib/ai-orchestrator/src/agents/chat-agent.ts', stage: 'ORCHESTRATOR' },
+1239:            sourceSpan: { file: 'src/routes/ai/chat.ts', line: 91, column: 4, snippet: 'chat(...)' },
+1254:    expect(screen.getByText('src/routes/ai/chat.ts:42:8')).toBeInTheDocument();
+1262:        source: 'src/routes/ai/chat.ts',
+1263:        excerpt: 'const result = await chat(...)',
+1281:    expect(screen.getByText('src/routes/ai/chat.ts:1396–1426')).toBeInTheDocument();
+1282:    const excerptText = screen.getByText('const result = await chat(...)');
+1302:        violations: ['claimed evidence with no backing completed read: src/routes/ai/chat.ts'],
+1339:    expect(screen.getByText('src/routes/ai/chat.ts')).toBeInTheDocument();
+1369:          'src/routes/ai/chat.ts',
+1370:          'lib/ai-orchestrator/src/agents/chat-agent.ts',
+1376:          'src/routes/ai/chat.ts',
+1377:          'lib/ai-orchestrator/src/agents/chat-agent.ts',
+1390:        source: 'src/routes/ai/chat.ts',
+1441:        source: 'src/routes/ai/chat.ts',
+1442:        excerpt: 'const result = await chat(req, res); return result;',
+1618:        source: 'src/routes/ai/chat.ts',
+1619:        excerpt: 'const result = await chat(req, res); return result;',
+1635:    expect(screen.getAllByText('src/routes/ai/chat.ts:1396–1426').length).toBeGreaterThan(0);
+1648:        source: 'src/routes/ai/chat.ts',
+1649:        excerpt: 'const result = await chat(req, res);',
+1705:        source: 'src/routes/ai/chat.ts',
+1706:        excerpt: 'const result = await chat(req, res);',
+1976:      objective: 'Improve the chat experience',
+1978:      assumptions: ['The existing chat route remains the entry point.'],
+1995:    expect(await screen.findByText('Improve the chat experience')).toBeInTheDocument();
+2001:    expect(screen.getByText('The existing chat route remains the entry point.')).toBeInTheDocument();
+2051:  it('ignores a generic chat turn with no taskResult (falls back to prose)', async () => {
+2652:        validationAffectedFiles: ['src/routes/ai/chat.ts'],
+2663:          path: 'src/routes/ai/chat.ts',
+3330:        source: 'src/routes/ai/chat.ts',
+
+artifacts/dashboard/src/pages/Dashboard.tsx
+292:              <span className="font-mono font-medium">{retention.chatRowsScanned} scanned / {retention.chatRowsPruned} pruned</span>
+
+artifacts/dashboard/src/pages/MissionControl.tsx
+750:        : 'Resume accepted. Open the AI Assistant to continue from the saved checkpoint.');
+830:            Open AI Assistant <ArrowUpRight className="h-4 w-4" />
+
+artifacts/dashboard/src/pages/AiChat.tsx
+719: * Keep implementation details useful to the agent out of the normal chat
+821: * Safely parse the `sources` field from a chat message.
+1369:   * chats). `consistent: false` means the verdict failed closed, and violations
+1556: * (e.g. a generic chat), evidenceIntegrity is null and the block is hidden.
+3744: * project-authorized /api/ai/chat/file-content endpoint, anchored at the
+3916: * typed result is present (generic chat turns fall back to plain prose).
+4426:    <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
+4434:      <div className={`chat-message-content flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
+4436:          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+5096:/** Format a scan analysis result as a markdown chat message. */
+5118:/** Format a code review result as a markdown chat message. */
+5243:  // (C1–C7) straight to the chat agent; all SSE diagnostics / forensic_status
+8116:        `/api/ai/chat/${encodeURIComponent(sessionId ?? '')}/messages/${encodeURIComponent(messageId)}/mission-correlation-report/regenerate`,
+8458:        description: 'Refresh the chat before applying these changes.',
+8476:          description: 'Refresh the chat before approving this rebased patch.',
+8505:        description: 'Refresh the chat before rebasing this patch.',
+8570:      toast({ title: 'No project selected', description: 'Select a project first to start chatting.', variant: 'destructive' });
+9145:        `/api/ai/chat/plans/${encodeURIComponent(messageId)}/decision`,
+9208:   *  - 'analyze' → POST /api/ai/projects/:id/analyze (structured result rendered in chat)
+9209:   *  - 'review'  → POST /api/ai/projects/:id/review  (structured result rendered in chat)
+9210:   *  - others    → send the prompt directly through the chat agent
+9225:    // 'tasks' and 'workflow' — route through chat agent, send immediately.
+9269:  // Derive the subtitle shown in the empty-chat state. Each case maps to a
+9274:    if (!selectedProjectId) return 'Create or select a project first to start chatting.';
+9282:    if (!selectedProjectId) return 'Create a project first to start chatting\u2026';
+9290:    if (!selectedProjectId) return 'Select a project first';
+9343:  // overlay drawer so it never steals the chat column's usable width.
+9378:      {/* UI-01: desktop sidebar; mobile drawer overlays the chat instead of
+9381:        data-testid="sessions-drawer"
+9382:        className={`${sidebarOpen ? 'flex' : 'hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:h-auto md:w-56 md:max-w-none md:shadow-none`}
+9394:              aria-label="New session"
+9568:      {/* Main chat area */}
+9571:        <div className="chat-header flex h-12 min-w-0 max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 sm:px-4">
+9721:            <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
+9782:                <div className="chat-message flex min-w-0 max-w-full gap-3 mb-4">
+9786:                  <div className="chat-message-content min-w-0 max-w-[calc(100%-2.75rem)] rounded-xl rounded-tl-sm border border-border bg-secondary px-3 py-3 flex flex-col gap-2 sm:max-w-[75%] sm:px-4">
+9919:         <div className="chat-input-bar min-w-0 shrink-0 border-t border-border p-3 sm:p-4">
+
+artifacts/dashboard/src/pages/FlightDeck.test.tsx
+101:  it('keeps non-delivery audit/chat executions out of the completed delivery presentation', () => {
+
+artifacts/dashboard/src/components/layout/Sidebar.tsx
+30:  { href: '/ai', label: 'AI Assistant', icon: Bot },
+
+artifacts/dashboard/src/pages/FlightDeck.tsx
+304:          Open AI Assistant
+324:          <ArrowLeft className="h-4 w-4" /> Back to AI Assistant
+368:        <span>AI Assistant</span><span>/</span><Link href="/mission-control" className="hover:text-foreground hover:underline">Mission Control</Link><span>/</span><span className="text-foreground">Flight Deck</span>

@@ -1,0 +1,500 @@
+function completeProviderAttempt(
+  ledger: ExecutionLedger | undefined,
+  provider: string,
+  model: string,
+  startedAt: number,
+  error?: unknown,
+): void {
+  ledger?.complete("provider_attempt", {
+    provider,
+    model,
+    operation: "provider_request",
+    startedAt,
+    status: error ? "failed" : "completed",
+    ...(error instanceof Error ? { reason: error.message } : {}),
+  });
+}
+
+/**
+ * Current production Groq models. Keep these aligned with provider-registry.ts
+ * so provider selection never routes a valid credential to a retired model.
+ */
+export const MODEL_POWERFUL = "openai/gpt-oss-120b";
+export const MODEL_FAST = "openai/gpt-oss-20b";
+
+export type GroqDefaultModelRole = "fast" | "powerful";
+
+export type GroqDefaultModelValidation = {
+  valid: boolean;
+  missing: GroqDefaultModelRole[];
+  checkedModels: { fast: string; powerful: string };
+  reason?: string;
+};
+
+// Singleton for the env-var key; per-key cache for user-provided keys.
+let _envClient: Groq | null = null;
+const _keyedClients = new Map<string, Groq>();
+
+/**
+ * Maximum number of per-user Groq clients held in the keyed cache.
+ * Each `Groq` instance is lightweight (holds a base URL + headers), but an
+ * unbounded cache grows silently with the number of distinct user-provided
+ * keys — a concern in long-running processes with many active users.
+ * When the limit is reached the oldest entry (Map insertion order) is evicted
+ * before adding the new one, bounding memory to at most MAX_KEYED_CLIENTS
+ * instances at any point in time.
+ */
+const MAX_KEYED_CLIENTS = 50;
+
+// ── Circuit Breaker ──────────────────────────────────────────────────────────
+// Protects against cascade failures and Groq quota exhaustion during outages.
+// Each distinct API key gets its own independent breaker so a single broken
+// user key cannot trip the shared env-var client.
+//
+// State machine:
+//   CLOSED    — normal operation; consecutive failure count is tracked.
+//   OPEN      — calls fail immediately (no network round-trip) after
+//               CIRCUIT_FAILURE_THRESHOLD consecutive final-call failures
+//               (i.e. after all retries are spent).
+//   HALF_OPEN — one probe call allowed after CIRCUIT_RESET_MS has elapsed;
+//               success → CLOSED; failure → OPEN (timeout resets).
+const CIRCUIT_FAILURE_THRESHOLD = 5;
+const CIRCUIT_RESET_MS = 60_000; // 1-minute cooldown before probing
+
+type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
+interface CircuitEntry {
+  state: CircuitState;
+  failures: number; // consecutive final-call failures (after all retries spent)
+  openedAt: number; // epoch ms when the circuit last opened
+}
+const _circuits = new Map<string, CircuitEntry>();
+
+function getCircuit(key: string): CircuitEntry {
+  let cb = _circuits.get(key);
+  if (!cb) {
+    cb = { state: "CLOSED", failures: 0, openedAt: 0 };
+    _circuits.set(key, cb);
+  }
+  return cb;
+}
+
+/**
+ * Returns "allow" if the call should proceed; "reject" if the circuit is OPEN.
+ * Transitions OPEN → HALF_OPEN when the cooldown period has elapsed.
+ */
+function circuitCheck(key: string): "allow" | "reject" {
+  const cb = getCircuit(key);
+  if (cb.state === "CLOSED" || cb.state === "HALF_OPEN") return "allow";
+  if (Date.now() - cb.openedAt >= CIRCUIT_RESET_MS) {
+    cb.state = "HALF_OPEN";
+    return "allow";
+  }
+  return "reject";
+}
+
+/**
+ * Record the outcome of one complete()/completeRaw() call (after all retries).
+ * A success resets the breaker; a failure increments the counter and may open it.
+ */
+function circuitRecord(key: string, success: boolean): void {
+  const cb = getCircuit(key);
+  if (success) {
+    if (cb.state !== "CLOSED") {
+      console.info(
+        JSON.stringify({ scope: "groq-client", event: "circuit_closed", key: key === "env" ? key : "user" }),
+      );
+    }
+    cb.state = "CLOSED";
+    cb.failures = 0;
+  } else {
+    cb.failures++;
+    if (cb.state === "HALF_OPEN" || cb.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+      cb.state = "OPEN";
+      cb.openedAt = Date.now();
+      console.warn(
+        JSON.stringify({
+          scope: "groq-client",
+          event: "circuit_open",
+          key: key === "env" ? key : "user",
+          failures: cb.failures,
+        }),
+      );
+    }
+  }
+}
+
+function getClient(apiKey?: string): Groq {
+  if (apiKey) {
+    let client = _keyedClients.get(apiKey);
+    if (!client) {
+      if (_keyedClients.size >= MAX_KEYED_CLIENTS) {
+        // Map preserves insertion order; `.keys().next().value` is the oldest.
+        const oldest = _keyedClients.keys().next().value;
+        if (oldest !== undefined) _keyedClients.delete(oldest);
+      }
+      client = new Groq({ apiKey });
+      _keyedClients.set(apiKey, client);
+    }
+    return client;
+  }
+  if (!_envClient) {
+    const envKey = process.env.GROQ_API_KEY;
+    if (!envKey) {
+      throw new GroqClientError("INVALID_CONFIG", "GROQ_API_KEY environment variable is not set");
+    }
+    _envClient = new Groq({ apiKey: envKey });
+  }
+  return _envClient;
+}
+
+/**
+ * Verify that the models selected by the provider registry are still exposed
+ * by Groq. Credential validity and model availability are independent: a key
+ * can remain valid after Groq retires a model slug.
+ *
+ * This intentionally uses the authenticated models endpoint rather than a
+ * completion request. It is bounded, does not consume tokens, and never
+ * includes the API key in its result or error message.
+ */
+export async function validateGroqDefaultModels(
+  apiKey: string,
+  defaults: { fast: string; powerful: string } = {
+    fast: MODEL_FAST,
+    powerful: MODEL_POWERFUL,
+  },
+  timeoutMs = 10_000,
+): Promise<GroqDefaultModelValidation> {
+  const client = getClient(apiKey);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await client.models.list({ signal: controller.signal });
+    const modelIds = new Set(
+      (response.data ?? [])
+        .map((model) => model?.id)
+        .filter((modelId): modelId is string => typeof modelId === "string"),
+    );
+    const missing = (["fast", "powerful"] as const).filter(
+      (role) => !modelIds.has(defaults[role]),
+    );
+
+    if (missing.length > 0) {
+      const missingDescription = missing
+        .map((role) => `${role}="${defaults[role]}"`)
+        .join(", ");
+      return {
+        valid: false,
+        missing,
+        checkedModels: { ...defaults },
+        reason:
+          `Groq model catalog is missing the configured ${missingDescription}. ` +
+          "Update the Groq default model IDs and restart before accepting AI traffic.",
+      };
+    }
+
+    return {
+      valid: true,
+      missing: [],
+      checkedModels: { ...defaults },
+    };
+  } catch (error) {
+import type { ModelCapability } from "../openrouter/model-catalog.js";
+import {
+  isCatalogFreeModel,
+  isCatalogFreeModelForCapability,
+  resolveFallbackChain,
+  type FreeModelCapabilityOptions,
+} from "../openrouter/model-resolver.js";
+import { loadProvider, type ProviderId } from "../provider-registry.js";
+import { getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
+import { GroqClientError } from "../errors.js";
+import type { ExecutionPlan } from "./execution-plan.js";
+
+export type ExecutionModelDecision = {
+  providerId: ProviderId;
+  model: string;
+  powerModel: string;
+  fallbackChain: string[];
+  capability: ModelCapability;
+  quality: "fast" | "powerful";
+  source: "openrouter-catalog" | "provider-registry";
+};
+
+export function isFreeOpenRouterModel(modelId: string): boolean {
+  return isCatalogFreeModel(modelId);
+}
+
+export function resolveFreeModelOverride(
+  modelId: string,
+  options: ModelCapability | FreeModelCapabilityOptions = {},
+): string {
+  const normalized = modelId.trim();
+  const capabilityOptions = typeof options === "string" ? { capability: options } : options;
+  if (!isCatalogFreeModelForCapability(normalized, capabilityOptions)) {
+    const detail = capabilityOptions.capability
+      ? `; missing capability="${capabilityOptions.capability}"`
+      : "";
+    throw new Error(`OpenRouter model override is not a currently-free catalog model: ${normalized}${detail}`);
+  }
+  return normalized;
+}
+
+function wantsPowerfulModel(plan: ExecutionPlan): boolean {
+  const taskType = plan.taskProfile.taskType;
+  return (
+    taskType === "analysis" ||
+    taskType === "code_review" ||
+    taskType === "task_execution" ||
+    taskType === "workflow" ||
+    plan.strictHints.requireThinking === true ||
+    plan.strictHints.requireReasoning === true ||
+    plan.strictHints.requireTools === true ||
+    (plan.strictHints.minimumContext ?? 0) >= 16_000
+  );
+}
+
+function selectCapability(plan: ExecutionPlan): ModelCapability {
+  if (plan.strictHints.requireTools || plan.taskProfile.useTools) {
+    return "tool_calling";
+  }
+  // Structured single-shot reviewers need a model that can reliably emit the
+  // declared JSON contract. Requiring a reasoning-capable model here is
+  // counterproductive on OpenRouter: several free reasoning models place the
+  // useful work in reasoning_content and leave message.content empty.
+  if (
+    plan.taskProfile.taskType === "code_review" ||
+    plan.strictHints.requireJsonMode
+  ) {
+    return "json";
+  }
+  if (
+    plan.taskProfile.taskType === "analysis" ||
+    plan.taskProfile.taskType === "workflow" ||
+    plan.strictHints.requireThinking ||
+    plan.strictHints.requireReasoning
+  ) {
+    return "reasoning";
+  }
+  if ((plan.strictHints.minimumContext ?? 0) >= 16_000) {
+    return "long_context";
+  }
+  return plan.taskProfile.taskType === "task_execution" ? "coding" : "chat";
+}
+
+export function resolveExecutionModel(
+  providerId: ProviderId,
+  plan: ExecutionPlan,
+): ExecutionModelDecision {
+  const provider = loadProvider(providerId);
+  // Capability probes are deliberately a fast, tool-capable contract. They
+  // need exact source quoting, not a long reasoning trace or a large synthesis
+  // envelope. Keeping this exception in model resolution prevents a probe
+  // from inheriting task_execution's paid/reasoning-oriented tier merely
+  // because its read-only tool loop lives inside chat-agent.
+  const isCapabilityProbe = plan.qualityProfile === "capability_probe";
+  const wantPowerful = isCapabilityProbe ? false : wantsPowerfulModel(plan);
+  const capability = selectCapability(plan);
+
+  let decision: ExecutionModelDecision;
+
+  if (providerId === "openrouter") {
+    const fallbackChain = resolveFallbackChain({
+      capability,
+      quality: wantPowerful ? "powerful" : "fast",
+      requireTools: plan.strictHints.requireTools ?? false,
+    }).map((model) => model.id);
+
+    // Controlled live checks may opt into a known paid OpenRouter model. Keep
+    // this override environment-only so ordinary provider-free validation and
+    // normal free-tier routing retain the catalog-driven fallback chain.
+    const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+    let liveModel: string | undefined;
+    if (configuredModel) {
+      try {
+        liveModel = resolveFreeModelOverride(configuredModel, {
+          capability,
+          requireTools: plan.strictHints.requireTools ?? false,
+        });
+      } catch (error) {
+        // An environment-pinned model can become paid, retired, or lose the
+        // requested capability between deploys. Treat it as a stale hint and
+        // use the already-resolved live fallback chain instead of making a
+        // review fail before the provider is contacted.
+        console.warn(
+          JSON.stringify({
+            scope: "model-resolver",
+            action: "ignore_unusable_configured_model",
+            configuredModel,
+            capability,
+            reason: error instanceof Error ? error.message : "model is not currently usable",
+          }),
+          }),
+        );
+      }
+    }
+    if (fallbackChain.length === 0 && !liveModel) {
+      const catalog = getDynamicCatalogStatus();
+      throw new GroqClientError(
+        "INVALID_CONFIG",
+        `No compatible free OpenRouter model is available for capability="${capability}"`,
+        {
+          context: {
+            providerName: "OpenRouter",
+            providerCode: "NO_COMPATIBLE_FREE_MODEL",
+            catalogLoaded: catalog.loaded,
+            catalogUsable: catalog.usable,
+            catalogStatus: catalog.lastRefreshStatus,
+            catalogError: catalog.lastRefreshError ?? undefined,
+          },
+        },
+      );
+    }
+    const model = liveModel ?? fallbackChain[0]!;
+    const powerModel = liveModel ?? fallbackChain[1] ?? fallbackChain[0]!;
+
+    decision = {
+      providerId,
+      model,
+      powerModel,
+      fallbackChain: liveModel ? [liveModel] : fallbackChain,
+      capability,
+      quality: wantPowerful ? "powerful" : "fast",
+      source: "openrouter-catalog",
+    };
+  } else {
+    const model = wantPowerful ? provider.defaultModels.powerful : provider.defaultModels.fast;
+
+    decision = {
+      providerId,
+      model,
+      powerModel: provider.defaultModels.powerful,
+      fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
+      capability,
+      quality: wantPowerful ? "powerful" : "fast",
+      source: "provider-registry",
+    };
+  }
+
+  console.info(
+    JSON.stringify({
+      scope: "model-resolver",
+      action: "resolve_execution_model",
+      providerId,
+      capability,
+      wantPowerful,
+      model: decision.model,
+      powerModel: decision.powerModel,
+      fallbackChain: decision.fallbackChain,
+      source: decision.source,
+      taskType: plan.taskProfile.taskType,
+      requireTools: plan.strictHints.requireTools ?? false,
+      requireThinking: plan.strictHints.requireThinking ?? false,
+      requireReasoning: plan.strictHints.requireReasoning ?? false,
+      minimumContext: plan.strictHints.minimumContext ?? 0,
+      ...(isCapabilityProbe ? { selectionMode: "fast_tool_calling" } : {}),
+    }),
+  );
+
+  return decision;
+}
+lib/ai-orchestrator/src/agents/chat-agent.ts:50:import { resolveExecutionModel } from "../model-selection/model-resolver.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:4227:  const modelDecision = resolveExecutionModel(providerId, executionPlan);
+lib/ai-orchestrator/src/agents/chat-agent.ts:4440:  //      → fallbackChain is already built for powerful models
+lib/ai-orchestrator/src/agents/chat-agent.ts:4441:  //      → modelDecision.model = fallbackChain[0]  ← TOP of the powerful chain  ✅
+lib/ai-orchestrator/src/agents/chat-agent.ts:4442:  //      → modelDecision.powerModel = fallbackChain[1] ← SECOND in chain        ❌
+lib/ai-orchestrator/src/agents/chat-agent.ts:4443:  //      So for deep analysis we want modelDecision.model, not powerModel.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4447:  //      modelDecision.model = fast model; powerModel = step-up.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4453:      ? modelDecision.model
+lib/ai-orchestrator/src/agents/chat-agent.ts:4455:      ? modelDecision.powerModel   // step up from fast chain
+lib/ai-orchestrator/src/agents/chat-agent.ts:4456:      : modelDecision.model);
+lib/ai-orchestrator/src/agents/chat-agent.ts:4461:  const powerModel = explicitModelOverride || modelDecision.powerModel;
+lib/ai-orchestrator/src/agents/chat-agent.ts:4802:      model: explicitModelOverride || modelDecision.model,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5511:    capability: modelDecision.capability,
+lib/ai-orchestrator/src/agents/chat-agent.ts:7076:          : [model, ...(modelDecision.fallbackChain ?? [])]
+lib/ai-orchestrator/src/index.ts:142:export { resolveExecutionModel } from "./model-selection/model-resolver.js";
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:82:  fallbackChain: string[];
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:227:    fallbackChain: chain.slice(1).map((m) => m.id),
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:17:  fallbackChain: string[];
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:84:export function resolveExecutionModel(
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:101:    const fallbackChain = resolveFallbackChain({
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:134:    if (fallbackChain.length === 0 && !liveModel) {
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:151:    const model = liveModel ?? fallbackChain[0]!;
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:152:    const powerModel = liveModel ?? fallbackChain[1] ?? fallbackChain[0]!;
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:158:      fallbackChain: liveModel ? [liveModel] : fallbackChain,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:170:      fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:186:      fallbackChain: decision.fallbackChain,
+lib/ai-orchestrator/src/agent-complete.ts:19:import { resolveExecutionModel } from "./model-selection/model-resolver.js";
+lib/ai-orchestrator/src/agent-complete.ts:94:  const probeModelDecision = resolveExecutionModel(provider.providerId, probePlan);
+lib/ai-orchestrator/src/agent-complete.ts:175:      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+lib/ai-orchestrator/src/agent-complete.ts:177:        model: modelDecision.model,
+lib/ai-orchestrator/src/agent-complete.ts:190:      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+lib/ai-orchestrator/src/agent-complete.ts:192:        model: modelDecision.model,
+lib/ai-orchestrator/src/agent-complete.ts:194:        capability: modelDecision.capability,
+lib/ai-orchestrator/src/agent-complete.ts:195:        quality: modelDecision.quality,
+lib/ai-orchestrator/src/agent-complete.ts:206:      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+lib/ai-orchestrator/src/agent-complete.ts:208:        model: modelDecision.model,
+lib/ai-orchestrator/src/agent-complete.ts:217:      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+lib/ai-orchestrator/src/agent-complete.ts:219:        model: modelDecision.model,
+lib/ai-orchestrator/src/agents/chat-agent.ts:50:import { resolveExecutionModel } from "../model-selection/model-resolver.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:4227:  const modelDecision = resolveExecutionModel(providerId, executionPlan);
+lib/ai-orchestrator/src/agents/chat-agent.ts:4440:  //      → fallbackChain is already built for powerful models
+lib/ai-orchestrator/src/agents/chat-agent.ts:4441:  //      → modelDecision.model = fallbackChain[0]  ← TOP of the powerful chain  ✅
+lib/ai-orchestrator/src/agents/chat-agent.ts:4442:  //      → modelDecision.powerModel = fallbackChain[1] ← SECOND in chain        ❌
+lib/ai-orchestrator/src/agents/chat-agent.ts:4443:  //      So for deep analysis we want modelDecision.model, not powerModel.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4447:  //      modelDecision.model = fast model; powerModel = step-up.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4453:      ? modelDecision.model
+lib/ai-orchestrator/src/agents/chat-agent.ts:4455:      ? modelDecision.powerModel   // step up from fast chain
+lib/ai-orchestrator/src/agents/chat-agent.ts:4456:      : modelDecision.model);
+lib/ai-orchestrator/src/agents/chat-agent.ts:4461:  const powerModel = explicitModelOverride || modelDecision.powerModel;
+lib/ai-orchestrator/src/agents/chat-agent.ts:4802:      model: explicitModelOverride || modelDecision.model,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5511:    capability: modelDecision.capability,
+lib/ai-orchestrator/src/agents/chat-agent.ts:7076:          : [model, ...(modelDecision.fallbackChain ?? [])]
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:57:    resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:60:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:78:    resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:81:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:64:    resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:67:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:114:    resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:117:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:123:    resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:126:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:258:    resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:261:      fallbackChain: ["initial-model", "recovery-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:187:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:238:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:546:        resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:718:      resolveExecutionModel: vi.fn(() => ({ model: "llama-3.1-8b-instant", powerModel: "llama-3.3-70b-versatile" })),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:798:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:858:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:943:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1035:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1154:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1157:        fallbackChain: ["llama-3.1-8b-instant", "fallback-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1300:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1303:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1481:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1484:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1634:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1638:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1779:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1782:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1894:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1897:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2032:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2035:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2149:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2152:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2282:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2285:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2393:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2396:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2586:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2589:        fallbackChain: ["initial-model", "recovery-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2780:      resolveExecutionModel: vi.fn(() => ({ model: "llama-3.1-8b-instant", powerModel: "llama-3.3-70b-versatile" })),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2865:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3090:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3162:      resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:50:    resolveExecutionModel: vi.fn(() => ({
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:53:      fallbackChain: ["initial-model"],

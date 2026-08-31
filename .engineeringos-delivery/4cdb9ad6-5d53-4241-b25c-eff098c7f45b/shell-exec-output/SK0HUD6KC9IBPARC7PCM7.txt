@@ -1,0 +1,280 @@
+    supportsStreaming: true,
+    supportsTools: true,
+    supportsJsonMode: true,
+    defaultModels: {
+      fast: "deepseek-chat",
+      powerful: "deepseek-chat",
+    },
+    capabilities: {
+      supportsStreaming: true,
+      supportsTools: true,
+      supportsJsonMode: true,
+      supportsVision: false,
+      supportsReasoning: true,
+      supportsFunctionCalling: true,
+      supportsThinking: true,
+      maxContext: 64_000,
+      maxOutput: 8_000,
+      costTier: "low",
+    },
+  },
+  gemini: {
+    providerId: "gemini",
+    label: "Gemini",
+    consoleUrl: "aistudio.google.com/apikey",
+    statusUrl: "status.cloud.google.com",
+    supportsStreaming: true,
+    supportsTools: false,
+    supportsJsonMode: true,
+    defaultModels: {
+      fast: "gemini-2.0-flash",
+      powerful: "gemini-2.0-flash",
+    },
+    capabilities: {
+      supportsStreaming: true,
+      supportsTools: false,
+      supportsJsonMode: true,
+      supportsVision: true,
+      supportsReasoning: true,
+      supportsFunctionCalling: false,
+      supportsThinking: false,
+      maxContext: 128_000,
+      maxOutput: 8_192,
+      costTier: "medium",
+    },
+  },
+  groq: {
+    providerId: "groq",
+    label: "Groq",
+    consoleUrl: "console.groq.com",
+    statusUrl: "status.groq.com",
+    supportsStreaming: true,
+    supportsTools: true,
+    supportsJsonMode: true,
+    defaultModels: {
+      // Keep the resolver aligned with groq-client.ts. Groq retires model
+      // slugs periodically, so stale defaults turn valid credentials into
+      // MODEL_NOT_FOUND failures.
+      fast: MODEL_FAST,
+      powerful: MODEL_POWERFUL,
+    },
+    capabilities: {
+      supportsStreaming: true,
+      supportsTools: true,
+      supportsJsonMode: true,
+      supportsVision: false,
+      supportsReasoning: true,
+      supportsFunctionCalling: true,
+      supportsThinking: false,
+      maxContext: 128_000,
+      maxOutput: 8_192,
+      costTier: "low",
+import type { ModelCapability } from "../openrouter/model-catalog.js";
+import {
+  isCatalogFreeModel,
+  isCatalogFreeModelForCapability,
+  resolveFallbackChain,
+  type FreeModelCapabilityOptions,
+} from "../openrouter/model-resolver.js";
+import { loadProvider, type ProviderId } from "../provider-registry.js";
+import { getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
+import { GroqClientError } from "../errors.js";
+import type { ExecutionPlan } from "./execution-plan.js";
+
+export type ExecutionModelDecision = {
+  providerId: ProviderId;
+  model: string;
+  powerModel: string;
+  fallbackChain: string[];
+  capability: ModelCapability;
+  quality: "fast" | "powerful";
+  source: "openrouter-catalog" | "provider-registry";
+};
+
+export function isFreeOpenRouterModel(modelId: string): boolean {
+  return isCatalogFreeModel(modelId);
+}
+
+export function resolveFreeModelOverride(
+  modelId: string,
+  options: ModelCapability | FreeModelCapabilityOptions = {},
+): string {
+  const normalized = modelId.trim();
+  const capabilityOptions = typeof options === "string" ? { capability: options } : options;
+  if (!isCatalogFreeModelForCapability(normalized, capabilityOptions)) {
+    const detail = capabilityOptions.capability
+      ? `; missing capability="${capabilityOptions.capability}"`
+      : "";
+    throw new Error(`OpenRouter model override is not a currently-free catalog model: ${normalized}${detail}`);
+  }
+  return normalized;
+}
+
+function wantsPowerfulModel(plan: ExecutionPlan): boolean {
+  const taskType = plan.taskProfile.taskType;
+  return (
+    taskType === "analysis" ||
+    taskType === "code_review" ||
+    taskType === "task_execution" ||
+    taskType === "workflow" ||
+    plan.strictHints.requireThinking === true ||
+    plan.strictHints.requireReasoning === true ||
+    plan.strictHints.requireTools === true ||
+    (plan.strictHints.minimumContext ?? 0) >= 16_000
+  );
+}
+
+function selectCapability(plan: ExecutionPlan): ModelCapability {
+  if (plan.strictHints.requireTools || plan.taskProfile.useTools) {
+    return "tool_calling";
+  }
+  // Structured single-shot reviewers need a model that can reliably emit the
+  // declared JSON contract. Requiring a reasoning-capable model here is
+  // counterproductive on OpenRouter: several free reasoning models place the
+  // useful work in reasoning_content and leave message.content empty.
+  if (
+    plan.taskProfile.taskType === "code_review" ||
+    plan.strictHints.requireJsonMode
+  ) {
+    return "json";
+  }
+  if (
+    plan.taskProfile.taskType === "analysis" ||
+    plan.taskProfile.taskType === "workflow" ||
+    plan.strictHints.requireThinking ||
+    plan.strictHints.requireReasoning
+  ) {
+    return "reasoning";
+  }
+  if ((plan.strictHints.minimumContext ?? 0) >= 16_000) {
+    return "long_context";
+  }
+  return plan.taskProfile.taskType === "task_execution" ? "coding" : "chat";
+}
+
+export function resolveExecutionModel(
+  providerId: ProviderId,
+  plan: ExecutionPlan,
+): ExecutionModelDecision {
+  const provider = loadProvider(providerId);
+  // Capability probes are deliberately a fast, tool-capable contract. They
+  // need exact source quoting, not a long reasoning trace or a large synthesis
+  // envelope. Keeping this exception in model resolution prevents a probe
+  // from inheriting task_execution's paid/reasoning-oriented tier merely
+  // because its read-only tool loop lives inside chat-agent.
+  const isCapabilityProbe = plan.qualityProfile === "capability_probe";
+  const wantPowerful = isCapabilityProbe ? false : wantsPowerfulModel(plan);
+  const capability = selectCapability(plan);
+
+  let decision: ExecutionModelDecision;
+
+  if (providerId === "openrouter") {
+    const fallbackChain = resolveFallbackChain({
+      capability,
+      quality: wantPowerful ? "powerful" : "fast",
+      requireTools: plan.strictHints.requireTools ?? false,
+    }).map((model) => model.id);
+
+    // Controlled live checks may opt into a known paid OpenRouter model. Keep
+    // this override environment-only so ordinary provider-free validation and
+    // normal free-tier routing retain the catalog-driven fallback chain.
+    const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+    let liveModel: string | undefined;
+    if (configuredModel) {
+      try {
+        liveModel = resolveFreeModelOverride(configuredModel, {
+          capability,
+          requireTools: plan.strictHints.requireTools ?? false,
+        });
+      } catch (error) {
+        // An environment-pinned model can become paid, retired, or lose the
+        // requested capability between deploys. Treat it as a stale hint and
+        // use the already-resolved live fallback chain instead of making a
+        // review fail before the provider is contacted.
+        console.warn(
+          JSON.stringify({
+            scope: "model-resolver",
+            action: "ignore_unusable_configured_model",
+            configuredModel,
+            capability,
+            reason: error instanceof Error ? error.message : "model is not currently usable",
+          }),
+        );
+      }
+    }
+    if (fallbackChain.length === 0 && !liveModel) {
+      const catalog = getDynamicCatalogStatus();
+      throw new GroqClientError(
+        "INVALID_CONFIG",
+        `No compatible free OpenRouter model is available for capability="${capability}"`,
+        {
+          context: {
+            providerName: "OpenRouter",
+            providerCode: "NO_COMPATIBLE_FREE_MODEL",
+            catalogLoaded: catalog.loaded,
+            catalogUsable: catalog.usable,
+            catalogStatus: catalog.lastRefreshStatus,
+            catalogError: catalog.lastRefreshError ?? undefined,
+          },
+        },
+      );
+    }
+    const model = liveModel ?? fallbackChain[0]!;
+    const powerModel = liveModel ?? fallbackChain[1] ?? fallbackChain[0]!;
+
+    decision = {
+      providerId,
+      model,
+      powerModel,
+      fallbackChain: liveModel ? [liveModel] : fallbackChain,
+      capability,
+      quality: wantPowerful ? "powerful" : "fast",
+      source: "openrouter-catalog",
+    };
+  } else {
+    const model = wantPowerful ? provider.defaultModels.powerful : provider.defaultModels.fast;
+
+    decision = {
+      providerId,
+      model,
+      powerModel: provider.defaultModels.powerful,
+      fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
+      capability,
+      quality: wantPowerful ? "powerful" : "fast",
+      source: "provider-registry",
+    };
+  }
+
+  console.info(
+    JSON.stringify({
+      scope: "model-resolver",
+      action: "resolve_execution_model",
+      providerId,
+      capability,
+      wantPowerful,
+      model: decision.model,
+      powerModel: decision.powerModel,
+      fallbackChain: decision.fallbackChain,
+      source: decision.source,
+      taskType: plan.taskProfile.taskType,
+      requireTools: plan.strictHints.requireTools ?? false,
+      requireThinking: plan.strictHints.requireThinking ?? false,
+      requireReasoning: plan.strictHints.requireReasoning ?? false,
+      minimumContext: plan.strictHints.minimumContext ?? 0,
+      ...(isCapabilityProbe ? { selectionMode: "fast_tool_calling" } : {}),
+    }),
+  );
+
+  return decision;
+}
+lib/ai-orchestrator/src/groq-client.ts:141:export const MODEL_POWERFUL = "openai/gpt-oss-120b";
+lib/ai-orchestrator/src/groq-client.ts:142:export const MODEL_FAST = "openai/gpt-oss-20b";
+lib/ai-orchestrator/src/groq-client.ts:281:    fast: MODEL_FAST,
+lib/ai-orchestrator/src/groq-client.ts:282:    powerful: MODEL_POWERFUL,
+lib/ai-orchestrator/src/groq-client.ts:443:    model = MODEL_POWERFUL,
+lib/ai-orchestrator/src/groq-client.ts:647:    model = MODEL_POWERFUL,
+lib/ai-orchestrator/src/groq-client.ts:745:    model = MODEL_POWERFUL,
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:11:  MODEL_POWERFUL: "llama-3.3-70b-versatile",
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:12:  MODEL_FAST: "llama-3.1-8b-instant",
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:18:  DEEPSEEK_MODEL_FAST: "deepseek-chat",
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts:19:  DEEPSEEK_MODEL_POWERFUL: "deepseek-chat",

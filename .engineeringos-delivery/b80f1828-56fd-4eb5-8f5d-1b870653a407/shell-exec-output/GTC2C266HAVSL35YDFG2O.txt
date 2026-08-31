@@ -1,0 +1,248 @@
+  registerAiExecutionController,
+  unregisterAiExecutionController,
+  type AiExecutionCheckpoint,
+  type AiExecutionRequestEnvelope,
+} from "../../lib/ai-execution-state.js";
+import {
+  classifyAiTerminalOutcome,
+  type AiTerminalOutcome,
+} from "../../lib/ai-terminal-outcome.js";
+import { inspectAiChange } from "../../lib/ai-change-guard.js";
+import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+import {
+  requireProvider,
+  chatWithFallback,
+  handleOrchestratorError,
+  redactUserFacingText,
+  redactUserFacingValue,
+} from "../../lib/ai-route-helpers.js";
+import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
+import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
+import {
+  createDeliveryWorkspace,
+  discardDeliveryWorkspace,
+  deliveryWorkspaceExists,
+  hashChangeSet,
+  hashDeliveryWorkspace,
+  hashDeliveryTree,
+  DELIVERY_TREE_DIGEST_VERSION,
+  atomicallyPromoteFile,
+} from "../../lib/delivery-workspace.js";
+import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
+
+const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
+  "PROVEN",
+  "PARTIAL",
+  "UNAVAILABLE",
+  "BLOCKED",
+  "NOT_RECORDED",
+]);
+
+function derivePersistedEvidenceVerdict(params: {
+  executionStatus?: string;
+  checkpoint: Record<string, unknown>;
+  hasPendingProposal: boolean;
+}): FlightDeckEvidenceVerdict {
+  const explicit = params.checkpoint.evidenceVerdict;
+  if (typeof explicit === "string" && FLIGHT_DECK_EVIDENCE_VERDICTS.has(explicit as FlightDeckEvidenceVerdict)) {
+    return explicit as FlightDeckEvidenceVerdict;
+  }
+
+  const recentSteps = Array.isArray(params.checkpoint.recentSteps)
+    ? params.checkpoint.recentSteps
+    : [];
+  const latestValidation = [...recentSteps]
+    .reverse()
+    .find((step) => (
+      step
+      && typeof step === "object"
+      && (step as Record<string, unknown>).kind === "validation"
+    )) as Record<string, unknown> | undefined;
+  const validation = latestValidation?.validation as ValidationResult | undefined;
+  const validationStatus = validation?.status;
+
+  if (validationStatus === "passed") {
+    return isProvenValidation(validation)
+      ? params.hasPendingProposal ? "PARTIAL" : "PROVEN"
+      : "BLOCKED";
+  }
+  if (validationStatus === "unavailable") return "UNAVAILABLE";
+  if (validationStatus === "failed" || validationStatus === "blocked") return "BLOCKED";
+  if (params.executionStatus === "failed") return "BLOCKED";
+  return "NOT_RECORDED";
+}
+
+// ── AI-02: Last-resort response sanitizer ────────────────────────────────────
+// Even if the AI orchestrator has its own normalisation layer, a JSON envelope
+// may slip through (e.g. a provider returns {"response":"...","sources":[...]}).
+// This guard sits at the storage + SSE boundary so nothing reaches the DB or
+// the client without being cleaned first.
+function sanitizeResponseText(raw: string): string {
+  if (!raw) return raw;
+  const trimmed = raw.trim();
+  // Only attempt extraction when the value looks like a JSON object that
+  // wraps a string `response` field — not for ordinary markdown/text.
+  if (!trimmed.startsWith("{")) return redactUserFacingText(raw);
+  // A stage-only writer may resume directly at tool_loop after a process
+  // restart. The server fills only the known prerequisite transition; it
+  // never accepts a provider's assertion as a skipped graph edge.
+  const bridge: Partial<Record<AutonomousOperationState, AutonomousOperationState>> = {
+    planned: "inspecting",
+    inspecting: "mutating",
+    mutating: "validating",
+  };
+  let current = operation;
+  while (current.state !== target) {
+    const next = bridge[current.state];
+    if (!next) {
+      if (target === "failed" || target === "cancelled") {
+        return transitionAutonomousOperation(current, target);
+      }
+      return current;
+    }
+    current = transitionAutonomousOperation(current, next);
+  }
+  return current;
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/**
+ * Reconcile checkpointed node progress with the server-owned plan that will be
+ * resumed. The checkpoint may advance status and attempts, but it must never
+ * redefine a node's title, scope, dependency graph, or validation profile.
+ * Returning undefined is an intentional fail-closed signal for stale/mixed
+ * execution state.
+ */
+export function reconcileExecutionNodeCheckpoint(
+  planNodes: readonly ExecutionNode[],
+  checkpointNodes: AiExecutionCheckpoint["nodeStates"] | undefined,
+): ExecutionNode[] | undefined {
+  if (!checkpointNodes || checkpointNodes.length === 0) return [...planNodes];
+  if (planNodes.length !== checkpointNodes.length) return undefined;
+
+  const checkpointById = new Map(checkpointNodes.map((node) => [node.id, node]));
+  if (checkpointById.size !== planNodes.length) return undefined;
+
+  for (const planNode of planNodes) {
+    const checkpointNode = checkpointById.get(planNode.id);
+    if (
+      !checkpointNode
+      || !sameStringArray(planNode.allowedFiles, checkpointNode.allowedFiles)
+      || !sameStringArray(planNode.dependencies, checkpointNode.dependencies)
+      || planNode.validationProfile !== checkpointNode.validationProfile
+      || checkpointNode.attempts < planNode.attempts
+      || checkpointNode.validationAttempts < planNode.validationAttempts
+      || (planNode.lastFailure
+        && (
+          planNode.lastFailure.status !== checkpointNode.lastFailure?.status
+          || planNode.lastFailure.attempt > (checkpointNode.lastFailure?.attempt ?? 0)
+        ))
+      || (planNode.status === "passed" && checkpointNode.status !== "passed")
+      || (planNode.status === "blocked" && checkpointNode.status !== "blocked")
+      || (checkpointNode.status === "running" && checkpointNode.attempts < 1)
+    ) {
+      return undefined;
+    }
+  }
+
+  return planNodes.map((planNode) => {
+    const checkpointNode = checkpointById.get(planNode.id)!;
+    return {
+      ...planNode,
+      status: checkpointNode.status,
+      attempts: checkpointNode.attempts,
+      validationAttempts: checkpointNode.validationAttempts,
+      ...(checkpointNode.lastFailure ? { lastFailure: checkpointNode.lastFailure } : {}),
+    };
+  });
+}
+
+/**
+ * Turns the last durable checkpoint into server-owned continuation context.
+ * The provider still needs a fresh call after a process crash, but it receives
+ * the bounded checkpoint and can continue from the last observed stage instead
+ * of blindly replaying the original user request.
+ */
+export function buildAiExecutionResumeContext(
+  checkpoint: AiExecutionCheckpoint | undefined,
+): string {
+  if (!checkpoint || checkpoint.stage === "queued") return "";
+  return [
+    "SERVER-OWNED DURABLE RESUME CONTEXT",
+    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+    "Do not claim that any step succeeded unless the current tool result or persisted evidence confirms it.",
+        validationAttempts: node.validationAttempts,
+        allowedFiles: [...node.allowedFiles],
+        validationProfile: node.validationProfile,
+        evidenceRefs: [],
+      })),
+    });
+    const activeExecutionAbortController = new AbortController();
+    executionAbortController = activeExecutionAbortController;
+    registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
+    let checkpointChain: Promise<void> = Promise.resolve();
+    let executionEvidenceVerdict: FlightDeckEvidenceVerdict = "NOT_RECORDED";
+    let executionEvidenceReason = proofRequired
+      ? "No accepted validation evidence has been recorded."
+      : "Ordinary chat response; Flight Deck proof is not required.";
+    const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
+      const sequence = ++checkpointSequence;
+      const completeCheckpoint: AiExecutionCheckpoint = {
+        ...checkpoint,
+        ...(autonomousOperation
+          ? {
+              operation: {
+                ...autonomousOperation,
+                nodes: executionNodeStates.map((node) => ({
+                  id: node.id,
+                  kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" as const : "inspect" as const,
+                  dependencies: [...node.dependencies],
+                  status: node.status,
+                  attempts: node.attempts,
+                  validationAttempts: node.validationAttempts,
+                  allowedFiles: [...node.allowedFiles],
+                  validationProfile: node.validationProfile,
+                  evidenceRefs: [],
+                })),
+                updatedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
+        ...(executionNodeStates.length > 0
+          ? {
+              nodeStates: executionNodeStates,
+              completedNodes: executionNodeStates
+                .filter((node) => node.status === "passed")
+                .map((node) => node.id)
+                .slice(0, 24),
+              ...(executionNodeStates.find((node) => node.status === "running")
+                ? { currentNode: executionNodeStates.find((node) => node.status === "running")?.id }
+                : {}),
+            }
+          : {}),
+        evidenceVerdict: executionEvidenceVerdict,
+        evidenceReason: executionEvidenceReason,
+        proofRequired,
+        sequence,
+        updatedAt: new Date().toISOString(),
+      };
+      checkpointChain = checkpointChain
+        .then(async () => {
+          const persisted = await checkpointAiExecution({
+            executionId: aiExecution!.id,
+            workerId: executionWorkerId!,
+            checkpoint: completeCheckpoint,
+          });
+          if (!persisted) {
+            const error = new Error("AI execution checkpoint rejected by lease/state gate");
+            checkpointFailure = error;
+            logger.warn({ executionId: aiExecution!.id, sequence }, error.message);
+          }
+        })
+        .catch((err) => {
+          checkpointFailure = err;
+          logger.warn({ err, executionId: aiExecution!.id }, "AI execution checkpoint failed");

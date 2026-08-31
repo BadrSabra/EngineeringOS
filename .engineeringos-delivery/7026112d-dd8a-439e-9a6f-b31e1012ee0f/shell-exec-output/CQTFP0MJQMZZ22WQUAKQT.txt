@@ -1,0 +1,180 @@
+artifacts/dashboard/src/pages/AiChat.tsx:135:  /** Accepted behavior-evidence excerpts, optionally with an exact source line span. */
+artifacts/dashboard/src/pages/AiChat.tsx:170:  evidence,
+artifacts/dashboard/src/pages/AiChat.tsx:176:  evidence?: PublicValidationResult[] | null;
+artifacts/dashboard/src/pages/AiChat.tsx:182:  const receipts = evidence?.filter((item) => item && item.evidence) ?? [];
+artifacts/dashboard/src/pages/AiChat.tsx:185:  const displayedOperationId = operationId ?? receipt?.evidence.operationId;
+artifacts/dashboard/src/pages/AiChat.tsx:186:  const displayedRevision = projectRevision ?? receipt?.evidence.projectRevision;
+artifacts/dashboard/src/pages/AiChat.tsx:187:  const displayedChangeSetHash = changeSetHash ?? receipt?.evidence.changeSetHash;
+artifacts/dashboard/src/pages/AiChat.tsx:196:        : evidence?.every((item) => item.status === 'passed')
+artifacts/dashboard/src/pages/AiChat.tsx:217:        <div><span className="text-muted-foreground">Candidate hash </span><code className="break-all">{receipt?.evidence.candidateHash ?? 'Unavailable'}</code></div>
+artifacts/dashboard/src/pages/AiChat.tsx:223:            <div key={item.evidence.evidenceId} className="space-y-1">
+artifacts/dashboard/src/pages/AiChat.tsx:228:                {item.evidence.promotedHash && <span className="text-emerald-300">promoted bytes verified</span>}
+artifacts/dashboard/src/pages/AiChat.tsx:312:type ActiveExecution = {
+artifacts/dashboard/src/pages/AiChat.tsx:344:      evidence: Record<string, unknown>[];
+artifacts/dashboard/src/pages/AiChat.tsx:349:       evidence: Record<string, unknown>[];
+artifacts/dashboard/src/pages/AiChat.tsx:448:    evidence?: Array<{
+artifacts/dashboard/src/pages/AiChat.tsx:459:  evidence?: Array<{
+artifacts/dashboard/src/pages/AiChat.tsx:805:/** Normalizes behavior evidence from either the parsed done-event array or a persisted JSON string. */
+artifacts/dashboard/src/pages/AiChat.tsx:817:/** Renders the file:line anchor for an evidence reference, or a copyable source path when no span is known. */
+artifacts/dashboard/src/pages/AiChat.tsx:818:function evidenceAnchor(evidence: AiBehaviorEvidence): { label: string; copy: string; hasSpan: boolean } {
+artifacts/dashboard/src/pages/AiChat.tsx:819:  const span = evidence.sourceSpan;
+artifacts/dashboard/src/pages/AiChat.tsx:824:    return { label: `${evidence.source}:${range}`, copy: `${evidence.source}:${span.startLine}`, hasSpan: true };
+artifacts/dashboard/src/pages/AiChat.tsx:826:  return { label: evidence.source, copy: evidence.source, hasSpan: false };
+artifacts/dashboard/src/pages/AiChat.tsx:877:  /** True when the proven Finding is supported only by fixture/test/spec evidence. */
+artifacts/dashboard/src/pages/AiChat.tsx:910:  phase?: 'localization' | 'evidence' | 'patch_proposal' | 'validation' | 'repair_recovery' | 'report';
+artifacts/dashboard/src/pages/AiChat.tsx:921:  evidenceFileCount?: number;
+artifacts/dashboard/src/pages/AiChat.tsx:932:  evidenceSourceCoverage?: {
+artifacts/dashboard/src/pages/AiChat.tsx:1027:        <span className="font-medium text-foreground">Semantic evidence trace</span>
+artifacts/dashboard/src/pages/AiChat.tsx:1089:                      {(edge.sourceSpan || edge.evidence) && (
+artifacts/dashboard/src/pages/AiChat.tsx:1093:                            : edge.evidence}
+artifacts/dashboard/src/pages/AiChat.tsx:1126:type DashboardExecutionSummary = AiStreamExecutionSummary & {
+artifacts/dashboard/src/pages/AiChat.tsx:1272:  completedReads: number;
+artifacts/dashboard/src/pages/AiChat.tsx:1321:    /** True when the proven Finding is supported only by fixture/test/spec evidence. */
+artifacts/dashboard/src/pages/AiChat.tsx:1338:   * when the server did not persist an evidence_integrity step (e.g. generic
+artifacts/dashboard/src/pages/AiChat.tsx:1342:  evidenceIntegrity: {
+artifacts/dashboard/src/pages/AiChat.tsx:1348:    evidenceFileCount: number;
+artifacts/dashboard/src/pages/AiChat.tsx:1359:    sourceCoverage: ToolTraceEntry['evidenceSourceCoverage'];
+artifacts/dashboard/src/pages/AiChat.tsx:1377:    if (entry.kind === 'tool_call' && (entry.tool === 'read_file' || entry.tool === 'read_file_range')) {
+artifacts/dashboard/src/pages/AiChat.tsx:1385:      (entry.tool !== 'read_file' && entry.tool !== 'read_file_range')
+artifacts/dashboard/src/pages/AiChat.tsx:1452:    completedReads: [...reads.values()].reduce((sum, read) => sum + read.completed, 0),
+artifacts/dashboard/src/pages/AiChat.tsx:1470:          toolCalls: executionSummary.toolCalls,
+artifacts/dashboard/src/pages/AiChat.tsx:1522: * EI-011/012: pulls the most recent evidence_integrity step out of the
+artifacts/dashboard/src/pages/AiChat.tsx:1524: * reconciled with its cited evidence. If no reconciliation step was persisted
+artifacts/dashboard/src/pages/AiChat.tsx:1525: * (e.g. a generic chat), evidenceIntegrity is null and the block is hidden.
+artifacts/dashboard/src/pages/AiChat.tsx:1528:  evidenceIntegrity: ForensicEvidenceSummary['evidenceIntegrity'];
+artifacts/dashboard/src/pages/AiChat.tsx:1530:  const entry = [...trace].reverse().find((e) => e.kind === 'evidence_integrity');
+artifacts/dashboard/src/pages/AiChat.tsx:1531:  if (!entry) return { evidenceIntegrity: null };
+artifacts/dashboard/src/pages/AiChat.tsx:1533:    evidenceIntegrity: {
+artifacts/dashboard/src/pages/AiChat.tsx:1541:      evidenceFileCount: typeof entry.evidenceFileCount === 'number' ? entry.evidenceFileCount : 0,
+artifacts/dashboard/src/pages/AiChat.tsx:1567:      sourceCoverage: entry.evidenceSourceCoverage,
+artifacts/dashboard/src/pages/AiChat.tsx:1588: * The persisted tool trace is bounded execution metadata. Prefetch bodies can
+artifacts/dashboard/src/pages/AiChat.tsx:1591: * evidence-integrity projection exists, it is the only authoritative source
+artifacts/dashboard/src/pages/AiChat.tsx:1598:function projectCanonicalEvidence(evidence: ForensicEvidenceSummary): ForensicEvidenceSummary {
+artifacts/dashboard/src/pages/AiChat.tsx:1599:  const integrity = evidence.evidenceIntegrity;
+artifacts/dashboard/src/pages/AiChat.tsx:1600:  if (!integrity) return evidence;
+artifacts/dashboard/src/pages/AiChat.tsx:1614:    return evidence;
+artifacts/dashboard/src/pages/AiChat.tsx:1619:    evidence.reads
+artifacts/dashboard/src/pages/AiChat.tsx:1623:  let nextFirstSeen = evidence.reads.reduce(
+artifacts/dashboard/src/pages/AiChat.tsx:1648:        : Math.max(integrity.uniqueFilesRead, evidence.completedReads);
+artifacts/dashboard/src/pages/AiChat.tsx:1651:    ...evidence,
+artifacts/dashboard/src/pages/AiChat.tsx:1653:    completedReads: canonicalCompletedCount,
+artifacts/dashboard/src/pages/AiChat.tsx:1714:    'evidence map rebuilt deterministically',
+artifacts/dashboard/src/pages/AiChat.tsx:1722:    'primary-evidence-target=',
+artifacts/dashboard/src/pages/AiChat.tsx:1723:    'first_evidence recovery failed',
+artifacts/dashboard/src/pages/AiChat.tsx:1752:    return 'The capability probe Recovery response was rejected because it did not satisfy the exact-source C1–C7 evidence gate.';
+artifacts/dashboard/src/pages/AiChat.tsx:1755:    return 'A high-confidence executable pattern was verified from the completed source read, and the Finding passed the forensic contract and evidence gate.';
+artifacts/dashboard/src/pages/AiChat.tsx:1764:    return 'Recovery returned a structured envelope, but its Finding evidence or phase linkage failed validation. The candidate was rejected and the next bounded candidate was tried.';
+artifacts/dashboard/src/pages/AiChat.tsx:1767:    return 'Recovery returned a response that was not a valid structured Findings envelope. The next bounded candidate was tried without weakening the evidence gate.';
+artifacts/dashboard/src/pages/AiChat.tsx:1799:      : 'The model response was rejected because it did not satisfy the required six-section evidence contract.';
+artifacts/dashboard/src/pages/AiChat.tsx:1803:    ? `The forensic response did not satisfy the evidence contract: ${violation}.`
+artifacts/dashboard/src/pages/AiChat.tsx:1804:    : 'The final forensic response did not provide enough validated evidence for an executable repair phase.';
+artifacts/dashboard/src/pages/AiChat.tsx:1836:  evidence,
+artifacts/dashboard/src/pages/AiChat.tsx:1841:  evidence: ForensicEvidenceSummary;
+artifacts/dashboard/src/pages/AiChat.tsx:1844:  /** NI-35: claim-bound behavioral evidence (accepted excerpts with exact spans). */
+artifacts/dashboard/src/pages/AiChat.tsx:1848:  const uniqueFiles = evidence.evidenceIntegrity
+artifacts/dashboard/src/pages/AiChat.tsx:1849:    ? Math.max(evidence.evidenceIntegrity.uniqueFilesRead, evidence.reads.length)
+artifacts/dashboard/src/pages/AiChat.tsx:1850:    : evidence.reads.length;
+artifacts/dashboard/src/pages/AiChat.tsx:1851:  const hasEvidence = evidence.completedReads > 0;
+artifacts/dashboard/src/pages/AiChat.tsx:1853:    evidence.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED')) ||
+artifacts/dashboard/src/pages/AiChat.tsx:1854:    evidence.diagnosticCodes.some((code) => code.includes('FORENSIC_DETERMINISTIC_FINDING'))
+artifacts/dashboard/src/pages/AiChat.tsx:1856:      : evidence.diagnosticCodes.some((code) => code.includes('FORENSIC_NO_FINDING'))
+artifacts/dashboard/src/pages/AiChat.tsx:1865:    evidence.forensicStatus?.isFixtureLocal === true ||
+artifacts/dashboard/src/pages/AiChat.tsx:1866:    evidence.forensicStatus?.auditScope === 'FIXTURE_LOCAL';
+artifacts/dashboard/src/pages/AiChat.tsx:1884:          Forensic evidence
+artifacts/dashboard/src/pages/AiChat.tsx:1886:          {evidence.auditScopeDescription && (
+artifacts/dashboard/src/pages/AiChat.tsx:1888:              · {evidence.auditScopeDescription}
+artifacts/dashboard/src/pages/AiChat.tsx:1901:          {verdict === 'NOT PROVEN' && evidence.diagnosticCodes.some((code) => code.includes('SKIPPED_NO_EVIDENCE'))
+artifacts/dashboard/src/pages/AiChat.tsx:1917:                All evidence for this Finding comes from fixture, test, or spec paths. The defect pattern has
+artifacts/dashboard/src/pages/AiChat.tsx:1920:                until caller and input-path evidence from production code is established.
+artifacts/dashboard/src/pages/AiChat.tsx:1926:              <div className="text-base font-semibold text-foreground">{evidence.implementationFiles}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:1930:              <div className="text-base font-semibold text-foreground">{evidence.contextFiles}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:1934:              <div className="text-base font-semibold text-foreground">{evidence.generatedFiles}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:1938:              <div className="text-base font-semibold text-foreground">{evidence.completedReads}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:1942:              <div className="text-base font-semibold text-amber-300">{evidence.cachedReads}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:1946:              <div className={`text-base font-semibold ${evidence.unattributedResults > 0 ? 'text-amber-300' : 'text-green-300'}`}>
+artifacts/dashboard/src/pages/AiChat.tsx:1947:                {evidence.unattributedResults}
+artifacts/dashboard/src/pages/AiChat.tsx:1954:          {evidence.evidenceIntegrity && (
+artifacts/dashboard/src/pages/AiChat.tsx:1956:              evidence.evidenceIntegrity.consistent
+artifacts/dashboard/src/pages/AiChat.tsx:1962:                  evidence.evidenceIntegrity.consistent ? 'text-green-200' : 'text-red-200'
+artifacts/dashboard/src/pages/AiChat.tsx:1964:                  {evidence.evidenceIntegrity.consistent
+artifacts/dashboard/src/pages/AiChat.tsx:1970:                  evidence.evidenceIntegrity.consistent
+artifacts/dashboard/src/pages/AiChat.tsx:1974:                  {evidence.evidenceIntegrity.code || (evidence.evidenceIntegrity.consistent ? 'CONSISTENT' : 'INCONSISTENT')}
+artifacts/dashboard/src/pages/AiChat.tsx:1979:                  <span className="font-semibold text-foreground">{evidence.evidenceIntegrity.uniqueFilesRead}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:1983:                  <span className="font-semibold text-foreground">{evidence.evidenceIntegrity.evidenceFileCount}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:1984:                  <span className="text-[10px] text-muted-foreground"> evidence file</span>
+artifacts/dashboard/src/pages/AiChat.tsx:1987:                  <span className="font-semibold text-foreground">{evidence.evidenceIntegrity.acceptedEvidenceCount}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:1991:                  <span className="font-semibold text-foreground">{evidence.evidenceIntegrity.readAttempts}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:1996:                    {evidence.evidenceIntegrity.retainedBodyFiles.length}
+artifacts/dashboard/src/pages/AiChat.tsx:2002:                    {evidence.evidenceIntegrity.acceptedEvidenceFiles.length}
+artifacts/dashboard/src/pages/AiChat.tsx:2008:                    {evidence.evidenceIntegrity.acceptedClaimCount}
+artifacts/dashboard/src/pages/AiChat.tsx:2013:              {(evidence.evidenceIntegrity.objectiveType ||
+artifacts/dashboard/src/pages/AiChat.tsx:2014:                evidence.evidenceIntegrity.completionGateResult ||
+artifacts/dashboard/src/pages/AiChat.tsx:2015:                evidence.evidenceIntegrity.finalAnswerType ||
+artifacts/dashboard/src/pages/AiChat.tsx:2016:                evidence.evidenceIntegrity.requiredEdges.length > 0 ||
+artifacts/dashboard/src/pages/AiChat.tsx:2017:                evidence.evidenceIntegrity.provenEdges.length > 0) && (
+artifacts/dashboard/src/pages/AiChat.tsx:2024:                        {evidence.evidenceIntegrity.completionGateResult ?? 'Not declared'}
+artifacts/dashboard/src/pages/AiChat.tsx:2029:                      <div className="font-semibold text-foreground">{evidence.evidenceIntegrity.requiredEdges.length}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:2033:                      <div className="font-semibold text-green-300">{evidence.evidenceIntegrity.provenEdges.length}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:2038:                        {evidence.evidenceIntegrity.finalAnswerType
+artifacts/dashboard/src/pages/AiChat.tsx:2039:                          ? evidence.evidenceIntegrity.finalAnswerType.replace(/_ANSWER$/, '').replace(/_/g, ' ')
+artifacts/dashboard/src/pages/AiChat.tsx:2044:                  {evidence.evidenceIntegrity.objectiveType && (
+artifacts/dashboard/src/pages/AiChat.tsx:2046:                      Objective type: <span className="font-semibold text-foreground">{evidence.evidenceIntegrity.objectiveType}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:2049:                  {evidence.evidenceIntegrity.requiredEdges.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:2052:                      {evidence.evidenceIntegrity.requiredEdges.map((edge) => (
+artifacts/dashboard/src/pages/AiChat.tsx:2054:                          <span className={evidence.evidenceIntegrity!.provenEdges.includes(edge) ? 'text-green-300' : 'text-amber-200'}>
+artifacts/dashboard/src/pages/AiChat.tsx:2055:                            {evidence.evidenceIntegrity!.provenEdges.includes(edge) ? '✓' : '○'}
+artifacts/dashboard/src/pages/AiChat.tsx:2064:              {evidence.evidenceIntegrity.sourceCoverage && (
+artifacts/dashboard/src/pages/AiChat.tsx:2068:                    {evidence.evidenceIntegrity.sourceCoverage.status}
+artifacts/dashboard/src/pages/AiChat.tsx:2070:                  · {evidence.evidenceIntegrity.sourceCoverage.requestedFiles?.length ?? evidence.evidenceIntegrity.sourceCoverage.roots.length} requested file(s)
+artifacts/dashboard/src/pages/AiChat.tsx:2071:                  {evidence.evidenceIntegrity.sourceCoverage.requestedFiles &&
+artifacts/dashboard/src/pages/AiChat.tsx:2072:                    evidence.evidenceIntegrity.sourceCoverage.requestedFiles.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:2075:                        {evidence.evidenceIntegrity.sourceCoverage.requestedFiles.map((file) => (
+artifacts/dashboard/src/pages/AiChat.tsx:2082:              {(evidence.evidenceIntegrity.scopeExpansions.length > 0 ||
+artifacts/dashboard/src/pages/AiChat.tsx:2083:                evidence.evidenceIntegrity.unjustifiedReads.length > 0) && (
+artifacts/dashboard/src/pages/AiChat.tsx:2087:                    {evidence.evidenceIntegrity.scopeExpansions.filter(
+artifacts/dashboard/src/pages/AiChat.tsx:2092:                  {evidence.evidenceIntegrity.unjustifiedReads.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:2094:                      {evidence.evidenceIntegrity.unjustifiedReads.length} blocked read(s)
+artifacts/dashboard/src/pages/AiChat.tsx:2099:              {evidence.evidenceIntegrity.violations.length > 0 && (() => {
+artifacts/dashboard/src/pages/AiChat.tsx:2100:                const violatingFiles = evidence.evidenceIntegrity.violations
+artifacts/dashboard/src/pages/AiChat.tsx:2112:                        <span className="text-muted-foreground">Reconciliation failed closed — the verdict was blocked because cited evidence
+artifacts/dashboard/src/pages/AiChat.tsx:2122:          {evidence.forensicStatus && (
+artifacts/dashboard/src/pages/AiChat.tsx:2124:              evidence.forensicStatus.isFixtureLocal
+artifacts/dashboard/src/pages/AiChat.tsx:2129:                <ShieldCheck className={`w-3.5 h-3.5 ${evidence.forensicStatus.isFixtureLocal ? 'text-violet-400' : 'text-primary'}`} />
+artifacts/dashboard/src/pages/AiChat.tsx:2131:                {evidence.forensicStatus.isFixtureLocal && (
+artifacts/dashboard/src/pages/AiChat.tsx:2143:                      evidence.forensicStatus.auditScope === 'FIXTURE_LOCAL'
+artifacts/dashboard/src/pages/AiChat.tsx:2148:                    {evidence.forensicStatus.auditScope === 'FIXTURE_LOCAL' ? 'FIXTURE-LOCAL' : 'PRODUCTION'}
+artifacts/dashboard/src/pages/AiChat.tsx:2154:                    {evidence.forensicStatus.productionReachability}
+artifacts/dashboard/src/pages/AiChat.tsx:2158:              {evidence.forensicStatus.auditScope === 'FIXTURE_LOCAL' && (
+artifacts/dashboard/src/pages/AiChat.tsx:2163:              {!evidence.forensicStatus.isFixtureLocal && evidence.forensicStatus.repairBlockReason && (
+artifacts/dashboard/src/pages/AiChat.tsx:2166:                    {REPAIR_BLOCK_REASON_TEXT[evidence.forensicStatus.repairBlockReason]
+artifacts/dashboard/src/pages/AiChat.tsx:2167:                      ?? `Repair blocked (${evidence.forensicStatus.repairBlockReason}).`
+artifacts/dashboard/src/pages/AiChat.tsx:2174:                  <div className="font-semibold text-foreground">{evidence.forensicStatus.sourceCoverage}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:2178:                  <div className="font-semibold text-foreground">{evidence.forensicStatus.behavioralAssessment}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:2183:                    evidence.forensicStatus.isFixtureLocal ? 'text-violet-300' : 'text-foreground'
+artifacts/dashboard/src/pages/AiChat.tsx:2185:                    {evidence.forensicStatus.isFixtureLocal
+artifacts/dashboard/src/pages/AiChat.tsx:2187:                      : evidence.forensicStatus.findingStatus}
+artifacts/dashboard/src/pages/AiChat.tsx:2192:                  <div className={`font-semibold ${evidence.forensicStatus.repairReadiness === 'READY' ? 'text-green-300' : 'text-amber-300'}`}>
+artifacts/dashboard/src/pages/AiChat.tsx:2193:                    {evidence.forensicStatus.repairReadiness}
+artifacts/dashboard/src/pages/AiChat.tsx:2198:                {(evidence.forensicStatus.productionReachability !== undefined || evidence.forensicStatus.isFixtureLocal) && (
+artifacts/dashboard/src/pages/AiChat.tsx:2201:                      (evidence.forensicStatus.productionReachability ?? 'NOT_PROVEN') === 'PROVEN'
+artifacts/dashboard/src/pages/AiChat.tsx:2205:                      {evidence.forensicStatus.productionReachability ?? 'NOT PROVEN'}
+artifacts/dashboard/src/pages/AiChat.tsx:2211:              {evidence.forensicStatus.isFixtureLocal && (
+artifacts/dashboard/src/pages/AiChat.tsx:2214:                  input-path evidence from non-fixture source files.
+artifacts/dashboard/src/pages/AiChat.tsx:2217:              {!evidence.forensicStatus.isFixtureLocal && evidence.forensicStatus.reason && (
+artifacts/dashboard/src/pages/AiChat.tsx:2219:                  {evidence.forensicStatus.reason}
+artifacts/dashboard/src/pages/AiChat.tsx:2222:              {evidence.forensicStatus.terminalKind && (
+artifacts/dashboard/src/pages/AiChat.tsx:2225:                    {evidence.forensicStatus.terminalKind.replace(/_/g, ' ')}
+artifacts/dashboard/src/pages/AiChat.tsx:2228:                  {FORENSIC_TERMINAL_TEXT[evidence.forensicStatus.terminalKind]}
+artifacts/dashboard/src/pages/AiChat.tsx:2231:              {evidence.forensicStatus.rootCoverage.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:2234:                    {evidence.forensicStatus.requestedFiles.length > 0 ? 'requested files' : 'requested roots'}
+artifacts/dashboard/src/pages/AiChat.tsx:2237:                    {evidence.forensicStatus.rootCoverage.map((coverage, index) => (
+artifacts/dashboard/src/pages/AiChat.tsx:2258:          {evidence.forensicPackets.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:2265:                {evidence.forensicPackets.map((packet) => (
+artifacts/dashboard/src/pages/AiChat.tsx:2300:          {evidence.execution && (
+artifacts/dashboard/src/pages/AiChat.tsx:2308:                    <div className="font-semibold text-foreground">{evidence.execution.toolCalls}</div>
+artifacts/dashboard/src/pages/AiChat.tsx:2313:                    {evidence.execution.iterations}/{evidence.execution.maxIterations}
+artifacts/dashboard/src/pages/AiChat.tsx:2319:                    {evidence.execution.synthesisStarted
+artifacts/dashboard/src/pages/AiChat.tsx:2321:                      : evidence.execution.recoveryStarted
+artifacts/dashboard/src/pages/AiChat.tsx:2330:                      evidence.execution.stopReason,
+artifacts/dashboard/src/pages/AiChat.tsx:2331:                      evidence.execution.synthesisStarted,
+artifacts/dashboard/src/pages/AiChat.tsx:2337:              {evidence.execution.recoveryStarted && (

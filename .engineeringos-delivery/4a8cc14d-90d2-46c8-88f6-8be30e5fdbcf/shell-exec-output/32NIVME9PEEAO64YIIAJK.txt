@@ -1,0 +1,200 @@
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:116:    // not a gate-forced one. (Gate-forced waits say "Metrics gate: ...")
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:135:    ["malformed JSON", "not-json at all"],
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:138:  ])("fails closed for %s with a wait fallback and parse marker", async (_label, response) => {
+artifacts/api-server/src/routes/ai.test.ts:97:  it("rejects malformed reports with a bounded actionable error", () => {
+artifacts/api-server/src/routes/ai.test.ts:98:    const malformed = {
+artifacts/api-server/src/routes/ai.test.ts:104:    expect(() => serializeMissionCorrelationReport(malformed)).toThrow(
+artifacts/api-server/src/routes/ai.test.ts:108:      serializeMissionCorrelationReport(malformed);
+artifacts/api-server/src/routes/ai.test.ts:109:      throw new Error("expected malformed report to be rejected");
+artifacts/api-server/src/routes/ai.test.ts:341:  // action "advance" requires nextPhase (enforced by AdvanceDecisionSchema.strict()).
+artifacts/api-server/src/routes/ai.test.ts:1161:  // PR-E (updated): _parseError with a non-empty fallback response → 200, not 422.
+artifacts/api-server/src/routes/ai.test.ts:1163:  // compliance; the fallback extracts the response and the route should deliver it.
+artifacts/api-server/src/routes/ai.test.ts:1164:  it("returns 200 with fallback when chat has _parseError but non-empty response", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1167:      response: "fallback text",
+artifacts/api-server/src/routes/ai.test.ts:1548:        evidenceReason: "Cancellation stopped the audit before complete coverage.",
+artifacts/api-server/src/routes/ai.test.ts:2282:    // is readable) — that fallback would let any project-authorized user pull in
+artifacts/api-server/src/routes/ai.test.ts:2345:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2346:      overallAssessment: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2348:      topPriority: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2349:      estimatedImpact: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2391:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2392:      overallAssessment: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2394:      topPriority: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2395:      estimatedImpact: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2494:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:2578:      reasoning: "fallback — model output could not be parsed",
+artifacts/api-server/src/routes/ai.test.ts:2758:  it("rejects malformed decisions before reading or changing a plan", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2788:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-proposal-recovery.",
+artifacts/api-server/src/routes/ai.test.ts:2847:      conflictReason: "Apply stopped after a file conflict; review is required.",
+artifacts/api-server/src/routes/ai.test.ts:2861:      conflictReason: "Apply stopped after a file conflict; review is required.",
+artifacts/api-server/src/routes/ai.test.ts:2863:      operatorExplanation: "The delivery stopped because the retained changes need review before validation can continue.",
+artifacts/api-server/src/routes/ai.test.ts:2878:      conflictReason: "Recovery stopped at /tmp/private-delivery-root after a diagnostic failure.",
+artifacts/api-server/src/routes/ai.test.ts:2909:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-recovery-root.",
+artifacts/api-server/src/routes/ai.test.ts:3784:  it("rejects a partial-apply submission that duplicates an authorized hunk (multiset bypass attempt)", async () => {
+artifacts/api-server/src/routes/ai.test.ts:4153:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4154:      result: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4289:      summary: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4290:      result: "fallback",
+artifacts/api-server/src/routes/ai.test.ts:4329:    // Clear every server-wide fallback, not only Groq: OpenRouter, DeepSeek,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:292:    fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:553:    fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:590:      fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:869:        fallbackUsed: false,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:874:        fallbackUsed: false,
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:2: * Provider-free release coverage for structured code-review fallback.
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:111:describe("structured review provider fallback release check", () => {
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:146:      // before the fallback chain advances.
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:181:      // successful fallback response. The transport fallback itself must
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:188:  it("marks malformed structured output terminally incomplete instead of completing a review", async () => {
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:191:        choices: [{ message: { content: "{ malformed review output" } }],
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:237:      name: "malformed response",
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:242:          throw new Error("fixture catalog JSON is malformed");
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts:244:        text: async () => "{ malformed",
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:115:    const fallback = buildTaskValidationFallback("FULL_FORENSIC_AUDIT", true);
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:116:    expect(fallback).toContain("## 1) Executive Verdict");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:117:    expect(fallback).toContain("## 6) Final Judgment");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:118:    expect(fallback).toContain("ANALYSIS_INCOMPLETE");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:119:    expect(fallback).not.toContain("FINDING PROVEN");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:120:    expect(validateTaskResponse("FULL_FORENSIC_AUDIT", fallback, { responseLanguage: "ar" }).valid).toBe(true);
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:123:  it("returns an informative incomplete behavior fallback after source reads", () => {
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts:231:  it("does not duplicate an already-completed phase", () => {
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts:599:      // the R4 "no recognisable invocation" fallback).
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:141:  it("rejects duplicate IDs, unknown dependencies, cycles, undeclared outputs, and model controls", () => {
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:142:    const duplicate = compileCapabilityRecipe(recipe({
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:145:    expect(duplicate).toMatchObject({ ok: false, diagnostics: [{ code: "DUPLICATE_NODE_ID" }] });
+lib/ai-orchestrator/src/__tests__/query-planner.test.ts:311:  it("rejects malformed scope, counts, paths, and compound parts without clamping them", async () => {
+lib/ai-orchestrator/src/__tests__/query-planner.test.ts:321:        id: "duplicate",
+lib/ai-orchestrator/src/__tests__/profile-classifier.test.ts:278:        "The task covers forensic_status, tool_call, tool_result, model_call, thinking, synthesis_start, and execution_guard.",
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:6: *   • 400 invalid model id → MODEL_NOT_FOUND + fallback (existing)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:7: *   • 404 → MODEL_NOT_FOUND + fallback (PR-003)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:8: *   • 410 → MODEL_UNAVAILABLE + fallback (PR-003)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:9: *   • 422 → MODEL_UNAVAILABLE + fallback (PR-003)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:14: *   • All fallback candidates exhausted → throws MODEL_NOT_FOUND
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:109:// ── OpenRouter fallback ────────────────────────────────────────────────────────
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:168:  it("400 with invalid-model body → MODEL_NOT_FOUND → triggers fallback", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:185:          choices: [{ message: { content: '{"response":"fallback-ok"}' } }],
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:199:    expect(result.content).toBe('{"response":"fallback-ok"}');
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:203:  it("400 with unsupported response_format body → MODEL_UNAVAILABLE → triggers fallback", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:220:          choices: [{ message: { content: '{"response":"fallback-after-400"}' } }],
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:234:    expect(result.content).toBe('{"response":"fallback-after-400"}');
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:238:  it("404 → MODEL_NOT_FOUND → triggers fallback (PR-003)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:259:  it("410 → MODEL_UNAVAILABLE → triggers fallback (PR-003)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:279:  it("422 → MODEL_UNAVAILABLE → triggers fallback (PR-003)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:341:  it("429 with no quota keywords → RATE_LIMITED (not fallback-worthy)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:381:  it("keeps a short Retry-After hint precise for fallback callers", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:432:  it("skips transient retry when the caller owns bounded fallback", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:461:  it("bounds provider-owned fallback candidates for short recovery calls", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:596:  it("401 → AUTH_ERROR (not fallback-worthy)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:626:  it("shares provider-attempt budget across fallback candidates", async () => {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:6: *   - Pass a spy ProviderStrategy so we can inspect what the synthesis call
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:9: *     synthesiser is called exactly once with every sub-result in its prompt,
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:10: *     and that tool sources are correctly merged and deduplicated.
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:45:function makeStrategy(synthesisContent = "synthesised answer"): ProviderStrategy {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:47:    call: vi.fn().mockResolvedValue({ content: synthesisContent, toolCalls: [] }),
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:74:  it("runs one tool loop per task and then calls the synthesiser exactly once", async () => {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:106:    // 3 sub-loops + 1 synthesis
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:110:    // Response comes from the synthesiser
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:193:  it("passes all sub-results to the synthesiser in the user turn", async () => {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:201:    const strategy = makeStrategy("synthesis");
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:213:    // The synthesis user turn is the second message (index 1)
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:243:  it("merges and deduplicates tool sources from all sub-loops", async () => {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:271:    // Deduplicated: 3 unique sources, not 4
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:297:    const strategy = makeStrategy("synthesis despite partial failure");
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:313:    // The synthesis user turn contains the good result from task 2
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:318:    // Final response came from synthesiser
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:319:    expect(result.response).toBe("synthesis despite partial failure");
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:322:  it("falls back to concatenated sub-results when the synthesis call throws", async () => {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:347:    // Must still return a non-empty response (the concatenated fallback)
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:362:    const strategy = makeStrategy("synthesis after error");
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:383:  it("synthesis call receives no tools so it cannot make additional file reads", async () => {
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:398:    // tools must be absent (undefined) from the synthesis call options
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:421:    expect(result.synthesisStatus).toBe("skipped");
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts:426:describe("compound synthesis evidence contract", () => {
+lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts:117:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:308:    const fallbackValidation = applyForensicOutputContract(result.response);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:309:    expect(fallbackValidation.valid).toBe(true);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:310:    expect(fallbackValidation.violations).toEqual([]);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:347:    const fallbackValidation = applyForensicOutputContract(result.response, evidence);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:348:    expect(fallbackValidation.valid).toBe(true);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:349:    expect(fallbackValidation.violations).toEqual([]);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:350:    expect(fallbackValidation.response).toContain("No verified finding identified");
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:566:  it("does not leak stale original-report violations into the reconstructed fallback", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:592:        "The original response was malformed.",
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:636:    const fallback = applyForensicOutputContract("invalid response", evidence);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:638:    expect(fallback.response).toContain("Notes: NOT PROVEN");
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:639:    expect(fallback.response).toContain("display truncation marker");
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:640:    expect(fallback.response).toContain("targeted complete read required");
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:641:    expect(fallback.response).not.toContain("Notes: FACT");
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:642:    expect(applyForensicOutputContract(fallback.response, evidence).valid).toBe(true);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:801:    const fallback = applyForensicOutputContract(
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:819:    expect(fallback.valid).toBe(true);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:820:    expect(fallback.response).toContain(
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:823:    expect(fallback.response).not.toContain(
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:826:    const fallbackValidation = applyForensicOutputContract(
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:827:      fallback.response,
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:830:    expect(fallbackValidation.valid).toBe(true);
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:861:  it("excludes failed reads and synthesis instructions from source evidence", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:876:              id: "synthesis",
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:891:          tool_call_id: "synthesis",
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:904:  it("skips comment-only lines when choosing a fallback source fragment", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:928:  it("prefers executable fallback evidence over imports and labels it as read proof only", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1213:  it("fails closed with a rebuilt map when stale paths survive a malformed recovery", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1525:  it("keeps a complete report when malformed findings and phases are removed safely", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1860:  it("does not call a logged graceful fallback silent", () => {
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1865:      "* Evidence: `return fallback; inside catch block in safeLoad`",
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1878:          "  return fallback;",
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1886:      "fallback path emits structured console telemetry",
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts:1992:  it("renders an Arabic not-proven fallback while preserving every requested part", () => {
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts:125:  it("does not attach reasoning to cached (duplicate) read_file tool_call steps", async () => {
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts:130:    // fresh, one cached via duplicate detection in the engine).
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts:368:    const filePath = path.join(rootPath, `replace-duplicate-${Date.now()}.ts`);
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:117:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:374:              // Non-streaming fallback (used in synthesis/correction calls).
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:23: *   fallback regression: a cited prefetched file with ZERO recorded completed
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:77:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:202: * Native-SSE strategy for the ENTER_HEADLESS / getStrategy fallback is
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:384:      expect(result.response).not.toMatch(/(?:does not|doesn't|is not|isn't)\s+(?:exist|implemented|enforced|working)/i);
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:6: * invalid-absolutePath test we mock file-tools to inject a malformed
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:828:  it("preserves the Arabic incomplete forensic report when AbortSignal fires during synthesis", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:842:        throw new Error("simulated synthesis cancellation");
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:978:  it("skips recovery after malformed synthesis and correction when no evidence exists", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1012:              ? "plain synthesis without the JSON envelope"
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1105:        // Recovery must not remain pinned to the failed synthesis model. The
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1106:        // first fallback candidate returns a six-section report with a stale
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1109:        if (calls.length === 5 && calls[4]?.model === "fallback-model") {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1126:            model: "fallback-model",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1157:        fallbackChain: ["llama-3.1-8b-instant", "fallback-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1195:      expect(calls[4]?.model).toBe("fallback-model");
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1249:              response: "The initial synthesis did not satisfy the forensic report contract.",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1303:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1399:              response: "The initial synthesis did not satisfy the forensic report contract.",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1484:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1542:    // its recovery attempts (here: parse failure with no fallback model),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1571:          // Initial synthesis — fails the forensic contract, triggering recovery.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1574:              response: "The initial synthesis did not satisfy the forensic report contract.",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1637:        // Single-model chain: no fallback, so packet 1 exhausts after one attempt.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1638:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1642:      // No fallback models: packet 1's failure is terminal after one attempt.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1721:              response: "The initial synthesis did not satisfy the forensic report contract.",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1782:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1857:              response: "The initial synthesis needs forensic contract recovery.",
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1897:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2035:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2152:        fallbackChain: ["initial-model", "recovery-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2285:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2396:        fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2589:        fallbackChain: ["initial-model", "recovery-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2637:      expect(retryPrompt).toContain("duplicate required section: ## 2) Evidence Map");
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2811:  it("returns a deterministic partial report for malformed task JSON without correction retry", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2813:      choices: [{ message: { content: "The provider stopped before producing JSON." } }],
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2837:    // response. A malformed JSON correction would create a third call.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2966:describe("chat agent — fallback output normalization", () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2978:  it("strips markdown fences and normalizes fallback text", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3000:    const malformed = { content: "The provider stopped before producing JSON.", toolCalls: [] };
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3002:      openrouterCompleteRaw: vi.fn().mockResolvedValue(malformed),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3003:      openrouterCompleteWithFallback: vi.fn().mockResolvedValue(malformed),
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3024:    expect(result.response).toContain("The provider stopped before producing JSON.");
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3053:    // timing out during synthesis. The engine returns kind:"partial" with
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:111:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:14:      "malformed-output",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:15:      "empty-synthesis",

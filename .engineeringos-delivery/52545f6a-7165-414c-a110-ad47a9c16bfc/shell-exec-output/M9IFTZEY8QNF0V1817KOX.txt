@@ -1,0 +1,432 @@
+artifacts/api-server/src/lib/ai-route-helpers.ts
+7: * Provider resolution uses PROVIDER_PRIORITY from the registry so the fallback
+163: *   2. Server-wide env fallback: OPENROUTER_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY.
+193:  // Server-wide env fallback — supported for all providers via dedicated env vars.
+194:  const ENV_FALLBACK: Record<ProviderId, string | undefined> = {
+200:  return ENV_FALLBACK[provider] || undefined;
+244: * Resolve a fallback AI provider when the primary is experiencing errors.
+247:export async function resolveFallbackProvider(
+257:      action: "resolve_fallback_provider",
+263:    selected ? `resolved fallback provider: ${selected.provider}` : "no fallback provider available",
+280: * Error codes that should trigger a provider fallback rather than surfacing
+284: * now fallback-worthy — they mean the model is gone on THIS provider but
+288:const FALLBACK_TRIGGER_CODES = new Set<string>([
+303: * Run any single-shot agent function with automatic provider fallback.
+306: * result.  On any error code in FALLBACK_TRIGGER_CODES the next provider in
+310:export async function runAgentWithFallback<T>(
+329:        { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
+330:        "primary provider error; retrying agent with fallback provider",
+340:      if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
+356: * Call `chat()` with automatic provider fallback on recoverable errors.
+359: * one succeeds.  Fallback is triggered for any error code in FALLBACK_TRIGGER_CODES.
+360: * Both primary and fallback providers support streaming via `onDelta`.
+362:export async function chatWithFallback(
+453:  // the text-only fallback will lose evidence acquired by the prior attempt.
+462:        { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
+463:        "primary provider error; retrying with fallback provider",
+500:      if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
+590:    incompleteReview?: { sessionId?: string; failureKind?: string };
+628:      ...(ctx.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
+661:    incomplete: true,
+662:    outcomeClass: "terminal-incomplete" as const,
+663:    terminalStatus: "INCOMPLETE" as const,
+664:    ...(ctx?.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
+665:    ...(ctx?.incompleteReview?.failureKind ? { failureKind: ctx.incompleteReview.failureKind } : {}),
+717:          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+727:        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+736:        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts
+5: * chatWithFallback -> chat -> tool-execution-engine path. Only the provider
+53:    ownsModelFallback: false,
+118:    fallbackChain: ["repair-loop-fixture-model"],
+126:    resolveFallbackChain: vi.fn(() => [{ id: "repair-loop-fixture-model" }]),
+127:    buildFallbackChainFromId: vi.fn(() => [{ id: "repair-loop-fixture-model" }]),
+367:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+369:      failureKind: "INCOMPLETE",
+370:      recoveryState: "INCOMPLETE",
+533:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+535:      failureKind: "INCOMPLETE",
+536:      recoveryState: "INCOMPLETE",
+616:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+618:      failureKind: "INCOMPLETE",
+619:      recoveryState: "INCOMPLETE",
+703:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+705:      failureKind: "INCOMPLETE",
+706:      recoveryState: "INCOMPLETE",
+
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+91:    id: "ai-structured-review-fallback",
+93:    command: "pnpm --filter @workspace/ai-orchestrator run test:structured-review-fallback-release",
+96:      "structured-review reasoning-only fallback",
+97:      "agent-harness fallback",
+98:      "rate-limit fallback",
+99:      "empty/malformed output incomplete status",
+158:      "rate-limit, empty, and malformed incomplete receipts",
+
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+13: *     chatWithFallback independently per test.
+50:import { chatWithFallback, requireProvider } from "../lib/ai-route-helpers.js";
+134:  // chat is not called directly by the stream route (chatWithFallback wraps it),
+166:  recordFallbackSuccess:   vi.fn(),
+183:// chatWithFallback and requireProvider are the two route-layer functions that
+206:  chatWithFallback: vi.fn(
+250:        model: "actual-fallback-model",
+274:const defaultChatWithFallback = vi.mocked(chatWithFallback).getMockImplementation();
+436:  vi.mocked(chatWithFallback).mockReset();
+437:  vi.mocked(chatWithFallback).mockImplementation(defaultChatWithFallback!);
+847:    const emitReadOnlyEvidence = (args: Parameters<typeof chatWithFallback>[0] extends never
+849:      : Parameters<typeof chatWithFallback>[6]) => {
+873:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+884:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+928:        detail: "The forensic worker stopped after reading source evidence.",
+937:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+947:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+963:    expect(resumed.text).toContain("EXECUTION_ACCEPTANCE_INCOMPLETE");
+1067:        detail: "Source evidence gathered before the worker stopped.",
+1084:    vi.mocked(chatWithFallback).mockClear();
+1086:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+1096:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+1116:    const call = vi.mocked(chatWithFallback).mock.calls.at(-1);
+1120:    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(1);
+1289:        detail: "Read the approved file before the worker stopped.",
+1318:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+1342:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+1344:      failureKind: "INCOMPLETE",
+1345:      recoveryState: "INCOMPLETE",
+1414:    vi.mocked(chatWithFallback).mockImplementationOnce(async (
+1471:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+1473:      failureKind: "INCOMPLETE",
+1474:      recoveryState: "INCOMPLETE",
+1570:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+1571:    const callsBefore = vi.mocked(chatWithFallback).mock.calls.length;
+1584:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBefore);
+1593:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+1594:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+1637:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+1638:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+1668:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+1670:      failureKind: "INCOMPLETE",
+1671:      recoveryState: "INCOMPLETE",
+1706:    vi.mocked(chatWithFallback).mockImplementationOnce(async (
+1910:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+1911:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+1944:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+1946:      failureKind: "INCOMPLETE",
+1947:      recoveryState: "INCOMPLETE",
+2239:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+2272:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+2376:    vi.mocked(chatWithFallback).mockReset().mockImplementation(async (...args) => {
+2382:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+2389:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+2392:    vi.mocked(chatWithFallback).mockReset().mockImplementation(async (...args) => {
+2405:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+2462:      prompt: "Which technology handles the provider fallback?",
+2463:      response: "Technology answer: the fallback router selects the next provider.",
+2464:      source: "src/providers/fallback.ts",
+2465:      citation: "provider fallback selection",
+2568:    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+2577:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+2636:    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+2664:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+2777:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+2803:    } as Awaited<ReturnType<typeof chatWithFallback>>);
+2849:    const incomplete = "ANALYSIS_INCOMPLETE — source reads completed, but no grounded behavioral answer could be accepted.";
+2853:        answer: incomplete,
+2866:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+2867:      args[3]?.(incomplete);
+2901:          responseLength: incomplete.length,
+2921:          response: incomplete,
+2928:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+2949:    expect((done?.["message"] as Record<string, unknown> | undefined)?.["content"]).toContain("ANALYSIS_INCOMPLETE");
+2972:    expect(replayed?.["content"]).toContain("ANALYSIS_INCOMPLETE");
+3019:        "ANALYSIS_INCOMPLETE — عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.",
+3051:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+3098:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+3123:    expect((done?.["message"] as Record<string, unknown>)["content"]).toContain("ANALYSIS_INCOMPLETE");
+3167:      expect.objectContaining({ id: sessionId, forensicStatus: "INCOMPLETE" }),
+3169:    expect(storedAssistant?.["content"]).toContain("ANALYSIS_INCOMPLETE");
+3175:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+3219:    const runContinuation = async (...args: Parameters<typeof chatWithFallback>) => {
+3252:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+3254:    vi.mocked(chatWithFallback)
+3333:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+3383:    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+3386:    } as Awaited<ReturnType<typeof chatWithFallback>>);
+3415:    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+3426:        } as Awaited<ReturnType<typeof chatWithFallback>>;
+3434:        } as Awaited<ReturnType<typeof chatWithFallback>>;
+3487:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+3492:      } as Awaited<ReturnType<typeof chatWithFallback>>;
+3507:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+3514:    vi.mocked(chatWithFallback)
+3542:    const calls = vi.mocked(chatWithFallback).mock.calls;
+3549:      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+3551:      failureKind: "INCOMPLETE",
+3552:      recoveryState: "INCOMPLETE",
+3639:  it("persists bounded synthesis timeout telemetry while keeping incomplete reports sanitized", async () => {
+3642:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+3643:    const report = "ANALYSIS_INCOMPLETE — final synthesis timed out before a verified report was accepted.";
+3685:    vi.mocked(chatWithFallback)
+3701:    expect(streamMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+3732:    expect(nonStreamed.body.message?.content ?? nonStreamed.body.response).toContain("ANALYSIS_INCOMPLETE");
+3739:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+3741:    vi.mocked(chatWithFallback).mockImplementationOnce(
+3751:        onDelta?.("Safe fallback report");
+3769:          result: { response: "Safe fallback report", sources: [], pendingChanges: [] },
+3787:    expect(message?.content).toBe("Safe fallback report");
+3813:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+3838:    vi.mocked(chatWithFallback).mockImplementationOnce(
+3929:  it("keeps a streamed forensic cancellation incomplete after recovery retains partial evidence", async () => {
+3932:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+3935:      "ANALYSIS_INCOMPLETE — cancellation stopped the audit before evidence coverage was complete.",
+3944:      "No repair phases are authorized for this incomplete audit.",
+3947:      "No executable validation scenario is authorized for this incomplete audit.",
+3950:      "ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.",
+3974:    vi.mocked(chatWithFallback).mockImplementationOnce(
+4063:    expect(message?.content).toContain("ANALYSIS_INCOMPLETE");
+4085:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4087:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+4161:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4162:    const unavailable = async (...args: Parameters<typeof chatWithFallback>) => {
+4189:      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+4191:    vi.mocked(chatWithFallback)
+4279:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4281:    vi.mocked(chatWithFallback).mockImplementationOnce(
+4293:          code: "INCOMPLETE_BEFORE_EVIDENCE",
+4305:          diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],
+4337:      diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],
+4345:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4346:    const callsBefore = vi.mocked(chatWithFallback).mock.calls.length;
+4355:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBefore);
+4361:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4362:    const callsBefore = vi.mocked(chatWithFallback).mock.calls.length;
+4371:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBefore);
+4389:    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+4408:        `ANALYSIS_INCOMPLETE: The stream was interrupted after reading ${source}. ` +
+4439:    expect(message?.content).toContain("ANALYSIS_INCOMPLETE");
+4454:    const stored = storedRows.find((row) => row.content.includes("ANALYSIS_INCOMPLETE"));
+4455:    expect(stored?.content).toContain("ANALYSIS_INCOMPLETE");
+4462:  it("retains a completed read when the primary fails and the text-only fallback is resumed", async () => {
+4473:    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+4488:          "SSE failover fixture exhausted: expected only the initial fallback and one resumed read-only turn.",
+4493:        `ANALYSIS_INCOMPLETE: The primary provider failed after reading ${source}. ` +
+4510:    expect(firstMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+4529:    expect(storedAfterFirst?.content).toContain("ANALYSIS_INCOMPLETE");
+4543:    expect(resumedMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+4550:    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(2);
+4557:    // Override chatWithFallback to throw MODEL_NOT_FOUND after all providers fail
+4558:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4562:    vi.mocked(chatWithFallback).mockRejectedValueOnce(
+4565:        `All AI model fallbacks exhausted — no model was available (${sensitivePath}, ${internalId}).`,
+4609:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4611:    vi.mocked(chatWithFallback).mockRejectedValueOnce(
+4648:// ─── INT-007: Fetch isolation — chatWithFallback call counts ──────────────────
+4651:// all.  We observe call counts on the chatWithFallback mock as the proxy:
+4652://   • Success path → chatWithFallback called exactly once
+4653://   • Error / empty-chain path → chatWithFallback called once (throws), no done event emitted
+4654://   • Validation failure → chatWithFallback never called (guard fires before AI layer)
+4656:describe("INT-007 — chatWithFallback call counts prove the resolver controls request issuance", () => {
+4657:  it("should not call chatWithFallback when projectId validation fails", async () => {
+4658:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4659:    const callCountBefore = vi.mocked(chatWithFallback).mock.calls.length;
+4666:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callCountBefore);
+4669:  it("should call chatWithFallback exactly once on the success path", async () => {
+4673:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4674:    const callCountBefore = vi.mocked(chatWithFallback).mock.calls.length;
+4683:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callCountBefore + 1);
+4694:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4695:    vi.mocked(chatWithFallback).mockClear();
+4705:    const call = vi.mocked(chatWithFallback).mock.calls.at(-1);
+4737:  // validated objective into chatWithFallback, and reject an invalid one BEFORE
+4741:  it("threads a request objective into chatWithFallback for the streaming Objective Completion Gate", async () => {
+4745:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4746:    vi.mocked(chatWithFallback).mockClear();
+4758:    const call = vi.mocked(chatWithFallback).mock.calls.at(-1);
+4768:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4769:    const callCountBefore = vi.mocked(chatWithFallback).mock.calls.length;
+4782:    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callCountBefore);
+4789:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4792:    // Simulate the resolver finding an empty chain: chatWithFallback throws immediately
+4794:    vi.mocked(chatWithFallback).mockRejectedValueOnce(
+4795:      new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted"),
+4811:    // No additional fetch calls to OpenRouter were made: the resolver stopped the chain
+4832:    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+4833:    vi.mocked(chatWithFallback).mockClear();
+4867:    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(1);
+
+artifacts/api-server/src/lib/ai-route-helpers.test.ts
+169:  it("renders real provider outages as terminal incomplete reviews", () => {
+184:        incompleteReview: { sessionId: "review-session", failureKind: "PROVIDER_FAILURE" },
+189:      incomplete: true,
+190:      outcomeClass: "terminal-incomplete",
+191:      terminalStatus: "INCOMPLETE",
+
+artifacts/api-server/src/routes/ai.test.ts
+97:  it("rejects malformed reports with a bounded actionable error", () => {
+98:    const malformed = {
+104:    expect(() => serializeMissionCorrelationReport(malformed)).toThrow(
+108:      serializeMissionCorrelationReport(malformed);
+109:      throw new Error("expected malformed report to be rejected");
+396:  recordFallbackSuccess: vi.fn(),
+1115:  // implemented inside chat()/chatWithFallback; for it to actually fire on the
+1161:  // PR-E (updated): _parseError with a non-empty fallback response → 200, not 422.
+1163:  // compliance; the fallback extracts the response and the route should deliver it.
+1164:  it("returns 200 with fallback when chat has _parseError but non-empty response", async () => {
+1167:      response: "fallback text",
+1170:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+1179:    // Fallback produced a usable response — expect 200 with the message.
+1185:  it("returns 422 with model_output_invalid when chat returns _parseError with empty response", async () => {
+1191:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+1527:  it("returns only the selected owner's project's redacted incomplete executions", async () => {
+1548:        evidenceReason: "Cancellation stopped the audit before complete coverage.",
+1749:    const incompleteSessionId = randomUUID();
+1756:        id: incompleteSessionId,
+1758:        title: "Incomplete audit",
+1787:        sessionId: incompleteSessionId,
+1789:        content: "ANALYSIS_INCOMPLETE — the audit was cancelled before coverage completed.",
+1819:      expect.objectContaining({ id: incompleteSessionId, forensicStatus: "INCOMPLETE" }),
+2133:      title: "Malformed mission report session",
+2282:    // is readable) — that fallback would let any project-authorized user pull in
+2342:  it("returns 422 with model_output_invalid when analyzeScan returns _parseError", async () => {
+2345:      summary: "fallback",
+2346:      overallAssessment: "fallback",
+2348:      topPriority: "fallback",
+2349:      estimatedImpact: "fallback",
+2350:      _parseError: {
+2351:        code: "MALFORMED_JSON",
+2364:    expect(res.body.parseCode).toBe("MALFORMED_JSON");
+2391:      summary: "fallback",
+2392:      overallAssessment: "fallback",
+2394:      topPriority: "fallback",
+2395:      estimatedImpact: "fallback",
+2396:      _parseError: {
+2397:        code: "MALFORMED_JSON",
+2491:  it("returns 422 with model_output_invalid when reviewCode returns _parseError", async () => {
+2494:      summary: "fallback",
+2501:      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "missing field", raw: "bad output" },
+2574:  it("returns 422 with model_output_invalid when orchestrateWorkflow returns _parseError", async () => {
+2578:      reasoning: "fallback — model output could not be parsed",
+2579:      _parseError: {
+2758:  it("rejects malformed decisions before reading or changing a plan", async () => {
+2788:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-proposal-recovery.",
+2847:      conflictReason: "Apply stopped after a file conflict; review is required.",
+2861:      conflictReason: "Apply stopped after a file conflict; review is required.",
+2863:      operatorExplanation: "The delivery stopped because the retained changes need review before validation can continue.",
+2878:      conflictReason: "Recovery stopped at /tmp/private-delivery-root after a diagnostic failure.",
+2909:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-recovery-root.",
+4150:  it("returns 422 with model_output_invalid when executeTask returns _parseError, and rolls back task status", async () => {
+4153:      summary: "fallback",
+4154:      result: "fallback",
+4158:      _parseError: {
+4289:      summary: "fallback",
+4290:      result: "fallback",
+4294:      _parseError: {
+4329:    // Clear every server-wide fallback, not only Groq: OpenRouter, DeepSeek,
+
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts
+39:      "rate-limit, empty, and malformed incomplete receipts",
+
+artifacts/api-server/src/routes/ai/chat.ts
+41:  recordFallbackSuccess,
+144:  chatWithFallback,
+320:  failureKind?: "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE";
+322:  recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
+334:      || failureKind === "INCOMPLETE"
+341:      || terminal?.recoveryState === "INCOMPLETE"
+680:  code: "PLAN_CONTEXT_STALE" | "PLAN_CONTEXT_INCOMPLETE" | "PLAN_FILES_CHANGED";
+697:      code: "PLAN_CONTEXT_INCOMPLETE",
+706:      code: "PLAN_CONTEXT_INCOMPLETE",
+711:      error: "The project scan is incomplete. Complete a fresh scan before approving or starting Build Mode.",
+712:      code: "PLAN_CONTEXT_INCOMPLETE",
+747: * planner's existing guarded fallback produces an explicitly blocked plan.
+782:      filesystemManifest: unavailable("The project scan is incomplete; complete a fresh scan before creating a plan."),
+783:      filesystemSources: unavailableSources("The project scan is incomplete; source excerpts are not planning evidence."),
+810:      filesystemManifest: unavailable("The live source walk is incomplete; planning requires a complete snapshot."),
+811:      filesystemSources: unavailableSources("The live source walk is incomplete."),
+832:        filesystemManifest.reason ?? "The bounded filesystem inventory is incomplete.",
+858:      code: "PLAN_CONTEXT_INCOMPLETE",
+873:  const incompleteCode = traceSteps.some(
+876:      (step.code === "INCOMPLETE_BEFORE_EVIDENCE" || step.code === "INVESTIGATION_START_FAILURE"),
+878:  if (!incompleteCode) return false;
+890:    : "Execution stopped before the first source read, so the result is incomplete and not proven. Retry with a clear target file or objective.";
+1485:    | "evidence_incomplete"
+1487:    | "validation_incomplete";
+1496:  behavioralAssessment?: "COMPLETE" | "INCOMPLETE" | "NOT_STARTED";
+1529:    behaviorAssessment: "COMPLETE" | "INCOMPLETE" | "NOT_STARTED";
+2008:    evidence: "runtime chatWithFallback dispatch",
+2101:  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+2217:    }, "chat: dispatching chatWithFallback");
+2222:      const chatOut = await chatWithFallback(
+2299:        errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
+2316:        errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
+2344:    if (result._parseError) {
+2357:        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+2358:        "AI parse failure — using fallback response",
+2554:      _meta: rootFallbackUsed
+2555:        ? { rootPathFallback: { used: true, original: rootOriginalPath } }
+2644:  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+3354:    }, "chat/stream: dispatching chatWithFallback");
+3384:            | "evidence_incomplete"
+3386:            | "validation_incomplete";
+3419:    // GAP-A2: Called by chatWithFallback when the native SSE stream broke
+3877:      const chatOut = await chatWithFallback(
+3976:          errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
+3993:          errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
+4017:          // A failed/incomplete report may still be useful to an operator, but
+4114:      // effectiveProvider differs from `provider` when fallback occurred
+4116:        recordFallbackSuccess(provider);
+4177:    if (result._parseError) {
+4206:        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+4207:        "AI parse failure — using fallback response",
+4495:        error: "Execution stopped before the first source read.",
+4502:      // bounded incomplete report after observing the abort. The report is
+4533:        const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
+4538:            errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+4546:                failureKind: "INCOMPLETE",
+4548:                recoveryState: "INCOMPLETE",
+4564:          code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+4567:          failureKind: "INCOMPLETE",
+4569:          recoveryState: "INCOMPLETE",
+4661:      _meta: rootFallbackUsed
+4662:        ? { rootPathFallback: { used: true, original: rootOriginalPath } }
+4714:  const safeText = (value: unknown, fallback: string, max = 240): string => {
+4715:    if (typeof value !== "string" || !value.trim()) return fallback;
+4753:          ? "Execution stopped before a complete result was recorded."
+4861:      ? "Execution stopped before a complete result was recorded."
+5162:    ) || /\bANALYSIS_INCOMPLETE\b/i.test(latest.content);
+5163:    if (cancelled) return { ...session, forensicStatus: "INCOMPLETE" as const };
+5430:        code: "PLAN_CONTEXT_INCOMPLETE",
+5543:  // project root is inaccessible. Such a fallback would let a user authorized
+5726:          ? "The delivery stopped because the retained changes need review before validation can continue."
+6411:      // The authoritative validation below reports malformed stored proposals.
+
+artifacts/api-server/src/lib/ai-execution-state.ts
+929:    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+
+artifacts/api-server/src/lib/ai-terminal-outcome.ts
+7:  | "INCOMPLETE";
+15:  recoveryState: "NONE" | "REQUIRED" | "INCOMPLETE";
+90: * recovery failure > incomplete evidence > accepted evidence > success.
+116:      recoveryState: "INCOMPLETE",
+131:      recoveryState: "INCOMPLETE",
+172:  const explicitIncomplete = forensic && (
+174:      || hasDiagnostic(trace, /INCOMPLETE_BEFORE_EVIDENCE/i)
+175:      || /\bANALYSIS_INCOMPLETE\b/i.test(text)
+178:      || forensicStatus.behavioralAssessment === "INCOMPLETE"
+181:      || auditState.behaviorAssessment === "INCOMPLETE"
+185:  if (explicitIncomplete) {
+188:      failureKind: "INCOMPLETE",
+190:      code: input.endedBeforeEvidence ? "INCOMPLETE_BEFORE_EVIDENCE" : "FORENSIC_INCOMPLETE",
+192:        ? "The result is incomplete because no source evidence was read."
+193:        : "The forensic result is incomplete and is not proven.",
+194:      recoveryState: "INCOMPLETE",
+209:      failureKind: "INCOMPLETE",
+213:      recoveryState: "INCOMPLETE",
+
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts
+29:      recoveryState: "INCOMPLETE",
+44:  it("distinguishes terminal forensic recovery failure from ordinary incompleteness", () => {
+56:      failureKind: "INCOMPLETE",
+57:      recoveryState: "INCOMPLETE",
+76:      failureKind: "INCOMPLETE",

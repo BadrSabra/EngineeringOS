@@ -1,0 +1,151 @@
+artifacts/api-server/src/lib/ai-route-helpers.ts:7: * Provider resolution uses PROVIDER_PRIORITY from the registry so the fallback
+artifacts/api-server/src/lib/ai-route-helpers.ts:17:  GroqClientError,
+artifacts/api-server/src/lib/ai-route-helpers.ts:163: *   2. Server-wide env fallback: OPENROUTER_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY.
+artifacts/api-server/src/lib/ai-route-helpers.ts:193:  // Server-wide env fallback — supported for all providers via dedicated env vars.
+artifacts/api-server/src/lib/ai-route-helpers.ts:244: * Resolve a fallback AI provider when the primary is experiencing errors.
+artifacts/api-server/src/lib/ai-route-helpers.ts:257:      action: "resolve_fallback_provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:263:    selected ? `resolved fallback provider: ${selected.provider}` : "no fallback provider available",
+artifacts/api-server/src/lib/ai-route-helpers.ts:280: * Error codes that should trigger a provider fallback rather than surfacing
+artifacts/api-server/src/lib/ai-route-helpers.ts:284: * now fallback-worthy — they mean the model is gone on THIS provider but
+artifacts/api-server/src/lib/ai-route-helpers.ts:296:  "MODEL_NOT_FOUND",
+artifacts/api-server/src/lib/ai-route-helpers.ts:303: * Run any single-shot agent function with automatic provider fallback.
+artifacts/api-server/src/lib/ai-route-helpers.ts:321:  let lastErr: GroqClientError | undefined;
+artifacts/api-server/src/lib/ai-route-helpers.ts:329:        { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
+artifacts/api-server/src/lib/ai-route-helpers.ts:330:        "primary provider error; retrying agent with fallback provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:340:      if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:352:  throw lastErr ?? new GroqClientError("EMPTY_RESPONSE", "No AI provider returned a response");
+artifacts/api-server/src/lib/ai-route-helpers.ts:356: * Call `chat()` with automatic provider fallback on recoverable errors.
+artifacts/api-server/src/lib/ai-route-helpers.ts:360: * Both primary and fallback providers support streaming via `onDelta`.
+artifacts/api-server/src/lib/ai-route-helpers.ts:362:export async function chatWithFallback(
+artifacts/api-server/src/lib/ai-route-helpers.ts:438:    throw new GroqClientError(
+artifacts/api-server/src/lib/ai-route-helpers.ts:446:  let lastErr: GroqClientError | undefined;
+artifacts/api-server/src/lib/ai-route-helpers.ts:453:  // the text-only fallback will lose evidence acquired by the prior attempt.
+artifacts/api-server/src/lib/ai-route-helpers.ts:462:        { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
+artifacts/api-server/src/lib/ai-route-helpers.ts:463:        "primary provider error; retrying with fallback provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:500:      if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:522:    ? new GroqClientError(lastErr.code, exhaustedMsg)
+artifacts/api-server/src/lib/ai-route-helpers.ts:523:    : new GroqClientError("EMPTY_RESPONSE", exhaustedMsg);
+artifacts/api-server/src/lib/ai-route-helpers.ts:577: * Maps GroqClientError codes to typed HTTP responses so callers receive a
+artifacts/api-server/src/lib/ai-route-helpers.ts:595:  if (!(err instanceof GroqClientError)) return false;
+artifacts/api-server/src/lib/ai-route-helpers.ts:615:          : err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE" ||
+artifacts/api-server/src/lib/ai-route-helpers.ts:699:    case "MODEL_NOT_FOUND": {
+artifacts/api-server/src/lib/ai-route-helpers.ts:717:          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+artifacts/api-server/src/lib/ai-route-helpers.ts:727:        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:736:        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:805:  err: GroqClientError,
+artifacts/api-server/src/lib/ai-route-helpers.ts:827:    err.code === "MODEL_NOT_FOUND" ||
+lib/ai-orchestrator/src/groq-client.ts:11: * failure surfaces as a `GroqClientError` with a specific `code`.
+lib/ai-orchestrator/src/groq-client.ts:18:import { GroqClientError, type GroqErrorCode } from "./errors.js";
+lib/ai-orchestrator/src/groq-client.ts:93:      reject(new GroqClientError("TIMEOUT", "Groq retry backoff cancelled"));
+lib/ai-orchestrator/src/groq-client.ts:98:      reject(new GroqClientError("TIMEOUT", "Groq retry backoff cancelled"));
+lib/ai-orchestrator/src/groq-client.ts:115:    throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
+lib/ai-orchestrator/src/groq-client.ts:262:      throw new GroqClientError("INVALID_CONFIG", "GROQ_API_KEY environment variable is not set");
+lib/ai-orchestrator/src/groq-client.ts:311:          "Update the Groq default model IDs and restart before accepting AI traffic.",
+lib/ai-orchestrator/src/groq-client.ts:400:  if (!msg) throw new GroqClientError("EMPTY_RESPONSE", "Groq returned an empty response");
+lib/ai-orchestrator/src/groq-client.ts:418:    throw new GroqClientError("EMPTY_RESPONSE", "Groq returned neither content nor tool calls");
+lib/ai-orchestrator/src/groq-client.ts:460:    throw new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:483:  let lastError: GroqClientError | undefined;
+lib/ai-orchestrator/src/groq-client.ts:501:      lastError = err instanceof GroqClientError ? err : classifySdkError(err, false);
+lib/ai-orchestrator/src/groq-client.ts:523:  throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
+lib/ai-orchestrator/src/groq-client.ts:526:function classifySdkError(err: unknown, aborted: boolean): GroqClientError {
+lib/ai-orchestrator/src/groq-client.ts:527:  if (err instanceof GroqClientError) return err;
+lib/ai-orchestrator/src/groq-client.ts:528:  if (aborted) return new GroqClientError("TIMEOUT", "Groq request timed out", { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:538:      return new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:539:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/groq-client.ts:553:      return new GroqClientError("AUTH_ERROR", `Groq API authentication failed (${status})`, { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:556:      return new GroqClientError("RATE_LIMITED", "Groq API rate limit exceeded", { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:559:      return new GroqClientError("SERVER_ERROR", `Groq API server error (${status})`, { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:561:    return new GroqClientError("NON_200", `Groq API responded with status ${status}`, { cause: err });
+lib/ai-orchestrator/src/groq-client.ts:563:  return new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:592:    throw new GroqClientError("EMPTY_RESPONSE", "Groq returned an empty response");
+lib/ai-orchestrator/src/groq-client.ts:663:    throw new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:719:      throw new GroqClientError("EMPTY_RESPONSE", "Groq stream returned no content");
+lib/ai-orchestrator/src/groq-client.ts:724:    if (err instanceof GroqClientError) {
+lib/ai-orchestrator/src/groq-client.ts:759:    throw new GroqClientError(
+lib/ai-orchestrator/src/groq-client.ts:769:  let lastError: GroqClientError | undefined;
+lib/ai-orchestrator/src/groq-client.ts:781:      lastError = err instanceof GroqClientError ? err : classifySdkError(err, false);
+lib/ai-orchestrator/src/groq-client.ts:809:  throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
+lib/ai-orchestrator/src/provider-registry.ts:26:// The emergency fallback is derived from the current static free-tier catalog
+lib/ai-orchestrator/src/provider-registry.ts:156:      // MODEL_NOT_FOUND failures.
+lib/ai-orchestrator/src/provider-registry.ts:261:  /** GroqErrorCode that triggered a model fallback, if any. */
+lib/ai-orchestrator/src/provider-registry.ts:262:  fallbackReason?: string;
+lib/ai-orchestrator/src/openai-compatible-client.ts:14: * PR-001: default model derived from FREE_MODELS[0] — no hardcoded string.
+lib/ai-orchestrator/src/openai-compatible-client.ts:15: * PR-003: 410 and 422 treated as MODEL_UNAVAILABLE (fallback-worthy).
+lib/ai-orchestrator/src/openai-compatible-client.ts:16: * PR-007: GroqClientError carries providerStatus/providerCode/providerMessage.
+lib/ai-orchestrator/src/openai-compatible-client.ts:20:import { GroqClientError, type GroqErrorCode } from "./errors.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:45:  /** Disable transient retry when the caller owns bounded model fallback. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:47:  /** Cap provider-owned fallback candidates for bounded callers. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:64:  /** Shared request budget used for each network retry/fallback attempt. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:78:// PR-001: safe fallback — derived at module load from the static catalog so
+lib/ai-orchestrator/src/openai-compatible-client.ts:283:      reject(new GroqClientError("TIMEOUT", "Provider retry backoff cancelled"));
+lib/ai-orchestrator/src/openai-compatible-client.ts:288:      reject(new GroqClientError("TIMEOUT", "Provider retry backoff cancelled"));
+lib/ai-orchestrator/src/openai-compatible-client.ts:304:    throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:335:function isTransientError(err: unknown): err is GroqClientError {
+lib/ai-orchestrator/src/openai-compatible-client.ts:337:    err instanceof GroqClientError &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:360: * Authentication/quota failures never consume a paid fallback, while an
+lib/ai-orchestrator/src/openai-compatible-client.ts:373:    case "MODEL_NOT_FOUND":
+lib/ai-orchestrator/src/openai-compatible-client.ts:394: * unusable and the fallback engine should advance to the next candidate.
+lib/ai-orchestrator/src/openai-compatible-client.ts:395: * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier),
+lib/ai-orchestrator/src/openai-compatible-client.ts:399:function isModelUnavailableError(err: unknown): err is GroqClientError {
+lib/ai-orchestrator/src/openai-compatible-client.ts:401:    err instanceof GroqClientError &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:402:    (err.code === "MODEL_NOT_FOUND" ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:443: * recoverable by trying another model in the fallback chain — for example,
+lib/ai-orchestrator/src/openai-compatible-client.ts:481:/** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:488:): GroqClientError {
+lib/ai-orchestrator/src/openai-compatible-client.ts:515:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:531:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:537:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:545:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:570:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:571:      "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openai-compatible-client.ts:587:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:593:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:602:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:603:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openai-compatible-client.ts:617:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:625:      return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:635:  // MODEL_NOT_FOUND) — the distinction is useful for dashboards (temporary
+lib/ai-orchestrator/src/openai-compatible-client.ts:636:  // vs. permanent), but both are fallback-worthy.
+lib/ai-orchestrator/src/openai-compatible-client.ts:641:    return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:648:  return new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:737:      throw new GroqClientError("TIMEOUT", `${providerName} request timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:742:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:792:      throw new GroqClientError("TIMEOUT", `${providerName} response body timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:805:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} returned an empty response`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:838:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:937:      throw new GroqClientError("TIMEOUT", `${providerName} streaming request timed out`, { cause: err });
+lib/ai-orchestrator/src/openai-compatible-client.ts:939:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:955:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream has no body`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1010:    if (err instanceof GroqClientError) throw err;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1012:      throw new GroqClientError("TIMEOUT", `${providerName} streaming response timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1017:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1030:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream returned no content`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1066: *         fallback for brief free-tier blips.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1090:      err instanceof GroqClientError &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:1105:      err instanceof GroqClientError &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:1146: * Non-streaming completion via OpenRouter with automatic free-model fallback
+lib/ai-orchestrator/src/openai-compatible-client.ts:1149: * PR-003: MODEL_UNAVAILABLE (410/422) is now also fallback-worthy in addition
+lib/ai-orchestrator/src/openai-compatible-client.ts:1150: * to MODEL_NOT_FOUND (404/402/400). EMPTY_RESPONSE is also fallback-worthy
+lib/ai-orchestrator/src/openai-compatible-client.ts:1168:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1176:  // fallback chain from the live free-tier catalog at call time.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1189:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1215:        scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1223:  let lastError: GroqClientError | undefined;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1232:      // PR-003: treat MODEL_UNAVAILABLE (422/410) the same as MODEL_NOT_FOUND.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1233:      // Bounded Recovery also owns transient fallback: it disables the
+lib/ai-orchestrator/src/openai-compatible-client.ts:1237:      const fallbackOnTransient =
+lib/ai-orchestrator/src/openai-compatible-client.ts:1239:      if ((isModelUnavailableError(err) || fallbackOnTransient) && i < chain.length - 1) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1243:            scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1256:      if (err instanceof GroqClientError) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1257:        throw new GroqClientError(err.code, err.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1271:    throw new GroqClientError(lastError.code, lastError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1281:  throw new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted", {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1315:    throw new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1333:  let lastError: GroqClientError | undefined;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1348:        const providerError = err instanceof GroqClientError ? err : undefined;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1352:          const terminalError = providerError ?? new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1357:          throw new GroqClientError(terminalError.code, terminalError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1379:          throw new GroqClientError(providerError.code, providerError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1390:          scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1402:    throw new GroqClientError(lastError.code, lastError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1407:  throw new GroqClientError("MODEL_NOT_FOUND", "No OpenRouter free model satisfies the stream capability", {

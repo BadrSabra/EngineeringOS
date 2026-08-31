@@ -1,0 +1,220 @@
+lib/ai-orchestrator/src/tool-policy.ts:41:const FILE_READ_TOOL_NAMES = new Set(["read_file", "read_file_range", "list_directory", "search_code"]);
+lib/ai-orchestrator/src/task-execution-partial-report.ts:62:    if (step.kind === "tool_result" && step.tool === "read_file" && step.source) {
+lib/ai-orchestrator/src/recipe-capabilities.ts:36:  id: "project.read_file",
+lib/ai-orchestrator/src/task-checklist.ts:160:          step.kind === "tool_result" && step.tool === "read_file" && Boolean(step.source),
+lib/ai-orchestrator/src/task-checklist.ts:164:        .filter((call) => call.tool === "read_file" && typeof call.args.path === "string")
+lib/ai-orchestrator/src/task-checklist.ts:253:      : `YES only if completed read_file telemetry proves that ${paths.join(", ")} was read; otherwise NO`;
+lib/ai-orchestrator/src/forensic-output-guard.ts:58:  /** Complete (or bounded) read_file outputs keyed by project-relative path. */
+lib/ai-orchestrator/src/forensic-output-guard.ts:314:      /^\[cached — identical call already executed this request\]\s*\n?/u,
+lib/ai-orchestrator/src/forensic-output-guard.ts:318:      /^\[cached — identical call already executed this request\]\s*\n?/u,
+lib/ai-orchestrator/src/forensic-output-guard.ts:327:  // read_file returns a transport wrapper (`File: ...` + fenced content).
+lib/ai-orchestrator/src/forensic-output-guard.ts:396:    /\bcompleted\s+read_file\s+result\b/i.test(evidenceText) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:679:        /\bcompleted\s+(?:read_file|tool)\s+result\b/i.test(evidenceText) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:1031:        ? `completed read_file result; display truncation marker detected; targeted complete read required (read proof only; no behavioral finding accepted)`
+lib/ai-orchestrator/src/forensic-output-guard.ts:1033:        ? `completed read_file result; exact Finding evidence: \`${(acceptedEvidenceLine ?? acceptedEvidence).slice(0, 180)}\` (exact source evidence used by the accepted Finding)`
+lib/ai-orchestrator/src/forensic-output-guard.ts:1035:        ? `completed read_file result; executable source fragment at line ${behavioralCode.lineNumber}: \`${behavioralCode.line.slice(0, 180)}\` ${
+lib/ai-orchestrator/src/forensic-output-guard.ts:1041:          ? `completed read_file result; source fragment at line ${firstCode.lineNumber}: \`${firstCode.line.slice(0, 180)}\` ${
+lib/ai-orchestrator/src/forensic-output-guard.ts:1046:        : "completed read_file result; no verifiable source fragment was available";
+lib/ai-orchestrator/src/forensic-output-guard.ts:1829:        if (toolCall.id && toolCall.function?.name === "read_file") {
+lib/ai-orchestrator/src/quality/execution-phases.ts:57:  evidence: ["read_file", "read_file_range", "search_code", "list_directory"],
+lib/ai-orchestrator/src/quality/execution-phases.ts:58:  patch_proposal: ["read_file", "read_file_range", "replace_text", "write_file"],
+lib/ai-orchestrator/src/quality/execution-phases.ts:60:  repair_recovery: ["read_file", "read_file_range", "replace_text", "write_file", "run_validation"],
+lib/ai-orchestrator/src/evidence-integrity.ts:986:  const cachedReads = evidenceRecords.filter((record) => record.readType === "CACHED").length;
+lib/ai-orchestrator/src/provider-tool-calls.ts:10: *   <tool_call>{"name":"read_file","arguments":{"path":"src/a.ts"}}</tool_call>
+lib/ai-orchestrator/src/provider-tool-calls.ts:11: *   <tool_call><function=read_file><parameter=path>src/a.ts</parameter></function></tool_call>
+lib/ai-orchestrator/src/provider-tool-calls.ts:12: *   <|tool_call_start|>read_file({"path":"src/a.ts"})<|tool_call_end|>
+lib/ai-orchestrator/src/provider-tool-calls.ts:13: *   <|tool_call_start|>{"name":"read_file","arguments":{"path":"src/a.ts"}}<|tool_call_end|>
+lib/ai-orchestrator/src/provider-tool-calls.ts:41:   * narrower per-iteration exposure (for example after a cached read), while
+lib/ai-orchestrator/src/provider-tool-calls.ts:408:  "read_file(",
+lib/ai-orchestrator/src/provider-tool-calls.ts:409:  "read_file_range(",
+lib/ai-orchestrator/src/prompts/profile-classifier.ts:60:   * to read_file so the result measures the requested file-level behavior.
+lib/ai-orchestrator/src/prompts/profile-classifier.ts:130:  /(?:لا\s+تقرأ\s+أي\s+ملف\s+آخر|لا\s+تستخدم\s+search_code|do\s+not\s+read\s+any\s+other\s+file|read_file\s+only)/i,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:44:      `File tools: read_file · list_directory · search_code · replace_text · write_file
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:61:1. Call a tool BEFORE claiming information is unavailable. If the graph is empty or silent on a topic, use list_directory then read_file to gather the answer directly from source.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:112:2. **No translation of technical terms**: Keep ALL of the following verbatim in their original English form regardless of conversation language — file names, function names, class names, route paths, tool names (read_file, list_directory, search_code, write_file), programming keywords, library names, framework names, CLI commands, error codes, HTTP methods, and any identifier that appears in source code. Only prose/explanation text is translated, never the terms themselves.
+lib/ai-orchestrator/src/prompts/capability-probe.ts:19:evidence: read_file, read_file_range, search_code, list_directory, and the
+lib/ai-orchestrator/src/tools/file-tools.ts:12: *   - read_file / list_directory / search_code execute immediately.
+lib/ai-orchestrator/src/tools/file-tools.ts:29:const MAX_TARGETED_READ_LINES = 4_000; // read_file_range window cap
+lib/ai-orchestrator/src/tools/file-tools.ts:95:      name: "read_file",
+lib/ai-orchestrator/src/tools/file-tools.ts:139:      name: "read_file_range",
+lib/ai-orchestrator/src/tools/file-tools.ts:370: * prepends to a read_file result, leaving only the raw file body.
+lib/ai-orchestrator/src/tools/file-tools.ts:376: * closing fence is NOT the read_file wrapper and is returned byte-for-byte
+lib/ai-orchestrator/src/tools/file-tools.ts:421:    // ── read_file ─────────────────────────────────────────────────────────────
+lib/ai-orchestrator/src/tools/file-tools.ts:422:    case "read_file": {
+lib/ai-orchestrator/src/tools/file-tools.ts:450:    // ── read_file_range ──────────────────────────────────────────────────────
+lib/ai-orchestrator/src/tools/file-tools.ts:451:    case "read_file_range": {
+lib/ai-orchestrator/src/tools/file-tools.ts:497:        // النموذج يخلط أحياناً بين read_file وlist_directory — نُصحّح بشفافية
+lib/ai-orchestrator/src/tools/file-tools.ts:504:          return `[note: "${target}" is a file, not a directory — returning its contents via read_file]\nFile: ${target}\n\`\`\`\n${content}\n\`\`\``;
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:212:        function: { name: "read_file", arguments: JSON.stringify({ path: filePath }) },
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:274:    { kind: "tool_call", tool: "read_file", args: { path: "lib/knowledge-engine/src/queries.ts" }, cached: false },
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:275:    { kind: "tool_result", tool: "read_file", source: "lib/knowledge-engine/src/queries.ts", cached: false, outputLength: files["lib/knowledge-engine/src/queries.ts"].length },
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:312:      tool: "read_file",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:319:      tool: "read_file",
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:430:  const reads = steps.filter((step) => step.kind === "tool_result" && step.tool === "read_file");
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:438:    cachedRepeats: reads.filter((step) => step.kind === "tool_result" && step.cached).length,
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts:485:      step.kind === "tool_result" && step.tool === "read_file" && step.source
+artifacts/api-server/src/routes/ai.test.ts:1033:    expect(res.body.message.content).not.toContain("read_file");
+artifacts/api-server/src/routes/ai/chat.ts:883:      (step.tool === "read_file" || step.tool === "read_file_range"),
+artifacts/api-server/src/routes/ai/chat.ts:1479:    | "repeated_tool_call"
+artifacts/api-server/src/routes/ai/chat.ts:1914:        (step.tool === "read_file" || step.tool === "read_file_range") &&
+artifacts/api-server/src/routes/ai/chat.ts:3378:            | "repeated_tool_call"
+artifacts/api-server/src/routes/ai/chat.ts:3441:        (step.tool === "read_file" || step.tool === "read_file_range") &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:291:    : name === "read_file" || name === "read_file_range" || name === "list_directory" || name === "search_code"
+lib/ai-orchestrator/src/tool-execution-engine.ts:342:  duplicateCount: number,
+lib/ai-orchestrator/src/tool-execution-engine.ts:354:    `Read ${target}${lineHint} with read_file, or use a different, more targeted search instead.`;
+lib/ai-orchestrator/src/tool-execution-engine.ts:355:  if (duplicateCount >= 3) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:361:  if (duplicateCount >= 2) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:414:  /** Registered tool name (e.g. "read_file", "git_status"). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:495: * SYMBOL_WINDOW: returned via read_file_range — a targeted, bounded window.
+lib/ai-orchestrator/src/tool-execution-engine.ts:513:  if (toolName === "read_file_range") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:525:  if (toolName !== "read_file") return "READ_COMPLETE";
+lib/ai-orchestrator/src/tool-execution-engine.ts:533:/** True when a read_file body carries a truncation marker (incomplete source). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:541: * A read_file_range window is wrapped as `File: <path>\n```\n<body>\n````. The
+lib/ai-orchestrator/src/tool-execution-engine.ts:676: * Source labels are produced for read operations only (read_file,
+lib/ai-orchestrator/src/tool-execution-engine.ts:683:    opts.completeReads && name === "read_file"
+lib/ai-orchestrator/src/tool-execution-engine.ts:820:      case "read_file":
+lib/ai-orchestrator/src/tool-execution-engine.ts:821:      case "read_file_range":
+lib/ai-orchestrator/src/tool-execution-engine.ts:1110:   * Structured forensic mode: every uncached read_file call requests the
+lib/ai-orchestrator/src/tool-execution-engine.ts:1187:   * are already present in the shared read cache, read_file is removed from
+lib/ai-orchestrator/src/tool-execution-engine.ts:1215:   * Optional read_file path allow-list. Paths are compared as normalized
+lib/ai-orchestrator/src/tool-execution-engine.ts:1235:   * Ordered forensic source roots. Only read_file/list_directory calls inside
+lib/ai-orchestrator/src/tool-execution-engine.ts:1273:      /** Completed read_file bodies keyed by project-relative path. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1289:      /** Completed read_file bodies keyed by project-relative path. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1300:      /** Completed read_file bodies keyed by project-relative path. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1326:      /** Completed read_file bodies keyed by project-relative path. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1330:      reason: "repeated_tool_call";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1468:       * Present only on fresh (non-cached) calls for read and write tools.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1627:        | "repeated_tool_call"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1974:      if (!key.startsWith("read_file:")) continue;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1976:        const parsed = JSON.parse(key.slice("read_file:".length)) as { path?: unknown };
+lib/ai-orchestrator/src/tool-execution-engine.ts:1994:    // call. Hiding read_file in that state makes the desired next action
+lib/ai-orchestrator/src/tool-execution-engine.ts:1997:      return opts.tools.filter((tool) => tool.function.name !== "read_file");
+lib/ai-orchestrator/src/tool-execution-engine.ts:2036:    ["read_file", "read_file_range"].includes(tool.function.name),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2151:      (toolName !== "read_file" && toolName !== "read_file_range") ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:2371:    if (toolName !== "read_file" && toolName !== "read_file_range") return false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2390:    if (toolName !== "read_file" && toolName !== "read_file_range") return false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2410:      if (isSuccessfulSourceRead("read_file", path, body)) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2413:          readStatusByPath.set(path, classifyReadStatus("read_file", body));
+lib/ai-orchestrator/src/tool-execution-engine.ts:3375:    // A provider may batch a cached forensic read with more exploration. Once
+lib/ai-orchestrator/src/tool-execution-engine.ts:3576:        (tc.function.name === "read_file" ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:3577:          tc.function.name === "read_file_range" ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:3618:        tc.function.name === "read_file" &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:3626:            "This isolated forensic test permits read_file only for the explicitly named target file.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3639:      if (orderedRoots.length > 0 && (tc.function.name === "read_file" || tc.function.name === "list_directory")) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3697:        (tc.function.name === "read_file" || tc.function.name === "read_file_range")
+lib/ai-orchestrator/src/tool-execution-engine.ts:3774:        tc.function.name === "read_file" &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:3788:      // tool list by replaying a stale read_file call after all executable
+lib/ai-orchestrator/src/tool-execution-engine.ts:3794:        tc.function.name === "read_file" &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:3795:        !iterationTools?.some((tool) => tool.function.name === "read_file")
+lib/ai-orchestrator/src/tool-execution-engine.ts:3801:            "read_file is unavailable because every executable Repair Plan target is already loaded. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3818:            "search_code is unavailable now; use read_file on the matching source locations or synthesize from the confirmed evidence.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3838:        tc.function.name === "read_file" &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:3858:            "Use search_code to locate the exact symbol or line, then read_file_range(path, startLine, endLine) to retrieve only the required window.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3865:        const duplicateCount = (duplicateCallCounts.get(key) ?? 0) + 1;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3866:        duplicateCallCounts.set(key, duplicateCount);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3899:          ["read_file", "list_directory", "search_code"].includes(tc.function.name)
+lib/ai-orchestrator/src/tool-execution-engine.ts:3906:              code: "FORENSIC_CACHED_READ_GUARD",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3909:              duplicateCount,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3914:        if (executionMode === "repair_plan" && duplicateCount > REPAIR_PLAN_DUPLICATE_TOOL_LIMIT) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3925:              duplicateCount,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3937:          classifyZeroReadTerminal("repeated_tool_call", iter + 1);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3944:              stopReason: "repeated_tool_call",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3955:            reason: "repeated_tool_call",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3967:        if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3970:          // A cached READ of a path whose COMPLETED evidence is already in hand
+lib/ai-orchestrator/src/tool-execution-engine.ts:3974:          // progress for FEG-008, so repeated cached reads can't reset the
+lib/ai-orchestrator/src/tool-execution-engine.ts:3975:          // no-progress streak. A failed/malformed cached read is NOT source
+lib/ai-orchestrator/src/tool-execution-engine.ts:3981:            // A permitted cached read that satisfies the mandate clears the
+lib/ai-orchestrator/src/tool-execution-engine.ts:4013:        // omitting it makes the UI misclassify a valid cached read as
+lib/ai-orchestrator/src/tool-execution-engine.ts:4016:          tc.function.name === "read_file" && typeof args.path === "string" && args.path.trim()
+lib/ai-orchestrator/src/tool-execution-engine.ts:4029:            ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
+lib/ai-orchestrator/src/tool-execution-engine.ts:4037:            code: "DUPLICATE_TOOL_CALL",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4053:        if (generalDuplicateEscalation && duplicateCount >= 2) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4056:        if (generalDuplicateEscalation && duplicateCount >= 3) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4060:          tc.function.name === "search_code" && duplicateCount > 0;
+lib/ai-orchestrator/src/tool-execution-engine.ts:4061:        if (searchDuplicate && duplicateCount >= 2) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4064:        if (searchDuplicate && duplicateCount >= 3) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4072:              rung: Math.min(duplicateCount, 3),
+lib/ai-orchestrator/src/tool-execution-engine.ts:4073:              duplicateCount,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4075:                duplicateCount >= 3
+lib/ai-orchestrator/src/tool-execution-engine.ts:4077:                  : duplicateCount >= 2
+lib/ai-orchestrator/src/tool-execution-engine.ts:4083:        if (generalDuplicateEscalation && duplicateCount >= 2 && !searchDuplicate) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4089:              duplicateCount,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4090:              nextTurn: duplicateCount >= 3 ? "synthesis_only" : "tool_hidden",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4100:              duplicateCount >= REPAIR_PLAN_DUPLICATE_TOOL_LIMIT && executionMode === "repair_plan"
+lib/ai-orchestrator/src/tool-execution-engine.ts:4101:              ? `[cached — identical call already executed this request]\n${cached}\n\n` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:4104:              : `[cached — identical call already executed this request]\n${cached}` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:4106:                  ? `\n\n${duplicateSearchGuidance(args, cached, duplicateCount)}`
+lib/ai-orchestrator/src/tool-execution-engine.ts:4107:                  : duplicateCount >= 3
+lib/ai-orchestrator/src/tool-execution-engine.ts:4109:                    : duplicateCount >= 2
+lib/ai-orchestrator/src/tool-execution-engine.ts:4116:          tc.function.name === "read_file" &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:4124:        if (searchDuplicate && duplicateCount >= 3) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4162:          "read_file", "read_file_range", "search_code", "list_directory",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4365:      if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4416:        (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
+lib/ai-orchestrator/src/tool-execution-engine.ts:4425:      if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4433:        (tc.function.name !== "read_file" && tc.function.name !== "read_file_range"
+lib/ai-orchestrator/src/tool-execution-engine.ts:4450:          ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
+lib/ai-orchestrator/src/behavioral-scorecard.ts:25:  /** Explicit alias for loopCount: one sample with a DUPLICATE_TOOL_CALL. */
+lib/ai-orchestrator/src/behavioral-scorecard.ts:36:  /** Explicit rate of samples marked by DUPLICATE_TOOL_CALL. */
+lib/ai-orchestrator/src/__tests__/recipe-capabilities.test.ts:24:      "project.read_file",
+lib/ai-orchestrator/src/__tests__/recipe-capabilities.test.ts:42:    await expect(registry.invoke("project.read_file", 1, { path: "safe.ts" }, context))
+lib/ai-orchestrator/src/__tests__/recipe-capabilities.test.ts:44:    await expect(registry.invoke("project.read_file", 1, { path: ".env" }, context))
+lib/ai-orchestrator/src/__tests__/recipe-capabilities.test.ts:51:    await expect(registry.invoke("project.read_file", 1, { path: "link.ts" }, {
+lib/ai-orchestrator/src/agents/chat-agent.ts:5: *   read_file      — reads actual source files
+lib/ai-orchestrator/src/agents/chat-agent.ts:32: *   Files and patterns actually accessed via read_file, list_directory, and
+lib/ai-orchestrator/src/agents/chat-agent.ts:491:  "read_file",
+lib/ai-orchestrator/src/agents/chat-agent.ts:492:  "read_file_range",
+lib/ai-orchestrator/src/agents/chat-agent.ts:673:    "New targeted evidence available from the rejected candidate (recovered via read_file_range; verified against source). Use these excerpts to correct the reported issues:",
+lib/ai-orchestrator/src/agents/chat-agent.ts:790:    ["C2", /\bread_file\b/i, "C2 must identify the read_file evidence tool"],
+lib/ai-orchestrator/src/agents/chat-agent.ts:1784:      ? "C2: PASS — harness observed completed read_file evidence reads within the declared scope."
+lib/ai-orchestrator/src/agents/chat-agent.ts:1812:    C2: /\bread_file\b/i,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1855:  /^(read_file|list_directory|search_code|write_file|git_status|git_diff|git_log)$/i,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1938:    if (!entry.key.startsWith("read_file:")) continue;
+lib/ai-orchestrator/src/agents/chat-agent.ts:1949:      const args = JSON.parse(entry.key.slice("read_file:".length)) as { path?: unknown };
+lib/ai-orchestrator/src/agents/chat-agent.ts:1984:        tool: "read_file",
+lib/ai-orchestrator/src/agents/chat-agent.ts:1991:        tool: "read_file",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2820:  stopReason?: "repeated_tool_call" | "iteration_budget" | "soft_limit" | "empty_response" | "provider_timeout",
+lib/ai-orchestrator/src/agents/chat-agent.ts:2825:    stopReason === "repeated_tool_call"
+lib/ai-orchestrator/src/agents/chat-agent.ts:2916:      ? tools.filter((tool) => tool.function.name === "read_file")
+lib/ai-orchestrator/src/agents/chat-agent.ts:2918:      ? tools.filter((tool) => ["read_file", "list_directory"].includes(tool.function.name))
+lib/ai-orchestrator/src/agents/chat-agent.ts:2920:      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "refresh_project_scan", "query_knowledge_graph", "discover_project_apis"].includes(tool.function.name))
+lib/ai-orchestrator/src/agents/chat-agent.ts:2924:            "read_file",
+lib/ai-orchestrator/src/agents/chat-agent.ts:4247:  // Seed the same cache key used by read_file so a tool-capable fallback does
+lib/ai-orchestrator/src/agents/chat-agent.ts:4251:    toolCallCache.set(toolCacheKey("read_file", { path: filePath }), content);
+lib/ai-orchestrator/src/agents/chat-agent.ts:4260:  // names the file without issuing a read_file tool call.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4330:          toolCallCache.set(toolCacheKey("read_file", { path: relPath }), content);
+lib/ai-orchestrator/src/agents/chat-agent.ts:4349:  // answers without issuing a read_file tool call. This is the runtime proof
+lib/ai-orchestrator/src/agents/chat-agent.ts:4416:        allowedTools: ["read_file"],
+lib/ai-orchestrator/src/agents/chat-agent.ts:4428:      allowedTools: ["read_file", "list_directory"],
+lib/ai-orchestrator/src/agents/chat-agent.ts:4528:           "After a target file has been read, do not call read_file, search_code, list_directory, or any Git tool again; move directly to replace_text. " +
+lib/ai-orchestrator/src/agents/chat-agent.ts:4559:            "- Allowed tool: read_file only\n" +
+lib/ai-orchestrator/src/agents/chat-agent.ts:4569:              "- Allowed source tools: read_file and list_directory only\n" +
+lib/ai-orchestrator/src/agents/chat-agent.ts:5551:      singleFileForensicMode && singleFilePaths.length > 0 ? ["read_file"] : undefined,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5606:  // executeFileTool("read_file"), which wraps the body with a 2-line
+lib/ai-orchestrator/src/agents/chat-agent.ts:5781:  // A repeated cached read is not a successful execution. Keep this outcome
+lib/ai-orchestrator/src/agents/chat-agent.ts:7325:                  if (call.function?.name === "read_file") {
+lib/ai-orchestrator/src/agents/chat-agent.ts:7651:                // NOT_PROVEN), issue a targeted read_file_range for the rejected finding's
+lib/ai-orchestrator/src/agents/chat-agent.ts:7696:                          "read_file_range",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7714:                        // returned. read_file_range clamps to EOF via Math.min(endLine,
+lib/ai-orchestrator/src/agents/chat-agent.ts:7731:                            `EI-017: targeted read_file_range for symbol "${recoveryPlan.missingSymbol}" in ${findingFile} (lines ${startLine}–${effectiveEndLine})`,
+lib/ai-orchestrator/src/agents/chat-agent.ts:9124:      // `forensicFileContents` holds only files actually read via read_file tool
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:103:  it("dispatches read_file to executeFileTool and returns source", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:106:      name: "read_file",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:117:    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/foo.ts" }, "/project", []);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:121:  it("forces complete=true for uncached forensic reads", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:124:      name: "read_file",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:132:      "read_file",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:326:    const k1 = toolCacheKey("read_file", { path: "a", encoding: "utf8" });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:327:    const k2 = toolCacheKey("read_file", { encoding: "utf8", path: "a" });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:333:    const k1 = toolCacheKey("read_file", { path: "a" });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:340:    const k1 = toolCacheKey("read_file", { path: "a" });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:341:    const k2 = toolCacheKey("read_file", { path: "b" });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:408:        makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/proof.ts" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:414:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:510:      makeResponse("", [makeToolCall("scope-1", "read_file", { path: "src/unrelated.ts" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:519:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:547:      makeResponse("", [makeToolCall("scope-2", "read_file", { path: "src/caller.ts" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:556:      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:580:      makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/example-1.ts" })]),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:582:      makeResponse("", [makeToolCall("read-2", "read_file", { path: "src/example-2.ts" })]),

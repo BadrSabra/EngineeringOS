@@ -1,0 +1,78 @@
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:28:  it("marks Groq invalid with an actionable reason when a default is retired", async () => {
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:21: *   the chain — a MODEL_NOT_FOUND on model[i] advances to model[i+1] before
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:115: * order when the primary returns MODEL_NOT_FOUND (STORY-03). The chain always
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:238: * the initial model returns MODEL_NOT_FOUND. The initial model is placed first;
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:136:  it("classifies a Groq 404 as MODEL_NOT_FOUND so the lane can be repaired", async () => {
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:153:      code: "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:45: * Models removed/repriced by OpenRouter trigger MODEL_NOT_FOUND (404) or
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:6: *   • 400 invalid model id → MODEL_NOT_FOUND + fallback (existing)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:7: *   • 404 → MODEL_NOT_FOUND + fallback (PR-003)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:14: *   • All fallback candidates exhausted → throws MODEL_NOT_FOUND
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:168:  it("400 with invalid-model body → MODEL_NOT_FOUND → triggers fallback", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:238:  it("404 → MODEL_NOT_FOUND → triggers fallback (PR-003)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:616:  it("all candidates exhausted → throws MODEL_NOT_FOUND", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:623:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "MODEL_NOT_FOUND");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:646:    ).rejects.toMatchObject({ code: "MODEL_NOT_FOUND" });
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:703:      text: async () => '{"error":{"code":"model_not_found","message":"The model has been discontinued"}}',
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:720:    expect(caught!.code).toBe("MODEL_NOT_FOUND");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:722:    expect(caught!.providerCode).toBe("model_not_found");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:728:    const err = new GroqClientError("MODEL_NOT_FOUND", "test", {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:752:      body: '{"error":{"code":"model_not_found","message":"provider code only"}}',
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:753:      expectedProviderCode: "model_not_found",
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:757:      body: '{"error":{"code":{"kind":"model_not_found"},"message":"model not found"}}',
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:765:  ])("400 $name does not crash and still classifies as MODEL_NOT_FOUND", async ({ body, expectedProviderCode }) => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:783:      err.code === "MODEL_NOT_FOUND" &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:373:    case "MODEL_NOT_FOUND":
+lib/ai-orchestrator/src/openai-compatible-client.ts:395: * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier),
+lib/ai-orchestrator/src/openai-compatible-client.ts:402:    (err.code === "MODEL_NOT_FOUND" ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:412: * own error tag (e.g. "model_not_found") and message is the human text.
+lib/ai-orchestrator/src/openai-compatible-client.ts:561:    (providerCode?.includes("model_not_found") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:571:      "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openai-compatible-client.ts:603:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openai-compatible-client.ts:635:  // MODEL_NOT_FOUND) — the distinction is useful for dashboards (temporary
+lib/ai-orchestrator/src/openai-compatible-client.ts:1150: * to MODEL_NOT_FOUND (404/402/400). EMPTY_RESPONSE is also fallback-worthy
+lib/ai-orchestrator/src/openai-compatible-client.ts:1232:      // PR-003: treat MODEL_UNAVAILABLE (422/410) the same as MODEL_NOT_FOUND.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1281:  throw new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted", {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1407:  throw new GroqClientError("MODEL_NOT_FOUND", "No OpenRouter free model satisfies the stream capability", {
+lib/ai-orchestrator/src/groq-client.ts:539:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/provider-registry.ts:156:      // MODEL_NOT_FOUND failures.
+lib/ai-orchestrator/src/errors.ts:31: *   MODEL_NOT_FOUND    404: model permanently discontinued.
+lib/ai-orchestrator/src/errors.ts:57:  | "MODEL_NOT_FOUND"     // 404 — model permanently discontinued
+artifacts/api-server/src/routes/ai.test.ts:4444:      errorCode: "MODEL_NOT_FOUND",
+artifacts/api-server/src/routes/ai.test.ts:4480:      errorCode: "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:5: *   • Model Removed (404)           → MODEL_NOT_FOUND, automatic fallback
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:345:  it("404 → MODEL_NOT_FOUND", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:347:      callWithStatus(404, { error: { code: "model_not_found", message: "not found" } }),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:349:      e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:511:    expect(classifyOpenRouterFailure("MODEL_NOT_FOUND")).toMatchObject({
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:655:          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:716:          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:742:      text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:994:    // openrouterCompleteWithFallback must throw MODEL_NOT_FOUND immediately —
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1002:      (e: unknown) => e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1043:      (e: unknown) => e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1082:          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:67:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:171:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:128:    case "MODEL_NOT_FOUND":
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:159:  if (code === "MODEL_NOT_FOUND" || code === "MODEL_UNAVAILABLE" || code === "PLAN_RESTRICTED" || code === "EMPTY_RESPONSE") {
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:273:      userVisibleVerdictCorrect, fixtureRevision: snapshot.fixtureRevision, failureCodes: ["PROVIDER_UNAVAILABLE"],
+lib/ai-orchestrator/src/provider-metrics.ts:11: *   invalid_model_total        — MODEL_NOT_FOUND + MODEL_UNAVAILABLE per provider
+lib/ai-orchestrator/src/benchmark/contract-oracle.ts:49:    return { status: "failed", code: "PROVIDER_UNAVAILABLE" };
+artifacts/api-server/src/lib/ai-route-helpers.ts:296:  "MODEL_NOT_FOUND",
+artifacts/api-server/src/lib/ai-route-helpers.ts:615:          : err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE" ||
+artifacts/api-server/src/lib/ai-route-helpers.ts:699:    case "MODEL_NOT_FOUND": {
+artifacts/api-server/src/lib/ai-route-helpers.ts:827:    err.code === "MODEL_NOT_FOUND" ||
+artifacts/api-server/src/routes/ai/chat.ts:4122:        if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
+artifacts/api-server/src/lib/operator-alerts.ts:43:      "Groq's live model catalog could not be checked. Configured defaults have not been marked as retired.",
+artifacts/api-server/src/routes/ai/analysis.ts:79:    code === "INVALID_CONFIG" || code === "AUTH_ERROR" || code === "MODEL_NOT_FOUND" || code === "PLAN_RESTRICTED" ? "CONFIGURATION" :
+lib/ai-orchestrator/src/agents/code-reviewer.ts:133:  "MODEL_NOT_FOUND",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4557:    // Override chatWithFallback to throw MODEL_NOT_FOUND after all providers fail
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4564:        "MODEL_NOT_FOUND",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4587:    // MODEL_NOT_FOUND errors must not be retryable (no free models remain)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4795:      new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted"),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4809:    expect(errorEvent!["code"]).toBe("MODEL_NOT_FOUND");
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:92:      error: new GroqClientError("MODEL_NOT_FOUND", "upstream model error: raw upstream detail"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:118:      error: new GroqClientError("MODEL_NOT_FOUND", "circuit detail raw upstream", {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:149:      new GroqClientError("MODEL_NOT_FOUND", "circuit", {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:157:      new GroqClientError("MODEL_NOT_FOUND", "model"),

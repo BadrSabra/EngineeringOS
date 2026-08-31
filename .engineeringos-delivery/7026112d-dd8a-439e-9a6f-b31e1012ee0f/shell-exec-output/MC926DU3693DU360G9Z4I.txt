@@ -1,0 +1,300 @@
+lib/ai-orchestrator/src/context-builder.test.ts:297:      { id: "e2", name: "UserRepo", type: "repository", confidence: 0.4, sourceType: "regex-fallback", path: "user.ts" },
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:2:import type { RawGroqResponse } from "../provider-strategy.js";
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:11:import { GroqClientError } from "../errors.js";
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:13:function response(toolCalls: RawGroqResponse["toolCalls"]): RawGroqResponse {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:22:function strategyReturning(result: RawGroqResponse): ProviderStrategy {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:64:  it("classifies malformed tool arguments as provider unavailable", async () => {
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts:118:        throw new GroqClientError("QUOTA", `quota body ${secret}`, {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:16:import type { RawMessage, RawGroqResponse } from "../groq-client.js";
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:18:import { GroqClientError } from "../errors.js";
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:55:  toolCalls?: RawGroqResponse["toolCalls"],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:56:  finishReason?: RawGroqResponse["finishReason"],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:57:): RawGroqResponse {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:71:function makeStrategy(responses: RawGroqResponse[]): ProviderStrategy {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:475:        new Promise<RawGroqResponse>((_resolve, reject) => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1084:      makeResponse('{"response":"fallback forensic report","sources":[]}'),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1107:      expect(result.result.content).toBe('{"response":"fallback forensic report","sources":[]}');
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1111:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[2]?.[1] as Record<string, unknown>;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1112:    expect(fallbackOptions).toMatchObject({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1116:    expect(fallbackOptions).not.toHaveProperty("tools");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1176:        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1199:  it("records the model returned by a successful fallback response", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1203:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "initial model timed out"))
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1205:        ...makeResponse("fallback answer"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1206:        model: "actual-fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1214:      powerModel: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1226:      model: "actual-fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1232:  it("preserves the full authorized manifest when a fallback executes a narrowed tool list", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1238:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "initial model timed out"))
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1240:      .mockResolvedValueOnce(makeResponse("fallback completed"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1246:      powerModel: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1265:    const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1266:    expect(fallbackOptions).toMatchObject({
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1267:      model: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1278:      new GroqClientError(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1325:      new GroqClientError(
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1358:      new GroqClientError("TIMEOUT", "provider timed out with internal details"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1366:      powerModel: "fallback-model",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1379:      details: ["fallback provider failure code: TIMEOUT"],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1390:      new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1420:        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1456:        new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1487:      new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2946:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4131:        new Promise<RawGroqResponse>((_resolve, reject) => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4133:            reject(new GroqClientError("TIMEOUT", "bounded synthesis timeout"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4179:  it("keeps synthesis fallback within its independent attempt budget", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4183:      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "fixture synthesis timeout"))
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4184:      .mockResolvedValueOnce(makeResponse("fallback report"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4203:      expect(result.result.content).toBe("fallback report");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4221:      new GroqClientError("TIMEOUT", "fixture synthesis timeout"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4263:    // inner fallback retry).  totalToolCalls is 1 at that point so evidence
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4266:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4310:  it("returns kind:partial/provider_timeout when both primary and fallback time out after a tool call", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4311:    // primary !== powerModel so the inner fallback retry path is taken.
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4313:    // must NOT rethrow after the fallback also fails.
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4315:    const timeoutErr = new GroqClientError("TIMEOUT", "Provider request timed out");
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:4358:    const timeoutErr = new GroqClientError("TIMEOUT", "Immediate timeout");
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:19:    terminalState: "SUCCEEDED" as const,
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:71:      terminalState: "BLOCKED",
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts:77:    expect(applyBenchmarkOracleTerminalGate(telemetry, "failed").actualTerminal).toBe(
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:7:  "GROQ_API_KEY",
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:20:    vi.doUnmock("groq-sdk");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:28:  it("marks Groq invalid with an actionable reason when a default is retired", async () => {
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:29:    process.env.GROQ_API_KEY = "valid-groq-key";
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:30:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:43:    const groq = results.find((result) => result.provider === "groq");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:45:    expect(groq).toMatchObject({
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:46:      provider: "groq",
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:50:    expect(groq?.reason).toContain("openai/gpt-oss-120b");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:51:    expect(groq?.reason).toContain("Update the Groq default model IDs");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:52:    expect(groq?.reason).not.toContain("valid-groq-key");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:55:  it("confirms Groq only after both defaults are present in the catalog", async () => {
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:56:    process.env.GROQ_API_KEY = "valid-groq-key";
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:57:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:73:    const groq = results.find((result) => result.provider === "groq");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:75:    expect(groq).toMatchObject({
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:76:      provider: "groq",
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:83:    process.env.GROQ_API_KEY = "valid-groq-key";
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:84:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:97:    await validateAiProvidersAtStartup({ onGroqModelCatalogDrift: onDrift });
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:108:    expect(JSON.stringify(onDrift.mock.calls)).not.toContain("valid-groq-key");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:111:  it("keeps healthy and unconfigured Groq checks quiet", async () => {
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:117:      onGroqModelCatalogDrift: onDrift,
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:118:      onGroqModelCatalogHealthy: onHealthy,
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:119:      onGroqModelCatalogNotConfigured: onNotConfigured,
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:127:  it("publishes a safe callback when the Groq catalog check is temporarily unavailable", async () => {
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:128:    process.env.GROQ_API_KEY = "valid-groq-key";
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:129:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:132:          list: vi.fn().mockRejectedValue(new Error("network failure apiKey=valid-groq-key")),
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:140:      onGroqModelCatalogUnavailable: onUnavailable,
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:142:    const groq = results.find((result) => result.provider === "groq");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:145:    expect(JSON.stringify(onUnavailable.mock.calls)).not.toContain("valid-groq-key");
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:146:    expect(groq).toMatchObject({
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts:147:      provider: "groq",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:136:      runId: "airlock-fallback",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:204:      runId: "airlock-model-lane-fallback",
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:3:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:5:describe("groq-client", () => {
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:8:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:12:    vi.doUnmock("groq-sdk");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:13:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:14:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:17:  it("throws INVALID_CONFIG when GROQ_API_KEY is not set", async () => {
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:18:    delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:19:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:24:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:37:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:46:  it("confirms both configured defaults against Groq's live model catalog", async () => {
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:54:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:59:    const { validateGroqDefaultModels } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:62:      validateGroqDefaultModels("test-key", {
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:78:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:88:    const { validateGroqDefaultModels } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:89:    const result = await validateGroqDefaultModels("secret-key", {
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:107:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:116:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:121:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:130:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:136:  it("classifies a Groq 404 as MODEL_NOT_FOUND so the lane can be repaired", async () => {
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:137:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:151:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:153:      code: "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:155:      providerName: "Groq",
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:168:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:173:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:184:      vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:189:      const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:218:      vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:223:      const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:249:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:254:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:263:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:268:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:278:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:283:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:298:      vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:303:      const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:322:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:327:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:335:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:351:    process.env.GROQ_API_KEY = "env-key";
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:352:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:357:  it("falls back to env GROQ_API_KEY when no per-user key is provided", async () => {
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:359:    vi.doMock("groq-sdk", () => ({
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:375:    process.env.GROQ_API_KEY = "env-fallback-key";
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:376:    const { complete } = await import("../groq-client.js");
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts:378:    expect(capturedKey).toBe("env-fallback-key");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:6: *   • 400 invalid model id → MODEL_NOT_FOUND + fallback (existing)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:7: *   • 404 → MODEL_NOT_FOUND + fallback (PR-003)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:8: *   • 410 → MODEL_UNAVAILABLE + fallback (PR-003)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:9: *   • 422 → MODEL_UNAVAILABLE + fallback (PR-003)
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:14: *   • All fallback candidates exhausted → throws MODEL_NOT_FOUND
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:18:import { geminiCompleteRaw, openrouterCompleteWithFallback, oacCompleteRaw } from "../openai-compatible-client.js";
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:19:import { GroqClientError } from "../errors.js";
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:101:    await result.catch((error: GroqClientError) => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:109:// ── OpenRouter fallback ────────────────────────────────────────────────────────
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:119:    const result = openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:122:      maxFallbackModels: 1,
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:126:    await result.catch((error: GroqClientError) => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:135:describe("openrouterCompleteWithFallback — error classification", () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:155:    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:168:  it("400 with invalid-model body → MODEL_NOT_FOUND → triggers fallback", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:181:      // Fallback call: success
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:185:          choices: [{ message: { content: '{"response":"fallback-ok"}' } }],
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:193:    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:199:    expect(result.content).toBe('{"response":"fallback-ok"}');
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:203:  it("400 with unsupported response_format body → MODEL_UNAVAILABLE → triggers fallback", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:220:          choices: [{ message: { content: '{"response":"fallback-after-400"}' } }],
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:228:    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:234:    expect(result.content).toBe('{"response":"fallback-after-400"}');
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:238:  it("404 → MODEL_NOT_FOUND → triggers fallback (PR-003)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:252:    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:259:  it("410 → MODEL_UNAVAILABLE → triggers fallback (PR-003)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:273:    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:279:  it("422 → MODEL_UNAVAILABLE → triggers fallback (PR-003)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:293:    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:330:    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:341:  it("429 with no quota keywords → RATE_LIMITED (not fallback-worthy)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:349:      openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:350:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:374:        err instanceof GroqClientError &&
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:381:  it("keeps a short Retry-After hint precise for fallback callers", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:391:      openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:399:        err instanceof GroqClientError &&
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:416:      openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:424:        err instanceof GroqClientError &&
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:432:  it("skips transient retry when the caller owns bounded fallback", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:450:      openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:456:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:461:  it("bounds provider-owned fallback candidates for short recovery calls", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:478:      await openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:483:        maxFallbackModels: 2,
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:492:        err instanceof GroqClientError &&
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:529:        err instanceof GroqClientError &&
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:566:        err instanceof GroqClientError &&
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:580:      openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:581:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "QUOTA");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:592:      openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:593:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "QUOTA");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:596:  it("401 → AUTH_ERROR (not fallback-worthy)", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:602:      openrouterCompleteWithFallback(baseMessages as any, { apiKey: "bad-key", model: primaryModel, maxTokens: 10 }),
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:603:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "AUTH_ERROR");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:612:      openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:613:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "SERVER_ERROR");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:616:  it("all candidates exhausted → throws MODEL_NOT_FOUND", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:622:      openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:623:    ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "MODEL_NOT_FOUND");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:626:  it("shares provider-attempt budget across fallback candidates", async () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:640:      openrouterCompleteWithFallback(baseMessages as any, {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:643:        maxFallbackModels: 2,
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:646:    ).rejects.toMatchObject({ code: "MODEL_NOT_FOUND" });
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:698:describe("GroqClientError — provider context (PR-007)", () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:703:      text: async () => '{"error":{"code":"model_not_found","message":"The model has been discontinued"}}',
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:706:    let caught: GroqClientError | null = null;
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:716:      if (err instanceof GroqClientError) caught = err;
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:720:    expect(caught!.code).toBe("MODEL_NOT_FOUND");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:722:    expect(caught!.providerCode).toBe("model_not_found");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:728:    const err = new GroqClientError("MODEL_NOT_FOUND", "test", {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:752:      body: '{"error":{"code":"model_not_found","message":"provider code only"}}',
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:753:      expectedProviderCode: "model_not_found",
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:757:      body: '{"error":{"code":{"kind":"model_not_found"},"message":"model not found"}}',
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:765:  ])("400 $name does not crash and still classifies as MODEL_NOT_FOUND", async ({ body, expectedProviderCode }) => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:782:      err instanceof GroqClientError &&
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:783:      err.code === "MODEL_NOT_FOUND" &&
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:791:describe("GroqErrorCode completeness (PR-008)", () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:792:  it("MODEL_UNAVAILABLE is a valid GroqErrorCode", () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:793:    const err = new GroqClientError("MODEL_UNAVAILABLE", "test");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:797:  it("QUOTA is a valid GroqErrorCode", () => {
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:798:    const err = new GroqClientError("QUOTA", "test");
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts:805:import type { RawMessage } from "../groq-client.js";
+lib/ai-orchestrator/src/__tests__/execution-ledger.test.ts:18:    expect(ledger.admit("model", { provider: "groq", model: "fast" })).toBe(false);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:68:      "provider-fallback",
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:385:    expect(unavailable.diagnosis).toContain("Provider unavailable");
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:403:    expect(scorecard.rolloutBlockers).toContain("provider unavailable for 1 observed case");
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:97:      rolloutBlockers: ["provider unavailable for 1 observed case"],
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:171:  it("buildRuntimeLedger fails closed when a cited prefetched file has ZERO recorded reads (EI-011 fallback removed)", () => {
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:388: *          must be `undefined` (no fallback to line 1).
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:521:    // With the title supplying a real identifier, it is used as the fallback.
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:5: * that `decide` returns whatever we configure, without needing a GROQ_API_KEY.
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:138:  ])("fails closed for %s with a wait fallback and parse marker", async (_label, response) => {
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:27:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:81:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:85:    resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:91:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:95:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:96:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:151:      ownsModelFallback: true,
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:246:      ownsModelFallback: true,
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:299:      ownsModelFallback: true,
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:382:    // fallback can produce the final source-grounded verdict.
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:386:      ownsModelFallback: true,
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:417:      // 2. The deterministic no-finding fallback fired to produce the verdict.
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:469:      ownsModelFallback: true,
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts:100:      terminalState: "passed",
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts:109:      terminalState: "passed",
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:117:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:121:    resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:163:      ownsModelFallback: true,
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:40:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:126:      fallbackChain: ["initial-model"],
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:130:    resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:152:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:156:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:157:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:177:      ownsModelFallback: true,
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:6:    const policy = resolveToolPolicy({ provider: "groq" });
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:22:    const policy = resolveToolPolicy({ provider: "groq", rootPath: "/tmp/project", mode: "workspace" });
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:43:      provider: "groq",
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts:55:    const policy = resolveToolPolicy({ provider: "groq", rootPath: "/tmp/project", mode: "read-only" });
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:38:import type { RawGroqResponse } from "../groq-client.js";
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:44:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:70:  toolCalls?: RawGroqResponse["toolCalls"],
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:72:): RawGroqResponse {
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:153:  const providerResponses: RawGroqResponse[] = [
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:171:    ownsModelFallback: true,
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:261:      fallbackChain: ["initial-model", "recovery-model", "final-model"],
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:265:    resolveFallbackChain: vi.fn(() => [
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:287:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:291:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:292:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:377:      '  if (url === "http://host") return fallback;\n' +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:385:        'Evidence: `if (url === "http://host") return fallback`\n' +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:386:        "The function returns the fallback value.",
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:430:    // *second* occurrence (the safe fallback), computeSourceSpan must prefer
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:438:      '    console.log("safe fallback");\n' +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:447:        "In the safe fallback branch:\n" +
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:449:        "The function returns the partial result in the fallback.",
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:3:  buildResponseLanguageFallback,
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:4:  buildTaskValidationFallback,
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:111:    expect(buildResponseLanguageFallback("ar")).toContain("لغة الطلب");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:115:    const fallback = buildTaskValidationFallback("FULL_FORENSIC_AUDIT", true);
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:116:    expect(fallback).toContain("## 1) Executive Verdict");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:117:    expect(fallback).toContain("## 6) Final Judgment");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:118:    expect(fallback).toContain("ANALYSIS_INCOMPLETE");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:119:    expect(fallback).not.toContain("FINDING PROVEN");
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:120:    expect(validateTaskResponse("FULL_FORENSIC_AUDIT", fallback, { responseLanguage: "ar" }).valid).toBe(true);
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:123:  it("returns an informative incomplete behavior fallback after source reads", () => {
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:124:    const arabicFallback = buildTaskValidationFallback("BEHAVIOR_QUERY", true);
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:125:    const englishFallback = buildTaskValidationFallback("BEHAVIOR_QUERY", false);
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts:127:    expect(arabicFallback).toContain("ANALYSIS_INCOMPLETE");
