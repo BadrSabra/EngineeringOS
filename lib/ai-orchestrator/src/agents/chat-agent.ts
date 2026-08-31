@@ -1645,6 +1645,7 @@ async function runCapabilityMicroProbes(opts: {
   model?: string;
   apiKey?: string;
   signal?: AbortSignal;
+  executionLedger?: ExecutionLedger;
   fileContents: ReadonlyMap<string, string>;
   pendingChanges: readonly PendingChange[];
   deadlineAt?: number;
@@ -1673,6 +1674,7 @@ async function runCapabilityMicroProbes(opts: {
               maxFallbackModels: 1,
               apiKey: opts.apiKey,
               signal: recoverySignal,
+              executionLedger: opts.executionLedger,
             },
           ),
           opts.deadlineAt !== undefined
@@ -6380,6 +6382,7 @@ export async function chat(opts: {
         model,
         apiKey,
         ...(signal ? { signal } : {}),
+        executionLedger,
       });
       for await (const delta of streamGen) {
         accumulated += delta;
@@ -6747,7 +6750,10 @@ export async function chat(opts: {
       const correctionModel = result.model || model;
       const retry = await strategy.call(
         _compactSynthesisMessages(messages),
-        buildJsonCorrectionOptions(provider, correctionModel, apiKey, signal),
+        {
+          ...buildJsonCorrectionOptions(provider, correctionModel, apiKey, signal),
+          executionLedger,
+        },
       );
       const retryContent = retry.content ?? "";
       const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
@@ -7274,6 +7280,7 @@ export async function chat(opts: {
             // of the agent's ordered Recovery chain.
             recoveryOptions.maxFallbackModels = 1;
           }
+          recoveryOptions.executionLedger = executionLedger;
           // Recovery is a read-only verification pass. Pass only the read tools
           // (never write_file / replace_text) so the recovery model can re-read
           // the actual source to ground a disputed claim, and bind the whole
@@ -8369,6 +8376,7 @@ export async function chat(opts: {
           retryTransient: false,
           maxFallbackModels: 1,
           ...(signal ? { signal } : {}),
+          executionLedger,
         },
       );
       const recoveredResponse = validateResponseForTask(
@@ -8452,6 +8460,7 @@ export async function chat(opts: {
             // fallback would multiply the probe's run-level recovery budget.
             maxFallbackModels: 1,
             signal: recoverySignal,
+            executionLedger,
           },
         ),
         Math.min(
@@ -8567,6 +8576,7 @@ export async function chat(opts: {
       model: result.model || model,
       apiKey,
       signal,
+      executionLedger,
       fileContents: forensicFileContents,
       pendingChanges,
       deadlineAt: capabilityProbeRecoveryDeadlineAt ?? undefined,

@@ -1,0 +1,400 @@
+lib/ai-orchestrator/src/groq-client.ts:10: * No raw/untyped response or raw SDK error ever reaches an agent — every
+lib/ai-orchestrator/src/groq-client.ts:34:  usage: { promptTokens: number; completionTokens: number };
+lib/ai-orchestrator/src/groq-client.ts:136: * so provider selection never routes a valid credential to a retired model.
+lib/ai-orchestrator/src/groq-client.ts:145:  missing: GroqDefaultModelRole[];
+lib/ai-orchestrator/src/groq-client.ts:157: * unbounded cache grows silently with the number of distinct user-provided
+lib/ai-orchestrator/src/groq-client.ts:294:    const missing = (["fast", "powerful"] as const).filter(
+lib/ai-orchestrator/src/groq-client.ts:298:    if (missing.length > 0) {
+lib/ai-orchestrator/src/groq-client.ts:299:      const missingDescription = missing
+lib/ai-orchestrator/src/groq-client.ts:304:        missing,
+lib/ai-orchestrator/src/groq-client.ts:307:          `Groq model catalog is missing the configured ${missingDescription}. ` +
+lib/ai-orchestrator/src/groq-client.ts:314:      missing: [],
+lib/ai-orchestrator/src/groq-client.ts:370:  usage: { promptTokens: number; completionTokens: number };
+lib/ai-orchestrator/src/groq-client.ts:394:    usage?: { prompt_tokens?: number; completion_tokens?: number };
+lib/ai-orchestrator/src/groq-client.ts:403:  const rawContent = msg.content ?? null;
+lib/ai-orchestrator/src/groq-client.ts:404:  const content = rawContent
+lib/ai-orchestrator/src/groq-client.ts:405:    ? (rawContent.replace(/<think>[\s\S]*?<\/think>/gi, "").trim() || null)
+lib/ai-orchestrator/src/groq-client.ts:409:  const rawToolCalls = msg.tool_calls;
+lib/ai-orchestrator/src/groq-client.ts:410:  const hasCalls = Array.isArray(rawToolCalls) && rawToolCalls.length > 0;
+lib/ai-orchestrator/src/groq-client.ts:412:    if (rawToolCalls !== undefined) {
+lib/ai-orchestrator/src/groq-client.ts:413:      normalizeProviderToolCalls(rawToolCalls, opts);
+lib/ai-orchestrator/src/groq-client.ts:419:    toolCalls: rawToolCalls === undefined ? null : rawToolCalls as ToolCall[],
+lib/ai-orchestrator/src/groq-client.ts:422:      promptTokens: c.usage?.prompt_tokens ?? 0,
+lib/ai-orchestrator/src/groq-client.ts:586:  const chatCompletion = completion as { choices: Array<{ message?: { content?: string | null } }>; model: string; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+lib/ai-orchestrator/src/groq-client.ts:595:      promptTokens: chatCompletion.usage?.prompt_tokens ?? 0,
+lib/ai-orchestrator/src/groq-client.ts:631: * Streaming variant — yields raw content delta strings as the model generates them.
+lib/ai-orchestrator/src/groq-client.ts:707:      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:69:  /** Always true for this module — reserved for future paid-tier support. */
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:135:  // capability. A missing capability is a configuration/catalog failure, not
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:136:  // a reason to send the request to an arbitrary free model.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:137:  const rawPool: OpenRouterFreeModel[] = [...capable];
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:140:  const { live: pool } = partitionByLiveCatalog(rawPool);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:142:  // RC-01: only fall back to rawPool when the catalog has NOT been loaded yet.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:144:  // to paid — using rawPool would just replay the same "paid version" 404s.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:155:      : rawPool; // cold start or refresh failure → use static list as best-effort
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:171:  const { stale } = partitionByLiveCatalog(rawPool);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:201:  const rawCapable = FREE_MODELS.filter(
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:206:  const rawPool = rawCapable.length > 0
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:207:    ? rawCapable
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:209:  const { stale } = partitionByLiveCatalog([...rawPool]);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:274:  // re-insert raw peers — those models have moved to paid and will only
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:275:  // generate "paid version available" 404s.  Only fall back to raw when the
+artifacts/api-server/src/lib/ai-route-helpers.ts:8: * chain is driven by a single array — no if/else sprawl when adding providers.
+artifacts/api-server/src/lib/ai-route-helpers.ts:38:import { decryptApiKey } from "./credentials-crypto.js";
+artifacts/api-server/src/lib/ai-route-helpers.ts:52:    .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]")
+artifacts/api-server/src/lib/ai-route-helpers.ts:540:      availabilityState: "missing_credentials",
+artifacts/api-server/src/lib/ai-route-helpers.ts:562:      availabilityState: "missing_credentials",
+artifacts/api-server/src/lib/ai-route-helpers.ts:587:    incompleteReview?: { sessionId?: string; failureKind?: string };
+artifacts/api-server/src/lib/ai-route-helpers.ts:625:      ...(ctx.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
+artifacts/api-server/src/lib/ai-route-helpers.ts:639:        // through the user-facing activity feed and must not contain raw
+artifacts/api-server/src/lib/ai-route-helpers.ts:658:    incomplete: true,
+artifacts/api-server/src/lib/ai-route-helpers.ts:659:    outcomeClass: "terminal-incomplete" as const,
+artifacts/api-server/src/lib/ai-route-helpers.ts:661:    ...(ctx?.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
+artifacts/api-server/src/lib/ai-route-helpers.ts:662:    ...(ctx?.incompleteReview?.failureKind ? { failureKind: ctx.incompleteReview.failureKind } : {}),
+artifacts/api-server/src/lib/ai-route-helpers.ts:791:  | "missing_credentials"
+lib/ai-orchestrator/src/tool-execution-engine.ts:515:    // source content. An out-of-range request answers "No content in lines …"
+lib/ai-orchestrator/src/tool-execution-engine.ts:533:/** True when a read_file body carries a truncation marker (incomplete source). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:539: * True when a read payload actually carries source content, not just a wrapper.
+lib/ai-orchestrator/src/tool-execution-engine.ts:625:  incompleteBeforeEvidence?: boolean;
+lib/ai-orchestrator/src/tool-execution-engine.ts:695:      errorMessage: `Tool "${name}" is not registered — use one of the tools listed in the system prompt.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:934: * into a 100k+ token prompt after a broad read pass, causing the provider to
+lib/ai-orchestrator/src/tool-execution-engine.ts:1011:  missingEvidencePaths: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1015:    | "evidence_incomplete"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1017:    | "validation_incomplete"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1079:   * OpenAI-compatible clients ignore this while tools are present and apply it
+lib/ai-orchestrator/src/tool-execution-engine.ts:1208:   * subsequent read of a file not yet read this run. Unproven dependency reads
+lib/ai-orchestrator/src/tool-execution-engine.ts:1349:      kind: "incomplete";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1350:      reason: "claim_unclosed" | "evidence_incomplete" | "no_progress" | "validation_incomplete";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1418:  // acquired. This is classified as incomplete-before-evidence - it is NOT a
+lib/ai-orchestrator/src/tool-execution-engine.ts:1576:      missingClaims?: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1603:      /** Bounded contract metadata; never contains model/source content. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1632:         | "evidence_incomplete"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1634:         | "validation_incomplete"
+lib/ai-orchestrator/src/tool-execution-engine.ts:2094:    // or expose the provider's raw diagnostic. A single terminal step keeps
+lib/ai-orchestrator/src/tool-execution-engine.ts:2360:  // blank / missing path is NOT permitted: while forced, a malformed read call
+lib/ai-orchestrator/src/tool-execution-engine.ts:2361:  // (e.g. a missing path that would resolve to a directory-read error) must not
+lib/ai-orchestrator/src/tool-execution-engine.ts:2443:    sourceRetrieval.incompleteBeforeEvidence = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2470:    const missingEvidencePaths = (objective.requiredEvidencePaths ?? [])
+lib/ai-orchestrator/src/tool-execution-engine.ts:2499:      missingEvidencePaths,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2503:  const objectiveIncompleteReason = (): "claim_unclosed" | "evidence_incomplete" | "no_progress" | undefined => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2506:    if (state?.missingEvidencePaths.length) return "evidence_incomplete";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2510:  const incompleteResult = (
+lib/ai-orchestrator/src/tool-execution-engine.ts:2511:    reason: "claim_unclosed" | "evidence_incomplete" | "no_progress" | "validation_incomplete",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2537:      kind: "incomplete",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2614:      ...(buildObjectiveState("evidence_incomplete")
+lib/ai-orchestrator/src/tool-execution-engine.ts:2615:        ? { objectiveState: buildObjectiveState("evidence_incomplete") }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2662:          usage: { promptTokens: 0, completionTokens: 0 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:2746:    // but never resend unbounded tool bodies to a provider. This applies to
+lib/ai-orchestrator/src/tool-execution-engine.ts:2892:                usage: { promptTokens: 0, completionTokens: 0 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:2964:                usage: { promptTokens: 0, completionTokens: 0 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:3025:                usage: { promptTokens: 0, completionTokens: 0 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:3061:      promptTokens: result.usage?.promptTokens ?? 0,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3211:            promptTokens: synthesisResult.usage?.promptTokens ?? 0,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3247:      const incompleteReason =
+lib/ai-orchestrator/src/tool-execution-engine.ts:3251:          ? "evidence_incomplete" as const
+lib/ai-orchestrator/src/tool-execution-engine.ts:3253:      if (incompleteReason) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3254:        return incompleteResult(incompleteReason, result);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3299:      const incompleteReason =
+lib/ai-orchestrator/src/tool-execution-engine.ts:3303:          ? "evidence_incomplete" as const
+lib/ai-orchestrator/src/tool-execution-engine.ts:3305:      if (incompleteReason) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3306:        return incompleteResult(incompleteReason, terminalResult);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3352:    // future providers) is caught here before the message enters history.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3354:      const raw: unknown = tc.function?.arguments;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3355:      if (typeof raw === "string" && raw.trim() !== "") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3357:          const parsed: unknown = JSON.parse(raw);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3362:        raw !== null && typeof raw === "object" && !Array.isArray(raw)
+lib/ai-orchestrator/src/tool-execution-engine.ts:3363:          ? JSON.stringify(raw)
+lib/ai-orchestrator/src/tool-execution-engine.ts:3475:          "Make a bounded patch change or return BLOCKED; repeated validation without progress is incomplete.";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3703:        const rawPath = typeof args.path === "string" ? args.path : "";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3705:          depPath !== "" && (readStatusByPath.has(depPath) || readStatusByPath.has(rawPath));
+lib/ai-orchestrator/src/tool-execution-engine.ts:3708:        // run actually acquired — not when the model supplies four arbitrary
+lib/ai-orchestrator/src/tool-execution-engine.ts:3736:            sourceEvidenceByCanonical.get(canonicalRel(rawPath)) ??
+lib/ai-orchestrator/src/tool-execution-engine.ts:3834:      // second identical full read cannot recover the missing lines. Route to a
+lib/ai-orchestrator/src/tool-execution-engine.ts:3857:            "Repeating the same full read cannot recover the missing lines. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:4014:        // "incomplete" after the session is reloaded.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4165:        const rawReasoning = result.content?.trim();
+lib/ai-orchestrator/src/tool-execution-engine.ts:4171:          reasoning: REASONING_TOOLS.has(tc.function.name) && rawReasoning
+lib/ai-orchestrator/src/tool-execution-engine.ts:4172:            ? rawReasoning.slice(0, 500)
+lib/ai-orchestrator/src/tool-execution-engine.ts:4535:      // allocation of only 1): one novel search that made progress is not yet
+lib/ai-orchestrator/src/tool-execution-engine.ts:4590:    const incompleteReason =
+lib/ai-orchestrator/src/tool-execution-engine.ts:4594:          ? "evidence_incomplete" as const
+lib/ai-orchestrator/src/tool-execution-engine.ts:4596:    if (incompleteReason) return incompleteResult(incompleteReason, lastTextSeen);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4614:  const incompleteReason =
+lib/ai-orchestrator/src/tool-execution-engine.ts:4618:        ? "evidence_incomplete" as const
+lib/ai-orchestrator/src/tool-execution-engine.ts:4620:  if (incompleteReason) return incompleteResult(incompleteReason);
+artifacts/api-server/src/routes/ai/operator-alerts.ts:14: * metadata and never provider credentials or raw provider responses.
+artifacts/api-server/src/routes/ai/operator-alerts.ts:17:  const rawLimit = req.query.limit === undefined ? DEFAULT_LIMIT : Number(req.query.limit);
+artifacts/api-server/src/routes/ai/operator-alerts.ts:18:  if (!Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > MAX_LIMIT) {
+artifacts/api-server/src/routes/ai/operator-alerts.ts:22:  const rawActiveOnly = req.query.activeOnly;
+artifacts/api-server/src/routes/ai/operator-alerts.ts:23:  const activeOnly = rawActiveOnly === undefined || rawActiveOnly === "true";
+artifacts/api-server/src/routes/ai/operator-alerts.ts:24:  if (rawActiveOnly !== undefined && rawActiveOnly !== "true" && rawActiveOnly !== "false") {
+artifacts/api-server/src/routes/ai/operator-alerts.ts:33:    .limit(rawLimit);
+artifacts/api-server/src/lib/operator-alerts.ts:25:    message: `The configured Groq ${roleLabel} model (${modelId}) is missing from Groq's live model catalog.`,
+artifacts/api-server/src/lib/operator-alerts.ts:36:  rawModelId: string,
+artifacts/api-server/src/lib/operator-alerts.ts:38:  const modelId = normalizeModelId(rawModelId);
+artifacts/api-server/src/lib/operator-alerts.ts:43:  // If a default was changed while still missing, close the previous role's
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:24:  pricing?: { prompt: string; completion: string };
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:36: * Used by the resolver to decide whether to apply the filter.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:140:      // A model is free when both prompt and completion pricing are "0".
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:146:        (m) => m.pricing?.prompt === "0" && m.pricing?.completion === "0",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:204: * Returns model IDs that are in FREE_MODELS but missing from OpenRouter.
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:32:    message: "The configured Groq Fast model is missing from Groq's live model catalog.",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:64:    expect(JSON.stringify(res.body)).not.toContain("raw provider");
+lib/ai-orchestrator/src/openai-compatible-client.ts:95: * The system prompt is always kept; the most-recent messages are preferred.
+lib/ai-orchestrator/src/openai-compatible-client.ts:352:  evidenceStatus: "complete" | "incomplete";
+lib/ai-orchestrator/src/openai-compatible-client.ts:365:      return { action: "wait", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:369:      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:377:        evidenceStatus: "incomplete",
+lib/ai-orchestrator/src/openai-compatible-client.ts:380:      return { action: "narrow-request", terminal: true, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:385:      return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:699:  // Capture raw payload for diagnostics before the request is sent.
+lib/ai-orchestrator/src/openai-compatible-client.ts:748:    // Log the raw response before classifying so we never lose context.
+lib/ai-orchestrator/src/openai-compatible-client.ts:775:      prompt_tokens?: number;
+lib/ai-orchestrator/src/openai-compatible-client.ts:819:        promptTokens: data.usage?.prompt_tokens ?? 0,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1077:    // retry the same model once with the prompt-only contract.
+artifacts/api-server/src/lib/workflow-phase-execution.ts:26: * arbitrary shell text. The phase boundary is therefore the server-owned
+artifacts/api-server/src/routes/ai/index.ts:6: *   chat       — chat, stream, sessions, messages, apply-changes
+artifacts/api-server/src/lib/upload-store.ts:16: * full host reboot cleans up the dir, `lookupUpload` detects the missing dir
+artifacts/api-server/src/lib/upload-store.ts:94:  // protects callers if a future storage adapter returns a broader row than
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:35:      ? `; missing capability="${capabilityOptions.capability}"`
+artifacts/api-server/src/lib/upload-store.test.ts:106:    const futureExpiry = new Date(Date.now() + 60_000);
+artifacts/api-server/src/lib/upload-store.test.ts:113:      expiresAt: futureExpiry,
+artifacts/api-server/src/lib/upload-store.test.ts:143:    const futureExpiry = new Date(Date.now() + 60_000);
+artifacts/api-server/src/lib/upload-store.test.ts:145:      id: "missing-dir-id",
+artifacts/api-server/src/lib/upload-store.test.ts:150:      expiresAt: futureExpiry,
+artifacts/api-server/src/lib/upload-store.test.ts:155:    const result = await lookupUpload("missing-dir-id", "user-1");
+artifacts/api-server/src/lib/upload-store.test.ts:161:    const futureExpiry = new Date(Date.now() + 60_000);
+artifacts/api-server/src/lib/upload-store.test.ts:168:      expiresAt: futureExpiry,
+lib/ai-orchestrator/src/provider-strategy.ts:96:   * Streaming chat completion — yields raw content delta strings.
+artifacts/api-server/src/routes/ai/providers.ts:19:import { decryptApiKey, encryptApiKey } from "../../lib/credentials-crypto.js";
+artifacts/api-server/src/routes/ai/providers.ts:47:  status: "available" | "unavailable" | "check_unavailable" | "invalid_credential" | "not_configured";
+artifacts/api-server/src/routes/ai/providers.ts:56: * Check Groq's configured defaults without returning a credential or raw
+artifacts/api-server/src/routes/ai/providers.ts:86:      unavailableRoles: validation.missing,
+artifacts/api-server/src/routes/ai/providers.ts:94:      status: isInvalidCredential ? "invalid_credential" : "check_unavailable",
+artifacts/api-server/src/routes/ai/providers.ts:100:        ? "Groq rejected this credential while checking the configured models. Replace the Groq API key."
+artifacts/api-server/src/routes/ai/providers.ts:319:      ? "missing_credentials"
+artifacts/api-server/src/lib/task-execution-service.ts:106:  // Keep this envelope bounded even if future fields are added to the contract.
+artifacts/api-server/src/lib/task-execution-service.ts:195:    message: before.prompt ?? before.title,
+artifacts/api-server/src/lib/task-execution-service.ts:196:    modelMessage: before.prompt ?? before.title,
+artifacts/api-server/src/lib/task-execution-service.ts:312:        taskPrompt: before.prompt,
+artifacts/api-server/src/lib/task-execution-service.ts:409:            ? ("incomplete" as const)
+lib/ai-orchestrator/src/forensic-recovery.ts:4:  applyForensicEvidenceGate,
+lib/ai-orchestrator/src/forensic-recovery.ts:5:  applyForensicOutputContract,
+lib/ai-orchestrator/src/forensic-recovery.ts:196: * The helper deliberately refuses truncated, incomplete, test-only (unless the
+lib/ai-orchestrator/src/forensic-recovery.ts:198: * deterministic fallback from turning an arbitrary read receipt into a
+lib/ai-orchestrator/src/forensic-recovery.ts:210:      if (evidence.incompleteFiles?.has(file)) return false;
+lib/ai-orchestrator/src/forensic-recovery.ts:482:        "- missing-provenance: ارفض الدليل أو الحافة التي تفتقد provenance.",
+lib/ai-orchestrator/src/forensic-recovery.ts:488:        "- missing-provenance: reject evidence or edges with missing provenance.",
+lib/ai-orchestrator/src/forensic-recovery.ts:650:            : `${emptyClassification} — no verified defect was established from the completed source reads.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? " The defect claim remains NOT PROVEN because evidence coverage is incomplete." : ""}`,
+lib/ai-orchestrator/src/forensic-recovery.ts:704:      const contract = applyForensicOutputContract(report);
+lib/ai-orchestrator/src/forensic-recovery.ts:713:      const evidenceGate = applyForensicEvidenceGate(
+lib/ai-orchestrator/src/forensic-recovery.ts:747:      const contract = applyForensicOutputContract(report);
+lib/ai-orchestrator/src/forensic-recovery.ts:758:      const evidenceGate = applyForensicEvidenceGate(contract.response, evidence);
+lib/ai-orchestrator/src/forensic-recovery.ts:827:  const contract = applyForensicOutputContract(report);
+lib/ai-orchestrator/src/forensic-recovery.ts:839:  const evidenceGate = applyForensicEvidenceGate(contract.response, evidence);
+lib/ai-orchestrator/src/forensic-output-guard.ts:67:  incompleteFiles?: Set<string>;
+lib/ai-orchestrator/src/forensic-output-guard.ts:195:    /unbounded|unlimited|without (?:a )?size limit|memory growth|memory exhaustion/.test(lower)
+lib/ai-orchestrator/src/forensic-output-guard.ts:209:    /(?:no|missing|not found|absence|without).{0,40}(?:error|exception)\s*handling|(?:error|exception)\s*handling.{0,40}(?:no|missing|not found|absent)/i.test(lower)
+lib/ai-orchestrator/src/forensic-output-guard.ts:221:    reasons.push("a missing schema/context read is a verification gap, not a proven implementation defect");
+lib/ai-orchestrator/src/forensic-output-guard.ts:236:    /(?:version|unpinned|unspecified|not\s+(?:pinned|specified|resolved)|missing|غير\s+محدد|غير\s+مثبت)/.test(
+lib/ai-orchestrator/src/forensic-output-guard.ts:240:    reasons.push("a package-manager catalog alias does not prove a missing version without the root catalog or lockfile");
+lib/ai-orchestrator/src/forensic-output-guard.ts:258:    /(?:unlimited|unbounded|without (?:a )?bound|no (?:upper )?limit|dos|resource exhaustion)/.test(lower) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:267:    /(?:without|missing|no|lack of|absent).{0,80}(?:authentication|auth|rate.?limit|usage\s+quota|access\s+control)|(?:authentication|auth|rate.?limit|usage\s+quota|access\s+control).{0,80}(?:without|missing|no|lack of|absent)/.test(lower)
+lib/ai-orchestrator/src/forensic-output-guard.ts:274:    /(?:always\s+returns\s+0|incomplete|placeholder|not\s+yet\s+wired|broken|incorrect)/.test(lower) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:336:  // A File: label without a fenced body is an incomplete tool result.
+lib/ai-orchestrator/src/forensic-output-guard.ts:377:  if (matchingFiles.some((file) => evidence.incompleteFiles?.has(file))) return false;
+lib/ai-orchestrator/src/forensic-output-guard.ts:392:  // rather than repeating an arbitrary source line. That is authoritative
+lib/ai-orchestrator/src/forensic-output-guard.ts:651:            `Evidence Map record is missing a separate ${required} field`,
+lib/ai-orchestrator/src/forensic-output-guard.ts:847:        violations.push(`Finding is missing required field: ${required.slice(0, -1)}`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1087: * Normalize the compact five-section format used by capability-test prompts.
+lib/ai-orchestrator/src/forensic-output-guard.ts:1089: * The user-facing prompt may intentionally ask for `## Verdict` and
+lib/ai-orchestrator/src/forensic-output-guard.ts:1221: * Repair only harmless Markdown heading variants before applying the forensic
+lib/ai-orchestrator/src/forensic-output-guard.ts:1314:    if (count === 0) violations.push(`missing required section: ${header}`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1379:      .filter((file) => !evidence?.incompleteFiles?.has(file)),
+lib/ai-orchestrator/src/forensic-output-guard.ts:1385:      violations.push(`compound part missing: ${part.id}`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1432:    reason.startsWith("Finding is missing required field:") ||
+lib/ai-orchestrator/src/forensic-output-guard.ts:1446:      reason.startsWith("Finding is missing required field:"),
+lib/ai-orchestrator/src/forensic-output-guard.ts:1551:        "- BLOCKED — missing-provenance behavior cannot be verified without a completed source read.",
+lib/ai-orchestrator/src/forensic-output-guard.ts:1556:    : `${classification} — the report could not be verified because source evidence is incomplete. No Repair Plan is executable.`;
+lib/ai-orchestrator/src/forensic-output-guard.ts:1619:export function applyForensicOutputContract(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1702:export function applyForensicEvidenceGate(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1717:    // was actually read. Without source contents, the evidence gate may mark
+lib/ai-orchestrator/src/forensic-output-guard.ts:1718:    // the Finding NOT PROVEN for missing evidence, but must not invent a
+lib/ai-orchestrator/src/forensic-output-guard.ts:1812:  const incompleteFiles = new Set<string>();
+lib/ai-orchestrator/src/forensic-output-guard.ts:1813:  for (const [path, rawContent] of knownFileContents ?? []) {
+lib/ai-orchestrator/src/forensic-output-guard.ts:1816:    const content = normalizeToolEvidence(rawContent);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1819:      if (hasDisplayTruncationMarker(content)) incompleteFiles.add(normalizedPath);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1863:    const rawContent = String(message.content ?? "");
+lib/ai-orchestrator/src/forensic-output-guard.ts:1864:    if (!rawContent || /^Error\b/i.test(rawContent.trim())) continue;
+lib/ai-orchestrator/src/forensic-output-guard.ts:1865:    const content = normalizeToolEvidence(rawContent);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1869:      if (hasDisplayTruncationMarker(content)) incompleteFiles.add(sourcePath);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1898:    incompleteFiles,
+artifacts/api-server/src/routes/ai/tasks.ts:249:        taskPrompt: task.prompt,
+artifacts/api-server/src/routes/ai/tasks.ts:358:              ? ("incomplete" as const)
+artifacts/api-server/src/routes/ai/tasks.ts:424: * status with a non-null prompt. Fire-and-forget: enqueued into the shared
+artifacts/api-server/src/routes/ai/tasks.ts:439:      if (!task || task.status !== "verifying" || !task.prompt) {
+artifacts/api-server/src/routes/ai/tasks.ts:441:          { taskId, status: task?.status ?? "gone", hasPrompt: !!task?.prompt },
+artifacts/api-server/src/routes/ai/tasks.ts:578:            taskPrompt: task.prompt,
+artifacts/api-server/src/routes/ai/tasks.ts:692:              ? ("incomplete" as const)
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:49:  incompleteFiles: string[];
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:77: * policy and incompleteness markers as the parent evidence.
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:114:      const incompleteFiles = new Set(
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:115:        [...(evidence.incompleteFiles ?? [])]
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:127:        incompleteFiles,
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:130:      // SR-005: classify each retained window. A file flagged incomplete (or
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:135:          incompleteFiles.has(file) || windowIsTruncated(content)
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:158:        incompleteFiles: [...incompleteFiles].sort(),
+lib/ai-orchestrator/src/index.ts:399:export { applyLifetime, DEFAULT_LIFETIME_POLICY } from "./context-runtime/context-lifetime.js";
+lib/ai-orchestrator/src/index.ts:483:export type { ActiveTask } from "./prompts/chat.prompt.js";
+lib/ai-orchestrator/src/index.ts:485:export { classifyRequest, isSocialGreeting } from "./prompts/profile-classifier.js";
+lib/ai-orchestrator/src/index.ts:486:export type { ClassifiedRequest, RequestCategory } from "./prompts/profile-classifier.js";
+lib/ai-orchestrator/src/index.ts:623:  applyCodeAgentBenchmarkBaselineGate,
+artifacts/api-server/src/lib/startup-migrations.ts:36: * Never throws — a failure here logs a warning; the credential routes already
+artifacts/api-server/src/lib/startup-migrations.ts:37: * return 500 with a clear message when the key is missing.
+artifacts/api-server/src/lib/startup-migrations.ts:51:        "Loaded AI credential encryption key from persistent key file");
+artifacts/api-server/src/lib/startup-migrations.ts:67:      "Generated and persisted new AI credential encryption key — credential storage is now active");
+artifacts/api-server/src/lib/startup-migrations.ts:70:      "Failed to generate/persist encryption key — credential storage will be unavailable until AI_CREDENTIALS_ENCRYPTION_KEY is set manually");
+artifacts/api-server/src/lib/startup-migrations.ts:180: * output and failure messages are arbitrary source-controlled text and cannot
+artifacts/api-server/src/lib/startup-migrations.ts:242: * the user-visible proof panel; arbitrary tool/provider records are discarded.
+artifacts/api-server/src/lib/startup-migrations.ts:278:function scrubHistoricalJson(raw: string | null): string | null {
+artifacts/api-server/src/lib/startup-migrations.ts:279:  if (!raw) return raw;
+artifacts/api-server/src/lib/startup-migrations.ts:281:    const parsed = JSON.parse(raw);
+artifacts/api-server/src/lib/startup-migrations.ts:286:      ? raw
+artifacts/api-server/src/lib/startup-migrations.ts:290:    return raw;
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:102:    if (evidence.incompleteFiles?.has(file)) continue;
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:104:    for (const rawLine of source.split("\n")) {
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:105:      const sourceLine = rawLine.trim();
+artifacts/api-server/src/routes/ai/chat.ts:8: * POST /api/ai/chat/apply-changes
+artifacts/api-server/src/routes/ai/chat.ts:208:function sanitizeResponseText(raw: string): string {
+artifacts/api-server/src/routes/ai/chat.ts:209:  if (!raw) return raw;
+artifacts/api-server/src/routes/ai/chat.ts:210:  const trimmed = raw.trim();
+artifacts/api-server/src/routes/ai/chat.ts:213:  if (!trimmed.startsWith("{")) return redactUserFacingText(raw);
+artifacts/api-server/src/routes/ai/chat.ts:224:      return redactUserFacingText(inner || raw);
+artifacts/api-server/src/routes/ai/chat.ts:229:  return redactUserFacingText(raw);
+artifacts/api-server/src/routes/ai/chat.ts:355:    .filter((detail) => !/(?:provider|model|bearer|credential|secret|token|upstream|raw|https?:|\/(?:home|tmp|srv|workspace)\b)/i.test(detail))
+artifacts/api-server/src/routes/ai/chat.ts:388: * Validation receipts are the only proof shape allowed to cross the apply and
+artifacts/api-server/src/routes/ai/chat.ts:416:    // already satisfy the public contract; never project their raw fields.
+artifacts/api-server/src/routes/ai/chat.ts:605: * (Zod coerces it to Date in typed consumers), while applying the normal
+artifacts/api-server/src/routes/ai/chat.ts:639:  const raw = value.trim().replaceAll("\\", "/");
+artifacts/api-server/src/routes/ai/chat.ts:640:  const candidate = path.isAbsolute(raw) ? path.relative(rootPath, raw) : raw;
+artifacts/api-server/src/routes/ai/chat.ts:709:      error: "The project scan is incomplete. Complete a fresh scan before approving or starting Build Mode.",
+artifacts/api-server/src/routes/ai/chat.ts:780:      filesystemManifest: unavailable("The project scan is incomplete; complete a fresh scan before creating a plan."),
+artifacts/api-server/src/routes/ai/chat.ts:781:      filesystemSources: unavailableSources("The project scan is incomplete; source excerpts are not planning evidence."),
+artifacts/api-server/src/routes/ai/chat.ts:808:      filesystemManifest: unavailable("The live source walk is incomplete; planning requires a complete snapshot."),
+artifacts/api-server/src/routes/ai/chat.ts:809:      filesystemSources: unavailableSources("The live source walk is incomplete."),
+artifacts/api-server/src/routes/ai/chat.ts:830:        filesystemManifest.reason ?? "The bounded filesystem inventory is incomplete.",
+artifacts/api-server/src/routes/ai/chat.ts:871:  const incompleteCode = traceSteps.some(
+artifacts/api-server/src/routes/ai/chat.ts:876:  if (!incompleteCode) return false;
+artifacts/api-server/src/routes/ai/chat.ts:888:    : "Execution stopped before the first source read, so the result is incomplete and not proven. Retry with a clear target file or objective.";
+artifacts/api-server/src/routes/ai/chat.ts:1162:        "AI apply rollback failed or could not be verified",
+artifacts/api-server/src/routes/ai/chat.ts:1248:    // stored change is an authorization bypass: the apply loop falls through to
+artifacts/api-server/src/routes/ai/chat.ts:1483:    | "evidence_incomplete"
+artifacts/api-server/src/routes/ai/chat.ts:1485:    | "validation_incomplete";
+artifacts/api-server/src/routes/ai/chat.ts:1613:    .filter((detail) => !/(?:provider|model|bearer|credential|secret|token|upstream|raw|https?:|\/(?:home|tmp|srv|workspace)\b)/i.test(detail))
+artifacts/api-server/src/routes/ai/chat.ts:1853: * public-safe shape there so a reconnect cannot recover the raw command,
+artifacts/api-server/src/routes/ai/chat.ts:2028:    const raw   = issue?.message ?? "Invalid request body";
+artifacts/api-server/src/routes/ai/chat.ts:2030:    const error = raw === "Required" && field ? `${field} is required` : raw;
+artifacts/api-server/src/routes/ai/chat.ts:2105:  const rawTurnClassification = classifyRequest(message);
+artifacts/api-server/src/routes/ai/chat.ts:2106:  const rawTurnIntent = resolveTurnIntent(message, {
+artifacts/api-server/src/routes/ai/chat.ts:2107:    classification: rawTurnClassification,
+artifacts/api-server/src/routes/ai/chat.ts:2113:    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+artifacts/api-server/src/routes/ai/chat.ts:2119:    rawTurnClassification,
+artifacts/api-server/src/routes/ai/chat.ts:2172:  const applyProbe = modelHasTools
+artifacts/api-server/src/routes/ai/chat.ts:2175:  if (!applyProbe.acquired) {
+artifacts/api-server/src/routes/ai/chat.ts:2177:      error: "apply_in_progress",
+artifacts/api-server/src/routes/ai/chat.ts:2202:      promptMode: activeTask ? "task" : "chat",
+artifacts/api-server/src/routes/ai/chat.ts:2355:        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+artifacts/api-server/src/routes/ai/chat.ts:2381:    // Full invalidation happens only in /apply-changes when files are written.
+artifacts/api-server/src/routes/ai/chat.ts:2557:    await applyProbe.release();
+artifacts/api-server/src/routes/ai/chat.ts:2590:    const raw   = issue?.message ?? "Invalid request body";
+artifacts/api-server/src/routes/ai/chat.ts:2592:    const error = raw === "Required" && field ? `${field} is required` : raw;
+artifacts/api-server/src/routes/ai/chat.ts:2606:  const rawTurnClassification = classifyRequest(message);
+artifacts/api-server/src/routes/ai/chat.ts:2607:  const rawTurnIntent = resolveTurnIntent(message, {
+artifacts/api-server/src/routes/ai/chat.ts:2608:    classification: rawTurnClassification,
+artifacts/api-server/src/routes/ai/chat.ts:2611:    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+artifacts/api-server/src/routes/ai/chat.ts:2801:    rawTurnClassification,
+artifacts/api-server/src/routes/ai/chat.ts:2840:  // persisted forensic task and must not be routed from its raw text alone.
+artifacts/api-server/src/routes/ai/chat.ts:2848:  const applyLock = streamModelHasTools
+artifacts/api-server/src/routes/ai/chat.ts:2851:  if (!applyLock.acquired) {
+artifacts/api-server/src/routes/ai/chat.ts:2853:      error: "apply_in_progress",
+artifacts/api-server/src/routes/ai/chat.ts:3309:    // Public, bounded intent notification. Keep internal prompt construction,
+artifacts/api-server/src/routes/ai/chat.ts:3310:    // provider diagnostics, and raw telemetry out of the SSE contract.
+artifacts/api-server/src/routes/ai/chat.ts:3329:      promptMode: activeTask ? "task" : "chat",
+artifacts/api-server/src/routes/ai/chat.ts:3372:            | "evidence_incomplete"
+artifacts/api-server/src/routes/ai/chat.ts:3374:            | "validation_incomplete";
+artifacts/api-server/src/routes/ai/chat.ts:3849:    // shell, cwd, or arguments.
+artifacts/api-server/src/routes/ai/chat.ts:3998:          // A failed/incomplete report may still be useful to an operator, but
+artifacts/api-server/src/routes/ai/chat.ts:4187:        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+artifacts/api-server/src/routes/ai/chat.ts:4342:      // the prompt in conversation history.
+artifacts/api-server/src/routes/ai/chat.ts:4483:      // bounded incomplete report after observing the abort. The report is
+artifacts/api-server/src/routes/ai/chat.ts:4514:        const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
+artifacts/api-server/src/routes/ai/chat.ts:4662:    await applyLock.release();
+artifacts/api-server/src/routes/ai/chat.ts:4851:    // used after reload/reconnect. This is already a redacted projection; raw
+artifacts/api-server/src/routes/ai/chat.ts:4868:  const parseRecord = (raw: string): Record<string, unknown> => {
+artifacts/api-server/src/routes/ai/chat.ts:4870:      const value: unknown = JSON.parse(raw);
+artifacts/api-server/src/routes/ai/chat.ts:5007:      excluded: ["provider secrets", "raw model output", "private runtime paths"],
+artifacts/api-server/src/routes/ai/chat.ts:5343:// does not apply changes, run commands, commit, or publish.
+artifacts/api-server/src/routes/ai/chat.ts:5488:// traversal/symlink escape OUT of the project root (mirrors the apply-changes
+artifacts/api-server/src/routes/ai/chat.ts:5510:  const rawStart = Number(req.query.startLine);
+artifacts/api-server/src/routes/ai/chat.ts:5511:  const rawEnd = Number(req.query.endLine);
+artifacts/api-server/src/routes/ai/chat.ts:5512:  const startLine = Number.isFinite(rawStart) ? Math.max(1, Math.floor(rawStart)) : 1;
+artifacts/api-server/src/routes/ai/chat.ts:5513:  const endLine = Number.isFinite(rawEnd) ? Math.max(startLine, Math.floor(rawEnd)) : startLine;
+artifacts/api-server/src/routes/ai/chat.ts:5518:  // for a stale/inaccessible project request arbitrary files (e.g. .env) from
+artifacts/api-server/src/routes/ai/chat.ts:5554:  let rawFile: string;
+artifacts/api-server/src/routes/ai/chat.ts:5556:    rawFile = await fs.readFile(realResolved, "utf-8");
+artifacts/api-server/src/routes/ai/chat.ts:5561:  const allLines = rawFile.split(/\r?\n/);
+artifacts/api-server/src/routes/ai/chat.ts:5694:        : "missing_workspace";
+artifacts/api-server/src/routes/ai/chat.ts:5697:      : recoveryState === "missing_workspace"
+artifacts/api-server/src/routes/ai/chat.ts:5706:      : recoveryState === "missing_workspace"
+artifacts/api-server/src/routes/ai/chat.ts:5766:      recoveryState: discarded ? "discarded" : workspaceAvailable ? "recoverable" : "missing_workspace",
+artifacts/api-server/src/routes/ai/chat.ts:5953:  const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+artifacts/api-server/src/routes/ai/chat.ts:5954:  if (!applyLock.acquired) {
+artifacts/api-server/src/routes/ai/chat.ts:5956:      error: "apply_in_progress",
+artifacts/api-server/src/routes/ai/chat.ts:5958:      hint: "Another apply or rebase operation is already in progress for this project.",
+artifacts/api-server/src/routes/ai/chat.ts:6179:    await applyLock.release();
+artifacts/api-server/src/routes/ai/chat.ts:6185:// Rebased proposals remain pending but are explicitly blocked from apply until
+artifacts/api-server/src/routes/ai/chat.ts:6249:      message: "AI rebased patch approved for apply",
+artifacts/api-server/src/routes/ai/chat.ts:6305:// ── POST /api/ai/chat/apply-changes ─────────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts:6307:router.post("/ai/chat/apply-changes", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:6350:  const applyBody = ApplyChangesBodySchema.safeParse(req.body);
+artifacts/api-server/src/routes/ai/chat.ts:6351:  if (!applyBody.success) {
+artifacts/api-server/src/routes/ai/chat.ts:6352:    const issue = applyBody.error.issues[0];
+artifacts/api-server/src/routes/ai/chat.ts:6353:    const raw   = issue?.message ?? "Invalid request body";
+artifacts/api-server/src/routes/ai/chat.ts:6355:    const error = raw === "Required" && field ? `${field} is required` : raw;
+artifacts/api-server/src/routes/ai/chat.ts:6358:  const { changes, projectId, proposalId, operationId } = applyBody.data;
+artifacts/api-server/src/routes/ai/chat.ts:6393:      message: "The project working directory is unavailable; restore or rescan the project before applying changes.",
+artifacts/api-server/src/routes/ai/chat.ts:6398:  const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+artifacts/api-server/src/routes/ai/chat.ts:6399:  if (!applyLock.acquired) {
+artifacts/api-server/src/routes/ai/chat.ts:6401:      error: "apply_in_progress",
+artifacts/api-server/src/routes/ai/chat.ts:6402:      hint: "An apply operation is already in progress for this project — wait for it to complete before starting another.",
+artifacts/api-server/src/routes/ai/chat.ts:6424:    // applying the same one-shot proposal.
+artifacts/api-server/src/routes/ai/chat.ts:6441:        error: "The rebased patch must be reviewed and approved again before apply",
+artifacts/api-server/src/routes/ai/chat.ts:6499:    const applyCorrelationId = canonicalOperationId;
+artifacts/api-server/src/routes/ai/chat.ts:6500:    const applyAttemptId = randomUUID();
+artifacts/api-server/src/routes/ai/chat.ts:6507:      operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6515:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6541:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6542:        attemptId: applyAttemptId,
+artifacts/api-server/src/routes/ai/chat.ts:6548:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6561:      operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6592:          error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+artifacts/api-server/src/routes/ai/chat.ts:6615:          results.push({ path: change.path, ok: false, error: "Duplicate file path in apply request" });
+artifacts/api-server/src/routes/ai/chat.ts:6785:        validation.evidence.operationId = applyCorrelationId;
+artifacts/api-server/src/routes/ai/chat.ts:6835:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:6850:          await atomicallyPromoteFile(change.realPath, change.newContent, applyCorrelationId);
+artifacts/api-server/src/routes/ai/chat.ts:7015:    const applyStatus = rollbackFailed
+artifacts/api-server/src/routes/ai/chat.ts:7032:    // plan/apply/commit/push lifecycle queryable as one trace instead of
+artifacts/api-server/src/routes/ai/chat.ts:7041:        operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:7042:        attemptId: applyAttemptId,
+artifacts/api-server/src/routes/ai/chat.ts:7045:        stage: applyStatus,
+artifacts/api-server/src/routes/ai/chat.ts:7063:        // across retries of the same plan/apply operation.
+artifacts/api-server/src/routes/ai/chat.ts:7074:          applyStatus,
+artifacts/api-server/src/routes/ai/chat.ts:7076:          operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:7091:        correlationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:7105:            ? `AI apply rollback failed; filesystem state is unknown: ${rollbackFailures.map((failure) => failure.path).join(", ")}`
+artifacts/api-server/src/routes/ai/chat.ts:7106:            : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+artifacts/api-server/src/routes/ai/chat.ts:7107:        correlationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:7110:          operationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:7113:          applyStatus,
+artifacts/api-server/src/routes/ai/chat.ts:7180:      correlationId: applyCorrelationId,
+artifacts/api-server/src/routes/ai/chat.ts:7181:      applyStatus,

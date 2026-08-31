@@ -1,0 +1,500 @@
+artifacts/api-server/src/app.ts:117:  contentSecurityPolicy: config.isProduction,
+artifacts/api-server/src/app.ts:166:// platform's health probe and uptime monitors don't carry a Clerk session, and
+artifacts/api-server/src/index.ts:18:  ApplicationSchemaError,
+artifacts/api-server/src/index.ts:19:  AuditSchemaError,
+artifacts/api-server/src/index.ts:20:  OperatorAlertSchemaError,
+artifacts/api-server/src/index.ts:21:  assertAuditOutboxSchema,
+artifacts/api-server/src/index.ts:22:  assertOperatorAlertSchema,
+artifacts/api-server/src/index.ts:28:  validateAiProvidersAtStartup,
+artifacts/api-server/src/index.ts:34:import { assertDatabaseApplicationSchema } from "./lib/database-schema-preflight";
+artifacts/api-server/src/index.ts:41: * DB-07: Bootstrap guard — verify the release-critical task contract before
+artifacts/api-server/src/index.ts:43: * schema:apply delivery command.
+artifacts/api-server/src/index.ts:45:async function assertDatabaseSchema(): Promise<void> {
+artifacts/api-server/src/index.ts:47:    await assertDatabaseApplicationSchema(pool);
+artifacts/api-server/src/index.ts:49:    const schemaIssues =
+artifacts/api-server/src/index.ts:50:      err instanceof ApplicationSchemaError ? err.issues : undefined;
+artifacts/api-server/src/index.ts:53:        schemaIssues,
+artifacts/api-server/src/index.ts:54:        fix: "pnpm --filter @workspace/db run schema:apply",
+artifacts/api-server/src/index.ts:56:      "DATABASE SCHEMA CHECK FAILED — application contract is unavailable or incompatible; no traffic will be accepted",
+artifacts/api-server/src/index.ts:70:// Wire a pg_notify call into every invalidateContextCache() invocation so
+artifacts/api-server/src/index.ts:88:// Graceful shutdown: release the LISTEN client so the PG connection is closed
+artifacts/api-server/src/index.ts:114:// DB-07: Fail fast if the Drizzle schema has not been pushed yet. This must
+artifacts/api-server/src/index.ts:116:await assertDatabaseSchema();
+artifacts/api-server/src/index.ts:118:  await assertAuditOutboxSchema();
+artifacts/api-server/src/index.ts:121:    err instanceof AuditSchemaError
+artifacts/api-server/src/index.ts:123:      : "schema contract unavailable";
+artifacts/api-server/src/index.ts:127:      fix: "pnpm --filter @workspace/db run schema:apply",
+artifacts/api-server/src/index.ts:129:    "AUDIT OUTBOX SCHEMA CHECK FAILED — apply the Drizzle schema before starting the API",
+artifacts/api-server/src/index.ts:134:  await assertOperatorAlertSchema();
+artifacts/api-server/src/index.ts:137:    err instanceof OperatorAlertSchemaError
+artifacts/api-server/src/index.ts:139:      : "schema contract unavailable";
+artifacts/api-server/src/index.ts:143:      fix: "pnpm --filter @workspace/db run schema:apply",
+artifacts/api-server/src/index.ts:145:    "OPERATOR ALERT SCHEMA CHECK FAILED — apply the Drizzle schema before starting the API",
+artifacts/api-server/src/index.ts:152:// even when the server is idle between user sessions.  The first refresh
+artifacts/api-server/src/index.ts:156:// PR-006: validate AI providers before accepting traffic — checks key presence,
+artifacts/api-server/src/index.ts:161:  await validateAiProvidersAtStartup({
+artifacts/api-server/src/index.ts:196:// active and resumable executions. The sweep is batched and retryable.
+artifacts/api-server/src/index.ts:200:// traffic, then let the normal retry worker drain them in the background.
+artifacts/api-server/src/index.ts:212:  // AI executions for explicit resume.
+artifacts/api-server/src/index.ts:229:  // Start the session-memory sweep — prunes expired/decayed memory rows and
+artifacts/api-server/src/lib/ai-route-helpers.ts:15:  chat,
+artifacts/api-server/src/lib/ai-route-helpers.ts:308: * task-execution — any route that calls an agent but doesn't use chat streaming.
+artifacts/api-server/src/lib/ai-route-helpers.ts:330:        "primary provider error; retrying agent with fallback provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:356: * Call `chat()` with automatic provider fallback on recoverable errors.
+artifacts/api-server/src/lib/ai-route-helpers.ts:362:export async function chatWithFallback(
+artifacts/api-server/src/lib/ai-route-helpers.ts:377:    /** Verified session task contract used to resume short continuation messages. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:382:     * AI-OBJ-005: a validated Objective Completion contract from the request.
+artifacts/api-server/src/lib/ai-route-helpers.ts:383:     * Threaded straight into chat() so the Objective Completion Gate runs on the
+artifacts/api-server/src/lib/ai-route-helpers.ts:384:     * actual chat entry points, not just direct library calls.
+artifacts/api-server/src/lib/ai-route-helpers.ts:391:    /** Enabled only after the route validates an approved implementation plan. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:410:     * True only for a route-validated approved implementation-plan Build
+artifacts/api-server/src/lib/ai-route-helpers.ts:418:     /** Shared budget across provider attempts and nested agent phases. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:426:): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
+artifacts/api-server/src/lib/ai-route-helpers.ts:429:    createExecutionLedger({ mode: "tool_chat", signal: baseParams.signal });
+artifacts/api-server/src/lib/ai-route-helpers.ts:449:  // is deliberately request-scoped and contains no runtime/session metadata.
+artifacts/api-server/src/lib/ai-route-helpers.ts:461:        "primary provider error; retrying with fallback provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:468:      const result = await chat({
+artifacts/api-server/src/lib/ai-route-helpers.ts:475:        allowValidationTools: baseParams.allowValidationTools,
+artifacts/api-server/src/lib/ai-route-helpers.ts:483:        allowAnalysisTools: baseParams.allowAnalysisTools,
+artifacts/api-server/src/lib/ai-route-helpers.ts:494:      } as Parameters<typeof chat>[0]);
+artifacts/api-server/src/lib/ai-route-helpers.ts:541:      operatorAction: "Save an API key for at least one supported provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:551: * Kept for backward-compatibility with non-chat routes that only support Groq.
+artifacts/api-server/src/lib/ai-route-helpers.ts:563:      operatorAction: "Save an API key for at least one supported provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:587:    incompleteReview?: { sessionId?: string; failureKind?: string };
+artifacts/api-server/src/lib/ai-route-helpers.ts:588:    /** Chat routes use the strict public contract instead of provider UI metadata. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:589:    publicContract?: "chat";
+artifacts/api-server/src/lib/ai-route-helpers.ts:599:  if (ctx?.publicContract === "chat") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:600:    const retryable = err.code === "TIMEOUT"
+artifacts/api-server/src/lib/ai-route-helpers.ts:615:            : retryable ? 503 : 502;
+artifacts/api-server/src/lib/ai-route-helpers.ts:618:      error: retryable
+artifacts/api-server/src/lib/ai-route-helpers.ts:619:        ? "The AI request could not complete. Please retry."
+artifacts/api-server/src/lib/ai-route-helpers.ts:622:      retryable,
+artifacts/api-server/src/lib/ai-route-helpers.ts:625:      ...(ctx.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
+artifacts/api-server/src/lib/ai-route-helpers.ts:661:    ...(ctx?.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
+artifacts/api-server/src/lib/ai-route-helpers.ts:679:      if (err.retryAfterMs !== undefined) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:680:        res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+artifacts/api-server/src/lib/ai-route-helpers.ts:684:        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:685:        retryAfterMs: err.retryAfterMs,
+artifacts/api-server/src/lib/ai-route-helpers.ts:686:        hint: `You've exceeded your ${providerLabel} API quota. Retry after the indicated delay or configure another provider at ${providerConsole}.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:724:        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:766:          hint: "The model catalog changed while this request was starting. Retry to select a current compatible model.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:814:      operatorAction: `Replace the ${providerId} API key with a valid key from ${providerConsole}, then retry.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:820:      operatorAction: "Wait for the provider cooldown to finish, then retry or configure another provider.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:831:      operatorAction: "Choose a compatible current model or configure another provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:837:      operatorAction: "Wait for the rate-limit window to reset, then retry or configure another provider.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:853:      operatorAction: "Retry shortly so OpenRouter can refresh its model catalog; configure another provider if it persists.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:860:      operatorAction: "Select another compatible model or configure another provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:867:      operatorAction: `Retry in a moment; if the issue continues, check ${providerStatus} or configure another provider.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:872:    operatorAction: `Retry in a moment or configure another provider. Check ${providerStatus} if it persists.`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:4: * Any provider that speaks POST /chat/completions with Bearer auth can be
+lib/ai-orchestrator/src/openai-compatible-client.ts:7: * groq-sdk client (which adds circuit-breaking and retry-with-backoff on top).
+lib/ai-orchestrator/src/openai-compatible-client.ts:10: * produced by groq-client.ts so chat-agent.ts and agent-complete.ts can route
+lib/ai-orchestrator/src/openai-compatible-client.ts:30:import { getPhaseBudget } from "./quality/execution-phases.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:45:  /** Disable transient retry when the caller owns bounded model fallback. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:46:  retryTransient?: boolean;
+lib/ai-orchestrator/src/openai-compatible-client.ts:64:  /** Shared request budget used for each network retry/fallback attempt. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:168: * after a tool loop; replaying that turn during synthesis/recovery produces a
+lib/ai-orchestrator/src/openai-compatible-client.ts:221: * Overflow policy: a tool_group whose size exceeds the remaining budget is
+lib/ai-orchestrator/src/openai-compatible-client.ts:234:  // Fast path: non-system portion already fits within the budget.
+lib/ai-orchestrator/src/openai-compatible-client.ts:239:  // Walk from the end and accumulate whole groups until the budget is reached.
+lib/ai-orchestrator/src/openai-compatible-client.ts:240:  // An oversized group (size > budget) is always discarded — we never exceed
+lib/ai-orchestrator/src/openai-compatible-client.ts:242:  let budget = OPENROUTER_MAX_MESSAGES;
+lib/ai-orchestrator/src/openai-compatible-client.ts:250:    if (size <= budget) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:251:      budget -= size;
+lib/ai-orchestrator/src/openai-compatible-client.ts:254:      break; // oversized or no remaining budget — drop this and all earlier groups
+lib/ai-orchestrator/src/openai-compatible-client.ts:279:/** Resolve after `ms` milliseconds (used for retry back-off). */
+lib/ai-orchestrator/src/openai-compatible-client.ts:283:      reject(new GroqClientError("TIMEOUT", "Provider retry backoff cancelled"));
+lib/ai-orchestrator/src/openai-compatible-client.ts:289:      reject(new GroqClientError("TIMEOUT", "Provider retry backoff cancelled"));
+lib/ai-orchestrator/src/openai-compatible-client.ts:301:    throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:329: * OR-005: True for transient OpenRouter errors that warrant a single retry.
+lib/ai-orchestrator/src/openai-compatible-client.ts:343:  | "retry"
+lib/ai-orchestrator/src/openai-compatible-client.ts:356: * Stable, provider-free policy used by recovery callers and diagnostics.
+lib/ai-orchestrator/src/openai-compatible-client.ts:369:      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:464:const MAX_RETRY_AFTER_MS = 60_000;
+lib/ai-orchestrator/src/openai-compatible-client.ts:466:function parseRetryAfterMs(headers?: Headers): number | undefined {
+lib/ai-orchestrator/src/openai-compatible-client.ts:467:  const value = headers?.get("retry-after")?.trim();
+lib/ai-orchestrator/src/openai-compatible-client.ts:471:    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, Math.ceil(seconds * 1000)));
+lib/ai-orchestrator/src/openai-compatible-client.ts:475:  return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, timestamp - Date.now()));
+lib/ai-orchestrator/src/openai-compatible-client.ts:494:    retryAfterMs:    status === 429 ? parseRetryAfterMs(headers) : undefined,
+lib/ai-orchestrator/src/openai-compatible-client.ts:536:      `${providerName} API rate limit exceeded — wait a moment before retrying`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:653: * Non-streaming chat completion against any OpenAI-compatible endpoint.
+lib/ai-orchestrator/src/openai-compatible-client.ts:663:    maxTokens = opts.outputPhase ? getPhaseBudget(opts.outputPhase).maxOutputTokens : 4096,
+lib/ai-orchestrator/src/openai-compatible-client.ts:721:    response = await fetch(`${baseUrl}/chat/completions`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:882: * Streaming chat completion against any OpenAI-compatible endpoint.
+lib/ai-orchestrator/src/openai-compatible-client.ts:921:    response = await fetch(`${baseUrl}/chat/completions`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1021:    reader.releaseLock();
+lib/ai-orchestrator/src/openai-compatible-client.ts:1077:  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1084:    // retry the same model once with the prompt-only contract.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1096:          action: "retry_without_response_format",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1104:      err.retryAfterMs !== undefined
+lib/ai-orchestrator/src/openai-compatible-client.ts:1108:    if (!isTransientError(err) || opts.retryTransient === false) throw err;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1112:        code: "TRANSIENT_RETRY",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1117:    await sleep(1500, retrySignal);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1136:  /** RC-04: capability hint used when `model` is undefined. Defaults to "chat". */
+lib/ai-orchestrator/src/openai-compatible-client.ts:1159:  const capability = opts.capability ?? "chat";
+lib/ai-orchestrator/src/openai-compatible-client.ts:1231:      // per-model retry above and advances immediately to the next live
+lib/ai-orchestrator/src/openai-compatible-client.ts:1232:      // reasoning candidate instead of letting chat-agent replay a tool-loop
+lib/ai-orchestrator/src/openai-compatible-client.ts:1235:        opts.retryTransient === false && isTransientError(err);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1307:  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1321:        capability: capability ?? "chat",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1346:        // Once bytes have been emitted, retrying would duplicate or splice the
+lib/ai-orchestrator/src/openai-compatible-client.ts:1365:          opts.retryTransient !== false &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:1367:          providerError.retryAfterMs === undefined
+lib/ai-orchestrator/src/openai-compatible-client.ts:1370:          await sleep(1500, retrySignal);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1374:          (opts.retryTransient === false && isTransientError(providerError));
+lib/ai-orchestrator/src/groq-client.ts:2: * Groq API gateway — the single point of contact with the model provider.
+lib/ai-orchestrator/src/groq-client.ts:7: *   complete()    → orchestrates the above with a small bounded retry for
+lib/ai-orchestrator/src/groq-client.ts:52:  /** Shared request budget used for each network retry attempt. */
+lib/ai-orchestrator/src/groq-client.ts:54:  /** Tool selection policy for explicit repair-plan execution. */
+lib/ai-orchestrator/src/groq-client.ts:75: *   attempt 0 (first retry): 1 000 ms  ±50 %  →  500 – 1 500 ms
+lib/ai-orchestrator/src/groq-client.ts:83:function retryDelayMs(attempt: number, code: GroqErrorCode): number {
+lib/ai-orchestrator/src/groq-client.ts:93:      reject(new GroqClientError("TIMEOUT", "Groq retry backoff cancelled"));
+lib/ai-orchestrator/src/groq-client.ts:99:      reject(new GroqClientError("TIMEOUT", "Groq retry backoff cancelled"));
+lib/ai-orchestrator/src/groq-client.ts:112:    throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
+lib/ai-orchestrator/src/groq-client.ts:275:export async function validateGroqDefaultModels(
+lib/ai-orchestrator/src/groq-client.ts:324:type ChatRequest = {
+lib/ai-orchestrator/src/groq-client.ts:331:function buildRequest(messages: Message[], opts: { model: string; temperature: number; maxTokens: number }): ChatRequest {
+lib/ai-orchestrator/src/groq-client.ts:381:  completion: Awaited<ReturnType<Groq["chat"]["completions"]["create"]>>,
+lib/ai-orchestrator/src/groq-client.ts:401:  // consumer (chat-agent loop, parseAgentResponse, conversation history)
+lib/ai-orchestrator/src/groq-client.ts:432: * The caller is responsible for executing tools and looping until the model
+lib/ai-orchestrator/src/groq-client.ts:459:      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
+lib/ai-orchestrator/src/groq-client.ts:500:      if (attempt < maxRetries && isRetryable(lastError.code)) {
+lib/ai-orchestrator/src/groq-client.ts:501:        const delay = retryDelayMs(attempt, lastError.code);
+lib/ai-orchestrator/src/groq-client.ts:502:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/groq-client.ts:567:async function sendRequest(client: Groq, request: ChatRequest, timeoutMs: number, signal?: AbortSignal) {
+lib/ai-orchestrator/src/groq-client.ts:574:    return await client.chat.completions.create(request, { signal: controller.signal });
+lib/ai-orchestrator/src/groq-client.ts:583:function readResponse(completion: Awaited<ReturnType<Groq["chat"]["completions"]["create"]>>): GroqResponse {
+lib/ai-orchestrator/src/groq-client.ts:585:  // request streaming, so this is always a ChatCompletion at runtime.
+lib/ai-orchestrator/src/groq-client.ts:586:  const chatCompletion = completion as { choices: Array<{ message?: { content?: string | null } }>; model: string; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+lib/ai-orchestrator/src/groq-client.ts:587:  const content = chatCompletion.choices[0]?.message?.content;
+lib/ai-orchestrator/src/groq-client.ts:593:    model: chatCompletion.model,
+lib/ai-orchestrator/src/groq-client.ts:595:      promptTokens: chatCompletion.usage?.prompt_tokens ?? 0,
+lib/ai-orchestrator/src/groq-client.ts:596:      completionTokens: chatCompletion.usage?.completion_tokens ?? 0,
+lib/ai-orchestrator/src/groq-client.ts:601:function isRetryable(code: GroqErrorCode): boolean {
+lib/ai-orchestrator/src/groq-client.ts:603:  // (not retried). Now that they are distinct codes, retry both: rate-limit
+lib/ai-orchestrator/src/groq-client.ts:606:  // never retryable — a retry cannot change the outcome.
+lib/ai-orchestrator/src/groq-client.ts:662:      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
+lib/ai-orchestrator/src/groq-client.ts:669:  // return type to `Stream<ChatCompletionChunk>`.  Use `as any` at the call
+lib/ai-orchestrator/src/groq-client.ts:682:    stream = await (client.chat.completions.create as any)({
+lib/ai-orchestrator/src/groq-client.ts:758:      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
+lib/ai-orchestrator/src/groq-client.ts:780:      if (attempt < maxRetries && isRetryable(lastError.code)) {
+lib/ai-orchestrator/src/groq-client.ts:781:        const delay = retryDelayMs(attempt, lastError.code);
+lib/ai-orchestrator/src/groq-client.ts:782:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+artifacts/api-server/src/lib/db-rate-limiter.ts:34: * `retryAfterSec` — the number of seconds until the current window expires.
+artifacts/api-server/src/lib/db-rate-limiter.ts:38:): Promise<{ allowed: boolean; retryAfterSec?: number }> {
+artifacts/api-server/src/lib/db-rate-limiter.ts:65:      return { allowed: false, retryAfterSec: 60 };
+artifacts/api-server/src/lib/db-rate-limiter.ts:72:        retryAfterSec: Math.ceil((windowEnd - now) / 1_000),
+artifacts/api-server/src/lib/db-rate-limiter.ts:79:    // the per-project budget.
+artifacts/api-server/src/lib/db-rate-limiter.ts:85:    return { allowed: false, retryAfterSec: 60 };
+artifacts/api-server/src/lib/workflow-phase-execution.ts:4:  checkpointAiExecution,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:10:  parseAiExecutionCheckpoint,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:23: * Record one workflow phase through the shared autonomous operation loop.
+artifacts/api-server/src/lib/workflow-phase-execution.ts:28: * guard, and this function records the inspected revision, policy, attempt,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:29: * dependency, checkpoint, and retained transition evidence in ai_executions.
+artifacts/api-server/src/lib/workflow-phase-execution.ts:31: * The idempotency key is stable for an execution/phase pair. A retry after a
+artifacts/api-server/src/lib/workflow-phase-execution.ts:67:  const existingCheckpoint = parseAiExecutionCheckpoint(durable.execution.checkpoint);
+artifacts/api-server/src/lib/workflow-phase-execution.ts:102:  let operation: AutonomousOperationContract = existingCheckpoint?.operation
+artifacts/api-server/src/lib/workflow-phase-execution.ts:107:      policyRevision: "server-policy-v1",
+artifacts/api-server/src/lib/workflow-phase-execution.ts:128:    const checkpointed = await checkpointAiExecution({
+artifacts/api-server/src/lib/workflow-phase-execution.ts:131:      checkpoint: {
+artifacts/api-server/src/lib/workflow-phase-execution.ts:133:        sequence: Math.max(1, durable.execution.checkpointVersion + 1),
+artifacts/api-server/src/lib/workflow-phase-execution.ts:142:    if (!checkpointed) throw new Error("Workflow phase lease was lost before checkpoint");
+artifacts/api-server/src/types/express.d.ts:10: * `sessionId` and `orgId` are carried through now even though nothing reads
+artifacts/api-server/src/types/express.d.ts:11: * them yet, so that session-scoped invalidation or org/team-scoped access
+artifacts/api-server/src/types/express.d.ts:17:  sessionId: string | null;
+artifacts/api-server/src/lib/database-schema-preflight.ts:2:  assertApplicationSchemaWithClient,
+artifacts/api-server/src/lib/database-schema-preflight.ts:3:  findApplicationSchemaIssues,
+artifacts/api-server/src/lib/database-schema-preflight.ts:4:  readApplicationSchemaSnapshot,
+artifacts/api-server/src/lib/database-schema-preflight.ts:7:  ApplicationSchemaIssue,
+artifacts/api-server/src/lib/database-schema-preflight.ts:8:  ApplicationSchemaSnapshot,
+artifacts/api-server/src/lib/database-schema-preflight.ts:11:export type ApplicationSchemaQuery = Parameters<
+artifacts/api-server/src/lib/database-schema-preflight.ts:12:  typeof readApplicationSchemaSnapshot
+artifacts/api-server/src/lib/database-schema-preflight.ts:16:  type ApplicationSchemaIssue,
+artifacts/api-server/src/lib/database-schema-preflight.ts:17:  type ApplicationSchemaSnapshot,
+artifacts/api-server/src/lib/database-schema-preflight.ts:18:  findApplicationSchemaIssues,
+artifacts/api-server/src/lib/database-schema-preflight.ts:25:export async function assertDatabaseApplicationSchema(
+artifacts/api-server/src/lib/database-schema-preflight.ts:26:  queryable: ApplicationSchemaQuery,
+artifacts/api-server/src/lib/database-schema-preflight.ts:28:  await assertApplicationSchemaWithClient(queryable);
+artifacts/api-server/src/lib/database-schema-preflight.ts:31:export async function getApplicationSchemaSnapshot(
+artifacts/api-server/src/lib/database-schema-preflight.ts:32:  queryable: ApplicationSchemaQuery,
+artifacts/api-server/src/lib/database-schema-preflight.ts:33:): Promise<ApplicationSchemaSnapshot> {
+artifacts/api-server/src/lib/database-schema-preflight.ts:34:  return readApplicationSchemaSnapshot(queryable);
+artifacts/api-server/src/lib/database-schema-preflight.ts:58:type LegacyDatabaseSchemaQuery = {
+artifacts/api-server/src/lib/database-schema-preflight.ts:65:  queryable: LegacyDatabaseSchemaQuery,
+artifacts/api-server/src/lib/database-schema-preflight.ts:69:    FROM information_schema.columns
+artifacts/api-server/src/lib/database-schema-preflight.ts:70:    WHERE table_schema = 'public'
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:5:} from "./database-schema-preflight";
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:7:describe("database schema preflight", () => {
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:27:  it("queries only the allowlisted critical schema contract", async () => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2: * ToolExecutionEngine — self-contained agentic tool loop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4: * Extracts the tool-calling machinery from chat-agent.ts so it can be tested
+lib/ai-orchestrator/src/tool-execution-engine.ts:9: *   executeToolLoop(opts)    — runs the loop until a non-tool response or the
+lib/ai-orchestrator/src/tool-execution-engine.ts:10: *                              budget is exhausted.
+lib/ai-orchestrator/src/tool-execution-engine.ts:12: * Budget rules: maxIterations caps model API calls; maxToolCalls caps real tool
+lib/ai-orchestrator/src/tool-execution-engine.ts:32:import { authorizeToolInvocation, type ToolDefinitionLike } from "./tool-policy.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:33:import type { PendingChange } from "./schemas/chat.schema.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:35:import { getPhaseBudget, isToolAllowedInPhase, type ExecutionPhase } from "./quality/execution-phases.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:39:  type ObjectiveScopePolicy,
+lib/ai-orchestrator/src/tool-execution-engine.ts:50:  type RepairLoopState,
+lib/ai-orchestrator/src/tool-execution-engine.ts:62:import { isForensicTestSourcePath } from "./forensic-source-policy.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:71:export const DEFAULT_SEARCH_NOVELTY_BUDGET = 8;
+lib/ai-orchestrator/src/tool-execution-engine.ts:74: * Per-scope iteration and tool-call budgets (dynamic, complexity-keyed).
+lib/ai-orchestrator/src/tool-execution-engine.ts:77:export const BUDGET_BY_SCOPE = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:78:  chat:           { maxIterations: 64, maxToolCalls: 180 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:79:  tool_chat:      { maxIterations: 96, maxToolCalls: 300 },
+lib/ai-orchestrator/src/tool-execution-engine.ts:132: * FEG-009/010: run-budget rebalancing. The single maxIterations cap is split
+lib/ai-orchestrator/src/tool-execution-engine.ts:133: * into per-category shares so a run cannot spend its whole budget planning
+lib/ai-orchestrator/src/tool-execution-engine.ts:136: * the loop is forced toward a primary-evidence action instead of letting
+lib/ai-orchestrator/src/tool-execution-engine.ts:139:export const BUDGET_CATEGORY_SHARES = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:146:export type RunBudgetCategories = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:153:export function splitRunBudget(maxIterations: number): RunBudgetCategories {
+lib/ai-orchestrator/src/tool-execution-engine.ts:154:  const planning = Math.max(1, Math.floor(maxIterations * BUDGET_CATEGORY_SHARES.planning));
+lib/ai-orchestrator/src/tool-execution-engine.ts:155:  const evidence = Math.max(1, Math.floor(maxIterations * BUDGET_CATEGORY_SHARES.evidence));
+lib/ai-orchestrator/src/tool-execution-engine.ts:156:  const reasoning = Math.max(1, Math.floor(maxIterations * BUDGET_CATEGORY_SHARES.reasoning));
+lib/ai-orchestrator/src/tool-execution-engine.ts:161: * Prefetch first source evidence marker (incl. eager read in chat-agent).
+lib/ai-orchestrator/src/tool-execution-engine.ts:162: * Negative vs 0-based loop iterations keeps the soft limit from being
+lib/ai-orchestrator/src/tool-execution-engine.ts:167: * Repair-plan handoffs are not open-ended loops; allow a few repeated reads
+lib/ai-orchestrator/src/tool-execution-engine.ts:283:// of these sets is an unknown tool and is rejected before touching the budget.
+lib/ai-orchestrator/src/tool-execution-engine.ts:438:  /** Fail-closed dispatcher gate for execution tools. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:494: *   policy string, or a truncated preview).
+lib/ai-orchestrator/src/tool-execution-engine.ts:497:export const ReadStatusSchema = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:509: * non-source bodies are never treated as a complete source read (SR-001 gate:
+lib/ai-orchestrator/src/tool-execution-engine.ts:517:    // evidence, so neither may qualify as a successful read (SR-001 gate,
+lib/ai-orchestrator/src/tool-execution-engine.ts:559:  /** Distinct paths the loop actually read via read tools (recordRead). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:583:  /** FEG-015: true when usable source bodies were prefetched before the loop. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:586:   * FEG-007: 0-based loop iteration at which the first source read happened,
+lib/ai-orchestrator/src/tool-execution-engine.ts:587:   * or null when the loop finished without ever reading a source. Null when
+lib/ai-orchestrator/src/tool-execution-engine.ts:598:   * landed inside the budget; a reason string otherwise (e.g. the soft limit
+lib/ai-orchestrator/src/tool-execution-engine.ts:603:   * FEG-009/010: run-budget rebalancing. The per-category iteration allocations
+lib/ai-orchestrator/src/tool-execution-engine.ts:604:   * derived from maxIterations, so callers can observe how the budget was split
+lib/ai-orchestrator/src/tool-execution-engine.ts:607:  budgetAllocation?: {
+lib/ai-orchestrator/src/tool-execution-engine.ts:612:  /** Synthesis-only budget and observed attempts, kept separate from reads. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:654:/** Final reporting is a bounded phase, not another open-ended tool-loop turn. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:659: * Fresh per-loop telemetry. `readPaths` is mutable and MUST be a newly
+lib/ai-orchestrator/src/tool-execution-engine.ts:660: * allocated array on every loop — never shared from `EMPTY_SOURCE_RETRIEVAL_TELEMETRY`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:662: * request's read paths into subsequent runs and corrupt prefetch/loop dedupe.
+lib/ai-orchestrator/src/tool-execution-engine.ts:700:    if (isExecutionTool && !opts.allowExecutionTools) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:714:      ...(opts.allowedToolNames ? { allowedTools: opts.allowedToolNames } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:721:        safeMessage: `Tool "${name}" was blocked by the server authorization gate (${authorization.reason}).`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:770:            // provider retry/resume; the analysis tool validates it before
+lib/ai-orchestrator/src/tool-execution-engine.ts:932: * Keep the forensic source bodies private and complete for the evidence gate,
+lib/ai-orchestrator/src/tool-execution-engine.ts:935: * return EMPTY_RESPONSE or spend its output budget on a malformed retry.
+lib/ai-orchestrator/src/tool-execution-engine.ts:938: * collectForensicEvidence() can still validate Findings against the complete
+lib/ai-orchestrator/src/tool-execution-engine.ts:944:  "[bounded synthesis excerpt omitted; the complete source read remains available to the server evidence gate]";
+lib/ai-orchestrator/src/tool-execution-engine.ts:977:// ── Tool loop ─────────────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:979:export type AgentLoopPhase = "planning" | "evidence" | "reasoning" | "recovery" | "terminal";
+lib/ai-orchestrator/src/tool-execution-engine.ts:982: * Server-owned objective input for callers that need the tool loop itself to
+lib/ai-orchestrator/src/tool-execution-engine.ts:986:export type AgentLoopObjective = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:995:export type AgentLoopClaimState = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1001:export type AgentLoopState = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1003:  phase: AgentLoopPhase;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1010:  claims: AgentLoopClaimState[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1021:export type ToolLoopOpts = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1024:   * The loop appends assistant (with tool_calls) and tool-result messages.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1034:   * When the strategy returns a transient error, the loop may retry with
+lib/ai-orchestrator/src/tool-execution-engine.ts:1048:  /** Capability contract for every model call in this loop. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1055:   * Whether a zero-read terminal is an evidence failure. Ordinary chat,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1062:   * Independent novelty budget for ordinary search_code calls. A search
+lib/ai-orchestrator/src/tool-execution-engine.ts:1063:   * consumes one unit; a previously unseen result hash refills the budget.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1065:  searchNoveltyBudget?: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1069:   * report. Forensic audits and ordinary tool-assisted chat keep their existing
+lib/ai-orchestrator/src/tool-execution-engine.ts:1074:  /** Optional provider-level tool selection policy for the first/each call. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1080:   * once the forensic loop enters its synthesis window.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1086:   * disabled for this provider/mode and the loop will return on the very
+lib/ai-orchestrator/src/tool-execution-engine.ts:1099:  /** Server-owned phase; caps budgets and filters tools when provided. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1105:  objective?: AgentLoopObjective;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1107:  claimState?: AgentLoopClaimState[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1123:  /** Complete source bodies loaded by forensic prefetch before the loop. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1129:   * session metadata.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1142:   * evidence. This prevents a large analysis from consuming its entire budget
+lib/ai-orchestrator/src/tool-execution-engine.ts:1148:   * Independent final-report budget. Both the primary and its intentional
+lib/ai-orchestrator/src/tool-execution-engine.ts:1205:   * source read has landed the loop refuses to read a NEW dependency file
+lib/ai-orchestrator/src/tool-execution-engine.ts:1207:   * reference / why_required). The FIRST read is never gated — only each
+lib/ai-orchestrator/src/tool-execution-engine.ts:1225:  objectiveScopePolicy?: ObjectiveScopePolicy;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1228:   * First-Evidence Gate: the explicit primary evidence target. When set this
+lib/ai-orchestrator/src/tool-execution-engine.ts:1231:   * policy so the gate demonstrably expands tool permission.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1236:   * these roots are allowed, and the loop may not move back to an earlier root
+lib/ai-orchestrator/src/tool-execution-engine.ts:1255:   * Optional observer called at each significant step in the loop:
+lib/ai-orchestrator/src/tool-execution-engine.ts:1258:   * callback cannot break the agentic loop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1262:  /** Request-owned budget shared across every orchestration phase. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1266:export type ToolLoopResult =
+lib/ai-orchestrator/src/tool-execution-engine.ts:1271:      /** Ground-truth file/search/git accesses accumulated during the loop. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1277:       objectiveState?: AgentLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1281:       * Soft-limit hit: the iteration budget ran out but the model produced at
+lib/ai-orchestrator/src/tool-execution-engine.ts:1282:       * least one text response during the loop.  The last such response is
+lib/ai-orchestrator/src/tool-execution-engine.ts:1294:       objectiveState?: AgentLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1304:      /** Why the loop could not produce a final response. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1305:      reason?: "iteration_budget" | "empty_response";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1306:       objectiveState?: AgentLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1317:       objectiveState?: AgentLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1321:       * Deterministic safety stop after a repeated tool-call loop. The caller
+lib/ai-orchestrator/src/tool-execution-engine.ts:1333:       objectiveState?: AgentLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1341:       objectiveState?: AgentLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1345:       * The loop stopped with useful state but the server-owned objective could
+lib/ai-orchestrator/src/tool-execution-engine.ts:1347:       * cancellation, and ordinary budget exhaustion.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1355:      objectiveState?: AgentLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1386:  | "EXECUTION_JSON_CORRECTION_RETRY_FAILED"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1397:  // First-Evidence Gate: the explicit primary evidence target is read directly
+lib/ai-orchestrator/src/tool-execution-engine.ts:1414:  // so the loop is forced toward the primary evidence target instead of
+lib/ai-orchestrator/src/tool-execution-engine.ts:1417:  // Budget rebalancing (FEG-009/010): the run ended with ZERO source reads ever
+lib/ai-orchestrator/src/tool-execution-engine.ts:1419:  // normal terminal - and, within the recovery allocation, the loop forces a
+lib/ai-orchestrator/src/tool-execution-engine.ts:1438: * Discriminated union of observable events emitted during executeToolLoop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1445:      stage: "understand" | "scope" | "plan" | "execute" | "validate";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1463:      /** True when the read happened during forensic prefetch, before the loop. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1486:      /** True when the read happened during forensic prefetch, before the loop. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1492:      repairState: RepairLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1518:      state: RepairLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1535:       * EI-036: reason from scopedRepairGate when repair is blocked by proof
+lib/ai-orchestrator/src/tool-execution-engine.ts:1582:      completionGateResult?: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1605:      /** Server-owned context for phase-policy rejections only. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1616:       * Includes forensic prefetch calls and cached loop calls.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1619:      /** Tool-call events emitted before the agent loop (forensic prefetch). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1621:      /** Tool-call events emitted by the agent loop, including cache hits. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1622:      loopToolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1625:        | "iteration_budget"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1646:       objectiveState?: AgentLoopState;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1650: * Run the full agentic tool loop until the model stops requesting tools or
+lib/ai-orchestrator/src/tool-execution-engine.ts:1651: * a budget is hit.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1653: * The loop:
+lib/ai-orchestrator/src/tool-execution-engine.ts:1656: *        a. Cache hit  → serve cached result (free, no budget).
+lib/ai-orchestrator/src/tool-execution-engine.ts:1657: *        b. Budget hit → serve canned "exhausted" string (no execution).
+lib/ai-orchestrator/src/tool-execution-engine.ts:1658: *        c. Unknown    → serve error string (no budget consumed).
+lib/ai-orchestrator/src/tool-execution-engine.ts:1660: *      Append all results to messages and loop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1667:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1705:    objectiveScopePolicy,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1716:      mode: executionMode === "forensic" ? "forensic" : executionMode === "repair_plan" ? "repair_plan" : "tool_chat",
+lib/ai-orchestrator/src/tool-execution-engine.ts:1718:      budget: {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1719:        // maxIterations counts loop turns, while the request ledger counts
+lib/ai-orchestrator/src/tool-execution-engine.ts:1720:        // every provider attempt (empty-response retry, model fallback and
+lib/ai-orchestrator/src/tool-execution-engine.ts:1729:  const phaseBudget = phase ? getPhaseBudget(phase) : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1732:    phaseBudget?.maxModelCalls ?? Number.POSITIVE_INFINITY,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1736:    phaseBudget?.maxToolCalls ?? Number.POSITIVE_INFINITY,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1738:  const callWithExecutionBudget = async (
+lib/ai-orchestrator/src/tool-execution-engine.ts:1749:        `Execution ${kind} budget exhausted.`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1780:  // dependency-proof gate validates from_file/reference against, populated from
+lib/ai-orchestrator/src/tool-execution-engine.ts:1794:  // Fresh-execution budget counter; only fresh calls consume budget while the
+lib/ai-orchestrator/src/tool-execution-engine.ts:1798:  let loopToolCalls = 0;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1802:    loopToolCalls: number;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1804:    toolCalls: prefetchToolCalls + loopToolCalls,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1806:    loopToolCalls,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1829:    if (!objectiveScopePolicy || !path?.trim()) return undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1830:    const expansion = classifyObjectiveScopePath(path, objectiveScopePolicy);
+lib/ai-orchestrator/src/tool-execution-engine.ts:1882:  const searchBudgetLimit = Math.max(
+lib/ai-orchestrator/src/tool-execution-engine.ts:1884:    Math.floor(opts.searchNoveltyBudget ?? DEFAULT_SEARCH_NOVELTY_BUDGET),
+lib/ai-orchestrator/src/tool-execution-engine.ts:1886:  let searchBudgetRemaining = searchBudgetLimit;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1888:  let searchBudgetExhausted = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1889:  const searchBudgetEnabled = executionMode !== "forensic" && executionMode !== "repair_plan";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1891:    searchBudgetRemaining = Math.max(0, searchBudgetRemaining - 1);
+lib/ai-orchestrator/src/tool-execution-engine.ts:1900:      searchBudgetExhausted = searchBudgetRemaining <= 0;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1901:      return { isNew: false, remaining: searchBudgetRemaining };
+lib/ai-orchestrator/src/tool-execution-engine.ts:1907:      searchBudgetRemaining = searchBudgetLimit;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1909:    searchBudgetExhausted = searchBudgetRemaining <= 0;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1910:    if (!searchBudgetExhausted && isNew) searchBudgetExhausted = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1911:    return { isNew, remaining: searchBudgetRemaining };
+lib/ai-orchestrator/src/tool-execution-engine.ts:1924:  // search-novelty budget: that budget keeps its own duplicate-handling /
+lib/ai-orchestrator/src/tool-execution-engine.ts:1926:  // usable+novel. (Computed for the tool at hand only; reads are gated by
+lib/ai-orchestrator/src/tool-execution-engine.ts:1979:        // Ignore malformed cache keys; the normal tool loop will handle them.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2004:    const requested = allowedToolNames ? new Set(allowedToolNames) : null;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2009:        .filter((name) => isToolAllowedInPhase(phase, name)),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2015:  // First-Evidence Gate: the explicit primary evidence target is always
+lib/ai-orchestrator/src/tool-execution-engine.ts:2016:  // readable as the first source read, even under an allow-list policy. The
+lib/ai-orchestrator/src/tool-execution-engine.ts:2017:  // gate expands tool permission for exactly this one path.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2049:    // then reject the same paths in the model tool loop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2067:    * 4 096 gives synthesis enough room while the existing length-retry and
+lib/ai-orchestrator/src/tool-execution-engine.ts:2078:   * OR-004: Transient error codes that warrant a powerModel retry within
+lib/ai-orchestrator/src/tool-execution-engine.ts:2080:   * retried. EMPTY_RESPONSE gets one bounded same-model retry below because
+lib/ai-orchestrator/src/tool-execution-engine.ts:2084:  let emptyResponseRetryUsed = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2091:  const terminalInvalidToolCall = (error: GroqClientError, iter: number): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2093:    // server-owned manifest. Do not retry it, append a synthetic tool result,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2096:    // generic "failed to send" loop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2103:        details: ["requested tool was rejected by the authorized tool manifest"],
+lib/ai-orchestrator/src/tool-execution-engine.ts:2165:  const callWithEmptyResponseRetry = async (
+lib/ai-orchestrator/src/tool-execution-engine.ts:2170:      return { result: await callWithExecutionBudget(callMessages, callOptions), attemptCount: 1 };
+lib/ai-orchestrator/src/tool-execution-engine.ts:2175:        emptyResponseRetryUsed
+lib/ai-orchestrator/src/tool-execution-engine.ts:2180:      emptyResponseRetryUsed = true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2184:          code: "EMPTY_RESPONSE_RETRY",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2193:          result: await callWithExecutionBudget(callMessages, callOptions),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2196:      } catch (retryErr) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2197:        if (retryErr instanceof GroqClientError) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2199:            `provider failure code: ${retryErr.code}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2202:        throw retryErr;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2207:  const callWithSynthesisBudget = async (
+lib/ai-orchestrator/src/tool-execution-engine.ts:2245:        return await callWithExecutionBudget(callMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2268:    throw lastError ?? new GroqClientError("TIMEOUT", "synthesis attempt budget exhausted");
+lib/ai-orchestrator/src/tool-execution-engine.ts:2283:      result: await callWithSynthesisBudget(callMessages, callOptions),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2306:      const fallback = await callWithSynthesisBudget(callMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2320:  // Anti-starvation guards. The loop must actually start reading source within
+lib/ai-orchestrator/src/tool-execution-engine.ts:2323:  // loop that no single recoverable read can escape.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2329:  // ── Run-budget rebalancing (FEG-009/010) ─────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:2332:  // cannot exhaust the budget on planning before it ever acquires source
+lib/ai-orchestrator/src/tool-execution-engine.ts:2334:  // exhausted while the run still has zero source reads, the loop is forced
+lib/ai-orchestrator/src/tool-execution-engine.ts:2336:  const runBudget = splitRunBudget(maxIterations);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2340:  sourceRetrieval.budgetAllocation = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2341:    planning: runBudget.planning,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2342:    evidence: runBudget.evidence,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2343:    reasoning: runBudget.reasoning,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2350:  // Persistent forced-evidence state (FEG-008). Once the guard trips, the loop
+lib/ai-orchestrator/src/tool-execution-engine.ts:2355:  // or the model synthesizes, so a planner cannot resume orbiting.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2363:  // acquiring real source evidence. This is the DISPATCH gate only: it restricts
+lib/ai-orchestrator/src/tool-execution-engine.ts:2397:  // `initialFileContents` carries source bodies acquired BEFORE the loop
+lib/ai-orchestrator/src/tool-execution-engine.ts:2398:  // (including the eager first-evidence read in `chat-agent`). Those are real,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2401:  // and seed the first-read telemetry with a pre-loop marker. Otherwise a run
+lib/ai-orchestrator/src/tool-execution-engine.ts:2406:  // versus real 0-based loop iterations.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2429:  // A run that exits the loop with ZERO source reads never acquired evidence to
+lib/ai-orchestrator/src/tool-execution-engine.ts:2432:  // can distinguish "investigated and found nothing" from "never got anything
+lib/ai-orchestrator/src/tool-execution-engine.ts:2433:  // to investigate". Prefetch-seeded runs already carry the negative first-read
+lib/ai-orchestrator/src/tool-execution-engine.ts:2436:  // `elapsedIterations` is the loop's actual terminal iteration count (the same
+lib/ai-orchestrator/src/tool-execution-engine.ts:2439:  // iterations, never the full configured budget.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2458:  let loopPhase: AgentLoopPhase = "planning";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2466:    terminalReason?: AgentLoopState["terminalReason"],
+lib/ai-orchestrator/src/tool-execution-engine.ts:2467:  ): AgentLoopState | undefined => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2491:      phase: loopPhase,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2513:  ): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2514:    loopPhase = "terminal";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2546:  const cancelledResult = (): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2547:    loopPhase = "terminal";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2583:  ): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2626:    loopPhase = "planning";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2631:    // At 75 % of the iteration budget, inject a user-turn asking the model to
+lib/ai-orchestrator/src/tool-execution-engine.ts:2742:        !(searchBudgetEnabled && searchBudgetExhausted && tool.function.name === "search_code"),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2747:    // ordinary tool-loop turns as well as the no-tools synthesis window.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2754:            result: await callWithSynthesisBudget(outboundMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2768:        : await callWithEmptyResponseRetry(outboundMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2812:            ? await callWithSynthesisBudget(outboundMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2822:          : await callWithExecutionBudget(outboundMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2917:        // TIMEOUT (already on powerModel, or non-retryable transient): degrade
+lib/ai-orchestrator/src/tool-execution-engine.ts:2972:          // surface a meaningful retryable error to the user.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2979:        // chat agent can run its bounded no-tools contract-recovery attempt
+lib/ai-orchestrator/src/tool-execution-engine.ts:3000:          // after evidence collection, before the loop has emitted its
+lib/ai-orchestrator/src/tool-execution-engine.ts:3002:          // valuable and must reach chat-agent's bounded no-tools recovery;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3082:    // Free-tier reasoning models can spend the entire output budget on a
+lib/ai-orchestrator/src/tool-execution-engine.ts:3086:    // no-tools completion pass with a larger output budget before accepting
+lib/ai-orchestrator/src/tool-execution-engine.ts:3094:      const retryMaxTokens = iterMaxTokens === undefined ? undefined : iterMaxTokens * 2;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3095:      const retryMessages = compactModelMessages([
+lib/ai-orchestrator/src/tool-execution-engine.ts:3107:        const retry = await callWithExecutionBudget(retryMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3109:          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3116:        if (retry.content?.trim()) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3117:          result = retry;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3118:          lastTextSeen = retry;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3122:              code: "TRUNCATED_FINAL_RETRY_ACCEPTED",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3124:              model: retry.model || model,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3126:              retryMaxTokens,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3127:              finishReason: retry.finishReason ?? null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3135:            code: "TRUNCATED_FINAL_RETRY_FAILED",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3146:      loopPhase = "reasoning";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3147:      // Prefetch gives the model source bodies before the first loop call, but
+lib/ai-orchestrator/src/tool-execution-engine.ts:3153:      // normal read→synthesize loop and avoids a redundant provider call.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3232:          // chat agent will still run its strict forensic contract/recovery
+lib/ai-orchestrator/src/tool-execution-engine.ts:3233:          // path, so a failed formatting pass cannot weaken evidence gates.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3237:              code: "PREFETCH_SYNTHESIS_RETRY_FAILED",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3287:    // Some providers still emit tool_calls after the tool schema has been
+lib/ai-orchestrator/src/tool-execution-engine.ts:3296:      loopPhase = "reasoning";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3380:    loopPhase = "evidence";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3503:      // ── Persistent forced-evidence gate (FEG-008) ───────────────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:3505:      // loop stays in forced-evidence mode and ENFORCES it here at dispatch:
+lib/ai-orchestrator/src/tool-execution-engine.ts:3510:      // resume orbiting around the evidence requirement. The state clears when a
+lib/ai-orchestrator/src/tool-execution-engine.ts:3515:      // retry slot without actually testing the pending workspace state.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3535:      if (phase && !isToolAllowedInPhase(phase, tc.function.name)) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3541:            `Tool "${tc.function.name}" is not allowed during the ${phase} phase. ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3548:            details: [`${rejectedTool} is not allowed in ${phase}`],
+lib/ai-orchestrator/src/tool-execution-engine.ts:3556:      if (allowedTools && !allowedTools.has(tc.function.name)) {

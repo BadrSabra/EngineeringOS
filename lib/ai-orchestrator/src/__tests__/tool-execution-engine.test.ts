@@ -16,6 +16,7 @@ import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage, RawGroqResponse } from "../groq-client.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import { GroqClientError } from "../errors.js";
+import { createExecutionLedger } from "../execution-ledger.js";
 import {
   _resetBehavioralScorecardForTest,
   getBehavioralScorecard,
@@ -1477,6 +1478,44 @@ describe("executeToolLoop", () => {
       expect(result.fileContents?.get("src/prefetched.ts")).toBe("export const verified = true;");
     }
     expect(strategy.call).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a completed read when the shared ledger rejects the next retry", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const controller = new AbortController();
+    const ledger = createExecutionLedger({
+      signal: controller.signal,
+      budget: { deadlineMs: 10_000, modelCalls: 8 },
+    });
+    FILE_TOOL_MOCK.mockImplementationOnce(async () => {
+      controller.abort();
+      return "verified source evidence";
+    });
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/verified.ts" })]),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 4,
+      executionMode: "forensic",
+      executionLedger: ledger,
+    });
+
+    expect(result.kind).toBe("partial");
+    if (result.kind === "partial") {
+      expect(result.reason).toBe("provider_timeout");
+      expect(result.fileContents?.get("src/verified.ts")).toBe("verified source evidence");
+      expect(result.sourceRetrieval?.uniqueReads).toBe(1);
+    }
+    expect(ledger.snapshot().terminalReason).toBe("cancelled");
   });
 
   it("does not record a failed read as a source or file content", async () => {

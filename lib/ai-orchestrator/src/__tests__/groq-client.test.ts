@@ -176,6 +176,74 @@ describe("groq-client", () => {
     expect(create).toHaveBeenCalledTimes(2);
   });
 
+  it("cancels retry backoff immediately and records only the attempted request", async () => {
+    vi.useFakeTimers();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const create = vi.fn().mockRejectedValue(new Error("ECONNRESET"));
+      vi.doMock("groq-sdk", () => ({
+        default: class {
+          chat = { completions: { create } };
+        },
+      }));
+      const { complete } = await import("../groq-client.js");
+      const controller = new AbortController();
+      const { createExecutionLedger } = await import("../execution-ledger.js");
+      const ledger = createExecutionLedger({
+        signal: controller.signal,
+        budget: { deadlineMs: 10_000, providerAttempts: 8 },
+      });
+      const pending = complete(
+        [{ role: "user", content: "hi" }],
+        { maxRetries: 3, executionLedger: ledger },
+      );
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      controller.abort();
+      await expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(ledger.snapshot().counts.provider_attempt).toBe(1);
+    } finally {
+      randomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects a provider attempt after the shared deadline without sending it", async () => {
+    vi.useFakeTimers();
+    try {
+      const create = vi.fn();
+      vi.doMock("groq-sdk", () => ({
+        default: class {
+          chat = { completions: { create } };
+        },
+      }));
+      const { complete } = await import("../groq-client.js");
+      const { createExecutionLedger } = await import("../execution-ledger.js");
+      const ledger = createExecutionLedger({
+        budget: { deadlineMs: 1_000, providerAttempts: 8 },
+      });
+      vi.advanceTimersByTime(1_000);
+
+      await expect(
+        complete([{ role: "user", content: "hi" }], {
+          maxRetries: 3,
+          executionLedger: ledger,
+        }),
+      ).rejects.toMatchObject({ code: "TIMEOUT" });
+      expect(create).not.toHaveBeenCalled();
+      expect(ledger.snapshot().events.at(-1)).toMatchObject({
+        kind: "provider_attempt",
+        status: "rejected",
+        reason: "deadline",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gives up after maxRetries transient failures with NETWORK_ERROR", async () => {
     const create = vi.fn().mockRejectedValue(new Error("ECONNRESET"));
     vi.doMock("groq-sdk", () => ({

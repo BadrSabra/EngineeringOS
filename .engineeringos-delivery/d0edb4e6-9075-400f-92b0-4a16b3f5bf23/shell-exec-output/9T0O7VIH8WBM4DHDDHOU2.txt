@@ -1,0 +1,154 @@
+lib/ai-orchestrator/src/execution-ledger.ts
+9:export type ExecutionMode =
+16:export type ExecutionAttemptKind =
+26:export type ExecutionTerminalReason =
+36:export type ExecutionLedgerBudget = {
+48:export type ExecutionLedgerEvent = {
+59:export type ExecutionLedgerSnapshot = {
+74:export type ExecutionLedger = {
+126:export function createExecutionLedger(options?: {
+
+lib/ai-orchestrator/src/session-memory.ts
+26:  type InsertAiSessionMemory,
+29:import type { ProjectContext } from "./context-builder.js";
+47:export type MemoryRow = typeof aiSessionMemoriesTable.$inferSelect;
+55:export async function fetchSessionMemories(
+93:export async function writeSessionMemories(
+177:export function formatMemoriesForPrompt(memories: MemoryRow[]): string | null {
+214:export async function enrichContextWithMemories(
+236:export async function sweepExpiredMemories(): Promise<void> {
+288: * @returns           A stop function that cancels the interval.
+290:export function startMemorySweep(
+
+lib/ai-orchestrator/src/task-session-state.ts
+5:  type ForensicTaskType,
+6:  type OutputContract,
+8:import type { ClassifiedRequest } from "./prompts/profile-classifier.js";
+12:  type ObjectiveContract,
+13:  type RepairPlanMetadata,
+17:  type ImplementationPlan,
+70:export type ExecutionPlanClaim = z.infer<typeof ExecutionPlanClaimSchema>;
+83:export type ExecutionPlanBoundaries = z.infer<typeof ExecutionPlanBoundariesSchema>;
+110:export type ExecutionNode = z.infer<typeof ExecutionNodeSchema>;
+140:export type ActiveTaskExecutionPlan = z.infer<typeof ActiveTaskExecutionPlanSchema>;
+160:export type ActiveTaskState = z.infer<typeof ActiveTaskStateSchema>;
+162:function uniquePaths(paths: string[], max: number): string[] {
+170:function sourceRootForFile(file: string): string {
+175:function executionNodeId(phase: RepairPlanMetadata, index: number): string {
+179:function implementationNodeId(stepId: string): string {
+183:function isSupportedImplementationWriteAction(action: ImplementationPlan["steps"][number]["action"]): boolean {
+187:function hasUnsupportedImplementationBuildAction(plan: ImplementationPlan): boolean {
+196:export function buildImplementationExecutionNodes(
+224:export function buildExecutionNodes(phases: readonly RepairPlanMetadata[]): ExecutionNode[] {
+251:function normalizedNodeFiles(node: ExecutionNode): Set<string> {
+255:function hasFileOverlap(left: Set<string>, right: Set<string>): boolean {
+267:export function getRunnableExecutionNodes(
+300:export function transitionExecutionNode(
+306:  if (!node) throw new Error(`Unknown execution node: ${nodeId}`);
+308:    throw new Error(`Invalid execution node transition: ${node.status} -> ${nextStatus}`);
+313:    throw new Error(`Execution node attempt budget exhausted: ${nodeId}`);
+321:function phaseStatus(phase: RepairPlanMetadata): ExecutionPlanClaim["status"] {
+334:export function buildActiveTaskExecutionPlan(args: {
+445:export function isImplementationPlanContinuation(
+456:export function advanceImplementationPlan(
+481:  /^(?:continue|resume|continue\s+(?:the\s+)?(?:investigation|analysis|audit)|resume\s+(?:the\s+)?(?:investigation|analysis|audit)|proceed|start|begin|go\s+ahead|do\s+it|keep\s+going|retry|try\s+again|regenerate(?:\s+the)?\s+(?:report|audit|plan)|rerun(?:\s+the)?\s+(?:report|audit|plan))[\s!.?,:;]*$/i,
+485:export function parseActiveTaskState(value: string | null | undefined): ActiveTaskState | null {
+498:export function serializeActiveTaskState(value: ActiveTaskState | null | undefined): string | null {
+503:export function isTaskContinuationRequest(message: string): boolean {
+508:export function isResumableTaskType(taskType: ForensicTaskType): boolean {
+512:export function buildActiveTaskState(args: {
+541:export function touchActiveTaskState(state: ActiveTaskState, now = new Date()): ActiveTaskState {
+549:export function mergeActiveTaskEvidence(
+573:export function resumeActiveTaskClassification(
+577:): { classification: ClassifiedRequest; resumed: boolean } {
+584:    return { classification, resumed: false };
+601:    resumed: true,
+
+lib/ai-orchestrator/src/tool-execution-engine.ts
+20:import type {
+26:import type { ProductionReachabilityTrace } from "./semantic-trace.js";
+27:import type { CanonicalSourceCoverage, RepairBlockReason } from "./evidence-integrity.js";
+28:import type { RawMessage, RawGroqResponse } from "./groq-client.js";
+29:import type { ProviderStrategy } from "./provider-strategy.js";
+30:import { createExecutionLedger, type ExecutionLedger } from "./execution-ledger.js";
+31:import type { ModelCapability } from "./openrouter/model-catalog.js";
+32:import { authorizeToolInvocation, type ToolDefinitionLike } from "./tool-policy.js";
+33:import type { PendingChange } from "./schemas/chat.schema.js";
+34:import type { TaskType } from "./quality/task-profile.js";
+35:import { getPhaseBudget, isToolAllowedInPhase, type ExecutionPhase } from "./quality/execution-phases.js";
+39:  type ObjectiveScopePolicy,
+40:  type ScopeExpansion,
+50:  type RepairLoopState,
+51:  type ValidationRunner,
+52:  type BrowserValidationRunner,
+57:  type AnalysisToolRunner,
+58:  type AnalysisCorrelation,
+63:import type { ForensicRootCoverage } from "./forensic-output-guard.js";
+64:import type { ValidationResult } from "./validation-result.js";
+95:function syntheticValidationResult(
+119:function parseCommandStatus(
+146:export type RunBudgetCategories = {
+153:export function splitRunBudget(maxIterations: number): RunBudgetCategories {
+172:function pendingChangesFingerprint(changes: readonly PendingChange[]): string {
+183:type RepairPatchSnapshot = Map<string, string>;
+188:function snapshotPendingChanges(changes: readonly PendingChange[]): RepairPatchSnapshot {
+202:function compactFileDiff(
+266:function buildRepairAttemptDiff(
+288:function untrustedToolOutput(name: string, output: string, args: Record<string, string>): string {
+309:export function toolCacheKey(name: string, args: Record<string, string>): string {
+319:type SearchMatch = { path: string; line: number };
+321:function extractSearchMatches(text: string): SearchMatch[] {
+339:function duplicateSearchGuidance(
+367:function duplicateSearchSynthesisSummary(
+413:export type SingleToolOpts = {
+450:export type SingleToolResult =
+479:function isUsableReadOutput(output: string): boolean {
+500:export type ReadStatus =
+512:export function classifyReadStatus(toolName: string, output: string): ReadStatus {
+534:function hasReadTruncationMarker(output: string): boolean {
+542: * underlying tool can return a non-error result whose window carries no source
+548:function hasUsableSourceBody(output: string): boolean {
+557:export type SourceRetrievalTelemetry = {
+664:export function createSourceRetrievalTelemetry(): SourceRetrievalTelemetry {
+680:export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToolResult> {
+708:    const authorization = authorizeToolInvocation({
+714:      ...(opts.allowedToolNames ? { allowedTools: opts.allowedToolNames } : {}),
+716:    if (!authorization.allowed) {
+721:        safeMessage: `Tool "${name}" was blocked by the server authorization gate (${authorization.reason}).`,
+770:            // provider retry/resume; the analysis tool validates it before
+878:function stripOrphanedToolMessages(messages: RawMessage[]): RawMessage[] {
+946:function boundSynthesisToolText(content: string, remaining: number): string {
+960:function compactModelMessages(messages: RawMessage[]): RawMessage[] {
+979:export type AgentLoopPhase = "planning" | "evidence" | "reasoning" | "recovery" | "terminal";
+986:export type AgentLoopObjective = {
+995:export type AgentLoopClaimState = {
+1001:export type AgentLoopState = {
+1021:export type ToolLoopOpts = {
+1266:export type ToolLoopResult =
+1361:export type AgentDiagnosticCode =
+1442:export type AgentStep =
+1667:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+1747:      throw new GroqClientError(
+2003:  const allowedTools = (() => {
+2355:  // or the model synthesizes, so a planner cannot resume orbiting.
+3510:      // resume orbiting around the evidence requirement. The state clears when a
+3556:      if (allowedTools && !allowedTools.has(tc.function.name)) {
+3686:      // (from_file), which symbol/function within it references it
+3762:              "read successfully this run, from_symbol to the caller/import/function reference inside it, " +
+4380:          // that resumes AFTER this successful read can be re-forced by a later
+
+lib/ai-orchestrator/src/tool-policy.ts
+7:import { getProvider, type ProviderId } from "./provider-registry.js";
+8:import { FILE_TOOL_DEFINITIONS, type ToolDefinition } from "./tools/file-tools.js";
+9:import { GIT_TOOL_DEFINITIONS, type GitToolDefinition } from "./tools/git-tools.js";
+13:export type ToolMode = "workspace" | "read-only";
+15:export type ToolDefinitionLike = ToolDefinition | GitToolDefinition;
+17:export type ToolPolicy = {
+30:export type ToolAuthorization = {
+53:export function resolveToolPolicy(opts: {
+127:export function isToolAllowed(policy: ToolPolicy, toolName: string): boolean {
+137:export function getAllowedToolDefinitions(policy: ToolPolicy): ToolDefinitionLike[] {
+144: * Server-side post-model-turn authorization. Prompt text and repository data
+147:export function authorizeToolInvocation(opts: {
+150:  allowedTools?: ReadonlySet<string>;
+157:  if (opts.allowedTools && !opts.allowedTools.has(opts.toolName)) {

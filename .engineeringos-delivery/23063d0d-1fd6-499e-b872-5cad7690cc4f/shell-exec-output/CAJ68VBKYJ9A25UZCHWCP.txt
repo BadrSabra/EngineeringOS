@@ -1,0 +1,271 @@
+lib/ai-orchestrator/src/agents/chat-agent.ts:89:import { createExecutionLedger, type ExecutionLedger } from "../execution-ledger.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:1666:              maxTokens: retry ? 500 : 900,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3097:    maxTokens: 4096,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3128:    maxTokens: 4096,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3557:    createExecutionLedger({
+lib/ai-orchestrator/src/agents/chat-agent.ts:3560:      budget: { modelCalls: BUDGET_BY_SCOPE.tool_chat.maxIterations, toolCalls: BUDGET_BY_SCOPE.tool_chat.maxToolCalls },
+lib/ai-orchestrator/src/agents/chat-agent.ts:8374:          maxTokens: 1024,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8453:            maxTokens: 3072,
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:625:      maxTokens: SYNTHESIS_MAX_TOKENS,
+lib/ai-orchestrator/src/agents/query-planner.ts:774:      maxTokens: 512,
+artifacts/api-server/src/routes/ai/workflows.ts:26:import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/workflows.ts:98:  const rlOrch = await checkProjectRateLimitDb(workflow.projectId);
+artifacts/api-server/src/routes/ai/workflows.ts:101:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlOrch.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/tasks.ts:24:import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/tasks.ts:83:  const rlExecute = await checkProjectRateLimitDb(task.projectId);
+artifacts/api-server/src/routes/ai/tasks.ts:86:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/tasks.ts:465:      const rl = await checkProjectRateLimitDb(task.projectId);
+artifacts/api-server/src/routes/ai/chat.ts:139:import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/chat.ts:2048:  const rlChat = await checkProjectRateLimitDb(projectId);
+artifacts/api-server/src/routes/ai/chat.ts:2051:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/chat.ts:2635:  const rlChat = await checkProjectRateLimitDb(projectId);
+artifacts/api-server/src/routes/ai/chat.ts:2638:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/analysis.ts:27:import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/analysis.ts:340:  const rlAnalyze = await checkProjectRateLimitDb(projectId);
+artifacts/api-server/src/routes/ai/analysis.ts:463:  const rlReview = await checkProjectRateLimitDb(projectId);
+artifacts/api-server/src/routes/ai/analysis.ts:580:  const rlAnalyze = await checkProjectRateLimitDb(projectId);
+artifacts/api-server/src/routes/ai/analysis.ts:744:  const rlReview = await checkProjectRateLimitDb(projectId);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:285:  checkProjectRateLimitDb: vi.fn().mockResolvedValue({ allowed: true }),
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:286:  LLM_RATE_LIMIT: 30,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:311:import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:534:  vi.mocked(checkProjectRateLimitDb).mockReset();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:543:  vi.mocked(checkProjectRateLimitDb).mockResolvedValue({ allowed: true });
+/**
+ * AI task execution routes + auto-trigger scheduler.
+ *
+ * POST /api/ai/tasks/:taskId/execute
+ * export scheduleAiTaskExecution
+ */
+import { Router } from "express";
+import { randomUUID } from "crypto";
+import { db } from "@workspace/db";
+import {
+  tasksTable,
+  taskLogsTable,
+  eventsTable,
+} from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import {
+  buildProjectContext,
+  invalidateContextCache,
+  executeTask,
+} from "@workspace/ai-orchestrator";
+import { recordAudit } from "../../lib/audit.js";
+import { logger } from "../../lib/logger.js";
+import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+import { heavyJobQueue } from "../../lib/job-queue.js";
+import {
+  requireProvider,
+  resolveProvider,
+  handleOrchestratorError,
+  runAgentWithFallback,
+} from "../../lib/ai-route-helpers.js";
+import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+import { buildRuleVerificationChecks } from "../../lib/remediation-plan.js";
+
+const router = Router();
+
+class TaskStateConflictError extends Error {}
+
+function pendingPlanVerificationSteps(
+  plan: typeof tasksTable.$inferSelect["remediationPlan"],
+) {
+  if (!plan) return [];
+  const checks = plan.verificationChecks?.length
+    ? plan.verificationChecks
+    : buildRuleVerificationChecks(plan.verificationSteps ?? []);
+  return checks.map((check) => ({
+    id: check.id,
+    name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+    kind: check.kind,
+    guidance: check.guidance,
+    passed: false,
+    output: "Not recorded — operator evidence is required",
+  }));
+}
+
+// ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
+
+router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+  const { taskId } = req.params;
+
+  const [task] = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+
+  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+  if (!ownerProject) return;
+
+  if (!["pending", "queued", "verifying"].includes(task.status)) {
+    return res
+      .status(409)
+      .json({ error: `Cannot AI-execute task with status "${task.status}"` });
+  }
+
+  const providerResolved = await requireProvider(req.userId, res, {
+    qualityProfile: "task_execution",
+  });
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
+
+  const rlExecute = await checkProjectRateLimitDb(task.projectId);
+  if (!rlExecute.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
+    });
+  }
+
+  let lifecycle: Awaited<ReturnType<typeof executeTaskLifecycle>>;
+import { pgTable, text, timestamp, pgEnum, index, real } from "drizzle-orm/pg-core";
+import { projectsTable } from "./projects.js";
+import { tasksTable } from "./tasks.js";
+
+export const aiMessageRoleEnum = pgEnum("ai_message_role", [
+  "user",
+  "assistant",
+  "system",
+]);
+
+export const aiChatSessionsTable = pgTable("ai_chat_sessions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projectsTable.id, { onDelete: "cascade" }),
+  title: text("title").notNull().default("New Chat"),
+  /**
+   * AI-TASK-001: Optional permanent link to a task so the chat agent operates
+   * in task-aware mode. Nullable FK — cleared automatically when the task is
+   * deleted; remains valid as long as the task exists.
+   */
+  linkedTaskId: text("linked_task_id")
+    .references(() => tasksTable.id, { onDelete: "set null" }),
+  /**
+   * Verified resumable task contract for short continuation messages such as
+   * "أكمل" or "ابدأ". Stored as validated JSON so the next request can resume
+   * the task contract without trusting prose from the conversation history.
+   */
+  activeTaskState: text("active_task_state"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  // Covers: WHERE project_id = ? (session list for a project)
+  index("idx_ai_chat_sessions_project_id").on(t.projectId),
+  // Covers: WHERE project_id = ? ORDER BY updated_at DESC (most-recent sessions)
+  index("idx_ai_chat_sessions_project_id_updated_at").on(t.projectId, t.updatedAt),
+  // Covers: WHERE linked_task_id = ? (find all sessions for a task)
+  index("idx_ai_chat_sessions_linked_task_id").on(t.linkedTaskId),
+]);
+
+export const aiChatMessagesTable = pgTable("ai_chat_messages", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => aiChatSessionsTable.id, { onDelete: "cascade" }),
+  role: aiMessageRoleEnum("role").notNull(),
+  content: text("content").notNull(),
+  /** JSON array of source strings (file paths, node names, etc.) */
+  sources: text("sources"),
+  /** JSON array of bounded execution-trace metadata; never part of report content. */
+  toolTrace: text("tool_trace"),
+  /** JSON array of server-verified executable Repair Plan phases. */
+  repairPlanMetadata: text("repair_plan_metadata"),
+  /** JSON array of accepted behavior-evidence references, each with an optional exact source line span. */
+  behaviorEvidence: text("behavior_evidence"),
+  /** Versioned, redacted mission correlation report for historical run messages. */
+  missionCorrelationReport: text("mission_correlation_report"),
+  /** Server-authoritative routing decision for this conversational turn. */
+  turnIntent: text("turn_intent"),
+  /** Durable execution linked to this turn, when the turn used one. */
+  executionId: text("execution_id"),
+  /** Terminal outcome; failed/interrupted turns are retained without an answer. */
+  outcome: text("outcome"),
+  /** Bounded provider/execution failure code for an auditable failed turn. */
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+  /**
+   * Serialized AI-008 per-task typed result (discriminated on `kind` by
+   * forensicTaskType). Persisted so a reloaded/history session can re-render the
+   * structured panel; null for generic chat turns that map to no typed contract.
+
+  // Merge circuit state into each metric snapshot; include all known providers
+  // even if no requests have been recorded yet (so the UI always has an entry).
+  const enriched = PROVIDER_PRIORITY.map((provider) => {
+    const metric = metricsMap.get(provider) ?? {
+      provider,
+      requests: 0, failures: 0, fallbackSuccesses: 0, invalidModels: 0,
+      p50LatencyMs: null, p95LatencyMs: null, avgLatencyMs: null,
+      successRate: null, lastSuccessAt: null, lastFailureAt: null,
+      consecutiveFailures: 0,
+    };
+    const circuit = getCircuitState(provider);
+    const isConfigured = configured.has(provider) || serverConfigured.has(provider);
+    const isCatalogStale =
+      provider === "openrouter" &&
+      isConfigured &&
+      catalog.loaded &&
+      (!catalog.usable || catalog.lastRefreshStatus === "failed" || catalog.lastRefreshStatus === "empty");
+    const availabilityState = !isConfigured
+      ? "missing_credentials"
+      : circuit.open
+        ? "circuit_open"
+        : isCatalogStale
+          ? "catalog_stale"
+          : metric.requests === 0
+            ? "unknown"
+            : metric.consecutiveFailures > 0 || (metric.successRate !== null && metric.successRate < 0.8)
+              ? "degraded"
+              : "healthy";
+    return {
+      ...metric,
+      configured: isConfigured,
+      availabilityState,
+      operatorAction: !isConfigured
+        ? "Save an API key for this provider to enable it."
+        : circuit.open
+          ? "Wait for the cooldown to finish, then retry or configure another provider."
+          : isCatalogStale
+            ? "Retry shortly so the model catalog can refresh; configure another provider if it persists."
+            : null,
+      correlationId: randomUUID(),
+      circuitOpen:         circuit.open,
+      circuitHalfOpen:     circuit.halfOpen,
+      cooldownRemainingMs: circuit.cooldownRemainingMs,
+    };
+  });
+
+  return res.json({
+    metrics: enriched,
+    catalog: {
+      loaded: catalog.loaded,
+      usable: catalog.usable,
+      ageMs: catalog.ageMs,
+      lastRefreshStatus: catalog.lastRefreshStatus,
+    },
+    behavioralScorecards: getBehavioralScorecards(),
+  });
+});
+
+// ── Backward-compat aliases ───────────────────────────────────────────────────
+// Delegates to the generic handlers — preserves existing clients without change.
+
+router.get("/ai/groq-key",        (req, res) => handleGetKey(req, res, "groq"));
+router.put("/ai/groq-key",        (req, res) => handlePutKey(req, res, "groq"));
+router.delete("/ai/groq-key",     (req, res) => handleDeleteKey(req, res, "groq"));
+
+router.get("/ai/deepseek-key",    (req, res) => handleGetKey(req, res, "deepseek"));
+router.put("/ai/deepseek-key",    (req, res) => handlePutKey(req, res, "deepseek"));
+router.delete("/ai/deepseek-key", (req, res) => handleDeleteKey(req, res, "deepseek"));
+
+router.get("/ai/openrouter-key",    (req, res) => handleGetKey(req, res, "openrouter"));
+router.put("/ai/openrouter-key",    (req, res) => handlePutKey(req, res, "openrouter"));
+router.delete("/ai/openrouter-key", (req, res) => handleDeleteKey(req, res, "openrouter"));
+
+router.get("/ai/gemini-key",    (req, res) => handleGetKey(req, res, "gemini"));
+router.put("/ai/gemini-key",    (req, res) => handlePutKey(req, res, "gemini"));
+router.delete("/ai/gemini-key", (req, res) => handleDeleteKey(req, res, "gemini"));
+
+export default router;

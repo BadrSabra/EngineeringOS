@@ -1,0 +1,90 @@
+lib/api-client-react/src/use-ai-chat-stream.ts:178:  resumeToken?: string;
+lib/api-client-react/src/use-ai-chat-stream.ts:721:  resumeToken?: string;
+lib/api-client-react/src/use-ai-chat-stream.ts:955:  const executionRef = useRef<{ id: string; resumeToken?: string } | null>(null);
+lib/api-client-react/src/use-ai-chat-stream.ts:967:      executionRef.current = { id: params.executionId, resumeToken: params.resumeToken };
+lib/api-client-react/src/use-ai-chat-stream.ts:982:          ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+lib/api-client-react/src/use-ai-chat-stream.test.ts:176:        resumeToken: 'resume-token-from-eof',
+lib/api-client-react/src/use-ai-chat-stream.test.ts:223:        resumeToken: 'resume-token-from-eof',
+lib/api-client-react/src/use-ai-chat-stream.test.ts:231:      resumeToken: 'resume-token-from-eof',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:122:      resumeToken?: string;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:179:            resumeToken?: string;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:453:      resumeToken: 'opaque-resume-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:466:      resumeToken: 'opaque-resume-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:478:      resumeToken: 'resume-token-interrupted',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:489:      resumeToken: 'resume-token-interrupted',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:555:      expect(JSON.parse(localStorage.getItem('eos_ai_execution_project-1_session-1') ?? '{}').resumeToken)
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:561:      resumeToken: 'recovered-opaque-resume-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:595:      resumeToken: 'opaque-resume-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:605:      resumeToken: 'opaque-resume-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:636:      resumeToken: 'opaque-resume-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:701:      resumeToken: 'resume-old',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:736:      resumeToken: 'resume-alpha',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:744:      resumeToken: 'resume-beta',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2293:        resumeToken: 'opaque-resume-token',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2553:        resumeToken: 'resume-after-disconnect',
+lib/api-client-react/src/generated/api.ts:5590: *      "resumeToken": "..." | undefined, "resumable": true }
+lib/api-client-react/src/generated/api.ts:5591: *      — Durable execution identity. Store the executionId and resumeToken outside
+artifacts/dashboard/src/pages/AiChat.tsx:314:  resumeToken?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:7511:      execution.resumeToken ||
+artifacts/dashboard/src/pages/AiChat.tsx:7528:          resumeToken?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:7531:        if (!response.ok || body.executionId !== execution.id || !body.resumeToken) {
+artifacts/dashboard/src/pages/AiChat.tsx:7535:        const recovered = { ...execution, resumeToken: body.resumeToken };
+artifacts/dashboard/src/pages/AiChat.tsx:7575:    activeExecution?.resumeToken,
+artifacts/dashboard/src/pages/AiChat.tsx:8518:      resumeToken?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:8602:         resumeToken: options?.resumeToken,
+artifacts/dashboard/src/pages/AiChat.tsx:8613:            ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+artifacts/dashboard/src/pages/AiChat.tsx:9044:    if (!execution?.resumeToken) {
+artifacts/dashboard/src/pages/AiChat.tsx:9055:      resumeToken: execution.resumeToken,
+artifacts/dashboard/src/pages/AiChat.tsx:9906:                    disabled={!activeExecution.resumeToken && !resumeRecoveryError}
+artifacts/dashboard/src/pages/AiChat.tsx:9909:                    {resumeRecoveryError ? 'Retry' : activeExecution.resumeToken ? 'Resume' : 'Recovering…'}
+lib/api-client-react/src/generated/api.schemas.ts:957:  resumeToken?: string;
+lib/api-client-react/src/generated/api.schemas.ts:3411:  resumeToken: string;
+lib/api-client-react/src/generated/api.schemas.ts:3429:  resumeToken?: string | null;
+artifacts/api-server/src/lib/task-execution-retention.test.ts:115:      resumeTokenHash: "retention-concurrency-test-hash",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:234:        resumeTokenHash: "retention-receipt-concurrency-test-racing-hash",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:248:        resumeTokenHash: "retention-receipt-concurrency-test-eligible-hash",
+artifacts/api-server/src/lib/ai-execution-state.ts:531:export function hashResumeToken(token: string): string {
+artifacts/api-server/src/lib/ai-execution-state.ts:950:}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+artifacts/api-server/src/lib/ai-execution-state.ts:975:  const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:1002:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:1020:  if (execution) return { execution, resumeToken, created: true };
+artifacts/api-server/src/lib/ai-execution-state.ts:1060:}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+artifacts/api-server/src/lib/ai-execution-state.ts:1061:  const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:1065:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:1074:  return execution ? { execution, resumeToken } : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1089:  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1183:    const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:1189:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:1198:      ? { execution: updated, outcome: "resume_accepted", resumeToken }
+artifacts/api-server/src/lib/ai-execution-state.ts:1232:  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1235:  const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1289:      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+artifacts/api-server/src/lib/ai-execution-state.test.ts:25:    resumeTokenHash: "hash",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:140:    expect(response.body.executions[0]?.resumeToken).toBeUndefined();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:599:      resumeToken: expect.any(String),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:601:    expect(recovered.body.resumeToken).not.toBe(created.resumeToken);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:606:      resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:612:      resumeToken: recovered.body.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:622:    expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:737:        expect(created.resumeToken).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:747:            resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:787:            resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:910:    expect(created.resumeToken).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:957:        resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1040:    expect(created.resumeToken).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1105:        resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1267:    expect(created.resumeToken).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1335:        resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4201:      | { executionId?: string; resumeToken?: string }
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4207:    expect(started?.resumeToken).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4218:        resumeToken: started?.resumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:2579:    resumeToken: z.string().min(32).max(128).optional(),
+artifacts/api-server/src/routes/ai/chat.ts:2603:    resumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:2613:  const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
+artifacts/api-server/src/routes/ai/chat.ts:3061:        resumeToken: effectiveResumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:3087:      executionResumeToken = created.resumeToken;
+artifacts/api-server/src/routes/ai/chat.ts:3253:      ...(executionResumeToken ? { resumeToken: executionResumeToken } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:5037:    ...(recovered.resumeToken ? { resumeToken: recovered.resumeToken } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:5049:      resumeToken: recovered.resumeToken,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:70:    resumeTokenHash: "test-token-hash",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:938:        resumeToken: "stale-resume-token-that-is-long-enough",

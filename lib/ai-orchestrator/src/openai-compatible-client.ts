@@ -28,6 +28,7 @@ import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionPhase } from "./quality/execution-phases.js";
 import { getPhaseBudget } from "./quality/execution-phases.js";
+import type { ExecutionLedger } from "./execution-ledger.js";
 import {
   createContentOnlyStreamGuard,
   normalizeProviderResponse,
@@ -60,6 +61,8 @@ export type OpenAICompatibleOptions = {
   extraHeaders?: Record<string, string>;
   /** Abort the active provider request when the caller cancels execution. */
   signal?: AbortSignal;
+  /** Shared request budget used for each network retry/fallback attempt. */
+  executionLedger?: ExecutionLedger;
 };
 
 export type OpenAICompatibleStreamOptions = Omit<
@@ -274,7 +277,51 @@ export const _trimMessagesForOpenRouter = trimMessagesForOpenRouter;
 export const _groupMessages = groupMessages;
 
 /** Resolve after `ms` milliseconds (used for retry back-off). */
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new GroqClientError("TIMEOUT", "Provider retry backoff cancelled"));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new GroqClientError("TIMEOUT", "Provider retry backoff cancelled"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+function admitProviderAttempt(
+  ledger: ExecutionLedger | undefined,
+  provider: string,
+  model: string,
+): number {
+  const startedAt = Date.now();
+  if (ledger && !ledger.admit("provider_attempt", { provider, model, operation: "provider_request" })) {
+    throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
+  }
+  return startedAt;
+}
+
+function completeProviderAttempt(
+  ledger: ExecutionLedger | undefined,
+  provider: string,
+  model: string,
+  startedAt: number,
+  error?: unknown,
+): void {
+  ledger?.complete("provider_attempt", {
+    provider,
+    model,
+    operation: "provider_request",
+    startedAt,
+    status: error ? "failed" : "completed",
+    ...(error instanceof Error ? { reason: error.message } : {}),
+  });
+}
 
 /** Return the value only when it is a real string; otherwise ignore it. */
 function asString(value: unknown): string | undefined {
@@ -609,7 +656,7 @@ function classifyStatus(
  * Non-streaming chat completion against any OpenAI-compatible endpoint.
  * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
  */
-export async function oacCompleteRaw(
+async function oacCompleteRawUntracked(
   messages: RawMessage[],
   opts: OpenAICompatibleOptions,
 ): Promise<RawGroqResponse> {
@@ -814,11 +861,31 @@ export async function oacCompleteRaw(
   return { ...normalized, content, toolCalls };
 }
 
+export async function oacCompleteRaw(
+  messages: RawMessage[],
+  opts: OpenAICompatibleOptions,
+): Promise<RawGroqResponse> {
+  const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
+  const startedAt = admitProviderAttempt(opts.executionLedger, opts.providerName, model);
+  let error: unknown;
+  try {
+    return await oacCompleteRawUntracked(messages, {
+      ...opts,
+      signal: opts.signal ?? opts.executionLedger?.signal,
+    });
+  } catch (err) {
+    error = err;
+    throw err;
+  } finally {
+    completeProviderAttempt(opts.executionLedger, opts.providerName, model, startedAt, error);
+  }
+}
+
 /**
  * Streaming chat completion against any OpenAI-compatible endpoint.
  * Yields content deltas in the same way as groq-client's `completeStream()`.
  */
-export async function* oacCompleteStream(
+async function* oacCompleteStreamUntracked(
   messages: RawMessage[],
   opts: OpenAICompatibleStreamOptions,
 ): AsyncGenerator<string> {
@@ -964,6 +1031,26 @@ export async function* oacCompleteStream(
   }
 }
 
+export async function* oacCompleteStream(
+  messages: RawMessage[],
+  opts: OpenAICompatibleStreamOptions,
+): AsyncGenerator<string> {
+  const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
+  const startedAt = admitProviderAttempt(opts.executionLedger, opts.providerName, model);
+  let error: unknown;
+  try {
+    yield* oacCompleteStreamUntracked(messages, {
+      ...opts,
+      signal: opts.signal ?? opts.executionLedger?.signal,
+    });
+  } catch (err) {
+    error = err;
+    throw err;
+  } finally {
+    completeProviderAttempt(opts.executionLedger, opts.providerName, model, startedAt, error);
+  }
+}
+
 // ── Pre-built OpenRouter client functions ─────────────────────────────────────
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -990,6 +1077,7 @@ export async function openrouterCompleteRaw(
     providerName: "OpenRouter",
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
+  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
 
   try {
     return await oacCompleteRaw(trimmed, fullOpts);
@@ -1029,7 +1117,7 @@ export async function openrouterCompleteRaw(
         backoffMs: 1500,
       }),
     );
-    await sleep(1500);
+    await sleep(1500, retrySignal);
     return oacCompleteRaw(trimmed, fullOpts);
   }
 }
@@ -1219,6 +1307,7 @@ export async function* openrouterCompleteStream(
     providerName: "OpenRouter",
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
+  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
 
   const capability = opts.capability;
   const initialModel = opts.model;
@@ -1281,7 +1370,7 @@ export async function* openrouterCompleteStream(
           providerError.retryAfterMs === undefined
         ) {
           transientRetried = true;
-          await sleep(1500);
+          await sleep(1500, retrySignal);
           continue;
         }
         const canAdvance = isModelUnavailableError(providerError) ||

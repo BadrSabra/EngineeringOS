@@ -13,6 +13,7 @@
 import type { RawMessage, ToolDefinition, RawGroqResponse } from "./groq-client.js";
 import type { ModelCapability } from "./openrouter/model-catalog.js";
 import type { TaskType } from "./quality/task-profile.js";
+import type { ExecutionLedger } from "./execution-ledger.js";
 
 export type { RawMessage, ToolDefinition, RawGroqResponse };
 
@@ -43,6 +44,8 @@ export type StrategyCallOptions = {
   apiKey?: string;
   /** Caller-owned cancellation signal for the active provider request. */
   signal?: AbortSignal;
+  /** Request-owned budget propagated into provider retry/fallback loops. */
+  executionLedger?: ExecutionLedger;
   tools?: ToolDefinition[];
   /** Full authorized execution manifest used to validate stale per-iteration calls. */
   toolManifest?: ToolDefinition[];
@@ -67,6 +70,8 @@ export type StrategyStreamOptions = {
   apiKey?: string;
   /** Caller-owned cancellation signal for the active provider stream. */
   signal?: AbortSignal;
+  /** Request-owned budget propagated into provider retry/backoff loops. */
+  executionLedger?: ExecutionLedger;
 };
 
 // ─── Interface ────────────────────────────────────────────────────────────────

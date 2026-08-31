@@ -19,6 +19,7 @@ import { geminiCompleteRaw, openrouterCompleteWithFallback, oacCompleteRaw } fro
 import { GroqClientError } from "../errors.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
 import { _resetForTest } from "../openrouter/dynamic-catalog.js";
+import { createExecutionLedger } from "../execution-ledger.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
 
@@ -620,6 +621,33 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "MODEL_NOT_FOUND");
+  });
+
+  it("shares provider-attempt budget across fallback candidates", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      headers: new Headers(),
+      json: async () => ({}),
+      text: async () => '{"error":{"message":"model not found"}}',
+    } as Response));
+    vi.stubGlobal("fetch", fetchMock);
+    const ledger = createExecutionLedger({
+      budget: { providerAttempts: 2, deadlineMs: 10_000 },
+    });
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxFallbackModels: 2,
+        executionLedger: ledger,
+      }),
+    ).rejects.toMatchObject({ code: "MODEL_NOT_FOUND" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(ledger.snapshot().counts.provider_attempt).toBe(2);
+    expect(ledger.snapshot().providers).toContain("OpenRouter");
   });
 });
 

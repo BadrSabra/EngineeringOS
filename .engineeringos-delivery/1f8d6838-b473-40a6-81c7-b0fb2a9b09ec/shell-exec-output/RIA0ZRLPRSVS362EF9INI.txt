@@ -1,0 +1,420 @@
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:21:  it("gives cancellation precedence over a blocked recovery report", () => {
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:25:    ], { cancelled: true })).toMatchObject({
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:33:  it("classifies a required tool failure as failed instead of successful", () => {
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:35:      { kind: "tool_result", resultKind: "failed", diagnosticCode: "TOOL_EXECUTION_FAILED", resultSummary: "Tool failed safely." },
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts:36:      { kind: "done", stopReason: "tool_failure" },
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:4: * This is deliberately separate from the provider-free release fixtures. It
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:5: * exercises one real provider/model against a temporary review workspace and
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:21:const providerKeys: Record<ProviderId, string> = {
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:29:const provider = (process.env.LIVE_REVIEW_PROVIDER?.trim() || "openrouter") as ProviderId;
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:32:const selectedFile = "src/provider-review-fixture.ts";
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:40:  return Object.hasOwn(providerKeys, value);
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:45:  provider: ProviderId;
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:50:    throw new Error("Live provider review campaign is opt-in.");
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:53:    throw new Error("Live provider review campaign requires LIVE_REVIEW_DISPOSABLE=1.");
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:60:  if (!isProvider(provider)) {
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:61:    throw new Error("LIVE_REVIEW_PROVIDER must identify a supported provider.");
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:69:  const apiKey = process.env[providerKeys[provider]]?.trim();
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:71:    throw new Error(`Provider configuration is missing ${providerKeys[provider]}.`);
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:75:    provider,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:83:  const models = (error as { providerAttemptedModels?: unknown }).providerAttemptedModels;
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:91:    provider: campaignProvider,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:101:    // body. It lets an audit distinguish runs without retaining source text.
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:115:          project: "Disposable structured-review provider campaign",
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:125:          provider: campaignProvider,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:126:          apiKey: process.env[providerKeys[provider]],
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:129:          qualityProfile: "code_review",
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:138:      provider: campaignProvider,
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts:154:    // discards child diagnostics so provider bodies cannot become artifacts.
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:2: * Focused tests for chat-provider routing helpers.
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:13:  providerAvailabilityProjection,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:18:  it("flags code-analysis style messages as tool-bound", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:35:        sources: ["/tmp/provider-output.txt (request 123e4567-e89b-12d3-a456-426614174000)"],
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:50:      name: "provider error",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:69:  it("redacts standalone provider error text without changing the contract shape", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:75:describe("provider health failure contract", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:76:  const provider = "openrouter" as ProviderId;
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:83:      expected: "provider_outage",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:99:          providerCode: "NO_COMPATIBLE_FREE_MODEL",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:119:        context: { providerCode: "CIRCUIT_OPEN" },
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:125:      error: new GroqClientError("SERVER_ERROR", "provider outage raw upstream"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:126:      expected: "provider_outage",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:131:    const projection = providerAvailabilityProjection(error, provider, consoleUrl, statusUrl);
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:140:    const stale = providerAvailabilityProjection(
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:142:        context: { providerCode: "NO_COMPATIBLE_FREE_MODEL", catalogStatus: "empty" },
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:144:      provider,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:148:    const circuit = providerAvailabilityProjection(
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:150:        context: { providerCode: "CIRCUIT_OPEN" },
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:152:      provider,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:156:    const incompatible = providerAvailabilityProjection(
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:158:      provider,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:169:  it("renders real provider outages as terminal incomplete reviews", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:180:      new GroqClientError("MODEL_UNAVAILABLE", "raw provider response /srv/provider.ts"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:183:        provider,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:196:    expect(JSON.stringify(body)).not.toContain("raw provider response");
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:199:  it("serializes only safe provider reference details", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:200:    const error = new GroqClientError("INVALID_CONFIG", "raw /srv/provider.ts sk-or-v1-secret", {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:202:        providerCode: "NO_COMPATIBLE_FREE_MODEL",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:203:        providerMessage: "raw upstream message",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:204:        providerModel: "model-free",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:210:    // The SSE route intentionally removes providerMessage before serializing
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:213:      Object.entries(context).filter(([key]) => key !== "providerMessage"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:222:    expect(serialized).not.toContain("/srv/provider.ts");
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:23:  cancelled?: boolean;
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:58:  // Tool summaries can contain repository text, paths, or provider diagnostics.
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:60:  // untrusted tool output.
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:62:  return "The required project analysis tool did not complete.";
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:89: * cancellation/transport interruption > required tool failure > terminal
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:91: * A blocked-looking report can never hide a cancellation or required failure,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:98:  const toolResult = [...trace].reverse().find((step) =>
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:99:    step.kind === "tool_result"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:100:    && ["failed", "unavailable", "cancelled"].includes(String(record(step).resultKind)),
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:103:  const toolRecord = record(toolResult);
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:104:  const cancelled = Boolean(input.cancelled || input.transportInterrupted)
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:105:    || doneRecord.stopReason === "cancelled"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:106:    || toolRecord.resultKind === "cancelled"
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:107:    || hasDiagnostic(trace, /AbortError|cancel(?:lation|led).*user/i, true);
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:109:  if (cancelled) {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:115:      message: "Execution was cancelled before completion.",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:121:  if (doneRecord.stopReason === "tool_failure" || toolResult) {
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:122:    const toolWasCancelled = toolRecord.resultKind === "cancelled";
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:124:      outcome: toolWasCancelled ? "INTERRUPTED" : "FAILED",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:125:      failureKind: toolWasCancelled ? "CANCELLATION" : "TOOL_FAILURE",
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:127:      code: toolWasCancelled ? "TOOL_CANCELLED" : safeToolCode(toolResult),
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:128:      message: toolWasCancelled
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:129:        ? "The required project analysis was cancelled before completion."
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:130:        : safeToolMessage(toolResult),
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:137:  const auditState = record(latest(trace, "audit_state"));
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:139:    ...auditState,
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:151:  // Execution evidence and forensic audit evidence are different contracts.
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:153:  // delivery turns can require execution proof without becoming audits.
+artifacts/api-server/src/lib/ai-terminal-outcome.ts:181:      || auditState.behaviorAssessment === "INCOMPLETE"
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:6:} from "./ai-release-quality-gate.js";
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:22:describe("AI release quality gate", () => {
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:23:  it("keeps preview and live-provider lanes opt-in", () => {
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:26:    expect(checks.some((check) => check.id === "live-provider-quality")).toBe(false);
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:31:    const check = live.find((candidate) => candidate.id === "live-provider-quality");
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:35:      command: expect.stringContaining("validate:live-provider-review"),
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:49:        failureCode: "provider output: leaked prompt and source diagnostics",
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts:57:    expect(JSON.stringify(decision)).not.toMatch(/provider output|leaked prompt|source diagnostics/i);
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:36:  kind: "ai-release-quality-decision";
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:88:    coverage: ["JSON contract", "structured audits", "tool policy", "false-success handling"],
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:108:    coverage: ["SSE contract", "redaction", "stale revision", "resume"],
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:115:    coverage: ["ownership", "concurrency", "cancellation", "apply/rollback", "Terminal"],
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:122:    coverage: ["deterministic fixtures", "validation/provider-turn exhaustion", "scope safety", "false success"],
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:129:    coverage: ["deterministic 34-case contract baseline", "provider-free benchmark authority"],
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:150:    id: "live-provider-quality",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:152:    command: "pnpm --filter @workspace/api-server run validate:live-provider-review",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:156:      "optional live structured-review provider observation",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:183:  // Normalize at the report boundary as well as at command execution. This
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:184:  // keeps callers from accidentally persisting provider output, prompts, or
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:198:    kind: "ai-release-quality-decision",
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:284:        path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:35:  provider: ProviderId;
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:49:  /** Captured by the server campaign runner; never accepted from benchmark fixtures or providers. */
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:97:    provider: opts.provider,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:146:  provider: ProviderId;
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:152: * Run the real API-backed executor through the provider health Airlock.
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:154: * Health is probed once per provider before any benchmark case is consumed.
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:155: * The returned run keeps provider health separate from quality observations.
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:167:  providers: readonly ApiCodeAgentBenchmarkProvider[];
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:177:  /** Captured by the server campaign runner; never accepted from benchmark fixtures or providers. */
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:218:  const airlockProviders = await Promise.all(opts.providers.map(async (provider) => {
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:220:      provider: provider.provider,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:221:      apiKey: provider.apiKey,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:222:      model: provider.model,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:228:      provider: provider.provider,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:229:      apiKey: provider.apiKey,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:230:      model: provider.model,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:232:      providerHealth: health,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:269:      provider: provider.provider,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:270:      model: provider.model ?? health.model,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:277:    providers: airlockProviders,
+artifacts/api-server/src/lib/ai-repair-validation.ts:101:// Validation workspaces are disposable execution sandboxes, not durable
+artifacts/api-server/src/lib/ai-repair-validation.ts:346:    const execution = await runBoundedCommand({
+artifacts/api-server/src/lib/ai-repair-validation.ts:356:    const output = execution.combinedOutput.trim();
+artifacts/api-server/src/lib/ai-repair-validation.ts:358:    const executionEvidence = {
+artifacts/api-server/src/lib/ai-repair-validation.ts:360:      exitCode: execution.exitCode,
+artifacts/api-server/src/lib/ai-repair-validation.ts:361:      stdout: bounded(execution.stdout),
+artifacts/api-server/src/lib/ai-repair-validation.ts:362:      stderr: bounded(execution.stderr),
+artifacts/api-server/src/lib/ai-repair-validation.ts:366:    if (execution.status !== "passed") {
+artifacts/api-server/src/lib/ai-repair-validation.ts:367:      const terminalState = execution.status === "timed_out" ? "timed_out" : execution.status === "cancelled" ? "blocked" : "failed";
+artifacts/api-server/src/lib/ai-repair-validation.ts:369:        status: execution.status === "timed_out" ? "blocked" : "failed",
+artifacts/api-server/src/lib/ai-repair-validation.ts:372:        ...executionEvidence,
+artifacts/api-server/src/lib/ai-repair-validation.ts:373:        failedTests: executionEvidence.failedTests.map(toValidationFailure),
+artifacts/api-server/src/lib/ai-repair-validation.ts:375:          execution.status === "timed_out"
+artifacts/api-server/src/lib/ai-repair-validation.ts:377:            : boundedDetail(output) || `Registered validation failed with status ${execution.status}.`,
+artifacts/api-server/src/lib/ai-repair-validation.ts:380:        elapsedMs: execution.durationMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:381:        remainingMs: Math.max(0, config.validationOverallTimeoutMs - execution.durationMs),
+artifacts/api-server/src/lib/ai-repair-validation.ts:384:          execution.status === "timed_out" ? "blocked" : "failed",
+artifacts/api-server/src/lib/ai-repair-validation.ts:393:        ...executionEvidence,
+artifacts/api-server/src/lib/ai-repair-validation.ts:394:        failedTests: executionEvidence.failedTests.map(toValidationFailure),
+artifacts/api-server/src/lib/ai-repair-validation.ts:398:      elapsedMs: execution.durationMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:399:      remainingMs: Math.max(0, config.validationOverallTimeoutMs - execution.durationMs),
+artifacts/api-server/src/lib/ai-repair-validation.ts:404:    const executionError = error as NodeJS.ErrnoException & {
+artifacts/api-server/src/lib/ai-repair-validation.ts:410:    const output = `${executionError.stdout ?? ""}${executionError.stderr ? `\n${executionError.stderr}` : ""}`.trim();
+artifacts/api-server/src/lib/ai-repair-validation.ts:411:    const reason = executionError.killed
+artifacts/api-server/src/lib/ai-repair-validation.ts:413:        : boundedDetail(output) || executionError.message || "Registered validation failed.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:419:      exitCode: typeof executionError.code === "number" ? executionError.code : null,
+artifacts/api-server/src/lib/ai-repair-validation.ts:420:      stdout: bounded(executionError.stdout ?? ""),
+artifacts/api-server/src/lib/ai-repair-validation.ts:421:      stderr: bounded(executionError.stderr ?? ""),
+artifacts/api-server/src/lib/ai-repair-validation.ts:429:      terminalState: executionError.killed ? "timed_out" : "failed",
+artifacts/api-server/src/lib/ai-repair-validation.ts:430:      nextAction: validationNextAction("failed", executionError.killed ? "timed_out" : "failed"),
+artifacts/api-server/src/lib/ai-repair-validation.ts:516:    const execution = await runBoundedCommand({
+artifacts/api-server/src/lib/ai-repair-validation.ts:529:    if (execution.status === "passed") {
+artifacts/api-server/src/lib/ai-repair-validation.ts:532:    const output = boundedDetail(execution.combinedOutput.trim());
+artifacts/api-server/src/lib/ai-repair-validation.ts:535:      code: `RUNTIME_ORACLE_${execution.status.toUpperCase()}`,
+artifacts/api-server/src/lib/ai-repair-validation.ts:536:      detail: output || `Runtime behavioral oracle ended with status ${execution.status}.`,
+artifacts/api-server/src/lib/ai-repair-validation.ts:558:  executionId: string;
+artifacts/api-server/src/lib/ai-repair-validation.ts:581:      evidenceId: `${result.sessionId}:${result.operationId}:${result.executionId}`,
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:30:        "lib/ai-orchestrator/src/tools/git-tools.ts",
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:57:      "lib/ai-orchestrator/src/tools/git-tools.ts",
+artifacts/api-server/src/lib/ai-route-helpers.ts:8: * chain is driven by a single array — no if/else sprawl when adding providers.
+artifacts/api-server/src/lib/ai-route-helpers.ts:44: * boundary. Keep the original provider output for server-side diagnostics,
+artifacts/api-server/src/lib/ai-route-helpers.ts:69:  /** When true, skip providers that cannot handle the request's tool payloads. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:71:  /** Optional quality profile used to bias provider selection. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:72:  qualityProfile?: QualityProfile;
+artifacts/api-server/src/lib/ai-route-helpers.ts:75:function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
+artifacts/api-server/src/lib/ai-route-helpers.ts:76:  const config = PROVIDER_REGISTRY[provider];
+artifacts/api-server/src/lib/ai-route-helpers.ts:85:): Promise<Array<{ provider: ProviderId; apiKey: string }>> {
+artifacts/api-server/src/lib/ai-route-helpers.ts:86:  const available: Array<{ provider: ProviderId; apiKey: string }> = [];
+artifacts/api-server/src/lib/ai-route-helpers.ts:87:  const skipped: Array<{ provider: ProviderId; reason: string }> = [];
+artifacts/api-server/src/lib/ai-route-helpers.ts:89:  for (const provider of PROVIDER_PRIORITY) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:90:    const key = await resolveProviderKey(userId, provider);
+artifacts/api-server/src/lib/ai-route-helpers.ts:92:      skipped.push({ provider, reason: "no_api_key" });
+artifacts/api-server/src/lib/ai-route-helpers.ts:95:    if (!providerCanHandleRequest(provider, options)) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:96:      const reason = options?.requireTools ? "no_tool_support" : "capability_mismatch";
+artifacts/api-server/src/lib/ai-route-helpers.ts:98:        { provider, requireTools: !!options?.requireTools, reason },
+artifacts/api-server/src/lib/ai-route-helpers.ts:99:        "Skipping provider that cannot satisfy the current request",
+artifacts/api-server/src/lib/ai-route-helpers.ts:101:      skipped.push({ provider, reason });
+artifacts/api-server/src/lib/ai-route-helpers.ts:104:    // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).
+artifacts/api-server/src/lib/ai-route-helpers.ts:105:    if (isCircuitOpen(provider)) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:107:        { provider, reason: "circuit_open" },
+artifacts/api-server/src/lib/ai-route-helpers.ts:108:        "Skipping provider — circuit is open due to consecutive failures",
+artifacts/api-server/src/lib/ai-route-helpers.ts:110:      skipped.push({ provider, reason: "circuit_open" });
+artifacts/api-server/src/lib/ai-route-helpers.ts:113:    available.push({ provider, apiKey: key });
+artifacts/api-server/src/lib/ai-route-helpers.ts:116:  if (options?.qualityProfile && available.length > 1) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:118:      available.map((candidate) => candidate.provider),
+artifacts/api-server/src/lib/ai-route-helpers.ts:119:      options.qualityProfile,
+artifacts/api-server/src/lib/ai-route-helpers.ts:122:    const byProvider = new Map(available.map((candidate) => [candidate.provider, candidate.apiKey]));
+artifacts/api-server/src/lib/ai-route-helpers.ts:124:      .map((provider) => ({ provider, apiKey: byProvider.get(provider) }))
+artifacts/api-server/src/lib/ai-route-helpers.ts:125:      .filter((candidate): candidate is { provider: ProviderId; apiKey: string } => Boolean(candidate?.apiKey));
+artifacts/api-server/src/lib/ai-route-helpers.ts:129:        scope: "provider-selection",
+artifacts/api-server/src/lib/ai-route-helpers.ts:130:        action: "collect_available_providers",
+artifacts/api-server/src/lib/ai-route-helpers.ts:131:        qualityProfile: options.qualityProfile,
+artifacts/api-server/src/lib/ai-route-helpers.ts:133:        available: reordered.map((c) => c.provider),
+artifacts/api-server/src/lib/ai-route-helpers.ts:135:        finalOrder: reordered.map((c) => c.provider),
+artifacts/api-server/src/lib/ai-route-helpers.ts:137:      "provider selection complete (quality-ordered)",
+artifacts/api-server/src/lib/ai-route-helpers.ts:144:      scope: "provider-selection",
+artifacts/api-server/src/lib/ai-route-helpers.ts:145:      action: "collect_available_providers",
+artifacts/api-server/src/lib/ai-route-helpers.ts:146:      qualityProfile: options?.qualityProfile ?? null,
+artifacts/api-server/src/lib/ai-route-helpers.ts:148:      available: available.map((c) => c.provider),
+artifacts/api-server/src/lib/ai-route-helpers.ts:151:    "provider selection complete",
+artifacts/api-server/src/lib/ai-route-helpers.ts:156:// ── Per-provider key resolution ───────────────────────────────────────────────
+artifacts/api-server/src/lib/ai-route-helpers.ts:159: * Generic: resolve the saved API key for any provider.
+artifacts/api-server/src/lib/ai-route-helpers.ts:168:  provider: ProviderId,
+artifacts/api-server/src/lib/ai-route-helpers.ts:176:        eq(aiProviderCredentialsTable.provider, provider),
+artifacts/api-server/src/lib/ai-route-helpers.ts:185:      const label = PROVIDER_REGISTRY[provider]?.label ?? provider;
+artifacts/api-server/src/lib/ai-route-helpers.ts:187:        { err, ownerId: userId, provider },
+artifacts/api-server/src/lib/ai-route-helpers.ts:193:  // Server-wide env fallback — supported for all providers via dedicated env vars.
+artifacts/api-server/src/lib/ai-route-helpers.ts:200:  return ENV_FALLBACK[provider] || undefined;
+artifacts/api-server/src/lib/ai-route-helpers.ts:217: * Resolve which AI provider to use for a request.
+artifacts/api-server/src/lib/ai-route-helpers.ts:220: * the first provider whose key is available. This is the single place that
+artifacts/api-server/src/lib/ai-route-helpers.ts:221: * controls which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts:227:): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+artifacts/api-server/src/lib/ai-route-helpers.ts:232:      scope: "provider-selection",
+artifacts/api-server/src/lib/ai-route-helpers.ts:233:      action: "resolve_provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:234:      selected: selected?.provider ?? null,
+artifacts/api-server/src/lib/ai-route-helpers.ts:236:      qualityProfile: options?.qualityProfile ?? null,
+artifacts/api-server/src/lib/ai-route-helpers.ts:238:    selected ? `resolved primary provider: ${selected.provider}` : "no provider available",
+artifacts/api-server/src/lib/ai-route-helpers.ts:244: * Resolve a fallback AI provider when the primary is experiencing errors.
+artifacts/api-server/src/lib/ai-route-helpers.ts:245: * Skips the current provider and returns the next available one in PROVIDER_PRIORITY order.
+artifacts/api-server/src/lib/ai-route-helpers.ts:251:): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+artifacts/api-server/src/lib/ai-route-helpers.ts:252:  const available = (await collectAvailableProviders(userId, options)).filter((candidate) => candidate.provider !== currentProvider);
+artifacts/api-server/src/lib/ai-route-helpers.ts:256:      scope: "provider-selection",
+artifacts/api-server/src/lib/ai-route-helpers.ts:257:      action: "resolve_fallback_provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:259:      selected: selected?.provider ?? null,
+artifacts/api-server/src/lib/ai-route-helpers.ts:261:      qualityProfile: options?.qualityProfile ?? null,
+artifacts/api-server/src/lib/ai-route-helpers.ts:263:    selected ? `resolved fallback provider: ${selected.provider}` : "no fallback provider available",
+artifacts/api-server/src/lib/ai-route-helpers.ts:280: * Error codes that should trigger a provider fallback rather than surfacing
+artifacts/api-server/src/lib/ai-route-helpers.ts:284: * now fallback-worthy — they mean the model is gone on THIS provider but
+artifacts/api-server/src/lib/ai-route-helpers.ts:285: * another provider may succeed.  QUOTA is also included: if a provider's
+artifacts/api-server/src/lib/ai-route-helpers.ts:299:  "QUOTA",               // PR-03: credits/billing exhausted on this provider
+artifacts/api-server/src/lib/ai-route-helpers.ts:303: * Run any single-shot agent function with automatic provider fallback.
+artifacts/api-server/src/lib/ai-route-helpers.ts:305: * Accepts a `run` closure that receives `{ provider, apiKey }` and returns a
+artifacts/api-server/src/lib/ai-route-helpers.ts:306: * result.  On any error code in FALLBACK_TRIGGER_CODES the next provider in
+artifacts/api-server/src/lib/ai-route-helpers.ts:308: * task-execution — any route that calls an agent but doesn't use chat streaming.
+artifacts/api-server/src/lib/ai-route-helpers.ts:312:  initialProvider: { provider: ProviderId; apiKey: string },
+artifacts/api-server/src/lib/ai-route-helpers.ts:313:  run: (opts: { provider: ProviderId; apiKey: string; signal?: AbortSignal }) => Promise<T>,
+artifacts/api-server/src/lib/ai-route-helpers.ts:317:  if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:323:  for (const providerEntry of orderedProviders) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:325:      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+artifacts/api-server/src/lib/ai-route-helpers.ts:329:        { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
+artifacts/api-server/src/lib/ai-route-helpers.ts:330:        "primary provider error; retrying agent with fallback provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:334:      const result = await run({ ...providerEntry, signal: options?.signal });
+artifacts/api-server/src/lib/ai-route-helpers.ts:335:      return { result, effectiveProvider: providerEntry.provider };
+artifacts/api-server/src/lib/ai-route-helpers.ts:338:        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
+artifacts/api-server/src/lib/ai-route-helpers.ts:342:          { provider: providerEntry.provider, code: err.code, message: err.message },
+artifacts/api-server/src/lib/ai-route-helpers.ts:343:          "provider failed — trying next in chain",
+artifacts/api-server/src/lib/ai-route-helpers.ts:352:  throw lastErr ?? new GroqClientError("EMPTY_RESPONSE", "No AI provider returned a response");
+artifacts/api-server/src/lib/ai-route-helpers.ts:356: * Call `chat()` with automatic provider fallback on recoverable errors.
+artifacts/api-server/src/lib/ai-route-helpers.ts:358: * Iterates through ALL configured providers in PROVIDER_PRIORITY order until
+artifacts/api-server/src/lib/ai-route-helpers.ts:360: * Both primary and fallback providers support streaming via `onDelta`.
+artifacts/api-server/src/lib/ai-route-helpers.ts:377:    /** Verified session task contract used to resume short continuation messages. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:379:    /** Runtime-observed route/orchestrator provenance for the audit trace. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:389:  /** Request-scoped read evidence shared across provider retries. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:407:    /** Server-owned execution plan for the current durable Build handoff. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:408:    executionPlanOverride?: import("@workspace/ai-orchestrator").ActiveTaskExecutionPlan;
+artifacts/api-server/src/lib/ai-route-helpers.ts:414:    /** Server-owned execution-node updates from the repair executor. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:416:    /** Abort signal owned by the durable execution controller. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:418:     /** Shared budget across provider attempts and nested agent phases. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:419:     executionLedger?: ExecutionLedger;
+artifacts/api-server/src/lib/ai-route-helpers.ts:421:  initialProvider: { provider: ProviderId; apiKey: string },
+artifacts/api-server/src/lib/ai-route-helpers.ts:427:  const executionLedger =
+artifacts/api-server/src/lib/ai-route-helpers.ts:428:    baseParams.executionLedger ??
+artifacts/api-server/src/lib/ai-route-helpers.ts:429:    createExecutionLedger({ mode: "tool_chat", signal: baseParams.signal });
+artifacts/api-server/src/lib/ai-route-helpers.ts:431:  if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:439:        ? "No tool-capable AI provider is configured"
+artifacts/api-server/src/lib/ai-route-helpers.ts:440:        : "No AI provider returned a response",
+artifacts/api-server/src/lib/ai-route-helpers.ts:445:  // GAP-C1: collect every provider failure so the final error message shows
+artifacts/api-server/src/lib/ai-route-helpers.ts:447:  const providerErrors: Array<{ provider: string; code: string; message: string }> = [];
+artifacts/api-server/src/lib/ai-route-helpers.ts:448:  // Keep completed source reads when a provider fails after a tool call. This
+artifacts/api-server/src/lib/ai-route-helpers.ts:454:  for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:455:    if (providerIndex > 0 && !executionLedger.admit("provider_change", { provider: providerEntry.provider })) {
+artifacts/api-server/src/lib/ai-route-helpers.ts:460:        { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
+artifacts/api-server/src/lib/ai-route-helpers.ts:461:        "primary provider error; retrying with fallback provider",
+artifacts/api-server/src/lib/ai-route-helpers.ts:470:        apiKey: providerEntry.apiKey,
+artifacts/api-server/src/lib/ai-route-helpers.ts:471:        provider: providerEntry.provider,
+artifacts/api-server/src/lib/ai-route-helpers.ts:487:        executionPlanOverride: baseParams.executionPlanOverride,
+artifacts/api-server/src/lib/ai-route-helpers.ts:493:         executionLedger,
+artifacts/api-server/src/lib/ai-route-helpers.ts:495:      return { result, effectiveProvider: providerEntry.provider };
+artifacts/api-server/src/lib/ai-route-helpers.ts:499:          { provider: providerEntry.provider, code: err.code, message: err.message },
+artifacts/api-server/src/lib/ai-route-helpers.ts:500:          "provider failed — trying next in chain",
+artifacts/api-server/src/lib/ai-route-helpers.ts:502:        providerErrors.push({ provider: providerEntry.provider, code: err.code, message: err.message });
+artifacts/api-server/src/lib/ai-route-helpers.ts:511:  // GAP-C1: All providers exhausted — surface the full cascade so the caller
+artifacts/api-server/src/lib/ai-route-helpers.ts:512:  // (and the user) can see which providers were tried and why each failed,
+artifacts/api-server/src/lib/ai-route-helpers.ts:513:  // instead of only seeing the last provider's error code.
+artifacts/api-server/src/lib/ai-route-helpers.ts:514:  const cascade = providerErrors.map((e) => `${e.provider}: [${e.code}] ${e.message.slice(0, 120)}`).join(" | ");
+artifacts/api-server/src/lib/ai-route-helpers.ts:516:    ? `All providers failed — ${cascade}`
+artifacts/api-server/src/lib/ai-route-helpers.ts:517:    : "No AI provider returned a response";
+artifacts/api-server/src/lib/ai-route-helpers.ts:524: * Rejects the request with 428 if no provider key can be resolved.
+artifacts/api-server/src/lib/ai-route-helpers.ts:525: * Returns { provider, apiKey } on success, null on failure (response already sent).
+artifacts/api-server/src/lib/ai-route-helpers.ts:531:): Promise<{ provider: ProviderId; apiKey: string } | null> {
+artifacts/api-server/src/lib/ai-route-helpers.ts:535:      ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
+artifacts/api-server/src/lib/ai-route-helpers.ts:536:      : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
+artifacts/api-server/src/lib/ai-route-helpers.ts:538:      error: "AI provider not configured",
+artifacts/api-server/src/lib/ai-route-helpers.ts:541:      operatorAction: "Save an API key for at least one supported provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:560:      error: "AI provider not configured",
+artifacts/api-server/src/lib/ai-route-helpers.ts:561:      hint: "Save a Groq API key via PUT /api/ai/providers/groq/key or ask your administrator to set GROQ_API_KEY on the server. OpenRouter and DeepSeek are also supported via OPENROUTER_API_KEY and DEEPSEEK_API_KEY.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:563:      operatorAction: "Save an API key for at least one supported provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:577: * @param ctx.provider  The provider that actually produced the error.
+artifacts/api-server/src/lib/ai-route-helpers.ts:578: *                      Uses the registry to build provider-accurate labels and URLs.
+artifacts/api-server/src/lib/ai-route-helpers.ts:586:    provider?: ProviderId;
+artifacts/api-server/src/lib/ai-route-helpers.ts:588:    /** Chat routes use the strict public contract instead of provider UI metadata. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:595:    { err, projectId: ctx?.projectId, operation: ctx?.operation, provider: ctx?.provider },
+artifacts/api-server/src/lib/ai-route-helpers.ts:610:            : err.code === "INVALID_CONFIG" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+artifacts/api-server/src/lib/ai-route-helpers.ts:620:        : "The AI request was not completed because the provider configuration could not satisfy it.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:640:        // provider messages, request IDs, or runtime paths.
+artifacts/api-server/src/lib/ai-route-helpers.ts:641:        message: `AI request failed [${err.code}]${ctx.operation ? ` during ${ctx.operation}` : ""}${ctx.provider ? ` (provider: ${ctx.provider})` : ""}`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:646:  // Build provider-specific labels and URLs from the registry.
+artifacts/api-server/src/lib/ai-route-helpers.ts:647:  const providerId: ProviderId = ctx?.provider ?? "groq";
+artifacts/api-server/src/lib/ai-route-helpers.ts:648:  const config = PROVIDER_REGISTRY[providerId];
+artifacts/api-server/src/lib/ai-route-helpers.ts:649:  const providerLabel = config?.label ?? "AI provider";
+artifacts/api-server/src/lib/ai-route-helpers.ts:650:  const providerConsole = config?.consoleUrl ?? "your provider's dashboard";
+artifacts/api-server/src/lib/ai-route-helpers.ts:651:  const providerStatus = config?.statusUrl ?? "your provider's status page";
+artifacts/api-server/src/lib/ai-route-helpers.ts:656:    provider: providerId,
+artifacts/api-server/src/lib/ai-route-helpers.ts:663:    ...providerAvailabilityProjection(err, providerId, providerConsole, providerStatus),
+artifacts/api-server/src/lib/ai-route-helpers.ts:669:      res.status(503).json({ ...base, error: `${providerLabel} is unreachable — try again in a moment.` });
+artifacts/api-server/src/lib/ai-route-helpers.ts:674:        error: `${providerLabel} API key is invalid or unauthorized.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:675:        hint: `Delete your current key and save a valid one from ${providerConsole}.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:684:        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:686:        hint: `You've exceeded your ${providerLabel} API quota. Retry after the indicated delay or configure another provider at ${providerConsole}.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:692:        error: `${providerLabel} server error — this is a temporary infrastructure issue.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:693:        hint: `Try again in a moment. If it persists, check ${providerStatus}.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:697:      const isOpenRouter = providerId === "openrouter";
+artifacts/api-server/src/lib/ai-route-helpers.ts:700:        error: `${providerLabel} model has been discontinued or removed.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:702:          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+artifacts/api-server/src/lib/ai-route-helpers.ts:703:          : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:709:      const isOpenRouter = providerId === "openrouter";
+artifacts/api-server/src/lib/ai-route-helpers.ts:712:        error: `${providerLabel} model requires a paid plan or credit balance.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:714:          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+artifacts/api-server/src/lib/ai-route-helpers.ts:715:          : `${providerLabel} requires a paid plan for this model. Check your plan at ${providerConsole}.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:723:        error: `${providerLabel} model is temporarily unavailable.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:724:        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:732:        error: `${providerLabel} billing quota or credits are exhausted.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:733:        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:740:        error: `${providerLabel} returned an unexpected error.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:741:        hint: `Check your ${providerLabel} API key or try again.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:747:        error: `${providerLabel} returned an empty response.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:748:        hint: `This may be a transient ${providerLabel} issue — try again.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:752:      if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:758:            : "OpenRouter currently has no free model matching this request. Try again later or configure another provider.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:762:      if (providerId === "openrouter" && err.providerCode === "MODEL_CAPABILITY_MISMATCH") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:770:      if (providerId === "openrouter" && err.providerCode === "STALE_CONFIGURED_MODEL") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:780:        error: "AI provider configuration is invalid.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:781:        hint: `Re-save your ${providerLabel} API key.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:785:      res.status(502).json({ ...base, error: `${providerLabel} provider error.`, hint: "Try again in a moment." });
+artifacts/api-server/src/lib/ai-route-helpers.ts:799:  | "provider_outage";
+artifacts/api-server/src/lib/ai-route-helpers.ts:801:export function providerAvailabilityProjection(
+artifacts/api-server/src/lib/ai-route-helpers.ts:803:  providerId: ProviderId,
+artifacts/api-server/src/lib/ai-route-helpers.ts:804:  providerConsole: string,
+artifacts/api-server/src/lib/ai-route-helpers.ts:805:  providerStatus: string,
+artifacts/api-server/src/lib/ai-route-helpers.ts:814:      operatorAction: `Replace the ${providerId} API key with a valid key from ${providerConsole}, then retry.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:817:  if (err.providerCode === "CIRCUIT_OPEN") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:820:      operatorAction: "Wait for the provider cooldown to finish, then retry or configure another provider.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:826:    err.providerCode === "MODEL_CAPABILITY_MISMATCH" ||
+artifacts/api-server/src/lib/ai-route-helpers.ts:827:    err.providerCode === "STALE_CONFIGURED_MODEL"
+artifacts/api-server/src/lib/ai-route-helpers.ts:831:      operatorAction: "Choose a compatible current model or configure another provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:837:      operatorAction: "Wait for the rate-limit window to reset, then retry or configure another provider.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:843:      operatorAction: `Add provider credits at ${providerConsole}, or configure another provider.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:847:    providerId === "openrouter" &&
+artifacts/api-server/src/lib/ai-route-helpers.ts:848:    err.providerCode === "NO_COMPATIBLE_FREE_MODEL" &&
+artifacts/api-server/src/lib/ai-route-helpers.ts:853:      operatorAction: "Retry shortly so OpenRouter can refresh its model catalog; configure another provider if it persists.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:857:  if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:860:      operatorAction: "Select another compatible model or configure another provider, then retry.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:866:      availabilityState: "provider_outage",
+artifacts/api-server/src/lib/ai-route-helpers.ts:867:      operatorAction: `Retry in a moment; if the issue continues, check ${providerStatus} or configure another provider.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:871:    availabilityState: "provider_outage",
+artifacts/api-server/src/lib/ai-route-helpers.ts:872:    operatorAction: `Retry in a moment or configure another provider. Check ${providerStatus} if it persists.`,
+artifacts/api-server/src/lib/ai-execution-state.ts:16: * The durable operation state is intentionally separate from the provider
+artifacts/api-server/src/lib/ai-execution-state.ts:17: * lifecycle status. `ai_executions.status` answers "is a worker alive?", while
+artifacts/api-server/src/lib/ai-execution-state.ts:19: * Keeping both prevents a reconnect or provider response from being treated as
+artifacts/api-server/src/lib/ai-execution-state.ts:33:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:67:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:240:    return { allowed: false, reason: "operation_mismatch", detail: "Recipe operation identity does not match the durable execution." };
+artifacts/api-server/src/lib/ai-execution-state.ts:246:    return { allowed: false, reason: "candidate_mismatch", detail: "Recipe candidate identity does not match the durable execution." };
+artifacts/api-server/src/lib/ai-execution-state.ts:249:    return { allowed: false, reason: "workspace_mismatch", detail: "Recipe candidate workspace does not match the durable execution." };
+artifacts/api-server/src/lib/ai-execution-state.ts:280:  node: Pick<ExecutionNode, "allowedFiles" | "validationProfile" | "executionContext">,
+artifacts/api-server/src/lib/ai-execution-state.ts:288:  if (node.executionContext) {
+artifacts/api-server/src/lib/ai-execution-state.ts:289:    if (node.executionContext.projectId !== binding.projectId) throw new Error("Recipe node belongs to a different project.");
+artifacts/api-server/src/lib/ai-execution-state.ts:290:    if (node.executionContext.revision !== binding.sourceRevision) throw new Error("Recipe node belongs to a stale source revision.");
+artifacts/api-server/src/lib/ai-execution-state.ts:291:    if (node.executionContext.scope.paths.map(normalizedRecipePath).some((file) => !approved.has(file))) {
+artifacts/api-server/src/lib/ai-execution-state.ts:325:  planned: ["inspecting", "blocked", "cancelled"],
+artifacts/api-server/src/lib/ai-execution-state.ts:326:  inspecting: ["mutating", "validating", "blocked", "cancelled", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:327:  mutating: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:328:  validating: ["succeeded", "diagnosing", "promoting", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:329:  diagnosing: ["repairing", "blocked", "cancelled", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:330:  repairing: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:331:  promoting: ["delivering", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:332:  delivering: ["succeeded", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:335:  cancelled: [],
+artifacts/api-server/src/lib/ai-execution-state.ts:377: * server-side and receipt-oriented: a provider response or a completed worker
+artifacts/api-server/src/lib/ai-execution-state.ts:398:    reasons.push("workspace revision does not match the execution request");
+artifacts/api-server/src/lib/ai-execution-state.ts:408:  if (nodes.some((node) => node.status !== "passed")) reasons.push("not all execution nodes passed");
+artifacts/api-server/src/lib/ai-execution-state.ts:420:    if (outOfScope) reasons.push(`execution node is outside approved target scope: ${outOfScope}`);
+artifacts/api-server/src/lib/ai-execution-state.ts:499:    | "tool_loop"
+artifacts/api-server/src/lib/ai-execution-state.ts:503:    | "cancelled";
+artifacts/api-server/src/lib/ai-execution-state.ts:524:  "tool_loop",
+artifacts/api-server/src/lib/ai-execution-state.ts:528:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:827:  if (stage === "tool_loop") return "mutating";
+artifacts/api-server/src/lib/ai-execution-state.ts:830:  if (stage === "cancelled" || stage === "client_disconnected") return "cancelled";
+artifacts/api-server/src/lib/ai-execution-state.ts:840:  // A stage-only writer may resume directly at tool_loop after a process
+artifacts/api-server/src/lib/ai-execution-state.ts:842:  // never accepts a provider's assertion as a skipped graph edge.
+artifacts/api-server/src/lib/ai-execution-state.ts:852:      if (target === "failed" || target === "cancelled") {
+artifacts/api-server/src/lib/ai-execution-state.ts:868: * resumed. The checkpoint may advance status and attempts, but it must never
+artifacts/api-server/src/lib/ai-execution-state.ts:871: * execution state.
+artifacts/api-server/src/lib/ai-execution-state.ts:919: * The provider still needs a fresh call after a process crash, but it receives
+artifacts/api-server/src/lib/ai-execution-state.ts:929:    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+artifacts/api-server/src/lib/ai-execution-state.ts:930:    "Do not claim that any step succeeded unless the current tool result or persisted evidence confirms it.",
+artifacts/api-server/src/lib/ai-execution-state.ts:942:  idempotencyKey: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:950:}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {

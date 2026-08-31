@@ -1,0 +1,420 @@
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:4: * Centralizes all OpenRouter model selection. Execution paths must call
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:5: * resolveModel() or resolveFallbackChain() — never pick a model ID directly.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:7: *   resolveModel(opts)          → best single model for a capability + quality
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:9: *   buildFallbackChainFromId()  → fallback chain starting from a known model ID
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:14: * are present in the static list but absent from OpenRouter's live /models
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:21: *   the chain — a MODEL_NOT_FOUND on model[i] advances to model[i+1] before
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:24:import { FREE_MODELS, type ModelCapability, type OpenRouterFreeModel } from "./model-catalog.js";
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:31:export function isCatalogFreeModel(modelId: string): boolean {
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:32:  const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:33:  if (!model || !model.free) return false;
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:37:  return liveIds === null || liveIds.has(model.id);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:46:  modelId: string,
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:49:  if (!isCatalogFreeModel(modelId)) return false;
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:50:  const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:51:  return !!model &&
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:52:    (!options.capability || model.capabilities.includes(options.capability)) &&
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:53:    (!options.requireTools || model.supportsTools);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:73:/** Structured record emitted for every model selection decision (STORY-05). */
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:75:  provider: "openrouter";
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:83:  /** PR-002: models skipped because they are absent from the live catalog. */
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:87:/** Emit a model-decision trace to stdout as a JSON log line. */
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:89:  console.info(JSON.stringify({ scope: "model-resolver", ...trace }));
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:93: * PR-002: Filter the model pool against the live OpenRouter catalog.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:94: * Returns [live, stale] — models still available and models that are gone.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:97:  models: OpenRouterFreeModel[],
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:100:  if (!dynamicIds) return { live: models, stale: [] }; // catalog not loaded yet
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:104:  for (const m of models) {
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:114: * Index 0 is the primary (preferred) model. Subsequent entries are tried in
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:118: * PR-002: models absent from the live OpenRouter catalog are excluded from the
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:134:  // Never silently select a model that does not advertise the requested
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:136:  // a reason to send the request to an arbitrary free model.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:139:  // PR-002: remove models no longer available on OpenRouter (free tier only).
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:143:  // If the catalog IS loaded and filtered everything out, those models have moved
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:146:  // the outer provider chain) will handle it cleanly as "no candidates available".
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:175:      scope: "model-resolver",
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:193: * Resolve the single best model for a capability + quality (STORY-01, STORY-02).
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:215:      `[model-resolver] No OpenRouter free model satisfies capability="${capability}" requireTools=${requireTools}`,
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:220:    provider: "openrouter",
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:235: * Build an ordered fallback chain starting from an already-resolved model ID.
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:238: * the initial model returns MODEL_NOT_FOUND. The initial model is placed first;
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:241: * PR-002: models absent from the live catalog are excluded from the chain
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:242: * (except the initial model itself — we let the API confirm it is gone).
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:244: * If the model ID is not in the catalog (e.g. custom/paid), returns [id] with
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:254:  // Validate the selected model's advertised contract independently from the
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:255:  // live catalog. A model that disappeared from the live catalog should still
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:274:  // re-insert raw peers — those models have moved to paid and will only
+artifacts/api-server/src/routes/ai/operator-alerts.ts:14: * metadata and never provider credentials or raw provider responses.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:4: * Single source of truth for OpenRouter model metadata.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:5: * Registry and execution paths must never hardcode OpenRouter model IDs —
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:6: * they derive them from this catalog via model-resolver.ts.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:8: * Adding a model: add one entry here. Nothing else changes.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:9: * Removing a model: delete the entry. The resolver automatically skips it.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:12: *   Smaller / more stable models listed FIRST so the first request (before the
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:14: *   Large models that periodically flip from free → paid are listed LAST within
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:25:  | "long_context"; // Large context window tasks (>64k tokens)
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:31:  /** Max context window in tokens. */
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:43: * Ordered list of OpenRouter free-tier model candidates.
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:46: * PLAN_RESTRICTED (402) — the fallback engine in model-resolver.ts advances
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:48: * pre-filters this list to only models currently priced at $0 so the chain
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:51: * Last refreshed: 2026-08-25 — verified against GET /api/v1/models (pricing=0).
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:54:  // ── Fast tier — smaller / lighter models, listed first for cold-start requests
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:55:  //    (before the dynamic catalog has loaded). Smaller models are more likely
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:118:  // ── Powerful tier — high-capability models; dynamic catalog filters them
+lib/ai-orchestrator/src/openrouter/model-catalog.ts:190:  // Listed last — largest model, highest capability, most likely to move to paid
+lib/ai-orchestrator/src/openrouter/index.ts:1:export { FREE_MODELS } from "./model-catalog.js";
+lib/ai-orchestrator/src/openrouter/index.ts:2:export type { ModelCapability, OpenRouterFreeModel } from "./model-catalog.js";
+lib/ai-orchestrator/src/openrouter/index.ts:9:} from "./model-resolver.js";
+lib/ai-orchestrator/src/openrouter/index.ts:10:export type { ResolvedModel, ResolveModelOpts, ModelDecisionTrace } from "./model-resolver.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:2: * OpenRouter provider strategy.
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:7: * PR-01: refreshes the dynamic model catalog before each call so stale model
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:14: * `supportsNativeStream: false` — OpenRouter free-tier models often
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:33:} from "../openrouter/model-resolver.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:39:} from "../provider-strategy.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:42:  providerId: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:47:  async call(messages: RawMessage[], opts: StrategyCallOptions): ReturnType<ProviderStrategy["call"]> {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:61:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:69:        { context: { providerCode: "CIRCUIT_OPEN" } },
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:77:        provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:78:        model: opts.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:84:    // PR-01: refresh the live model catalog so stale IDs are filtered before
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:91:      // that refresh replaces the snapshot and removes the pinned model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:93:      const pinnedModelIsCurrent = opts.model
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:95:          ? isCatalogFreeModelForCapability(opts.model, {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:99:          : isCatalogFreeModel(opts.model))
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:101:      const requestOpts = pinnedModelIsCurrent ? opts : { ...opts, model: undefined };
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:106:            action: "re_resolve_stale_model",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:107:            staleModel: opts.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:113:      const result = await openrouterCompleteWithFallback(messages, { ...requestOpts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:120:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:121:          requestedModel: opts.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:122:          actualModel: result.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:131:        err instanceof GroqClientError && err.providerModel
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:132:          ? err.providerModel
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:133:          : opts.model;
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:138:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:139:          requestedModel: opts.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:142:            err instanceof GroqClientError ? err.providerAttemptedModels ?? [failedModel] : [failedModel],
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:144:          errorMessage: err instanceof Error ? err.message : String(err),
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:151:  async *stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:165:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:173:        { context: { providerCode: "CIRCUIT_OPEN" } },
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:181:        provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:182:        model: opts.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:190:      const pinnedModelIsCurrent = opts.model
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:192:          ? isCatalogFreeModelForCapability(opts.model, { capability: opts.capability })
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:193:          : isCatalogFreeModel(opts.model))
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:195:      const requestOpts = pinnedModelIsCurrent ? opts : { ...opts, model: undefined };
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:200:            action: "re_resolve_stale_stream_model",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:201:            staleModel: opts.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:207:      yield* openrouterCompleteStream(messages, { ...requestOpts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:213:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:214:          model: opts.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:223:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:224:          model: opts.model,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:226:          errorMessage: err instanceof Error ? err.message : String(err),
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:4: * Fetches the live model list from GET /models at startup (and periodically)
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:5: * so the resolver never selects a model that OpenRouter no longer offers.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:12: *   • The loaded set is consumed by resolveFallbackChain() in model-resolver.ts
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:13: *     to filter out stale or discontinued models before returning candidates.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:17:const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:46: * Return the last successful set of model IDs. Consumers that make routing
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:79: * Fetch the live model list from OpenRouter and update the singleton.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:84: *                unauthenticated access to GET /models.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:117:            hint: "OpenRouter /models returned non-200 — keeping previous catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:124:      const models = data?.data ?? [];
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:126:      if (models.length === 0) {
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:133:            hint: "OpenRouter /models returned 0 models — keeping previous catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:139:      // PR-01 (root-cause fix): only keep models that are CURRENTLY FREE.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:140:      // A model is free when both prompt and completion pricing are "0".
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:141:      // Without this filter we collected ALL model IDs (including paid ones),
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:142:      // so models that moved from free → paid still passed the live-catalog
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:144:      // errors until every model was exhausted.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:145:      const freeModels = models.filter(
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:153:        _lastRefreshError = "no_free_models";
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:154:        // OpenRouter occasionally returns no free models (e.g. API auth issue
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:160:            totalModels: models.length,
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:161:            hint: "OpenRouter returned no free-priced models — keeping previous catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:177:          totalModelCount: models.length,
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:181:      const reason = err instanceof Error ? err.message : String(err);
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:204: * Returns model IDs that are in FREE_MODELS but missing from OpenRouter.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:216:          "These models are in model-catalog.ts but no longer listed on OpenRouter. " +
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:5: * the provider is skipped for COOLDOWN_MS (2 minutes).  After the cooldown
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:11: *   • Module-level singleton — one circuit per provider per process.
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:30:function getOrCreate(provider: string): CircuitState {
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:31:  let s = _circuits.get(provider);
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:34:    _circuits.set(provider, s);
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:40: * Returns true when the provider's circuit is open and requests should be
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:43:export function isCircuitOpen(provider: string): boolean {
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:44:  const s = _circuits.get(provider);
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:55:        provider,
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:60:        hint: `${provider} cooldown elapsed — entering half-open state, probing with one request`,
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:71:      provider,
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:76:      hint: `${provider} circuit still open — ${Math.ceil(cooldownRemainingMs / 1000)}s remaining before probe`,
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:83: * Record a provider call failure.  Opens the circuit when the threshold is
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:86:export function recordCircuitFailure(provider: string): void {
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:87:  const s = getOrCreate(provider);
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:97:        provider,
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:100:        hint:               `${provider} disabled for ${COOLDOWN_MS / 1_000}s — too many consecutive failures`,
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:105:    // stays open until the provider actually recovers.
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:111: * Record a provider call success.  Closes the circuit and resets the failure
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:114:export function recordCircuitSuccess(provider: string): void {
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:115:  const s = _circuits.get(provider);
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:128:        provider,
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:129:        hint:    `${provider} re-enabled after successful probe`,
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:136: * Return the current circuit state for a provider.
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:139:export function getCircuitState(provider: string): {
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:145:  const s = _circuits.get(provider);
+lib/ai-orchestrator/src/objective-scope.ts:9:export const ObjectiveScopePolicySchema = z.object({
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:2: * Groq provider strategy.
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:14:} from "../provider-strategy.js";
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:17:  providerId: "groq",
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:20:  call(messages: RawMessage[], opts: StrategyCallOptions) {
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:21:    return completeRaw(messages, opts);
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:24:  stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+lib/ai-orchestrator/src/strategies/groq.strategy.ts:25:    return completeStream(messages, opts);
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:26:    kind: "groq_model_catalog_drift" as const,
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:28:    provider: "groq",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:29:    modelRole: "fast" as const,
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:30:    modelId: "openai/retired-fast",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:31:    title: "Groq Fast model is unavailable",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:32:    message: "The configured Groq Fast model is missing from Groq's live model catalog.",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:33:    remediation: "Update the affected Groq model ID to a current catalog model, then restart the API.",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:54:    expect(res.body.alerts).toHaveLength(1);
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:55:    expect(res.body.alerts[0]).toMatchObject({
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:57:      provider: "groq",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:58:      modelRole: "fast",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:59:      modelId: "openai/retired-fast",
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:64:    expect(JSON.stringify(res.body)).not.toContain("raw provider");
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:67:  it("can include resolved history and enforces the response bound", async () => {
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:68:    const fingerprintsForTest = Array.from({ length: 3 }, (_, index) => `operator-alert-test-history-${Date.now()}-${index}`);
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:75:    expect(res.body.alerts).toHaveLength(2);
+lib/ai-orchestrator/src/openai-compatible-client.ts:4: * Any provider that speaks POST /chat/completions with Bearer auth can be
+lib/ai-orchestrator/src/openai-compatible-client.ts:11: * between providers with a single `provider` string — no per-provider branches
+lib/ai-orchestrator/src/openai-compatible-client.ts:14: * PR-001: default model derived from FREE_MODELS[0] — no hardcoded string.
+lib/ai-orchestrator/src/openai-compatible-client.ts:16: * PR-007: GroqClientError carries providerStatus/providerCode/providerMessage.
+lib/ai-orchestrator/src/openai-compatible-client.ts:25:} from "./openrouter/model-resolver.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:27:import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:35:} from "./provider-tool-calls.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:38:  model?: string;
+lib/ai-orchestrator/src/openai-compatible-client.ts:40:  temperature?: number;
+lib/ai-orchestrator/src/openai-compatible-client.ts:41:  maxTokens?: number;
+lib/ai-orchestrator/src/openai-compatible-client.ts:42:  /** Selects a bounded output contract when maxTokens is not supplied. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:45:  /** Disable transient retry when the caller owns bounded model fallback. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:47:  /** Cap provider-owned fallback candidates for bounded callers. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:58:  /** Provider name used in error messages (e.g. "OpenRouter"). */
+lib/ai-orchestrator/src/openai-compatible-client.ts:59:  providerName: string;
+lib/ai-orchestrator/src/openai-compatible-client.ts:62:  /** Abort the active provider request when the caller cancels execution. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:79:// no model string is ever hardcoded in this file.
+lib/ai-orchestrator/src/openai-compatible-client.ts:87: * OR-003: Conservative token cap for OpenRouter free-tier requests.
+lib/ai-orchestrator/src/openai-compatible-client.ts:88: * Free models have tight per-request output limits; 2 048 keeps us well inside
+lib/ai-orchestrator/src/openai-compatible-client.ts:94: * OR-003: Maximum number of non-system messages forwarded to OpenRouter.
+lib/ai-orchestrator/src/openai-compatible-client.ts:95: * The system prompt is always kept; the most-recent messages are preferred.
+lib/ai-orchestrator/src/openai-compatible-client.ts:96: * Trimming reduces token consumption without hurting conversational coherence.
+lib/ai-orchestrator/src/openai-compatible-client.ts:101: * An atomic message group:
+lib/ai-orchestrator/src/openai-compatible-client.ts:102: *   - "single"     — a user, system, or assistant-without-tool-calls message.
+lib/ai-orchestrator/src/openai-compatible-client.ts:104: *                    the immediately following tool-result messages that belong
+lib/ai-orchestrator/src/openai-compatible-client.ts:109:  | { kind: "single";     message:  RawMessage }
+lib/ai-orchestrator/src/openai-compatible-client.ts:110:  | { kind: "tool_group"; messages: RawMessage[] };
+lib/ai-orchestrator/src/openai-compatible-client.ts:113: * Partition a flat message array into atomic groups.
+lib/ai-orchestrator/src/openai-compatible-client.ts:116: *   - An assistant message that carries `tool_calls` opens a tool_group and
+lib/ai-orchestrator/src/openai-compatible-client.ts:117: *     greedily absorbs the immediately following `tool` role messages whose
+lib/ai-orchestrator/src/openai-compatible-client.ts:122: * reaching the model is always structurally valid.
+lib/ai-orchestrator/src/openai-compatible-client.ts:124:function groupMessages(messages: RawMessage[]): MessageGroup[] {
+lib/ai-orchestrator/src/openai-compatible-client.ts:128:  while (i < messages.length) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:129:    const m = messages[i];
+lib/ai-orchestrator/src/openai-compatible-client.ts:141:      // Greedily absorb the immediately following tool-result messages.
+lib/ai-orchestrator/src/openai-compatible-client.ts:144:      while (j < messages.length && messages[j].role === "tool") {
+lib/ai-orchestrator/src/openai-compatible-client.ts:145:        const toolMsg = messages[j] as { role: "tool"; tool_call_id?: string };
+lib/ai-orchestrator/src/openai-compatible-client.ts:147:          groupMsgs.push(messages[j]);
+lib/ai-orchestrator/src/openai-compatible-client.ts:154:      groups.push({ kind: "tool_group", messages: groupMsgs });
+lib/ai-orchestrator/src/openai-compatible-client.ts:157:      groups.push({ kind: "single", message: m });
+lib/ai-orchestrator/src/openai-compatible-client.ts:166: * Remove structurally invalid messages before sending to strict
+lib/ai-orchestrator/src/openai-compatible-client.ts:167: * OpenAI-compatible providers. A provider may return an empty assistant turn
+lib/ai-orchestrator/src/openai-compatible-client.ts:173:function sanitizeOutboundMessages(messages: RawMessage[]): RawMessage[] {
+lib/ai-orchestrator/src/openai-compatible-client.ts:177:  for (const message of messages) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:178:    if (message.role === "assistant") {
+lib/ai-orchestrator/src/openai-compatible-client.ts:180:        typeof message.content === "string" && message.content.trim().length > 0;
+lib/ai-orchestrator/src/openai-compatible-client.ts:181:      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+lib/ai-orchestrator/src/openai-compatible-client.ts:193:      sanitized.push(message);
+lib/ai-orchestrator/src/openai-compatible-client.ts:197:    if (message.role === "tool") {
+lib/ai-orchestrator/src/openai-compatible-client.ts:198:      const toolCallId = message.tool_call_id;
+lib/ai-orchestrator/src/openai-compatible-client.ts:200:      sanitized.push(message);
+lib/ai-orchestrator/src/openai-compatible-client.ts:205:    sanitized.push(message);
+lib/ai-orchestrator/src/openai-compatible-client.ts:212: * Keep the system message and enough of the most-recent message groups to
+lib/ai-orchestrator/src/openai-compatible-client.ts:213: * stay within `OPENROUTER_MAX_MESSAGES` non-system messages.
+lib/ai-orchestrator/src/openai-compatible-client.ts:216: * tool calls is always sent together with all of its tool-result messages, or
+lib/ai-orchestrator/src/openai-compatible-client.ts:217: * not at all.  This prevents Cohere and other strict providers from receiving
+lib/ai-orchestrator/src/openai-compatible-client.ts:218: * a `tool` message whose `tool_call_id` has no matching entry in a preceding
+lib/ai-orchestrator/src/openai-compatible-client.ts:222: * discarded in full (along with all earlier groups).  The outbound message
+lib/ai-orchestrator/src/openai-compatible-client.ts:223: * count is always ≤ OPENROUTER_MAX_MESSAGES non-system messages, which keeps
+lib/ai-orchestrator/src/openai-compatible-client.ts:224: * the request within typical provider context-window limits.  The result may
+lib/ai-orchestrator/src/openai-compatible-client.ts:228:function trimMessagesForOpenRouter(messages: RawMessage[]): RawMessage[] {
+lib/ai-orchestrator/src/openai-compatible-client.ts:229:  const sanitizedMessages = sanitizeOutboundMessages(messages);
+lib/ai-orchestrator/src/openai-compatible-client.ts:230:  // Detect system message by role, not position, to handle callers that omit it.
+lib/ai-orchestrator/src/openai-compatible-client.ts:248:    const size = group.kind === "tool_group" ? group.messages.length : 1;
+lib/ai-orchestrator/src/openai-compatible-client.ts:261:      g.kind === "tool_group" ? g.messages : [g.message],
+lib/ai-orchestrator/src/openai-compatible-client.ts:299:  provider: string,
+lib/ai-orchestrator/src/openai-compatible-client.ts:300:  model: string,
+lib/ai-orchestrator/src/openai-compatible-client.ts:303:  if (ledger && !ledger.admit("provider_attempt", { provider, model, operation: "provider_request" })) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:304:    throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:311:  provider: string,
+lib/ai-orchestrator/src/openai-compatible-client.ts:312:  model: string,
+lib/ai-orchestrator/src/openai-compatible-client.ts:316:  ledger?.complete("provider_attempt", {
+lib/ai-orchestrator/src/openai-compatible-client.ts:317:    provider,
+lib/ai-orchestrator/src/openai-compatible-client.ts:318:    model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:319:    operation: "provider_request",
+lib/ai-orchestrator/src/openai-compatible-client.ts:322:    ...(error instanceof Error ? { reason: error.message } : {}),
+lib/ai-orchestrator/src/openai-compatible-client.ts:359: * Stable, provider-free policy used by recovery callers and diagnostics.
+lib/ai-orchestrator/src/openai-compatible-client.ts:393: * PR-003 / PR-004 / PR-008: true for errors that indicate the model itself is
+lib/ai-orchestrator/src/openai-compatible-client.ts:397: * (a model-specific silent completion).
+lib/ai-orchestrator/src/openai-compatible-client.ts:410: * PR-007 / PR-008: extract a structured error code and message from a provider
+lib/ai-orchestrator/src/openai-compatible-client.ts:411: * response body string. Returns { code, message } where code is the provider's
+lib/ai-orchestrator/src/openai-compatible-client.ts:412: * own error tag (e.g. "model_not_found") and message is the human text.
+lib/ai-orchestrator/src/openai-compatible-client.ts:414:function extractProviderError(body: string): { code?: string; message?: string } {
+lib/ai-orchestrator/src/openai-compatible-client.ts:423:        message: asString(errorObj.message),
+lib/ai-orchestrator/src/openai-compatible-client.ts:428:      return { message: error };
+lib/ai-orchestrator/src/openai-compatible-client.ts:431:    const message = parsed.message;
+lib/ai-orchestrator/src/openai-compatible-client.ts:432:    if (typeof message === "string") {
+lib/ai-orchestrator/src/openai-compatible-client.ts:433:      return { message };
+lib/ai-orchestrator/src/openai-compatible-client.ts:443: * recoverable by trying another model in the fallback chain — for example,
+lib/ai-orchestrator/src/openai-compatible-client.ts:446:function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?: string): boolean {
+lib/ai-orchestrator/src/openai-compatible-client.ts:447:  const normalizedBody = body.toLowerCase();
+lib/ai-orchestrator/src/openai-compatible-client.ts:462:    (providerCode?.includes("invalid_request") ?? false) ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:463:    (providerCode?.includes("unsupported") ?? false)
+lib/ai-orchestrator/src/openai-compatible-client.ts:481:/** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:485:  providerName: string,
+lib/ai-orchestrator/src/openai-compatible-client.ts:486:  model?: string,
+lib/ai-orchestrator/src/openai-compatible-client.ts:489:  const { code: pCode, message: pMessage } = extractProviderError(body);
+lib/ai-orchestrator/src/openai-compatible-client.ts:490:  const providerCode = asString(pCode);
+lib/ai-orchestrator/src/openai-compatible-client.ts:492:    providerStatus:  status,
+lib/ai-orchestrator/src/openai-compatible-client.ts:493:    providerCode,
+lib/ai-orchestrator/src/openai-compatible-client.ts:494:    providerMessage: pMessage ?? body.slice(0, 200),
+lib/ai-orchestrator/src/openai-compatible-client.ts:495:    providerName,
+lib/ai-orchestrator/src/openai-compatible-client.ts:496:    providerModel:   model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:505:      providerName,
+lib/ai-orchestrator/src/openai-compatible-client.ts:506:      model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:507:      providerStatus: status,
+lib/ai-orchestrator/src/openai-compatible-client.ts:508:      providerCode,
+lib/ai-orchestrator/src/openai-compatible-client.ts:509:      providerMessage: pMessage ?? null,
+lib/ai-orchestrator/src/openai-compatible-client.ts:510:      bodyPreview: body.slice(0, 300),
+lib/ai-orchestrator/src/openai-compatible-client.ts:517:      `${providerName} API authentication failed (${status}) — check your API key`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:524:    const bodyLower = body.toLowerCase();
+lib/ai-orchestrator/src/openai-compatible-client.ts:533:        `${providerName} billing quota or credits exhausted (${status}) — check your account`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:539:      `${providerName} API rate limit exceeded — wait a moment before retrying`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:547:      `${providerName} API server error (${status}): ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:552:  const normalizedBody = body.toLowerCase();
+lib/ai-orchestrator/src/openai-compatible-client.ts:554:    normalizedBody.includes("not a valid model id") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:555:    normalizedBody.includes("invalid model id") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:556:    normalizedBody.includes("unknown model") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:557:    normalizedBody.includes("model not found") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:558:    normalizedBody.includes("model unavailable") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:561:    (providerCode?.includes("model_not_found") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:562:      providerCode?.includes("invalid_model") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:563:      providerCode?.includes("model_unavailable"));
+lib/ai-orchestrator/src/openai-compatible-client.ts:565:  // PR-004: distinguish removed models (404) from plan-restricted (402).
+lib/ai-orchestrator/src/openai-compatible-client.ts:566:  //   404 — model permanently discontinued / removed.
+lib/ai-orchestrator/src/openai-compatible-client.ts:567:  //   402 — model requires a paid plan or the free quota is exhausted.
+lib/ai-orchestrator/src/openai-compatible-client.ts:568:  //   400 — invalid model slug (body confirms it's a model error).
+lib/ai-orchestrator/src/openai-compatible-client.ts:569:  if (providerName === "OpenRouter" && status === 404) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:572:      `OpenRouter model not found (404) — the model has been discontinued or removed. ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:577:  if (providerName === "OpenRouter" && status === 402) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:595:      `OpenRouter model requires a paid plan or free-tier credit balance (402). ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:600:  if (providerName === "OpenRouter" && status === 400) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:604:        `OpenRouter rejected the model slug (400) — the model ID may be invalid. ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:619:        `OpenRouter rejected the request because the selected model requires a paid plan or free-tier credits (400). ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:624:    if (looksLikeRecoverableOpenRouterRequestError(body, providerCode)) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:627:        `OpenRouter rejected a request feature or parameter (400) — the selected model cannot satisfy this request shape. ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:633:  // PR-003 / PR-008: 410 Gone = model retired; 422 Unprocessable = model
+lib/ai-orchestrator/src/openai-compatible-client.ts:638:    providerName === "OpenRouter" &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:643:      `OpenRouter model unavailable (${status}) — the model is temporarily offline or being retired. ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:650:    `${providerName} API responded with status ${status}: ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:660:  messages: RawMessage[],
+lib/ai-orchestrator/src/openai-compatible-client.ts:664:    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
+lib/ai-orchestrator/src/openai-compatible-client.ts:665:    temperature = 0.2,
+lib/ai-orchestrator/src/openai-compatible-client.ts:666:    maxTokens = opts.outputPhase ? getPhaseBudget(opts.outputPhase).maxOutputTokens : 4096,
+lib/ai-orchestrator/src/openai-compatible-client.ts:671:    providerName,
+lib/ai-orchestrator/src/openai-compatible-client.ts:677:    model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:678:    messages,
+lib/ai-orchestrator/src/openai-compatible-client.ts:679:    temperature,
+lib/ai-orchestrator/src/openai-compatible-client.ts:680:    max_tokens: maxTokens,
+lib/ai-orchestrator/src/openai-compatible-client.ts:683:  const isGemini = providerName === "Gemini";
+lib/ai-orchestrator/src/openai-compatible-client.ts:686:    body.tools = tools;
+lib/ai-orchestrator/src/openai-compatible-client.ts:687:    body.tool_choice = opts.toolChoice ?? "auto";
+lib/ai-orchestrator/src/openai-compatible-client.ts:689:    body.response_format = opts.responseFormat;
+lib/ai-orchestrator/src/openai-compatible-client.ts:707:      providerName,
+lib/ai-orchestrator/src/openai-compatible-client.ts:708:      model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:710:      messageCount: messages.length,
+lib/ai-orchestrator/src/openai-compatible-client.ts:717:      maxTokens,
+lib/ai-orchestrator/src/openai-compatible-client.ts:718:      temperature,
+lib/ai-orchestrator/src/openai-compatible-client.ts:737:      throw new GroqClientError("TIMEOUT", `${providerName} request timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:739:        context: { providerName, providerModel: model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:744:      err instanceof Error ? err.message : `Network error contacting ${providerName}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:745:      { cause: err, context: { providerName, providerModel: model } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:756:        providerName,
+lib/ai-orchestrator/src/openai-compatible-client.ts:757:        model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:762:    throw classifyStatus(response.status, text, providerName, model, response.headers);
+lib/ai-orchestrator/src/openai-compatible-client.ts:768:      message?: {
+lib/ai-orchestrator/src/openai-compatible-client.ts:775:    model: string;
+lib/ai-orchestrator/src/openai-compatible-client.ts:778:      prompt_tokens?: number;
+lib/ai-orchestrator/src/openai-compatible-client.ts:779:      completion_tokens?: number;
+lib/ai-orchestrator/src/openai-compatible-client.ts:780:      reasoning_tokens?: number;
+lib/ai-orchestrator/src/openai-compatible-client.ts:781:      completion_tokens_details?: { reasoning_tokens?: number };
+lib/ai-orchestrator/src/openai-compatible-client.ts:786:    // consumed. Fetch can resolve headers before a slow provider finishes
+lib/ai-orchestrator/src/openai-compatible-client.ts:787:    // sending the JSON body.
+lib/ai-orchestrator/src/openai-compatible-client.ts:792:      throw new GroqClientError("TIMEOUT", `${providerName} response body timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:794:        context: { providerName, providerModel: model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:802:  const msg = choice?.message;
+lib/ai-orchestrator/src/openai-compatible-client.ts:805:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} returned an empty response`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:806:      context: { providerName, providerModel: model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:813:    data.usage?.reasoning_tokens ??
+lib/ai-orchestrator/src/openai-compatible-client.ts:814:    data.usage?.completion_tokens_details?.reasoning_tokens;
+lib/ai-orchestrator/src/openai-compatible-client.ts:820:      model: data.model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:822:        promptTokens: data.usage?.prompt_tokens ?? 0,
+lib/ai-orchestrator/src/openai-compatible-client.ts:823:        completionTokens: data.usage?.completion_tokens ?? 0,
+lib/ai-orchestrator/src/openai-compatible-client.ts:830:    { tools, toolManifest: opts.toolManifest, providerName, model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:840:      `${providerName} returned neither content nor tool calls`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:841:      { context: { providerName, providerModel: model } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:849:      providerName,
+lib/ai-orchestrator/src/openai-compatible-client.ts:850:      requestedModel: model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:851:      actualModel: data.model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:865:  messages: RawMessage[],
+lib/ai-orchestrator/src/openai-compatible-client.ts:868:  const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
+lib/ai-orchestrator/src/openai-compatible-client.ts:869:  const startedAt = admitProviderAttempt(opts.executionLedger, opts.providerName, model);
+lib/ai-orchestrator/src/openai-compatible-client.ts:872:    return await oacCompleteRawUntracked(messages, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:880:    completeProviderAttempt(opts.executionLedger, opts.providerName, model, startedAt, error);
+lib/ai-orchestrator/src/openai-compatible-client.ts:889:  messages: RawMessage[],
+lib/ai-orchestrator/src/openai-compatible-client.ts:893:    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
+lib/ai-orchestrator/src/openai-compatible-client.ts:894:    temperature = 0.2,
+lib/ai-orchestrator/src/openai-compatible-client.ts:895:    maxTokens = 4096,
+lib/ai-orchestrator/src/openai-compatible-client.ts:899:    providerName,
+lib/ai-orchestrator/src/openai-compatible-client.ts:905:    model,
+lib/ai-orchestrator/src/openai-compatible-client.ts:906:    messages,
+lib/ai-orchestrator/src/openai-compatible-client.ts:907:    temperature,
+lib/ai-orchestrator/src/openai-compatible-client.ts:908:    max_tokens: maxTokens,
+lib/ai-orchestrator/src/openai-compatible-client.ts:937:      throw new GroqClientError("TIMEOUT", `${providerName} streaming request timed out`, { cause: err });
+lib/ai-orchestrator/src/openai-compatible-client.ts:941:      err instanceof Error ? err.message : `Network error contacting ${providerName}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:949:    throw classifyStatus(response.status, text, providerName, model, response.headers);
+lib/ai-orchestrator/src/openai-compatible-client.ts:955:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream has no body`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:961:  const streamGuard = createContentOnlyStreamGuard({ providerName, model });
+lib/ai-orchestrator/src/openai-compatible-client.ts:1012:      throw new GroqClientError("TIMEOUT", `${providerName} streaming response timed out`, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1014:        context: { providerName, providerModel: model },
+lib/ai-orchestrator/src/openai-compatible-client.ts:1019:      err instanceof Error ? err.message : `Network error reading ${providerName} stream`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1020:      { cause: err, context: { providerName, providerModel: model } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:1030:    throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream returned no content`);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1035:  messages: RawMessage[],
+lib/ai-orchestrator/src/openai-compatible-client.ts:1038:  const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1039:  const startedAt = admitProviderAttempt(opts.executionLedger, opts.providerName, model);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1042:    yield* oacCompleteStreamUntracked(messages, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1050:    completeProviderAttempt(opts.executionLedger, opts.providerName, model, startedAt, error);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1063: *         defaults `maxTokens` to `OPENROUTER_DEFAULT_MAX_TOKENS` (2 048).
+lib/ai-orchestrator/src/openai-compatible-client.ts:1065: *         timeout, network) before propagating — avoids needless provider
+lib/ai-orchestrator/src/openai-compatible-client.ts:1069:  messages: RawMessage[],
+lib/ai-orchestrator/src/openai-compatible-client.ts:1070:  opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1072:  const trimmed = trimMessagesForOpenRouter(messages);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1074:    maxTokens: OPENROUTER_DEFAULT_MAX_TOKENS,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1077:    providerName: "OpenRouter",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1085:    // OpenRouter-compatible models do not all implement JSON mode consistently.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1087:    // retry the same model once with the prompt-only contract.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1092:      err.providerStatus === 400
+lib/ai-orchestrator/src/openai-compatible-client.ts:1098:          model: fullOpts.model,

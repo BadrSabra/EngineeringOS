@@ -15,6 +15,7 @@ export type ExecutionMode =
 
 export type ExecutionAttemptKind =
   | "model"
+  | "provider_attempt"
   | "tool"
   | "planner"
   | "provider_change"
@@ -35,6 +36,7 @@ export type ExecutionTerminalReason =
 export type ExecutionLedgerBudget = {
   deadlineMs: number;
   modelCalls: number;
+  providerAttempts: number;
   toolCalls: number;
   providerChanges: number;
   synthesisAttempts: number;
@@ -99,6 +101,7 @@ export type ExecutionLedger = {
 const DEFAULT_BUDGET: ExecutionLedgerBudget = {
   deadlineMs: 120_000,
   modelCalls: 128,
+  providerAttempts: 192,
   toolCalls: 360,
   providerChanges: 4,
   synthesisAttempts: 3,
@@ -109,6 +112,7 @@ const DEFAULT_BUDGET: ExecutionLedgerBudget = {
 
 const KIND_TO_BUDGET: Record<ExecutionAttemptKind, keyof ExecutionLedgerBudget> = {
   model: "modelCalls",
+  provider_attempt: "providerAttempts",
   tool: "toolCalls",
   provider_change: "providerChanges",
   synthesis: "synthesisAttempts",
@@ -143,6 +147,7 @@ export function createExecutionLedger(options?: {
   const mode = options?.mode ?? "tool_chat";
   const counts = {
     model: 0,
+    provider_attempt: 0,
     tool: 0,
     planner: 0,
     provider_change: 0,

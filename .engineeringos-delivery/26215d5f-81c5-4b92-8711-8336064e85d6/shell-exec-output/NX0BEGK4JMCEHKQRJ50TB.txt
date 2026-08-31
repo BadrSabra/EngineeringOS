@@ -1,0 +1,171 @@
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:6: * read or mutate — before this middleware existed, any authenticated user
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:31:export async function requireProjectAccess(
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:46: * Extends `requireProjectAccess` with a write-gate: archived projects are
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:100:  if (project.ownerId !== req.userId) {
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:114: * Same 400/404/403 semantics and comments as `requireProjectAccess`.
+artifacts/api-server/src/middlewares/requireAuth.test.ts:5: * clerk-auth-testing memory note) means going through the real Express app
+artifacts/api-server/src/middlewares/requireAuth.test.ts:10: * (unauthenticated 401, authenticated authContext shape) directly, and
+artifacts/api-server/src/middlewares/requireAuth.test.ts:49:    expect(res.json).toHaveBeenCalledWith({ error: "Unauthorized" });
+artifacts/api-server/src/middlewares/requireAuth.test.ts:51:    expect(req.authContext).toBeUndefined();
+artifacts/api-server/src/middlewares/requireAuth.test.ts:54:  it("requireAuth attaches a consistent authContext and req.userId when a session exists", async () => {
+artifacts/api-server/src/middlewares/requireAuth.test.ts:69:    expect(req.userId).toBe("user_123");
+artifacts/api-server/src/middlewares/requireAuth.test.ts:70:    expect(req.authContext).toEqual({
+artifacts/api-server/src/middlewares/requireAuth.test.ts:88:    expect(req.authContext).toEqual({
+artifacts/api-server/src/middlewares/requireAuth.test.ts:109:    expect(req.authContext).toBeUndefined();
+artifacts/api-server/src/middlewares/requireAuth.test.ts:110:    expect(req.userId).toBeUndefined();
+artifacts/api-server/src/middlewares/requireAuth.test.ts:113:  it("optionalAuth attaches the same authContext shape as requireAuth when a session exists", async () => {
+artifacts/api-server/src/middlewares/requireAuth.test.ts:126:    expect(req.userId).toBe("user_123");
+artifacts/api-server/src/middlewares/requireAuth.test.ts:127:    expect(req.authContext).toEqual({
+artifacts/api-server/src/middlewares/requireAuth.test.ts:137:  it("attaches the same authContext shape the real branch would, with a fixed synthetic user", async () => {
+artifacts/api-server/src/middlewares/requireAuth.test.ts:152:    expect(req.userId).toBe("test-user");
+artifacts/api-server/src/middlewares/requireAuth.test.ts:153:    expect(req.authContext).toEqual({
+artifacts/api-server/src/middlewares/requireAuth.test.ts:176:    expect(req.userId).toBe("test-user");
+artifacts/api-server/src/routes/ai/tasks.ts:23:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/tasks.ts:68:  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/tasks.ts:77:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/tasks.ts:94:      userId: req.userId,
+artifacts/api-server/src/routes/ai/tasks.ts:244:      req.userId,
+artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts:5: * authentication on custom domains and .replit.app deployments without
+artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts:11: * dashboard — all auth configuration is done through the Auth pane.
+artifacts/api-server/src/middlewares/requireAuth.ts:7: * Requires a signed-in Clerk session, and authorizes *which* resources that
+artifacts/api-server/src/middlewares/requireAuth.ts:9: * requireProjectAccess.ts) — this middleware only ever answers "is there a
+artifacts/api-server/src/middlewares/requireAuth.ts:11: * single authenticated user's access to their own resources.
+artifacts/api-server/src/middlewares/requireAuth.ts:16: * those tests keep exercising real handler behavior instead of auth
+artifacts/api-server/src/middlewares/requireAuth.ts:19: * it to "test". The bypass still builds a real `authContext` so tests
+artifacts/api-server/src/middlewares/requireAuth.ts:34:  const auth = getAuth(req);
+artifacts/api-server/src/middlewares/requireAuth.ts:35:  if (!auth?.userId) {
+artifacts/api-server/src/middlewares/requireAuth.ts:36:    res.status(401).json({ error: "Unauthorized" });
+artifacts/api-server/src/middlewares/requireAuth.ts:40:    userId: auth.userId,
+artifacts/api-server/src/middlewares/requireAuth.ts:41:    sessionId: auth.sessionId ?? null,
+artifacts/api-server/src/middlewares/requireAuth.ts:42:    orgId: auth.orgId ?? null,
+artifacts/api-server/src/middlewares/requireAuth.ts:48:/** Explicit authorization gate for server-wide policy and plugin controls. */
+artifacts/api-server/src/middlewares/requireAuth.ts:52:  const allowed = isOperatorUser(req.userId);
+artifacts/api-server/src/middlewares/requireAuth.ts:54:    res.status(403).json({ error: "Operator authorization is required", code: "operator_required" });
+artifacts/api-server/src/middlewares/requireAuth.ts:66: * Like `requireAuth`, but never rejects the request. Attaches `authContext`
+artifacts/api-server/src/middlewares/requireAuth.ts:77:    // want an authenticated optionalAuth path should set req.authContext
+artifacts/api-server/src/middlewares/requireAuth.ts:83:  const auth = getAuth(req);
+artifacts/api-server/src/middlewares/requireAuth.ts:84:  if (auth?.userId) {
+artifacts/api-server/src/middlewares/requireAuth.ts:86:      userId: auth.userId,
+artifacts/api-server/src/middlewares/requireAuth.ts:87:      sessionId: auth.sessionId ?? null,
+artifacts/api-server/src/middlewares/requireAuth.ts:88:      orgId: auth.orgId ?? null,
+artifacts/api-server/src/middlewares/requireAuth.ts:96:  req.authContext = context;
+artifacts/api-server/src/middlewares/requireAuth.ts:97:  req.userId = context.userId;
+artifacts/api-server/src/routes/ai/providers.ts:117:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/ai/providers.ts:179:      error: `${label} API key is invalid or unauthorized`,
+artifacts/api-server/src/routes/ai/providers.ts:199:      ownerId: req.userId,
+artifacts/api-server/src/routes/ai/providers.ts:222:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/ai/providers.ts:265:  const resolved = await resolveProvider(req.userId);
+artifacts/api-server/src/routes/ai/providers.ts:290:    .where(eq(aiProviderCredentialsTable.ownerId, req.userId));
+artifacts/api-server/src/routes/ai/workflows.ts:24:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/workflows.ts:65:  const ownerProject = await loadProjectByIdForUser(workflow.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/workflows.ts:80:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/workflows.ts:130:      userId: req.userId,
+artifacts/api-server/src/routes/ai/workflows.ts:151:        userId: req.userId,
+artifacts/api-server/src/routes/ai/benchmark.ts:331:    // The operation contract is the authoritative stage projection when
+artifacts/api-server/src/routes/ai/benchmark.ts:399:  "authentication", "quota", "rate-limit", "catalog", "empty-response",
+artifacts/api-server/src/routes/ai/benchmark.ts:485:        .where(eq(aiExecutionsTable.userId, req.userId))
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:2: * Unit tests for requireProjectAccess / requireProjectWriteAccess.
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:9: *  requireProjectAccess:
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:63:// ─── requireProjectAccess ─────────────────────────────────────────────────────
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:65:describe("requireProjectAccess", () => {
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:71:    const { requireProjectAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:76:    await requireProjectAccess(req, res, next as NextFunction);
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:84:    const { requireProjectAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:89:    await requireProjectAccess(req, res, next as NextFunction);
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:97:    const { requireProjectAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:102:    await requireProjectAccess(req, res, next as NextFunction);
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:111:    const { requireProjectAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:116:    await requireProjectAccess(req, res, next as NextFunction);
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:125:    const { requireProjectAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:130:    await requireProjectAccess(req, res, next as NextFunction);
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:146:    const { requireProjectWriteAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:159:    const { requireProjectWriteAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:171:    const { requireProjectWriteAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:187:    const { requireProjectWriteAccess } = await import("./requireProjectAccess.js");
+artifacts/api-server/src/routes/ai/chat.ts:138:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/chat.ts:685: * and dashboard reloads must not turn an old plan into write authorization.
+artifacts/api-server/src/routes/ai/chat.ts:721:  // authorize edits against bytes that were not part of the inspected snapshot.
+artifacts/api-server/src/routes/ai/chat.ts:785:  // use the exact manifest that authorized this planning attempt.
+artifacts/api-server/src/routes/ai/chat.ts:1186: * Verify that every submitted change is a value-exact authorized subset of the
+artifacts/api-server/src/routes/ai/chat.ts:1191: * Returns an error string describing the first violation, or null if authorized.
+artifacts/api-server/src/routes/ai/chat.ts:1193:function authorizeChangeSubset(
+artifacts/api-server/src/routes/ai/chat.ts:1248:    // stored change is an authorization bypass: the apply loop falls through to
+artifacts/api-server/src/routes/ai/chat.ts:1258:    // twice and bypass the authorization boundary.
+artifacts/api-server/src/routes/ai/chat.ts:1387:    // A repair proposal is a delivery authorization, not merely a model
+artifacts/api-server/src/routes/ai/chat.ts:2036:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:2165:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:2221:        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2615:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:2838:  // Provider/model routing must use the same authoritative intent as the
+artifacts/api-server/src/routes/ai/chat.ts:2841:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:2973:      ? await getAiExecutionForUser(effectiveExecutionId, req.userId)
+artifacts/api-server/src/routes/ai/chat.ts:3059:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3077:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3090:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3866:        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4671:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4683:      eq(aiExecutionsTable.userId, req.userId),
+artifacts/api-server/src/routes/ai/chat.ts:4747:  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4864:  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:5022:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:5044:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:5053:  const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:5065:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:5068:    const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:5088:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:5171:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5294:    const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5372:  const project = await loadProjectByIdForUser(row.session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5487:// quoted. Project-authorized (loadProjectByIdForUser) and path-guarded against
+artifacts/api-server/src/routes/ai/chat.ts:5495:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:5517:  // project root is inaccessible. Such a fallback would let a user authorized
+artifacts/api-server/src/routes/ai/chat.ts:5520:  // Here the project's own configured rootPath is the ONLY authorization
+artifacts/api-server/src/routes/ai/chat.ts:5591:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5670:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:5745:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5869:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5941:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6201:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6283:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6360:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6377:      const subsetError = authorizeChangeSubset(changes, approvedChanges);
+artifacts/api-server/src/routes/ai/chat.ts:6380:          error: `Submitted changes are not an authorized subset of the proposal: ${subsetError}`,
+artifacts/api-server/src/routes/ai/chat.ts:6385:      // The authoritative validation below reports malformed stored proposals.
+artifacts/api-server/src/routes/ai/chat.ts:6456:    // Each submitted change must be a value-exact authorized subset of the
+artifacts/api-server/src/routes/ai/chat.ts:6462:    const subsetError = authorizeChangeSubset(changes, approvedChanges);
+artifacts/api-server/src/routes/ai/chat.ts:6465:        error: `Submitted changes are not an authorized subset of the proposal: ${subsetError}`,
+artifacts/api-server/src/routes/ai/chat.ts:6509:      // The stored proposal is the authorization envelope. Materialize only
+artifacts/api-server/src/routes/ai/chat.ts:7069:        actor: req.userId,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:275:vi.mock("../../middlewares/requireProjectAccess.js", async (importOriginal) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:310:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/analysis.ts:26:import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/analysis.ts:321:router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:330:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:355:      req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:368:        userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:416:      actor: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:435:router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:474:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:487:      req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:500:        userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:546:      actor: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:565:router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:573:    req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:584:      userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:615:      req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:636:        userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:668:        actor: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:697:      userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:707:router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:737:    req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:748:      userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:779:      req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:800:        userId: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:832:        actor: req.userId,
+artifacts/api-server/src/routes/ai/analysis.ts:861:      userId: req.userId,
+artifacts/api-server/src/app.ts:79:  // Cookie-authenticated requests without browser provenance headers are
+artifacts/api-server/src/app.ts:170:// respond 200 regardless of auth/Clerk configuration state.
+artifacts/api-server/src/app.ts:186:// authContext shape that production code sees.
+artifacts/api-server/src/app.ts:199:// authentication: "who is this"). Per-project ownership authorization
+artifacts/api-server/src/app.ts:201:// requireProjectAccess/requireProjectWriteAccess (for path-param :projectId
+artifacts/api-server/src/app.ts:203:// See middlewares/requireProjectAccess.ts.

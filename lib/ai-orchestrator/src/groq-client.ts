@@ -16,6 +16,7 @@
  */
 import Groq from "groq-sdk";
 import { GroqClientError, type GroqErrorCode } from "./errors.js";
+import type { ExecutionLedger } from "./execution-ledger.js";
 import {
   createContentOnlyStreamGuard,
   normalizeProviderResponse,
@@ -48,6 +49,8 @@ export type CompleteOptions = {
   apiKey?: string;
   /** Abort the active provider request when the caller cancels execution. */
   signal?: AbortSignal;
+  /** Shared request budget used for each network retry attempt. */
+  executionLedger?: ExecutionLedger;
   /** Tool selection policy for explicit repair-plan execution. */
   toolChoice?: "auto" | "required";
   /** Tool definitions for agentic calls. */
@@ -84,8 +87,51 @@ function retryDelayMs(attempt: number, code: GroqErrorCode): number {
   return Math.floor(Math.random() * exponential);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new GroqClientError("TIMEOUT", "Groq retry backoff cancelled"));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new GroqClientError("TIMEOUT", "Groq retry backoff cancelled"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function admitProviderAttempt(
+  ledger: ExecutionLedger | undefined,
+  provider: string,
+  model: string,
+): number {
+  const startedAt = Date.now();
+  if (ledger && !ledger.admit("provider_attempt", { provider, model, operation: "provider_request" })) {
+    throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
+  }
+  return startedAt;
+}
+
+function completeProviderAttempt(
+  ledger: ExecutionLedger | undefined,
+  provider: string,
+  model: string,
+  startedAt: number,
+  error?: unknown,
+): void {
+  ledger?.complete("provider_attempt", {
+    provider,
+    model,
+    operation: "provider_request",
+    startedAt,
+    status: error ? "failed" : "completed",
+    ...(error instanceof Error ? { reason: error.message } : {}),
+  });
 }
 
 /**
@@ -400,11 +446,13 @@ export async function completeRaw(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxRetries = DEFAULT_MAX_RETRIES,
     apiKey,
-    signal,
+    signal: callerSignal,
+    executionLedger,
     tools,
     toolChoice,
     responseFormat,
   } = opts;
+  const signal = callerSignal ?? executionLedger?.signal;
 
   const circuitKey = apiKey ?? "env";
   if (circuitCheck(circuitKey) === "reject") {
@@ -435,6 +483,8 @@ export async function completeRaw(
   let lastError: GroqClientError | undefined;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const providerAttemptStartedAt = admitProviderAttempt(executionLedger, "Groq", model);
+    let providerAttemptError: unknown;
     try {
       const completion = await sendRequest(client, request, timeoutMs, signal);
       const result = readRawResponse(completion, {
@@ -447,15 +497,24 @@ export async function completeRaw(
       circuitRecord(circuitKey, true);
       return result;
     } catch (err) {
+      providerAttemptError = err;
       lastError = err instanceof GroqClientError ? err : classifySdkError(err, false);
       if (signal?.aborted) throw lastError;
       if (attempt < maxRetries && isRetryable(lastError.code)) {
         const delay = retryDelayMs(attempt, lastError.code);
         console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
-        await sleep(delay);
+        await sleep(delay, signal);
         continue;
       }
       break;
+    } finally {
+      completeProviderAttempt(
+        executionLedger,
+        "Groq",
+        model,
+        providerAttemptStartedAt,
+        providerAttemptError,
+      );
     }
   }
 
@@ -590,8 +649,10 @@ export async function* completeStream(
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     apiKey,
-    signal,
+    signal: callerSignal,
+    executionLedger,
   } = opts;
+  const signal = callerSignal ?? executionLedger?.signal;
 
   const circuitKey = apiKey ?? "env";
   if (circuitCheck(circuitKey) === "reject") {
@@ -611,6 +672,8 @@ export async function* completeStream(
   // return type to `Stream<ChatCompletionChunk>`.  Use `as any` at the call
   // site to avoid re-declaring all overload signatures here.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const providerAttemptStartedAt = admitProviderAttempt(executionLedger, "Groq", model);
+  let providerAttemptError: unknown;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort(signal?.reason);
@@ -627,8 +690,16 @@ export async function* completeStream(
       stream: true,
     }, { signal: controller.signal });
   } catch (err) {
+    providerAttemptError = err;
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
+    completeProviderAttempt(
+      executionLedger,
+      "Groq",
+      model,
+      providerAttemptStartedAt,
+      providerAttemptError,
+    );
     throw classifySdkError(err, controller.signal.aborted);
   }
 
@@ -649,6 +720,7 @@ export async function* completeStream(
     }
     circuitRecord(circuitKey, true);
   } catch (err) {
+    providerAttemptError = err;
     if (err instanceof GroqClientError) {
       circuitRecord(circuitKey, false);
       throw err;
@@ -658,6 +730,13 @@ export async function* completeStream(
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
+    completeProviderAttempt(
+      executionLedger,
+      "Groq",
+      model,
+      providerAttemptStartedAt,
+      providerAttemptError,
+    );
   }
 }
 
@@ -669,8 +748,10 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxRetries = DEFAULT_MAX_RETRIES,
     apiKey,
-    signal,
+    signal: callerSignal,
+    executionLedger,
   } = opts;
+  const signal = callerSignal ?? executionLedger?.signal;
 
   const circuitKey = apiKey ?? "env";
   if (circuitCheck(circuitKey) === "reject") {
@@ -687,6 +768,8 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
 
   let lastError: GroqClientError | undefined;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const providerAttemptStartedAt = admitProviderAttempt(executionLedger, "Groq", model);
+    let providerAttemptError: unknown;
     try {
       const completion = await sendRequest(client, request, timeoutMs, signal);
       const result = readResponse(completion);
@@ -694,15 +777,24 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
       circuitRecord(circuitKey, true);
       return result;
     } catch (err) {
+      providerAttemptError = err;
       lastError = err instanceof GroqClientError ? err : classifySdkError(err, false);
       if (signal?.aborted) throw lastError;
       if (attempt < maxRetries && isRetryable(lastError.code)) {
         const delay = retryDelayMs(attempt, lastError.code);
         console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
-        await sleep(delay);
+        await sleep(delay, signal);
         continue;
       }
       break;
+    } finally {
+      completeProviderAttempt(
+        executionLedger,
+        "Groq",
+        model,
+        providerAttemptStartedAt,
+        providerAttemptError,
+      );
     }
   }
 

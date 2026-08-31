@@ -1,0 +1,421 @@
+/**
+ * Request-owned execution budget and telemetry.
+ *
+ * This is intentionally separate from the evidence RunLedger. Evidence
+ * describes what was proven; this ledger controls how much work one logical
+ * request may perform across all orchestration seams.
+ */
+
+export type ExecutionMode =
+  | "simple_chat"
+  | "tool_chat"
+  | "forensic"
+  | "repair_plan"
+  | "hierarchical";
+
+export type ExecutionAttemptKind =
+  | "model"
+  | "provider_attempt"
+  | "tool"
+  | "planner"
+  | "provider_change"
+  | "synthesis"
+  | "recovery"
+  | "hierarchical_task";
+
+export type ExecutionTerminalReason =
+  | "completed"
+  | "cancelled"
+  | "deadline"
+  | "model_budget"
+  | "tool_budget"
+  | "recovery_budget"
+  | "provider_exhausted"
+  | "failed";
+
+export type ExecutionLedgerBudget = {
+  deadlineMs: number;
+  modelCalls: number;
+  providerAttempts: number;
+  toolCalls: number;
+  providerChanges: number;
+  synthesisAttempts: number;
+  recoveryAttempts: number;
+  plannerCalls: number;
+  hierarchicalTasks: number;
+};
+
+export type ExecutionLedgerEvent = {
+  kind: ExecutionAttemptKind | "terminal";
+  status: "started" | "completed" | "rejected" | "failed";
+  at: number;
+  durationMs?: number;
+  provider?: string;
+  model?: string;
+  operation?: string;
+  reason?: string;
+};
+
+export type ExecutionLedgerSnapshot = {
+  id: string;
+  mode: ExecutionMode;
+  startedAt: number;
+  deadlineAt: number;
+  elapsedMs: number;
+  remainingMs: number;
+  budget: ExecutionLedgerBudget;
+  counts: Record<ExecutionAttemptKind, number>;
+  providers: string[];
+  models: string[];
+  terminalReason?: ExecutionTerminalReason;
+  events: ExecutionLedgerEvent[];
+};
+
+export type ExecutionLedger = {
+  readonly id: string;
+  readonly mode: ExecutionMode;
+  readonly signal: AbortSignal;
+  readonly startedAt: number;
+  readonly deadlineAt: number;
+  admit(
+    kind: ExecutionAttemptKind,
+    details?: { provider?: string; model?: string; operation?: string },
+  ): boolean;
+  complete(
+    kind: ExecutionAttemptKind,
+    details?: {
+      provider?: string;
+      model?: string;
+      operation?: string;
+      startedAt?: number;
+      status?: "completed" | "failed";
+      reason?: string;
+    },
+  ): void;
+  timeoutMs(requested?: number): number;
+  isExhausted(): boolean;
+  setTerminal(reason: ExecutionTerminalReason): void;
+  snapshot(): ExecutionLedgerSnapshot;
+};
+
+const DEFAULT_BUDGET: ExecutionLedgerBudget = {
+  deadlineMs: 120_000,
+  modelCalls: 128,
+  providerAttempts: 192,
+  toolCalls: 360,
+  providerChanges: 4,
+  synthesisAttempts: 3,
+  recoveryAttempts: 8,
+  plannerCalls: 1,
+  hierarchicalTasks: 8,
+};
+
+const KIND_TO_BUDGET: Record<ExecutionAttemptKind, keyof ExecutionLedgerBudget> = {
+  model: "modelCalls",
+  provider_attempt: "providerAttempts",
+  tool: "toolCalls",
+  provider_change: "providerChanges",
+  synthesis: "synthesisAttempts",
+  recovery: "recoveryAttempts",
+  planner: "plannerCalls",
+  hierarchical_task: "hierarchicalTasks",
+};
+
+let ledgerSequence = 0;
+
+export function createExecutionLedger(options?: {
+  mode?: ExecutionMode;
+  budget?: Partial<ExecutionLedgerBudget>;
+  signal?: AbortSignal;
+  id?: string;
+}): ExecutionLedger {
+  const startedAt = Date.now();
+  const budget: ExecutionLedgerBudget = {
+    ...DEFAULT_BUDGET,
+    ...options?.budget,
+    deadlineMs: Math.max(1_000, Math.floor(options?.budget?.deadlineMs ?? DEFAULT_BUDGET.deadlineMs)),
+  };
+  const deadlineAt = startedAt + budget.deadlineMs;
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort();
+  if (options?.signal?.aborted) controller.abort();
+  else options?.signal?.addEventListener("abort", abortFromParent, { once: true });
+  const timer = setTimeout(() => controller.abort(), budget.deadlineMs);
+  timer.unref?.();
+
+  const id = options?.id ?? `execution-${startedAt}-${++ledgerSequence}`;
+  const mode = options?.mode ?? "tool_chat";
+  const counts = {
+    model: 0,
+    provider_attempt: 0,
+    tool: 0,
+    planner: 0,
+    provider_change: 0,
+    synthesis: 0,
+    recovery: 0,
+    hierarchical_task: 0,
+  } satisfies Record<ExecutionAttemptKind, number>;
+  const events: ExecutionLedgerEvent[] = [];
+  const providers: string[] = [];
+  const models: string[] = [];
+  let terminalReason: ExecutionTerminalReason | undefined;
+
+  const remember = (list: string[], value?: string) => {
+    if (value && !list.includes(value) && list.length < 16) list.push(value);
+  };
+  const currentReason = (): ExecutionTerminalReason | undefined => {
+    if (terminalReason) return terminalReason;
+    if (controller.signal.aborted) {
+      return Date.now() >= deadlineAt ? "deadline" : "cancelled";
+    }
+    return undefined;
+  };
+  const rejectReason = (kind: ExecutionAttemptKind): ExecutionTerminalReason => {
+    if (controller.signal.aborted) return Date.now() >= deadlineAt ? "deadline" : "cancelled";
+    if (kind === "tool") return "tool_budget";
+    if (kind === "recovery" || kind === "synthesis") return "recovery_budget";
+    if (kind === "provider_change") return "provider_exhausted";
+    return "model_budget";
+  };
+
+  const ledger: ExecutionLedger = {
+    id,
+    mode,
+    signal: controller.signal,
+    startedAt,
+    deadlineAt,
+    admit(kind, details) {
+      const now = Date.now();
+      const budgetKey = KIND_TO_BUDGET[kind];
+      const current = counts[kind];
+      const limit = budget[budgetKey];
+      const reason = currentReason();
+      if (reason || current >= limit || now >= deadlineAt) {
+        const terminal = reason ?? rejectReason(kind);
+        events.push({
+          kind,
+          status: "rejected",
+          at: now,
+          ...details,
+          reason: terminal,
+        });
+        if (!terminalReason) terminalReason = terminal;
+        if (events.length > 256) events.splice(0, events.length - 256);
+        return false;
+      }
+      counts[kind] += 1;
+      remember(providers, details?.provider);
+      remember(models, details?.model);
+      events.push({ kind, status: "started", at: now, ...details });
+      if (events.length > 256) events.splice(0, events.length - 256);
+      return true;
+    },
+    complete(kind, details) {
+      const at = Date.now();
+      remember(providers, details?.provider);
+      remember(models, details?.model);
+      events.push({
+        kind,
+        status: details?.status ?? "completed",
+        at,
+        ...(details?.provider ? { provider: details.provider } : {}),
+        ...(details?.model ? { model: details.model } : {}),
+        ...(details?.operation ? { operation: details.operation } : {}),
+        ...(details?.startedAt !== undefined
+          ? { durationMs: Math.max(0, at - details.startedAt) }
+          : {}),
+        ...(details?.reason ? { reason: details.reason.slice(0, 160) } : {}),
+      });
+      if (events.length > 256) events.splice(0, events.length - 256);
+    },
+    timeoutMs(requested) {
+      const remaining = Math.max(1, deadlineAt - Date.now());
+      return Math.max(1, Math.min(Math.floor(requested ?? remaining), remaining));
+    },
+    isExhausted() {
+      return Boolean(currentReason()) || Date.now() >= deadlineAt;
+    },
+    setTerminal(reason) {
+      if (!terminalReason) terminalReason = reason;
+      events.push({ kind: "terminal", status: "completed", at: Date.now(), reason });
+sed: can't read lib/ai-orchestrator/src/retry-controller.ts: No such file or directory
+import {
+  classifyRequest,
+  type ClassifiedRequest,
+  type RequestCategory,
+} from "./prompts/profile-classifier.js";
+import {
+  isExplicitBehaviorQueryRequest,
+  isProductionReachabilityRequest,
+  routeTask,
+  type AnalysisMode,
+  type ForensicTaskType,
+  type OutputContract,
+} from "./task-contracts.js";
+import type { TaskType } from "./quality/task-profile.js";
+
+export type TurnIntentKind =
+  | "CHAT"
+  | "PROJECT_QUERY"
+  | "FORENSIC_AUDIT"
+  | "DELIVERY";
+
+export type TurnOperationMode = "CHAT" | "FORENSIC_AUDIT" | "DELIVERY";
+
+/**
+ * The single request-routing decision shared by the API, orchestrator, model
+ * selector, tool loop, and UI response metadata.
+ *
+ * `hasTools` is intentionally absent: tool availability is a runtime
+ * capability (`rootPath`, provider support). `requiresTools` is user intent.
+ */
+export type TurnIntent = {
+  kind: TurnIntentKind;
+  category: RequestCategory;
+  forensicTaskType: ForensicTaskType;
+  analysisMode: AnalysisMode;
+  outputContract: OutputContract;
+  executionTaskType: TaskType;
+  requiresTools: boolean;
+  requiresEvidence: boolean;
+  resumed: boolean;
+  allowsResume: boolean;
+  allowsBuildHandoff: boolean;
+  implementationPlanResume: boolean;
+  /** Broad forensic requests must declare a scope before expensive discovery. */
+  scopeClarificationRequired: boolean;
+  /** User-readable description of the boundary approved for this audit. */
+  auditScopeDescription?: string;
+  operationMode: TurnOperationMode;
+  classification: ClassifiedRequest;
+};
+
+const RESUMABLE_FORENSIC_TASKS = new Set<ForensicTaskType>([
+  "FINDING_ANALYSIS",
+  "FULL_FORENSIC_AUDIT",
+  "WORKSPACE_REVIEW",
+  "REPAIR_ANALYSIS",
+]);
+
+const PROJECT_TOOL_SIGNAL_RE =
+  /(?:\b(?:file|folder|directory|repository|repo|codebase|project|source|function|class|method|module|component|handler|middleware|endpoint|route|schema|database|table|query|test|bug|error|implementation|architecture|workflow|pipeline|dependency|dependencies|configuration|config|api|branch|commit|loop|iteration|iterations|behavior|behaviour|return|result|call|invocation|limit|counter)\b|ملف|مجلد|مستودع|مشروع|كود|شفرة|مصدر|دالة|وحدة|مكوّن|مكون|واجهة|مسار|مخطط|قاعدة\s+بيانات|جدول|استعلام|اختبار|خطأ|خلل|تنفيذ|معمارية|سير\s+العمل|اعتماديات|إعدادات|حلقة|تكرار|سلوك|إرجاع|نتيجة)/iu;
+
+const SOURCE_PATH_RE =
+  /(?:^|[\s`"'(])(?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html)\b/iu;
+
+const ENGLISH_EXECUTION_ACTION_RE =
+  /^\s*(?:(?:please|kindly)\s+)?(?:(?:(?:can|could|would|will)\s+you|go\s+ahead\s+and|i\s+(?:need|want)\s+you\s+to|i(?:'d|\s+would)\s+like\s+you\s+to)\s+)?(?:(?:please|kindly)\s+)?(?:fix|patch|implement|modify|change|write|edit|apply|execute|build|refactor|delete|remove|create|add)\b/iu;
+
+const ARABIC_EXECUTION_ACTION_RE =
+  /^\s*(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:(?:هل\s+يمكنك|ممكن)\s+)?(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:أن\s+)?(?:أصلح|صحح|عدّل|غير|غيّر|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|تصلح|تصحح|تعدّل|تعدل|تغير|تكتب|تطبّق|تطبق|تنفّذ|تنفذ|تبني|تنشئ|تضيف|تحذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)(?:\s|$)/iu;
+
+const FORENSIC_EVIDENCE_SIGNAL_RE =
+  /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
+
+const EXPLICIT_AUDIT_SCOPE_RE =
+  /(?:\b(?:src|lib|app|server|client|test|tests|components?|pages?|routes?|api|packages?|artifacts?|files?)\b|[./][\w@.-]+(?:\/[\w@.-]+)*|[\w@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|json|yaml|yml|toml|css|scss|html)\b|specific\s+(?:file|folder|directory|module)|(?:whole|entire|full|all)\s+(?:the\s+)?(?:project|workspace|repository|repo|codebase|code)|مجلد\s+(?:محدد|معين)|ملف(?:ات)?\s+(?:محدد(?:ة)?|معين(?:ة)?)|هذا\s+الملف|الملفات\s+الإنتاجية|الكود\s+الإنتاجي|المشروع\s+بالكامل|كل\s+(?:المشروع|المستودع|الكود)|المشروع\s+كله)/iu;
+function isExecutionActionRequest(message: string): boolean {
+  return (
+    ENGLISH_EXECUTION_ACTION_RE.test(message) ||
+    ARABIC_EXECUTION_ACTION_RE.test(message)
+  );
+}
+
+export function resolveTurnIntent(
+  message: string,
+  options: {
+    classification?: ClassifiedRequest;
+    resumed?: boolean;
+    buildHandoff?: boolean;
+    implementationPlanResume?: boolean;
+  } = {},
+): TurnIntent {
+  const classification = options.classification ?? classifyRequest(message);
+  const route = routeTask(classification.taskType);
+  const buildHandoff = options.buildHandoff === true;
+  const implementationPlanResume = options.implementationPlanResume === true;
+  const planDelivery =
+    !buildHandoff && !implementationPlanResume && classification.implementationPlanMode;
+  const implementationDelivery =
+    buildHandoff ||
+    (
+      !planDelivery &&
+      (
+        classification.implementationTaskMode ||
+        isExecutionActionRequest(message)
+      )
+    );
+  const hasProjectToolSignal =
+    SOURCE_PATH_RE.test(message) || PROJECT_TOOL_SIGNAL_RE.test(message);
+  // Orientation questions classified as simple must remain fast, tool-free
+  // turns even when they contain a broad word such as "project".
+  const isLowRiskChat =
+    classification.category === "simple" &&
+    classification.allowPrefetch === false &&
+    classification.analysisMode === "STANDARD" &&
+    classification.taskType === "BEHAVIOR_QUERY" &&
+    !classification.structuredOutputMode &&
+    !classification.singleFileForensicMode &&
+    classification.orderedForensicRoots.length === 0 &&
+    !implementationDelivery &&
+    !classification.implementationTaskMode &&
+    !classification.implementationPlanMode;
+  const broadForensicTask =
+    classification.taskType === "FULL_FORENSIC_AUDIT" ||
+    classification.taskType === "WORKSPACE_REVIEW";
+  const broadAuditIntent =
+    !broadForensicTask ||
+    BROAD_AUDIT_REQUEST_RE.test(message) ||
+    EXPLICIT_STRUCTURED_AUDIT_RE.test(message) ||
+    hasExplicitAuditScope(message, classification);
+  const scopeClarificationRequired =
+    !buildHandoff &&
+    !options.resumed &&
+    !planDelivery &&
+    !implementationDelivery &&
+    broadForensicTask &&
+    BROAD_AUDIT_REQUEST_RE.test(message) &&
+    !EXPLICIT_STRUCTURED_AUDIT_RE.test(message) &&
+    !FORENSIC_EVIDENCE_SIGNAL_RE.test(message) &&
+    !hasExplicitAuditScope(message, classification);
+  // A short approval/continuation inherits the already-approved forensic
+  // contract. Its raw text ("ابدأ", "continue") does not repeat the audit
+  // keywords, but it must still reach the read-only evidence path.
+  const resumedForensicContinuation =
+    options.resumed === true &&
+    !implementationPlanResume &&
+    !implementationDelivery &&
+    !planDelivery &&
+    route.requiresEvidence &&
+    !scopeClarificationRequired;
+
+  const explicitEvidenceIntent = Boolean(
+    !isLowRiskChat &&
+    !implementationDelivery &&
+    !planDelivery &&
+    !implementationPlanResume &&
+    route.requiresEvidence &&
+    (
+      (
+        (!broadForensicTask || broadAuditIntent) &&
+        (
+          classification.analysisMode === "FORENSIC" ||
+          classification.structuredOutputMode ||
+          classification.singleFileForensicMode ||
+          classification.orderedForensicRoots.length > 0
+        )
+      ) ||
+      (hasProjectToolSignal && isExplicitBehaviorQueryRequest(message)) ||
+      isProductionReachabilityRequest(message) ||
+      FORENSIC_EVIDENCE_SIGNAL_RE.test(message)
+     ) ||
+     resumedForensicContinuation,
+  );
+
+  const requiresTools =
+    isLowRiskChat
+      ? false
+      : implementationDelivery ||
+        implementationPlanResume ||
+        (explicitEvidenceIntent && !scopeClarificationRequired) ||
+        (!planDelivery && hasProjectToolSignal && !scopeClarificationRequired);

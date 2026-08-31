@@ -1754,6 +1754,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         ...callOptions,
         timeoutMs: executionLedger.timeoutMs(callOptions.timeoutMs),
         signal: callSignal ?? executionLedger.signal,
+        executionLedger,
       });
     } finally {
       executionLedger.complete(kind, {

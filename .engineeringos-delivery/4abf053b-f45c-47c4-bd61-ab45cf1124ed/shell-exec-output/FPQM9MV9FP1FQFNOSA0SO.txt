@@ -1,0 +1,250 @@
+artifacts/api-server/src/routes/ai/operator-alerts.ts:14: * metadata and never provider credentials or raw provider responses.
+artifacts/api-server/src/routes/ai/providers.ts:19:import { decryptApiKey, encryptApiKey } from "../../lib/credentials-crypto.js";
+artifacts/api-server/src/routes/ai/providers.ts:47:  status: "available" | "unavailable" | "check_unavailable" | "invalid_credential" | "not_configured";
+artifacts/api-server/src/routes/ai/providers.ts:56: * Check Groq's configured defaults without returning a credential or raw
+artifacts/api-server/src/routes/ai/providers.ts:94:      status: isInvalidCredential ? "invalid_credential" : "check_unavailable",
+artifacts/api-server/src/routes/ai/providers.ts:100:        ? "Groq rejected this credential while checking the configured models. Replace the Groq API key."
+artifacts/api-server/src/routes/ai/providers.ts:128:      process.env.GROQ_API_KEY,
+artifacts/api-server/src/routes/ai/providers.ts:129:      process.env.GROQ_API_KEY ? "server" : "none",
+artifacts/api-server/src/routes/ai/providers.ts:149:    apiKey = process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai/providers.ts:296:      Boolean(process.env[`${provider.toUpperCase()}_API_KEY`]),
+artifacts/api-server/src/routes/ai/providers.ts:319:      ? "missing_credentials"
+lib/ai-orchestrator/src/tools/file-tools.ts:578:      // Prevent the AI from proposing writes to secret material or executable
+lib/ai-orchestrator/src/tools/file-tools.ts:580:      // if safePath passes, queuing a change to `.env.production` or
+lib/ai-orchestrator/src/tools/file-tools.ts:583:      //   • .env* files (any variant: .env, .env.local, .env.production …)
+lib/ai-orchestrator/src/tools/file-tools.ts:587:      //   • .htpasswd (Apache credential store)
+lib/ai-orchestrator/src/tools/file-tools.ts:588:      const BLOCKED_WRITE_EXTENSIONS =
+lib/ai-orchestrator/src/tools/file-tools.ts:589:        /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+lib/ai-orchestrator/src/tools/file-tools.ts:590:      if (BLOCKED_WRITE_EXTENSIONS.test(args.path)) {
+lib/ai-orchestrator/src/tools/file-tools.ts:593:          `classified as sensitive (secrets, credentials, or executable scripts). ` +
+lib/ai-orchestrator/src/tools/file-tools.ts:670:      const BLOCKED_WRITE_EXTENSIONS =
+lib/ai-orchestrator/src/tools/file-tools.ts:671:        /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+lib/ai-orchestrator/src/tools/file-tools.ts:672:      if (BLOCKED_WRITE_EXTENSIONS.test(args.path)) {
+lib/ai-orchestrator/src/tools/file-tools.ts:675:          `classified as sensitive (secrets, credentials, or executable scripts).`
+artifacts/api-server/src/routes/ai/chat.ts:165:  "BLOCKED",
+artifacts/api-server/src/routes/ai/chat.ts:195:      : "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:198:  if (validationStatus === "failed" || validationStatus === "blocked") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:199:  if (params.executionStatus === "failed") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:355:    .filter((detail) => !/(?:provider|model|bearer|credential|secret|token|upstream|raw|https?:|\/(?:home|tmp|srv|workspace)\b)/i.test(detail))
+artifacts/api-server/src/routes/ai/chat.ts:1120:  | "BLOCKED"
+artifacts/api-server/src/routes/ai/chat.ts:1496:  repairReadiness?: "READY" | "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:1529:    repairReadiness: "READY" | "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:1538:    | "NO_RESPONSE_RECOVERY_BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:1613:    .filter((detail) => !/(?:provider|model|bearer|credential|secret|token|upstream|raw|https?:|\/(?:home|tmp|srv|workspace)\b)/i.test(detail))
+artifacts/api-server/src/routes/ai/chat.ts:2751:        code: "PLAN_BUILD_BLOCKED",
+artifacts/api-server/src/routes/ai/chat.ts:2752:        readiness: approvedImplementationExecutionPlan?.readiness ?? "BLOCKED",
+artifacts/api-server/src/routes/ai/chat.ts:3470:          executionEvidenceVerdict = "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:3476:          executionEvidenceVerdict = "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:4060:              code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED",
+artifacts/api-server/src/routes/ai/chat.ts:4068:            code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED",
+artifacts/api-server/src/routes/ai/chat.ts:4443:        executionEvidenceVerdict = "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:5007:      excluded: ["provider secrets", "raw model output", "private runtime paths"],
+artifacts/api-server/src/routes/ai/chat.ts:5518:  // for a stale/inaccessible project request arbitrary files (e.g. .env) from
+artifacts/api-server/src/routes/ai/chat.ts:6009:    const BLOCKED_WRITE_EXTENSIONS =
+artifacts/api-server/src/routes/ai/chat.ts:6010:      /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+artifacts/api-server/src/routes/ai/chat.ts:6013:      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {
+artifacts/api-server/src/routes/ai/chat.ts:6584:      const BLOCKED_WRITE_EXTENSIONS =
+artifacts/api-server/src/routes/ai/chat.ts:6585:        /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+artifacts/api-server/src/routes/ai/chat.ts:6588:      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {
+artifacts/api-server/src/routes/ai/chat.ts:6592:          error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+artifacts/api-server/src/routes/ai/chat.ts:6816:      await appendApplyJournal("BLOCKED", {
+artifacts/api-server/src/routes/ai/chat.ts:7019:        : "BLOCKED";
+lib/ai-orchestrator/src/tools/execution-tools.ts:13:export type RepairLoopState = "VALIDATING" | "REPAIRING" | "READY_FOR_REVIEW" | "BLOCKED";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:255:    .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]")
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:336:  repairReadiness: "BLOCKED",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:399:  repairState: "BLOCKED",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:409:    stderr: "token: abc123 secret@example.com",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:410:    failedTests: [{ name: "private.test.ts", file: "src/private.ts", message: "secret@example.com" }],
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:413:      evidenceId: "validation-result:sensitive-test",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:415:      artifactRef: "validation-result:sensitive-test",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:417:    detail: "Validation failed for secret@example.com token: abc123",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:433:    detail: "Validation passed for secret@example.com token: abc123",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:670:      "BLOCKED — لا يمكن التحقق قبل اكتمال الأدلة.",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:698:    const sensitive = "/home/runner/workspace/artifacts/api-server/src/chat.ts";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:700:    const responseText = `Read ${sensitive}; request ${internalId}.`;
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:716:    expect(JSON.stringify(json.body)).not.toContain(sensitive);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:719:    expect(stream.text).not.toContain(sensitive);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:721:    expect(chatCapture.assistantContent).not.toContain(sensitive);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:726:    const sensitive = "/app/runtime/artifacts/api-server/src/chat.ts";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:728:    const source = `${sensitive} (request ${internalId})`;
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:731:        (onDelta as ((delta: string) => void) | undefined)?.("Answer without sensitive metadata.");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:749:            response: "Answer without sensitive metadata.",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:760:      expect(exportBody).not.toContain(sensitive);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1273:        .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]"),
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1303:    expect(body).not.toContain("secret@example.com");
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:692:    expect(gate.reason).toBe("REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION");
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:698:    expect(gate.reason).toBe("REPAIR_BLOCKED_MIXED_EVIDENCE");
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts:704:    expect(gate.reason).toBe("REPAIR_BLOCKED_SCOPE_NOT_PROVEN");
+artifacts/api-server/src/routes/ai/benchmark.ts:107:    process.env.BENCHMARK_OUTPUT_DIR ??
+artifacts/api-server/src/routes/ai/benchmark.ts:385:    process.env.BENCHMARK_BASELINE_PATH ??
+artifacts/api-server/src/routes/ai/benchmark.ts:392:    process.env.BENCHMARK_OUTPUT_DIR ??
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:27:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:91:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:95:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts:96:    else process.env.GROQ_API_KEY = originalApiKey;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:8:const originalOutputDir = process.env.BENCHMARK_OUTPUT_DIR;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:24:  if (originalOutputDir === undefined) delete process.env.BENCHMARK_OUTPUT_DIR;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:25:  else process.env.BENCHMARK_OUTPUT_DIR = originalOutputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:31:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:78:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:88:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:99:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+artifacts/api-server/src/routes/ai/benchmark.test.ts:153:    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:5: * BLOCKED). This file asserts the positive branch is reachable through chat():
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:10: * Without this, a regression could cap every run at BLOCKED even for genuine
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts:207:      //    reachable end to end (unlike task #41's BLOCKED fixture-side).
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:30:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:149:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:153:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts:154:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:10: *   Repair    = BLOCKED           (scopedRepairGate rejects a local proof)
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:23: *   3. asserts the live forensic_status step carries repairReadiness BLOCKED
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:24: *      with repairBlockReason REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION, and that
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:40:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:152:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:156:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:157:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:230:      // 3. The live forensic_status step surfaced a BLOCKED repair with the
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:234:      expect(forensicStatuses[0]?.repairReadiness).toBe("BLOCKED");
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts:236:        "REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION",
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:44:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:287:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:291:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:292:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:73:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:92: * does not need either provider's credentials or network.
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:123:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:129:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:130:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:477:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:485:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:486:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:598:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:609:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:610:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:1822:      expect(partialDetails).toContain("BLOCKED");
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2324:      expect(forensicStatuses.every((s) => s.repairReadiness === "BLOCKED")).toBe(true);
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2697:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2752:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2761:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2762:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2969:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2974:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:2975:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3038:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3047:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts:3048:    else process.env.GROQ_API_KEY = originalApiKey;
+artifacts/api-server/src/routes/ai/analysis.ts:184:    availabilityState: "missing_credentials",
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:18:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:75:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:85:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts:86:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:6:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:68:    response: "BLOCKED — no proven defect",
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:76:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:113:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:114:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:156:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:190:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:191:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:257:      expect(["READY", "BLOCKED", "NOT_PROVEN"]).toContain(result.taskResult.readiness);
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:269:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:298:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:299:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:349:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:393:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts:394:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:29:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:145:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:149:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts:150:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:440:      "Phase 1 (F-01): [BLOCKED: F-01 is NOT PROVEN] — `src/unverified.ts`",
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:27:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:178:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:182:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts:183:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:16:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:161:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:173:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts:174:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:40:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:287:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:291:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts:292:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:6: * isolation, and approval gate without requiring a live provider credential.
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:29:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:34:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:39:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:40:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:1033:      expect(result.response).toContain("REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION");
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:1117:      expect(result.response).toContain("REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION");
+lib/ai-orchestrator/src/__tests__/ai-obj-objective-completion-gate.test.ts:8: *     PROVEN / PARTIALLY_PROVEN / NOT_PROVEN / BLOCKED and refuses finalization
+lib/ai-orchestrator/src/__tests__/ai-obj-objective-completion-gate.test.ts:10: *   - Import-only "proof" must stay NOT_PROVEN/BLOCKED — a static reference can no
+lib/ai-orchestrator/src/__tests__/ai-obj-objective-completion-gate.test.ts:80:  it("BLOCKED when evidence exists but proves neither the claim nor the edge", () => {
+lib/ai-orchestrator/src/__tests__/ai-obj-objective-completion-gate.test.ts:88:    expect(result.status).toBe("BLOCKED");
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:10: * R-PROOF positive-proof gate (FINAL_ANSWER_GATE_FAILED / OBJECTIVE_BLOCKED),
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:16: * verdict — NOT a NOT PROVEN / OBJECTIVE_BLOCKED dead end — AND locks the C1–C7
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:42:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:157:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:161:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:162:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts:210:      expect(diagnostics).not.toContain("OBJECTIVE_BLOCKED");
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:22:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:70:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:74:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts:75:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:586:      makeResponse("BLOCKED"),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:630:      ["failed", "BLOCKED", 3],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:631:      ["blocked", "BLOCKED", 4],
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:637:      "VALIDATING", "BLOCKED",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:638:      "BLOCKED",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2106:      makeResponse("BLOCKED: validation made no progress."),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2156:      repairState: "BLOCKED",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2195:      makeResponse("BLOCKED: the repair attempt budget was exhausted."),
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2254:      repairState: "BLOCKED",
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:2739:    FILE_TOOL_MOCK.mockRejectedValueOnce(new Error("/secret/workspace/private.txt leaked"));
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3466:    expect(steps.some((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF")).toBe(false);
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3497:      steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3502:  it("BLOCKS an unproven read of a NEW dependency file after the first read and reports READ_BLOCKED_NO_DEPENDENCY_PROOF (FEG-005/006)", async () => {
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3535:      steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3590:      steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3606:    // still be BLOCKED even though all four strings are syntactically present.
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3639:      steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3684:      steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3740:      steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:3793:      steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:17: *   2. The PROVEN + BLOCKED benchmarks inspect the POST-attachment objective
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:39:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:295:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:299:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:300:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:352:      expect(result.response).toMatch(/BLOCKED|محظور/);
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:355:      // 2. An OBJECTIVE_BLOCKED diagnostic was relayed.
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:357:        (s) => s.kind === "diagnostic" && s.code === "OBJECTIVE_BLOCKED",
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:388:      // The telemetry faithfully records a BLOCKED objective — consistent, not
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:442:      // with PROVEN (a structural "BLOCKED — no behavioral scenario" line inside
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:444:      // PROVEN signal is the gate verdict + absence of OBJECTIVE_BLOCKED below.
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:448:      // No OBJECTIVE_BLOCKED diagnostic.
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:450:        (s) => s.kind === "diagnostic" && s.code === "OBJECTIVE_BLOCKED",
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:589:      // 1. The behavioral answer is BLOCKED (blocked replacement text).
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:590:      expect(result.response).toMatch(/BLOCKED|محظور/);
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:593:      // 2. OBJECTIVE_BLOCKED diagnostic with status:OBJECTIVE_MISMATCH.
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:595:        (s) => s.kind === "diagnostic" && s.code === "OBJECTIVE_BLOCKED",
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:796:      expect(result.response).toMatch(/BLOCKED|محظور/);
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:798:      // OBJECTIVE_BLOCKED diagnostic carries status:RECOVERY_SCOPE_FAILURE.
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts:800:        (s) => s.kind === "diagnostic" && s.code === "OBJECTIVE_BLOCKED",
+lib/ai-orchestrator/src/__tests__/profile-classifier.test.ts:254:    // Regression for ORDERED_FORENSIC_ROOT_BLOCKED: a single-file capability
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:96:    expect(serialized).not.toMatch(/\b(command|argv|cwd|shell|environment|secret)\b/i);
+lib/ai-orchestrator/src/__tests__/ai-obj-013-status-telemetry.test.ts:70:  it("T1 BLOCKED — behavioral evidence present but the production caller is unproven", () => {
+lib/ai-orchestrator/src/__tests__/ai-obj-013-status-telemetry.test.ts:73:    // production caller/edge is proven -> BLOCKED, never PROVEN.
+lib/ai-orchestrator/src/__tests__/ai-obj-013-status-telemetry.test.ts:79:    expect(result.status).toBe("BLOCKED");
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:12: *   3. asserts the returned response reads BLOCKED (not the model's report),
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:26:const originalApiKey = process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:134:    process.env.GROQ_API_KEY = "test-key";
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:138:    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:139:    else process.env.GROQ_API_KEY = originalApiKey;
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:142:  it("returns BLOCKED (not the report), with an objective reason, when a required edge is unproven", async () => {
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:207:      // 1. The final response is BLOCKED — the model's PROVEN report is NOT
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:209:      expect(result.response).toMatch(/BLOCKED|محظور/);
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:215:      //    passed verdict. And an OBJECTIVE_BLOCKED diagnostic step was relayed.
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts:225:        (s) => s.kind === "diagnostic" && s.code === "OBJECTIVE_BLOCKED",
