@@ -1,6 +1,13 @@
 import type { ToolDefinition } from "./file-tools.js";
 
 export type AnalysisToolStatus = "complete" | "unavailable" | "failed";
+export type AnalysisFailureCategory =
+  | "timeout"
+  | "cancellation"
+  | "stale_revision"
+  | "unavailable_dependency"
+  | "root_unavailable"
+  | "execution_failure";
 
 export type AnalysisCorrelation = {
   operationId: string;
@@ -15,6 +22,9 @@ export type AnalysisToolResult = {
   output: string;
   source?: string;
   correlation?: AnalysisCorrelation;
+  failureCategory?: AnalysisFailureCategory;
+  /** Set only by the server-owned runner when it advances its revision snapshot. */
+  trustedRevisionAdvance?: boolean;
 };
 
 export type AnalysisToolRunner = (
@@ -22,6 +32,7 @@ export type AnalysisToolRunner = (
   args: Record<string, string>,
   signal?: AbortSignal,
   correlation?: AnalysisCorrelation,
+  deadlineAt?: number,
 ) => Promise<AnalysisToolResult>;
 
 export const ANALYSIS_TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -89,6 +100,7 @@ export async function executeAnalysisTool(
   runner: AnalysisToolRunner | undefined,
   signal?: AbortSignal,
   correlation?: AnalysisCorrelation,
+  deadlineAt?: number,
 ): Promise<AnalysisToolResult> {
   if (!ANALYSIS_TOOL_NAMES.has(name)) {
     return { status: "failed", output: `Unknown analysis tool "${name}".` };
@@ -98,6 +110,7 @@ export async function executeAnalysisTool(
       status: "unavailable",
       output: `Analysis tool "${name}" is unavailable for this project turn; do not present its result as completed evidence.`,
       correlation,
+      failureCategory: "unavailable_dependency",
     };
   }
   if (signal?.aborted) {
@@ -105,6 +118,7 @@ export async function executeAnalysisTool(
       status: "unavailable",
       output: "Analysis was cancelled before it started.",
       correlation,
+      failureCategory: "cancellation",
     };
   }
   try {
@@ -114,7 +128,9 @@ export async function executeAnalysisTool(
         output: "Analysis correlation is unavailable for this project turn; do not present its result as completed evidence.",
       };
     }
-    const result = await runner(name, args, signal, correlation);
+    // Do not let an implementation mutate the request-owned envelope.
+    const runnerCorrelation = { ...correlation };
+    let result = await runner(name, args, signal, runnerCorrelation, deadlineAt);
     if (result.status !== "complete") {
       console.error(JSON.stringify({
         scope: "analysis-tools",
@@ -131,13 +147,17 @@ export async function executeAnalysisTool(
       !result.correlation ||
       result.correlation.operationId !== correlation.operationId ||
       result.correlation.projectId !== correlation.projectId ||
-      result.correlation.projectRevision !== correlation.projectRevision ||
+      (
+        result.correlation.projectRevision !== correlation.projectRevision
+        && result.trustedRevisionAdvance !== true
+      ) ||
       result.correlation.rootAvailable !== correlation.rootAvailable ||
       !result.correlation.evidenceProvenance
     ) {
       return {
         status: "unavailable",
         output: "Analysis returned stale or cross-operation evidence; it was rejected.",
+        failureCategory: "stale_revision",
       };
     }
     return result;
@@ -148,12 +168,13 @@ export async function executeAnalysisTool(
       tool: name,
       error: error instanceof Error ? error.message : String(error),
     }));
-    return {
+      return {
       status: signal?.aborted ? "unavailable" : "failed",
       output: signal?.aborted
         ? `Analysis tool "${name}" was cancelled; the operation did not complete.`
         : safeStatusMessage(name, "failed"),
       correlation,
+        failureCategory: signal?.aborted ? "cancellation" : "execution_failure",
     };
   }
 }

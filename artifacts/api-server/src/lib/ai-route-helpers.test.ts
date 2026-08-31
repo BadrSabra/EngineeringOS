@@ -12,6 +12,7 @@ import {
   redactUserFacingValue,
   providerAvailabilityProjection,
   requestLooksToolBound,
+  normalizeProviderFailure,
 } from "./ai-route-helpers.js";
 
 describe("requestLooksToolBound", () => {
@@ -23,6 +24,26 @@ describe("requestLooksToolBound", () => {
   it("does not over-trigger on simple greetings", () => {
     expect(requestLooksToolBound("hello there")).toBe(false);
     expect(requestLooksToolBound("شكراً جزيلاً")).toBe(false);
+  });
+});
+
+describe("provider fallback error normalization", () => {
+  it("turns an untyped provider exception into a fallback-worthy error", () => {
+    const error = normalizeProviderFailure(new Error("raw parser/provider failure"));
+
+    expect(error).toBeInstanceOf(GroqClientError);
+    expect(error.code).toBe("NETWORK_ERROR");
+    expect(error.message).toBe("AI provider request failed");
+    expect(error.cause).toBeInstanceOf(Error);
+    expect(error.message).not.toContain("raw parser/provider failure");
+  });
+
+  it.each([
+    [404, "MODEL_NOT_FOUND"],
+    [429, "RATE_LIMITED"],
+    [500, "SERVER_ERROR"],
+  ] as const)("maps an untyped HTTP %s provider error to %s", (status, code) => {
+    expect(normalizeProviderFailure({ status }).code).toBe(code);
   });
 });
 

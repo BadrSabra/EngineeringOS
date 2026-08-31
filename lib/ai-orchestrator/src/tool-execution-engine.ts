@@ -433,6 +433,7 @@ export type SingleToolOpts = {
   /** Server-owned, read-only scanner/graph/discovery dispatcher. */
   analysisToolRunner?: AnalysisToolRunner;
   analysisCorrelation?: AnalysisCorrelation;
+  analysisDeadlineAt?: number;
   /** Files covered by the approved implementation plan. */
   validationTargetPaths?: string[];
   /** Fail-closed dispatcher gate for execution tools. */
@@ -467,6 +468,7 @@ export type SingleToolResult =
       kind: "failed";
       failureKind: "execution" | "unavailable" | "cancelled";
       diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+      analysisFailureCategory?: import("./tools/analysis-tools.js").AnalysisFailureCategory;
       /** Safe, bounded context forwarded to the model. Raw diagnostics stay in logs. */
       safeMessage: string;
     };
@@ -733,6 +735,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     let analysisFailure:
       | {
           failureKind: "execution" | "unavailable" | "cancelled";
+          analysisFailureCategory?: import("./tools/analysis-tools.js").AnalysisFailureCategory;
           diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
           safeMessage: string;
         }
@@ -770,6 +773,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             // provider retry/resume; the analysis tool validates it before
             // accepting evidence.
             opts.analysisCorrelation,
+            opts.analysisDeadlineAt,
           )
             .then((result) => {
               analysisStatus = result.status;
@@ -788,6 +792,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
                 failureKind,
                 diagnosticCode,
                 safeMessage: result.output,
+                analysisFailureCategory: result.failureCategory,
               };
               return result.output;
             })
@@ -1314,6 +1319,7 @@ export type ToolLoopResult =
       tool: string;
       failureKind: "execution" | "unavailable" | "cancelled";
       diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+       analysisFailureCategory?: import("./tools/analysis-tools.js").AnalysisFailureCategory;
        objectiveState?: AgentLoopState;
     }
   | {
@@ -1479,6 +1485,7 @@ export type AgentStep =
       outputLength: number;
        resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
        diagnosticCode?: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+       analysisFailureCategory?: import("./tools/analysis-tools.js").AnalysisFailureCategory;
       /** Server-owned command status, when the tool is run_command. */
       commandStatus?: "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
       /** Bounded, content-free summary safe for activity timelines. */
@@ -2580,6 +2587,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     failureKind: "execution" | "unavailable" | "cancelled",
     diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>,
     safeMessage: string,
+    analysisFailureCategory?: import("./tools/analysis-tools.js").AnalysisFailureCategory,
   ): ToolLoopResult => {
     try {
       onStep?.({ kind: "diagnostic", code: diagnosticCode, details: [`${tool}: ${failureKind}`] });
@@ -2591,6 +2599,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         resultKind: failureKind === "execution" ? "failed" : failureKind,
         diagnosticCode,
         resultSummary: safeMessage,
+        ...(analysisFailureCategory ? { analysisFailureCategory } : {}),
       });
       onStep?.({
         kind: "done",
@@ -2611,6 +2620,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       tool,
       failureKind,
       diagnosticCode,
+      ...(analysisFailureCategory ? { analysisFailureCategory } : {}),
       ...(buildObjectiveState("evidence_incomplete")
         ? { objectiveState: buildObjectiveState("evidence_incomplete") }
         : {}),
@@ -4224,6 +4234,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
         analysisToolRunner: opts.analysisToolRunner,
         analysisCorrelation: opts.analysisCorrelation,
+        analysisDeadlineAt: executionLedger?.deadlineAt,
         signal,
       });
 
@@ -4259,6 +4270,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           toolResult.failureKind,
           toolResult.diagnosticCode,
           toolResult.safeMessage,
+          toolResult.analysisFailureCategory,
         );
       }
 

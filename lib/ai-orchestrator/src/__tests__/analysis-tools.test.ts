@@ -30,6 +30,49 @@ describe("analysis tool correlation contract", () => {
     expect(result.status).toBe("unavailable");
     expect(result.output).toContain("was unavailable");
     expect(result.output).not.toContain("database password");
+    expect(result.failureCategory).toBeUndefined();
+  });
+
+  it("preserves typed analysis failure categories while redacting diagnostics", async () => {
+    const result = await executeAnalysisTool(
+      "query_knowledge_graph",
+      { operation: "search" },
+      async () => ({
+        status: "unavailable",
+        output: "internal timeout details",
+        correlation,
+        failureCategory: "timeout" as const,
+      }),
+      undefined,
+      correlation,
+    );
+
+    expect(result.failureCategory).toBe("timeout");
+    expect(result.output).not.toContain("internal timeout");
+  });
+
+  it("rejects a late complete result without allowing correlation mutation", async () => {
+    const original = { ...correlation };
+    const runner: AnalysisToolRunner = async (_name, _args, _signal, supplied) => {
+      if (supplied) supplied.projectRevision = "late-mutated-revision";
+      return {
+        status: "complete",
+        output: "late result",
+        correlation: { ...correlation, projectRevision: "late-mutated-revision" },
+      };
+    };
+
+    const result = await executeAnalysisTool(
+      "query_knowledge_graph",
+      { operation: "search" },
+      runner,
+      undefined,
+      original,
+    );
+
+    expect(original).toEqual(correlation);
+    expect(result.status).toBe("unavailable");
+    expect(result.failureCategory).toBe("stale_revision");
   });
 
   it("maps runner failures to a bounded failed result", async () => {

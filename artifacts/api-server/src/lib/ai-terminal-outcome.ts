@@ -50,6 +50,11 @@ function isSafeCode(value: unknown): value is string {
 }
 
 function safeToolCode(step: AgentStep | undefined): string {
+  const category = record(step).analysisFailureCategory;
+  if (category === "timeout") return "TOOL_ANALYSIS_TIMEOUT";
+  if (category === "stale_revision") return "TOOL_ANALYSIS_STALE_REVISION";
+  if (category === "root_unavailable") return "TOOL_ANALYSIS_ROOT_UNAVAILABLE";
+  if (category === "unavailable_dependency") return "TOOL_UNAVAILABLE";
   const code = record(step).diagnosticCode;
   return isSafeCode(code) && code.startsWith("TOOL_") ? code : "TOOL_EXECUTION_FAILED";
 }

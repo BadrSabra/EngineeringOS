@@ -41,6 +41,21 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("keeps typed analysis timeout diagnostics in the safe terminal code", () => {
+    expect(classify([
+      {
+        kind: "tool_result",
+        resultKind: "failed",
+        diagnosticCode: "TOOL_EXECUTION_FAILED",
+        analysisFailureCategory: "timeout",
+      },
+      { kind: "done", stopReason: "tool_failure" },
+    ])).toMatchObject({
+      outcome: "FAILED",
+      code: "TOOL_ANALYSIS_TIMEOUT",
+    });
+  });
+
   it("distinguishes terminal forensic recovery failure from ordinary incompleteness", () => {
     expect(classify([
       { kind: "decision_trace", trace: { finalState: "FAILED", recoveryFailureKind: "RECOVERY_CONTRACT_FAILED" } },

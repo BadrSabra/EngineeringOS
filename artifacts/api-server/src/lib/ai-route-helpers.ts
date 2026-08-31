@@ -33,6 +33,7 @@ import type {
   ObjectiveContract,
   TurnIntent,
   ValidationRunner,
+  GroqErrorCode,
 } from "@workspace/ai-orchestrator";
 import type { ExecutionLedger } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
@@ -349,6 +350,35 @@ const FALLBACK_TRIGGER_CODES = new Set<string>([
 ]);
 
 /**
+ * Normalize SDK/parser failures that escaped without the typed provider
+ * error. The original error remains available as a non-serialized cause,
+ * while fallback receives a safe, known error code.
+ */
+export function normalizeProviderFailure(error: unknown): GroqClientError {
+  if (error instanceof GroqClientError) return error;
+
+  const candidate = error as { status?: unknown; code?: unknown; name?: unknown } | null;
+  const status = typeof candidate?.status === "number" ? candidate.status : undefined;
+  let code: GroqErrorCode = "NETWORK_ERROR";
+
+  if (status === 401 || status === 403) code = "AUTH_ERROR";
+  else if (status === 404) code = "MODEL_NOT_FOUND";
+  else if (status === 429) code = "RATE_LIMITED";
+  else if (status !== undefined && status >= 500) code = "SERVER_ERROR";
+  else if (status !== undefined) code = "NON_200";
+  else if (candidate?.code === "INVALID_TOOL_CALL") code = "INVALID_TOOL_CALL";
+
+  return new GroqClientError(code, "AI provider request failed", {
+    cause: error,
+    context: {
+      providerStatus: status,
+      providerCode: typeof candidate?.code === "string" ? candidate.code : undefined,
+      providerName: typeof candidate?.name === "string" ? candidate.name : undefined,
+    },
+  });
+}
+
+/**
  * Run any single-shot agent function with automatic provider fallback.
  *
  * Accepts a `run` closure that receives `{ provider, apiKey }` and returns a
@@ -386,12 +416,13 @@ export async function runAgentWithFallback<T>(
       if (options?.signal?.aborted) {
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
       }
-      if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
+      const providerError = normalizeProviderFailure(err);
+      if (FALLBACK_TRIGGER_CODES.has(providerError.code)) {
         logger.warn(
-          { provider: providerEntry.provider, code: err.code, message: err.message },
+          { provider: providerEntry.provider, code: providerError.code, message: providerError.message },
           "provider failed — trying next in chain",
         );
-        lastErr = err;
+        lastErr = providerError;
         continue;
       }
       throw err;
@@ -546,13 +577,18 @@ export async function chatWithFallback(
       } as Parameters<typeof chat>[0]);
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
-      if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
+      const providerError = normalizeProviderFailure(err);
+      if (FALLBACK_TRIGGER_CODES.has(providerError.code)) {
         logger.warn(
-          { provider: providerEntry.provider, code: err.code, message: err.message },
+          { provider: providerEntry.provider, code: providerError.code, message: providerError.message },
           "provider failed — trying next in chain",
         );
-        providerErrors.push({ provider: providerEntry.provider, code: err.code, message: err.message });
-        lastErr = err;
+        providerErrors.push({
+          provider: providerEntry.provider,
+          code: providerError.code,
+          message: providerError.message,
+        });
+        lastErr = providerError;
         continue;
       }
       // Non-recoverable error — surface immediately.

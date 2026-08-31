@@ -44,6 +44,8 @@ testem.log
 Thumbs.db
 
 # SSH keys and credentials — never commit private key material
+**/.ssh/
+**/id_*
 id_rsa
 id_rsa.pub
 id_ed25519
@@ -54,6 +56,7 @@ id_ecdsa.pub
 *.key
 *.p12
 *.pfx
+*.ppk
 
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
@@ -69,3 +72,4 @@ attached_assets/*
 !attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389833.json
 .test-roots/
 .engineeringos-projects/
+.engineeringos-delivery/

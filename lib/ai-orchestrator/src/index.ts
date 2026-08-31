@@ -291,6 +291,7 @@ export {
 export type { UntrustedContent, UntrustedContentSource } from "./untrusted-content.js";
 export type {
   AnalysisCorrelation,
+  AnalysisFailureCategory,
   AnalysisToolRunner,
   AnalysisToolResult,
   AnalysisToolStatus,

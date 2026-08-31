@@ -5495,6 +5495,35 @@ function formatElapsed(seconds: number): string {
   return `${minutes}m ${String(remainder).padStart(2, '0')}s`;
 }
 
+type LiveProgressStage = 'preparing' | 'planning' | 'evidence' | 'synthesis' | 'writing' | 'validation' | 'recovery';
+
+const LIVE_PROGRESS_STAGES: Array<{ key: LiveProgressStage; label: string }> = [
+  { key: 'preparing', label: 'Preparing' },
+  { key: 'planning', label: 'Planning' },
+  { key: 'evidence', label: 'Gathering evidence' },
+  { key: 'synthesis', label: 'Synthesizing' },
+  { key: 'writing', label: 'Writing response' },
+  { key: 'validation', label: 'Validating' },
+];
+
+function deriveLiveProgressStage(
+  stage: string | null,
+  streamingContent: string,
+  activeStep: LiveAgentToolStep | undefined,
+  diagnostics: string[],
+): LiveProgressStage {
+  const normalized = (stage ?? '').toLowerCase();
+  if (/disconnect|recover|failed|stopped|cancel/.test(normalized)) return 'recovery';
+  if (/validat|verification|audit state|repair|ready for review|blocked/.test(normalized)) return 'validation';
+  if (normalized.includes('synthes')) return 'synthesis';
+  if (streamingContent || normalized.includes('writing response') || normalized.includes('streaming')) return 'writing';
+  if (activeStep || /reading|evidence|source|tool/.test(normalized)) return 'evidence';
+  if (/calling|model response|iteration/.test(normalized)) return 'planning';
+  if (normalized.includes('diagnostic') || diagnostics.length > 0) return 'recovery';
+  if (/building context|connecting|reserved|starting/.test(normalized)) return 'preparing';
+  return 'planning';
+}
+
 function liveStageDescription(stage: string | null, streamingContent: string, activeStep: LiveAgentToolStep | undefined): string {
   if (streamingContent) return 'Turning the verified context into the response you will see below.';
   if (activeStep) {
@@ -5585,15 +5614,14 @@ function LiveAgentActivity({
       .map((step) => step.source as string),
   ));
   const activeStepNumber = activeStep ? steps.indexOf(activeStep) + 1 : completed;
-  const isReporting = Boolean(streamingContent) ||
-    /synthes|model response|report|diagnostic|recover/i.test(stage ?? '');
-  const phaseIndex = isReporting ? 2 : steps.length > 0 || iter ? 1 : 0;
-  const phaseLabels = ['Preparing', 'Gathering evidence', 'Writing result'];
+  const progressStage = deriveLiveProgressStage(stage, streamingContent, activeStep, diagnostics);
+  const progressStageIndex = LIVE_PROGRESS_STAGES.findIndex(({ key }) => key === progressStage);
+  const isRecovery = progressStage === 'recovery';
   const activityLabel = streamingContent
     ? 'Writing the response'
     : activeStep
       ? liveToolLabel(activeStep)
-      : stage ?? (phaseIndex === 2 ? 'Preparing the final result' : 'Starting analysis');
+      : stage ?? 'Starting analysis';
   const latestProgress = [...activityEvents].reverse().find(
     (event) => event.kind === 'stage' && event.status === 'info',
   )?.label;
@@ -5655,16 +5683,34 @@ function LiveAgentActivity({
               Evidence found only in fixture/test paths — production reachability not yet proven.
             </p>
           )}
-          <div className="mt-2 grid grid-cols-3 gap-1">
-            {phaseLabels.map((label, index) => (
-              <div key={label} className="min-w-0">
-                <div className={`h-1 rounded-full ${index <= phaseIndex ? phaseActiveColor : 'bg-border/70'}`} />
-                <div className={`mt-1 truncate text-[9px] ${index === phaseIndex ? phaseActiveTextColor : 'text-muted-foreground'}`}>
+          <div
+            className="mt-2 grid grid-cols-2 gap-x-1 gap-y-1 sm:grid-cols-3 lg:grid-cols-6"
+            aria-label={`Agent progress: ${LIVE_PROGRESS_STAGES[progressStageIndex]?.label ?? 'active'}`}
+            role="list"
+          >
+            {LIVE_PROGRESS_STAGES.map(({ key, label }, index) => (
+              <div
+                key={key}
+                className="min-w-0"
+                role="listitem"
+                aria-current={index === progressStageIndex ? 'step' : undefined}
+              >
+                <div className={`h-1 rounded-full ${
+                  index <= progressStageIndex && !isRecovery ? phaseActiveColor : 'bg-border/70'
+                }`} />
+                <div className={`mt-1 truncate text-[9px] ${
+                  index === progressStageIndex && !isRecovery ? phaseActiveTextColor : 'text-muted-foreground'
+                }`}>
                   {label}
                 </div>
               </div>
             ))}
           </div>
+          {isRecovery && (
+            <div className="mt-2 rounded border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] leading-4 text-amber-200">
+              The execution is in recovery or stopped state; collected evidence is retained and no completion is implied.
+            </div>
+          )}
         </div>
       </div>
 
