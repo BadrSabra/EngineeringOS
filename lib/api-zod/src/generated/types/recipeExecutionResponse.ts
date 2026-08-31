@@ -5,7 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
-import type { RecipeExecutionResponseCapabilityGap } from './recipeExecutionResponseCapabilityGap';
+import type { CapabilityGapResponse } from './capabilityGapResponse';
 import type { RecipeExecutionResponseStatus } from './recipeExecutionResponseStatus';
 import type { RecipeReceipt } from './recipeReceipt';
 
@@ -13,5 +13,5 @@ export interface RecipeExecutionResponse {
   receipt: RecipeReceipt;
   executionId: string;
   status: RecipeExecutionResponseStatus;
-  capabilityGap: RecipeExecutionResponseCapabilityGap;
+  capabilityGap: CapabilityGapResponse | null;
 }

@@ -3182,6 +3182,12 @@ export const aiChatResponseTaskResultFiveEvidenceMax = 20;
 
 export const aiChatResponseTaskResultSixPhasesMax = 12;
 
+export const aiChatResponseCapabilityGapOneCodeMax = 120;
+
+export const aiChatResponseCapabilityGapOneSummaryMax = 1000;
+
+export const aiChatResponseCapabilityGapOneSuggestedRecipeIdMax = 120;
+
 
 
 export const AiChatResponse = zod.object({
@@ -3378,7 +3384,12 @@ export const AiChatResponse = zod.object({
   "kind": zod.enum(['REPAIR_RESULT']),
   "phases": zod.array(zod.record(zod.string(), zod.unknown())).max(aiChatResponseTaskResultSixPhasesMax),
   "readiness": zod.enum(['READY', 'BLOCKED', 'NOT_PROVEN'])
-})]).optional().describe('AI-008 — per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.')
+})]).optional().describe('AI-008 — per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.'),
+  "capabilityGap": zod.union([zod.object({
+  "code": zod.string().min(1).max(aiChatResponseCapabilityGapOneCodeMax),
+  "summary": zod.string().min(1).max(aiChatResponseCapabilityGapOneSummaryMax),
+  "suggestedRecipeId": zod.string().max(aiChatResponseCapabilityGapOneSuggestedRecipeIdMax).optional()
+}),zod.null()]).optional()
 })
 
 
@@ -3388,6 +3399,12 @@ export const AiChatResponse = zod.object({
 export const GetAiExecutionParams = zod.object({
   "executionId": zod.coerce.string()
 })
+
+export const getAiExecutionResponseRecipeReceiptOneNodesItemAttemptsMin = 0;
+
+export const getAiExecutionResponseRecipeReceiptOneNodesItemElapsedMsMin = 0;
+
+
 
 export const GetAiExecutionResponse = zod.object({
   "id": zod.string().describe('UUID of the AI execution'),
@@ -3401,7 +3418,27 @@ export const GetAiExecutionResponse = zod.object({
   "status": zod.enum(['queued', 'running', 'paused', 'cancelling', 'cancelled', 'completed', 'failed']),
   "flightState": zod.enum(['BUILDING', 'VALIDATING', 'REPAIRING', 'READY_FOR_REVIEW', 'BLOCKED', 'APPLIED', 'COMMITTED', 'PUSHED', 'CANCELLED', 'COMPLETED']).describe('Unified server-derived Code Flight Deck lifecycle state'),
   "evidenceVerdict": zod.enum(['PROVEN', 'PARTIAL', 'UNAVAILABLE', 'BLOCKED', 'NOT_RECORDED']).describe('Evidence confidence for the durable execution; absence of proof never implies success'),
-  "proofRequired": zod.boolean().describe('Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence'),
+  "proofRequired": zod.boolean(),
+  "recipeReceipt": zod.object({
+  "contractVersion": zod.literal(1),
+  "executionId": zod.string(),
+  "operationId": zod.string(),
+  "recipeId": zod.string(),
+  "recipeVersion": zod.number(),
+  "status": zod.enum(['completed', 'blocked', 'cancelled']),
+  "completedNodeIds": zod.array(zod.string()),
+  "nodes": zod.array(zod.object({
+  "nodeId": zod.string(),
+  "status": zod.enum(['passed', 'failed', 'blocked']),
+  "attempts": zod.number().min(getAiExecutionResponseRecipeReceiptOneNodesItemAttemptsMin),
+  "elapsedMs": zod.number().min(getAiExecutionResponseRecipeReceiptOneNodesItemElapsedMsMin),
+  "evidenceId": zod.string().nullable(),
+  "excerpt": zod.string().nullable()
+})),
+  "evidenceRefs": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullable()
+}).nullish().describe('Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence'),
   "evidenceReason": zod.string().nullish().describe('Bounded explanation for the current evidence verdict'),
   "terminalReason": zod.string().nullish().describe('Safe reason explaining why the execution stopped or is blocked'),
   "checkpoint": zod.record(zod.string(), zod.unknown()),
@@ -3578,6 +3615,12 @@ export const runAiRecipeResponseReceiptNodesItemAttemptsMin = 0;
 
 export const runAiRecipeResponseReceiptNodesItemElapsedMsMin = 0;
 
+export const runAiRecipeResponseCapabilityGapOneCodeMax = 120;
+
+export const runAiRecipeResponseCapabilityGapOneSummaryMax = 1000;
+
+export const runAiRecipeResponseCapabilityGapOneSuggestedRecipeIdMax = 120;
+
 
 
 export const RunAiRecipeResponse = zod.object({
@@ -3603,7 +3646,11 @@ export const RunAiRecipeResponse = zod.object({
 }),
   "executionId": zod.string(),
   "status": zod.enum(['completed', 'blocked']),
-  "capabilityGap": zod.record(zod.string(), zod.unknown()).nullable()
+  "capabilityGap": zod.union([zod.object({
+  "code": zod.string().min(1).max(runAiRecipeResponseCapabilityGapOneCodeMax),
+  "summary": zod.string().min(1).max(runAiRecipeResponseCapabilityGapOneSummaryMax),
+  "suggestedRecipeId": zod.string().max(runAiRecipeResponseCapabilityGapOneSuggestedRecipeIdMax).optional()
+}),zod.null()])
 })
 
 

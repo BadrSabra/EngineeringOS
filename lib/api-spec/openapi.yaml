@@ -1553,6 +1553,10 @@ paths:
                     description: Evidence confidence for the durable execution; absence of proof never implies success
                   proofRequired:
                     type: boolean
+                  recipeReceipt:
+                    allOf:
+                      - $ref: "#/components/schemas/RecipeReceipt"
+                    nullable: true
                     description: Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence
                   evidenceReason:
                     type: string
@@ -3352,7 +3356,18 @@ components:
         receipt: { $ref: "#/components/schemas/RecipeReceipt" }
         executionId: { type: string }
         status: { type: string, enum: [completed, blocked] }
-        capabilityGap: { type: object, nullable: true, additionalProperties: true }
+        capabilityGap:
+          anyOf:
+            - $ref: "#/components/schemas/CapabilityGapResponse"
+            - type: "null"
+    CapabilityGapResponse:
+      type: object
+      additionalProperties: false
+      required: [code, summary]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 120 }
+        summary: { type: string, minLength: 1, maxLength: 1000 }
+        suggestedRecipeId: { type: string, maxLength: 120 }
     AiExecutionRecoveryRequest:
       type: object
       additionalProperties: false
@@ -5263,6 +5278,10 @@ components:
               FORENSIC_REPORT_RESULT: "#/components/schemas/AiForensicReportResult"
               WORKSPACE_REVIEW_RESULT: "#/components/schemas/AiWorkspaceReviewResult"
               REPAIR_RESULT: "#/components/schemas/AiRepairResult"
+        capabilityGap:
+          anyOf:
+            - $ref: "#/components/schemas/CapabilityGapResponse"
+            - type: "null"
 
     AiCodeExtractionResult:
       type: object

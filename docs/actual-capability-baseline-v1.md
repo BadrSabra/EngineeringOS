@@ -108,6 +108,27 @@ operationally proven as a complete Agent replacement:
 | Audit export | Execution audit export and project export routes project allowlisted/redacted durable evidence | **Verified by code** | Export path is present; no downloaded artifact/API smoke check in this baseline |
 | Direct arbitrary model shell execution | Tool policy and execution tools accept server-owned command profiles; the model does not supply arbitrary executable/argv | **Not implemented by design** | `tool-execution-engine.ts` and execution-tools contract enforce the safer profile boundary |
 
+## Composite Recipe Capabilities
+
+The server-owned composite recipe layer currently exposes three baseline recipes:
+
+| Recipe ID | Node structure |
+|---|---|
+| `candidate.verify` | Candidate scope/integrity check → server-owned validation |
+| `validation.recover` | Validation → bounded recovery validation |
+| `browser.verify` | Browser readiness/verification check |
+
+The model may select a recipe by opaque `recipeId` and version and provide only
+bounded approved inputs. It cannot provide the graph, transitions, predicates,
+command text, executable paths, or output contract. Definitions and adapters
+remain server-owned.
+
+The following guarantees are **Verified by automated test**: durable lease and
+heartbeat ownership, candidate-workspace isolation, per-node scope and realpath
+revalidation, cancellation/deadline handling, typed outcome predicates, and a
+redacted public receipt. Permanently unsupported are arbitrary shell commands,
+model-supplied nodes or graphs, and dynamic predicate/evaluation code.
+
 ## 4. Agent loop trace
 
 1. The chat route loads the owner-scoped project/session and provider selection,

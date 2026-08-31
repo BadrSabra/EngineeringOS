@@ -16,7 +16,6 @@ import {
   classifyProjectError,
   isRetryableProjectError,
   emitProjectLoadFailed,
-  useAiChatStream,
   useAiTaskStream,
   useGetDeepSeekKeyStatus,
   useGetGroqKeyStatus,
@@ -47,6 +46,9 @@ import {
   useGitCommit,
   useGitPush,
 } from '@workspace/api-client-react';
+import { useRecipeStream } from '@/lib/use-recipe-stream';
+import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
+import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
 // body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
 // not pull server-only deps (groq-sdk, db) into the client.
@@ -7211,7 +7213,13 @@ export default function AiChat() {
   // Streaming: accumulates raw text deltas while Groq is streaming a response.
   // Cleared to '' once the `done` event arrives and the full message is added.
   const [streamingContent, setStreamingContent] = useState('');
-  const { send: streamSend, cancel: cancelStream, isPending: isSending } = useAiChatStream();
+  const {
+    send: streamSend,
+    cancel: cancelStream,
+    isPending: isSending,
+    recipeNodes,
+    capabilityGap,
+  } = useRecipeStream();
   const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
   const streamGenerationRef = useRef(0);
   const streamOwnerRef = useRef<StreamOwner | null>(null);
@@ -9727,6 +9735,8 @@ export default function AiChat() {
                   retryPending={structuredRetryMessageId === msg.id}
                 />
               ))}
+               {capabilityGap && <CapabilityGapNotice gap={capabilityGap} projectId={selectedProjectId} />}
+               <RecipeProgressPanel nodes={recipeNodes} />
               {isAgentBusy ? (
                 /* Single unified live bubble — steps always visible above streaming text */
                 <div className="chat-message flex min-w-0 max-w-full gap-3 mb-4">

@@ -81,13 +81,26 @@ export const RecipeExecutionResponseStatus = {
   blocked: 'blocked',
 } as const;
 
-export type RecipeExecutionResponseCapabilityGap = { [key: string]: unknown } | null;
+export interface CapabilityGapResponse {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  code: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  summary: string;
+  /** @maxLength 120 */
+  suggestedRecipeId?: string;
+}
 
 export interface RecipeExecutionResponse {
   receipt: RecipeReceipt;
   executionId: string;
   status: RecipeExecutionResponseStatus;
-  capabilityGap: RecipeExecutionResponseCapabilityGap;
+  capabilityGap: CapabilityGapResponse | null;
 }
 
 export type AiExecutionRecoveryRequestAction = typeof AiExecutionRecoveryRequestAction[keyof typeof AiExecutionRecoveryRequestAction];
@@ -1918,6 +1931,7 @@ export interface AiChatOutput {
   crossFileTraces?: CrossFileSemanticTrace[];
   /** AI-008 — per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
+  capabilityGap?: CapabilityGapResponse | null;
 }
 
 export type AiScanInsightCategory = typeof AiScanInsightCategory[keyof typeof AiScanInsightCategory];
@@ -3383,8 +3397,9 @@ export type GetAiExecution200 = {
   flightState: GetAiExecution200FlightState;
   /** Evidence confidence for the durable execution; absence of proof never implies success */
   evidenceVerdict: GetAiExecution200EvidenceVerdict;
-  /** Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence */
   proofRequired: boolean;
+  /** Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence */
+  recipeReceipt?: RecipeReceipt | null;
   /** Bounded explanation for the current evidence verdict */
   evidenceReason?: string | null;
   /** Safe reason explaining why the execution stopped or is blocked */

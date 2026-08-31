@@ -12,6 +12,7 @@ import type { GetAiExecution200Objective } from './getAiExecution200Objective';
 import type { GetAiExecution200Recovery } from './getAiExecution200Recovery';
 import type { GetAiExecution200Status } from './getAiExecution200Status';
 import type { OperationEvidenceProjection } from './operationEvidenceProjection';
+import type { RecipeReceipt } from './recipeReceipt';
 
 export type GetAiExecution200 = {
   /** UUID of the AI execution */
@@ -32,8 +33,9 @@ export type GetAiExecution200 = {
   flightState: GetAiExecution200FlightState;
   /** Evidence confidence for the durable execution; absence of proof never implies success */
   evidenceVerdict: GetAiExecution200EvidenceVerdict;
-  /** Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence */
   proofRequired: boolean;
+  /** Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence */
+  recipeReceipt?: RecipeReceipt | null;
   /** Bounded explanation for the current evidence verdict */
   evidenceReason?: string | null;
   /** Safe reason explaining why the execution stopped or is blocked */

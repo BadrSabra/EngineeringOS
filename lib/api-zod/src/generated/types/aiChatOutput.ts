@@ -14,6 +14,7 @@ import type { AiForensicReportResult } from './aiForensicReportResult';
 import type { AiPendingChange } from './aiPendingChange';
 import type { AiRepairResult } from './aiRepairResult';
 import type { AiWorkspaceReviewResult } from './aiWorkspaceReviewResult';
+import type { CapabilityGapResponse } from './capabilityGapResponse';
 import type { CrossFileSemanticTrace } from './crossFileSemanticTrace';
 import type { ProductionReachabilityTrace } from './productionReachabilityTrace';
 
@@ -34,4 +35,5 @@ export interface AiChatOutput {
   crossFileTraces?: CrossFileSemanticTrace[];
   /** AI-008 — per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
+  capabilityGap?: CapabilityGapResponse | null;
 }

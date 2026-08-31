@@ -73,7 +73,9 @@ export function toPublicRecipeReceipt(value: unknown): RecipeReceipt | null {
     nodes: parsed.data.nodes.map((node) => ({
       ...node,
       excerpt: node.excerpt
-        ? node.excerpt.replace(/\b(?:token|secret|api[_-]?key|password)\s*=\s*\S+/gi, "$1=[redacted]")
+        ? node.excerpt
+          .replace(/\b(token|secret|api[_-]?key|password)\s*=\s*\S+/gi, "$1=[redacted]")
+          .replace(/\/(?:home\/runner\/workspace|tmp|workspace)\/[^\s"'<>),;]+/g, "[runtime path]")
         : null,
     })),
   };

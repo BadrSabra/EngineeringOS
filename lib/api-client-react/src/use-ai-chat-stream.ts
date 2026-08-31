@@ -199,6 +199,37 @@ export type AiStreamExecutionNodesEvent = {
   nodes: AiExecutionNodeSnapshot[];
 };
 
+export type RecipeNodeState = {
+  nodeId: string;
+  title: string;
+  status: AiExecutionNodeStatus;
+  attempts: number;
+  excerpt?: string | null;
+  elapsedMs?: number;
+};
+
+export type AiStreamRecipeNodeProgressEvent = {
+  type: 'recipe_node_progress';
+  executionId: string;
+  nodeId: string;
+  title?: string;
+  status: AiExecutionNodeStatus;
+  attempts?: number;
+  elapsedMs?: number;
+  excerpt?: string | null;
+};
+
+export type CapabilityGap = {
+  code: string;
+  summary: string;
+  suggestedRecipeId?: string;
+};
+
+export type AiStreamCapabilityGapEvent = {
+  type: 'capability_gap';
+  gap: CapabilityGap;
+};
+
 export type AiStreamErrorEvent = {
   type: 'error';
   code: string;
@@ -676,6 +707,8 @@ export type AiStreamEvidenceIntegrityEvent = {
 export type AiStreamEvent =
   | AiStreamExecutionStartedEvent
   | AiStreamExecutionNodesEvent
+  | AiStreamRecipeNodeProgressEvent
+  | AiStreamCapabilityGapEvent
   | AiStreamStageEvent
   | AiStreamDeltaEvent
   | AiStreamIntentEvent
@@ -728,6 +761,8 @@ export type AiChatStreamCallbacks = {
   onExecutionStarted?: (event: AiStreamExecutionStartedEvent) => void;
   /** Bounded execution tree snapshot used by Mission Control. */
   onExecutionNodes?: (event: AiStreamExecutionNodesEvent) => void;
+  onRecipeNodeProgress?: (event: AiStreamRecipeNodeProgressEvent) => void;
+  onCapabilityGap?: (event: AiStreamCapabilityGapEvent) => void;
   /** Called once the server has reserved a new session before model work starts. */
   onSessionStarted?: (event: AiStreamSessionStartedEvent) => void;
   onStage?: (stage: string) => void;
@@ -856,6 +891,12 @@ export async function processAiStream(
         case 'execution_nodes':
           callbacks.onExecutionNodes?.(event);
           break;
+         case 'recipe_node_progress':
+           callbacks.onRecipeNodeProgress?.(event);
+           break;
+         case 'capability_gap':
+           callbacks.onCapabilityGap?.(event);
+           break;
         case 'session_started':
           callbacks.onSessionStarted?.(event);
           break;
@@ -984,6 +1025,8 @@ export function useAiChatStream() {
         callbacks.onExecutionStarted?.(event);
       },
       onExecutionNodes: (event) => { if (isCurrent()) callbacks.onExecutionNodes?.(event); },
+      onRecipeNodeProgress: (event) => { if (isCurrent()) callbacks.onRecipeNodeProgress?.(event); },
+      onCapabilityGap: (event) => { if (isCurrent()) callbacks.onCapabilityGap?.(event); },
       onSessionStarted: (event) => { if (isCurrent()) callbacks.onSessionStarted?.(event); },
       onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
       onIntent: (event) => { if (isCurrent()) callbacks.onIntent?.(event); },

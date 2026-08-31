@@ -400,6 +400,14 @@ export default function FlightDeck() {
               <ShieldCheck className="h-3.5 w-3.5" />
               Proof: {stateLabel(evidenceVerdict)}
             </div>
+            {execution.recipeReceipt && (
+              <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold text-violet-200">
+                <span>{execution.recipeReceipt.recipeId}</span>
+                <span className="text-violet-200/70">
+                  {execution.recipeReceipt.completedNodeIds.length}/{execution.recipeReceipt.nodes.length} steps
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
