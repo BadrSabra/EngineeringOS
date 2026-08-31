@@ -7,6 +7,26 @@
  */
 import * as zod from 'zod';
 
+export const aiChatResponseMessageExecutionLedgerIdMax = 120;
+export const aiChatResponseMessageExecutionLedgerElapsedMsMin = 0;
+export const aiChatResponseMessageExecutionLedgerRemainingMsMin = 0;
+export const aiChatResponseMessageExecutionLedgerBudgetMinOne = 0;
+export const aiChatResponseMessageExecutionLedgerCountsMinOne = 0;
+export const aiChatResponseMessageExecutionLedgerProvidersItemMax = 120;
+export const aiChatResponseMessageExecutionLedgerProvidersMax = 16;
+export const aiChatResponseMessageExecutionLedgerModelsItemMax = 120;
+export const aiChatResponseMessageExecutionLedgerModelsMax = 16;
+export const listAiChatMessagesResponseExecutionLedgerIdMax = 120;
+export const listAiChatMessagesResponseExecutionLedgerElapsedMsMin = 0;
+export const listAiChatMessagesResponseExecutionLedgerRemainingMsMin = 0;
+export const listAiChatMessagesResponseExecutionLedgerBudgetMinOne = 0;
+export const listAiChatMessagesResponseExecutionLedgerCountsMinOne = 0;
+export const listAiChatMessagesResponseExecutionLedgerProvidersItemMax = 120;
+export const listAiChatMessagesResponseExecutionLedgerProvidersMax = 16;
+export const listAiChatMessagesResponseExecutionLedgerModelsItemMax = 120;
+export const listAiChatMessagesResponseExecutionLedgerModelsMax = 16;
+
+
 
 /**
  * @summary Health check
@@ -3120,6 +3140,15 @@ export const AiChatBody = zod.object({
 
 
 
+
+
+
+
+
+
+
+
+
 export const aiChatResponseMessageBehaviorEvidenceMax = 8;
 
 export const aiChatResponseMessageMissionCorrelationReportCountsMessagesMin = 0;
@@ -3199,6 +3228,19 @@ export const AiChatResponse = zod.object({
   "content": zod.string(),
   "sources": zod.string().nullish(),
   "toolTrace": zod.string().nullish(),
+  "executionLedger": zod.object({
+  "id": zod.string().max(aiChatResponseMessageExecutionLedgerIdMax),
+  "mode": zod.enum(['simple_chat', 'tool_chat', 'forensic', 'repair_plan', 'hierarchical']),
+  "startedAt": zod.number(),
+  "deadlineAt": zod.number(),
+  "elapsedMs": zod.number().min(aiChatResponseMessageExecutionLedgerElapsedMsMin),
+  "remainingMs": zod.number().min(aiChatResponseMessageExecutionLedgerRemainingMsMin),
+  "budget": zod.record(zod.string(), zod.number().min(aiChatResponseMessageExecutionLedgerBudgetMinOne)),
+  "counts": zod.record(zod.string(), zod.number().min(aiChatResponseMessageExecutionLedgerCountsMinOne)),
+  "providers": zod.array(zod.string().max(aiChatResponseMessageExecutionLedgerProvidersItemMax)).max(aiChatResponseMessageExecutionLedgerProvidersMax),
+  "models": zod.array(zod.string().max(aiChatResponseMessageExecutionLedgerModelsItemMax)).max(aiChatResponseMessageExecutionLedgerModelsMax),
+  "terminalReason": zod.enum(['completed', 'cancelled', 'deadline', 'model_budget', 'tool_budget', 'recovery_budget', 'provider_exhausted', 'failed']).optional()
+}).nullish().describe('Allowlisted request execution snapshot; excludes prompts, source content, and provider diagnostics.'),
   "turnIntent": zod.string().nullish().describe('Server-authoritative intent used to route this turn'),
   "executionId": zod.string().nullish().describe('Durable execution linked to this conversational turn'),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish(),
@@ -4095,7 +4137,10 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *   read-only audit mode must not be rendered as a missing Plan/Apply/Commit/Push
  *   delivery trace,
  *   `telemetry: { "latencyMs": 123 }`, and
- *   `execution: { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
+ *    `executionLedger: { "mode": "forensic", "elapsedMs": 1234,
+ *      "terminalReason": "deadline" | "cancelled" | "provider_exhausted" | "completed",
+ *      "providers": ["groq"], "models": ["..."], "counts": { "model": 1, "tool": 2 } }`,
+ *    `execution: { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
  *   "prefetchToolCalls": 8, "loopToolCalls": 27,
  *   "stopReason": "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout",
  *     "synthesisStarted": true, "recoveryStarted": false,
@@ -4701,6 +4746,15 @@ export const ListAiChatMessagesParams = zod.object({
 
 
 
+
+
+
+
+
+
+
+
+
 export const listAiChatMessagesResponseBehaviorEvidenceMax = 8;
 
 export const listAiChatMessagesResponseMissionCorrelationReportCountsMessagesMin = 0;
@@ -4734,6 +4788,19 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "content": zod.string(),
   "sources": zod.string().nullish(),
   "toolTrace": zod.string().nullish(),
+  "executionLedger": zod.object({
+  "id": zod.string().max(listAiChatMessagesResponseExecutionLedgerIdMax),
+  "mode": zod.enum(['simple_chat', 'tool_chat', 'forensic', 'repair_plan', 'hierarchical']),
+  "startedAt": zod.number(),
+  "deadlineAt": zod.number(),
+  "elapsedMs": zod.number().min(listAiChatMessagesResponseExecutionLedgerElapsedMsMin),
+  "remainingMs": zod.number().min(listAiChatMessagesResponseExecutionLedgerRemainingMsMin),
+  "budget": zod.record(zod.string(), zod.number().min(listAiChatMessagesResponseExecutionLedgerBudgetMinOne)),
+  "counts": zod.record(zod.string(), zod.number().min(listAiChatMessagesResponseExecutionLedgerCountsMinOne)),
+  "providers": zod.array(zod.string().max(listAiChatMessagesResponseExecutionLedgerProvidersItemMax)).max(listAiChatMessagesResponseExecutionLedgerProvidersMax),
+  "models": zod.array(zod.string().max(listAiChatMessagesResponseExecutionLedgerModelsItemMax)).max(listAiChatMessagesResponseExecutionLedgerModelsMax),
+  "terminalReason": zod.enum(['completed', 'cancelled', 'deadline', 'model_budget', 'tool_budget', 'recovery_budget', 'provider_exhausted', 'failed']).optional()
+}).nullish().describe('Allowlisted request execution snapshot; excludes prompts, source content, and provider diagnostics.'),
   "turnIntent": zod.string().nullish().describe('Server-authoritative intent used to route this turn'),
   "executionId": zod.string().nullish().describe('Durable execution linked to this conversational turn'),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish(),
@@ -5562,5 +5629,3 @@ export const ExportProjectParams = zod.object({
 })
 
 export const ExportProjectResponse = zod.unknown()
-
-

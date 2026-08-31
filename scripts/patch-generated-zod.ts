@@ -16,6 +16,41 @@ const LOOSE_OBJECT = "zod.looseObject(";
 const OBJECT = "zod.object(";
 const UUID = "zod.uuid()";
 const STRING_UUID = "zod.string().uuid()";
+const EXECUTION_LEDGER_CONSTANT =
+  /^export const [A-Za-z0-9]+ExecutionLedger[A-Za-z0-9]* = [^\n]+;\n?/gm;
+
+/**
+ * Orval can emit inline response constraints after the response schema that
+ * references them. JavaScript evaluates the schema initializer immediately,
+ * so those constants must be hoisted to avoid a temporal-dead-zone failure.
+ */
+function hoistExecutionLedgerConstants(content: string): string {
+  const declarations: string[] = [];
+  const withoutDeclarations = content.replace(
+    EXECUTION_LEDGER_CONSTANT,
+    (declaration) => {
+      declarations.push(declaration.trimEnd());
+      return "";
+    },
+  );
+
+  if (declarations.length === 0) return content;
+
+  const importMarker = "import * as zod from 'zod';";
+  const importEnd = withoutDeclarations.indexOf(importMarker);
+  if (importEnd < 0) {
+    throw new Error(
+      "Generated Zod output is missing the expected zod import; cannot hoist execution-ledger constraints.",
+    );
+  }
+  const insertionPoint = importEnd + importMarker.length;
+  return [
+    withoutDeclarations.slice(0, insertionPoint),
+    "",
+    declarations.join("\n"),
+    withoutDeclarations.slice(insertionPoint),
+  ].join("\n");
+}
 
 export function patchGeneratedZod(filePath: string): number {
   const path = resolve(filePath);
@@ -46,8 +81,9 @@ export function patchGeneratedZod(filePath: string): number {
   const patched = content
     .replaceAll(LOOSE_OBJECT, OBJECT)
     .replaceAll(UUID, STRING_UUID);
-  const remaining = patched.split(LOOSE_OBJECT).length - 1;
-  const transformed = patched.split(OBJECT).length - 1;
+  const normalized = hoistExecutionLedgerConstants(patched);
+  const remaining = normalized.split(LOOSE_OBJECT).length - 1;
+  const transformed = normalized.split(OBJECT).length - 1;
 
   if (remaining !== 0 || transformed < matches) {
     throw new Error(
@@ -58,7 +94,7 @@ export function patchGeneratedZod(filePath: string): number {
     );
   }
 
-  writeFileSync(path, patched);
+  writeFileSync(path, `${normalized.trimEnd()}\n`);
   return matches;
 }
 

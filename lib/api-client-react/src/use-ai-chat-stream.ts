@@ -31,6 +31,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import type { BrowserValidationBlockReason, PublicValidationResult, ValidationResult } from '@workspace/ai-orchestrator';
+import type { ExecutionLedgerPublicSnapshot } from '@workspace/ai-orchestrator';
 
 // ── Event shapes ──────────────────────────────────────────────────────────────
 
@@ -102,6 +103,8 @@ export type AiStreamDoneEvent = {
     sources: string;
     /** JSON-encoded bounded tool trace kept separate from assistant content. */
     toolTrace?: string | null;
+    /** Allowlisted request-budget snapshot persisted with the completed turn. */
+    executionLedger?: ExecutionLedgerPublicSnapshot;
     /** JSON-encoded accepted behavior-evidence references (with exact line spans). */
     behaviorEvidence?: string | null;
     createdAt: string;
@@ -136,6 +139,8 @@ export type AiStreamDoneEvent = {
   telemetry?: { latencyMs: number };
   /** Bounded execution diagnostics, kept separate from assistant content. */
   execution?: AiStreamExecutionSummary;
+  /** Same allowlisted request-budget snapshot as message.executionLedger. */
+  executionLedger?: ExecutionLedgerPublicSnapshot;
   productionReachability?: AiProductionReachabilityTrace;
   crossFileTraces?: AiCrossFileSemanticTrace[];
   /**
@@ -242,6 +247,8 @@ export type AiStreamErrorEvent = {
   failureKind?: 'PROVIDER_FORMAT' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT'
     | 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE';
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
+  /** Allowlisted request-budget snapshot retained for failed terminal turns. */
+  executionLedger?: ExecutionLedgerPublicSnapshot;
   correlationId?: string;
 };
 

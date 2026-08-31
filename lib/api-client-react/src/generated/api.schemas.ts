@@ -1209,6 +1209,60 @@ export const AiChatMessageRecoveryState = {
   INCOMPLETE: 'INCOMPLETE',
 } as const;
 
+export type ExecutionLedgerSnapshotMode = typeof ExecutionLedgerSnapshotMode[keyof typeof ExecutionLedgerSnapshotMode];
+
+
+export const ExecutionLedgerSnapshotMode = {
+  simple_chat: 'simple_chat',
+  tool_chat: 'tool_chat',
+  forensic: 'forensic',
+  repair_plan: 'repair_plan',
+  hierarchical: 'hierarchical',
+} as const;
+
+export type ExecutionLedgerSnapshotTerminalReason = typeof ExecutionLedgerSnapshotTerminalReason[keyof typeof ExecutionLedgerSnapshotTerminalReason];
+
+
+export const ExecutionLedgerSnapshotTerminalReason = {
+  completed: 'completed',
+  cancelled: 'cancelled',
+  deadline: 'deadline',
+  model_budget: 'model_budget',
+  tool_budget: 'tool_budget',
+  recovery_budget: 'recovery_budget',
+  provider_exhausted: 'provider_exhausted',
+  failed: 'failed',
+} as const;
+
+export type ExecutionLedgerSnapshotBudget = {[key: string]: number};
+
+export type ExecutionLedgerSnapshotCounts = {[key: string]: number};
+
+export interface ExecutionLedgerSnapshot {
+  /** @maxLength 120 */
+  id: string;
+  mode: ExecutionLedgerSnapshotMode;
+  startedAt: number;
+  deadlineAt: number;
+  /** @minimum 0 */
+  elapsedMs: number;
+  /** @minimum 0 */
+  remainingMs: number;
+  budget: ExecutionLedgerSnapshotBudget;
+  counts: ExecutionLedgerSnapshotCounts;
+  /**
+     * @maxItems 16
+     * @items.maxLength 120
+     */
+  providers: string[];
+  /**
+     * @maxItems 16
+     * @items.maxLength 120
+     */
+  models: string[];
+  terminalReason?: ExecutionLedgerSnapshotTerminalReason;
+}
+
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];
 
 
@@ -1349,6 +1403,8 @@ export interface AiChatMessage {
   content: string;
   sources?: string | null;
   toolTrace?: string | null;
+  /** Allowlisted request execution snapshot; excludes prompts, source content, and provider diagnostics. */
+  executionLedger?: ExecutionLedgerSnapshot | null;
   /** Server-authoritative intent used to route this turn */
   turnIntent?: string | null;
   /** Durable execution linked to this conversational turn */

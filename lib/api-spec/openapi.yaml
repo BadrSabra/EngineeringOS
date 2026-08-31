@@ -2168,7 +2168,10 @@ paths:
           read-only audit mode must not be rendered as a missing Plan/Apply/Commit/Push
           delivery trace,
           `telemetry: { "latencyMs": 123 }`, and
-          `execution: { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
+           `executionLedger: { "mode": "forensic", "elapsedMs": 1234,
+             "terminalReason": "deadline" | "cancelled" | "provider_exhausted" | "completed",
+             "providers": ["groq"], "models": ["..."], "counts": { "model": 1, "tool": 2 } }`,
+           `execution: { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
           "prefetchToolCalls": 8, "loopToolCalls": 27,
           "stopReason": "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout",
             "synthesisStarted": true, "recoveryStarted": false,
@@ -4680,6 +4683,10 @@ components:
         toolTrace:
           type: string
           nullable: true
+        executionLedger:
+          nullable: true
+          description: Allowlisted request execution snapshot; excludes prompts, source content, and provider diagnostics.
+          $ref: "#/components/schemas/ExecutionLedgerSnapshot"
         turnIntent:
           type: string
           nullable: true
@@ -4742,6 +4749,53 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    ExecutionLedgerSnapshot:
+      type: object
+      additionalProperties: false
+      required: [id, mode, startedAt, deadlineAt, elapsedMs, remainingMs, budget, counts, providers, models]
+      properties:
+        id:
+          type: string
+          maxLength: 120
+        mode:
+          type: string
+          enum: [simple_chat, tool_chat, forensic, repair_plan, hierarchical]
+        startedAt:
+          type: integer
+        deadlineAt:
+          type: integer
+        elapsedMs:
+          type: integer
+          minimum: 0
+        remainingMs:
+          type: integer
+          minimum: 0
+        budget:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        counts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        providers:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            maxLength: 120
+        models:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            maxLength: 120
+        terminalReason:
+          type: string
+          enum: [completed, cancelled, deadline, model_budget, tool_budget, recovery_budget, provider_exhausted, failed]
 
     AiImplementationPlanResult:
       type: object

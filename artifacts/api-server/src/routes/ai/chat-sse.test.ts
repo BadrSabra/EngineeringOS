@@ -761,10 +761,11 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       expect(exportBody).not.toContain(internalId);
     }
     expect(json.body.sources).toEqual(["[runtime path] (request [internal id])"]);
-    expect(JSON.parse(chatCapture.assistantToolTrace!)).toEqual([
+    expect(JSON.parse(chatCapture.assistantToolTrace!)).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "tool_call", args: { path: "[runtime path] (request [internal id])" } }),
       expect.objectContaining({ kind: "tool_result", source: "[runtime path] (request [internal id])" }),
-    ]);
+      expect.objectContaining({ kind: "execution_ledger", terminalReason: "completed" }),
+    ]));
   });
 
   it("routes implementation-plan requests as read-only chat on JSON and SSE", async () => {

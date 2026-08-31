@@ -71,6 +71,56 @@ export type ExecutionLedgerSnapshot = {
   events: ExecutionLedgerEvent[];
 };
 
+/**
+ * The operator-facing subset of a request ledger.
+ *
+ * Deliberately excludes the event log: event operation names and rejection
+ * reasons are implementation diagnostics, while this compact envelope is the
+ * durable contract used by chat JSON, SSE, and history replay.
+ */
+export type ExecutionLedgerPublicSnapshot = {
+  id: string;
+  mode: ExecutionMode;
+  startedAt: number;
+  deadlineAt: number;
+  elapsedMs: number;
+  remainingMs: number;
+  budget: ExecutionLedgerBudget;
+  counts: Record<ExecutionAttemptKind, number>;
+  providers: string[];
+  models: string[];
+  terminalReason?: ExecutionTerminalReason;
+};
+
+const SAFE_PROVIDER_OR_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
+
+/**
+ * Project a ledger through an explicit allowlist before it crosses the
+ * persistence or API boundary. Providers and models are bounded identifiers,
+ * never provider error messages or request payloads.
+ */
+export function toPublicExecutionLedgerSnapshot(
+  snapshot: ExecutionLedgerSnapshot,
+): ExecutionLedgerPublicSnapshot {
+  const safeIdentifiers = (values: readonly string[]) =>
+    values
+      .filter((value) => SAFE_PROVIDER_OR_MODEL.test(value))
+      .slice(0, 16);
+  return {
+    id: snapshot.id.slice(0, 120),
+    mode: snapshot.mode,
+    startedAt: snapshot.startedAt,
+    deadlineAt: snapshot.deadlineAt,
+    elapsedMs: Math.max(0, Math.floor(snapshot.elapsedMs)),
+    remainingMs: Math.max(0, Math.floor(snapshot.remainingMs)),
+    budget: { ...snapshot.budget },
+    counts: { ...snapshot.counts },
+    providers: safeIdentifiers(snapshot.providers),
+    models: safeIdentifiers(snapshot.models),
+    ...(snapshot.terminalReason ? { terminalReason: snapshot.terminalReason } : {}),
+  };
+}
+
 export type ExecutionLedger = {
   readonly id: string;
   readonly mode: ExecutionMode;

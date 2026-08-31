@@ -83,10 +83,12 @@ export {
   type ExecutionLedger,
   type ExecutionLedgerBudget,
   type ExecutionLedgerEvent,
+  type ExecutionLedgerPublicSnapshot,
   type ExecutionLedgerSnapshot,
   type ExecutionAttemptKind,
   type ExecutionMode,
   type ExecutionTerminalReason,
+  toPublicExecutionLedgerSnapshot,
 } from "./execution-ledger.js";
 export type { ProviderCapabilityHints, ProviderCapabilitySummary, ProviderCostTier } from "./provider-capabilities.js";
 export type {

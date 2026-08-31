@@ -37,6 +37,39 @@ test("converts every generated looseObject marker", async () => {
   });
 });
 
+test("hoists execution-ledger bounds before schemas that reference them", async () => {
+  const generated = [
+    "import * as zod from 'zod';",
+    "",
+    "export const Response = zod.object({",
+    "  elapsedMs: zod.number().min(responseExecutionLedgerElapsedMsMin)",
+    "});",
+    "",
+    "export const responseExecutionLedgerElapsedMsMin = 0;",
+    "",
+    "const passthrough = zod.looseObject({ id: zod.string() });",
+  ].join("\n");
+
+  await withTemporaryFile(generated, async (filePath) => {
+    patchGeneratedZod(filePath);
+
+    const patched = await readFile(filePath, "utf8");
+    assert.ok(
+      patched.indexOf("export const responseExecutionLedgerElapsedMsMin") <
+        patched.indexOf("export const Response"),
+    );
+    assert.ok(
+      patched.includes(
+        "responseExecutionLedgerElapsedMsMin = 0;\n\nexport const Response",
+      ) ||
+        patched.includes(
+          "responseExecutionLedgerElapsedMsMin = 0;\n\n\nexport const Response",
+        ),
+    );
+    assert.equal(patched.includes("zod.looseObject("), false);
+  });
+});
+
 test("fails with actionable Orval output-format guidance when no marker exists", async () => {
   await withTemporaryFile(
     "const schema = z.object({ id: z.string() });\n",

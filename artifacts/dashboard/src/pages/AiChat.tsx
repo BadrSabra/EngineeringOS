@@ -66,7 +66,11 @@ import type {
   Event as ApiEvent,
   ExportAiExecutionAudit200,
 } from '@workspace/api-client-react';
-import type { BrowserValidationBlockReason, PublicValidationResult } from '@workspace/ai-orchestrator';
+import type {
+  BrowserValidationBlockReason,
+  ExecutionLedgerPublicSnapshot,
+  PublicValidationResult,
+} from '@workspace/ai-orchestrator';
 // Keep the shared structured error type for translating SSE failures into
 // the same user-facing error format as regular API requests.
 import { ApiError } from '@/lib/api-fetch';
@@ -121,6 +125,7 @@ type ChatMessage = {
   content: string;
   sources?: string;
   toolTrace?: string | null;
+  executionLedger?: ExecutionLedgerPublicSnapshot | null;
   turnIntent?: string | null;
   executionId?: string | null;
   outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
@@ -1010,6 +1015,20 @@ function parseToolTrace(raw: string | undefined | null): ToolTraceEntry[] {
   }
 }
 
+function parseExecutionLedger(trace: ToolTraceEntry[]): ExecutionLedgerPublicSnapshot | null {
+  const entry = [...trace].reverse().find((candidate) => candidate.kind === 'execution_ledger');
+  if (!entry) return null;
+  const snapshot = entry as unknown as ExecutionLedgerPublicSnapshot;
+  if (
+    typeof snapshot.id !== 'string'
+    || typeof snapshot.mode !== 'string'
+    || typeof snapshot.elapsedMs !== 'number'
+    || !Array.isArray(snapshot.providers)
+    || !Array.isArray(snapshot.models)
+    || !snapshot.counts
+  ) return null;
+  return snapshot;
+}
 function traceStatusClasses(status: 'PROVEN' | 'NOT_PROVEN' | 'OUT_OF_SCOPE'): string {
   switch (status) {
     case 'PROVEN':
@@ -4353,8 +4372,10 @@ function MessageBubble({
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
   const sources = parseSources(msg.sources);
   const toolTrace = parseToolTrace(msg.toolTrace);
-  const activityEvents = msg.activityEvents ?? activityEventsFromToolTrace(toolTrace);
+  const activityTrace = toolTrace.filter((entry) => entry.kind !== 'execution_ledger');
+  const activityEvents = msg.activityEvents ?? activityEventsFromToolTrace(activityTrace);
   const executionSummary = !isUser ? parseExecutionSummary(toolTrace) : null;
+  const executionLedger = !isUser ? (msg.executionLedger ?? parseExecutionLedger(toolTrace)) : null;
   const repairRadar = !isUser ? parseRepairRadar(toolTrace) : null;
   // UI-01: strip any accidental JSON envelope before rendering.
   const displayContent = extractDisplayText(msg.content);
@@ -4633,11 +4654,12 @@ function MessageBubble({
           : incompleteBeforeEvidence
             ? null
            : <ExecutionSummaryBanner summary={executionSummary} operatorTraceId={`operator-trace-${msg.id}`} />}
-        {isEngineeringExecution && repairRadar && <RepairRadar trace={toolTrace} />}
+        {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
+        {!isUser && <ExecutionLedgerCard snapshot={executionLedger} />}
         {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (
           <PersistedExecutionProof
             summary={executionSummary}
-            trace={toolTrace}
+            trace={activityTrace}
             evidence={forensicEvidence}
             finalVerdict={finalVerdict}
             behaviorEvidenceCount={parseBehaviorEvidence(msg.behaviorEvidence).length}
@@ -4666,7 +4688,7 @@ function MessageBubble({
             claimEvidence={parseBehaviorEvidence(msg.behaviorEvidence)}
           />
         )}
-        {isEngineeringExecution && <FlightRecorder trace={toolTrace} />}
+        {isEngineeringExecution && <FlightRecorder trace={activityTrace} />}
       </div>
     </div>
   );
@@ -9169,6 +9191,7 @@ export default function AiChat() {
                 failureKind: err.failureKind,
                 retryable: err.retryable,
                 recoveryState: err.recoveryState,
+                executionLedger: err.executionLedger,
                 createdAt: new Date().toISOString(),
               },
             ]);
@@ -10093,6 +10116,53 @@ export default function AiChat() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ExecutionLedgerCard({ snapshot }: { snapshot: ExecutionLedgerPublicSnapshot | null }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!snapshot) return null;
+  const reasonLabels: Record<string, string> = {
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+    deadline: 'Deadline reached',
+    model_budget: 'Model budget exhausted',
+    tool_budget: 'Tool budget exhausted',
+    recovery_budget: 'Recovery budget exhausted',
+    provider_exhausted: 'All providers exhausted',
+    failed: 'Stopped after a failure',
+  };
+  const phaseCounts = [
+    ['Model', snapshot.counts.model],
+    ['Provider', snapshot.counts.provider_attempt],
+    ['Provider changes', snapshot.counts.provider_change],
+    ['Tools', snapshot.counts.tool],
+    ['Planning', snapshot.counts.planner],
+    ['Synthesis', snapshot.counts.synthesis],
+    ['Recovery', snapshot.counts.recovery],
+    ['Tasks', snapshot.counts.hierarchical_task],
+  ].filter(([, count]) => typeof count === 'number' && count > 0);
+  return (
+    <div className="mt-2 w-full overflow-hidden rounded-lg border border-primary/20 bg-primary/5 text-[11px]" aria-label="Execution ledger">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-primary/10"
+      >
+        <Clock3 className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <span className="font-medium text-foreground">Request stopped: {reasonLabels[snapshot.terminalReason ?? 'failed'] ?? 'Stopped'}</span>
+        <span className="text-muted-foreground">{snapshot.elapsedMs} ms</span>
+        <ChevronRight className={`ml-auto h-3 w-3 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </button>
+      {expanded && (
+        <div className="space-y-2 border-t border-primary/15 px-3 py-2 text-muted-foreground">
+          <div><span className="text-foreground">Phases:</span> {phaseCounts.length > 0 ? phaseCounts.map(([name, count]) => `${name} ${count}`).join(' · ') : 'none recorded'}</div>
+          <div><span className="text-foreground">Providers:</span> {snapshot.providers.length > 0 ? snapshot.providers.join(', ') : 'none recorded'}</div>
+          <div><span className="text-foreground">Models:</span> {snapshot.models.length > 0 ? snapshot.models.join(', ') : 'none recorded'}</div>
+        </div>
+      )}
     </div>
   );
 }

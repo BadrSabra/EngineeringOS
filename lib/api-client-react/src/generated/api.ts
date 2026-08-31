@@ -5845,7 +5845,10 @@ export const getAiChatStreamUrl = () => {
  *   read-only audit mode must not be rendered as a missing Plan/Apply/Commit/Push
  *   delivery trace,
  *   `telemetry: { "latencyMs": 123 }`, and
- *   `execution: { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
+ *    `executionLedger: { "mode": "forensic", "elapsedMs": 1234,
+ *      "terminalReason": "deadline" | "cancelled" | "provider_exhausted" | "completed",
+ *      "providers": ["groq"], "models": ["..."], "counts": { "model": 1, "tool": 2 } }`,
+ *    `execution: { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
  *   "prefetchToolCalls": 8, "loopToolCalls": 27,
  *   "stopReason": "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout",
  *     "synthesisStarted": true, "recoveryStarted": false,

@@ -67,6 +67,8 @@ import {
   runRegisteredCommand,
   createServerCapabilityRegistry,
   toPublicRecipeReceipt,
+  createExecutionLedger,
+  toPublicExecutionLedgerSnapshot,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -83,6 +85,10 @@ import type {
   BrowserValidationBlockReason,
   ValidationResult,
   PublicValidationResult,
+  ExecutionLedger,
+  ExecutionLedgerPublicSnapshot,
+  ExecutionLedgerSnapshot,
+  ExecutionTerminalReason,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
@@ -384,6 +390,156 @@ function projectPublicExecutionSummary<T extends { diagnosticDetails?: string[] 
     delete projected.diagnosticDetails;
   }
   return projected;
+}
+
+function executionLedgerMode(intent: { kind: string }): "simple_chat" | "tool_chat" | "forensic" | "repair_plan" | "hierarchical" {
+  if (intent.kind === "FORENSIC_AUDIT") return "forensic";
+  if (intent.kind === "DELIVERY") return "repair_plan";
+  if (intent.kind === "CHAT") return "simple_chat";
+  return "tool_chat";
+}
+
+function finishExecutionLedger(
+  ledger: ExecutionLedger,
+  params: {
+    outcome?: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
+    trace?: AgentStep[];
+  } = {},
+): ExecutionLedgerPublicSnapshot {
+  const existing = ledger.snapshot().terminalReason;
+  if (!existing) {
+    const lastDone = [...(params.trace ?? [])].reverse().find((step) => step.kind === "done") as
+      | (Extract<AgentStep, { kind: "done" }> & { stopReason?: string })
+      | undefined;
+    const stopReason = lastDone?.stopReason;
+    const reason: ExecutionTerminalReason =
+      ledger.signal.aborted
+        ? (Date.now() >= ledger.deadlineAt ? "deadline" : "cancelled")
+        : params.outcome === "INTERRUPTED"
+          ? "cancelled"
+          : stopReason === "iteration_budget"
+            ? "model_budget"
+            : stopReason === "tool_failure"
+              ? "failed"
+              : stopReason === "provider_timeout"
+                ? "deadline"
+                : params.outcome && params.outcome !== "SUCCEEDED"
+                  ? "failed"
+                  : "completed";
+    ledger.setTerminal(reason);
+  }
+  return toPublicExecutionLedgerSnapshot(ledger.snapshot());
+}
+
+function appendExecutionLedgerTrace(
+  serializedTrace: string | null | undefined,
+  snapshot: ExecutionLedgerPublicSnapshot,
+): string {
+  const parsed = parseStoredJson(serializedTrace);
+  const entries = Array.isArray(parsed) ? parsed : [];
+  return JSON.stringify([...entries, { kind: "execution_ledger", ...snapshot }]);
+}
+
+function readExecutionLedgerTrace(value: string | null | undefined): ExecutionLedgerPublicSnapshot | undefined {
+  const parsed = parseStoredJson(value);
+  if (!Array.isArray(parsed)) return undefined;
+  const entry = [...parsed].reverse().find(
+    (candidate) => candidate && typeof candidate === "object"
+      && (candidate as Record<string, unknown>).kind === "execution_ledger",
+  );
+  if (!entry || typeof entry !== "object") return undefined;
+  const candidate = entry as Record<string, unknown>;
+  const modes = new Set(["simple_chat", "tool_chat", "forensic", "repair_plan", "hierarchical"]);
+  const terminalReasons = new Set([
+    "completed", "cancelled", "deadline", "model_budget", "tool_budget",
+    "recovery_budget", "provider_exhausted", "failed",
+  ]);
+  const budgetKeys = [
+    "deadlineMs", "modelCalls", "providerAttempts", "toolCalls", "providerChanges",
+    "synthesisAttempts", "recoveryAttempts", "plannerCalls", "hierarchicalTasks",
+  ];
+  const countKeys = [
+    "model", "provider_attempt", "tool", "planner", "provider_change",
+    "synthesis", "recovery", "hierarchical_task",
+  ];
+  const isFiniteNumber = (item: unknown): item is number =>
+    typeof item === "number" && Number.isFinite(item) && item >= 0;
+  const candidateBudget = candidate.budget;
+  const candidateCounts = candidate.counts;
+  if (
+    typeof candidate.id !== "string"
+    || typeof candidate.mode !== "string"
+    || !modes.has(candidate.mode)
+    || !isFiniteNumber(candidate.startedAt)
+    || !isFiniteNumber(candidate.deadlineAt)
+    || typeof candidate.elapsedMs !== "number"
+    || !isFiniteNumber(candidate.elapsedMs)
+    || !isFiniteNumber(candidate.remainingMs)
+    || !Array.isArray(candidate.providers)
+    || !Array.isArray(candidate.models)
+    || !candidateBudget
+    || typeof candidateBudget !== "object"
+    || !candidateCounts
+    || typeof candidateCounts !== "object"
+    || !budgetKeys.every((key) => isFiniteNumber((candidateBudget as Record<string, unknown>)[key]))
+    || !countKeys.every((key) => isFiniteNumber((candidateCounts as Record<string, unknown>)[key]))
+    || (candidate.terminalReason !== undefined
+      && (typeof candidate.terminalReason !== "string" || !terminalReasons.has(candidate.terminalReason)))
+  ) return undefined;
+  const snapshot: ExecutionLedgerSnapshot = {
+    id: candidate.id,
+    mode: candidate.mode as ExecutionLedgerSnapshot["mode"],
+    startedAt: candidate.startedAt as number,
+    deadlineAt: candidate.deadlineAt as number,
+    elapsedMs: candidate.elapsedMs as number,
+    remainingMs: candidate.remainingMs as number,
+    budget: Object.fromEntries(
+      budgetKeys.map((key) => [key, (candidateBudget as Record<string, unknown>)[key]]),
+    ) as ExecutionLedgerSnapshot["budget"],
+    counts: Object.fromEntries(
+      countKeys.map((key) => [key, (candidateCounts as Record<string, unknown>)[key]]),
+    ) as ExecutionLedgerSnapshot["counts"],
+    providers: candidate.providers.filter((item): item is string => typeof item === "string"),
+    models: candidate.models.filter((item): item is string => typeof item === "string"),
+    ...(candidate.terminalReason
+      ? { terminalReason: candidate.terminalReason as ExecutionTerminalReason }
+      : {}),
+    events: [],
+  };
+  return toPublicExecutionLedgerSnapshot(snapshot);
+}
+
+/**
+ * Redact historical activity without mutating the separately validated
+ * execution-ledger snapshot. Generic UUID redaction is still required for
+ * ordinary trace entries, but the allowlisted ledger is the public identity
+ * shared by live, history, and resume responses.
+ */
+function redactHistoricalToolTrace(value: string | null | undefined): string | null | undefined {
+  if (!value) return value;
+  const parsed = parseStoredJson(value);
+  if (!Array.isArray(parsed)) {
+    return JSON.stringify(redactUserFacingValue(parsed));
+  }
+
+  const executionLedger = readExecutionLedgerTrace(value);
+  const redactedEntries = redactUserFacingValue(scrubHistoricalValidationRecord(parsed));
+  const entries = Array.isArray(redactedEntries)
+    ? redactedEntries.filter(
+        (entry) => !(
+          entry
+          && typeof entry === "object"
+          && (entry as Record<string, unknown>).kind === "execution_ledger"
+        ),
+      )
+    : [];
+
+  // Invalid historical ledger entries are intentionally dropped rather than
+  // exposed through the generic redaction path.
+  if (executionLedger) {
+    entries.push({ kind: "execution_ledger", ...executionLedger });
+  }
+  return JSON.stringify(entries);
 }
 
 /**
@@ -933,7 +1089,8 @@ async function persistFailedChatTurn(params: {
   createdAt: Date;
   assistantAt: Date;
   toolTrace?: AgentStep[];
-}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date }> {
+  executionLedgerSnapshot?: ExecutionLedgerPublicSnapshot;
+}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot }> {
   return db.transaction(async (tx) => {
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -1035,12 +1192,18 @@ async function persistFailedChatTurn(params: {
         errorMessage: existing.errorMessage,
         toolTrace: existing.toolTrace,
         createdAt: existing.createdAt,
+        ...(readExecutionLedgerTrace(existing.toolTrace)
+          ? { executionLedger: readExecutionLedgerTrace(existing.toolTrace) }
+          : {}),
       };
     }
     const trace = params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null;
-    const persistedTrace = params.terminalOutcome && trace
+    const persistedTrace = params.executionLedgerSnapshot
+      ? appendExecutionLedgerTrace(trace, params.executionLedgerSnapshot)
+      : trace;
+    const terminalTrace = params.terminalOutcome && persistedTrace
       ? (() => {
-          const parsed = parseStoredJson(trace);
+          const parsed = parseStoredJson(persistedTrace);
           return JSON.stringify([
             ...(Array.isArray(parsed) ? parsed : []),
             {
@@ -1051,7 +1214,7 @@ async function persistFailedChatTurn(params: {
             },
           ]);
         })()
-      : trace;
+      : persistedTrace;
     const assistantId = randomUUID();
     const assistantContent = params.content ? sanitizeResponseText(params.content).slice(0, 12_000) : "";
     const assistantErrorMessage = redactUserFacingText(params.errorMessage).slice(0, 500);
@@ -1079,7 +1242,7 @@ async function persistFailedChatTurn(params: {
       outcome: params.outcome,
       errorCode: params.errorCode,
       errorMessage: assistantErrorMessage,
-      toolTrace: persistedTrace,
+      toolTrace: terminalTrace,
       createdAt: params.assistantAt,
     });
     await tx.update(aiChatSessionsTable)
@@ -1093,8 +1256,9 @@ async function persistFailedChatTurn(params: {
       outcome: params.outcome,
       errorCode: params.errorCode,
       errorMessage: assistantErrorMessage,
-      toolTrace: persistedTrace,
+      toolTrace: terminalTrace,
       createdAt: params.assistantAt,
+      ...(params.executionLedgerSnapshot ? { executionLedger: params.executionLedgerSnapshot } : {}),
     };
   });
 }
@@ -2180,6 +2344,10 @@ router.post("/ai/chat", async (req, res) => {
   });
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
+  const executionLedger = createExecutionLedger({
+    mode: executionLedgerMode(turnIntent),
+  });
+  let executionLedgerSnapshot: ExecutionLedgerPublicSnapshot | undefined;
 
   const applyProbe = modelHasTools
     ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
@@ -2254,6 +2422,7 @@ router.post("/ai/chat", async (req, res) => {
           allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,
+          executionLedger,
         },
         { provider, apiKey },
         undefined,
@@ -2279,6 +2448,7 @@ router.post("/ai/chat", async (req, res) => {
         operation: "chat",
         provider,
         publicContract: "chat",
+        executionLedger,
       })) return;
       throw err;
     }
@@ -2290,6 +2460,10 @@ router.post("/ai/chat", async (req, res) => {
       requiresEvidence: turnIntent.requiresEvidence,
       forensic: turnIntent.kind === "FORENSIC_AUDIT",
       endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
+    });
+    executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
+      outcome: terminalOutcome.outcome,
+      trace: traceSteps,
     });
     if (terminalOutcome.outcome !== "SUCCEEDED") {
       const safeMessage = redactUserFacingText(
@@ -2317,6 +2491,7 @@ router.post("/ai/chat", async (req, res) => {
         createdAt: now,
         assistantAt: msgNow,
         toolTrace: traceSteps,
+        executionLedgerSnapshot,
       }) ?? {
         id: randomUUID(),
         sessionId: sessionIdToUse,
@@ -2325,7 +2500,10 @@ router.post("/ai/chat", async (req, res) => {
         outcome: terminalOutcome.outcome,
         errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
         errorMessage: safeMessage,
-        toolTrace: serializeToolTrace(traceSteps, true),
+        toolTrace: appendExecutionLedgerTrace(
+          serializeToolTrace(traceSteps, true),
+          executionLedgerSnapshot,
+        ),
         createdAt: msgNow,
       };
       // The HTTP request completed, but the assistant turn did not. Keep the
@@ -2346,7 +2524,9 @@ router.post("/ai/chat", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           retryable: terminalOutcome.retryable,
           recoveryState: terminalOutcome.recoveryState,
+          executionLedger: executionLedgerSnapshot,
         },
+        executionLedger: executionLedgerSnapshot,
         ...(report ? { report: sanitizeResponseText(report).slice(0, 12_000) } : {}),
       });
     }
@@ -2361,6 +2541,7 @@ router.post("/ai/chat", async (req, res) => {
           retryable: false,
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
+          executionLedger: executionLedgerSnapshot,
         });
       }
       logger.warn(
@@ -2417,6 +2598,12 @@ router.post("/ai/chat", async (req, res) => {
       projectId,
       rootPath: validRootPath,
     });
+    if (!executionLedgerSnapshot) {
+      executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
+        outcome: "SUCCEEDED",
+        trace: traceSteps,
+      });
+    }
     const activeTaskState = nextSessionTaskState({
       persisted: resumableStateForTurn,
       classification: chatClassification,
@@ -2483,7 +2670,10 @@ router.post("/ai/chat", async (req, res) => {
           turnIntent: turnIntent.kind,
           outcome: "SUCCEEDED",
           sources: JSON.stringify(redactUserFacingValue(result.sources)),
-          toolTrace: serializeToolTrace(traceSteps),
+          toolTrace: appendExecutionLedgerTrace(
+            serializeToolTrace(traceSteps),
+            executionLedgerSnapshot!,
+          ),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
           missionCorrelationReport,
@@ -2540,6 +2730,7 @@ router.post("/ai/chat", async (req, res) => {
     return res.json({
       sessionId: sessionIdToUse,
       message: { ...assistantMsg, taskResult: parseTaskResult(assistantMsg.taskResult) },
+      executionLedger: executionLedgerSnapshot,
       turnIntent: turnIntent.kind,
       outcome: "SUCCEEDED",
       sources: redactUserFacingValue(result.sources),
@@ -3186,6 +3377,12 @@ router.post("/ai/chat/stream", async (req, res) => {
     const activeExecutionAbortController = new AbortController();
     executionAbortController = activeExecutionAbortController;
     registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
+    const executionLedger = createExecutionLedger({
+      id: aiExecution.id,
+      mode: executionLedgerMode(streamTurnIntent),
+      signal: activeExecutionAbortController.signal,
+    });
+    let executionLedgerSnapshot: ExecutionLedgerPublicSnapshot | undefined;
     let checkpointChain: Promise<void> = Promise.resolve();
     let executionEvidenceVerdict: FlightDeckEvidenceVerdict = "NOT_RECORDED";
     let executionEvidenceReason = proofRequired
@@ -3944,6 +4141,8 @@ router.post("/ai/chat/stream", async (req, res) => {
           analysisToolRunner,
           analysisCorrelation,
            ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
+          executionLedger,
+          ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
         },
         { provider, apiKey },
         onDelta,
@@ -3978,6 +4177,10 @@ router.post("/ai/chat/stream", async (req, res) => {
         cancelled: activeExecutionAbortController.signal.aborted,
         endedBeforeEvidence,
       });
+      executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
+        outcome: terminalOutcome.outcome,
+        trace: traceSteps,
+      });
       if (terminalOutcome.outcome !== "SUCCEEDED") {
         const safeMessage = redactUserFacingText(
           terminalOutcome.message ?? "The AI request did not complete.",
@@ -3985,7 +4188,10 @@ router.post("/ai/chat/stream", async (req, res) => {
         const report = terminalOutcome.failureKind === "TOOL_FAILURE"
           ? undefined
           : result.response;
-        const publicToolTrace = serializeToolTrace(traceSteps, false);
+        const publicToolTrace = appendExecutionLedgerTrace(
+          serializeToolTrace(traceSteps, false),
+          executionLedgerSnapshot,
+        );
         const failedMessage = await persistFailedChatTurn({
           sessionId: sessionIdToUse,
           projectId,
@@ -4004,6 +4210,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           createdAt: now,
           assistantAt: msgNow,
           toolTrace: traceSteps,
+          executionLedgerSnapshot,
         }) ?? {
           id: randomUUID(),
           sessionId: sessionIdToUse,
@@ -4012,7 +4219,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           outcome: terminalOutcome.outcome,
           errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
           errorMessage: safeMessage,
-          toolTrace: serializeToolTrace(traceSteps, true),
+          toolTrace: appendExecutionLedgerTrace(
+            serializeToolTrace(traceSteps, true),
+            executionLedgerSnapshot,
+          ),
           createdAt: msgNow,
         };
         if (terminalOutcome.failureKind === "TOOL_FAILURE") {
@@ -4032,6 +4242,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             recoveryState: terminalOutcome.recoveryState,
             executionId: aiExecution.id,
             sessionId: sessionIdToUse,
+            executionLedger: executionLedgerSnapshot,
           });
         } else {
           // A failed/incomplete report may still be useful to an operator, but
@@ -4060,12 +4271,14 @@ router.post("/ai/chat/stream", async (req, res) => {
               failureKind: terminalOutcome.failureKind,
               retryable: terminalOutcome.retryable,
               recoveryState: terminalOutcome.recoveryState,
+              executionLedger: executionLedgerSnapshot,
             },
             sources: redactUserFacingValue(result.sources),
             toolTrace: publicToolTrace,
             pendingChanges: redactUserFacingValue(result.pendingChanges),
             operationMode: streamTurnIntent.operationMode,
             execution: projectPublicExecutionSummary(executionSummary, false),
+            executionLedger: executionLedgerSnapshot,
             telemetry: {
               latencyMs: Date.now() - chatStartMs,
             },
@@ -4138,6 +4351,10 @@ router.post("/ai/chat/stream", async (req, res) => {
     } catch (err) {
       // PR-011: record failure metrics before emitting the SSE error.
       recordFailure(provider);
+      executionLedgerSnapshot = executionLedgerSnapshot ?? finishExecutionLedger(executionLedger, {
+        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+        trace: traceSteps,
+      });
       if (err instanceof GroqClientError) {
         if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
           recordInvalidModel(provider);
@@ -4167,6 +4384,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           retryable,
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
+          executionLedger: executionLedgerSnapshot,
         });
       } else {
         logger.error({ err }, "chat stream: unexpected non-GroqClientError");
@@ -4175,6 +4393,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           code: "unknown",
           message: "The AI provider could not complete the request. Retry in a moment or configure another provider.",
           correlationId: randomUUID(),
+          executionLedger: executionLedgerSnapshot,
         });
       }
       await persistFailedChatTurn({
@@ -4189,6 +4408,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         createdAt: now,
         assistantAt: msgNow,
         toolTrace: traceSteps,
+        executionLedgerSnapshot,
       }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
       res.end();
       return;
@@ -4205,6 +4425,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           retryable: false,
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
+          executionLedger: executionLedgerSnapshot,
         });
         await persistFailedChatTurn({
           sessionId: sessionIdToUse,
@@ -4218,6 +4439,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           createdAt: now,
           assistantAt: msgNow,
           toolTrace: traceSteps,
+          executionLedgerSnapshot,
         }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
         res.end();
         return;
@@ -4326,6 +4548,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           createdAt: now,
           assistantAt: msgNow,
           toolTrace: traceSteps,
+          executionLedgerSnapshot,
           terminalOutcome: {
             failureKind: "RECOVERY_FAILURE",
             retryable: true,
@@ -4402,7 +4625,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           executionId: aiExecutionId,
           outcome: "SUCCEEDED",
           sources: JSON.stringify(redactUserFacingValue(result.sources)),
-          toolTrace: serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
+          toolTrace: appendExecutionLedgerTrace(
+            serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
+            executionLedgerSnapshot,
+          ),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
           missionCorrelationReport,
@@ -4589,6 +4815,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           recoveryState: "INCOMPLETE",
           executionId: aiExecution.id,
           sessionId: sessionIdToUse,
+          executionLedger: executionLedgerSnapshot,
         });
         // Do not fall through to the successful done envelope. The retained
         // assistant row is now explicitly failed and remains visible on reload.
@@ -4625,7 +4852,10 @@ router.post("/ai/chat/stream", async (req, res) => {
         : streamTurnIntent.operationMode;
 
     const publicToolTrace = streamTurnIntent.requiresEvidence
-        ? serializeToolTrace(traceSteps, false, streamAuditScopeDescription)
+        ? appendExecutionLedgerTrace(
+            serializeToolTrace(traceSteps, false, streamAuditScopeDescription),
+            executionLedgerSnapshot,
+          )
       : assistantMsg.toolTrace;
     // The database row is intentionally retained with full diagnostics, but
     // every SSE projection of that row must use the public trace.
@@ -4644,6 +4874,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       turnIntent: streamTurnIntent.kind,
       executionId: aiExecutionId,
       outcome: "SUCCEEDED",
+      executionLedger: executionLedgerSnapshot,
     };
     sse({
       type: "done",
@@ -4678,6 +4909,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         latencyMs: chatLatencyMs,
       },
       execution: publicExecutionSummary,
+      executionLedger: executionLedgerSnapshot,
       _meta: rootFallbackUsed
         ? { rootPathFallback: { used: true, original: rootOriginalPath } }
         : undefined,
@@ -5356,15 +5588,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
       sources: message.sources
         ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
         : message.sources,
-      toolTrace: message.toolTrace
-        ? JSON.stringify(redactUserFacingValue(
-          (() => {
-            const parsed = parseStoredJson(message.toolTrace);
-            if (!Array.isArray(parsed)) return parsed;
-            return scrubHistoricalValidationRecord(parsed);
-          })(),
-        ))
-        : message.toolTrace,
+      toolTrace: redactHistoricalToolTrace(message.toolTrace),
       turnIntent: message.turnIntent,
       executionId: message.executionId,
       outcome: message.outcome,
@@ -5377,6 +5601,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         ? { missionCorrelationReport: undefined, missionCorrelationReportError: true }
         : { missionCorrelationReport: historicalReport.report }),
       taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
+      executionLedger: readExecutionLedgerTrace(message.toolTrace),
     };
   }));
 });

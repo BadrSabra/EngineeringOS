@@ -21,6 +21,7 @@ import {
   isCircuitOpen,
   createExecutionLedger,
   validateGroqDefaultModels,
+  toPublicExecutionLedgerSnapshot,
 } from "@workspace/ai-orchestrator";
 import type {
   ProviderId,
@@ -34,13 +35,14 @@ import type {
   TurnIntent,
   ValidationRunner,
   GroqErrorCode,
+  ExecutionLedgerPublicSnapshot,
+  ExecutionLedgerSnapshot,
 } from "@workspace/ai-orchestrator";
 import type { ExecutionLedger } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 
 export type { ProviderId };
-
 /**
  * Remove deployment details from values that cross an AI route's user-facing
  * boundary. Keep the original provider output for server-side diagnostics,
@@ -505,7 +507,11 @@ export async function chatWithFallback(
   options?: ProviderSelectionOptions,
   onStreamReset?: () => void,
   onStep?: (step: AgentStep) => void,
-): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
+): Promise<{
+  result: Awaited<ReturnType<typeof chat>>;
+  effectiveProvider: ProviderId;
+  executionLedger?: ExecutionLedger;
+}> {
   const executionLedger =
     baseParams.executionLedger ??
     createExecutionLedger({ mode: "tool_chat", signal: baseParams.signal });
@@ -515,6 +521,7 @@ export async function chatWithFallback(
   }
 
   if (orderedProviders.length === 0) {
+    executionLedger.setTerminal("provider_exhausted");
     throw new GroqClientError(
       "INVALID_CONFIG",
       options?.requireTools
@@ -575,7 +582,7 @@ export async function chatWithFallback(
          executionLedger,
          capabilityRegistry: baseParams.capabilityRegistry,
       } as Parameters<typeof chat>[0]);
-      return { result, effectiveProvider: providerEntry.provider };
+      return { result, effectiveProvider: providerEntry.provider, executionLedger };
     } catch (err) {
       const providerError = normalizeProviderFailure(err);
       if (FALLBACK_TRIGGER_CODES.has(providerError.code)) {
@@ -603,6 +610,7 @@ export async function chatWithFallback(
   const exhaustedMsg = cascade
     ? `All providers failed — ${cascade}`
     : "No AI provider returned a response";
+  executionLedger.setTerminal("provider_exhausted");
   throw lastErr
     ? new GroqClientError(lastErr.code, exhaustedMsg)
     : new GroqClientError("EMPTY_RESPONSE", exhaustedMsg);
@@ -675,6 +683,7 @@ export function handleOrchestratorError(
     incompleteReview?: { sessionId?: string; failureKind?: string };
     /** Chat routes use the strict public contract instead of provider UI metadata. */
     publicContract?: "chat";
+    executionLedger?: ExecutionLedger;
   },
 ): boolean {
   if (!(err instanceof GroqClientError)) return false;
@@ -685,6 +694,11 @@ export function handleOrchestratorError(
   );
 
   if (ctx?.publicContract === "chat") {
+    if (ctx.executionLedger) {
+      ctx.executionLedger.setTerminal(
+        err.code === "TIMEOUT" ? "deadline" : "provider_exhausted",
+      );
+    }
     const retryable = err.code === "TIMEOUT"
       || err.code === "NETWORK_ERROR"
       || err.code === "SERVER_ERROR"
@@ -710,6 +724,9 @@ export function handleOrchestratorError(
       retryable,
       recoveryState: "REQUIRED",
       correlationId: randomUUID(),
+      ...(ctx.executionLedger
+        ? { executionLedger: toPublicExecutionLedgerSnapshot(ctx.executionLedger.snapshot()) }
+        : {}),
       ...(ctx.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
     });
     return true;
@@ -959,4 +976,73 @@ export function providerAvailabilityProjection(
     availabilityState: "provider_outage",
     operatorAction: `Retry in a moment or configure another provider. Check ${providerStatus} if it persists.`,
   };
+}
+
+/**
+ * Keep the durable trace record distinct from tool activity so consumers can
+ * recover the exact request budget summary after an SSE reconnect.
+ */
+const EXECUTION_LEDGER_TRACE_KIND = "execution_ledger";
+
+export function appendExecutionLedgerToTrace(
+  serializedTrace: string | null | undefined,
+  snapshot: ExecutionLedgerPublicSnapshot,
+): string {
+  let entries: unknown[] = [];
+  if (serializedTrace) {
+    try {
+      const parsed: unknown = JSON.parse(serializedTrace);
+      if (Array.isArray(parsed)) entries = parsed;
+    } catch {
+      entries = [];
+    }
+  }
+  return JSON.stringify([
+    ...entries,
+    { kind: EXECUTION_LEDGER_TRACE_KIND, ...snapshot },
+  ]);
+}
+
+export function executionLedgerFromTrace(value: string | null | undefined): ExecutionLedgerPublicSnapshot | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return undefined;
+    const entry = [...parsed].reverse().find(
+      (candidate) => candidate && typeof candidate === "object"
+        && (candidate as Record<string, unknown>).kind === EXECUTION_LEDGER_TRACE_KIND,
+    );
+    if (!entry || typeof entry !== "object") return undefined;
+    const candidate = { ...(entry as Record<string, unknown>) };
+    delete candidate.kind;
+    const modes = new Set(["simple_chat", "tool_chat", "forensic", "repair_plan", "hierarchical"]);
+    const terminalReasons = new Set([
+      "completed", "cancelled", "deadline", "model_budget", "tool_budget",
+      "recovery_budget", "provider_exhausted", "failed",
+    ]);
+    if (
+      typeof candidate.id !== "string"
+      || typeof candidate.mode !== "string"
+      || !modes.has(candidate.mode)
+      || typeof candidate.startedAt !== "number"
+      || typeof candidate.deadlineAt !== "number"
+      || typeof candidate.elapsedMs !== "number"
+      || typeof candidate.remainingMs !== "number"
+      || !candidate.budget
+      || typeof candidate.budget !== "object"
+      || !candidate.counts
+      || typeof candidate.counts !== "object"
+      || !Array.isArray(candidate.providers)
+      || !Array.isArray(candidate.models)
+      || (candidate.terminalReason !== undefined
+        && (typeof candidate.terminalReason !== "string" || !terminalReasons.has(candidate.terminalReason)))
+    ) return undefined;
+    const snapshot = candidate as unknown as ExecutionLedgerSnapshot;
+    return toPublicExecutionLedgerSnapshot({
+      ...snapshot,
+      events: [],
+    });
+  } catch {
+    return undefined;
+  }
 }

@@ -16,6 +16,7 @@ import type { AiForensicReportResult } from './aiForensicReportResult';
 import type { AiRepairResult } from './aiRepairResult';
 import type { AiWorkspaceReviewResult } from './aiWorkspaceReviewResult';
 import type { BehaviorEvidence } from './behaviorEvidence';
+import type { ExecutionLedgerSnapshot } from './executionLedgerSnapshot';
 import type { MissionCorrelationReport } from './missionCorrelationReport';
 
 export interface AiChatMessage {
@@ -25,6 +26,8 @@ export interface AiChatMessage {
   content: string;
   sources?: string | null;
   toolTrace?: string | null;
+  /** Allowlisted request execution snapshot; excludes prompts, source content, and provider diagnostics. */
+  executionLedger?: ExecutionLedgerSnapshot | null;
   /** Server-authoritative intent used to route this turn */
   turnIntent?: string | null;
   /** Durable execution linked to this conversational turn */

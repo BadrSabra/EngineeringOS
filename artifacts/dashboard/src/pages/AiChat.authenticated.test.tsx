@@ -73,6 +73,7 @@ const mocks = vi.hoisted(() => {
       behaviorEvidence: undefined as string | object | null | undefined,
       missionCorrelationReport: undefined as Record<string, unknown> | undefined,
       taskResult: undefined as TaskResultFixture | undefined,
+      executionLedger: undefined as unknown,
       createdAt: '2026-08-13T00:00:00.000Z',
     }],
     emptyMessages: [] as unknown[],
@@ -337,6 +338,7 @@ beforeEach(() => {
     executionId: undefined,
     errorCode: undefined,
     errorMessage: undefined,
+    executionLedger: undefined,
   };
   mocks.operationEvents = [];
   for (const mutation of Object.values(mocks.mutations)) {
@@ -2214,6 +2216,59 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getByText(/Reading source/)).toBeInTheDocument();
     expect(screen.getByText(/Model response/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['deadline', 'Deadline reached'],
+    ['cancelled', 'Cancelled'],
+    ['provider_exhausted', 'All providers exhausted'],
+  ] as const)('shows the %s execution stop reason from history', async (terminalReason, label) => {
+    mocks.serverProposal = { proposalId: 'ledger-history', changes: [] };
+    const snapshot = {
+      id: 'execution-history-1',
+      mode: 'forensic',
+      startedAt: 1_000,
+      deadlineAt: 6_000,
+      elapsedMs: 5_000,
+      remainingMs: 0,
+      budget: {
+        deadlineMs: 5_000,
+        modelCalls: 4,
+        providerAttempts: 6,
+        toolCalls: 8,
+        providerChanges: 2,
+        synthesisAttempts: 2,
+        recoveryAttempts: 2,
+        plannerCalls: 1,
+        hierarchicalTasks: 2,
+      },
+      counts: {
+        model: 2,
+        provider_attempt: 3,
+        tool: 4,
+        planner: 0,
+        provider_change: 1,
+        synthesis: 1,
+        recovery: 0,
+        hierarchical_task: 0,
+      },
+      providers: ['groq', 'openai'],
+      models: ['llama-3.3-70b-versatile', 'gpt-4o-mini'],
+      terminalReason,
+    };
+    mocks.proposalMessages[0].executionLedger = snapshot;
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([{ kind: 'execution_ledger', ...snapshot }]);
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const ledger = await screen.findByRole('button', { name: new RegExp(`Request stopped: ${label}`) });
+    fireEvent.click(ledger);
+
+    expect(screen.getByText('5000 ms')).toBeInTheDocument();
+    expect(screen.getByText(/Model 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Provider 3/)).toBeInTheDocument();
+    expect(screen.getByText(/groq, openai/)).toBeInTheDocument();
+    expect(screen.getByText(/llama-3\.3-70b-versatile, gpt-4o-mini/)).toBeInTheDocument();
   });
 
   it('shows one execution proof panel as soon as durable work starts', async () => {
