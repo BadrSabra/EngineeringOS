@@ -65,6 +65,8 @@ import {
   isProvenValidation,
   toPublicValidationResult,
   runRegisteredCommand,
+  createServerCapabilityRegistry,
+  toPublicRecipeReceipt,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -3239,6 +3241,16 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionId: aiExecution!.id,
         nodes: executionNodeStates,
       });
+      for (const node of executionNodeStates) {
+        sse({
+          type: "recipe_node_progress",
+          executionId: aiExecution!.id,
+          nodeId: node.id,
+          status: node.status,
+          attempts: node.attempts,
+          elapsedMs: 0,
+        });
+      }
       persistExecutionCheckpoint({
         stage: "running",
         streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
@@ -3911,6 +3923,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,
+           ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
         },
         { provider, apiKey },
         onDelta,
@@ -3983,6 +3996,12 @@ router.post("/ai/chat/stream", async (req, res) => {
           createdAt: msgNow,
         };
         if (terminalOutcome.failureKind === "TOOL_FAILURE") {
+          sse({
+            type: "recipe_terminal",
+            executionId: aiExecution.id,
+            status: "blocked",
+            completedNodeIds: executionNodeStates.filter((node) => node.status === "passed").map((node) => node.id),
+          });
           sse({
             type: "error",
             code: terminalOutcome.code,
@@ -4556,6 +4575,12 @@ router.post("/ai/chat/stream", async (req, res) => {
         res.end();
         return;
       }
+      sse({
+        type: "recipe_terminal",
+        executionId: aiExecution.id,
+        status: activeExecutionAbortController.signal.aborted ? "cancelled" : "completed",
+        completedNodeIds: executionNodeStates.filter((node) => node.status === "passed").map((node) => node.id),
+      });
     }
     executionTerminal = true;
 
@@ -4851,6 +4876,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     // used after reload/reconnect. This is already a redacted projection; raw
     // provider, model, and workspace diagnostics never cross this boundary.
     operationEvidence: redactOperationEvidence(operationEvidence),
+      ...(execution.recipeReceipt ? { recipeReceipt: toPublicRecipeReceipt(execution.recipeReceipt) } : {}),
   });
 });
 

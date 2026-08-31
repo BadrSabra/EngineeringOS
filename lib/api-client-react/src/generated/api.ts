@@ -117,6 +117,8 @@ import type {
   Project,
   ProjectSummary,
   ProviderKeyStatus,
+  RecipeExecutionResponse,
+  RecipeRequest,
   RecordTaskVerificationInput,
   RecoverAiExecution200,
   RecoverAiExecutionResumeCapability200,
@@ -4922,7 +4924,7 @@ export const getExportAiExecutionAuditQueryKey = (executionId: string,) => {
     }
 
 
-export const getExportAiExecutionAuditQueryOptions = <TData = Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError = ErrorType<ApiError>>(executionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getExportAiExecutionAuditQueryOptions = <TData = Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError = ErrorType<unknown>>(executionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -4941,14 +4943,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type ExportAiExecutionAuditQueryResult = NonNullable<Awaited<ReturnType<typeof exportAiExecutionAudit>>>
-export type ExportAiExecutionAuditQueryError = ErrorType<ApiError>
+export type ExportAiExecutionAuditQueryError = ErrorType<unknown>
 
 
 /**
  * @summary Preview or download a redacted durable AI execution audit
  */
 
-export function useExportAiExecutionAudit<TData = Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError = ErrorType<ApiError>>(
+export function useExportAiExecutionAudit<TData = Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError = ErrorType<unknown>>(
  executionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -4965,6 +4967,78 @@ export function useExportAiExecutionAudit<TData = Awaited<ReturnType<typeof expo
 
 
 
+
+export const getRunAiRecipeUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/ai/projects/${projectId}/recipe`
+}
+
+/**
+ * @summary Run a server-owned AI recipe
+ */
+export const runAiRecipe = async (projectId: string,
+    recipeRequest: RecipeRequest, options?: RequestInit): Promise<RecipeExecutionResponse> => {
+
+  return customFetch<RecipeExecutionResponse>(getRunAiRecipeUrl(projectId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(recipeRequest)
+  }
+);}
+
+
+
+
+
+export const getRunAiRecipeMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runAiRecipe>>, TError,{projectId: string;data: BodyType<RecipeRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runAiRecipe>>, TError,{projectId: string;data: BodyType<RecipeRequest>}, TContext> => {
+
+const mutationKey = ['runAiRecipe'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runAiRecipe>>, {projectId: string;data: BodyType<RecipeRequest>}> = (props) => {
+          const {projectId,data} = props ?? {};
+
+          return  runAiRecipe(projectId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunAiRecipeMutationResult = NonNullable<Awaited<ReturnType<typeof runAiRecipe>>>
+    export type RunAiRecipeMutationBody = BodyType<RecipeRequest>
+    export type RunAiRecipeMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Run a server-owned AI recipe
+ */
+export const useRunAiRecipe = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runAiRecipe>>, TError,{projectId: string;data: BodyType<RecipeRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runAiRecipe>>,
+        TError,
+        {projectId: string;data: BodyType<RecipeRequest>},
+        TContext
+      > => {
+      return useMutation(getRunAiRecipeMutationOptions(options));
+    }
 
 export const getRecoverAiExecutionResumeCapabilityUrl = (executionId: string,) => {
 

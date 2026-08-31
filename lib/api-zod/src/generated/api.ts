@@ -3541,6 +3541,73 @@ export const ExportAiExecutionAuditResponse = zod.object({
 
 
 /**
+ * @summary Run a server-owned AI recipe
+ */
+export const RunAiRecipeParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const runAiRecipeHeaderIdempotencyKeyMin = 8;
+export const runAiRecipeHeaderIdempotencyKeyMax = 128;
+
+
+
+export const RunAiRecipeHeader = zod.object({
+  "Idempotency-Key": zod.string().min(runAiRecipeHeaderIdempotencyKeyMin).max(runAiRecipeHeaderIdempotencyKeyMax)
+})
+
+export const runAiRecipeBodyRecipeIdMax = 120;
+
+
+export const runAiRecipeBodyApprovedPathsItemMax = 500;
+
+export const runAiRecipeBodyApprovedPathsMax = 48;
+
+export const runAiRecipeBodyCandidateIdentityMax = 160;
+
+
+
+export const RunAiRecipeBody = zod.object({
+  "recipeId": zod.string().min(1).max(runAiRecipeBodyRecipeIdMax),
+  "recipeVersion": zod.number().min(1),
+  "approvedPaths": zod.array(zod.string().min(1).max(runAiRecipeBodyApprovedPathsItemMax)).max(runAiRecipeBodyApprovedPathsMax).optional(),
+  "candidateIdentity": zod.string().max(runAiRecipeBodyCandidateIdentityMax).nullish()
+})
+
+export const runAiRecipeResponseReceiptNodesItemAttemptsMin = 0;
+
+export const runAiRecipeResponseReceiptNodesItemElapsedMsMin = 0;
+
+
+
+export const RunAiRecipeResponse = zod.object({
+  "receipt": zod.object({
+  "contractVersion": zod.literal(1),
+  "executionId": zod.string(),
+  "operationId": zod.string(),
+  "recipeId": zod.string(),
+  "recipeVersion": zod.number(),
+  "status": zod.enum(['completed', 'blocked', 'cancelled']),
+  "completedNodeIds": zod.array(zod.string()),
+  "nodes": zod.array(zod.object({
+  "nodeId": zod.string(),
+  "status": zod.enum(['passed', 'failed', 'blocked']),
+  "attempts": zod.number().min(runAiRecipeResponseReceiptNodesItemAttemptsMin),
+  "elapsedMs": zod.number().min(runAiRecipeResponseReceiptNodesItemElapsedMsMin),
+  "evidenceId": zod.string().nullable(),
+  "excerpt": zod.string().nullable()
+})),
+  "evidenceRefs": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullable()
+}),
+  "executionId": zod.string(),
+  "status": zod.enum(['completed', 'blocked']),
+  "capabilityGap": zod.record(zod.string(), zod.unknown()).nullable()
+})
+
+
+/**
  * Owner-scoped recovery for paused or failed executions. The stored token hash and provider diagnostics are never returned.
  * @summary Rotate and return a one-time opaque resume capability
  */

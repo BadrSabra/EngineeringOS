@@ -1687,6 +1687,39 @@ paths:
                         items: { type: string }
                         example: [provider secrets, raw model output, private runtime paths]
                     additionalProperties: false
+  /api/ai/projects/{projectId}/recipe:
+    post:
+      operationId: runAiRecipe
+      summary: Run a server-owned AI recipe
+      tags: [AI]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecipeRequest"
+      responses:
+        "200":
+          description: Completed recipe receipt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecipeExecutionResponse"
+        "409":
+          description: Recipe blocked or workspace unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "404":
           description: Execution not found
           content:
@@ -3272,6 +3305,54 @@ components:
         SDK after sign-in — no manual header injection is needed.
 
   schemas:
+    RecipeRequest:
+      type: object
+      additionalProperties: false
+      required: [recipeId, recipeVersion]
+      properties:
+        recipeId: { type: string, minLength: 1, maxLength: 120 }
+        recipeVersion: { type: integer, minimum: 1 }
+        approvedPaths:
+          type: array
+          maxItems: 48
+          items: { type: string, minLength: 1, maxLength: 500 }
+        candidateIdentity: { type: string, nullable: true, maxLength: 160 }
+    RecipeReceiptNode:
+      type: object
+      additionalProperties: false
+      required: [nodeId, status, attempts, elapsedMs, evidenceId, excerpt]
+      properties:
+        nodeId: { type: string }
+        status: { type: string, enum: [passed, failed, blocked] }
+        attempts: { type: integer, minimum: 0 }
+        elapsedMs: { type: integer, minimum: 0 }
+        evidenceId: { type: string, nullable: true }
+        excerpt: { type: string, nullable: true }
+    RecipeReceipt:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, executionId, operationId, recipeId, recipeVersion, status, completedNodeIds, nodes, evidenceRefs, createdAt, completedAt]
+      properties:
+        contractVersion: { type: integer, enum: [1] }
+        executionId: { type: string }
+        operationId: { type: string }
+        recipeId: { type: string }
+        recipeVersion: { type: integer }
+        status: { type: string, enum: [completed, blocked, cancelled] }
+        completedNodeIds: { type: array, items: { type: string } }
+        nodes: { type: array, items: { $ref: "#/components/schemas/RecipeReceiptNode" } }
+        evidenceRefs: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+    RecipeExecutionResponse:
+      type: object
+      additionalProperties: false
+      required: [receipt, executionId, status, capabilityGap]
+      properties:
+        receipt: { $ref: "#/components/schemas/RecipeReceipt" }
+        executionId: { type: string }
+        status: { type: string, enum: [completed, blocked] }
+        capabilityGap: { type: object, nullable: true, additionalProperties: true }
     AiExecutionRecoveryRequest:
       type: object
       additionalProperties: false

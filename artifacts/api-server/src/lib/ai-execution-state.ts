@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { db, aiExecutionsTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
-import type { ExecutionNode, FlightDeckEvidenceVerdict } from "@workspace/ai-orchestrator";
+import type { ExecutionNode, FlightDeckEvidenceVerdict, RecipeReceipt } from "@workspace/ai-orchestrator";
 import { formatUntrustedContent } from "@workspace/ai-orchestrator";
 
 export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
@@ -1434,6 +1434,7 @@ export async function completeAiExecution(params: {
   proofRequired?: boolean;
   evidenceRefs?: readonly string[];
   recipeBinding?: RecipeOperationBinding;
+  recipeReceipt?: RecipeReceipt;
 }): Promise<boolean> {
   const [current] = await db
     .select({
@@ -1489,6 +1490,7 @@ export async function completeAiExecution(params: {
       status: "completed",
       finalMessageId: params.finalMessageId,
       proposalId: params.proposalId ?? null,
+      ...(params.recipeReceipt ? { recipeReceipt: params.recipeReceipt } : {}),
       completedAt: new Date(),
       updatedAt: new Date(),
       leaseUntil: null,

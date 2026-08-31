@@ -349,6 +349,9 @@ export {
   RecipeIdSchema,
   RecipeApprovedPathSchema,
   RecipeRequestSchema,
+  RecipeReceiptSchema,
+  RecipeReceiptNodeSchema,
+  toPublicRecipeReceipt,
   RecipeNodeIdSchema,
   RecipeOutputNameSchema,
   EvidencePredicateSchema,
@@ -368,6 +371,8 @@ export {
 export type {
   RecipeId,
   RecipeRequest,
+  RecipeReceipt,
+  RecipeReceiptNode,
   RecipeNodeId,
   RecipeOutputName,
   EvidencePredicate,

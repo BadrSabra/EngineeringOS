@@ -1,4 +1,4 @@
-import { pgEnum, pgTable, text, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgEnum, pgTable, text, timestamp, integer, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 import { aiChatMessagesTable, aiChatSessionsTable } from "./ai_chats.js";
 import { tasksTable } from "./tasks.js";
@@ -57,6 +57,8 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   error: text("error"),
   finalMessageId: text("final_message_id"),
   proposalId: text("proposal_id"),
+  /** Bounded, public receipt for a server-owned recipe execution. */
+  recipeReceipt: jsonb("recipe_receipt"),
   /** Delivery workspace identity, when this execution can write files. */
   workspaceRoot: text("workspace_root"),
   baseRevision: text("base_revision"),

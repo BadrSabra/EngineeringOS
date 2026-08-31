@@ -40,6 +40,45 @@ export const RecipeNodeIdSchema = z
   .regex(/^[A-Za-z][A-Za-z0-9._:-]*$/, "recipe node IDs must be safe identifiers");
 export type RecipeNodeId = z.infer<typeof RecipeNodeIdSchema>;
 
+export const RecipeReceiptNodeSchema = z.object({
+  nodeId: RecipeNodeIdSchema,
+  status: z.enum(["passed", "failed", "blocked"]),
+  attempts: z.number().int().min(0).max(3),
+  elapsedMs: z.number().int().min(0).max(900_000),
+  evidenceId: z.string().min(1).max(240).nullable(),
+  excerpt: z.string().max(500).nullable(),
+}).strict();
+export type RecipeReceiptNode = z.infer<typeof RecipeReceiptNodeSchema>;
+
+export const RecipeReceiptSchema = z.object({
+  contractVersion: z.literal(RECIPE_CONTRACT_VERSION),
+  executionId: z.string().min(1).max(160),
+  operationId: z.string().min(1).max(160),
+  recipeId: RecipeIdSchema,
+  recipeVersion: RecipeVersionSchema,
+  status: z.enum(["completed", "blocked", "cancelled"]),
+  completedNodeIds: z.array(RecipeNodeIdSchema).max(24),
+  nodes: z.array(RecipeReceiptNodeSchema).max(24),
+  evidenceRefs: z.array(z.string().min(1).max(240)).max(48),
+  createdAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+}).strict();
+export type RecipeReceipt = z.infer<typeof RecipeReceiptSchema>;
+
+export function toPublicRecipeReceipt(value: unknown): RecipeReceipt | null {
+  const parsed = RecipeReceiptSchema.safeParse(value);
+  if (!parsed.success) return null;
+  return {
+    ...parsed.data,
+    nodes: parsed.data.nodes.map((node) => ({
+      ...node,
+      excerpt: node.excerpt
+        ? node.excerpt.replace(/\b(?:token|secret|api[_-]?key|password)\s*=\s*\S+/gi, "$1=[redacted]")
+        : null,
+    })),
+  };
+}
+
 export const RecipeOutputNameSchema = z
   .string()
   .min(1)

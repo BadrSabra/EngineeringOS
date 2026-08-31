@@ -5,6 +5,91 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+export interface RecipeRequest {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  recipeId: string;
+  /** @minimum 1 */
+  recipeVersion: number;
+  /**
+     * @maxItems 48
+     * @items.minLength 1
+     * @items.maxLength 500
+     */
+  approvedPaths?: string[];
+  /** @maxLength 160 */
+  candidateIdentity?: string | null;
+}
+
+export type RecipeReceiptNodeStatus = typeof RecipeReceiptNodeStatus[keyof typeof RecipeReceiptNodeStatus];
+
+
+export const RecipeReceiptNodeStatus = {
+  passed: 'passed',
+  failed: 'failed',
+  blocked: 'blocked',
+} as const;
+
+export interface RecipeReceiptNode {
+  nodeId: string;
+  status: RecipeReceiptNodeStatus;
+  /** @minimum 0 */
+  attempts: number;
+  /** @minimum 0 */
+  elapsedMs: number;
+  evidenceId: string | null;
+  excerpt: string | null;
+}
+
+export type RecipeReceiptContractVersion = typeof RecipeReceiptContractVersion[keyof typeof RecipeReceiptContractVersion];
+
+
+export const RecipeReceiptContractVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type RecipeReceiptStatus = typeof RecipeReceiptStatus[keyof typeof RecipeReceiptStatus];
+
+
+export const RecipeReceiptStatus = {
+  completed: 'completed',
+  blocked: 'blocked',
+  cancelled: 'cancelled',
+} as const;
+
+export interface RecipeReceipt {
+  contractVersion: RecipeReceiptContractVersion;
+  executionId: string;
+  operationId: string;
+  recipeId: string;
+  recipeVersion: number;
+  status: RecipeReceiptStatus;
+  completedNodeIds: string[];
+  nodes: RecipeReceiptNode[];
+  evidenceRefs: string[];
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export type RecipeExecutionResponseStatus = typeof RecipeExecutionResponseStatus[keyof typeof RecipeExecutionResponseStatus];
+
+
+export const RecipeExecutionResponseStatus = {
+  completed: 'completed',
+  blocked: 'blocked',
+} as const;
+
+export type RecipeExecutionResponseCapabilityGap = { [key: string]: unknown } | null;
+
+export interface RecipeExecutionResponse {
+  receipt: RecipeReceipt;
+  executionId: string;
+  status: RecipeExecutionResponseStatus;
+  capabilityGap: RecipeExecutionResponseCapabilityGap;
+}
+
 export type AiExecutionRecoveryRequestAction = typeof AiExecutionRecoveryRequestAction[keyof typeof AiExecutionRecoveryRequestAction];
 
 

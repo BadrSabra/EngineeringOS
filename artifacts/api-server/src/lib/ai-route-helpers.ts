@@ -417,6 +417,8 @@ export async function chatWithFallback(
     signal?: AbortSignal;
      /** Shared budget across provider attempts and nested agent phases. */
      executionLedger?: ExecutionLedger;
+     /** Server-owned capability catalog registry for an active operation. */
+     capabilityRegistry?: import("@workspace/ai-orchestrator").CapabilityRegistry;
   },
   initialProvider: { provider: ProviderId; apiKey: string },
   onDelta?: (delta: string) => void,
@@ -491,6 +493,7 @@ export async function chatWithFallback(
         turnIntent: baseParams.turnIntent,
         retainedEvidence,
          executionLedger,
+         capabilityRegistry: baseParams.capabilityRegistry,
       } as Parameters<typeof chat>[0]);
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
