@@ -164,6 +164,26 @@
  * are intentionally scoped to AI chat and only apply below the desktop
  * breakpoint; desktop sizing and evidence hierarchy remain unchanged. */
 @media (max-width: 767px) {
+  /* Keep the sessions history and provider controls inside the mobile drawer.
+   * Without independent flex bounds, the provider stack can grow past the
+   * drawer's scroll region and leave the last card clipped below the viewport. */
+  .sessions-drawer .drawer-scroll-region {
+    display: flex;
+    flex-direction: column;
+    overflow-y: hidden;
+  }
+
+  .sessions-drawer .sessions-history,
+  .sessions-drawer .provider-key-cards {
+    min-height: 0;
+    flex: 1 1 50%;
+    overflow-y: auto;
+  }
+
+  .sessions-drawer .provider-key-cards {
+    padding-bottom: 3rem;
+  }
+
   .sessions-drawer,
   .provider-key-cards,
   .provider-key-card,
