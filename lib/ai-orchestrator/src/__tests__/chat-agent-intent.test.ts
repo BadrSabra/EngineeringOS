@@ -13,6 +13,8 @@ import {
   hasUnverifiedPositiveForensicClaim,
   buildForensicRecoveryMessages,
   classifyRecoveryFailure,
+  classifyRecoveryFailureDetail,
+  buildRecoveryCorrectionFeedback,
   requiresBehavioralFindingAssessment,
   shouldRejectBehaviorAnswerForMissingEvidence,
   buildBehaviorEvidenceIncompleteResponse,
@@ -618,6 +620,52 @@ describe("classifyRecoveryFailure", () => {
     expect(
       classifyRecoveryFailure({ kind: "contract", violations: ["missing field"] }),
     ).toBe("VALIDATION_FAILURE");
+  });
+});
+
+describe("classifyRecoveryFailureDetail", () => {
+  it.each([
+    [
+      { kind: "parse" as const, parseCode: "MALFORMED_JSON" },
+      "PARSE_INVALID_JSON",
+      true,
+    ],
+    [
+      { kind: "contract" as const, violations: ["Finding evidence is not an exact quote"] },
+      "EVIDENCE_MISSING_CITATION",
+      true,
+    ],
+    [
+      { kind: "contract" as const, violations: ["Every Finding needs one linked Repair Plan phase"] },
+      "REPAIR_LINKAGE",
+      true,
+    ],
+    [
+      { kind: "contract" as const, violations: ["The requested forensic scope is partial"] },
+      "SCOPE_INCOMPLETE",
+      false,
+    ],
+    [
+      { kind: "provider" as const, code: "TIMEOUT" },
+      "PROVIDER_TIMEOUT",
+      false,
+    ],
+  ])("labels %j as %s", (failure, code, actionable) => {
+    expect(classifyRecoveryFailureDetail(failure)).toMatchObject({ code, actionable });
+  });
+
+  it("keeps correction feedback focused and verifier-owned", () => {
+    expect(
+      buildRecoveryCorrectionFeedback([
+        "Repair phase F-01 is missing a registered validation profile",
+        "unrelated detail should be bounded",
+      ]),
+    ).toEqual([
+      "Failure class: REPAIR_LINKAGE.",
+      "Correction rule: Link exactly one executable phase to each Finding, using its files, a registered validation profile, and a behavior-specific checklist.",
+      "Verifier detail: Repair phase F-01 is missing a registered validation profile",
+      "Verifier detail: unrelated detail should be bounded",
+    ]);
   });
 });
 

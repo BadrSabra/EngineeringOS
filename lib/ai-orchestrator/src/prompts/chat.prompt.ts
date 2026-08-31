@@ -236,6 +236,46 @@ Choose Patch صغير, Refactor, or إعادة تصميم only when at least one
 6. Report changes as proposed/pending until an explicit write result confirms application. Report tests and numeric scores only when a tool result proves them. Treat broad quality/completeness language as INFERENCE or NOT PROVEN, never FACT. A Finding must describe a defect in inspected behavior, not merely a missing verification input or a possible optimization.`;
 }
 
+/**
+ * Internal forensic synthesis contract.
+ *
+ * The six-section report is a presentation contract owned by the server. Asking
+ * the model to compose that report first makes it solve formatting and evidence
+ * selection at the same time, then forces Recovery to translate it into a
+ * different shape. Keep the initial synthesis and Recovery on the same small
+ * candidate envelope instead.
+ */
+function buildForensicSynthesisSchemaLock(responseLanguage?: "ar" | "en"): string {
+  const naturalLanguageRule = responseLanguage === "ar"
+    ? "Write all explanatory report prose, status explanations, and deterministic conclusions in Arabic. Write finding titles, impact, rootCause, fix, repair steps, checklist items, and noFindingBasis in Arabic. Keep these unchanged in English: the six canonical section headers, protocol/status labels, Finding IDs, file paths, identifiers, exact source/code excerpts, and registered validation profile names."
+    : "Write all explanatory report prose and status explanations in English, including the staged narrative fields. Keep the six canonical section headers, protocol/status labels, Finding IDs, file paths, identifiers, exact source/code excerpts, and registered validation profile names unchanged.";
+  return `---
+## FINAL INSTRUCTION — STAGED FORENSIC SYNTHESIS
+
+This is an internal evidence-selection step. Do not compose the six-section user-facing report. The server will deterministically build those six sections after every gate passes.
+
+Natural-language requirement: ${naturalLanguageRule}
+
+Return ONLY one valid JSON object with this exact envelope:
+{"verdict":"NO_FINDING","findings":[],"repairPlan":[],"validationChecklist":[],"noFindingBasis":"<required for an explicit behavioral-defect assessment; name an inspected file, quote an exact source fragment, and explain why the requested defect is not proven>"}
+
+Or, when a defect is directly proven:
+{"verdict":"FINDING_PROVEN","findings":[{"id":"F-01","title":"<candidate finding>","files":["<project-relative implementation file>"],"evidence":"\`<exact source fragment copied from that file>\`","whyItMatters":"<behavioral consequence>","rootCause":"<cause supported by the source>","fix":"<concrete source change>"}],"repairPlan":[{"findingId":"F-01","files":["<same project-relative file>"],"steps":["<concrete source-change step>"],"validationProfile":"<registered profile>"}],"validationChecklist":["<behavior-specific pass/fail regression scenario>"]}
+
+Rules:
+1. Use only completed source reads supplied in context. Exact quoted evidence must occur literally in the named file; never use search snippets, imports alone, comments, or model assertions as proof.
+2. Emit a Finding only when all required fields, exact evidence, scope, one linked executable phase, and a behavior-specific checklist are available. Never invent a path, phase, profile, test result, or ID.
+3. Emit NO_FINDING with a source-grounded noFindingBasis when the inspected evidence does not prove a behavioral defect. An empty envelope without that basis is incomplete when the objective asks for a defect assessment.
+4. Use an empty repairPlan only with NO_FINDING or when the audit is fixture-local. Do not emit the six canonical section headers, Markdown report prose, or a ChatResponse wrapper.
+
+Evidence safety reminders:
+- A truncation marker is never evidence. A missing schema/context read is a verification gap, not a Finding.
+- Every Finding needs an exact source snippet. Performance or quality claims require a completed benchmark/profile/result.
+- Package-manager aliases such as catalog: are not proof without the relevant catalog or lockfile.
+- If no repair scope is authorized, do not invent a repair phase.
+- If a claim is not proven, label it NOT PROVEN rather than upgrading an inference.`;
+}
+
 function buildTaskContractSection(outputContract: OutputContract): string | null {
   switch (outputContract) {
     case "EXTRACTED_CODE":
@@ -389,7 +429,9 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     // Weak free-tier models comply more reliably when the format constraint is the
     // final thing they see, not buried mid-prompt.
     structuredOutputMode && outputContract === "FORENSIC_REPORT"
-      ? buildStructuredOutputSchemaLock(responseLanguage)
-      : null,
+      ? buildForensicSynthesisSchemaLock(responseLanguage)
+      : structuredOutputMode
+        ? buildStructuredOutputSchemaLock(responseLanguage)
+        : null,
   );
 }

@@ -608,6 +608,118 @@ export function classifyRecoveryFailure(
   }
 }
 
+export type RecoveryFailureDetail = {
+  code:
+    | "PARSE_INVALID_JSON"
+    | "CONTRACT_SHAPE"
+    | "EVIDENCE_MISSING_CITATION"
+    | "EVIDENCE_UNSUPPORTED_FINDING"
+    | "SCOPE_INCOMPLETE"
+    | "REPAIR_LINKAGE"
+    | "CONTRADICTORY_CANDIDATE"
+    | "NO_VERIFIED_FINDING"
+    | "PROVIDER_TIMEOUT"
+    | "PROVIDER_FAILURE";
+  actionable: boolean;
+  nextAction: string;
+};
+
+/**
+ * Turn verifier-owned rejection text into a small, stable correction contract.
+ * The detail is intentionally not persisted as provider output: it is only
+ * used to focus the next bounded attempt and to make diagnostics distinguish
+ * model-contract mistakes from evidence insufficiency.
+ */
+export function classifyRecoveryFailureDetail(
+  failure:
+    | { kind: "contract"; violations: string[] }
+    | { kind: "parse"; parseCode: string }
+    | { kind: "provider"; code: string }
+    | { kind: "no_finding" }
+    | undefined,
+): RecoveryFailureDetail | undefined {
+  if (!failure) return undefined;
+  if (failure.kind === "parse") {
+    return {
+      code: "PARSE_INVALID_JSON",
+      actionable: true,
+      nextAction: "Return one complete staged JSON envelope with no preamble or Markdown.",
+    };
+  }
+  if (failure.kind === "provider") {
+    return /timeout|timed.?out|deadline/i.test(failure.code)
+      ? {
+          code: "PROVIDER_TIMEOUT",
+          actionable: false,
+          nextAction: "Stop recovery and preserve the retained evidence; do not infer a Finding.",
+        }
+      : {
+          code: "PROVIDER_FAILURE",
+          actionable: false,
+          nextAction: "Stop recovery and preserve the retained evidence; do not infer a Finding.",
+        };
+  }
+  if (failure.kind === "no_finding") {
+    return {
+      code: "NO_VERIFIED_FINDING",
+      actionable: true,
+      nextAction: "Reassess only the completed source reads; emit a Finding only if every required gate is directly supported.",
+    };
+  }
+
+  const text = failure.violations.join(" ");
+  if (/contradict/i.test(text)) {
+    return {
+      code: "CONTRADICTORY_CANDIDATE",
+      actionable: true,
+      nextAction: "Reconcile positive claims with the verified source; never combine a positive verdict with an empty Finding set.",
+    };
+  }
+  if (/scope|outside|partial|complete forensic scope|global scope/i.test(text)) {
+    return {
+      code: "SCOPE_INCOMPLETE",
+      actionable: false,
+      nextAction: "Do not expand scope or claim completion; retain the evidence-limited incomplete result.",
+    };
+  }
+  if (/repair|phase|validationprofile|validation profile|linked|linkage|checklist/i.test(text)) {
+    return {
+      code: "REPAIR_LINKAGE",
+      actionable: true,
+      nextAction: "Link exactly one executable phase to each Finding, using its files, a registered validation profile, and a behavior-specific checklist.",
+    };
+  }
+  if (/exact|citation|quote|source fragment|evidence|claim unsupported|not proven/i.test(text)) {
+    return {
+      code: /exact|citation|quote|source fragment/i.test(text)
+        ? "EVIDENCE_MISSING_CITATION"
+        : "EVIDENCE_UNSUPPORTED_FINDING",
+      actionable: true,
+      nextAction: "Use only a literal quote from a completed read in the named in-scope file; otherwise remove the Finding.",
+    };
+  }
+  return {
+    code: "CONTRACT_SHAPE",
+    actionable: true,
+    nextAction: "Return the exact staged envelope shape and include all required fields.",
+  };
+}
+
+export function buildRecoveryCorrectionFeedback(
+  violations: readonly string[],
+): string[] {
+  const detail = classifyRecoveryFailureDetail({
+    kind: "contract",
+    violations: [...violations],
+  });
+  if (!detail) return [];
+  return [
+    `Failure class: ${detail.code}.`,
+    `Correction rule: ${detail.nextAction}`,
+    ...violations.slice(0, 4).map((violation) => `Verifier detail: ${violation}`),
+  ];
+}
+
 /**
  * Keep every retained file represented in the Recovery prompt.
  *
@@ -3180,6 +3292,11 @@ function buildForensicRecoveryOptions(
 }
 
 const FORENSIC_RECOVERY_DEADLINE_MS = 90_000;
+// Recovery is per-run bounded rather than multiplying the model chain by the
+// number of evidence packets. A packet may receive one normal candidate and
+// one same-model correction, while provider fallback candidates still remain
+// available inside the normal candidate slot.
+const MAX_FORENSIC_RECOVERY_ATTEMPTS = 6;
 
 async function awaitBoundedRecovery<T>(
   operation: Promise<T>,
@@ -4105,6 +4222,13 @@ export async function chat(opts: {
   // forensic turns. Generic exact-format requests such as CODE_EXTRACTION
   // retain their own output contract and do not enter the forensic gate.
   const structuredOutputMode = forensicOutputMode;
+  // Only the canonical six-section FORENSIC_REPORT route uses the new staged
+  // synthesis envelope. FINDING_ANALYSIS retains its legacy Markdown
+  // compatibility path, whose report still passes through the same strict
+  // evidence and scope gates.
+  const stagedForensicSynthesis =
+    structuredOutputMode &&
+    (outputContract === "FORENSIC_REPORT" || behavioralAssessmentRequested);
   const suppressHistoricalSessionMemory =
     structuredOutputMode || capabilityProbeRequest || turnIntent.requiresEvidence;
   // FEG-017: terminal explanations apply to forensic audits AND behavior-evidence
@@ -4176,7 +4300,12 @@ export async function chat(opts: {
   // response is buffered and gated before emission below, so enabling deltas
   // here does not expose an ungated forensic claim. Keep deterministic repair
   // execution non-streaming because its partial report is assembled locally.
-  const streamCallback = repairPlanExecution ? undefined : onDelta;
+  // A forensic response is not safe to stream before the staged envelope,
+  // deterministic report assembly, and evidence gates have completed. Route it
+  // through the same buffered finalization path as non-streaming requests;
+  // ordinary chat and behavior answers retain token streaming.
+  const streamCallback =
+    repairPlanExecution || forensicOutputMode ? undefined : onDelta;
 
   // Forensic / structured-output audits are stateless: previous conversation
   // turns contain prior architectural descriptions that strongly bias the model
@@ -6008,7 +6137,7 @@ export async function chat(opts: {
   }
 
   // ── Final response from model (kind:"response" or kind:"partial") ─────────
-  const result = loopResult.kind === "cancelled"
+  let result = loopResult.kind === "cancelled"
     ? {
         content: "",
         toolCalls: null,
@@ -6016,6 +6145,60 @@ export async function chat(opts: {
         usage: { promptTokens: 0, completionTokens: 0 },
       }
     : loopResult.result;
+
+  // Native providers expose the final synthesis only through SSE. Forensic
+  // responses cannot be forwarded from that stream before the contract,
+  // recovery, and evidence gates run, so collect it here and feed the same
+  // buffered content through the non-streaming finalization path below.
+  if (forensicOutputMode && strategy.supportsNativeStream && !cancelledForensicAudit()) {
+    let forensicStreamContent = "";
+    try {
+      const forensicStreamMessages = messages.map((m, i) =>
+        i === 0 && m.role === "system"
+          ? {
+              ...m,
+              content:
+                buildChatSystemPrompt({
+                  context: projectContext,
+                  hasTools: tools != null,
+                  streamingMode: true,
+                  focusHint: combinedFocusHint || undefined,
+                  profile: contextProfile,
+                  activeTask,
+                  taskChecklist,
+                  structuredOutputMode: promptStructuredOutputMode,
+                  outputContract: promptOutputContract,
+                  responseLanguage,
+                  fixtureAuditMode,
+                  suppressSessionMemory: suppressHistoricalSessionMemory,
+                  capabilityCatalog: capabilityCatalogPrompt,
+                }) + buildResumedEvidenceLedger(activeTaskState, resumedTask),
+            }
+          : m,
+      );
+      const forensicStreamGen = strategy.stream(forensicStreamMessages, {
+        model,
+        apiKey,
+        ...(signal ? { signal } : {}),
+        executionLedger,
+      });
+      for await (const delta of forensicStreamGen) {
+        forensicStreamContent += delta;
+      }
+    } catch (streamErr) {
+      console.warn(
+        JSON.stringify({
+          scope: "chat-agent",
+          code: "FORENSIC_STREAM_BUFFER_FAILED",
+          provider: providerId,
+          reason: String(streamErr),
+        }),
+      );
+    }
+    if (forensicStreamContent.trim()) {
+      result = { ...result, content: forensicStreamContent };
+    }
+  }
 
   // STORY-04: capture actual model used — may differ from initial selection if
   // the fallback engine advanced to a different model mid-request.
@@ -6674,6 +6857,10 @@ export async function chat(opts: {
     repairPlanExecution && priorRepairPlanMetadata
       ? priorRepairPlanMetadata
       : undefined;
+  // Forensic synthesis and Recovery share the staged envelope contract. Keep
+  // the parsed candidate separate from ChatResponse so the server can render
+  // the six-section report deterministically after the evidence gates pass.
+  let initialForensicEnvelope: ForensicRecoveryEnvelope | null = null;
 
   // A provider can satisfy the forensic section contract while ignoring the
   // JSON envelope. Preserve that complete Markdown report before attempting a
@@ -6682,6 +6869,46 @@ export async function chat(opts: {
   const rawInitialForensicReport = structuredOutputMode
     ? extractRawForensicReport(content)
     : null;
+  if (rawInitialForensicReport && !parsed.ok) {
+    // Native SSE and a few non-JSON providers can return a complete Markdown
+    // report even though the transport wrapper is not valid ChatResponse JSON.
+    // Keep that report as the candidate for the normal contract/recovery path;
+    // otherwise a failed wrapper parse would replace useful evidence with the
+    // generic parser fallback before Recovery gets a chance to inspect it.
+    parsed = {
+      ok: true,
+      data: { response: rawInitialForensicReport, sources: [] },
+    };
+    content = rawInitialForensicReport;
+    console.info(JSON.stringify({
+      scope: "chat-agent",
+      code: "FORENSIC_RAW_REPORT_CANDIDATE",
+      source: "initial-synthesis",
+      responseLength: rawInitialForensicReport.length,
+    }));
+  }
+  if (stagedForensicSynthesis && !parsed.ok) {
+    const stagedInitial = parseAgentResponse(
+      content,
+      ForensicRecoveryEnvelopeSchema,
+      () => EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+    );
+    if (stagedInitial.ok) {
+      initialForensicEnvelope = stagedInitial.data;
+      // Prevent the legacy ChatResponse JSON correction from replacing a valid
+      // staged candidate with a generic wrapper/fallback.
+      parsed = {
+        ok: true,
+        data: { response: "", sources: [] },
+      };
+      console.info(JSON.stringify({
+        scope: "chat-agent",
+        code: "FORENSIC_STAGED_ENVELOPE_PARSED",
+        source: "initial-synthesis",
+        findingCount: stagedInitial.data.findings.length,
+      }));
+    }
+  }
   if (!parsed.ok && rawInitialForensicReport) {
     const initialMarkdownContract = applyForensicOutputContract(
       rawInitialForensicReport,
@@ -6767,10 +6994,13 @@ export async function chat(opts: {
   } else if (!parsed.ok) {
     console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
     const forensicCorrection =
-      structuredOutputMode
-        ? "\nFor this forensic audit, the response field MUST contain exactly these six markdown sections, with each header appearing once and in this order:\n" +
-          "## 1) Executive Verdict\n## 2) Evidence Map\n## 3) Findings\n## 4) Repair Plan\n## 5) Validation Checklist\n## 6) Final Judgment\n" +
-          "Use only verified file/tool evidence. If a section has no verified result, say so explicitly.\n"
+      stagedForensicSynthesis
+        ? "\nFor this forensic audit, return ONLY the staged JSON envelope. Do not compose the six-section report; the server owns that presentation:\n" +
+          '{"verdict":"FINDING_PROVEN|NO_FINDING","findings":[{"id":"F-01","title":"...","files":["project-relative implementation file"],"evidence":"`exact source fragment`","whyItMatters":"...","rootCause":"...","fix":"..."}],"repairPlan":[{"findingId":"F-01","files":["same file"],"steps":["concrete source change"],"validationProfile":"registered profile"}],"validationChecklist":["behavior-specific pass/fail scenario"],"noFindingBasis":"required for behavioral NO_FINDING"}\n'
+        : structuredOutputMode
+          ? "\nFor this structured audit, the response field MUST contain exactly these six markdown sections, with each header appearing once and in this order:\n" +
+            "## 1) Executive Verdict\n## 2) Evidence Map\n## 3) Findings\n## 4) Repair Plan\n## 5) Validation Checklist\n## 6) Final Judgment\n" +
+            "Use only verified file/tool evidence. If a section has no verified result, say so explicitly.\n"
         : "";
     const correctionPrompt =
       "Your previous response was not valid JSON. " +
@@ -6793,17 +7023,38 @@ export async function chat(opts: {
         },
       );
       const retryContent = retry.content ?? "";
-      const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
-      if (retryParsed.ok) {
-        // Correction succeeded — use the reformatted response.
-        parsed = retryParsed;
-        content = retryContent;
+      if (forensicOutputMode) {
+        const stagedRetry = parseAgentResponse(
+          retryContent,
+          ForensicRecoveryEnvelopeSchema,
+          () => EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+        );
+        if (stagedRetry.ok) {
+          initialForensicEnvelope = stagedRetry.data;
+          parsed = {
+            ok: true,
+            data: { response: "", sources: [] },
+          };
+          content = retryContent;
+        } else {
+          recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_FAILED", [
+            `correction parse code: ${stagedRetry.code}`,
+          ]);
+          console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code, provider }));
+        }
       } else {
-        // Correction also failed — the fallback already wraps raw text gracefully.
-        recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_FAILED", [
-          `correction parse code: ${retryParsed.code}`,
-        ]);
-        console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code, provider }));
+        const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
+        if (retryParsed.ok) {
+          // Correction succeeded — use the reformatted response.
+          parsed = retryParsed;
+          content = retryContent;
+        } else {
+          // Correction also failed — the fallback already wraps raw text gracefully.
+          recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_FAILED", [
+            `correction parse code: ${retryParsed.code}`,
+          ]);
+          console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code, provider }));
+        }
       }
     } catch (err) {
       const errorCode =
@@ -6942,12 +7193,53 @@ export async function chat(opts: {
       );
       if (executable.plans.length > 0) structuredRepairPlan = executable.plans;
     }
-    const initialContract = applyForensicOutputContract(
-      parsed.data.response,
-      forensicEvidence,
-      { responseLanguage },
-    );
     const behavioralAssessmentRequired = behavioralAssessmentRequested;
+    const initialStructuredValidation = initialForensicEnvelope
+      ? validateStructuredForensicRecovery(
+          initialForensicEnvelope,
+          forensicEvidence,
+          { requireNoFindingBasis: behavioralAssessmentRequired, responseLanguage },
+        )
+      : null;
+    const initialEnvelopeCanRender =
+      initialStructuredValidation !== null &&
+      (initialStructuredValidation.accepted ||
+        (initialForensicEnvelope?.verdict === "NO_FINDING" &&
+          initialForensicEnvelope.findings.length === 0 &&
+          (!behavioralAssessmentRequired ||
+            hasSourceGroundedNoFindingBasis(
+              initialForensicEnvelope.noFindingBasis,
+              forensicEvidence,
+            ))));
+    if (initialEnvelopeCanRender && initialStructuredValidation) {
+      parsed = {
+        ok: true,
+        data: {
+          response: initialStructuredValidation.report,
+          sources: [...forensicEvidence.fileContents.keys()],
+        },
+      };
+      content = initialStructuredValidation.report;
+      console.info(JSON.stringify({
+        scope: "chat-agent",
+        code: "FORENSIC_STAGED_ENVELOPE_VALIDATED",
+        source: "initial-synthesis",
+        verdict: initialForensicEnvelope?.verdict,
+        findingCount: initialForensicEnvelope?.findings.length ?? 0,
+      }));
+    }
+    const initialContract = initialStructuredValidation
+      ? {
+          valid: initialEnvelopeCanRender,
+          response: initialStructuredValidation.report,
+          violations: initialStructuredValidation.violations,
+          evidenceMapRebuilt: false,
+        }
+      : applyForensicOutputContract(
+          parsed.data.response,
+          forensicEvidence,
+          { responseLanguage },
+        );
     const recoveryPackets = buildForensicEvidencePackets(forensicEvidence, orderedForensicRoots);
     const reportHasEmptyFindings = (report: string): boolean => {
       const findingsSection =
@@ -7057,11 +7349,12 @@ export async function chat(opts: {
         "Every finding file must be a concrete implementation file from the completed read manifest, and evidence must quote an exact fragment present in that file.",
         "Never invent Finding IDs, citations, failures, test results, scores, or repair phases. A repair phase is valid only when its findingId exists in findings, names a registered validationProfile, and the checklist describes the behavior-specific regression it must verify.",
         "The system will build the six-section report and run the strict contract/evidence gates after this response.",
-        `Contract violations to correct: ${
+        "Targeted verifier feedback:",
+        ...buildRecoveryCorrectionFeedback(
           initialContract.violations.length > 0
-            ? initialContract.violations.join("; ")
-            : "Evidence Map provenance requires deterministic repair from the completed reads"
-        }`,
+            ? initialContract.violations
+            : ["Evidence Map provenance requires deterministic repair from the completed reads"],
+        ),
       ].join("\n");
       const useForensicFallback = (fallbackResponse: string): void => {
         parsed = {
@@ -7134,7 +7427,11 @@ export async function chat(opts: {
         // candidates) so the agent can advance through all of them instead of
         // exhausting at the second TIMEOUT/empty model. Still bounded.
         const recoveryModelChain = resolvedRecoveryModelChain.slice(0, 3);
-        const recoveryModelAttemptCount = Math.max(1, recoveryModelChain.length);
+        // Give the selected model one correction pass before moving on to
+        // provider fallback candidates. This is especially important when the
+        // resolved chain contains only one model: a recoverable citation or
+        // repair-linkage error must not become terminal after one response.
+        const recoveryModelAttemptCount = Math.max(2, recoveryModelChain.length + 1);
         const fallbackPacket: ForensicEvidencePacket = {
           root: "(all retained evidence)",
           files: [...forensicEvidence.fileContents.keys()],
@@ -7264,8 +7561,10 @@ export async function chat(opts: {
         let recoveryViolationHints = initialContract.violations.length > 0
           ? initialContract.violations
           : ["Evidence Map provenance requires deterministic repair from the completed reads"];
-        const recoveryAttemptLimit =
-          packetsForRecovery.length * recoveryModelAttemptCount;
+        const recoveryAttemptLimit = Math.min(
+          packetsForRecovery.length * recoveryModelAttemptCount,
+          MAX_FORENSIC_RECOVERY_ATTEMPTS,
+        );
         const recoveryDeadline = Date.now() + FORENSIC_RECOVERY_DEADLINE_MS;
         for (
           let recoveryAttempt = 0;
@@ -7277,6 +7576,8 @@ export async function chat(opts: {
         ) {
           recoveryAttemptsUsed = recoveryAttempt + 1;
           packetAcceptedThisAttempt = false;
+          const packetAttemptIndex = recoveryAttempt % recoveryModelAttemptCount;
+          if (packetAttemptIndex === 0) recoveryModelOverride = undefined;
           const packetIndex = Math.floor(recoveryAttempt / recoveryModelAttemptCount);
           const recoveryPacket = packetsForRecovery[packetIndex]!;
           const packetIsCompleteEvidence =
@@ -7307,7 +7608,7 @@ export async function chat(opts: {
             : [
                 correctionPrompt,
                 "The previous recovery candidate was rejected. Correct these exact issues in this attempt:",
-                ...recoveryViolationHints.map((violation) => `- ${violation}`),
+                ...buildRecoveryCorrectionFeedback(recoveryViolationHints),
                 ...(recoveredCorrectionBlock ? ["", recoveredCorrectionBlock] : []),
                 "Return only the corrected report. Do not repeat the rejected section or copy the correction instructions.",
               ].join("\n");
@@ -7323,7 +7624,20 @@ export async function chat(opts: {
              responseLanguage,
           );
           const remainingRecoveryMs = Math.max(1, recoveryDeadline - Date.now());
-          const recoveryOptions = buildForensicRecoveryOptions(providerId, model, apiKey, undefined, signal);
+          const plannedRecoveryModel =
+            recoveryModelChain[
+              Math.min(
+                Math.max(packetAttemptIndex - 1, 0),
+                Math.max(0, recoveryModelChain.length - 1),
+              )
+            ] ?? model;
+          const recoveryOptions = buildForensicRecoveryOptions(
+            providerId,
+            plannedRecoveryModel,
+            apiKey,
+            undefined,
+            signal,
+          );
           recoveryOptions.timeoutMs = Math.min(
             recoveryOptions.timeoutMs ?? 30_000,
             remainingRecoveryMs,
@@ -7488,7 +7802,9 @@ export async function chat(opts: {
               status: "FAILED",
               reason: providerCode,
             });
-            recoveryViolationHints = [`Provider recovery failed with ${providerCode}; produce a complete six-section report on the next attempt.`];
+            recoveryViolationHints = [
+              `Provider recovery failed with ${providerCode}; preserve retained evidence and do not infer a Finding.`,
+            ];
             const failedModel =
               err && typeof err === "object" && "providerModel" in err &&
               typeof (err as { providerModel?: unknown }).providerModel === "string"
@@ -7527,6 +7843,10 @@ export async function chat(opts: {
             if (!nextModel) {
               if (hasNextPacket) {
                 recoveryModelOverride = undefined;
+                // A transport failure is not a model-contract mistake. Do
+                // not spend the packet's same-model correction slot on it;
+                // move directly to the next evidence packet.
+                recoveryAttempt += recoveryModelAttemptCount - packetAttemptIndex - 1;
                 continue;
               }
               // Recovery is a bounded quality pass, not the primary source
@@ -7570,11 +7890,17 @@ export async function chat(opts: {
           let packetProcessingCrashed = false;
           try {
           const recoveryContent = recovery.content ?? "";
-          const structuredRecovery = parseAgentResponse(
-            recoveryContent,
-            ForensicRecoveryEnvelopeSchema,
-            () => EMPTY_FORENSIC_RECOVERY_ENVELOPE,
-          );
+          const structuredRecovery = stagedForensicSynthesis
+            ? parseAgentResponse(
+                recoveryContent,
+                ForensicRecoveryEnvelopeSchema,
+                () => EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+              )
+            : {
+                ok: false as const,
+                code: "LEGACY_MARKDOWN",
+                message: "FINDING_ANALYSIS uses its legacy Markdown recovery contract",
+              };
           if (structuredRecovery.ok) {
             const packetResult = validateStructuredForensicRecovery(
               structuredRecovery.data,
@@ -7689,6 +8015,9 @@ export async function chat(opts: {
                       ? `Packet ${recoveryPacket.root} produced no Finding. Continue with the next forensic packet; this is not a global NO_FINDING verdict.`
                     : "The previous Recovery candidate proved no Finding. Reassess the completed source reads independently; do not invent a defect or a repair phase.",
                 ];
+                if (packetAttemptIndex === 0) {
+                  recoveryModelOverride = actualRecoveryModel;
+                }
                 onStep?.({
                   kind: "diagnostic",
                   code: "FORENSIC_NO_FINDING",
@@ -7804,11 +8133,15 @@ export async function chat(opts: {
                     }
                   }
                 }
+                if (packetAttemptIndex === 0) {
+                  recoveryModelOverride = actualRecoveryModel;
+                }
                 onStep?.({
                   kind: "diagnostic",
                   code: "FORENSIC_STRUCTURED_RECOVERY_REJECTED",
                   details: [
                     `structured envelope rejected on recovery attempt ${recoveryAttempt + 1}`,
+                    `failure class: ${classifyRecoveryFailureDetail(lastRecoveryFailure)?.code ?? "CONTRACT_SHAPE"}`,
                     ...structuredResult.violations.slice(0, 3),
                   ],
                 });
@@ -7957,6 +8290,9 @@ export async function chat(opts: {
                     violations: ["Raw Recovery report failed the packet and global evidence gates"],
                   };
                   recoveryViolationHints = lastRecoveryFailure.violations;
+                  if (packetAttemptIndex === 0) {
+                    recoveryModelOverride = actualRecoveryModel;
+                  }
                 }
               } else {
                 lastRecoveryFailure = {
@@ -7966,6 +8302,17 @@ export async function chat(opts: {
                 recoveryViolationHints = [
                   `Recovery response was not parseable as the required JSON envelope (${recoveryParsed.code}). Return a complete JSON object with no preamble.`,
                 ];
+                onStep?.({
+                  kind: "diagnostic",
+                  code: "FORENSIC_STRUCTURED_RECOVERY_REJECTED",
+                  details: [
+                    "failure class: PARSE_INVALID_JSON",
+                    `parser code: ${recoveryParsed.code}`,
+                  ],
+                });
+                if (packetAttemptIndex === 0) {
+                  recoveryModelOverride = actualRecoveryModel;
+                }
               }
             }
           }
@@ -7994,7 +8341,7 @@ export async function chat(opts: {
               recoveryProviderFailureCodes.push(errorCode);
             }
             recoveryViolationHints = [
-              `Recovery packet processing crashed (${errorCode}); produce a complete six-section report on the next attempt.`,
+              `Recovery packet processing crashed (${errorCode}); preserve retained evidence and return the staged envelope only if it can be validated.`,
             ];
             console.warn(JSON.stringify({
               scope: "chat-agent",
@@ -8153,7 +8500,10 @@ export async function chat(opts: {
             onStep?.({
               kind: "diagnostic",
               code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
-              details: lastRecoveryFailure.violations.slice(0, 4),
+              details: [
+                `failure class: ${classifyRecoveryFailureDetail(lastRecoveryFailure)?.code ?? "CONTRACT_SHAPE"}`,
+                ...lastRecoveryFailure.violations.slice(0, 4),
+              ],
             });
           } else {
             onStep?.({ kind: "diagnostic", code: "FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED" });
@@ -8412,6 +8762,16 @@ export async function chat(opts: {
             ),
     ),
   );
+  // Keep the canonical protocol label visible even when the report contract
+  // itself was deterministic and complete in shape but no source read exists.
+  // This remains ANALYSIS_INCOMPLETE; NOT PROVEN is not a successful verdict.
+  if (
+    forensicOutputMode &&
+    forensicFileContents.size === 0 &&
+    !responseBeforeBehaviorEvidence.includes("NOT PROVEN")
+  ) {
+    responseBeforeBehaviorEvidence = `${responseBeforeBehaviorEvidence}\n\nNOT PROVEN`;
+  }
   const shouldValidateBehaviorEvidence =
     explicitBehaviorQueryRequested &&
     (Boolean(rootPath) || toolSources.length > 0 || forensicFileContents.size > 0);
@@ -9056,6 +9416,10 @@ export async function chat(opts: {
           ? "محظور — لم يُكتمل الهدف المصرَّح به؛ تبقّى ادعاءات مطلوبة أو حوافّ وصول مُثبتة غير مكتملة، فلا تُصدَر نتيجة قاطعة."
           : telemetryBlocksVerdict
             ? "غير مثبت — لم تُنتَج نتيجة قاطعة؛ التعارض أو النقص في تتبع القراءات يمنع قبول الادعاء."
+            : forensicOutputMode &&
+                (forensicFileContents.size === 0 ||
+                  responseBeforeBehaviorEvidence.includes("ANALYSIS_INCOMPLETE"))
+              ? `${responseBeforeBehaviorEvidence}\n\nNOT PROVEN`
             : claimsUnclosedButEvidenceAvailable
               ? "غير مثبت — تتوفر أدلة مصدرية، لكنها لا تُغلق كل الادعاءات المطلوبة بالإجابة (لم تُغلق جميع الادعاءات بمقتطفات مُثبتة)."
               : "غير مثبت — لم تُنتَج نتيجة قاطعة؛ لا توجد أدلة مصدرية مُستشهد بها."
@@ -9063,10 +9427,25 @@ export async function chat(opts: {
           ? "BLOCKED — the declared objective was not completed: required claims or requirement reachability edges remain unproven, so no final answer is emitted."
           : telemetryBlocksVerdict
             ? "NOT PROVEN — the verdict could not be accepted: the run's telemetry did not reconcile with its cited evidence."
-            : claimsUnclosedButEvidenceAvailable
+          : forensicOutputMode &&
+              (forensicFileContents.size === 0 ||
+                responseBeforeBehaviorEvidence.includes("ANALYSIS_INCOMPLETE"))
+            ? responseBeforeBehaviorEvidence.includes("NOT PROVEN")
+              ? responseBeforeBehaviorEvidence
+              : `${responseBeforeBehaviorEvidence}\n\nNOT PROVEN`
+          : claimsUnclosedButEvidenceAvailable
               ? "NOT PROVEN — EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED: source evidence was retained, but the answer did not close every required claim with a grounded source excerpt. An evidence inventory alone is not a final answer."
               : "NOT PROVEN — the verdict could not be accepted: the answer lacked a verifiable excerpt from a completed source read."
         : scopedCandidateResponse;
+  // Forensic synthesis is deliberately buffered through the complete
+  // acceptance/recovery pipeline. Once the final response has been selected,
+  // emit that already-gated text in chunks so streaming callers retain the
+  // same UX without ever seeing an unvalidated candidate.
+  if (forensicOutputMode && onDelta) {
+    for (const chunk of finalResponse.split(/(\s+)/)) {
+      if (chunk) onDelta(chunk);
+    }
+  }
   if (isForensicOrEvidenceRun) {
     relayForensicTerminal({
       onStep,
@@ -9375,6 +9754,21 @@ export async function chat(opts: {
     evidenceSourceCoverage: runtimeLedger.sourceCoverage,
     scopeExpansions: runtimeLedger.scopeExpansions,
     unjustifiedReads: runtimeLedger.unjustifiedReads,
+    ...(objective
+      ? {
+          objectiveType: objective.objectiveType,
+          requiredClaims: telemetryLedger.requiredClaims,
+          completedClaims: telemetryLedger.completedClaims,
+          missingClaims: telemetryLedger.missingClaims,
+          requiredEdges: telemetryLedger.requiredEdges,
+          provenEdges: telemetryLedger.provenEdges,
+          failedEdges: telemetryLedger.failedEdges,
+          recoveryTriggered: telemetryLedger.recoveryTriggered,
+          recoveryTarget: telemetryLedger.recoveryTarget,
+          completionGateResult: telemetryLedger.completionGateResult,
+          finalAnswerType: telemetryLedger.finalAnswerType,
+        }
+      : {}),
   });
   relayAgentStep({
     kind: "verification",

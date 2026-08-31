@@ -76,13 +76,12 @@ const REACHABILITY_REPORT = (graphFile: string, inferenceFile: string) =>
     "## 1) Executive Verdict",
     `getGraphCentrality()@${graphFile} directly invokes computeCentrality()@${inferenceFile} in production.`,
     "## 2) Evidence Map",
-    `File: \`${inferenceFile}\``,
+    `File: \`${graphFile}\``,
     "Role: implementation source",
-    "Evidence: `export function computeCentrality(degrees...)`",
+    "Evidence: `return computeCentrality(input);`",
+    "Risk: the retained caller read proves the direct production invocation.",
+    "Notes: READ_COMPLETE",
     "## 3) Findings",
-    "* ID: R-01 · production caller getGraphCentrality invokes computeCentrality",
-    `* File(s): \`${graphFile}\` / \`${inferenceFile}\``,
-    "* Evidence: `return computeCentrality(input);`",
     "## 4) Repair Plan",
     "No repair required — reachability proven.",
     "## 5) Validation Checklist",
@@ -511,7 +510,13 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
         expect(deltas.join("")).toContain("PROVEN");
         expect(result.response).toContain("PROVEN");
 
-        const integrity = [...steps].reverse().find((step) => step.kind === "evidence_integrity");
+        const integrity = [...steps]
+          .reverse()
+          .find(
+            (step) =>
+              step.kind === "evidence_integrity" &&
+              "objectiveType" in step,
+          );
         expect(integrity?.kind).toBe("evidence_integrity");
         const telemetry = captures.telemetryLedgers.at(-1)!;
         if (integrity?.kind === "evidence_integrity") {

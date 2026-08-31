@@ -1305,6 +1305,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
     vi.doMock("../openrouter/model-resolver.js", () => ({
       resolveFallbackChain: vi.fn(() => [{ id: "recovery-model" }]),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -1486,6 +1487,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
     vi.doMock("../openrouter/model-resolver.js", () => ({
       resolveFallbackChain: vi.fn(() => []),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -1641,6 +1643,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     vi.doMock("../openrouter/model-resolver.js", () => ({
       // No fallback models: packet 1's failure is terminal after one attempt.
       resolveFallbackChain: vi.fn(() => []),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -1784,6 +1787,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
     vi.doMock("../openrouter/model-resolver.js", () => ({
       resolveFallbackChain: vi.fn(() => []),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -1899,6 +1903,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
     vi.doMock("../openrouter/model-resolver.js", () => ({
       resolveFallbackChain: vi.fn(() => [{ id: "recovery-model" }]),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -2040,6 +2045,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         { id: "recovery-model" },
         { id: "final-model" },
       ]),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -2157,6 +2163,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         { id: "recovery-model" },
         { id: "final-model" },
       ]),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -2287,6 +2294,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
     vi.doMock("../openrouter/model-resolver.js", () => ({
       resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -2398,6 +2406,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
     vi.doMock("../openrouter/model-resolver.js", () => ({
       resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
@@ -2594,6 +2603,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         { id: "recovery-model" },
         { id: "final-model" },
       ]),
+      isCatalogFreeModelForCapability: vi.fn(() => true),
     }));
 
     try {
