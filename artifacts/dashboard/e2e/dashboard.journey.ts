@@ -254,7 +254,11 @@ async function setGroqCatalogFixture(
   expect(response.status()).toBe(204);
 }
 
-async function readOperatorAlerts(page: Page) {
+async function readOperatorAlerts(
+  page: Page,
+  options: { activeOnly?: boolean } = {},
+) {
+  const activeOnly = options.activeOnly ?? true;
   const response = await page.evaluate(async (url) => {
     const result = await fetch(url, { credentials: "include" });
     return {
@@ -263,7 +267,7 @@ async function readOperatorAlerts(page: Page) {
         alerts?: Array<Record<string, unknown>>;
       },
     };
-  }, apiUrl(page, "/api/ai/operator-alerts?activeOnly=true&limit=100"));
+  }, apiUrl(page, `/api/ai/operator-alerts?activeOnly=${activeOnly}&limit=100`));
   expect(response.status).toBe(200);
   return response.body.alerts ?? [];
 }
@@ -3020,7 +3024,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     // Clear any active Groq state left by an interrupted earlier campaign.
     await setGroqCatalogFixture(page, "healthy");
     await restartApiForCampaign(page);
-    const baselineAlerts = await readOperatorAlerts(page);
+    const baselineAlerts = await readOperatorAlerts(page, { activeOnly: false });
     const baselineOutage = baselineAlerts.find(
       (alert) => alert.kind === "groq_model_catalog_unavailable",
     );

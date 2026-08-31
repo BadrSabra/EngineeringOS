@@ -60,6 +60,7 @@
 - [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
 - [Release CORS harness](release-cors-harness.md) — provider-free listener checks use Node's tsx loader without the inherited input-type flag and probe the API directly.
 - [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
+- [Operator alert campaign baselines](operator-alert-campaign-baselines.md) — resolved alerts retain occurrence history; recovery baselines must read historical rows, not only active alerts.
 - [Browser validation block reasons](browser-validation-block-reasons.md) — preserve only allowlisted preflight reasons and translate them into safe operator actions.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable terminal writes and follow-on mutations must verify the current worker owns the live row.
