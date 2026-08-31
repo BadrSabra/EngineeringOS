@@ -3896,8 +3896,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
         if (
           executionMode === "forensic" &&
-          ["read_file", "list_directory", "search_code"].includes(tc.function.name)
+          ["list_directory", "search_code"].includes(tc.function.name)
         ) {
+          // A repeated source read is safe to replay from the request cache.
+          // Keep the loop alive so the model can continue with the evidence it
+          // just received; only exploratory repeats force synthesis.
           forceSynthesisNext = true;
           forensicBatchStopped = true;
           console.warn(

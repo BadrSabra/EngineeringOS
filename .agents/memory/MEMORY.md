@@ -76,3 +76,4 @@
 - [Recipe contract schemas](recipe-contract-schemas.md) — required recipe values need explicit guards, and compiled predicates need wider namespaced-ID validation than source recipes.
 - [Groq model lifecycle](groq-model-lifecycle.md) — validate hardcoded Groq defaults against the live model catalog; valid keys can still fail when Groq retires a slug.
 - [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.
+- [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.

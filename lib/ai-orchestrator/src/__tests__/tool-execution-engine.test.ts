@@ -880,6 +880,36 @@ describe("executeToolLoop", () => {
     expect(steps.some((step) => step.kind === "diagnostic" && step.code === "READ_EVIDENCE_LINKED")).toBe(false);
   });
 
+  it("replays a duplicate forensic read from cache without stopping the loop", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const source = "File: src/context.ts\n```\nexport const value = 1;\n```";
+    FILE_TOOL_MOCK.mockResolvedValue(source);
+    const steps: AgentStep[] = [];
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/context.ts" })]),
+        makeResponse("", [makeToolCall("read-2", "read_file", { path: "src/context.ts" })]),
+        makeResponse("Audit evidence collected."),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 4,
+      maxToolCalls: 4,
+      executionMode: "forensic",
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(steps.filter((step) => step.kind === "tool_result" && step.tool === "read_file")).toHaveLength(2);
+    expect(steps.some((step) => step.kind === "diagnostic" && step.code === "TOOL_UNAVAILABLE")).toBe(false);
+  });
+
   it("retries a length-truncated final response before returning partial text", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([
@@ -2341,7 +2371,7 @@ describe("executeToolLoop", () => {
     expect(steps.filter((step) => step.kind === "tool_call" && step.cached)).toHaveLength(3);
   });
 
-  it("forces forensic synthesis after a cached source read", async () => {
+  it("keeps forensic tools available after a cached source read", async () => {
     const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
     const calls: Array<{ tools?: unknown }> = [];
@@ -2376,11 +2406,13 @@ describe("executeToolLoop", () => {
       expect(result.result.content).toBe("forensic report");
     }
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.tools).toEqual([]);
+    expect(calls[1]?.tools).toEqual([
+      { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+    ]);
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
   });
 
-  it("terminates synthesis when a provider emits tool calls with tools disabled", async () => {
+  it("eventually terminates synthesis after repeated cached reads", async () => {
     const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
     const calls: Array<{ tools?: unknown }> = [];
@@ -2414,12 +2446,12 @@ describe("executeToolLoop", () => {
       kind: "partial",
       reason: "empty_response",
     });
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.tools).toEqual([]);
+    expect(calls.length).toBeGreaterThan(2);
+    expect(calls.at(-1)?.tools).toEqual([]);
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
   });
 
-  it("stops the rest of a forensic tool batch after cached evidence", async () => {
+  it("continues the rest of a forensic tool batch after cached evidence", async () => {
     const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
     const messages = makeMessages();
@@ -2455,13 +2487,15 @@ describe("executeToolLoop", () => {
 
     expect(result.kind).toBe("response");
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.tools).toEqual([]);
-    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
-    expect(result.toolSources).not.toContain("src/other.ts");
+    expect(calls[1]?.tools).toEqual([
+      { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+    ]);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/other.ts" }, "/project", []);
+    expect(result.toolSources).toContain("src/other.ts");
     expect(messages.some((message) =>
       message.role === "tool" &&
       String(message.content).startsWith("Forensic collection stopped."),
-    )).toBe(true);
+    )).toBe(false);
   });
 
   it("hides read_file after all Repair Plan targets are prefetched", async () => {
