@@ -47,6 +47,47 @@ export type StartupValidatorOptions = {
   onGroqModelCatalogNotConfigured?: () => void | Promise<void>;
 };
 
+/**
+ * Release validation can replace the external catalog request with a
+ * deterministic provider fixture. The switch is intentionally guarded by the
+ * controlled-release flag so production startup can never be put into fixture
+ * mode by an incidental environment variable.
+ */
+function controlledGroqCatalogResult(
+  defaults: { fast: string; powerful: string },
+): GroqDefaultModelValidation | undefined {
+  if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") return undefined;
+  const mode = process.env.GROQ_CATALOG_FIXTURE_MODE;
+  if (!mode) return undefined;
+
+  if (mode === "timeout") {
+    throw new GroqClientError(
+      "TIMEOUT",
+      "controlled Groq catalog fixture timed out",
+    );
+  }
+  if (mode === "healthy") {
+    return {
+      valid: true,
+      missing: [],
+      checkedModels: { ...defaults },
+    };
+  }
+  if (mode === "retired") {
+    return {
+      valid: false,
+      missing: ["fast"],
+      checkedModels: { ...defaults },
+      reason: "Groq model catalog fixture reports the configured fast model as retired.",
+    };
+  }
+
+  throw new GroqClientError(
+    "INVALID_CONFIG",
+    "unsupported controlled Groq catalog fixture mode",
+  );
+}
+
 async function notifyStartupValidator(
   callback: (() => void | Promise<void>) | undefined,
 ): Promise<void> {
@@ -132,10 +173,10 @@ export async function validateAiProvidersAtStartup(
     if (providerId === "groq") {
       let modelValidation: GroqDefaultModelValidation;
       try {
-        modelValidation = await validateGroqDefaultModels(
-          keyValue,
-          loadProvider("groq").defaultModels,
-        );
+        const defaults = loadProvider("groq").defaultModels;
+        modelValidation =
+          controlledGroqCatalogResult(defaults) ??
+          (await validateGroqDefaultModels(keyValue, defaults));
       } catch (error) {
         const code = error instanceof GroqClientError ? error.code : "UNKNOWN";
         const reason =

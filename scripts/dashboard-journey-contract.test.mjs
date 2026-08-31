@@ -723,6 +723,44 @@ test("API restart uses bounded listener and process-group teardown", () => {
   );
 });
 
+test("controlled Groq release campaign distinguishes outage from retired-model drift", () => {
+  assert.match(
+    runnerSource,
+    /GROQ_CATALOG_FIXTURE_MODE/,
+    "The release runner must pass an explicit controlled Groq catalog fixture mode.",
+  );
+  assert.match(
+    runnerSource,
+    /groq-catalog-fixture/,
+    "The release runner must expose only the bounded local fixture control.",
+  );
+  assert.match(
+    journeySource,
+    /groq_model_catalog_unavailable/,
+    "The browser campaign must assert the temporary outage alert kind.",
+  );
+  assert.match(
+    journeySource,
+    /groq_model_catalog_drift/,
+    "The browser campaign must assert retired-model drift separately.",
+  );
+  assert.match(
+    journeySource,
+    /occurrenceCount.*2/,
+    "The browser campaign must prove repeated restarts deduplicate one outage alert.",
+  );
+  assert.match(
+    journeySource,
+    /setGroqCatalogFixture\(page, "healthy"\)/,
+    "The browser campaign must prove a healthy restart resolves provider alerts.",
+  );
+  assert.match(
+    journeySource,
+    /operatorAlertsPassthrough/,
+    "The browser campaign must read the authenticated API alert response.",
+  );
+});
+
 test("origin failures preserve only sanitized phase and CORS diagnostics", () => {
   assert.match(
     journeySource,

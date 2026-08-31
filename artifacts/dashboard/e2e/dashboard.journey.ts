@@ -241,6 +241,56 @@ async function restartApiForCampaign(page: Page) {
   expect(response.status()).toBe(204);
 }
 
+async function setGroqCatalogFixture(
+  page: Page,
+  mode: "timeout" | "healthy" | "retired",
+) {
+  const controlUrl = process.env.DASHBOARD_E2E_CONTROL_URL;
+  if (!controlUrl) throw new Error("Dashboard campaign control URL is missing.");
+  const response = await page.request.post(
+    `${controlUrl}/groq-catalog-fixture?mode=${mode}`,
+    { timeout: 15_000 },
+  );
+  expect(response.status()).toBe(204);
+}
+
+async function readOperatorAlerts(page: Page) {
+  const response = await page.evaluate(async (url) => {
+    const result = await fetch(url, { credentials: "include" });
+    return {
+      status: result.status,
+      body: (await result.json().catch(() => ({}))) as {
+        alerts?: Array<Record<string, unknown>>;
+      },
+    };
+  }, apiUrl(page, "/api/ai/operator-alerts?activeOnly=true&limit=100"));
+  expect(response.status).toBe(200);
+  return response.body.alerts ?? [];
+}
+
+async function writeGroqCatalogEvidence(evidence: Record<string, unknown>) {
+  const evidencePath = process.env.DASHBOARD_E2E_GROQ_CATALOG_ARTIFACT_PATH;
+  if (!evidencePath) return;
+  await mkdir(dirname(evidencePath), { recursive: true });
+  await writeFile(
+    evidencePath,
+    `${JSON.stringify(
+      {
+        version: 1,
+        provider: "groq",
+        mode: "controlled-release-fixture",
+        ...evidence,
+        redaction: {
+          excluded: ["credentials", "raw provider diagnostics", "model output"],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
 type ArabicAiFixture = {
   question: string;
   answer: string;
@@ -312,6 +362,7 @@ async function installApiFixtures(
     recoveryTasks?: Array<Record<string, unknown>>;
     recoveryWorkflows?: Array<Record<string, unknown>>;
     recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
+    operatorAlertsPassthrough?: boolean;
   },
 ) {
   await page.route("**/api/**", async (route) => {
@@ -326,6 +377,13 @@ async function installApiFixtures(
     const hasConfiguredAiFixture =
       aiFixtures.length > 0 ||
       Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
+
+    if (
+      overrides?.operatorAlertsPassthrough &&
+      path === "/api/ai/operator-alerts"
+    ) {
+      return route.continue();
+    }
 
     if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
       const projectId = url.searchParams.get("projectId");
@@ -2944,6 +3002,99 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     } finally {
       await secondContext.close();
     }
+  });
+
+  test("shows one temporary Groq outage across restarts and resolves it after recovery", async ({
+    page,
+  }) => {
+    test.skip(
+      process.env.DASHBOARD_E2E_GROQ_CATALOG_FIXTURE !== "1" ||
+        !process.env.DASHBOARD_E2E_CONTROL_URL,
+      "The controlled Groq catalog campaign runs only under the release runner.",
+    );
+    test.setTimeout(120_000);
+
+    await installApiFixtures(page, { operatorAlertsPassthrough: true });
+    await programmaticSignIn(page);
+
+    // Clear any active Groq state left by an interrupted earlier campaign.
+    await setGroqCatalogFixture(page, "healthy");
+    await restartApiForCampaign(page);
+    const baselineAlerts = await readOperatorAlerts(page);
+    const baselineOutage = baselineAlerts.find(
+      (alert) => alert.kind === "groq_model_catalog_unavailable",
+    );
+    const baselineOccurrenceCount = Number(
+      baselineOutage?.occurrenceCount ?? 0,
+    );
+
+    await setGroqCatalogFixture(page, "timeout");
+    await restartApiForCampaign(page);
+    await restartApiForCampaign(page);
+    const outageAlerts = await readOperatorAlerts(page);
+    const outageAlertsForGroq = outageAlerts.filter(
+      (alert) => alert.kind === "groq_model_catalog_unavailable",
+    );
+    expect(outageAlertsForGroq).toHaveLength(1);
+    expect(outageAlertsForGroq[0]).toMatchObject({
+      provider: "groq",
+      modelRole: "catalog",
+      modelId: "catalog",
+      status: "open",
+      occurrenceCount: baselineOccurrenceCount + 2,
+    });
+    expect(
+      outageAlerts.some((alert) => alert.kind === "groq_model_catalog_drift"),
+    ).toBe(false);
+    const outageText = JSON.stringify(outageAlertsForGroq[0]);
+    expect(outageText).not.toMatch(/apiKey|raw provider|timeout/i);
+
+    await setGroqCatalogFixture(page, "healthy");
+    await restartApiForCampaign(page);
+    const recoveredAlerts = await readOperatorAlerts(page);
+    expect(recoveredAlerts).toHaveLength(0);
+
+    await setGroqCatalogFixture(page, "retired");
+    await restartApiForCampaign(page);
+    const retiredAlerts = await readOperatorAlerts(page);
+    expect(
+      retiredAlerts.some((alert) => alert.kind === "groq_model_catalog_unavailable"),
+    ).toBe(false);
+    const driftAlerts = retiredAlerts.filter(
+      (alert) => alert.kind === "groq_model_catalog_drift",
+    );
+    expect(driftAlerts).toHaveLength(1);
+    expect(driftAlerts[0]).toMatchObject({
+      provider: "groq",
+      modelRole: "fast",
+      modelId: "openai/gpt-oss-20b",
+      status: "open",
+    });
+    expect(Number(driftAlerts[0]?.occurrenceCount)).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(driftAlerts[0])).not.toMatch(/apiKey|raw provider/i);
+
+    await setGroqCatalogFixture(page, "healthy");
+    await restartApiForCampaign(page);
+    const finalAlerts = await readOperatorAlerts(page);
+    expect(finalAlerts).toHaveLength(0);
+    await writeGroqCatalogEvidence({
+      outcome: "passed",
+      outage: {
+        openAlertCount: outageAlertsForGroq.length,
+        occurrenceDelta:
+          Number(outageAlertsForGroq[0]?.occurrenceCount ?? 0) -
+          baselineOccurrenceCount,
+        driftAlertCount: 0,
+      },
+      recovery: { openAlertCount: recoveredAlerts.length },
+      retiredModel: {
+        outageAlertCount: retiredAlerts.filter(
+          (alert) => alert.kind === "groq_model_catalog_unavailable",
+        ).length,
+        driftAlertCount: driftAlerts.length,
+      },
+      healthyAfterRetired: { openAlertCount: finalAlerts.length },
+    });
   });
 
   test("previews and downloads the completed execution audit without duplicating effects", async ({

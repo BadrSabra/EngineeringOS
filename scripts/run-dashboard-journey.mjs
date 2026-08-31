@@ -55,6 +55,9 @@ const dashboardTestMode =
   (process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
     ? "live-provider"
     : "fixture");
+let groqCatalogFixtureMode =
+  process.env.DASHBOARD_E2E_GROQ_CATALOG_FIXTURE_MODE ?? "healthy";
+const groqCatalogFixtureEnabled = dashboardTestMode === "fixture";
 const dashboardFixtureProjectId =
   process.env.DASHBOARD_E2E_LIVE_PROJECT_ID ?? "e2e-project";
 const liveTimeoutMs = Number(
@@ -90,6 +93,10 @@ const originDiagnosticsPath = resolve(
   process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
     resolve(outputDir, "origin-diagnostics.json"),
 );
+const groqCatalogEvidencePath = resolve(
+  process.env.DASHBOARD_E2E_GROQ_CATALOG_ARTIFACT_PATH ??
+    resolve(outputDir, "groq-catalog-recovery.json"),
+);
 const services = [];
 let releaseLockCleanup;
 let validationLockCleanup;
@@ -99,6 +106,17 @@ const controlPort = Number(
 );
 let apiService;
 let campaignControlServer;
+
+function groqCatalogFixtureEnvironment() {
+  return groqCatalogFixtureEnabled
+    ? {
+        // This value is accepted only by the controlled startup fixture and
+        // is never sent to an external provider.
+        GROQ_API_KEY: "controlled-release-fixture-key",
+        GROQ_CATALOG_FIXTURE_MODE: groqCatalogFixtureMode,
+      }
+    : {};
+}
 
 function redact(value) {
   const secretValues = Object.values(process.env).filter(
@@ -260,6 +278,7 @@ async function restartApiService() {
       NODE_ENV: "development",
       PORT: String(apiPort),
       APP_ORIGINS: approvedDashboardOrigins.join(","),
+      ...groqCatalogFixtureEnvironment(),
     },
     apiPort,
   );
@@ -269,7 +288,23 @@ async function restartApiService() {
 
 async function startCampaignControl() {
   campaignControlServer = createServer(async (request, response) => {
-    if (request.method !== "POST" || request.url !== "/restart-api") {
+    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (
+      request.method === "POST" &&
+      requestUrl.pathname === "/groq-catalog-fixture"
+    ) {
+      const mode = requestUrl.searchParams.get("mode");
+      if (!groqCatalogFixtureEnabled || !["timeout", "healthy", "retired"].includes(mode)) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "unsupported Groq catalog fixture mode" }));
+        return;
+      }
+      groqCatalogFixtureMode = mode;
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    if (request.method !== "POST" || requestUrl.pathname !== "/restart-api") {
       response.writeHead(404);
       response.end();
       return;
@@ -539,6 +574,9 @@ async function stopServices() {
   const teardownArtifact = {
     outcome: teardownFailed ? "failed" : "passed",
     ...originDiagnostics,
+    ...(groqCatalogFixtureEnabled
+      ? { groqCatalogEvidence: groqCatalogEvidencePath }
+      : {}),
     services: services.map(({ label, child, port }, index) => {
       const lifecycle = teardownResults[index];
       const survivor = survivingServices.find((item) => item.port === port);
@@ -686,6 +724,7 @@ async function startReleaseServices() {
       NODE_ENV: "development",
       PORT: String(apiPort),
       APP_ORIGINS: approvedDashboardOrigins.join(","),
+      ...groqCatalogFixtureEnvironment(),
     },
     apiPort,
   );
@@ -1017,6 +1056,9 @@ try {
           DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
           DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
           DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
+          DASHBOARD_E2E_GROQ_CATALOG_FIXTURE: groqCatalogFixtureEnabled
+            ? "1"
+            : "0",
           DASHBOARD_E2E_READINESS_TIMEOUT_MS: String(readinessTimeoutMs),
           DASHBOARD_E2E_READINESS_ARTIFACT_PATH: resolve(
             outputDir,
@@ -1026,6 +1068,7 @@ try {
           DASHBOARD_E2E_EMAIL: testEmail,
           DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
           DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,
+          DASHBOARD_E2E_GROQ_CATALOG_ARTIFACT_PATH: groqCatalogEvidencePath,
           DASHBOARD_E2E_EXECUTABLE_PATH:
             process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
           PLAYWRIGHT_OUTPUT_DIR: outputDir,
