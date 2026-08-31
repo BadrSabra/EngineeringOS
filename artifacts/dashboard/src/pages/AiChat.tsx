@@ -318,6 +318,36 @@ type ActiveExecution = {
   buildPlanMessageId?: string;
 };
 
+function persistedCompletedReadFiles(execution: unknown): string[] {
+  if (!execution || typeof execution !== 'object') return [];
+  const checkpoint = (execution as { checkpoint?: unknown }).checkpoint;
+  if (!checkpoint || typeof checkpoint !== 'object') return [];
+  const record = checkpoint as Record<string, unknown>;
+  const recentEvidenceSteps = Array.isArray(record.recentSteps)
+    ? record.recentSteps
+      .filter((step): step is Record<string, unknown> => Boolean(step) && typeof step === 'object')
+      .filter((step) => step.kind === 'evidence_integrity')
+    : [];
+  const candidates: unknown[] = [
+    record.completedReadFiles,
+    record.evidenceIntegrity && typeof record.evidenceIntegrity === 'object'
+      ? (record.evidenceIntegrity as Record<string, unknown>).completedReadFiles
+      : undefined,
+    record.evidence && typeof record.evidence === 'object'
+      ? (record.evidence as Record<string, unknown>).completedReadFiles
+      : undefined,
+    record.sourceRetrieval && typeof record.sourceRetrieval === 'object'
+      ? (record.sourceRetrieval as Record<string, unknown>).readPaths
+      : undefined,
+    ...recentEvidenceSteps.map((step) => step.completedReadFiles),
+  ];
+  return [...new Set(
+    candidates
+      .flatMap((candidate) => Array.isArray(candidate) ? candidate : [])
+      .filter((file): file is string => typeof file === 'string' && file.trim().length > 0),
+  )];
+}
+
 type StreamOwner = {
   generation: number;
   projectId: string;
@@ -1364,6 +1394,7 @@ type ForensicEvidenceSummary = {
     }>;
     unjustifiedReads: string[];
   } | null;
+  persistedEvidenceFiles?: string[];
 };
 
 function parseForensicEvidence(trace: ToolTraceEntry[], executionSummary: AiStreamExecutionSummary | null): ForensicEvidenceSummary {
@@ -6657,6 +6688,7 @@ function AgentExecutionProofPanel({
   commitReadyPaths,
   pushReady,
   evidenceIntegrity,
+  persistedEvidenceFiles,
   isFixtureLocal,
   verdictScope,
   onCancel,
@@ -6691,6 +6723,7 @@ function AgentExecutionProofPanel({
     completionGateResult?: string;
     finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
   } | null;
+  persistedEvidenceFiles?: string[];
   isFixtureLocal: boolean;
   verdictScope?: {
     scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
@@ -6740,11 +6773,13 @@ function AgentExecutionProofPanel({
           : 'Execution status is being confirmed'
   );
   const completedTools = steps.filter((step) => step.done).length;
-  const readSources = new Set(
+  const liveReadSources = new Set(
     steps
-      .filter((step) => step.done && step.tool === 'read_file' && step.source)
+      .filter((step) => step.done && (step.tool === 'read_file' || step.tool === 'read_file_range') && step.source)
       .map((step) => step.source),
   ).size;
+  const persistedReadCount = persistedEvidenceFiles?.length ?? 0;
+  const readSources = Math.max(liveReadSources, persistedReadCount);
   const evidenceLabel = evidenceIntegrity
     ? evidenceIntegrity.consistent
       ? 'Telemetry consistent'
@@ -7059,7 +7094,11 @@ function AgentExecutionProofPanel({
         <div className="bg-background/20 px-3 py-2">
           <div className="text-[10px] text-muted-foreground">Agent work</div>
           <div className="mt-0.5 text-[11px] font-medium text-foreground">
-            {completedTools}/{steps.length} tools
+            {completedTools > 0 || steps.length > 0
+              ? `${completedTools}/${steps.length} tools`
+              : readSources > 0
+                ? `${readSources} source ${readSources === 1 ? 'read' : 'reads'} recorded`
+                : 'No tool activity recorded'}
             {modelHistory.length > 0 ? ` · ${modelHistory.length} model${modelHistory.length === 1 ? '' : 's'}` : ''}
           </div>
         </div>
@@ -9694,6 +9733,7 @@ export default function AiChat() {
                    commitReadyPaths={commitReadyPaths}
                    pushReady={pushReady}
                    evidenceIntegrity={liveEvidenceIntegrity}
+                    persistedEvidenceFiles={persistedCompletedReadFiles(activeExecutionStatus)}
                    isFixtureLocal={liveFixtureLocal}
                    verdictScope={liveVerdictScope}
                    onCancel={cancelActiveExecution}
