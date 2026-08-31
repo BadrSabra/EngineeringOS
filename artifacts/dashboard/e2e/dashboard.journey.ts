@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
+  isClerkHandoffNavigationAbort,
   parseClerkSignInTokenResponse,
   parseClerkUserLookupResponse,
   parseCreatedClerkUserResponse,
@@ -1568,6 +1569,30 @@ async function createReleaseSignInUrl(page: Page) {
   return `${new URL(DASHBOARD_PATH, page.url()).toString()}sign-in?__clerk_ticket=${encodeURIComponent(token)}`;
 }
 
+async function navigateClerkHandoff(page: Page, url: string): Promise<void> {
+  try {
+    // Clerk consumes the ticket and replaces this document. Waiting only for
+    // the initial commit avoids treating that expected replacement as a
+    // failed page load.
+    await page.goto(url, { waitUntil: "commit" });
+  } catch (error) {
+    if (!isClerkHandoffNavigationAbort(error)) throw error;
+  }
+}
+
+async function navigateBrowserHistory(
+  page: Page,
+  direction: "back" | "forward",
+): Promise<void> {
+  try {
+    await (direction === "back" ? page.goBack : page.goForward).call(page, {
+      waitUntil: "commit",
+    });
+  } catch (error) {
+    if (!isClerkHandoffNavigationAbort(error)) throw error;
+  }
+}
+
 async function programmaticSignIn(page: Page) {
   await page.goto(DASHBOARD_PATH);
   await expect(
@@ -1583,7 +1608,7 @@ async function programmaticSignIn(page: Page) {
         "Clerk browser helper is unavailable. Run this journey in the Replit browser runner, which injects signInClerkUser.",
       );
     }
-    await page.goto(await createReleaseSignInUrl(page));
+    await navigateClerkHandoff(page, await createReleaseSignInUrl(page));
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
     );
@@ -1595,7 +1620,7 @@ async function programmaticSignIn(page: Page) {
     ttl: 900,
     basePath: DASHBOARD_PATH,
   });
-  await page.goto(signInUrl);
+  await navigateClerkHandoff(page, signInUrl);
   await expect(page).toHaveURL(
     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
   );
@@ -3900,7 +3925,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await assertAcceptedCitation();
 
     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
-    await page.goBack();
+    await navigateBrowserHistory(page, "back");
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
     );
@@ -3910,11 +3935,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await assertAcceptedCitation();
     await assertNoInternalCitationDetails();
 
-    await page.goForward();
+    await navigateBrowserHistory(page, "forward");
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}projects$`),
     );
-    await page.goBack();
+    await navigateBrowserHistory(page, "back");
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
     );
@@ -3929,7 +3954,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await assertBlockedCitation();
 
     await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
-    await page.goBack();
+    await navigateBrowserHistory(page, "back");
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
     );
@@ -3939,11 +3964,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await assertBlockedCitation();
     await assertNoInternalCitationDetails();
 
-    await page.goForward();
+    await navigateBrowserHistory(page, "forward");
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}events$`),
     );
-    await page.goBack();
+    await navigateBrowserHistory(page, "back");
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
     );

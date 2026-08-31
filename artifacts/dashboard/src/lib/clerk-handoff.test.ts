@@ -1,4 +1,5 @@
 import {
+  isClerkHandoffNavigationAbort,
   parseClerkSignInTokenResponse,
   parseClerkUserLookupResponse,
 } from "./clerk-handoff";
@@ -44,6 +45,24 @@ describe("Clerk release handoff response contracts", () => {
   it("returns the sign-in token from Clerk's response", () => {
     expect(parseClerkSignInTokenResponse({ token: "ticket_token" })).toBe(
       "ticket_token",
+    );
+  });
+
+  it("recognizes Clerk's expected document replacement abort", () => {
+    expect(
+      isClerkHandoffNavigationAbort(
+        new Error("page.goto: net::ERR_ABORTED; maybe the page was closed"),
+      ),
+    ).toBe(true);
+    expect(isClerkHandoffNavigationAbort("net::ERR_ABORTED")).toBe(true);
+  });
+
+  it("does not hide unrelated navigation failures", () => {
+    expect(
+      isClerkHandoffNavigationAbort(new Error("net::ERR_CONNECTION_RESET")),
+    ).toBe(false);
+    expect(isClerkHandoffNavigationAbort({ message: "ERR_ABORTED" })).toBe(
+      false,
     );
   });
 });

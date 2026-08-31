@@ -45,6 +45,23 @@ export function parseClerkSignInTokenResponse(payload: unknown): string {
   return payload.token;
 }
 
+/**
+ * Clerk consumes a sign-in ticket by replacing the handoff document with the
+ * application route. Playwright can report that expected replacement as
+ * `net::ERR_ABORTED` when it is waiting for the original document to finish
+ * loading. Keep this check at the handoff boundary so unrelated navigation
+ * failures are still surfaced by the browser journey.
+ */
+export function isClerkHandoffNavigationAbort(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /\bERR_ABORTED\b/.test(message);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
