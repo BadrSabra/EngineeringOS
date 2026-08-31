@@ -126,8 +126,8 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     supportsTools: false,
     supportsJsonMode: true,
     defaultModels: {
-      fast: "gemini-2.0-flash",
-      powerful: "gemini-2.0-flash",
+      fast: "gemini-3-flash-preview",
+      powerful: "gemini-3-flash-preview",
     },
     capabilities: {
       supportsStreaming: true,
