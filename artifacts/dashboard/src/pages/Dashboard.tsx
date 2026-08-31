@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Info,
   FolderGit2,
   Database,
   TrendingUp,
@@ -89,28 +90,58 @@ function OperatorAlertsCard() {
             </p>
           ) : (
             <div className="mt-3 space-y-3">
-              {alerts.map((alert) => (
-                <div key={alert.id} className="rounded-lg border border-amber-500/20 bg-background/30 p-3">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="text-sm font-medium text-amber-100">{alert.title}</h3>
-                    <span className="text-[10px] text-muted-foreground">
-                      Seen {formatHealthTimestamp(alert.lastSeenAt)}
-                    </span>
+              {alerts.map((alert) => {
+                const isCatalogUnavailable = alert.kind === 'groq_model_catalog_unavailable';
+                return (
+                  <div
+                    key={alert.id}
+                    className={`rounded-lg border bg-background/30 p-3 ${
+                      isCatalogUnavailable
+                        ? 'border-blue-500/20'
+                        : 'border-amber-500/20'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {isCatalogUnavailable && <Info className="h-3.5 w-3.5 text-blue-300" />}
+                        <h3 className={`text-sm font-medium ${
+                          isCatalogUnavailable ? 'text-blue-100' : 'text-amber-100'
+                        }`}>
+                          {alert.title}
+                        </h3>
+                        {isCatalogUnavailable && (
+                          <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-300">
+                            Temporary outage
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">
+                        Seen {formatHealthTimestamp(alert.lastSeenAt)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{alert.message}</p>
+                    <p className={`mt-2 text-xs leading-5 ${
+                      isCatalogUnavailable ? 'text-blue-200/90' : 'text-amber-200/90'
+                    }`}>
+                      <span className="font-medium">Remediation:</span> {alert.remediation}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                      {isCatalogUnavailable ? (
+                        <span>Scope: Groq model catalog</span>
+                      ) : (
+                        <>
+                          <span>Role: {alert.modelRole === 'fast' ? 'Fast' : 'Powerful'}</span>
+                          <span className="font-mono break-all">{alert.modelId}</span>
+                        </>
+                      )}
+                      {alert.occurrenceCount > 1 && <span>Observed {alert.occurrenceCount} times</span>}
+                      <Link href="/ai" className="text-primary hover:underline">
+                        Open provider settings
+                      </Link>
+                    </div>
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{alert.message}</p>
-                  <p className="mt-2 text-xs leading-5 text-amber-200/90">
-                    <span className="font-medium">Remediation:</span> {alert.remediation}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-                    <span>Role: {alert.modelRole === 'fast' ? 'Fast' : 'Powerful'}</span>
-                    <span className="font-mono break-all">{alert.modelId}</span>
-                    {alert.occurrenceCount > 1 && <span>Observed {alert.occurrenceCount} times</span>}
-                    <Link href="/ai" className="text-primary hover:underline">
-                      Open provider settings
-                    </Link>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

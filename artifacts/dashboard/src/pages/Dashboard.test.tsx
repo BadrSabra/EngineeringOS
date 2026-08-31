@@ -109,4 +109,39 @@ describe("Dashboard operator alerts", () => {
     );
     expect(screen.queryByText("Groq Fast model is unavailable")).not.toBeInTheDocument();
   });
+
+  it("distinguishes a temporary catalog outage from retired-model drift", () => {
+    vi.mocked(useListOperatorAlerts).mockReturnValue({
+      data: {
+        alerts: [{
+          id: "alert-2",
+          fingerprint: "groq_model_catalog_unavailable:groq:catalog",
+          kind: "groq_model_catalog_unavailable",
+          status: "open",
+          provider: "groq",
+          modelRole: "catalog",
+          modelId: "catalog",
+          title: "Groq model catalog temporarily unavailable",
+          message: "Groq's live model catalog could not be checked. Configured defaults have not been marked as retired.",
+          remediation: "Retry the catalog check after Groq recovers. Do not change model IDs based on this temporary status.",
+          occurrenceCount: 3,
+          firstSeenAt: "2026-08-30T12:00:00.000Z",
+          lastSeenAt: "2026-08-30T12:05:00.000Z",
+          resolvedAt: null,
+        }],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListOperatorAlerts>);
+
+    render(<Dashboard />);
+
+    const alerts = screen.getByRole("region", { name: "Operator alerts" });
+    expect(within(alerts).getByText("Temporary outage")).toBeInTheDocument();
+    expect(within(alerts).getByText(/have not been marked as retired/i)).toBeInTheDocument();
+    expect(within(alerts).getByText("Scope: Groq model catalog")).toBeInTheDocument();
+    expect(within(alerts).queryByText("Role: Powerful")).not.toBeInTheDocument();
+  });
 });

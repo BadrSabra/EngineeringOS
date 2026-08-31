@@ -34,6 +34,7 @@ import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
 import { assertDatabaseApplicationSchema } from "./lib/database-schema-preflight";
 import {
   recordGroqModelCatalogDrift,
+  recordGroqModelCatalogUnavailable,
   resolveGroqModelCatalogAlerts,
 } from "./lib/operator-alerts";
 
@@ -161,6 +162,7 @@ try {
   await validateAiProvidersAtStartup({
     onGroqModelCatalogDrift: ({ role, modelId }) =>
       recordGroqModelCatalogDrift(role, modelId),
+    onGroqModelCatalogUnavailable: () => recordGroqModelCatalogUnavailable(),
     onGroqModelCatalogHealthy: () => resolveGroqModelCatalogAlerts(),
     onGroqModelCatalogNotConfigured: () => resolveGroqModelCatalogAlerts(),
   });

@@ -42,6 +42,7 @@ export type StartupValidatorOptions = {
     role: GroqDefaultModelValidation["missing"][number];
     modelId: string;
   }) => void | Promise<void>;
+  onGroqModelCatalogUnavailable?: () => void | Promise<void>;
   onGroqModelCatalogHealthy?: () => void | Promise<void>;
   onGroqModelCatalogNotConfigured?: () => void | Promise<void>;
 };
@@ -157,6 +158,7 @@ export async function validateAiProvidersAtStartup(
           }),
         );
         if (code === "AUTH_ERROR") continue;
+        await notifyStartupValidator(options.onGroqModelCatalogUnavailable);
         anyValid = true;
         continue;
       }

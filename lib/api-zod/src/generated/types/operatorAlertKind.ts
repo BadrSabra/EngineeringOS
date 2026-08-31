@@ -11,4 +11,5 @@ export type OperatorAlertKind = typeof OperatorAlertKind[keyof typeof OperatorAl
 
 export const OperatorAlertKind = {
   groq_model_catalog_drift: 'groq_model_catalog_drift',
+  groq_model_catalog_unavailable: 'groq_model_catalog_unavailable',
 } as const;

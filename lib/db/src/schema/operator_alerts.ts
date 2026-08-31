@@ -7,6 +7,7 @@ export const operatorAlertStatusEnum = pgEnum("operator_alert_status", [
 
 export const operatorAlertKindEnum = pgEnum("operator_alert_kind", [
   "groq_model_catalog_drift",
+  "groq_model_catalog_unavailable",
 ]);
 
 /**

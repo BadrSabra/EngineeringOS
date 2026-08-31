@@ -12,4 +12,5 @@ export type OperatorAlertModelRole = typeof OperatorAlertModelRole[keyof typeof 
 export const OperatorAlertModelRole = {
   fast: 'fast',
   powerful: 'powerful',
+  catalog: 'catalog',
 } as const;

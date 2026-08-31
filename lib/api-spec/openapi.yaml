@@ -4047,7 +4047,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [groq_model_catalog_drift]
+          enum: [groq_model_catalog_drift, groq_model_catalog_unavailable]
         status:
           type: string
           enum: [open, resolved]
@@ -4056,7 +4056,7 @@ components:
           enum: [groq]
         modelRole:
           type: string
-          enum: [fast, powerful]
+          enum: [fast, powerful, catalog]
         modelId:
           type: string
         title:

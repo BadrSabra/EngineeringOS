@@ -622,6 +622,7 @@ export type OperatorAlertKind = typeof OperatorAlertKind[keyof typeof OperatorAl
 
 export const OperatorAlertKind = {
   groq_model_catalog_drift: 'groq_model_catalog_drift',
+  groq_model_catalog_unavailable: 'groq_model_catalog_unavailable',
 } as const;
 
 export type OperatorAlertStatus = typeof OperatorAlertStatus[keyof typeof OperatorAlertStatus];
@@ -645,6 +646,7 @@ export type OperatorAlertModelRole = typeof OperatorAlertModelRole[keyof typeof 
 export const OperatorAlertModelRole = {
   fast: 'fast',
   powerful: 'powerful',
+  catalog: 'catalog',
 } as const;
 
 export interface OperatorAlert {

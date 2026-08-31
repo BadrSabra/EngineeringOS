@@ -5266,10 +5266,10 @@ export const ListOperatorAlertsResponse = zod.object({
   "alerts": zod.array(zod.object({
   "id": zod.string(),
   "fingerprint": zod.string(),
-  "kind": zod.enum(['groq_model_catalog_drift']),
+  "kind": zod.enum(['groq_model_catalog_drift', 'groq_model_catalog_unavailable']),
   "status": zod.enum(['open', 'resolved']),
   "provider": zod.enum(['groq']),
-  "modelRole": zod.enum(['fast', 'powerful']),
+  "modelRole": zod.enum(['fast', 'powerful', 'catalog']),
   "modelId": zod.string(),
   "title": zod.string(),
   "message": zod.string(),

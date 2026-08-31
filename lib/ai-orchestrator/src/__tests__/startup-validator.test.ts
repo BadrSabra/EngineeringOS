@@ -123,4 +123,30 @@ describe("validateAiProvidersAtStartup", () => {
     expect(onHealthy).not.toHaveBeenCalled();
     expect(onNotConfigured).toHaveBeenCalledTimes(1);
   });
+
+  it("publishes a safe callback when the Groq catalog check is temporarily unavailable", async () => {
+    process.env.GROQ_API_KEY = "valid-groq-key";
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        models = {
+          list: vi.fn().mockRejectedValue(new Error("network failure apiKey=valid-groq-key")),
+        };
+      },
+    }));
+
+    const onUnavailable = vi.fn();
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    const results = await validateAiProvidersAtStartup({
+      onGroqModelCatalogUnavailable: onUnavailable,
+    });
+    const groq = results.find((result) => result.provider === "groq");
+
+    expect(onUnavailable).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(onUnavailable.mock.calls)).not.toContain("valid-groq-key");
+    expect(groq).toMatchObject({
+      provider: "groq",
+      valid: true,
+      modelCheck: "unavailable",
+    });
+  });
 });
