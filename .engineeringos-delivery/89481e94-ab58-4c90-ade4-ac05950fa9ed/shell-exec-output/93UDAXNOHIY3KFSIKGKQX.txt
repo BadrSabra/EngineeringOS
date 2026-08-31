@@ -1,0 +1,420 @@
+lib/api-client-react/src/use-ai-chat-stream.ts:2: * PR-06: Handwritten SSE hook for AI chat streaming — intentional codegen exception.
+lib/api-client-react/src/use-ai-chat-stream.ts:4: * This hook is the ONLY sanctioned consumer of `POST /api/ai/chat/stream`.
+lib/api-client-react/src/use-ai-chat-stream.ts:9: *      `/api/ai/chat/stream` operation description (x-no-codegen: true).
+lib/api-client-react/src/use-ai-chat-stream.ts:17: *   Orval does not support Server-Sent Events (text/event-stream). OpenAPI 3.1
+lib/api-client-react/src/use-ai-chat-stream.ts:18: *   has no standard way to describe a multiplexed discriminated event stream.
+lib/api-client-react/src/use-ai-chat-stream.ts:26: *     onDelta: (token) => appendToken(token),   // real-time streaming tokens
+lib/api-client-react/src/use-ai-chat-stream.ts:39:  /** Server-defined stage identifier, e.g. "building-context" | "calling-model" | "streaming" */
+lib/api-client-react/src/use-ai-chat-stream.ts:45:  /** Incremental text fragment from the model's streaming response. */
+lib/api-client-react/src/use-ai-chat-stream.ts:111:    errorCode?: string | null;
+lib/api-client-react/src/use-ai-chat-stream.ts:112:    errorMessage?: string | null;
+lib/api-client-react/src/use-ai-chat-stream.ts:114:    retryable?: boolean;
+lib/api-client-react/src/use-ai-chat-stream.ts:120:  /** Same trace as message.toolTrace, exposed for stream consumers. */
+lib/api-client-react/src/use-ai-chat-stream.ts:178:  resumeToken?: string;
+lib/api-client-react/src/use-ai-chat-stream.ts:180:  /** Safe operator-recovery outcome; never contains provider or runtime details. */
+lib/api-client-react/src/use-ai-chat-stream.ts:181:  recoveryOutcome?: 'recovery_required' | 'resume_accepted' | 'abandoned' | 'already_abandoned' | null;
+lib/api-client-react/src/use-ai-chat-stream.ts:203:  type: 'error';
+lib/api-client-react/src/use-ai-chat-stream.ts:206:  retryable?: boolean;
+lib/api-client-react/src/use-ai-chat-stream.ts:237:  delete safeEvent.providerContext;
+lib/api-client-react/src/use-ai-chat-stream.ts:252:  type: 'stream_reset';
+lib/api-client-react/src/use-ai-chat-stream.ts:520:  type: 'task_progress';
+lib/api-client-react/src/use-ai-chat-stream.ts:575:  stopReason: 'response' | 'iteration_budget' | 'soft_limit' | 'repeated_tool_call' | 'empty_response' | 'provider_timeout' | 'cancelled';
+lib/api-client-react/src/use-ai-chat-stream.ts:634: * stream when the orchestrator reconciles the files it read with the evidence
+lib/api-client-react/src/use-ai-chat-stream.ts:720:  /** Opaque token returned in execution_started for explicit resume. */
+lib/api-client-react/src/use-ai-chat-stream.ts:721:  resumeToken?: string;
+lib/api-client-react/src/use-ai-chat-stream.ts:722:  /** Stable retry key for the first request. */
+lib/api-client-react/src/use-ai-chat-stream.ts:740:  /** Called for each incremental text token from the model's streaming response. */
+lib/api-client-react/src/use-ai-chat-stream.ts:741:  onDelta?: (delta: string) => void;
+lib/api-client-react/src/use-ai-chat-stream.ts:742:  /** Called when the SSE stream breaks mid-flight so callers can clear partial state. */
+lib/api-client-react/src/use-ai-chat-stream.ts:767:   * audit stream.  Carries `isFixtureLocal` so callers can surface a
+lib/api-client-react/src/use-ai-chat-stream.ts:820:      // A proxy/provider can close a healthy-looking SSE response without
+lib/api-client-react/src/use-ai-chat-stream.ts:821:      // sending either `done` or `error`. Once the server has issued an
+lib/api-client-react/src/use-ai-chat-stream.ts:823:      // callers can resume the same operation instead of silently dropping it.
+lib/api-client-react/src/use-ai-chat-stream.ts:830:    buffer += decoder.decode(value, { stream: true });
+lib/api-client-react/src/use-ai-chat-stream.ts:850:      if (event.type === 'done' || event.type === 'error') terminalEventReceived = true;
+lib/api-client-react/src/use-ai-chat-stream.ts:875:          callbacks.onDelta?.(event.delta);
+lib/api-client-react/src/use-ai-chat-stream.ts:880:        case 'error':
+lib/api-client-react/src/use-ai-chat-stream.ts:883:        case 'stream_reset':
+lib/api-client-react/src/use-ai-chat-stream.ts:939:        case 'task_progress':
+lib/api-client-react/src/use-ai-chat-stream.ts:954:  const controllerRef = useRef<AbortController | null>(null);
+lib/api-client-react/src/use-ai-chat-stream.ts:955:  const executionRef = useRef<{ id: string; resumeToken?: string } | null>(null);
+lib/api-client-react/src/use-ai-chat-stream.ts:963:    const controller = new AbortController();
+lib/api-client-react/src/use-ai-chat-stream.ts:967:      executionRef.current = { id: params.executionId, resumeToken: params.resumeToken };
+lib/api-client-react/src/use-ai-chat-stream.ts:982:          ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+lib/api-client-react/src/use-ai-chat-stream.ts:992:      onDelta: (event) => { if (isCurrent()) callbacks.onDelta?.(event); },
+lib/api-client-react/src/use-ai-chat-stream.ts:1025:      const res = await fetch('/api/ai/chat/stream', {
+lib/api-client-react/src/use-ai-chat-stream.ts:1032:      // Handle non-SSE error responses (e.g. 400/401/428/429 before the stream starts)
+lib/api-client-react/src/use-ai-chat-stream.ts:1034:        let parsed: { code?: string; error?: string } = {};
+lib/api-client-react/src/use-ai-chat-stream.ts:1044:          type: 'error',
+lib/api-client-react/src/use-ai-chat-stream.ts:1048:            : parsed.error ?? `Request failed (${res.status})`,
+lib/api-client-react/src/use-ai-chat-stream.ts:1053:      // Server sets Content-Type: text/event-stream for the happy path.
+lib/api-client-react/src/use-ai-chat-stream.ts:1054:      // If body is null (shouldn't happen in practice), treat as error.
+lib/api-client-react/src/use-ai-chat-stream.ts:1056:        guardedCallbacks.onError?.({ type: 'error', code: 'no_body', message: 'Stream response had no body.' });
+lib/api-client-react/src/use-ai-chat-stream.ts:1065:        type: 'error',
+lib/api-client-react/src/use-ai-chat-stream.ts:1066:        code: 'network_error',
+lib/api-client-react/src/use-ai-chat-stream.ts:1077:  const cancel = useCallback(() => {
+lib/api-client-react/src/use-ai-chat-stream.ts:1080:      void fetch(`/api/ai/executions/${execution.id}/cancel`, {
+lib/api-client-react/src/use-ai-chat-stream.ts:1093:  return { send, cancel, isPending, execution: executionRef.current };
+lib/api-client-react/src/use-ai-chat-stream.ts:1110: * The existing JSON endpoints remain available for non-streaming clients.
+lib/api-client-react/src/use-ai-chat-stream.ts:1114:  const controllerRef = useRef<AbortController | null>(null);
+lib/api-client-react/src/use-ai-chat-stream.ts:1122:    const controller = new AbortController();
+lib/api-client-react/src/use-ai-chat-stream.ts:1142:      const res = await fetch(`/api/ai/projects/${params.projectId}/${params.task}/stream`, {
+lib/api-client-react/src/use-ai-chat-stream.ts:1155:          error?: string;
+lib/api-client-react/src/use-ai-chat-stream.ts:1157:          retryable?: boolean;
+lib/api-client-react/src/use-ai-chat-stream.ts:1170:          type: 'error',
+lib/api-client-react/src/use-ai-chat-stream.ts:1172:          message: parsed.error ?? `Request failed (${res.status})`,
+lib/api-client-react/src/use-ai-chat-stream.ts:1173:          retryable: parsed.retryable ?? failureKind !== 'CONFIGURATION',
+lib/api-client-react/src/use-ai-chat-stream.ts:1182:        guardedCallbacks.onError?.({ type: 'error', code: 'no_body', message: 'Task stream response had no body.', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
+lib/api-client-react/src/use-ai-chat-stream.ts:1190:        type: 'error',
+lib/api-client-react/src/use-ai-chat-stream.ts:1191:        code: 'network_error',
+lib/api-client-react/src/use-ai-chat-stream.ts:1204:  const cancel = useCallback(() => {
+lib/api-client-react/src/use-ai-chat-stream.ts:1210:  return { send, cancel, isPending };
+artifacts/dashboard/src/pages/AiChat.tsx:68:// Keep the shared structured error type for translating SSE failures into
+artifacts/dashboard/src/pages/AiChat.tsx:69:// the same user-facing error format as regular API requests.
+artifacts/dashboard/src/pages/AiChat.tsx:86:  provider?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:92:    providerUnavailableCount?: number;
+artifacts/dashboard/src/pages/AiChat.tsx:125:  errorCode?: string | null;
+artifacts/dashboard/src/pages/AiChat.tsx:126:  errorMessage?: string | null;
+artifacts/dashboard/src/pages/AiChat.tsx:140:  retryable?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:148:  | 'committed' | 'cancelled' | 'abandoned' | 'blocked';
+artifacts/dashboard/src/pages/AiChat.tsx:267:        action: 'Use the approved browser profile instead of retrying the same request.',
+artifacts/dashboard/src/pages/AiChat.tsx:277:        action: 'Refresh the project and create a new approved validation run before retrying.',
+artifacts/dashboard/src/pages/AiChat.tsx:314:  resumeToken?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:412:type ActiveProvider     = { provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini' | null; configured: boolean };
+artifacts/dashboard/src/pages/AiChat.tsx:416:  provider: string;
+artifacts/dashboard/src/pages/AiChat.tsx:428:  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'incompatible_model' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'circuit_open' | 'provider_outage' | 'degraded' | 'healthy' | 'unknown';
+artifacts/dashboard/src/pages/AiChat.tsx:506: * PR-06: Compact runtime status badge for a provider card.
+artifacts/dashboard/src/pages/AiChat.tsx:534:    provider_outage: 'Provider unavailable',
+artifacts/dashboard/src/pages/AiChat.tsx:614:          Update the affected Groq model ID in the provider configuration, then restart the API.
+artifacts/dashboard/src/pages/AiChat.tsx:648:        <span>Checking AI provider health…</span>
+artifacts/dashboard/src/pages/AiChat.tsx:653:  if (!activeProvider.configured || !activeProvider.provider) {
+artifacts/dashboard/src/pages/AiChat.tsx:657:        <span>No AI provider is ready. Save an API key in the provider cards before sending a message.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:669:        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:677:      <span>AI ready · {activeProvider.provider}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:683: * Maps an AiApiError (or any error) to a concise, user-facing string.
+artifacts/dashboard/src/pages/AiChat.tsx:716:      case 400: return err.errorMessage + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:717:      case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:719:      case 429: return (err.errorMessage || err.hint || 'AI rate limit reached — wait 30–60 seconds before retrying.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:725:          return (err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:727:        return (err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:728:      case 428: return (err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:729:      case 502: return (err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:730:      case 503: return (err.errorMessage || err.hint || 'AI provider is temporarily unreachable — try again in a moment.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:731:      default:  return (err.errorMessage || `Request failed (${err.status}).`) + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:739: * Chat history can contain provider-shaped diagnostics from older API
+artifacts/dashboard/src/pages/AiChat.tsx:744:function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'errorCode' | 'errorMessage' | 'content'>): string {
+artifacts/dashboard/src/pages/AiChat.tsx:747:    message.errorCode,
+artifacts/dashboard/src/pages/AiChat.tsx:748:    message.errorMessage,
+artifacts/dashboard/src/pages/AiChat.tsx:751:  const supportReference = [message.errorMessage, message.content]
+artifacts/dashboard/src/pages/AiChat.tsx:755:  let guidance = 'The AI provider could not complete this request. Try again in a moment.';
+artifacts/dashboard/src/pages/AiChat.tsx:757:    guidance = 'Authentication failed. Check the provider configuration or choose another provider, then retry.';
+artifacts/dashboard/src/pages/AiChat.tsx:759:    guidance = 'The provider quota or rate limit was reached. Wait a moment, then retry or choose another provider.';
+artifacts/dashboard/src/pages/AiChat.tsx:761:    guidance = 'The provider is temporarily unavailable. Retry in a moment; choose another provider if the issue persists.';
+artifacts/dashboard/src/pages/AiChat.tsx:770:  message: Pick<ChatMessage, 'errorCode' | 'errorMessage' | 'content'>,
+artifacts/dashboard/src/pages/AiChat.tsx:776:    message.errorCode !== 'EXECUTION_PROVIDER_FAILURE' ||
+artifacts/dashboard/src/pages/AiChat.tsx:779:    content === message.errorMessage?.trim()
+artifacts/dashboard/src/pages/AiChat.tsx:836:  resultKind?: 'ok' | 'failed' | 'unavailable' | 'cancelled';
+artifacts/dashboard/src/pages/AiChat.tsx:859:  stopReason?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:911:  provider?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:1116:  'provider_timeout',
+artifacts/dashboard/src/pages/AiChat.tsx:1121:  'cancelled',
+artifacts/dashboard/src/pages/AiChat.tsx:1134:  if (!done || !EXECUTION_STOP_REASONS.includes(done.stopReason as typeof EXECUTION_STOP_REASONS[number])) {
+artifacts/dashboard/src/pages/AiChat.tsx:1171:    stopReason: done.stopReason as AiStreamExecutionSummary['stopReason'],
+artifacts/dashboard/src/pages/AiChat.tsx:1183:    // Cancellation diagnostics are internal recovery/provider details. The
+artifacts/dashboard/src/pages/AiChat.tsx:1184:    // cancelled report and its terminal state survive history reload, but
+artifacts/dashboard/src/pages/AiChat.tsx:1185:    // provider errors must not become visible just because the persisted
+artifacts/dashboard/src/pages/AiChat.tsx:1187:    ...(diagnosticDetails.size > 0 && done.stopReason !== 'cancelled'
+artifacts/dashboard/src/pages/AiChat.tsx:1234:  // NO_FINDING status can never turn an incomplete cancellation into a clean
+artifacts/dashboard/src/pages/AiChat.tsx:1283:    stopReason: string;
+artifacts/dashboard/src/pages/AiChat.tsx:1471:          stopReason: executionSummary.stopReason,
+artifacts/dashboard/src/pages/AiChat.tsx:1689:        : 'empty provider response';
+artifacts/dashboard/src/pages/AiChat.tsx:1690:    case 'provider_timeout':
+artifacts/dashboard/src/pages/AiChat.tsx:1691:      return 'provider timed out — partial report returned';
+artifacts/dashboard/src/pages/AiChat.tsx:1709:    'provider failure codes:',
+artifacts/dashboard/src/pages/AiChat.tsx:1714:    'provider recovery exhausted without an accepted six-section report',
+artifacts/dashboard/src/pages/AiChat.tsx:1774:    const providerFailure = summary.diagnosticDetails.find((detail) =>
+artifacts/dashboard/src/pages/AiChat.tsx:1775:      detail.toLowerCase().includes('provider failure codes:'),
+artifacts/dashboard/src/pages/AiChat.tsx:1777:    return providerFailure
+artifacts/dashboard/src/pages/AiChat.tsx:1778:      ? `Recovery could not obtain a provider response (${providerFailure.replace(/^.*provider failure codes:\s*/i, '')}). The completed source reads were preserved safely, but Findings and repair phases remain blocked.`
+artifacts/dashboard/src/pages/AiChat.tsx:2328:                      evidence.execution.stopReason,
+artifacts/dashboard/src/pages/AiChat.tsx:2461:                The provider Recovery attempt was not required for acceptance. A deterministic executable pattern was verified against the completed source read and passed the evidence gate.
+artifacts/dashboard/src/pages/AiChat.tsx:2480:                The provider-generated report did not satisfy the Recovery contract. This status is separate from the final evidence decision above.
+artifacts/dashboard/src/pages/AiChat.tsx:2517:    (summary.stopReason === 'response' && summary.diagnosticCodes.length === 0 && !hasSynthesisTelemetry)
+artifacts/dashboard/src/pages/AiChat.tsx:2524:      {summary.stopReason !== 'response' && (
+artifacts/dashboard/src/pages/AiChat.tsx:2529:        <span className="text-red-300">provider failure — </span>
+artifacts/dashboard/src/pages/AiChat.tsx:2531:      {String(summary.stopReason) === 'tool_failure' || summary.diagnosticCodes.some((code) =>
+artifacts/dashboard/src/pages/AiChat.tsx:2546:      {summary.stopReason !== 'response'
+artifacts/dashboard/src/pages/AiChat.tsx:2547:        ? `stopped: ${summary.stopReason.replace(/_/g, ' ')} · ${summary.iterations}/${summary.maxIterations} iterations · ${summary.toolCalls} tool calls`
+artifacts/dashboard/src/pages/AiChat.tsx:2655:            {formatStopReason(summary.stopReason, summary.synthesisStarted)}
+artifacts/dashboard/src/pages/AiChat.tsx:2765:            ? 'loading…'
+artifacts/dashboard/src/pages/AiChat.tsx:3589:    (normalized.includes('aistreamdecisiontraceevent') && normalized.includes('decision_trace')) ||
+artifacts/dashboard/src/pages/AiChat.tsx:3600: * - Blocked citations expose only a stable, user-facing reason; provider
+artifacts/dashboard/src/pages/AiChat.tsx:3747:        retry: false,
+artifacts/dashboard/src/pages/AiChat.tsx:3867:    'Source collection reached an empty provider response, but bounded forensic recovery did not produce an accepted report. The run is blocked without calling it budget exhaustion.',
+artifacts/dashboard/src/pages/AiChat.tsx:4276:  retryPending,
+artifacts/dashboard/src/pages/AiChat.tsx:4289:  retryPending?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:4305:    ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
+artifacts/dashboard/src/pages/AiChat.tsx:4426:                      structuredFailure.retryable
+artifacts/dashboard/src/pages/AiChat.tsx:4430:                      {structuredFailure.retryable ? 'Retry available' : 'Retry unavailable'}
+artifacts/dashboard/src/pages/AiChat.tsx:4432:                    {structuredFailure.retryable && onRetryStructuredTask && (
+artifacts/dashboard/src/pages/AiChat.tsx:4439:                        disabled={retryPending}
+artifacts/dashboard/src/pages/AiChat.tsx:4442:                        {retryPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+artifacts/dashboard/src/pages/AiChat.tsx:4443:                        {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:4447:                  {!structuredFailure.retryable && (
+artifacts/dashboard/src/pages/AiChat.tsx:4630:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4645:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4664:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4695:          Get a free API key at <span className="font-mono break-all">platform.deepseek.com</span> to use DeepSeek as your AI provider.
+artifacts/dashboard/src/pages/AiChat.tsx:4743:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4760:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4779:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4856:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4871:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4890:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:4968:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4983:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:5002:    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+artifacts/dashboard/src/pages/AiChat.tsx:5130:  retryable?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:5150:      retryable: typeof marker.retryable === 'boolean' ? marker.retryable : undefined,
+artifacts/dashboard/src/pages/AiChat.tsx:5160:  retryable?: boolean,
+artifacts/dashboard/src/pages/AiChat.tsx:5164:  retryable: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:5168:  const canRetry = retryable ?? defaultRetryable;
+artifacts/dashboard/src/pages/AiChat.tsx:5175:        retryable: canRetry,
+artifacts/dashboard/src/pages/AiChat.tsx:5181:        retryable: canRetry,
+artifacts/dashboard/src/pages/AiChat.tsx:5187:        retryable: canRetry,
+artifacts/dashboard/src/pages/AiChat.tsx:5193:        retryable: canRetry,
+artifacts/dashboard/src/pages/AiChat.tsx:5199:        retryable: canRetry,
+artifacts/dashboard/src/pages/AiChat.tsx:5208:  { id: 'workflow', label: 'Workflow Health', icon: GitMerge, prompt: 'How are my workflows progressing? Any blockers or risks?' },
+artifacts/dashboard/src/pages/AiChat.tsx:5309:          status: entry.resultKind === 'failed' || entry.resultKind === 'unavailable' || entry.resultKind === 'cancelled'
+artifacts/dashboard/src/pages/AiChat.tsx:5320:      if (entry.resultKind === 'failed' || entry.resultKind === 'unavailable' || entry.resultKind === 'cancelled') {
+artifacts/dashboard/src/pages/AiChat.tsx:5325:          label: entry.resultKind === 'cancelled' ? 'Tool cancelled' : 'Tool failed',
+artifacts/dashboard/src/pages/AiChat.tsx:5465:function liveStageDescription(stage: string | null, streamingContent: string, activeStep: LiveAgentToolStep | undefined): string {
+artifacts/dashboard/src/pages/AiChat.tsx:5466:  if (streamingContent) return 'Turning the verified context into the response you will see below.';
+artifacts/dashboard/src/pages/AiChat.tsx:5504:  streamingContent,
+artifacts/dashboard/src/pages/AiChat.tsx:5519:  streamingContent: string;
+artifacts/dashboard/src/pages/AiChat.tsx:5523:  modelHistory: Array<{ id: string; provider: string }>;
+artifacts/dashboard/src/pages/AiChat.tsx:5525:  /** True once the live SSE stream reports a fixture-local forensic_status. */
+artifacts/dashboard/src/pages/AiChat.tsx:5555:  const isReporting = Boolean(streamingContent) ||
+artifacts/dashboard/src/pages/AiChat.tsx:5559:  const activityLabel = streamingContent
+artifacts/dashboard/src/pages/AiChat.tsx:5607:            {liveStageDescription(stage, streamingContent, activeStep)}
+artifacts/dashboard/src/pages/AiChat.tsx:5717:      {lastCompleted && !activeStep && !streamingContent && (
+artifacts/dashboard/src/pages/AiChat.tsx:6371:  error?: string | null;
+artifacts/dashboard/src/pages/AiChat.tsx:6490:  const providerUnavailable = metrics?.providerUnavailableCount ?? gradeCounts.U ?? 0;
+artifacts/dashboard/src/pages/AiChat.tsx:6491:  const qualityObserved = Math.max(0, observed - providerUnavailable);
+artifacts/dashboard/src/pages/AiChat.tsx:6493:  const correctCompletionDelta = data.baselineComparison?.metricDeltas?.correctCompletionRate;
+artifacts/dashboard/src/pages/AiChat.tsx:6517:          {providerUnavailable > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:6558:        {typeof correctCompletionDelta === 'number' && (
+artifacts/dashboard/src/pages/AiChat.tsx:6560:            Completion Δ {correctCompletionDelta >= 0 ? '+' : ''}{(correctCompletionDelta * 100).toFixed(1)}%
+artifacts/dashboard/src/pages/AiChat.tsx:6565:        {data.provider ? `Provider: ${data.provider}` : 'Provider not recorded'}
+artifacts/dashboard/src/pages/AiChat.tsx:6581:    retry: false,
+artifacts/dashboard/src/pages/AiChat.tsx:6598:    case 'cancelling':
+artifacts/dashboard/src/pages/AiChat.tsx:6600:    case 'cancelled':
+artifacts/dashboard/src/pages/AiChat.tsx:6617:  if (status === 'paused' || status === 'cancelling') return 'border-amber-500/40 bg-amber-500/10 text-amber-200';
+artifacts/dashboard/src/pages/AiChat.tsx:6679:  modelHistory: Array<{ id: string; provider: string }>;
+artifacts/dashboard/src/pages/AiChat.tsx:6785:  const canCancel = Boolean(onCancel && (status === 'running' || status === 'queued' || status === 'cancelling'));
+artifacts/dashboard/src/pages/AiChat.tsx:6790:      && (status === 'completed' || status === 'cancelled'),
+artifacts/dashboard/src/pages/AiChat.tsx:6792:  const isCancelledAudit = status === 'cancelled';
+artifacts/dashboard/src/pages/AiChat.tsx:6884:                    disabled={controlPending || status === 'cancelling'}
+artifacts/dashboard/src/pages/AiChat.tsx:6888:                    {status === 'cancelling' ? 'Cancelling…' : 'Cancel'}
+artifacts/dashboard/src/pages/AiChat.tsx:6927:          {execution?.error && (
+artifacts/dashboard/src/pages/AiChat.tsx:6928:            <p className="mt-1 break-words text-[10px] leading-4 text-red-200">{execution.error}</p>
+artifacts/dashboard/src/pages/AiChat.tsx:6949:                  The redacted audit handoff is still available. Check the connection and retry this same execution and revision.
+artifacts/dashboard/src/pages/AiChat.tsx:7035:                    ? 'Collected evidence and the redacted audit are available for review, but cancellation leaves the audit incomplete. Start a new run before relying on a complete finding.'
+artifacts/dashboard/src/pages/AiChat.tsx:7158:          {execution?.resumable && <span className="text-amber-200">resume available</span>}
+artifacts/dashboard/src/pages/AiChat.tsx:7211:  // Streaming: accumulates raw text deltas while Groq is streaming a response.
+artifacts/dashboard/src/pages/AiChat.tsx:7213:  const [streamingContent, setStreamingContent] = useState('');
+artifacts/dashboard/src/pages/AiChat.tsx:7214:  const { send: streamSend, cancel: cancelStream, isPending: isSending } = useAiChatStream();
+artifacts/dashboard/src/pages/AiChat.tsx:7215:  const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
+artifacts/dashboard/src/pages/AiChat.tsx:7216:  const streamGenerationRef = useRef(0);
+artifacts/dashboard/src/pages/AiChat.tsx:7217:  const streamOwnerRef = useRef<StreamOwner | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7235:      cancelStream();
+artifacts/dashboard/src/pages/AiChat.tsx:7236:      cancelTaskStream();
+artifacts/dashboard/src/pages/AiChat.tsx:7238:  }, [cancelStream, cancelTaskStream]);
+artifacts/dashboard/src/pages/AiChat.tsx:7249:  const [agentModelHistory, setAgentModelHistory] = useState<Array<{ id: string; provider: string }>>([]);
+artifacts/dashboard/src/pages/AiChat.tsx:7256:  const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7257:  const [resumeRecoveryAttempt, setResumeRecoveryAttempt] = useState(0);
+artifacts/dashboard/src/pages/AiChat.tsx:7258:  const resumeRecoveryPendingRef = useRef<string | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7273:   *  stream; cleared on done so the persisted forensic card takes over. */
+artifacts/dashboard/src/pages/AiChat.tsx:7284:  // Keep the opaque resume token across tab refreshes. The server stores only
+artifacts/dashboard/src/pages/AiChat.tsx:7286:  // resumable while making the actual resume impossible.
+artifacts/dashboard/src/pages/AiChat.tsx:7370:      const body = await response.json().catch(() => ({})) as { error?: string };
+artifacts/dashboard/src/pages/AiChat.tsx:7371:      throw new Error(body.error || 'The execution audit could not be loaded.');
+artifacts/dashboard/src/pages/AiChat.tsx:7389:    } catch (error) {
+artifacts/dashboard/src/pages/AiChat.tsx:7393:        description: 'Check the connection and retry the same redacted execution handoff.',
+artifacts/dashboard/src/pages/AiChat.tsx:7416:    } catch (error) {
+artifacts/dashboard/src/pages/AiChat.tsx:7419:        description: error instanceof Error ? error.message : 'The execution audit could not be exported.',
+artifacts/dashboard/src/pages/AiChat.tsx:7471:    if (activeExecutionStatus.status === 'completed' || activeExecutionStatus.status === 'cancelled') {
+artifacts/dashboard/src/pages/AiChat.tsx:7479:      // Operators must be able to export the record after a reconnect or
+artifacts/dashboard/src/pages/AiChat.tsx:7484:          : 'Execution cancelled — audit export is available',
+artifacts/dashboard/src/pages/AiChat.tsx:7489:      setAgentStage('Execution paused — ready to resume from its durable checkpoint');
+artifacts/dashboard/src/pages/AiChat.tsx:7511:      execution.resumeToken ||
+artifacts/dashboard/src/pages/AiChat.tsx:7514:      resumeRecoveryPendingRef.current === execution.id
+artifacts/dashboard/src/pages/AiChat.tsx:7517:    let cancelled = false;
+artifacts/dashboard/src/pages/AiChat.tsx:7518:    resumeRecoveryPendingRef.current = execution.id;
+artifacts/dashboard/src/pages/AiChat.tsx:7520:    void fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/resume-capability`, {
+artifacts/dashboard/src/pages/AiChat.tsx:7528:          resumeToken?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:7529:          error?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:7531:        if (!response.ok || body.executionId !== execution.id || !body.resumeToken) {
+artifacts/dashboard/src/pages/AiChat.tsx:7532:          throw new Error(body.error || 'Resume is no longer available for this execution.');
+artifacts/dashboard/src/pages/AiChat.tsx:7534:        if (cancelled) return;
+artifacts/dashboard/src/pages/AiChat.tsx:7535:        const recovered = { ...execution, resumeToken: body.resumeToken };
+artifacts/dashboard/src/pages/AiChat.tsx:7556:      .catch((error: unknown) => {
+artifacts/dashboard/src/pages/AiChat.tsx:7557:        if (!cancelled) {
+artifacts/dashboard/src/pages/AiChat.tsx:7559:            error instanceof Error
+artifacts/dashboard/src/pages/AiChat.tsx:7560:              ? error.message
+artifacts/dashboard/src/pages/AiChat.tsx:7561:              : 'Could not recover the resume capability. Try again.',
+artifacts/dashboard/src/pages/AiChat.tsx:7566:        if (resumeRecoveryPendingRef.current === execution.id) {
+artifacts/dashboard/src/pages/AiChat.tsx:7567:          resumeRecoveryPendingRef.current = null;
+artifacts/dashboard/src/pages/AiChat.tsx:7571:      cancelled = true;
+artifacts/dashboard/src/pages/AiChat.tsx:7575:    activeExecution?.resumeToken,
+artifacts/dashboard/src/pages/AiChat.tsx:7580:    resumeRecoveryAttempt,
+artifacts/dashboard/src/pages/AiChat.tsx:7591:    streamOwnerRef.current = null;
+artifacts/dashboard/src/pages/AiChat.tsx:7642:      case 'CANCELLATION': return { title: `${name} cancelled`, reason: `The ${name} was cancelled before it reached a verified result.` };
+artifacts/dashboard/src/pages/AiChat.tsx:7664:  function startStructuredTask(task: 'analyze' | 'review', prompt: string, retryMessageId?: string) {
+artifacts/dashboard/src/pages/AiChat.tsx:7671:    if (!retryMessageId) {
+artifacts/dashboard/src/pages/AiChat.tsx:7774:            errorCode: err.code,
+artifacts/dashboard/src/pages/AiChat.tsx:7775:            errorMessage: failure.reason,
+artifacts/dashboard/src/pages/AiChat.tsx:7777:            retryable: err.retryable ?? err.failureKind !== 'CONFIGURATION',
+artifacts/dashboard/src/pages/AiChat.tsx:7787:          { type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' },
+artifacts/dashboard/src/pages/AiChat.tsx:7799:            errorCode: 'transport_interrupted',
+artifacts/dashboard/src/pages/AiChat.tsx:7800:            errorMessage: failure.reason,
+artifacts/dashboard/src/pages/AiChat.tsx:7802:            retryable: true,
+artifacts/dashboard/src/pages/AiChat.tsx:7812:  function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
+artifacts/dashboard/src/pages/AiChat.tsx:7821:      queryKey: ['active-provider'],
+artifacts/dashboard/src/pages/AiChat.tsx:7826:  // PR-06: poll runtime health metrics so provider cards show live state
+artifacts/dashboard/src/pages/AiChat.tsx:7836:    (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
+artifacts/dashboard/src/pages/AiChat.tsx:7903:  // HTTP status through to the error classifier below.
+artifacts/dashboard/src/pages/AiChat.tsx:7907:    error: projectsError,
+artifacts/dashboard/src/pages/AiChat.tsx:7911:      // Wait for Clerk to finish loading before the very first request so we
+artifacts/dashboard/src/pages/AiChat.tsx:7914:      // Classify each failure to decide whether to retry automatically.
+artifacts/dashboard/src/pages/AiChat.tsx:7916:       // refreshed during a long-running AI stream. Retry only when Clerk has
+artifacts/dashboard/src/pages/AiChat.tsx:7918:       // terminal and is shown as a real session-expiry error.
+artifacts/dashboard/src/pages/AiChat.tsx:7919:       retry: (failureCount, err) =>
+artifacts/dashboard/src/pages/AiChat.tsx:7926:  // where error text is shown — status, kind, and message are all in one place.
+artifacts/dashboard/src/pages/AiChat.tsx:7997:  async function recoverDelivery(proposal: RecoverableDelivery, action: 'resume-validation' | 'discard') {
+artifacts/dashboard/src/pages/AiChat.tsx:8008:        error?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:8036:        throw new Error(payload.error || 'Delivery recovery could not be completed.');
+artifacts/dashboard/src/pages/AiChat.tsx:8039:      if (action === 'resume-validation') {
+artifacts/dashboard/src/pages/AiChat.tsx:8055:    } catch (error) {
+artifacts/dashboard/src/pages/AiChat.tsx:8058:        description: error instanceof Error ? error.message : 'The operation was not changed.',
+artifacts/dashboard/src/pages/AiChat.tsx:8074:        throw new Error(typeof payload?.error === 'string' ? payload.error : 'The historical report could not be regenerated.');
+artifacts/dashboard/src/pages/AiChat.tsx:8083:    onError: (error) => {
+artifacts/dashboard/src/pages/AiChat.tsx:8086:        description: error instanceof Error ? error.message : 'The conversation was not changed.',
+artifacts/dashboard/src/pages/AiChat.tsx:8106:            retryable: structuredFailure.retryable ?? message.retryable,
+artifacts/dashboard/src/pages/AiChat.tsx:8144:    // card that would submit without a valid proposalId.
+artifacts/dashboard/src/pages/AiChat.tsx:8203:    'streaming':        'Writing response…',
+artifacts/dashboard/src/pages/AiChat.tsx:8206:  /** Translate an AiStreamErrorEvent to a user-facing error description. */
+artifacts/dashboard/src/pages/AiChat.tsx:8209:    // the SSE error event's code → HTTP status mapping.
+artifacts/dashboard/src/pages/AiChat.tsx:8244:            description: failed.map((f) => `${f.path}: ${f.error}`).join('\n'),
+artifacts/dashboard/src/pages/AiChat.tsx:8512:   *  handleQuickAction so both paths share the same streaming logic. */
+artifacts/dashboard/src/pages/AiChat.tsx:8513:  function sendMessage(
+artifacts/dashboard/src/pages/AiChat.tsx:8518:      resumeToken?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:8527:      toast({ title: 'Checking AI provider health', description: 'Please wait a moment and try again.', variant: 'default' });
+artifacts/dashboard/src/pages/AiChat.tsx:8530:    if (!activeProvider.configured || !activeProvider.provider) {
+artifacts/dashboard/src/pages/AiChat.tsx:8531:      toast({ title: 'AI provider unavailable', description: 'Save an API key in the provider cards before sending a message.', variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:8535:    const generation = ++streamGenerationRef.current;
+artifacts/dashboard/src/pages/AiChat.tsx:8538:    streamOwnerRef.current = {
+artifacts/dashboard/src/pages/AiChat.tsx:8545:      const owner = streamOwnerRef.current;
+artifacts/dashboard/src/pages/AiChat.tsx:8573:      streamOwnerRef.current = {
+artifacts/dashboard/src/pages/AiChat.tsx:8583:    appendLiveActivityEvent({ kind: 'stage', label: 'Connecting to the AI stream', status: 'info' });
+artifacts/dashboard/src/pages/AiChat.tsx:8594:    void streamSend(
+artifacts/dashboard/src/pages/AiChat.tsx:8602:         resumeToken: options?.resumeToken,
+artifacts/dashboard/src/pages/AiChat.tsx:8607:          const owner = streamOwnerRef.current!;
+artifacts/dashboard/src/pages/AiChat.tsx:8613:            ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+artifacts/dashboard/src/pages/AiChat.tsx:8638:          streamOwnerRef.current!.sessionId = event.sessionId;
+artifacts/dashboard/src/pages/AiChat.tsx:8653:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8662:        onDelta: (delta) => {
+artifacts/dashboard/src/pages/AiChat.tsx:8663:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8667:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8668:          // GAP-A2: SSE stream broke mid-flight — clear the partial bubble so
+artifacts/dashboard/src/pages/AiChat.tsx:8674:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8690:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8716:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8728:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8752:                 ? `${event.validation.evidence.consoleErrorCount} console error${event.validation.evidence.consoleErrorCount === 1 ? '' : 's'}`
+artifacts/dashboard/src/pages/AiChat.tsx:8760:           if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8777:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8788:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8798:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8814:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8824:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8843:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8853:           if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8862:           if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8879:           if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8892:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8906:          if (generation !== streamGenerationRef.current) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8973:          streamOwnerRef.current = null;
+artifacts/dashboard/src/pages/AiChat.tsx:8978:           const resumableDisconnect = err.code === 'network_error' || err.code === 'no_body';
+artifacts/dashboard/src/pages/AiChat.tsx:8985:               description: 'The stream disconnected, but the server kept the execution. Resume it below.',
+artifacts/dashboard/src/pages/AiChat.tsx:9018:                id: `stream-failed-${Date.now()}`,
+artifacts/dashboard/src/pages/AiChat.tsx:9022:                errorCode: err.code,
+artifacts/dashboard/src/pages/AiChat.tsx:9023:                errorMessage: safeMessage,
+artifacts/dashboard/src/pages/AiChat.tsx:9025:                retryable: err.retryable,
+artifacts/dashboard/src/pages/AiChat.tsx:9037:        generation === streamGenerationRef.current
+artifacts/dashboard/src/pages/AiChat.tsx:9042:  function resumeActiveExecution() {
+artifacts/dashboard/src/pages/AiChat.tsx:9044:    if (!execution?.resumeToken) {
+artifacts/dashboard/src/pages/AiChat.tsx:9046:        title: resumeRecoveryError ? 'Resume unavailable' : 'Recovering resume capability',
+artifacts/dashboard/src/pages/AiChat.tsx:9047:        description: resumeRecoveryError ?? 'The saved execution capability is being refreshed.',
+artifacts/dashboard/src/pages/AiChat.tsx:9050:      if (resumeRecoveryError) setResumeRecoveryAttempt((attempt) => attempt + 1);
+artifacts/dashboard/src/pages/AiChat.tsx:9053:    sendMessage(execution.message, {
+artifacts/dashboard/src/pages/AiChat.tsx:9055:      resumeToken: execution.resumeToken,
+artifacts/dashboard/src/pages/AiChat.tsx:9060:  async function cancelActiveExecution() {
+artifacts/dashboard/src/pages/AiChat.tsx:9065:      const response = await fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/cancel`, {
+artifacts/dashboard/src/pages/AiChat.tsx:9071:      const body = await response.json().catch(() => ({})) as { error?: string };
+artifacts/dashboard/src/pages/AiChat.tsx:9072:      if (!response.ok) throw new Error(body.error || 'This execution could not be cancelled.');
+artifacts/dashboard/src/pages/AiChat.tsx:9073:      cancelStream();
+artifacts/dashboard/src/pages/AiChat.tsx:9074:      cancelTaskStream();
+artifacts/dashboard/src/pages/AiChat.tsx:9078:    } catch (error) {
+artifacts/dashboard/src/pages/AiChat.tsx:9081:        description: error instanceof Error ? error.message : 'The execution was not changed.',
+artifacts/dashboard/src/pages/AiChat.tsx:9090:    sendMessage(input.trim());
+artifacts/dashboard/src/pages/AiChat.tsx:9107:        error?: string;
+artifacts/dashboard/src/pages/AiChat.tsx:9111:        throw new Error(payload.error || `Plan decision failed (${response.status})`);
+artifacts/dashboard/src/pages/AiChat.tsx:9127:    } catch (error) {
+artifacts/dashboard/src/pages/AiChat.tsx:9130:        description: error instanceof Error ? error.message : String(error),
+artifacts/dashboard/src/pages/AiChat.tsx:9157:    sendMessage('Build the approved implementation plan.', { buildPlanMessageId: messageId });
+artifacts/dashboard/src/pages/AiChat.tsx:9179:    sendMessage(action.prompt);
+artifacts/dashboard/src/pages/AiChat.tsx:9190:    streamGenerationRef.current += 1;
+artifacts/dashboard/src/pages/AiChat.tsx:9191:    cancelStream();
+artifacts/dashboard/src/pages/AiChat.tsx:9223:  // specific root cause — no more "session may have expired" for 500 errors.
+artifacts/dashboard/src/pages/AiChat.tsx:9273:    streamGenerationRef.current += 1;
+artifacts/dashboard/src/pages/AiChat.tsx:9274:    cancelStream();
+artifacts/dashboard/src/pages/AiChat.tsx:9291:      description: 'The unfinished AI request was cancelled. No changes were applied.',
+artifacts/dashboard/src/pages/AiChat.tsx:9393:                  streamGenerationRef.current += 1;
+artifacts/dashboard/src/pages/AiChat.tsx:9394:                  cancelStream();
+artifacts/dashboard/src/pages/AiChat.tsx:9443:                  No cancelled or incomplete audits for this project.
+artifacts/dashboard/src/pages/AiChat.tsx:9456:                          streamGenerationRef.current += 1;
+artifacts/dashboard/src/pages/AiChat.tsx:9457:                          cancelStream();
+artifacts/dashboard/src/pages/AiChat.tsx:9458:                          cancelTaskStream();
+artifacts/dashboard/src/pages/AiChat.tsx:9483:                                audit.status === 'cancelled'
+artifacts/dashboard/src/pages/AiChat.tsx:9487:                                {audit.status === 'cancelled' ? 'Cancelled' : 'Incomplete'}
+artifacts/dashboard/src/pages/AiChat.tsx:9512:          <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">
+artifacts/dashboard/src/pages/AiChat.tsx:9540:            {activeProvider?.provider === 'deepseek'
+artifacts/dashboard/src/pages/AiChat.tsx:9542:              : activeProvider?.provider === 'openrouter'
+artifacts/dashboard/src/pages/AiChat.tsx:9544:                : activeProvider?.provider === 'gemini'
+artifacts/dashboard/src/pages/AiChat.tsx:9626:                        onClick={() => void recoverDelivery(delivery, 'resume-validation')}
+artifacts/dashboard/src/pages/AiChat.tsx:9691:                   onCancel={cancelActiveExecution}
+artifacts/dashboard/src/pages/AiChat.tsx:9692:                    onResume={historicalExecutionId ? undefined : resumeActiveExecution}
+artifacts/dashboard/src/pages/AiChat.tsx:9726:                  onRetryStructuredTask={retryStructuredTask}
+artifacts/dashboard/src/pages/AiChat.tsx:9727:                  retryPending={structuredRetryMessageId === msg.id}
+artifacts/dashboard/src/pages/AiChat.tsx:9731:                /* Single unified live bubble — steps always visible above streaming text */
+artifacts/dashboard/src/pages/AiChat.tsx:9743:                       streamingContent={streamingContent}
+artifacts/dashboard/src/pages/AiChat.tsx:9753:                     {/* NI-35: live EI-012 reconciliation indicator during the stream */}
+artifacts/dashboard/src/pages/AiChat.tsx:9789:                     {streamingContent && <div className="border-t border-border/50 -mx-1" />}
+artifacts/dashboard/src/pages/AiChat.tsx:9791:                    {/* Live streaming text */}
+artifacts/dashboard/src/pages/AiChat.tsx:9792:                    {streamingContent && (
+artifacts/dashboard/src/pages/AiChat.tsx:9812:                          {streamingContent}
+artifacts/dashboard/src/pages/AiChat.tsx:9878:                      : activeExecutionStatus?.status === 'cancelling'
+artifacts/dashboard/src/pages/AiChat.tsx:9879:                        ? 'The AI execution is being cancelled'
+artifacts/dashboard/src/pages/AiChat.tsx:9882:                      : activeExecutionStatus?.status === 'cancelled'
+artifacts/dashboard/src/pages/AiChat.tsx:9883:                        ? 'The AI execution was cancelled'
+artifacts/dashboard/src/pages/AiChat.tsx:9884:                      : 'A saved AI execution is ready to resume'}
+artifacts/dashboard/src/pages/AiChat.tsx:9897:                  {resumeRecoveryError && (
+artifacts/dashboard/src/pages/AiChat.tsx:9899:                      {resumeRecoveryError}
+artifacts/dashboard/src/pages/AiChat.tsx:9905:                    onClick={resumeActiveExecution}
+artifacts/dashboard/src/pages/AiChat.tsx:9906:                    disabled={!activeExecution.resumeToken && !resumeRecoveryError}
+artifacts/dashboard/src/pages/AiChat.tsx:9909:                    {resumeRecoveryError ? 'Retry' : activeExecution.resumeToken ? 'Resume' : 'Recovering…'}
+artifacts/dashboard/src/pages/AiChat.tsx:9918:              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
+artifacts/dashboard/src/pages/AiChat.tsx:9926:              placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
+artifacts/api-server/src/routes/ai/chat.ts:5: * POST /api/ai/chat/stream
+artifacts/api-server/src/routes/ai/chat.ts:53:  resumeActiveTaskClassification,

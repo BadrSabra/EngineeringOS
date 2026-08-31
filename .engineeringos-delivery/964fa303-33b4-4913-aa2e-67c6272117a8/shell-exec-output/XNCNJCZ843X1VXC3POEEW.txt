@@ -1,0 +1,260 @@
+4: * POST /api/ai/chat
+5: * POST /api/ai/chat/stream
+6: * GET  /api/ai/chat/sessions
+7: * GET  /api/ai/chat/:sessionId/messages
+8: * POST /api/ai/chat/apply-changes
+53:  resumeActiveTaskClassification,
+464:  sessionId: string;
+465:  messageId: string;
+467:  messages: Array<{
+488:  const target = params.messages.find((message) => message.id === params.messageId);
+493:  const traces = params.messages.flatMap((message) => {
+494:    const parsed = message.toolTrace ? parseStoredJson(message.toolTrace) : [];
+497:  const evidenceCount = params.messages.reduce((total, message) => {
+498:    const behaviorEvidence = message.behaviorEvidence ? parseStoredJson(message.behaviorEvidence) : [];
+499:    const taskResult = message.taskResult ? parseStoredJson(message.taskResult) : undefined;
+507:  const sourceCount = params.messages.reduce((total, message) => {
+508:    const sources = message.sources ? parseStoredJson(message.sources) : [];
+515:    ?? params.messageId;
+526:  const terminalState = params.execution?.status === "cancelled"
+528:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+540:    messages: params.messages.length,
+552:    messages: counts.messages > 0,
+566:    sessionId: params.sessionId,
+751:  message: string,
+837:    filesystemSources: await buildProjectFileSources(rootResult.canonicalPath, filesystemManifest, message),
+885:function failClosedBeforeEvidenceResponse(message: string): string {
+886:  return /[\u0600-\u06FF]/.test(message)
+915:  sessionId: string;
+917:  message: string;
+934:}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date }> {
+937:      const [session] = await tx
+940:        .where(eq(aiChatSessionsTable.id, params.sessionId))
+942:      if (!session) {
+944:          id: params.sessionId,
+947:          title: params.message.trim().slice(0, 60) || "AI chat",
+962:              eq(aiChatMessagesTable.sessionId, params.sessionId),
+980:        sessionId: params.sessionId,
+982:        content: params.message,
+1011:              eq(aiChatMessagesTable.sessionId, params.sessionId),
+1028:        sessionId: params.sessionId,
+1058:      sessionId: params.sessionId,
+1085:      .where(eq(aiChatSessionsTable.id, params.sessionId));
+1088:      sessionId: params.sessionId,
+1158:      const message = error instanceof Error ? error.message : String(error);
+1159:      failures.push({ path: change.path, error: message });
+1161:        { path: change.path, error: message },
+1468:  message?: string;
+1481:    | "cancelled"
+1591:  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+1679:        return { kind: step.kind, code: step.code, tool: step.tool, message: step.message };
+1854: * output, failed-test messages, or changed-file list.
+1924:  resumed: boolean;
+1932:  if (args.persisted && (args.resumed || args.executionPlan)) {
+1976: * session may replace or clear that state. Keep this predicate on the UPDATE
+1980:function sessionTaskStateIsAtOrBefore(msgNow: Date) {
+1995:      path: "artifacts/api-server/src/routes/ai/chat.ts",
+2005:    source: "artifacts/api-server/src/routes/ai/chat.ts",
+2011:// ── POST /api/ai/chat ────────────────────────────────────────────────────────
+2013:router.post("/ai/chat", async (req, res) => {
+2016:    message:      z.string({ required_error: "message is required" }).trim().min(1, "message is required"),
+2017:    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+2028:    const raw   = issue?.message ?? "Invalid request body";
+2033:  const { projectId, message, sessionId, linkedTaskId, objective } = chatBody.data;
+2041:  if (!sessionId && isImmediateExecutionRequest(message)) {
+2043:      error: "execution_session_required",
+2044:      message: "Repair Plan execution requires the original audit session.",
+2056:  if (sessionId) {
+2060:      .where(eq(aiChatSessionsTable.id, sessionId))
+2062:    // Prevent cross-project session leakage: reject sessions that belong to a
+2068:      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+2074:  // Priority: (1) explicit linkedTaskId in request, (2) stored in existing session.
+2103:  // messages reuse the verified contract stored on the session.
+2105:  const rawTurnClassification = classifyRequest(message);
+2106:  const rawTurnIntent = resolveTurnIntent(message, {
+2113:    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+2117:  const classificationResolution = resumeActiveTaskClassification(
+2118:    message,
+2123:    message,
+2127:  const turnIntent = resolveTurnIntent(message, {
+2129:    resumed: classificationResolution.resumed,
+2149:  const immediateExecutionRequest = isImmediateExecutionRequest(message);
+2160:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+2186:      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+2188:    // Enrich context with cross-session memories (outside cache; always fresh).
+2191:      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
+2198:      sessionId: existingSession?.id ?? sessionId ?? null,
+2203:      messageCount: historyRows.length,
+2211:        sessionId: existingSession?.id ?? sessionId ?? null,
+2223:          message,
+2239:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
+2256:          response: failClosedBeforeEvidenceResponse(message),
+2274:    const sessionIdToUse = existingSession?.id ?? randomUUID();
+2284:        terminalOutcome.message ?? "The AI request did not complete.",
+2290:        sessionId: sessionIdToUse,
+2292:        message,
+2310:        sessionId: sessionIdToUse,
+2323:        sessionId: sessionIdToUse,
+2332:        message: {
+2383:    // Atomic: session creation (when needed) + user message + assistant message
+2384:    // + session timestamp update in one transaction — prevents a half-saved
+2411:      resumed: classificationResolution.resumed,
+2425:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+2432:            id: sessionIdToUse,
+2434:            // AI-TASK-001: persist task linkage so re-opened sessions remain task-aware.
+2437:            // BUG-5 fix: don't use a bare greeting as the session title.
+2438:            // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+2441:              const trimmed = message.trim();
+2452:          throw new Error("Failed to create chat session");
+2457:        sessionId: sessionIdToUse,
+2459:        content: message,
+2468:          sessionId: sessionIdToUse,
+2489:          sessionId: sessionIdToUse,
+2490:          messageId: operationId,
+2501:          message: "AI implementation plan created and is awaiting approval",
+2503:          payload: { messageId: operationId, proposalId: proposalId ?? null },
+2513:          eq(aiChatSessionsTable.id, sessionIdToUse),
+2514:          sessionTaskStateIsAtOrBefore(msgNow),
+2520:      sessionIdToUse,
+2525:      logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
+2529:      sessionId: sessionIdToUse,
+2530:      message: { ...assistantMsg, taskResult: parseTaskResult(assistantMsg.taskResult) },
+2561:// ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
+2563:router.post("/ai/chat/stream", async (req, res) => {
+2566:    message:      z.string({ required_error: "message is required" }).trim().min(1, "message is required"),
+2567:    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+2572:     * server validates this message before model execution and enforces its
+2576:    /** Durable execution identity used to reconnect or explicitly resume a run. */
+2579:    resumeToken: z.string().min(32).max(128).optional(),
+2590:    const raw   = issue?.message ?? "Invalid request body";
+2597:    message,
+2598:    sessionId,
+2603:    resumeToken,
+2606:  const rawTurnClassification = classifyRequest(message);
+2607:  const rawTurnIntent = resolveTurnIntent(message, {
+2611:    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+2613:  const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
+2622:  if (!sessionId && isImmediateExecutionRequest(message)) {
+2624:      error: "execution_session_required",
+2625:      message: "Repair Plan execution requires the original audit session.",
+2628:  if (effectiveExecutionId && !sessionId) {
+2630:      error: "executionId requires the original chat session",
+2648:  let modelMessage = message;
+2655:    if (!sessionId) {
+2657:        error: "Build handoff requires the original chat session",
+2670:        message: aiChatMessagesTable,
+2671:        session: aiChatSessionsTable,
+2676:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+2684:    if (planRow.session.projectId !== projectId) {
+2687:    if (planRow.session.id !== sessionId) {
+2689:        error: "Build Mode must use the session that produced the approved plan",
+2694:    const storedPlan = parseTaskResult(planRow.message.taskResult);
+2696:      return res.status(400).json({ error: "The selected message is not an implementation plan", code: "PLAN_INVALID" });
+2760:      message: "Build Mode started from the approved implementation plan",
+2762:      payload: { messageId: effectiveBuildPlanMessageId, approvedFiles: [...implementationPlanScope] },
+2765:      message,
+2777:  if (sessionId) {
+2781:      .where(eq(aiChatSessionsTable.id, sessionId))
+2787:      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+2799:  const streamClassificationResolution = resumeActiveTaskClassification(
+2800:    message,
+2805:    message,
+2809:  const streamTurnIntent = resolveTurnIntent(message, {
+2811:    resumed: streamClassificationResolution.resumed,
+2863:  let resumeCheckpoint: AiExecutionCheckpoint | undefined;
+2878:    // Priority: (1) explicit linkedTaskId in request, (2) stored in existing session.
+2888:        sse({ type: "error", code: "TASK_NOT_FOUND", message: "Task not found" });
+2894:        sse({ type: "error", code: "INVALID_TASK_CONTEXT", message: "Invalid task context — task does not belong to this project" });
+2907:    const sessionIdToUse = existingSession?.id ?? randomUUID();
+2909:    // Reserve a new session before the long model/tool loop starts. The client
+2912:    // messages are still committed together after the model returns.
+2917:          id: sessionIdToUse,
+2921:            const trimmed = message.trim();
+2932:        sse({ type: "error", code: "SESSION_CREATE_FAILED", message: "Failed to create chat session" });
+2938:        type: "session_started",
+2939:        sessionId: createdSession.id,
+2953:      sessionId: sessionIdToUse,
+2954:      message,
+2966:        || isImmediateExecutionRequest(message),
+2977:      sse({ type: "error", code: "EXECUTION_NOT_FOUND", message: "AI execution not found" });
+2986:        && storedRequest.modelMessage === storedRequest.message
+2988:          `${executionRequest.message}\n\nBUILD HANDOFF`,
+2993:        storedRequest.sessionId === executionRequest.sessionId &&
+2994:        storedRequest.message === executionRequest.message &&
+3011:          message: "Execution does not match the requested session, plan, or validation scope.",
+3020:          message: "This execution is already running. Reconnect through its status instead of starting a duplicate.",
+3026:      if (["cancelled", "completed", "cancelling"].includes(aiExecution.status)) {
+3030:          message: `Execution is already ${aiExecution.status}.`,
+3040:          message: "A resume token is required to continue this execution.",
+3052:      resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
+3053:      const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
+3054:      if (resumeContext) {
+3055:        modelMessage = `${modelMessage}\n\n${resumeContext}`;
+3061:        resumeToken: effectiveResumeToken,
+3067:          message: "Another resume won the execution claim. Retry after refreshing its status.",
+3081:        sessionId: sessionIdToUse,
+3087:      executionResumeToken = created.resumeToken;
+3097:          message: "Another request won the execution claim. Retry after refreshing its status.",
+3123:      resumeCheckpoint?.nodeStates,
+3125:    if (resumeCheckpoint?.nodeStates && !reconciledExecutionNodes) {
+3130:        cancelled: false,
+3136:        message: "The saved execution progress does not match the approved plan. Start a fresh execution.",
+3143:    const checkpointOperation = resumeCheckpoint?.operation;
+3148:        : executionRequest.message,
+3151:      expectedBehavior: executionRequest.message,
+3223:            logger.warn({ executionId: aiExecution!.id, sequence }, error.message);
+3253:      ...(executionResumeToken ? { resumeToken: executionResumeToken } : {}),
+3261:        return ["recovery_required", "resume_accepted", "abandoned", "already_abandoned"].includes(String(outcome))
+3285:    const immediateExecutionRequest = isImmediateExecutionRequest(message);
+3292:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+3302:      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+3304:    // Enrich with cross-session memories (outside cache; always fresh).
+3306:      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
+3325:      sessionId: existingSession?.id ?? sessionId ?? null,
+3330:      messageCount: historyRows.length,
+3338:        sessionId: existingSession?.id ?? sessionId ?? null,
+3370:            | "cancelled"
+3552:        sse({ type: "execution_guard", code: step.code, tool: step.tool, message: step.message });
+3797:          const session = await browserValidationManager!.start({
+3808:              session,
+3834:              reasonCode: (error instanceof Error && /stale/i.test(error.message)
+3836:                : error instanceof Error && /limit|timeout|steps|selector|screenshot/i.test(error.message)
+3868:          message: modelMessage,
+3885:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+3929:          response: failClosedBeforeEvidenceResponse(message),
+3938:      // assistant-message transaction. This keeps JSON and SSE semantics
+3939:      // identical and makes cancellation/tool/recovery precedence explicit.
+3945:        cancelled: activeExecutionAbortController.signal.aborted,
+3950:          terminalOutcome.message ?? "The AI request did not complete.",
+3957:          sessionId: sessionIdToUse,
+3959:          message,
+3976:          sessionId: sessionIdToUse,
+3989:            message: safeMessage,
+3995:            sessionId: sessionIdToUse,
+4004:            sessionId: sessionIdToUse,
+4005:            message: {
+4007:              sessionId: sessionIdToUse,
+4040:            cancelled: terminalOutcome.outcome === "INTERRUPTED",
+4069:            message: "Build Mode proposed changes outside the approved implementation plan. No proposal was created.",
+4082:          message: "Build Mode completed and produced a scoped proposal",
+4085:            messageId: effectiveBuildPlanMessageId,
+4107:          { code: err.code, message: err.message, provider,
+4112:        // Provider messages, model identifiers, paths, and upstream diagnostics
+4123:          message: retryable
+4137:          message: "The AI provider could not complete the request. Retry in a moment or configure another provider.",
+4142:        sessionId: sessionIdToUse,
+4144:        message,
+4153:      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+4163:          message: "The AI request returned an unsupported response and was not completed.",
+4171:          sessionId: sessionIdToUse,
+4173:          message,
+4182:        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+4195:    // If a response to an Arabic message contains Thai-range characters
+4199:      const hasArabic = /[\u0600-\u06FF]/.test(message);
+4205:          "AI-06: response to Arabic message contains Thai-range characters — possible model hallucination",
+4210:    // Atomic: session creation (when needed) + user message + assistant message
+4211:    // + session timestamp update in one transaction — prevents a half-saved
+4240:      resumed: streamClassificationResolution.resumed,
+4261:          message: safeMessage,
+4273:            cancelled: false,
+4279:          sessionId: sessionIdToUse,

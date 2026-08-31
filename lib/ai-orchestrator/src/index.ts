@@ -225,8 +225,13 @@ export {
   CapabilityRegistry,
   CapabilityRegistryError,
   DEFAULT_CAPABILITY_POLICY,
+  validateCapabilityInvocationScope,
 } from "./capability-contract.js";
-export { READ_PROJECT_FILE_CAPABILITY, createServerCapabilityRegistry } from "./recipe-capabilities.js";
+export {
+  READ_PROJECT_FILE_CAPABILITY,
+  createServerCapabilityRegistry,
+} from "./recipe-capabilities.js";
+export type { RecipeCapabilityRuntime } from "./recipe-capabilities.js";
 export {
   CAPABILITY_CATALOG_VERSION,
   MAX_CATALOG_ENTRIES,
@@ -342,6 +347,8 @@ export type {
 export {
   RECIPE_CONTRACT_VERSION,
   RecipeIdSchema,
+  RecipeApprovedPathSchema,
+  RecipeRequestSchema,
   RecipeNodeIdSchema,
   RecipeOutputNameSchema,
   EvidencePredicateSchema,
@@ -360,6 +367,7 @@ export {
 } from "./recipe-contract.js";
 export type {
   RecipeId,
+  RecipeRequest,
   RecipeNodeId,
   RecipeOutputName,
   EvidencePredicate,
@@ -394,6 +402,11 @@ export type {
   CompileCapabilityRecipeOptions,
   RecipeTransitionAdvanceResult,
 } from "./recipe-compiler.js";
+export {
+  RecipeDefinitionRegistry,
+  createServerRecipeDefinitionRegistry,
+} from "./recipe-definition-registry.js";
+export type { RecipeDefinition } from "./recipe-definition-registry.js";
 
 // Wave 2: context lifetime management
 export { applyLifetime, DEFAULT_LIFETIME_POLICY } from "./context-runtime/context-lifetime.js";

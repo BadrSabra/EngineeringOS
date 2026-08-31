@@ -1,0 +1,232 @@
+import type { ToolDefinition } from "./file-tools.js";
+import type { PendingChange } from "../schemas/chat.schema.js";
+import { randomUUID } from "node:crypto";
+import type {
+  ValidationFailure,
+  ValidationResult,
+  ValidationStatus,
+} from "../validation-result.js";
+import path from "node:path";
+import { runBoundedCommand, EXECUTION_LIMITS, type BoundedCommandResult } from "../execution-kernel.js";
+
+/** Named state of an approval-gated repair handoff. */
+export type RepairLoopState = "VALIDATING" | "REPAIRING" | "READY_FOR_REVIEW" | "BLOCKED";
+
+/**
+ * Hard upper bound for server-owned repair attempts.
+ *
+ * Callers may choose a smaller budget for a child loop, but no execution path
+ * may expand a repair handoff beyond this limit.
+ */
+export const MAX_REPAIR_ATTEMPTS = 3;
+
+export type ValidationToolResult = ValidationResult;
+
+/** A server-owned command profile. The model selects a profile, never a shell. */
+export type CommandProfile = {
+  name: string;
+  command: string;
+  args: readonly string[];
+  timeoutMs: number;
+  maxOutputBytes: number;
+  cwd?: string;
+  allowedOperations?: readonly string[];
+  allowedPaths?: readonly string[];
+};
+
+export type CommandRunner = (request: {
+  profile: CommandProfile;
+  rootPath: string;
+  signal?: AbortSignal;
+  operationId?: string;
+  revision?: string;
+  targetPaths?: readonly string[];
+}) => Promise<BoundedCommandResult>;
+
+export type BrowserValidationRunner = (request: {
+  profile: string;
+  rootPath: string;
+  pendingChanges?: readonly PendingChange[];
+  operationId?: string;
+  revision?: string;
+  signal?: AbortSignal;
+}) => Promise<ValidationResult>;
+
+/** Default adapter used by the API layer after it has selected a profile. */
+export const runRegisteredCommand: CommandRunner = async ({
+  profile,
+  rootPath,
+  signal,
+}) => runBoundedCommand({
+  command: profile.command,
+  args: [...profile.args],
+  rootPath,
+  cwd: profile.cwd ? path.resolve(rootPath, profile.cwd) : rootPath,
+  timeoutMs: profile.timeoutMs,
+  maxOutputBytes: profile.maxOutputBytes,
+  allowedCommands: new Set([path.basename(profile.command).toLowerCase()]),
+  signal,
+});
+
+    pendingChanges,
+  );
+  const deadline = new Promise<ValidationDraft>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      resolve(emptyValidationDraft(
+        profile,
+        "blocked",
+        "Registered validation exceeded its server-owned attempt deadline.",
+        "Validation timed out before the candidate could be approved.",
+      ));
+    }, config.validationOverallTimeoutMs);
+  });
+  try {
+    return await Promise.race([operation, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener("abort", abortFromCaller);
+    if (timedOut) void operation.catch(() => undefined);
+  }
+}
+
+export async function runRepairValidation(
+  rootPath: string,
+  profile: ValidationProfile,
+  relativePaths: string[],
+  signal?: AbortSignal,
+  pendingChanges: readonly PendingValidationChange[] = [],
+): Promise<ValidationResult> {
+  const startedAt = Date.now();
+  const result = await runWithValidationDeadline(rootPath, profile, relativePaths, signal, pendingChanges);
+  const elapsedMs = Math.max(result.elapsedMs ?? 0, Date.now() - startedAt);
+  const terminalState = result.terminalState ?? (
+    result.status === "blocked" ? "timed_out" : validationTerminalState(result.status)
+  );
+  return attachValidationEvidence({
+    ...result,
+    processBudgetMs: result.processBudgetMs ?? config.validationProcessTimeoutMs,
+    overallBudgetMs: result.overallBudgetMs ?? config.validationOverallTimeoutMs,
+    elapsedMs,
+    remainingMs: Math.max(0, config.validationOverallTimeoutMs - elapsedMs),
+    terminalState,
+    nextAction: result.nextAction ?? validationNextAction(result.status, terminalState),
+  });
+}
+
+/**
+ * Execute a server-registered behavioral oracle against pending changes without
+ * mutating the live workspace. The command and arguments come from a fixture,
+ * never from model output.
+ */
+export async function runRepairRuntimeOracle(
+  rootPath: string,
+  pendingChanges: readonly PendingValidationChange[],
+  command: RuntimeOracleCommand,
+  signal?: AbortSignal,
+): Promise<{ status: "passed" | "failed"; code?: string; detail?: string }> {
+  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
+  try {
+    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+    const execution = await runBoundedCommand({
+      command: command.command,
+      args: [...command.args],
+      rootPath: validationWorkspace.rootPath,
+      cwd: validationWorkspace.rootPath,
+      timeoutMs: Math.min(
+        command.timeoutMs ?? config.validationProcessTimeoutMs,
+        config.validationProcessTimeoutMs,
+      ),
+      maxOutputBytes: 1_000_000,
+
+function clampParallelism(value: number | undefined): number {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_PARALLEL_NODES;
+  return Math.max(1, Math.min(Math.floor(value as number), MAX_PARALLEL_NODES));
+}
+
+function updateNode(
+  nodes: ExecutionNode[],
+  nodeId: string,
+  nextStatus: ExecutionNode["status"],
+): ExecutionNode[] {
+  return transitionExecutionNode(nodes, nodeId, nextStatus);
+}
+
+function isRecipeNode(node: ExecutionNode): boolean {
+  return Boolean(node.capabilityId || node.executionContext);
+}
+
+async function authorizeNode(
+  opts: ExecutionNodeCoordinatorOptions,
+  node: ExecutionNode,
+  phase: ExecutionNodeAuthorizationPhase,
+  attempt: number,
+): Promise<ExecutionNodeAuthorization> {
+  if (opts.signal?.aborted) return { allowed: false, reason: "execution cancellation requested" };
+  if (!opts.authorizeNodeExecution) {
+    return isRecipeNode(node)
+      ? { allowed: false, reason: "recipe node has no server-owned operation authorization" }
+      : { allowed: true };
+  }
+  try {
+    const result = await opts.authorizeNodeExecution({ node, phase, attempt });
+    return result?.allowed
+      ? { allowed: true }
+      : { allowed: false, reason: result?.reason ?? "server-owned operation authorization rejected the node" };
+  } catch (error) {
+    return {
+      allowed: false,
+      reason: error instanceof Error ? error.message : "server-owned operation authorization failed",
+    };
+  }
+}
+
+function blockUnauthorizedNode(
+  nodes: ExecutionNode[],
+  nodeId: string,
+  opts: ExecutionNodeCoordinatorOptions,
+  reason: string,
+): ExecutionNode[] {
+  let next = transitionToBlocked(nodes, nodeId, opts, reason);
+  next = setLastFailure(next, nodeId, "blocked", reason);
+  return next;
+}
+
+function recordValidationAttempts(
+  nodes: ExecutionNode[],
+  nodeId: string,
+  consumed: number | undefined,
+): ExecutionNode[] {
+  if (!Number.isInteger(consumed) || consumed === undefined || consumed <= 0) return nodes;
+  return nodes.map((node) => node.id === nodeId
+    ? ExecutionNodeSchema.parse({
+        ...node,
+        validationAttempts: Math.min(
+          MAX_REPAIR_ATTEMPTS,
+          node.validationAttempts + consumed,
+        ),
+      })
+    : node);
+}
+
+function transitionToBlocked(
+  nodes: ExecutionNode[],
+  nodeId: string,
+  opts: ExecutionNodeCoordinatorOptions,
+  detail: string,
+): ExecutionNode[] {
+  const node = nodes.find((candidate) => candidate.id === nodeId);
+  if (!node || node.status === "blocked" || node.status === "passed") return nodes;
+  const next = updateNode(nodes, nodeId, "blocked");
+  emit(opts, next, "blocked", nodeId, detail);
+  return next;
+}
+
+/**
+ * Recover a plan after a process restart or a previously interrupted worker.
+ * A node that was running never wrote directly to the workspace in this
+ * execution model, so it is safe to retry it from its bounded attempt count.
+ */
+function recoverInterruptedNodes(
+  initialNodes: readonly ExecutionNode[],

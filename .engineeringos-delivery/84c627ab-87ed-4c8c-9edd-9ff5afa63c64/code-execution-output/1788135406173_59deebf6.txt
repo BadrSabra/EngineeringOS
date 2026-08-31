@@ -1,0 +1,322 @@
+stdout:
+
+--- #12 ---
+# Stop repeated AI retries from multiplying latency
+
+## What & Why
+
+The AI layer now has a request-owned execution ledger, but provider backoff and several response-recovery calls still use local retry rules. This can make one logical request spend more time and model calls than the operator expects. Consolidating those retries around one deadline and one admission rule gives the largest reliability improvement with a narrow implementation surface.
+
+## Done looks like
+
+- Groq and OpenAI-compatible retry/backoff attempts stop when the shared request deadline, cancellation signal, or attempt budget is reached.
+- Empty-response, truncated-response, JSON-correction, and forensic-recovery attempts use explicit bounded recovery categories.
+- A provider fallback cannot start after the request budget is exhausted.
+- Completed evidence is preserved when a retry or recovery is refused.
+- Existing provider-specific behavior remains unchanged when no request ledger is supplied.
+- Deterministic tests cover cancellation during backoff, deadline exhaustion, provider fallback exhaustion, and evidence preservation.
+
+## Minimal implementation plan
+
+1. Add one small adapter around provider calls that admits an attempt, clamps timeout to remaining request time, and records completion/failure.
+2. Route client-level retry/backoff through the adapter without changing provider selection or error classification.
+3. Thread the existing ledger into all direct chat-agent recovery calls and remove duplicated local deadline ownership only where it conflicts with the request deadline.
+4. Keep evidence and terminal-result construction unchanged; only change whether a new attempt may start.
+5. Add focused unit tests before touching release/browser validation.
+
+## Out of scope
+
+- Changing model quality, prompts, or provider priority.
+- Replacing the evidence RunLedger.
+- Adding dashboard UI; that is covered by Task #11.
+- Groq catalog outage behavior; covered by Tasks #8 and #10.
+
+## Dependencies
+
+- Depends on Task #9 (completed): use its ExecutionLedger contract.
+
+## Relevant files
+
+- lib/ai-orchestrator/src/execution-ledger.ts
+- lib/ai-orchestrator/src/tool-execution-engine.ts
+- lib/ai-orchestrator/src/groq-client.ts
+- lib/ai-orchestrator/src/openai-compatible-client.ts
+- lib/ai-orchestrator/src/agents/chat-agent.ts
+- lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+
+
+--- #13 ---
+# Make simple AI questions use the shortest safe path
+
+## What & Why
+
+Greetings, factual questions, and small conversational requests should not pay for planner, hierarchical execution, forensic recovery, or broad tool discovery. Keeping these requests on a short direct-completion path reduces latency and provider exposure while preserving the existing guarded path for project questions and broad investigations.
+
+## Done looks like
+
+- Simple chat is classified once and makes no planner or hierarchical dispatch.
+- Simple chat does not initialize filesystem or forensic evidence machinery unless the request explicitly needs it.
+- Tool-assisted, project, implementation, and broad forensic requests continue using their current guarded paths.
+- The response contract, provider fallback, cancellation, and SSE/non-streaming behavior remain unchanged.
+- Deterministic tests prove a greeting and a short conversational question use one bounded completion path.
+- A regression test proves an explicit project/file question still enters the tool path.
+
+## Minimal implementation plan
+
+1. Reuse the existing turn-intent/classification result as the only routing decision.
+2. Add a narrow early branch after intent resolution and before planner/prefetch setup.
+3. Call the existing provider strategy/fallback boundary with the shared execution ledger; do not add a second completion implementation.
+4. Preserve the existing JSON parsing and safe redaction behavior.
+5. Add unit tests around routing and one API-level parity test for SSE versus non-streaming output.
+
+## Out of scope
+
+- Rewriting the classifier or prompt system.
+- Changing provider priority or model defaults.
+- Changing broad-query decomposition.
+- Dashboard changes.
+
+## Dependencies
+
+- Depends on Task #9 (completed): use the shared request budget.
+- Should be implemented after the retry consolidation task if both are accepted, so both paths use the same provider-call adapter.
+
+## Relevant files
+
+- lib/ai-orchestrator/src/agents/chat-agent.ts
+- lib/ai-orchestrator/src/turn-intent.ts
+- lib/ai-orchestrator/src/prompts/profile-classifier.ts
+- lib/ai-orchestrator/src/agent-complete.ts
+- artifacts/api-server/src/lib/ai-route-helpers.ts
+- lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+- artifacts/api-server/src/routes/ai/chat-sse.test.ts
+
+
+--- #14 ---
+# Prevent long investigations from looping without progress
+
+## What & Why
+
+Long investigations can still spend several model turns repeating reads, searches, or planning without producing new evidence or closing a claim. Existing duplicate and soft-limit guards help, but a small explicit progress policy would make broad investigations terminate earlier and produce a truthful partial result instead of consuming the full budget.
+
+## Done looks like
+
+- Each investigation turn is classified as new evidence, new dependency, claim closure, useful edit/validation, or no progress.
+- A bounded consecutive no-progress streak forces synthesis or a safe incomplete result.
+- Repeated cached reads and searches cannot reset the progress streak.
+- Hierarchical children report progress and exhaustion consistently to the parent aggregate.
+- No-progress termination preserves collected evidence and uses the existing incomplete/verdict semantics.
+- Deterministic tests cover repeated reads, repeated searches, a productive turn after a stall, hierarchical child exhaustion, and cancellation.
+
+## Minimal implementation plan
+
+1. Reuse existing source-retrieval telemetry, duplicate detection, and objective claim state rather than adding a second evidence tracker.
+2. Define one small progress predicate at the tool-loop boundary.
+3. Make the existing no-progress/force-primary/synthesis guards consume that predicate.
+4. Pass only the resulting status to hierarchical receipts; do not redesign scheduling.
+5. Add focused tests for the transition boundaries and verify that ordinary chat remains unaffected.
+
+## Out of scope
+
+- New planning algorithms or recursive task decomposition.
+- Changes to evidence acceptance rules.
+- Provider retry/backoff behavior; covered by the retry task.
+- Operator UI; covered by Task #11.
+
+## Dependencies
+
+- Depends on Task #9 (completed).
+- Should follow the retry consolidation task to avoid conflating provider failure with no-progress behavior.
+
+## Relevant files
+
+- lib/ai-orchestrator/src/tool-execution-engine.ts
+- lib/ai-orchestrator/src/agents/hierarchical-executor.ts
+- lib/ai-orchestrator/src/agents/chat-agent.ts
+- lib/ai-orchestrator/src/required-claims.ts
+- lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+- lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts
+
+--- #15 ---
+# Fail-Closed AI Tool Authorization
+
+## What & Why
+
+The AI tool policy documents that a missing authorization manifest must fail closed, but the current post-model authorization path can allow known tools when the manifest is absent. Privileged validation and execution tools can also pass without an explicit server-owned validation-profile allowlist. Close this boundary before expanding autonomous AI capabilities.
+
+## Done looks like
+
+- A model-produced tool call is rejected when the authorized tool manifest is absent or does not contain the tool.
+- `run_validation`, `run_command`, and `run_browser_validation` require an explicit approved server-owned profile list.
+- Existing approved file, validation, and execution flows continue to work with no prompt- or repository-content-based authorization decisions.
+- Rejected calls produce bounded diagnostics and cannot reach tool execution.
+- Unit and integration coverage proves fail-closed behavior and verifies every production caller supplies the required authorization inputs.
+
+## Out of scope
+
+- Adding new tools or validation profiles.
+- Replacing project-root, approval, or path-scope checks.
+- Prompt-injection detection or changes to provider selection.
+
+## Steps
+
+1. **Tighten the authorization contract** — Make absence of the tool manifest and absence of approved validation profiles deny the relevant calls, while retaining the existing approval and path checks.
+2. **Audit production call sites** — Update the orchestration and API boundaries so authorization inputs come only from server-owned policy state and are present on every privileged invocation.
+3. **Preserve safe failure behavior** — Ensure denied calls remain typed tool failures and cannot be interpreted as successful model output or continue the loop as if execution occurred.
+4. **Add regression coverage** — Cover absent manifests, unknown tools, unapproved profiles, approved calls, and provider fallback paths without exposing prompt or repository text.
+
+## Relevant files
+
+- `lib/ai-orchestrator/src/tool-policy.ts`
+- `lib/ai-orchestrator/src/tool-execution-engine.ts`
+- `lib/ai-orchestrator/src/__tests__/tool-policy.test.ts`
+- `lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.ts`
+
+
+--- #16 ---
+# Strict AI Execution State Validation
+
+## What & Why
+
+Durable AI execution state is used for reconnect and resume, but malformed checkpoint node entries can currently be silently discarded and a shallow request-envelope parser accepts loosely shaped persisted values. A corrupted or partial checkpoint must never be mistaken for a valid fresh state, because that can skip reconciliation, weaken operation binding, or produce an untrustworthy result.
+
+## Done looks like
+
+- Supplied-but-invalid execution envelopes and checkpoint node arrays are rejected rather than partially normalized.
+- Request IDs, message fields, objective data, target paths, node identifiers, timestamps, sequences, and bounded arrays have explicit shape and size limits.
+- Resume distinguishes an absent optional field from a corrupted supplied field and stops safely when persisted state is invalid.
+- Project, session, operation, and validation-target bindings remain consistent across reconnect and resume.
+- Corruption, partial-node, stale-binding, and valid-resume tests demonstrate fail-closed behavior without losing the normal resume path.
+
+## Out of scope
+
+- Redesigning the AI execution state machine or lease system.
+- Changing cancellation semantics or the user-facing stop-reason UI.
+- Introducing new autonomous execution stages.
+
+## Steps
+
+1. **Define strict persisted schemas** — Establish bounded validation for the execution request envelope and checkpoint, including node arrays, scalar fields, timestamps, sequences, target paths, and optional objective/binding data.
+2. **Reject unsafe checkpoint shapes** — Preserve the distinction between missing and invalid data, and prevent resume or claim from continuing when a supplied checkpoint is malformed or internally inconsistent.
+3. **Recheck execution bindings** — Ensure the validated state is still tied to the owning project, session, operation, revision, and approved targets before resuming work.
+4. **Add recovery regression tests** — Cover malformed JSON, invalid node entries, mixed valid/invalid arrays, out-of-scope paths, stale bindings, reconnect, and successful valid resume.
+
+## Relevant files
+
+- `artifacts/api-server/src/lib/ai-execution-state.ts`
+- `artifacts/api-server/src/lib/ai-execution-state.test.ts`
+- `artifacts/api-server/src/routes/ai/chat.ts`
+- `artifacts/api-server/src/routes/ai/chat-sse.test.ts`
+- `lib/ai-orchestrator/src/execution-ledger.ts`
+
+
+--- #17 ---
+# Idempotent JSON AI Chat
+
+## What & Why
+
+The non-streaming `/api/ai/chat` endpoint accepts a message and immediately starts orchestration, but it does not expose the durable execution/idempotency handoff used by the streaming path. Browser double-clicks, client retries, or proxy retries can therefore create duplicate turns and duplicate model work for one logical user request.
+
+## Done looks like
+
+- A client retry of the same non-streaming chat submission resolves to one logical user turn and one assistant outcome.
+- Concurrent identical submissions are serialized or replay the existing durable result instead of starting duplicate model executions.
+- Ownership, project/session linkage, and authorization are checked before replaying any result.
+- In-progress, completed, failed, and cancelled executions have deterministic response behavior, while the existing JSON response shape remains compatible.
+- Tests cover retries, concurrent submissions, replay after completion, and a distinct message or idempotency key starting a new turn.
+
+## Out of scope
+
+- Consolidating provider retries inside one request (covered by the retry-budget task).
+- Changing the SSE protocol or streaming reconnect behavior.
+- Deduplicating intentionally different user messages.
+
+## Steps
+
+1. **Define the request identity** — Add a bounded client/request idempotency contract for the JSON route and bind it to the authenticated user, project, session, and message context.
+2. **Use durable execution state** — Claim the logical request atomically before provider work, and return or replay the durable outcome when an equivalent request is already active or complete.
+3. **Handle races and terminal states** — Make concurrent claims, provider failure, cancellation, and recovery produce one authoritative result without duplicate user/assistant persistence.
+4. **Add API regression coverage** — Exercise duplicate HTTP submissions and concurrent requests, then verify normal new messages and existing streaming behavior remain unchanged.
+
+## Relevant files
+
+- `artifacts/api-server/src/routes/ai/chat.ts`
+- `artifacts/api-server/src/lib/ai-execution-state.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.test.ts`
+- `artifacts/api-server/src/routes/ai/chat-sse.test.ts`
+
+
+--- #18 ---
+# Bound AI Release Checks
+
+## What & Why
+
+The AI release quality gate runs enabled checks as child processes, but a hung check can block the entire gate indefinitely. Release validation must fail closed with retained diagnostics and cleanup rather than leaving operators with a permanently waiting release or orphaned validation process.
+
+## Done looks like
+
+- Every enabled release check has an explicit bounded execution deadline.
+- A timed-out check is terminated, its process resources are cleaned up, and it produces a stable timeout failure code.
+- The gate can evaluate subsequent checks after a timeout and marks blocking timeouts as release blockers.
+- Persisted release decisions contain only the existing safe status, code, and duration fields; command output remains excluded.
+- Tests cover a hanging child, cleanup, continuation to later checks, and the final blocking decision.
+
+## Out of scope
+
+- Adding new AI quality checks or changing which checks are blocking.
+- Enabling live providers or Preview by default.
+- Persisting child-process output or raw model/provider diagnostics.
+
+## Steps
+
+1. **Define check deadlines** — Add a configurable bounded timeout policy for each release check while preserving the existing controlled-environment behavior.
+2. **Terminate safely** — On timeout, stop the child and its process group, prevent late exit events from overwriting the timeout result, and release resources.
+3. **Integrate with the quality decision** — Represent timeout as a deterministic failed check and let the existing blocking/informational policy produce the final release decision.
+4. **Add process-level regression coverage** — Use a deliberately hanging child and verify timeout classification, cleanup, later-check execution, safe output handling, and decision persistence.
+
+## Relevant files
+
+- `artifacts/api-server/src/lib/ai-release-quality-gate.ts`
+- `artifacts/api-server/src/lib/ai-release-quality-gate.test.ts`
+- `artifacts/api-server/scripts/release-lock.test.mjs`
+- `scripts/dashboard-journey-contract.test.mjs`
+
+
+--- #19 ---
+# Redact Provider Error Diagnostics
+
+## What & Why
+
+OpenAI-compatible provider failures currently place portions of upstream error bodies and provider messages in logs and thrown diagnostic text. Providers can echo request fragments, account metadata, or other sensitive content. Preserve operational classification while ensuring provider-derived diagnostics are safe and bounded at the client boundary.
+
+## Done looks like
+
+- Logs contain only allowlisted provider status, stable error code, provider identity, model identity, and bounded retry metadata.
+- Raw upstream response bodies and untrusted provider messages never reach logs, persisted user-facing records, JSON responses, or SSE payloads.
+- Error classification for authentication, quota, rate limiting, model availability, and server failures remains unchanged.
+- Redaction and truncation behavior is centralized and consistent across OpenAI-compatible and Groq-compatible paths.
+- Regression tests prove sensitive body fragments are absent while safe classification fields remain available.
+
+## Out of scope
+
+- Changing provider retry or fallback policy.
+- Hiding safe user-facing recovery guidance.
+- Rotating credentials or changing provider authentication configuration.
+
+## Steps
+
+1. **Define safe provider diagnostics** — Separate classification inputs from outward error fields and retain only allowlisted, bounded values needed for operations.
+2. **Harden logging and exceptions** — Remove raw body/message interpolation from logs and thrown messages, applying the existing user-facing redaction boundary to every API and stream path.
+3. **Verify all provider adapters** — Apply the same contract to the OpenAI-compatible and Groq-compatible clients without changing status-code classification or fallback decisions.
+4. **Add leakage regression tests** — Feed representative credential-like, prompt-like, and account-like upstream bodies through non-streaming and streaming failures and assert they cannot escape into user-visible or persisted diagnostics.
+
+## Relevant files
+
+- `lib/ai-orchestrator/src/openai-compatible-client.ts`
+- `lib/ai-orchestrator/src/groq-client.ts`
+- `lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts`
+- `lib/ai-orchestrator/src/__tests__/groq-client.test.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.test.ts`

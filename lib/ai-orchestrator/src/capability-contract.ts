@@ -1,3 +1,5 @@
+import { realpath } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 
 /**
@@ -245,8 +247,19 @@ export type CapabilityExecutionContext = {
   operation: string;
   /** Server-owned approved profile set, if the capability uses profiles. */
   approvedCommandProfiles?: ReadonlySet<string>;
+  /** Server-owned scope copied from the current recipe node. */
+  scope?: {
+    kind: CapabilityScopeKind;
+    paths: readonly string[];
+  };
+  /** Relative paths approved by the current recipe node. */
+  allowedFiles?: readonly string[];
   /** Server-owned approval state; model output cannot satisfy this gate. */
   approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+  /** Server-owned authorization state for catalog capabilities. */
+  authorized?: boolean;
+  /** Server-owned source revision for runtime profile checks. */
+  revision?: string;
   signal?: AbortSignal;
 };
 
@@ -263,11 +276,13 @@ export type CapabilityFailureCode =
   | "CAPABILITY_RECIPE_VERSION_UNSUPPORTED"
   | "CAPABILITY_OPERATION_NOT_ALLOWED"
   | "CAPABILITY_PROFILE_NOT_APPROVED"
+  | "CAPABILITY_AUTHORIZATION_REQUIRED"
   | "CAPABILITY_APPROVAL_REQUIRED"
   | "CAPABILITY_INPUT_INVALID"
   | "CAPABILITY_INPUT_TOO_LARGE"
   | "CAPABILITY_OUTPUT_INVALID"
   | "CAPABILITY_OUTPUT_TOO_LARGE"
+  | "CAPABILITY_SCOPE_VIOLATION"
   | "CAPABILITY_EXECUTION_FAILED";
 
 export type CapabilityFailure = {
@@ -332,6 +347,78 @@ function hasReservedInputKey(
     if (hasReservedInputKey(child, depth + 1, keyCount, seen)) return true;
   }
   return false;
+}
+
+const PATH_INPUT_KEYS = new Set(["path", "paths", "target", "targetpath", "targetpaths"]);
+const SENSITIVE_PATH = /^(?:\.env(?:\..*)?|\.git(?:\/|$)|\.ssh(?:\/|$)|(?:secrets?|credentials?)(?:[._-]|\/|$)|.*(?:private[_-]?key|password|token|api[_-]?key).*)$/i;
+
+function normalizedInvocationPath(value: string): string {
+  return value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+}
+
+function collectInvocationPaths(value: unknown, key?: string): string[] {
+  if (typeof value === "string" && key && PATH_INPUT_KEYS.has(key.replace(/[_-]/g, "").toLowerCase())) {
+    return [normalizedInvocationPath(value)];
+  }
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) return value.flatMap((item) => collectInvocationPaths(item, key));
+  return Object.entries(value).flatMap(([childKey, child]) => collectInvocationPaths(child, childKey));
+}
+
+function pathIsContained(root: string, candidate: string): boolean {
+  const within = relative(root, candidate);
+  return within === "" || (!isAbsolute(within) && within !== ".." && !within.startsWith(`..${"/"}`));
+}
+
+/**
+ * Re-check the current node's path scope at the point of invocation.
+ * Compilation and durable binding checks are intentionally not sufficient:
+ * symlinks and a changed workspace can invalidate a previously safe path.
+ */
+export async function validateCapabilityInvocationScope(
+  capability: Pick<CapabilityAdapter, "id" | "catalog">,
+  input: unknown,
+  context: CapabilityExecutionContext,
+  recipeVersion = 1,
+): Promise<CapabilityFailure | undefined> {
+  if (!capability.catalog && !context.scope && !(context.allowedFiles?.length)) return undefined;
+  const scopeKind = capability.catalog?.defaultScope;
+  const paths = collectInvocationPaths(input);
+  const approved = new Set(
+    [...(context.allowedFiles ?? []), ...(context.scope?.paths ?? [])]
+      .map(normalizedInvocationPath)
+      .filter(Boolean),
+  );
+  const requiresPath = scopeKind === "file" || scopeKind === "paths" || scopeKind === "workspace";
+  if (requiresPath && paths.length === 0) {
+    return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "A scoped capability requires a server-approved target path.");
+  }
+
+  let root: string;
+  try {
+    root = await realpath(resolve(context.rootPath));
+  } catch {
+    return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability project root is unavailable.");
+  }
+  for (const path of paths) {
+    if (!path || isAbsolute(path) || path === "." || path.startsWith("../") || path.includes("/../") || SENSITIVE_PATH.test(path)) {
+      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability target is outside the approved safe path scope.");
+    }
+    if (approved.size > 0 && ![...approved].some((allowed) =>
+      path === allowed || path.startsWith(`${allowed.replace(/\/+$/, "")}/`))) {
+      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability target is not in the node's approved path scope.");
+    }
+    let target: string;
+    try {
+      target = await realpath(resolve(root, path));
+    } catch {
+      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability target could not be resolved safely.");
+    }
+    if (!pathIsContained(root, target)) {
+      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability target resolves outside the project root.");
+    }
+  }
+  return undefined;
 }
 
 function validateRegistration(adapter: CapabilityAdapter | null | undefined): CapabilityFailure | undefined {
@@ -502,6 +589,14 @@ export class CapabilityRegistry {
     )) {
       return failure(capability.id, recipeVersion, "CAPABILITY_PROFILE_NOT_APPROVED", "The capability requires a server-approved command profile.");
     }
+    if (capability.catalog?.requiresAuthorization && context.authorized !== true) {
+      return failure(capability.id, recipeVersion, "CAPABILITY_AUTHORIZATION_REQUIRED", "The capability requires server authorization before execution.");
+    }
+    if (capability.catalog && context.scope && !capability.catalog.supportedScopes.includes(context.scope.kind)) {
+      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability does not support the requested invocation scope.");
+    }
+    const scopeFailure = await validateCapabilityInvocationScope(capability, validation.input, context, recipeVersion);
+    if (scopeFailure) return scopeFailure;
 
     let output: unknown;
     try {

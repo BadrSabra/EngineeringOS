@@ -1,0 +1,251 @@
+--- journey failure markers ---
+586-
+587-    Test timeout of 45000ms exceeded.
+588-
+589:    Error: locator.click: Test timeout of 45000ms exceeded.
+590-    Call log:
+591-      - waiting for getByRole('button', { name: 'ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟', exact: true })
+592-        - locator resolved to <button aria-label="ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟" class="text-left px-2 py-1.5 rounded text-xs truncate transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary">…</button>
+593-      - attempting click action
+--
+608-        - element is visible, enabled and stable
+609-        - scrolling into view if needed
+610-        - done scrolling
+611-        - <div class="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">…</div> intercepts pointer events
+612:      2 × retrying click action
+613-          - waiting 100ms
+614-          - waiting for element to be visible, enabled and stable
+615-          - element is visible, enabled and stable
+616-          - scrolling into view if needed
+617-          - done scrolling
+618-          - <div class="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">…</div> from <div class="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">…</div> subtree intercepts pointer events
+619:      19 × retrying click action
+620-           - waiting 500ms
+621-           - waiting for element to be visible, enabled and stable
+622-           - element is visible, enabled and stable
+623-           - scrolling into view if needed
+--
+661-      3549 |     ).toBeVisible();
+662-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:3546:8
+663-
+664-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+665:    test-results/dashboard.journey.ts-Engin-18cb1-ate-when-switching-projects/test-failed-1.png
+666-    ────────────────────────────────────────────────────────────────────────────
+667-
+668-    Error Context: test-results/dashboard.journey.ts-Engin-18cb1-ate-when-switching-projects/error-context.md
+669-
+  2) e2e/dashboard.journey.ts:3603:3 › EngineeringOS dashboard browser journey › keeps safe citation state across repeated navigation 
+691-
+692-    Test timeout of 45000ms exceeded.
+693-
+694:    Error: locator.click: Test timeout of 45000ms exceeded.
+695-    Call log:
+696-      - waiting for getByRole('button', { name: 'ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟', exact: true })
+697-        - locator resolved to <button aria-label="ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟" class="text-left px-2 py-1.5 rounded text-xs truncate transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary">…</button>
+698-      - attempting click action
+--
+713-        - element is visible, enabled and stable
+714-        - scrolling into view if needed
+715-        - done scrolling
+716-        - <div class="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">…</div> intercepts pointer events
+717:      2 × retrying click action
+718-          - waiting 100ms
+719-          - waiting for element to be visible, enabled and stable
+720-          - element is visible, enabled and stable
+721-          - scrolling into view if needed
+722-          - done scrolling
+723-          - <div class="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">…</div> from <div class="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">…</div> subtree intercepts pointer events
+724:      18 × retrying click action
+725-           - waiting 500ms
+726-           - waiting for element to be visible, enabled and stable
+727-           - element is visible, enabled and stable
+728-           - scrolling into view if needed
+--
+780-      3667 |     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+781-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:3664:8
+782-
+783-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+784:    test-results/dashboard.journey.ts-Engin-94c73--across-repeated-navigation/test-failed-1.png
+785-    ────────────────────────────────────────────────────────────────────────────
+786-
+787-    Error Context: test-results/dashboard.journey.ts-Engin-94c73--across-repeated-navigation/error-context.md
+788-
+--
+805-    res: {
+806-      "statusCode": 200
+807-    }
+[18/27] …urney › keeps the failed AI session drawer overlaid on a phone viewport
+810-[00:22:55.341] INFO (6191): request completed
+811-    req: {
+812-      "id": 19,
+813-      "method": "GET",
+  3) e2e/dashboard.journey.ts:3803:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete 
+832-
+833-    Test timeout of 45000ms exceeded.
+834-
+835:    Error: locator.click: Test timeout of 45000ms exceeded.
+836-    Call log:
+837-      - waiting for getByRole('button', { name: 'What happens when the model disconnects after starting an answer?', exact: true })
+838-        - locator resolved to <button aria-label="What happens when the model disconnects after starting an answer?" class="text-left px-2 py-1.5 rounded text-xs truncate transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary">…</button>
+839-      - attempting click action
+--
+854-        - element is visible, enabled and stable
+855-        - scrolling into view if needed
+856-        - done scrolling
+857-        - <div class="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">…</div> intercepts pointer events
+858:      2 × retrying click action
+859-          - waiting 100ms
+860-          - waiting for element to be visible, enabled and stable
+861-          - element is visible, enabled and stable
+862-          - scrolling into view if needed
+863-          - done scrolling
+864-          - <div class="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">…</div> from <div class="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-none md:overflow-visible">…</div> subtree intercepts pointer events
+865:      18 × retrying click action
+866-           - waiting 500ms
+867-           - waiting for element to be visible, enabled and stable
+868-           - element is visible, enabled and stable
+869-           - scrolling into view if needed
+--
+917-      3836 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+918-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:3833:8
+919-
+920-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+921:    test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/test-failed-1.png
+922-    ────────────────────────────────────────────────────────────────────────────
+923-
+924-    Error Context: test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/error-context.md
+925-
+--
+931-
+932-    ────────────────────────────────────────────────────────────────────────────
+933-
+[20/27] … journey › resumes a failed analysis and keeps the execution incomplete
+936-[00:23:47.176] INFO (6191): request completed
+937-    req: {
+938-      "id": 21,
+939-      "method": "GET",
+--
+[23/27] …rney › explains when delivery recovery loses a race and refreshes state
+969-Dashboard browser journey exceeded the 300000ms timeout.
+970-/home/runner/workspace/artifacts/dashboard:
+971: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/dashboard@0.0.0 dev: `node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0`
+972:Command failed with signal "SIGTERM"
+973-[00:24:04.724] INFO (6191): Graceful shutdown started
+974-    signal: "SIGTERM"
+975-[00:24:04.724] INFO (6191): catalog-refresh: scheduler stopped
+976-[00:24:04.725] INFO (6191): Graceful shutdown complete
+--
+989-Release teardown evidence summary: validation run local; retained artifact /home/runner/workspace/test-results/dashboard-journey/release-teardown.json.
+990-Release teardown evidence coverage: API release build (process group 5693; descendants tracked by surviving PIDs); API release service (process group 5732; descendants tracked by surviving PIDs); Dashboard release service (process group 5733; descendants tracked by surviving PIDs); API release service (restarted) (
+  4) e2e/dashboard.journey.ts:4216:3 › EngineeringOS dashboard browser journey › explains when delivery recovery loses a race and refreshes state 
+992-
+993:    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:23184/dashboard/ai
+994-    Call log:
+995-      - navigating to "http://127.0.0.1:23184/dashboard/ai", waiting until "load"
+996-
+997-
+--
+1004-      4276 |       name: "Recoverable delivery operations",
+1005-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:4273:16
+1006-
+1007-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+1008:    test-results/dashboard.journey.ts-Engin-04afb--a-race-and-refreshes-state/test-failed-1.png
+1009-    ────────────────────────────────────────────────────────────────────────────
+1010-
+1011-    Error Context: test-results/dashboard.journey.ts-Engin-04afb--a-race-and-refreshes-state/error-context.md
+1012-
+--
+[24/27] …rney › explains when an old recovery link points to a deleted oper
+  5) e2e/dashboard.journey.ts:4305:3 › EngineeringOS dashboard browser journey › explains when an old recovery link points to a deleted operation 
+1024-
+1025:    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:23184/dashboard/
+1026-    Call log:
+1027-      - navigating to "http://127.0.0.1:23184/dashboard/", waiting until "load"
+1028-
+1029-
+--
+1037-        at programmaticSignIn (/home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:1430:14)
+1038-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:4343:11
+1039-
+1040-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+1041:    test-results/dashboard.journey.ts-Engin-b9235-ints-to-a-deleted-operation/test-failed-1.png
+1042-    ────────────────────────────────────────────────────────────────────────────
+1043-
+1044-    Error Context: test-results/dashboard.journey.ts-Engin-b9235-ints-to-a-deleted-operation/error-context.md
+1045-
+--
+[25/27] …rney › keeps the resumed AI session drawer overlaid on a phone vie
+  6) e2e/dashboard.journey.ts:4375:3 › EngineeringOS dashboard browser journey › keeps the resumed AI session drawer overlaid on a phone viewport 
+1057-
+1058:    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:23184/dashboard/
+1059-    Call log:
+1060-      - navigating to "http://127.0.0.1:23184/dashboard/", waiting until "load"
+1061-
+1062-
+--
+1070-        at programmaticSignIn (/home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:1430:14)
+1071-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:4381:11
+1072-
+1073-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+1074:    test-results/dashboard.journey.ts-Engin-70473-verlaid-on-a-phone-viewport/test-failed-1.png
+1075-    ────────────────────────────────────────────────────────────────────────────
+1076-
+1077-    Error Context: test-results/dashboard.journey.ts-Engin-70473-verlaid-on-a-phone-viewport/error-context.md
+1078-
+--
+[26/27] … keeps all provider cards and controls reachable at narrow phone w
+  7) e2e/dashboard.journey.ts:4407:3 › EngineeringOS dashboard browser journey › keeps all provider cards and controls reachable at narrow phone widths 
+1090-
+1091:    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:23184/dashboard/
+1092-    Call log:
+1093-      - navigating to "http://127.0.0.1:23184/dashboard/", waiting until "load"
+1094-
+1095-
+--
+1103-        at programmaticSignIn (/home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:1430:14)
+1104-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:4412:11
+1105-
+1106-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+1107:    test-results/dashboard.journey.ts-Engin-96503-able-at-narrow-phone-widths/test-failed-1.png
+1108-    ────────────────────────────────────────────────────────────────────────────
+1109-
+1110-    Error Context: test-results/dashboard.journey.ts-Engin-96503-able-at-narrow-phone-widths/error-context.md
+1111-
+--
+[27/27] …OS dashboard browser journey › renders a user-visible API failure 
+  8) e2e/dashboard.journey.ts:4468:3 › EngineeringOS dashboard browser journey › renders a user-visible API failure state 
+1123-
+1124:    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:23184/dashboard/
+1125-    Call log:
+1126-      - navigating to "http://127.0.0.1:23184/dashboard/", waiting until "load"
+1127-
+1128-
+--
+1136-        at programmaticSignIn (/home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:1430:14)
+1137-        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:4470:11
+1138-
+1139-    attachment #1: screenshot (image/png) ──────────────────────────────────────
+1140:    test-results/dashboard.journey.ts-Engin-f85c5-r-visible-API-failure-state/test-failed-1.png
+1141-    ────────────────────────────────────────────────────────────────────────────
+1142-
+1143-    Error Context: test-results/dashboard.journey.ts-Engin-f85c5-r-visible-API-failure-state/error-context.md
+1144-
+--
+1150-
+1151-    ────────────────────────────────────────────────────────────────────────────
+1152-
+  8 failed
+1155-    e2e/dashboard.journey.ts:3505:3 › EngineeringOS dashboard browser journey › keeps safe citation state when switching projects 
+1156-    e2e/dashboard.journey.ts:3603:3 › EngineeringOS dashboard browser journey › keeps safe citation state across repeated navigation 
+1157-    e2e/dashboard.journey.ts:3803:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete 
+1158-    e2e/dashboard.journey.ts:4216:3 › EngineeringOS dashboard browser journey › explains when delivery recovery loses a race and refreshes state 
+--
+1160-    e2e/dashboard.journey.ts:4375:3 › EngineeringOS dashboard browser journey › keeps the resumed AI session drawer overlaid on a phone viewport 
+1161-    e2e/dashboard.journey.ts:4407:3 › EngineeringOS dashboard browser journey › keeps all provider cards and controls reachable at narrow phone widths 
+1162-    e2e/dashboard.journey.ts:4468:3 › EngineeringOS dashboard browser journey › renders a user-visible API failure state 
+1163-  1 skipped
+1164:  18 passed (5.1m)
+1165-undefined
+1166-/home/runner/workspace/artifacts/dashboard:
+1167: ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test --config=e2e/playwright.config.ts
+1168: ELIFECYCLE  Command failed with exit code 1.

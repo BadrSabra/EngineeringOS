@@ -1,0 +1,164 @@
+artifacts/api-server/src/lib/workflow-phase-execution.ts:98:    allowedFiles: [],
+artifacts/api-server/src/lib/workflow-phase-execution.ts:99:    validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/lib/ai-repair-validation.ts:6:  type ValidationProfile,
+artifacts/api-server/src/lib/ai-repair-validation.ts:53:type ValidationProfileDefinition = {
+artifacts/api-server/src/lib/ai-execution-state.ts:54:  allowedFiles: string[];
+artifacts/api-server/src/lib/ai-execution-state.ts:55:  validationProfile: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:280:  node: Pick<ExecutionNode, "allowedFiles" | "validationProfile" | "executionContext">,
+artifacts/api-server/src/lib/ai-execution-state.ts:285:  if (node.allowedFiles.map(normalizedRecipePath).some((file) => !approved.has(file))) {
+artifacts/api-server/src/lib/ai-execution-state.ts:288:  if (node.executionContext) {
+artifacts/api-server/src/lib/ai-execution-state.ts:289:    if (node.executionContext.projectId !== binding.projectId) throw new Error("Recipe node belongs to a different project.");
+artifacts/api-server/src/lib/ai-execution-state.ts:290:    if (node.executionContext.revision !== binding.sourceRevision) throw new Error("Recipe node belongs to a stale source revision.");
+artifacts/api-server/src/lib/ai-execution-state.ts:291:    if (node.executionContext.scope.paths.map(normalizedRecipePath).some((file) => !approved.has(file))) {
+artifacts/api-server/src/lib/ai-execution-state.ts:295:  if (!node.validationProfile.trim()) throw new Error("Recipe node has no registered validation profile.");
+artifacts/api-server/src/lib/ai-execution-state.ts:418:      .flatMap((node) => node.allowedFiles)
+artifacts/api-server/src/lib/ai-execution-state.ts:483:  | "allowedFiles"
+artifacts/api-server/src/lib/ai-execution-state.ts:485:  | "validationProfile"
+artifacts/api-server/src/lib/ai-execution-state.ts:632:            !Array.isArray(candidate.allowedFiles) ||
+artifacts/api-server/src/lib/ai-execution-state.ts:634:            typeof candidate.validationProfile !== "string" ||
+artifacts/api-server/src/lib/ai-execution-state.ts:664:            allowedFiles: candidate.allowedFiles
+artifacts/api-server/src/lib/ai-execution-state.ts:672:            validationProfile: candidate.validationProfile as AiExecutionNodeCheckpoint["validationProfile"],
+artifacts/api-server/src/lib/ai-execution-state.ts:762:      || !Array.isArray(item.dependencies) || !Array.isArray(item.allowedFiles)
+artifacts/api-server/src/lib/ai-execution-state.ts:763:      || !Array.isArray(item.evidenceRefs) || typeof item.validationProfile !== "string"
+artifacts/api-server/src/lib/ai-execution-state.ts:775:      allowedFiles: item.allowedFiles.filter((v): v is string => typeof v === "string").slice(0, AI_EXECUTION_NODE_FILES_LIMIT),
+artifacts/api-server/src/lib/ai-execution-state.ts:776:      validationProfile: item.validationProfile.slice(0, 120),
+artifacts/api-server/src/lib/ai-execution-state.ts:887:      || !sameStringArray(planNode.allowedFiles, checkpointNode.allowedFiles)
+artifacts/api-server/src/lib/ai-execution-state.ts:889:      || planNode.validationProfile !== checkpointNode.validationProfile
+artifacts/api-server/src/lib/startup-migrations.ts:207:        ["validationProfile", "profile"],
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:6:  ValidationProfileSchema,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:76:    const parsedProfile = ValidationProfileSchema.safeParse(profile);
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:103:    validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:200:    const parsedProfile = ValidationProfileSchema.safeParse(profile);
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:236:        validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:379:      validationProfile: fixture.validationProfile ?? "workspace-typecheck",
+artifacts/api-server/src/lib/startup-migrations.test.ts:136:      validationProfile: "api-ai-tests",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3390:      const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3392:        ? (validationAttempts.get(validationProfile ?? "") ?? 0) + 1
+lib/ai-orchestrator/src/tool-execution-engine.ts:3395:        validationAttempts.set(validationProfile ?? "", validationAttempt!);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3433:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3438:            `Validation attempt limit reached for "${validationProfile || "the selected profile"}". ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3446:              validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3453:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3471:        && failedValidationFingerprints.get(validationProfile ?? "") === validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts:3480:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3490:            result: syntheticValidationResult(validationProfile ?? "", detail),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3495:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4181:            detail: validationProfile
+lib/ai-orchestrator/src/tool-execution-engine.ts:4182:              ? `Running registered validation profile "${validationProfile}".`
+lib/ai-orchestrator/src/tool-execution-engine.ts:4189:        const previousPatch = validationAttemptPatches.get(validationProfile ?? "");
+lib/ai-orchestrator/src/tool-execution-engine.ts:4202:        validationAttemptPatches.set(validationProfile ?? "", currentPatch);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4300:            profile: validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4353:            failedValidationFingerprints.set(validationProfile ?? "", validationFingerprint);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4362:          failedValidationFingerprints.delete(validationProfile ?? "");
+lib/ai-orchestrator/src/forensic-recovery.ts:10:  ValidationProfileSchema,
+lib/ai-orchestrator/src/forensic-recovery.ts:12:  type ValidationProfile,
+lib/ai-orchestrator/src/forensic-recovery.ts:48:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/forensic-recovery.ts:279:function validationProfileForFiles(
+lib/ai-orchestrator/src/forensic-recovery.ts:340:  return [...new Set(plans.map((plan) => plan.validationProfile))]
+lib/ai-orchestrator/src/forensic-recovery.ts:414:    const profile = validationProfileForFiles(phaseFiles);
+lib/ai-orchestrator/src/forensic-recovery.ts:419:    if (phase.validationProfile && profile && phase.validationProfile !== profile) {
+lib/ai-orchestrator/src/forensic-recovery.ts:428:      validationProfile: profile,
+lib/ai-orchestrator/src/forensic-recovery.ts:546:        const profile = validationProfileForFiles(files);
+lib/ai-orchestrator/src/execution-node-coordinator.ts:155:  return Boolean(node.capabilityId || node.executionContext);
+artifacts/api-server/src/lib/recipe-operation-runner.ts:49:      allowedFiles: approvedPaths,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:53:      validationProfile: "workspace-typecheck",
+artifacts/api-server/src/lib/recipe-operation-runner.ts:170:        allowedFiles: node.allowedFiles,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:171:        validationProfile: node.validationProfile,
+lib/ai-orchestrator/src/index.ts:415:  ValidationProfileSchema,
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:34:  validationProfileForCase?: (testCase: CodeAgentBenchmarkCase) => string | undefined;
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:150:  const validationProfile = validation?.result.profile ?? "";
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:151:  const typecheckPassed = validationProfile.toLowerCase().includes("typecheck")
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:154:  const testsPassed = validationProfile.toLowerCase().includes("test")
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:306:      const validationProfile = opts.validationProfileForCase?.(testCase);
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:309:        validationProfile &&
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:315:            { profile: validationProfile },
+lib/ai-orchestrator/src/schemas/index.ts:8:  ValidationProfileSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts:15:export const ValidationProfileSchema = z.enum([
+lib/ai-orchestrator/src/schemas/chat.schema.ts:22:export type ValidationProfile = z.infer<typeof ValidationProfileSchema>;
+lib/ai-orchestrator/src/schemas/chat.schema.ts:91:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts:170:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/recipe-compiler.ts:11:import { ValidationProfileSchema, type ValidationProfile } from "./schemas/chat.schema.js";
+lib/ai-orchestrator/src/recipe-compiler.ts:92:  allowedFiles?: readonly string[];
+lib/ai-orchestrator/src/recipe-compiler.ts:97:  validationProfile?: ValidationProfile;
+lib/ai-orchestrator/src/recipe-compiler.ts:344:  const profile = context.validationProfile ?? "workspace-typecheck";
+lib/ai-orchestrator/src/recipe-compiler.ts:345:  ValidationProfileSchema.parse(profile);
+lib/ai-orchestrator/src/recipe-compiler.ts:357:    allowedFiles: [...new Set((context.allowedFiles ?? []).map(normalizedPath).filter(Boolean))].slice(0, 48),
+lib/ai-orchestrator/src/recipe-compiler.ts:359:    validationProfile: profile,
+lib/ai-orchestrator/src/recipe-compiler.ts:368:    executionContext: recipeContext,
+lib/ai-orchestrator/src/recipe-compiler.ts:588:  if (!ValidationProfileSchema.safeParse(context.validationProfile ?? "workspace-typecheck").success) {
+lib/ai-orchestrator/src/recipe-compiler.ts:589:    diagnostics.push(diagnostic("INVALID_VALIDATION_PROFILE", "context.validationProfile", "The server validation profile is not registered."));
+lib/ai-orchestrator/src/recipe-compiler.ts:614:        allowedWriteFiles: [...new Set((context.allowedFiles ?? []).map(normalizedPath).filter(Boolean))].slice(0, 48),
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:11:  validationProfile?: ValidationProfile;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:231:  const validationProfile = scenario.profile;
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:236:    validationProfile,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:246:      validationProfile
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:247:        ? `Registered validation profile: ${validationProfile}.`
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:435:function validationProfileForCase(testCase: CodeAgentBenchmarkCase): ValidationProfile | undefined {
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:456:  const validationProfile = validationProfileForCase(testCase);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:457:  const validationInstruction = validationProfile
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:458:    ? `Registered validation profile: ${validationProfile}.`
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:464:    validationProfile,
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:85:        expect(fixture.validationProfile, testCase.id).toBeDefined();
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:127:    expect(fixture.validationProfile).toBe("workspace-typecheck");
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:157:    expect(fixture.validationProfile).toBe("workspace-typecheck");
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts:185:    expect(fixture.validationProfile).toBe("ai-orchestrator-tests");
+lib/ai-orchestrator/src/tools/file-tools.ts:658:        validationProfile: args.validation_profile as PendingChange["validationProfile"],
+lib/ai-orchestrator/src/tools/file-tools.ts:725:        validationProfile: args.validation_profile as PendingChange["validationProfile"],
+lib/ai-orchestrator/src/audit-telemetry.ts:135:  allowedFiles: z.array(z.string().min(1).max(500)).max(8),
+lib/ai-orchestrator/src/task-session-state.ts:11:  ValidationProfileSchema,
+lib/ai-orchestrator/src/task-session-state.ts:89:  allowedFiles: z.array(z.string().min(1).max(500)).max(48),
+lib/ai-orchestrator/src/task-session-state.ts:91:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/task-session-state.ts:101:  executionContext: RecipeContextSchema.optional(),
+lib/ai-orchestrator/src/task-session-state.ts:208:    allowedFiles: uniquePaths(step.files, 48),
+lib/ai-orchestrator/src/task-session-state.ts:213:    validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/task-session-state.ts:242:      allowedFiles: [...nodeFiles[index]!],
+lib/ai-orchestrator/src/task-session-state.ts:244:      validationProfile: phase.validationProfile,
+lib/ai-orchestrator/src/task-session-state.ts:252:  return new Set(uniquePaths(node.allowedFiles, 48));
+lib/ai-orchestrator/src/agents/chat-agent.ts:3789:    const allowed = new Set(node.allowedFiles.map(nodePath));
+lib/ai-orchestrator/src/agents/chat-agent.ts:3797:    if (running && (!args.profile || running.validationProfile === args.profile) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:3803:      (!args.profile || node.validationProfile === args.profile) &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:3809:      onExecutionNodes?.(executionNodeStates.map((node) => ({ ...node, allowedFiles: [...node.allowedFiles], dependencies: [...node.dependencies] })));
+lib/ai-orchestrator/src/agents/chat-agent.ts:4415:        allowedFiles: singleFilePaths,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5123:        const allowedPaths = node.allowedFiles.map(nodePath);
+lib/ai-orchestrator/src/agents/chat-agent.ts:5159:              `Validation profile: ${node.validationProfile}\n` +
+lib/ai-orchestrator/src/agents/chat-agent.ts:5180:              `then run validation profile "${node.validationProfile}". Do not claim completion without a passed result.`,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5266:              { profile: node.validationProfile },
+lib/ai-orchestrator/src/agents/chat-agent.ts:5289:              profile: node.validationProfile,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5350:            step.result.profile === node.validationProfile,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5381:            step.result.profile === node.validationProfile &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:7000:          'Or, when a defect is directly proven: {"verdict":"FINDING_PROVEN","findings":[{"id":"F-01","title":"...","files":["path/to/read-file.ts"],"evidence":"`exact source fragment`","whyItMatters":"...","rootCause":"...","fix":"..."}],"repairPlan":[{"findingId":"F-01","files":["path/to/read-file.ts"],"steps":["Replace the unsafe behavior in the cited file."],"validationProfile":"ai-orchestrator-tests"}],"validationChecklist":["Run the focused regression test that proves the cited behavior is corrected."]}',
+lib/ai-orchestrator/src/agents/chat-agent.ts:7001:        "Use an empty findings array when no Finding is directly proven. Use an empty repairPlan only when no Finding is accepted. Every proven Finding must have exactly one linked phase with concrete project-relative files, an actionable source change, and a registered validationProfile.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7003:        "Never invent Finding IDs, citations, failures, test results, scores, or repair phases. A repair phase is valid only when its findingId exists in findings, names a registered validationProfile, and the checklist describes the behavior-specific regression it must verify.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:9313:      allowedFiles: (
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:425:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:557:          validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:709:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:880:        validationProfile: "workspace-typecheck" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:1095:                validationProfile: "knowledge-engine-tests",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:128:        validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:151:        allowedFiles: ["src/unsafe.ts"],
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:177:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:183:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:189:        validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:249:        allowedFiles: ["server/timeline.ts"],
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:251:        validationProfile: "workspace-typecheck",
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:256:        allowedFiles: ["client/timeline.tsx"],
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:290:      nodes: [{ id: "step:ui", allowedFiles: ["client/timeline.tsx"] }],
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:440:      nodes: [{ id: "step:modify", allowedFiles: ["server/routes.ts"] }],
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:449:      validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts:381:      validationProfile: "ai-orchestrator-tests" as const,
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts:65:    validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:27:    allowedFiles: [`src/${id}.ts`],
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:29:    validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:129:        node("evidence", { allowedFiles: ["src/evidence.ts"] }),
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:130:        node("apply", { allowedFiles: ["src/apply.ts"], dependencies: ["evidence"] }),
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:69:      allowedFiles: ["src/check.ts"],
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts:108:      executionContext: {
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:226:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:241:      validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:263:            validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:359:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts:420:          validationProfile: "ai-orchestrator-tests",
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:10:  allowedFiles: string[],
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:18:    allowedFiles,
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts:20:    validationProfile: "ai-orchestrator-tests",

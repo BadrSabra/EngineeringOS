@@ -1,0 +1,129 @@
+./scripts/validation-artifact-cleanup.mjs
+57:    owner: "recipe-capability-validation",
+
+./docs/validation-artifact-cleanup-report.json
+174:      "owner": "recipe-capability-validation",
+272:        "owner": "recipe-capability-validation",
+369:        "owner": "recipe-capability-validation",
+
+./docs/replit-agent-parity-gaps.md
+75:| Candidate validation | Server-owned validation profiles, isolated workspaces, scope checks, redacted public receipts, and repair runners exist ([repair validation](../artifacts/api-server/src/lib/ai-repair-validation.ts#L113-L441)). | **Specialized stronger, provider-free verified** | Bounded validation and repair-loop release checks pass. A live delivery workspace campaign remains unproven. |
+138:- **Affected surfaces:** `ai-repair-validation.ts`, registered command
+
+./docs/golden-repair-matrix.md
+12:| Validation keeps failing | `blocked`; no completed nodes and no false success | `golden-repair-matrix.test.ts`, `ai-repair-loop-e2e.test.ts` |
+23:| Overlay validation receives pending content | Source workspace remains unchanged while the overlay is tested | `ai-repair-validation.test.ts`, `ai-repair-loop-e2e.test.ts` |
+
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md
+47:`execution-tools.ts` permits only server-registered command/browser profiles. `execution-kernel.ts` resolves contained cwd, uses `spawn` with `shell:false`, bounds output and time, and terminates process groups. Git tools exposed to the model are read-only status/diff/log. This is a deliberate safety boundary: model intent alone cannot become an arbitrary shell command or live file write.
+95:| Shell/build/test execution / boundary failure | `execution-tools.ts` → registered profiles; `execution-kernel.ts` → bounded spawn | Server profiles, `shell:false`, cwd containment, timeout, output bounds, and process-group cleanup are present. cwd validation and spawn are check-then-use, leaving a TOCTOU edge. | medium | Pin or revalidate workspace/cwd immediately before and during execution; record profile revision. | unsafe |
+96:| Validation and browser proof / partial capability | `ai-repair-validation.ts` → `runRepairValidation`; `browser-preview-verification.ts` → preview contract | Fixed profiles and bounded browser evidence are implemented; unavailable/failed cannot become passed. | high | Validate the exact immutable operation workspace and bind evidence to its content hash. | partial |
+159:| Candidate validated on live root | `delivery-workspace.ts`, `ai-repair-validation.ts`, apply route | P0, before autonomy | Feature flag candidate validation; pending proposals remain pending if disabled; no destructive migration |
+231:| P0-1 | `chat.ts` apply; `ai-repair-validation.ts`; `delivery-workspace.ts` | Validate `resolvedRoot` → validate immutable candidate workspace | Current pass can describe different bytes; critical integrity risk | Depends on workspace marker/hash. Unit path tests; integration overlay/validation; E2E apply; failure test wrong-root rejection | Validation receipt contains workspace root identity, base/changeset hash, and candidate bytes match promoted bytes |
+
+./docs/actual-capability-baseline-v1.md
+104:| Validation and repair | `ai-repair-validation.ts` provides server-owned profiles, isolated validation/runtime/preview runners and scope checks; public validation receipts are redacted at route boundary | **Verified by automated test; live journey partial** | Bounded validation and repair-loop checks pass; no live delivery workspace campaign |
+109:| Direct arbitrary model shell execution | Tool policy and execution tools accept server-owned command profiles; the model does not supply arbitrary executable/argv | **Not implemented by design** | `tool-execution-engine.ts` and execution-tools contract enforce the safer profile boundary |
+155:  model-provided shell text (`ai-repair-validation.ts`,
+
+./artifacts/dashboard/e2e/dashboard.journey.ts
+912:  const source = "src/execution-tools.ts";
+916:    "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+
+./lib/ai-orchestrator/src/execution-node-coordinator.ts
+7:import { MAX_REPAIR_ATTEMPTS } from "./tools/execution-tools.js";
+
+./artifacts/api-server/src/routes/ai.test.ts
+37:import * as repairValidation from "../lib/ai-repair-validation.js";
+
+./lib/ai-orchestrator/src/capability-catalog.ts
+13:} from "./capability-contract.js";
+
+./lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts
+13:} from "../tools/execution-tools.js";
+
+./artifacts/api-server/src/routes/ai/chat.ts
+109:} from "../../lib/ai-repair-validation.js";
+
+./lib/ai-orchestrator/src/tool-execution-engine.ts
+53:} from "./tools/execution-tools.js";
+430:  commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
+431:  commandRunner?: import("./tools/execution-tools.js").CommandRunner;
+1168:  commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
+1169:  commandRunner?: import("./tools/execution-tools.js").CommandRunner;
+
+./lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+365:    "artifacts/api-server/src/lib/ai-repair-validation.ts",
+366:    "artifacts/api-server/src/lib/ai-repair-validation.test.ts",
+
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts
+282:vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
+3004:    const source = "src/execution-tools.ts";
+3005:    const question = "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+
+./lib/ai-orchestrator/src/agents/chat-agent.ts
+86:import { CapabilityRegistry } from "../capability-contract.js";
+115:} from "../tools/execution-tools.js";
+116:import type { CommandProfile, CommandRunner } from "../tools/execution-tools.js";
+3456:  browserValidationRunner?: import("../tools/execution-tools.js").BrowserValidationRunner;
+
+./artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts
+24:import type { RepairVerificationResult } from "../lib/ai-repair-validation.js";
+160:vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
+161:  const actual = await importOriginal<typeof import("../lib/ai-repair-validation.js")>();
+
+./lib/ai-orchestrator/src/recipe-contract.ts
+6:} from "./capability-contract.js";
+
+./lib/ai-orchestrator/src/recipe-compiler.ts
+4:} from "./capability-contract.js";
+
+./lib/ai-orchestrator/src/recipe-capabilities.ts
+8:} from "./capability-contract.js";
+
+./lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts
+8:} from "../capability-contract.js";
+
+./lib/ai-orchestrator/src/tool-policy.ts
+10:import { EXECUTION_TOOL_DEFINITIONS } from "./tools/execution-tools.js";
+
+./lib/ai-orchestrator/src/task-session-state.ts
+19:import { CapabilityIdSchema, RecipeVersionSchema } from "./capability-contract.js";
+
+./lib/ai-orchestrator/src/index.ts
+191:export type { RepairLoopState, ValidationRunner, ValidationToolResult, BrowserValidationRunner } from "./tools/execution-tools.js";
+192:export { executeCommandTool, runRegisteredCommand, COMMAND_PROFILE_LIMITS } from "./tools/execution-tools.js";
+193:export type { CommandProfile, CommandRunner } from "./tools/execution-tools.js";
+228:} from "./capability-contract.js";
+229:export { READ_PROJECT_FILE_CAPABILITY, createServerCapabilityRegistry } from "./recipe-capabilities.js";
+268:} from "./capability-contract.js";
+
+./lib/ai-orchestrator/src/__tests__/execution-tools.test.ts
+2:import { executeBrowserValidationTool, executeCommandTool, executeValidationTool, type CommandProfile } from "../tools/execution-tools.js";
+
+./artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+28:} from "./ai-repair-validation.js";
+
+./artifacts/api-server/src/lib/ai-release-quality-gate.ts
+113:    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-repair-loop-e2e.test.ts src/lib/ai-repair-validation.test.ts src/lib/job-concurrency.test.ts",
+
+./artifacts/api-server/src/lib/ai-repair-validation.test.ts
+11:} from "./ai-repair-validation.js";
+
+./lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+30:        ["src/execution-tools.ts", "if (timedOut) return partial;"],
+36:    expect(response).toContain("src/execution-tools.ts");
+
+./lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts
+186:    const file = "src/tools/execution-tools.ts";
+206:              "المصدر: `src/tools/execution-tools.ts`\n" +
+234:          "ماذا يحدث عندما تنتهي مهلة provider timeout لمزود الذكاء الاصطناعي داخل src/tools/execution-tools.ts؟",
+
+./lib/ai-orchestrator/src/__tests__/capability-contract.test.ts
+9:} from "../capability-contract.js";
+
+./lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts
+9:} from "../capability-contract.js";
+
+./lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json
+116:      "command": "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-repair-loop-e2e.test.ts src/lib/ai-repair-validation.test.ts src/lib/job-concurrency.test.ts",

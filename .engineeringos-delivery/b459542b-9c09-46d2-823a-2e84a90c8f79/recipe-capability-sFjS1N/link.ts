@@ -1,0 +1,1 @@
+/tmp/recipe-capability-outside-QJjXWO/secret.ts

@@ -1,0 +1,90 @@
+artifacts/api-server/src/lib/ai-route-helpers.ts:398:     commandProfiles?: readonly import("@workspace/ai-orchestrator").CommandProfile[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:46:  executeCommandTool,
+lib/ai-orchestrator/src/tool-execution-engine.ts:430:  commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:754:          ? await executeCommandTool(
+lib/ai-orchestrator/src/tool-execution-engine.ts:1168:  commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
+lib/ai-orchestrator/src/index.ts:192:export { executeCommandTool, runRegisteredCommand, COMMAND_PROFILE_LIMITS } from "./tools/execution-tools.js";
+lib/ai-orchestrator/src/index.ts:193:export type { CommandProfile, CommandRunner } from "./tools/execution-tools.js";
+artifacts/api-server/src/routes/projects.ts:5:  browserValidationProfilesTable,
+artifacts/api-server/src/routes/projects.ts:63:  profile: typeof browserValidationProfilesTable.$inferSelect,
+artifacts/api-server/src/routes/projects.ts:127:  const rows = await db.select().from(browserValidationProfilesTable)
+artifacts/api-server/src/routes/projects.ts:128:    .where(eq(browserValidationProfilesTable.projectId, req.project!.id))
+artifacts/api-server/src/routes/projects.ts:129:    .orderBy(desc(browserValidationProfilesTable.updatedAt));
+artifacts/api-server/src/routes/projects.ts:152:  const existing = await db.select({ name: browserValidationProfilesTable.name })
+artifacts/api-server/src/routes/projects.ts:153:    .from(browserValidationProfilesTable)
+artifacts/api-server/src/routes/projects.ts:154:    .where(eq(browserValidationProfilesTable.projectId, project.id));
+artifacts/api-server/src/routes/projects.ts:163:  const [saved] = await db.insert(browserValidationProfilesTable).values({
+artifacts/api-server/src/routes/projects.ts:166:    target: [browserValidationProfilesTable.projectId, browserValidationProfilesTable.name],
+artifacts/api-server/src/routes/projects.ts:173:  await db.delete(browserValidationProfilesTable).where(and(
+artifacts/api-server/src/routes/projects.ts:174:    eq(browserValidationProfilesTable.projectId, req.project!.id),
+artifacts/api-server/src/routes/projects.ts:175:    eq(browserValidationProfilesTable.name, String(req.params.name)),
+artifacts/api-server/src/routes/projects.test.ts:13:  browserValidationProfilesTable,
+artifacts/api-server/src/routes/projects.test.ts:73:  await db.delete(browserValidationProfilesTable).where(eq(browserValidationProfilesTable.projectId, id));
+artifacts/api-server/src/routes/projects.test.ts:146:    await db.insert(browserValidationProfilesTable).values({
+artifacts/api-server/src/routes/projects.test.ts:160:    const rows = await db.select().from(browserValidationProfilesTable)
+artifacts/api-server/src/routes/projects.test.ts:161:      .where(eq(browserValidationProfilesTable.id, profileId));
+lib/ai-orchestrator/src/tools/execution-tools.ts:26:export type CommandProfile = {
+lib/ai-orchestrator/src/tools/execution-tools.ts:33:  allowedOperations?: readonly string[];
+lib/ai-orchestrator/src/tools/execution-tools.ts:38:  profile: CommandProfile;
+lib/ai-orchestrator/src/tools/execution-tools.ts:56:export const runRegisteredCommand: CommandRunner = async ({
+lib/ai-orchestrator/src/tools/execution-tools.ts:255:export async function executeCommandTool(
+lib/ai-orchestrator/src/tools/execution-tools.ts:259:  profiles: readonly CommandProfile[] | undefined,
+lib/ai-orchestrator/src/tools/execution-tools.ts:273:  if (profile.allowedOperations && context?.operation &&
+lib/ai-orchestrator/src/tools/execution-tools.ts:274:      !profile.allowedOperations.includes(context.operation)) {
+artifacts/api-server/src/routes/ai/chat.ts:25:  browserValidationProfilesTable,
+artifacts/api-server/src/routes/ai/chat.ts:67:  runRegisteredCommand,
+artifacts/api-server/src/routes/ai/chat.ts:848:    revision: browserValidationProfilesTable.revision,
+artifacts/api-server/src/routes/ai/chat.ts:849:  }).from(browserValidationProfilesTable).where(and(
+artifacts/api-server/src/routes/ai/chat.ts:850:    eq(browserValidationProfilesTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:851:    eq(browserValidationProfilesTable.name, profileName),
+artifacts/api-server/src/routes/ai/chat.ts:3762:      ? (await db.select().from(browserValidationProfilesTable).where(and(
+artifacts/api-server/src/routes/ai/chat.ts:3763:          eq(browserValidationProfilesTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:3764:          eq(browserValidationProfilesTable.name, requestedBrowserValidationProfile),
+artifacts/api-server/src/routes/ai/chat.ts:3857:          allowedOperations: ["build"],
+artifacts/api-server/src/routes/ai/chat.ts:3899:           commandRunner: commandProfiles ? runRegisteredCommand : undefined,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1763:      allowedOperations: ["build"],
+lib/ai-orchestrator/src/capability-contract.ts:146:    allowedOperations: z.array(z.string().min(1).max(80)).max(32),
+lib/ai-orchestrator/src/capability-contract.ts:152:    approvedCommandProfiles: z.array(z.string().min(1).max(120)).max(32),
+lib/ai-orchestrator/src/capability-contract.ts:158:    if (new Set(policy.allowedOperations).size !== policy.allowedOperations.length) {
+lib/ai-orchestrator/src/capability-contract.ts:161:        path: ["allowedOperations"],
+lib/ai-orchestrator/src/capability-contract.ts:165:    if (new Set(policy.approvedCommandProfiles).size !== policy.approvedCommandProfiles.length) {
+lib/ai-orchestrator/src/capability-contract.ts:168:        path: ["approvedCommandProfiles"],
+lib/ai-orchestrator/src/capability-contract.ts:247:  approvedCommandProfiles?: ReadonlySet<string>;
+lib/ai-orchestrator/src/capability-contract.ts:395:      allowedOperations: Object.freeze([...adapter.policy.allowedOperations]),
+lib/ai-orchestrator/src/capability-contract.ts:396:      approvedCommandProfiles: Object.freeze([...adapter.policy.approvedCommandProfiles]),
+lib/ai-orchestrator/src/capability-contract.ts:497:    if (!capability.policy.allowedOperations.includes(context.operation)) {
+lib/ai-orchestrator/src/capability-contract.ts:500:    if (capability.policy.approvedCommandProfiles.some(
+lib/ai-orchestrator/src/capability-contract.ts:501:      (profile) => !context.approvedCommandProfiles?.has(profile),
+lib/ai-orchestrator/src/capability-contract.ts:551:  allowedOperations: ["recipe"],
+lib/ai-orchestrator/src/capability-contract.ts:552:  approvedCommandProfiles: [],
+lib/ai-orchestrator/src/capability-catalog.ts:221:  if (!adapter.policy.allowedOperations.includes(operation)) {
+artifacts/api-server/src/lib/browser-preview-verification.ts:332:export async function verifyBrowserPreview(input: {
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:7:  verifyBrowserPreview,
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:71:    const evidence = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:83:    const stale = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:89:    const external = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:104:    const success = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:119:    const consoleFailure = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:132:    const stale = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:144:    const hostile = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:163:    const result = await verifyBrowserPreview({
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:187:    const result = await verifyBrowserPreview({
+lib/ai-orchestrator/src/recipe-compiler.ts:95:  approvedCommandProfiles?: ReadonlySet<string>;
+lib/ai-orchestrator/src/recipe-compiler.ts:464:    if (!adapter.policy.allowedOperations.includes(operation)) {
+lib/ai-orchestrator/src/recipe-compiler.ts:470:    if (adapter.policy.approvedCommandProfiles.some((profile) => !context.approvedCommandProfiles?.has(profile))) {
+artifacts/api-server/src/lib/ai-repair-validation.ts:12:  verifyBrowserPreview,
+artifacts/api-server/src/lib/ai-repair-validation.ts:566:  const result = await verifyBrowserPreview(input);
+lib/ai-orchestrator/src/agents/chat-agent.ts:116:import type { CommandProfile, CommandRunner } from "../tools/execution-tools.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:3460:   commandProfiles?: readonly CommandProfile[];
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:101:        allowedOperations: ["approved-operation"],
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:102:        approvedCommandProfiles: ["safe-check"],
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:110:      approvedCommandProfiles: new Set(["safe-check"]),
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:116:      approvedCommandProfiles: new Set(["other-check"]),
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts:122:      approvedCommandProfiles: new Set(["safe-check"]),
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:78:          approvedCommandProfiles: ["server-owned-profile"],
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts:229:        approvedCommandProfiles: ["never-exposed"],
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:2:import { executeBrowserValidationTool, executeCommandTool, executeValidationTool, type CommandProfile } from "../tools/execution-tools.js";
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:61:    const profile: CommandProfile = {
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:69:    const output = await executeCommandTool(
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:87:    const missing = await executeCommandTool("run_command", { profile: "unknown" }, "/project", [], runner);
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts:90:    const invalid = await executeCommandTool(

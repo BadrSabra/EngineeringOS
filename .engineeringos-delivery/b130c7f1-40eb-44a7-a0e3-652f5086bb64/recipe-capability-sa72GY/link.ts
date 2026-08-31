@@ -1,0 +1,1 @@
+/tmp/recipe-capability-outside-CDpg2m/secret.ts

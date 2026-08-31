@@ -1,0 +1,205 @@
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-17-  description?: string | null;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-18-  priority: string;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-19-  relatedFiles: string[];
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-20-};
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-21-
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-22-/**
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-23- * System prompt for the conversational chat agent.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-24- *
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:25: * `hasTools` controls whether file-system tool instructions are included.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-26- * When false the model is told explicitly it has NO file access so it cannot
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-27- * hallucinate tool calls or invent file contents.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-28- */
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:29:function buildChatToolSection(hasTools: boolean): string {
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:30:  if (!hasTools) {
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-31-    return `**File-system tools: NOT active in this session.**
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-32-You have zero access to the project's files on disk.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-33-STRICTLY FORBIDDEN:
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-34-- Claiming you can read, list, search, or write files.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-35-- Inventing file contents, directory trees, or code snippets that you did not receive in the context above.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-36-- Pretending to execute a tool call.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-37-- Saying "I read file X" or "the file contains Y" unless that text appears verbatim in the context above.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-38-If a question requires file-level detail that is absent from the context, state precisely what is missing and why you cannot answer — do not guess or fabricate.`;
+--
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-256-      return null;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-257-    case "GENERIC_RESPONSE":
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-258-      return null;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-259-  }
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-260-}
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-261-
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-262-export function buildChatSystemPrompt({
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-263-  context,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:264:  hasTools = false,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:265:  capabilityCatalog,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-266-  streamingMode = false,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-267-  focusHint,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-268-  profile = "chat-normal",
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-269-  immediateExecution = false,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-270-  structuredOutputMode = false,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-271-  outputContract = structuredOutputMode ? "FORENSIC_REPORT" : "GENERIC_RESPONSE",
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-272-  responseLanguage,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-273-  fixtureAuditMode = false,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-274-  suppressSessionMemory = false,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-275-  activeTask,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-276-  taskChecklist = [],
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-277-}: {
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-278-  context: ProjectContext;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:279:  hasTools?: boolean;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-280-  /** Server-owned planning projection; never treated as an executable tool. */
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:281:  capabilityCatalog?: string;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-282-  streamingMode?: boolean;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-283-  focusHint?: string;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-284-  profile?: "chat-lite" | "chat-normal" | "chat-deep" | "chat";
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-285-  immediateExecution?: boolean;
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-286-  /**
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-287-   * When true the user's message defines an exact mandatory output schema.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-288-   * The system prompt switches Rule 9 (Plan: prefix) and Rule 5 (expansion)
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-289-   * to strict format-compliance mode, and allows the user to redefine the
+--
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-359-      ? promptSection("Task completion contract", buildTaskCompletionContract(taskChecklist))
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-360-      : null,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-361-    // Session memory: files and summaries from prior sessions — injected only
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-362-    // when the project has recorded session memories.  Do not re-read cached
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-363-    // files unless you need updated content; use the paths as starting hints.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-364-    !suppressSessionMemory && context.sessionMemories
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-365-      ? promptSection("Prior session memory (from previous chats)", context.sessionMemories)
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-366-      : null,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:367:    capabilityCatalog
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:368:      ? promptSection("Registered capabilities for planning", capabilityCatalog)
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-369-      : null,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-370-    // Few-shot behavioral anchor — injected only in structured-output mode.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-371-    // Must appear AFTER context and BEFORE rules so the model sees the
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-372-    // correct reasoning pattern before it encounters the output constraints.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-373-    structuredOutputMode ? buildStructuredOutputFewShot() : null,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:374:    buildChatToolSection(hasTools),
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-375-    buildChatRulesBlock(streamingMode, immediateExecution, structuredOutputMode),
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-376-    fixtureAuditMode
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-377-      ? promptSection(
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-378-          "Fixture/capability audit boundary",
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-379-          "This is an explicit fixture/capability audit. You may prove a defect locally from completed test or fixture source evidence, but do not claim production reachability, deployment exposure, or untrusted-input flow unless separate source evidence proves it. Label the result FIXTURE-LOCAL and keep production reachability NOT PROVEN when it was not inspected. Do not modify the fixture.",
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-380-        )
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-381-      : null,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts-382-    // Schema lock injected LAST — highest recency, read immediately before generation.
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-3504-   * provider. This map is request-scoped and contains read bodies only.
+lib/ai-orchestrator/src/agents/chat-agent.ts-3505-   */
+lib/ai-orchestrator/src/agents/chat-agent.ts-3506-  retainedEvidence?: Map<string, string>;
+lib/ai-orchestrator/src/agents/chat-agent.ts-3507-   /**
+lib/ai-orchestrator/src/agents/chat-agent.ts-3508-    * Optional server-owned capability registry. Its catalog is injected into
+lib/ai-orchestrator/src/agents/chat-agent.ts-3509-    * planning context only; it does not add an execution tool.
+lib/ai-orchestrator/src/agents/chat-agent.ts-3510-    */
+lib/ai-orchestrator/src/agents/chat-agent.ts-3511-   capabilityRegistry?: CapabilityRegistry;
+lib/ai-orchestrator/src/agents/chat-agent.ts:3512:   capabilityCatalogRequest?: CapabilityCatalogRequest;
+lib/ai-orchestrator/src/agents/chat-agent.ts-3513-   /** Request-owned budget shared with provider fallback and nested orchestration. */
+lib/ai-orchestrator/src/agents/chat-agent.ts-3514-   executionLedger?: ExecutionLedger;
+lib/ai-orchestrator/src/agents/chat-agent.ts-3515-}): Promise<ChatResult> {
+lib/ai-orchestrator/src/agents/chat-agent.ts-3516-  const {
+lib/ai-orchestrator/src/agents/chat-agent.ts-3517-    message,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3518-    history,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3519-    projectContext,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3520-    rootPath,
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-3544-    includeTestSourcesOverride,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3545-    buildHandoff = false,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3546-    onExecutionNodes,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3547-    productionTraceLinks,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3548-    objective,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3549-    turnIntent: suppliedTurnIntent,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3550-    retainedEvidence,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3551-    capabilityRegistry,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3552:    capabilityCatalogRequest,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3553-    executionLedger: suppliedExecutionLedger,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3554-  } = opts;
+lib/ai-orchestrator/src/agents/chat-agent.ts-3555-  const executionLedger =
+lib/ai-orchestrator/src/agents/chat-agent.ts-3556-    suppliedExecutionLedger ??
+lib/ai-orchestrator/src/agents/chat-agent.ts-3557-    createExecutionLedger({
+lib/ai-orchestrator/src/agents/chat-agent.ts-3558-      mode: "tool_chat",
+lib/ai-orchestrator/src/agents/chat-agent.ts-3559-      signal,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3560-      budget: { modelCalls: BUDGET_BY_SCOPE.tool_chat.maxIterations, toolCalls: BUDGET_BY_SCOPE.tool_chat.maxToolCalls },
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-3654-    allowPrefetch,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3655-    singleFileForensicMode,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3656-    orderedForensicRoots,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3657-    includeTestSources: classifiedIncludeTestSources,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3658-    fixtureAuditMode,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3659-    firstEvidence,
+lib/ai-orchestrator/src/agents/chat-agent.ts-3660-  } = classification;
+lib/ai-orchestrator/src/agents/chat-agent.ts-3661-  const forensicTaskType = turnIntent.forensicTaskType;
+lib/ai-orchestrator/src/agents/chat-agent.ts:3662:  const capabilityCatalogPrompt = capabilityRegistry
+lib/ai-orchestrator/src/agents/chat-agent.ts-3663-    ? formatCapabilityCatalogPrompt(buildCapabilityCatalog(capabilityRegistry, {
+lib/ai-orchestrator/src/agents/chat-agent.ts:3664:        ...capabilityCatalogRequest,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3665:        ...(projectId && !capabilityCatalogRequest?.projectId ? { projectId } : {}),
+lib/ai-orchestrator/src/agents/chat-agent.ts-3666-      }))
+lib/ai-orchestrator/src/agents/chat-agent.ts-3667-    : undefined;
+lib/ai-orchestrator/src/agents/chat-agent.ts-3668-  const analysisMode = turnIntent.analysisMode;
+lib/ai-orchestrator/src/agents/chat-agent.ts-3669-  const outputContract = turnIntent.outputContract;
+lib/ai-orchestrator/src/agents/chat-agent.ts-3670-  // A fixture capability audit is itself an evidence-grounded behavioral
+lib/ai-orchestrator/src/agents/chat-agent.ts-3671-  // assessment, even when the short request only says to test forensic
+lib/ai-orchestrator/src/agents/chat-agent.ts-3672-  // capability on the named file. Production audits still require explicit
+lib/ai-orchestrator/src/agents/chat-agent.ts-3673-  // defect language, and fixtureAuditMode is only enabled by the classifier
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-4181-  const toolExecutionRequested = turnIntent.requiresTools;
+lib/ai-orchestrator/src/agents/chat-agent.ts-4182-  const immediateExecution = rootPath !== undefined && immediateIntent;
+lib/ai-orchestrator/src/agents/chat-agent.ts-4183-  const agentScope = rootPath && toolExecutionRequested
+lib/ai-orchestrator/src/agents/chat-agent.ts-4184-    ? turnIntent.executionTaskType
+lib/ai-orchestrator/src/agents/chat-agent.ts-4185-    : "chat";
+lib/ai-orchestrator/src/agents/chat-agent.ts-4186-  const modelHasTools = !!rootPath && toolExecutionRequested;
+lib/ai-orchestrator/src/agents/chat-agent.ts-4187-
+lib/ai-orchestrator/src/agents/chat-agent.ts-4188-  const executionPlan = resolveExecutionDecision(agentScope, {
+lib/ai-orchestrator/src/agents/chat-agent.ts:4189:    hasTools: modelHasTools,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4190-    requireTools: modelHasTools,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4191-    ...(capabilityProbeRequest
+lib/ai-orchestrator/src/agents/chat-agent.ts-4192-      ? {
+lib/ai-orchestrator/src/agents/chat-agent.ts-4193-          qualityProfile: "capability_probe" as const,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4194-          contextIntensityOverride: "lite" as const,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4195-          memoryModeOverride: "none" as const,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4196-          graphModeOverride: "off" as const,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4197-          historyModeOverride: "none" as const,
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-4534-    : null;
+lib/ai-orchestrator/src/agents/chat-agent.ts-4535-  const repeatedQuestionGuard = buildRepeatedQuestionGuard(history, message);
+lib/ai-orchestrator/src/agents/chat-agent.ts-4536-
+lib/ai-orchestrator/src/agents/chat-agent.ts-4537-  const messages: RawMessage[] = [
+lib/ai-orchestrator/src/agents/chat-agent.ts-4538-    {
+lib/ai-orchestrator/src/agents/chat-agent.ts-4539-      role: "system",
+lib/ai-orchestrator/src/agents/chat-agent.ts-4540-      content: buildChatSystemPrompt({
+lib/ai-orchestrator/src/agents/chat-agent.ts-4541-        context: projectContext,
+lib/ai-orchestrator/src/agents/chat-agent.ts:4542:        hasTools: tools != null,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4543-        streamingMode: false,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4544-        focusHint: combinedFocusHint || undefined,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4545-        profile: contextProfile,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4546-        activeTask,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4547-         taskChecklist,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4548-        structuredOutputMode: promptStructuredOutputMode,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4549-        outputContract: promptOutputContract,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4550-        responseLanguage,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4551-         fixtureAuditMode,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4552-        suppressSessionMemory: suppressHistoricalSessionMemory,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4553-        immediateExecution,
+lib/ai-orchestrator/src/agents/chat-agent.ts:4554:         capabilityCatalog: capabilityCatalogPrompt,
+lib/ai-orchestrator/src/agents/chat-agent.ts-4555-      }) + implementationResumeInstruction +
+lib/ai-orchestrator/src/agents/chat-agent.ts-4556-        (singleFileForensicMode
+lib/ai-orchestrator/src/agents/chat-agent.ts-4557-        ? "\n\n**Effective forensic test manifest — ACTIVE:**\n" +
+lib/ai-orchestrator/src/agents/chat-agent.ts-4558-            `- Allowed source file: ${singleFilePaths[0] ?? "(none resolved)"}\n` +
+lib/ai-orchestrator/src/agents/chat-agent.ts-4559-            "- Allowed tool: read_file only\n" +
+lib/ai-orchestrator/src/agents/chat-agent.ts-4560-            "- Complete reads: required\n" +
+lib/ai-orchestrator/src/agents/chat-agent.ts-4561-            "- Query planner and memory prefetch: disabled\n" +
+lib/ai-orchestrator/src/agents/chat-agent.ts-4562-             "- Any other tool or source path is outside this test and must not be used." +
+--
+lib/ai-orchestrator/src/agents/chat-agent.ts-6363-        ...(streamingTaskResult ? { taskResult: streamingTaskResult } : {}),
+lib/ai-orchestrator/src/agents/chat-agent.ts-6364-      };
+lib/ai-orchestrator/src/agents/chat-agent.ts-6365-    }
+lib/ai-orchestrator/src/agents/chat-agent.ts-6366-
+lib/ai-orchestrator/src/agents/chat-agent.ts-6367-    // Strategy 2 — native SSE streaming (Groq / DeepSeek).
+lib/ai-orchestrator/src/agents/chat-agent.ts-6368-    // Replace system message with streaming-mode plain-markdown variant.
+lib/ai-orchestrator/src/agents/chat-agent.ts-6369-    const streamMessages = messages.map((m, i) =>
+lib/ai-orchestrator/src/agents/chat-agent.ts-6370-      i === 0 && m.role === "system"
+lib/ai-orchestrator/src/agents/chat-agent.ts:6371:          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: contextProfile, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: suppressHistoricalSessionMemory, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+lib/ai-orchestrator/src/agents/chat-agent.ts-6372-        : m,
+lib/ai-orchestrator/src/agents/chat-agent.ts-6373-    );
+lib/ai-orchestrator/src/agents/chat-agent.ts-6374-
+lib/ai-orchestrator/src/agents/chat-agent.ts-6375-    // EI-012 (shared seam): native SSE is buffered so an ungated PROVEN/PASS
+lib/ai-orchestrator/src/agents/chat-agent.ts-6376-    // verdict is never emitted. Deltas accumulate first; after assembling the
+lib/ai-orchestrator/src/agents/chat-agent.ts-6377-    // final response we run the runtime telemetry reconciliation and only then
+lib/ai-orchestrator/src/agents/chat-agent.ts-6378-    // emit the (possibly gated) final text word-by-word.
+lib/ai-orchestrator/src/agents/chat-agent.ts-6379-    let accumulated = "";

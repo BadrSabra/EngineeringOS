@@ -1,0 +1,96 @@
+lib/ai-orchestrator/src/execution-ledger.ts:9:export type ExecutionMode =
+lib/ai-orchestrator/src/execution-ledger.ts:16:export type ExecutionAttemptKind =
+lib/ai-orchestrator/src/execution-ledger.ts:26:export type ExecutionTerminalReason =
+lib/ai-orchestrator/src/execution-ledger.ts:36:export type ExecutionLedgerBudget = {
+lib/ai-orchestrator/src/execution-ledger.ts:48:export type ExecutionLedgerEvent = {
+lib/ai-orchestrator/src/execution-ledger.ts:59:export type ExecutionLedgerSnapshot = {
+lib/ai-orchestrator/src/execution-ledger.ts:74:export type ExecutionLedger = {
+lib/ai-orchestrator/src/execution-ledger.ts:126:export function createExecutionLedger(options?: {
+lib/ai-orchestrator/src/tool-execution-engine.ts:69:export const DEFAULT_MAX_ITERATIONS = 128;
+lib/ai-orchestrator/src/tool-execution-engine.ts:70:export const DEFAULT_MAX_TOOL_CALLS = 480;
+lib/ai-orchestrator/src/tool-execution-engine.ts:71:export const DEFAULT_SEARCH_NOVELTY_BUDGET = 8;
+lib/ai-orchestrator/src/tool-execution-engine.ts:77:export const BUDGET_BY_SCOPE = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:139:export const BUDGET_CATEGORY_SHARES = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:146:export type RunBudgetCategories = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:153:export function splitRunBudget(maxIterations: number): RunBudgetCategories {
+lib/ai-orchestrator/src/tool-execution-engine.ts:183:type RepairPatchSnapshot = Map<string, string>;
+lib/ai-orchestrator/src/tool-execution-engine.ts:309:export function toolCacheKey(name: string, args: Record<string, string>): string {
+lib/ai-orchestrator/src/tool-execution-engine.ts:319:type SearchMatch = { path: string; line: number };
+lib/ai-orchestrator/src/tool-execution-engine.ts:413:export type SingleToolOpts = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:450:export type SingleToolResult =
+lib/ai-orchestrator/src/tool-execution-engine.ts:497:export const ReadStatusSchema = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:500:export type ReadStatus =
+lib/ai-orchestrator/src/tool-execution-engine.ts:512:export function classifyReadStatus(toolName: string, output: string): ReadStatus {
+lib/ai-orchestrator/src/tool-execution-engine.ts:557:export type SourceRetrievalTelemetry = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:630:export const EMPTY_SOURCE_RETRIEVAL_TELEMETRY: SourceRetrievalTelemetry = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:655:export const DEFAULT_SYNTHESIS_TIMEOUT_MS = 30_000;
+lib/ai-orchestrator/src/tool-execution-engine.ts:656:export const DEFAULT_SYNTHESIS_MAX_ATTEMPTS = 2;
+lib/ai-orchestrator/src/tool-execution-engine.ts:664:export function createSourceRetrievalTelemetry(): SourceRetrievalTelemetry {
+lib/ai-orchestrator/src/tool-execution-engine.ts:680:export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToolResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts:929:export const _stripOrphanedToolMessages = stripOrphanedToolMessages;
+lib/ai-orchestrator/src/tool-execution-engine.ts:974:export const _compactSynthesisMessages = compactModelMessages;
+lib/ai-orchestrator/src/tool-execution-engine.ts:975:export const _compactModelMessages = compactModelMessages;
+lib/ai-orchestrator/src/tool-execution-engine.ts:979:export type AgentLoopPhase = "planning" | "evidence" | "reasoning" | "recovery" | "terminal";
+lib/ai-orchestrator/src/tool-execution-engine.ts:986:export type AgentLoopObjective = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:995:export type AgentLoopClaimState = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1001:export type AgentLoopState = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1021:export type ToolLoopOpts = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1266:export type ToolLoopResult =
+lib/ai-orchestrator/src/tool-execution-engine.ts:1361:export type AgentDiagnosticCode =
+lib/ai-orchestrator/src/tool-execution-engine.ts:1442:export type AgentStep =
+lib/ai-orchestrator/src/tool-execution-engine.ts:1667:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2: * Chat Agent — conversational interface with full project context.
+lib/ai-orchestrator/src/agents/chat-agent.ts:209:export type ChatMessage = {
+lib/ai-orchestrator/src/agents/chat-agent.ts:216:export type ExecutionProofRunner = (args: {
+lib/ai-orchestrator/src/agents/chat-agent.ts:232:export const CONVERSATION_HISTORY_TURNS = 12;
+lib/ai-orchestrator/src/agents/chat-agent.ts:233:export const CONVERSATION_HISTORY_FETCH_TURNS = 24;
+lib/ai-orchestrator/src/agents/chat-agent.ts:234:export const CONVERSATION_HISTORY_FETCH_MESSAGES = CONVERSATION_HISTORY_FETCH_TURNS * 2;
+lib/ai-orchestrator/src/agents/chat-agent.ts:253:export function buildConversationHistoryWindow(
+lib/ai-orchestrator/src/agents/chat-agent.ts:308:export function isRepeatedConversationQuestion(
+lib/ai-orchestrator/src/agents/chat-agent.ts:345:export function buildResumedEvidenceLedger(
+lib/ai-orchestrator/src/agents/chat-agent.ts:375:export function extractPriorRepairPlanMetadata(
+lib/ai-orchestrator/src/agents/chat-agent.ts:405:type BehaviorRecoverySourceCandidate = {
+lib/ai-orchestrator/src/agents/chat-agent.ts:424:export function buildBehaviorRecoverySourceCandidates(
+lib/ai-orchestrator/src/agents/chat-agent.ts:586:export function classifyRecoveryFailure(
+lib/ai-orchestrator/src/agents/chat-agent.ts:685:export function structuredRecoveryParseDiagnostic(
+lib/ai-orchestrator/src/agents/chat-agent.ts:705:export function requiresBehavioralFindingAssessment(objective: string): boolean {
+lib/ai-orchestrator/src/agents/chat-agent.ts:724:export function hasUnverifiedPositiveForensicClaim(
+lib/ai-orchestrator/src/agents/chat-agent.ts:744:export function isCapabilityProbeRequest(message: string): boolean {
+lib/ai-orchestrator/src/agents/chat-agent.ts:902:export function shouldRejectBehaviorAnswerForMissingEvidence(
+lib/ai-orchestrator/src/agents/chat-agent.ts:1154:export function buildForensicRecoveryMessages(
+lib/ai-orchestrator/src/agents/chat-agent.ts:1269:export function buildCapabilityProbeRecoveryMessages(
+lib/ai-orchestrator/src/agents/chat-agent.ts:1328:export function buildBehaviorEvidenceRecoveryMessages(
+lib/ai-orchestrator/src/agents/chat-agent.ts:1379:type CapabilityMicroProbeGroup = {
+lib/ai-orchestrator/src/agents/chat-agent.ts:1385:type CapabilityMicroProbeEvidenceCandidate = {
+lib/ai-orchestrator/src/agents/chat-agent.ts:1928: * Keep prefetch bodies as first-class forensic evidence. Prefetch seeds the
+lib/ai-orchestrator/src/agents/chat-agent.ts:2007:export const FIXTURE_PATH_RE = /(?:^|\/)(?:__tests__|__fixtures__|__mocks__|test|tests|spec|specs|fixtures|mocks)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+lib/ai-orchestrator/src/agents/chat-agent.ts:2010:export function isFixturePath(file: string): boolean {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2022:export function extractFindingFilePaths(report: string): string[] {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2042:export function emitForensicStatus(
+lib/ai-orchestrator/src/agents/chat-agent.ts:2356:export function extractRawForensicReport(raw: string): string | null {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2417:export type ChatResult = ChatOutput & {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2509:export function isReportRegenerationRequest(message: string): boolean {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2521:export function isImmediateExecutionRequest(message: string): boolean {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2534:export function resolveBehaviorAnswerLanguage(
+lib/ai-orchestrator/src/agents/chat-agent.ts:2551:export function resolveResponseLanguage(message: string): "ar" | "en" {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2574:export function extractPriorRepairPlan(history: ChatMessage[]): string | null {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2592:export function getRepairPlanExecutionBlockers(plan: string): string[] {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2621:export function extractExecutionFilePaths(plan: string): string[] {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2698:export function extractSingleFilePaths(message: string): string[] {
+lib/ai-orchestrator/src/agents/chat-agent.ts:2764:export function restrictPendingChangesToRepairPlan(
+lib/ai-orchestrator/src/agents/chat-agent.ts:2789:export function isRepairPlanExecutionRequest(message: string): boolean {
+lib/ai-orchestrator/src/agents/chat-agent.ts:3202:export function buildTaskResult(opts: {
+lib/ai-orchestrator/src/agents/chat-agent.ts:3354:export function buildBehaviorEvidenceIncompleteResponse(
+lib/ai-orchestrator/src/agents/chat-agent.ts:3393:export async function chat(opts: {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:41:export type HierarchicalTask = {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:56:export type HierarchicalExecutorOpts = {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:86:export type SourceEvidence = {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:95:export type HierarchicalSubtaskStatus =
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:102:export type HierarchicalSubtaskReceipt = {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:115:export type HierarchicalResult = {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:138:type SubResult = HierarchicalSubtaskReceipt;
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:395:export type CompoundSynthesisValidation = {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:402:export type SynthesisSafetyValidation = {
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:412:export function validateSynthesisSafety(
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:464:export function validateCompoundSynthesis(
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts:523:export async function executeHierarchical(

@@ -1,0 +1,500 @@
+lib/ai-orchestrator/src/task-checklist.ts:50:export function extractChecklistPaths(text: string): string[] {
+lib/ai-orchestrator/src/task-checklist.ts:78:export function parseTaskChecklist(message: string): TaskChecklistItem[] {
+lib/ai-orchestrator/src/task-checklist.ts:151:export function evaluateTaskChecklist(
+lib/ai-orchestrator/src/task-checklist.ts:268:export function buildTaskCompletionContract(items: TaskChecklistItem[]): string {
+lib/ai-orchestrator/src/task-checklist.ts:281:export function appendTaskChecklistReport(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:57:      console.warn(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:73:    console.info(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:103:        console.warn(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:116:      console.info(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:127:    } catch (err) {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:134:      console.warn(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:161:      console.warn(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:177:    console.info(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:197:        console.warn(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:209:      console.info(
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:217:    } catch (err) {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:219:      console.warn(
+lib/ai-orchestrator/src/session-memory.ts:35:const MAX_FILE_MEMORIES = 8;
+lib/ai-orchestrator/src/session-memory.ts:39:const MAX_SUMMARY_CHARS = 400;
+lib/ai-orchestrator/src/session-memory.ts:55:export async function fetchSessionMemories(
+lib/ai-orchestrator/src/session-memory.ts:75:  } catch {
+lib/ai-orchestrator/src/session-memory.ts:85: * Caller should fire-and-forget with `.catch(logger.warn)` — this must never
+lib/ai-orchestrator/src/session-memory.ts:93:export async function writeSessionMemories(
+lib/ai-orchestrator/src/session-memory.ts:114:  for (const filePath of filePaths.slice(0, MAX_FILE_MEMORIES)) {
+lib/ai-orchestrator/src/session-memory.ts:134:    .slice(0, MAX_SUMMARY_CHARS);
+lib/ai-orchestrator/src/session-memory.ts:154:  console.info(
+lib/ai-orchestrator/src/session-memory.ts:177:export function formatMemoriesForPrompt(memories: MemoryRow[]): string | null {
+lib/ai-orchestrator/src/session-memory.ts:214:export async function enrichContextWithMemories(
+lib/ai-orchestrator/src/session-memory.ts:236:export async function sweepExpiredMemories(): Promise<void> {
+lib/ai-orchestrator/src/session-memory.ts:266:    console.info(
+lib/ai-orchestrator/src/session-memory.ts:273:  } catch (err) {
+lib/ai-orchestrator/src/session-memory.ts:274:    console.warn(
+lib/ai-orchestrator/src/session-memory.ts:290:export function startMemorySweep(
+lib/ai-orchestrator/src/openai-compatible-client.ts:63:  signal?: AbortSignal;
+lib/ai-orchestrator/src/openai-compatible-client.ts:91:const OPENROUTER_DEFAULT_MAX_TOKENS = 2_048;
+lib/ai-orchestrator/src/openai-compatible-client.ts:98:const OPENROUTER_MAX_MESSAGES = 20;
+lib/ai-orchestrator/src/openai-compatible-client.ts:213: * stay within `OPENROUTER_MAX_MESSAGES` non-system messages.
+lib/ai-orchestrator/src/openai-compatible-client.ts:223: * count is always ≤ OPENROUTER_MAX_MESSAGES non-system messages, which keeps
+lib/ai-orchestrator/src/openai-compatible-client.ts:235:  if (rest.length <= OPENROUTER_MAX_MESSAGES) return sanitizedMessages;
+lib/ai-orchestrator/src/openai-compatible-client.ts:241:  // OPENROUTER_MAX_MESSAGES even for groups that cannot be split.
+lib/ai-orchestrator/src/openai-compatible-client.ts:242:  let budget = OPENROUTER_MAX_MESSAGES;
+lib/ai-orchestrator/src/openai-compatible-client.ts:280:const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+lib/ai-orchestrator/src/openai-compatible-client.ts:282:    if (signal?.aborted) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:291:    signal?.addEventListener("abort", onAbort, { once: true });
+lib/ai-orchestrator/src/openai-compatible-client.ts:360:export function classifyOpenRouterFailure(
+lib/ai-orchestrator/src/openai-compatible-client.ts:432:  } catch {
+lib/ai-orchestrator/src/openai-compatible-client.ts:464:const MAX_RETRY_AFTER_MS = 60_000;
+lib/ai-orchestrator/src/openai-compatible-client.ts:471:    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, Math.ceil(seconds * 1000)));
+lib/ai-orchestrator/src/openai-compatible-client.ts:475:  return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, timestamp - Date.now()));
+lib/ai-orchestrator/src/openai-compatible-client.ts:498:  console.warn(
+lib/ai-orchestrator/src/openai-compatible-client.ts:670:    signal,
+lib/ai-orchestrator/src/openai-compatible-client.ts:691:  const onAbort = () => controller.abort(signal?.reason);
+lib/ai-orchestrator/src/openai-compatible-client.ts:692:  if (signal?.aborted) onAbort();
+lib/ai-orchestrator/src/openai-compatible-client.ts:693:  else signal?.addEventListener("abort", onAbort, { once: true });
+lib/ai-orchestrator/src/openai-compatible-client.ts:696:    signal?.removeEventListener("abort", onAbort);
+lib/ai-orchestrator/src/openai-compatible-client.ts:700:  console.info(
+lib/ai-orchestrator/src/openai-compatible-client.ts:729:      signal: controller.signal,
+lib/ai-orchestrator/src/openai-compatible-client.ts:731:  } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:733:    if (controller.signal.aborted) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:749:    console.warn(
+lib/ai-orchestrator/src/openai-compatible-client.ts:786:  } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:788:    if (controller.signal.aborted) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:842:  console.info(
+lib/ai-orchestrator/src/openai-compatible-client.ts:861:export async function oacCompleteRaw(
+lib/ai-orchestrator/src/openai-compatible-client.ts:871:      signal: opts.signal ?? opts.executionLedger?.signal,
+lib/ai-orchestrator/src/openai-compatible-client.ts:873:  } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:898:    signal,
+lib/ai-orchestrator/src/openai-compatible-client.ts:911:  const onAbort = () => controller.abort(signal?.reason);
+lib/ai-orchestrator/src/openai-compatible-client.ts:912:  if (signal?.aborted) onAbort();
+lib/ai-orchestrator/src/openai-compatible-client.ts:913:  else signal?.addEventListener("abort", onAbort, { once: true });
+lib/ai-orchestrator/src/openai-compatible-client.ts:916:    signal?.removeEventListener("abort", onAbort);
+lib/ai-orchestrator/src/openai-compatible-client.ts:929:      signal: controller.signal,
+lib/ai-orchestrator/src/openai-compatible-client.ts:931:  } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:933:    if (controller.signal.aborted) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:983:        } catch {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1002:      } catch {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1006:  } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1008:    if (controller.signal.aborted) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1031:export async function* oacCompleteStream(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1041:      signal: opts.signal ?? opts.executionLedger?.signal,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1043:  } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1059: * OR-003: trims context to `OPENROUTER_MAX_MESSAGES` non-system turns and
+lib/ai-orchestrator/src/openai-compatible-client.ts:1060: *         defaults `maxTokens` to `OPENROUTER_DEFAULT_MAX_TOKENS` (2 048).
+lib/ai-orchestrator/src/openai-compatible-client.ts:1065:export async function openrouterCompleteRaw(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1071:    maxTokens: OPENROUTER_DEFAULT_MAX_TOKENS,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1077:  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1081:  } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1091:      console.warn(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1109:    console.warn(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1154:export async function openrouterCompleteWithFallback(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1210:    console.info(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1228:    } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1238:        console.warn(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1295:export async function* openrouterCompleteStream(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1301:    maxTokens: OPENROUTER_DEFAULT_MAX_TOKENS,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1307:  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1344:      } catch (err) {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1386:        console.warn(JSON.stringify({
+lib/ai-orchestrator/src/openai-compatible-client.ts:1417:export function geminiCompleteRaw(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1432:export function geminiCompleteStream(
+lib/ai-orchestrator/src/groq-client.ts:51:  signal?: AbortSignal;
+lib/ai-orchestrator/src/groq-client.ts:69:const DEFAULT_MAX_RETRIES = 3;
+lib/ai-orchestrator/src/groq-client.ts:90:function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+lib/ai-orchestrator/src/groq-client.ts:92:    if (signal?.aborted) {
+lib/ai-orchestrator/src/groq-client.ts:101:    signal?.addEventListener("abort", onAbort, { once: true });
+lib/ai-orchestrator/src/groq-client.ts:160: * before adding the new one, bounding memory to at most MAX_KEYED_CLIENTS
+lib/ai-orchestrator/src/groq-client.ts:163:const MAX_KEYED_CLIENTS = 50;
+lib/ai-orchestrator/src/groq-client.ts:219:      console.info(
+lib/ai-orchestrator/src/groq-client.ts:230:      console.warn(
+lib/ai-orchestrator/src/groq-client.ts:246:      if (_keyedClients.size >= MAX_KEYED_CLIENTS) {
+lib/ai-orchestrator/src/groq-client.ts:275:export async function validateGroqDefaultModels(
+lib/ai-orchestrator/src/groq-client.ts:288:    const response = await client.models.list({ signal: controller.signal });
+lib/ai-orchestrator/src/groq-client.ts:317:  } catch (error) {
+lib/ai-orchestrator/src/groq-client.ts:318:    throw classifySdkError(error, controller.signal.aborted);
+lib/ai-orchestrator/src/groq-client.ts:435:export async function completeRaw(
+lib/ai-orchestrator/src/groq-client.ts:444:    maxRetries = DEFAULT_MAX_RETRIES,
+lib/ai-orchestrator/src/groq-client.ts:446:    signal: callerSignal,
+lib/ai-orchestrator/src/groq-client.ts:452:  const signal = callerSignal ?? executionLedger?.signal;
+lib/ai-orchestrator/src/groq-client.ts:486:      const completion = await sendRequest(client, request, timeoutMs, signal);
+lib/ai-orchestrator/src/groq-client.ts:496:    } catch (err) {
+lib/ai-orchestrator/src/groq-client.ts:499:      if (signal?.aborted) throw lastError;
+lib/ai-orchestrator/src/groq-client.ts:502:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/groq-client.ts:503:        await sleep(delay, signal);
+lib/ai-orchestrator/src/groq-client.ts:567:async function sendRequest(client: Groq, request: ChatRequest, timeoutMs: number, signal?: AbortSignal) {
+lib/ai-orchestrator/src/groq-client.ts:570:  const onAbort = () => controller.abort(signal?.reason);
+lib/ai-orchestrator/src/groq-client.ts:571:  if (signal?.aborted) onAbort();
+lib/ai-orchestrator/src/groq-client.ts:572:  else signal?.addEventListener("abort", onAbort, { once: true });
+lib/ai-orchestrator/src/groq-client.ts:574:    return await client.chat.completions.create(request, { signal: controller.signal });
+lib/ai-orchestrator/src/groq-client.ts:575:  } catch (err) {
+lib/ai-orchestrator/src/groq-client.ts:576:    throw classifySdkError(err, controller.signal.aborted);
+lib/ai-orchestrator/src/groq-client.ts:579:    signal?.removeEventListener("abort", onAbort);
+lib/ai-orchestrator/src/groq-client.ts:624:    console.error(line);
+lib/ai-orchestrator/src/groq-client.ts:626:    console.info(line);
+lib/ai-orchestrator/src/groq-client.ts:639:export async function* completeStream(
+lib/ai-orchestrator/src/groq-client.ts:649:    signal: callerSignal,
+lib/ai-orchestrator/src/groq-client.ts:652:  const signal = callerSignal ?? executionLedger?.signal;
+lib/ai-orchestrator/src/groq-client.ts:676:  const onAbort = () => controller.abort(signal?.reason);
+lib/ai-orchestrator/src/groq-client.ts:677:  if (signal?.aborted) onAbort();
+lib/ai-orchestrator/src/groq-client.ts:678:  else signal?.addEventListener("abort", onAbort, { once: true });
+lib/ai-orchestrator/src/groq-client.ts:688:    }, { signal: controller.signal });
+lib/ai-orchestrator/src/groq-client.ts:689:  } catch (err) {
+lib/ai-orchestrator/src/groq-client.ts:692:    signal?.removeEventListener("abort", onAbort);
+lib/ai-orchestrator/src/groq-client.ts:700:    throw classifySdkError(err, controller.signal.aborted);
+lib/ai-orchestrator/src/groq-client.ts:719:  } catch (err) {
+lib/ai-orchestrator/src/groq-client.ts:726:    throw classifySdkError(err, controller.signal.aborted);
+lib/ai-orchestrator/src/groq-client.ts:729:    signal?.removeEventListener("abort", onAbort);
+lib/ai-orchestrator/src/groq-client.ts:740:export async function complete(messages: Message[], opts: CompleteOptions = {}): Promise<GroqResponse> {
+lib/ai-orchestrator/src/groq-client.ts:746:    maxRetries = DEFAULT_MAX_RETRIES,
+lib/ai-orchestrator/src/groq-client.ts:748:    signal: callerSignal,
+lib/ai-orchestrator/src/groq-client.ts:751:  const signal = callerSignal ?? executionLedger?.signal;
+lib/ai-orchestrator/src/groq-client.ts:771:      const completion = await sendRequest(client, request, timeoutMs, signal);
+lib/ai-orchestrator/src/groq-client.ts:776:    } catch (err) {
+lib/ai-orchestrator/src/groq-client.ts:779:      if (signal?.aborted) throw lastError;
+lib/ai-orchestrator/src/groq-client.ts:782:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/groq-client.ts:783:        await sleep(delay, signal);
+lib/ai-orchestrator/src/context-serializer.ts:268:export function buildProjectContextFromLoadedContext(
+lib/ai-orchestrator/src/semantic-trace.ts:23:  /** Class / interface extension (`class A extends B`). Proven = allowed with span. */
+lib/ai-orchestrator/src/semantic-trace.ts:25:  /** Interface implementation (`class A implements B`). Proven = allowed with span. */
+lib/ai-orchestrator/src/semantic-trace.ts:116:export function classifyReachabilityEdge(
+lib/ai-orchestrator/src/semantic-trace.ts:181:export function buildReachabilityProofSummary(
+lib/ai-orchestrator/src/semantic-trace.ts:327:export function buildCrossFileSemanticTrace(input: {
+lib/ai-orchestrator/src/semantic-trace.ts:437:export function buildProductionReachabilityTrace(
+lib/ai-orchestrator/src/tool-execution-engine.ts:49:  MAX_REPAIR_ATTEMPTS,
+lib/ai-orchestrator/src/tool-execution-engine.ts:69:export const DEFAULT_MAX_ITERATIONS = 128;
+lib/ai-orchestrator/src/tool-execution-engine.ts:70:export const DEFAULT_MAX_TOOL_CALLS = 480;
+lib/ai-orchestrator/src/tool-execution-engine.ts:126:  } catch {
+lib/ai-orchestrator/src/tool-execution-engine.ts:153:export function splitRunBudget(maxIterations: number): RunBudgetCategories {
+lib/ai-orchestrator/src/tool-execution-engine.ts:185:const MAX_REPAIR_ATTEMPT_DIFF_CHARS = 12_000;
+lib/ai-orchestrator/src/tool-execution-engine.ts:186:const MAX_REPAIR_ATTEMPT_DIFF_LINES = 160;
+lib/ai-orchestrator/src/tool-execution-engine.ts:256:  if (lines.length > MAX_REPAIR_ATTEMPT_DIFF_LINES) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:258:      MAX_REPAIR_ATTEMPT_DIFF_LINES,
+lib/ai-orchestrator/src/tool-execution-engine.ts:275:  return diff.length > MAX_REPAIR_ATTEMPT_DIFF_CHARS
+lib/ai-orchestrator/src/tool-execution-engine.ts:276:    ? `${diff.slice(0, MAX_REPAIR_ATTEMPT_DIFF_CHARS)}\n... (diff truncated)`
+lib/ai-orchestrator/src/tool-execution-engine.ts:309:export function toolCacheKey(name: string, args: Record<string, string>): string {
+lib/ai-orchestrator/src/tool-execution-engine.ts:446:  /** Cancellation signal owned by the durable execution controller. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:447:  signal?: AbortSignal;
+lib/ai-orchestrator/src/tool-execution-engine.ts:512:export function classifyReadStatus(toolName: string, output: string): ReadStatus {
+lib/ai-orchestrator/src/tool-execution-engine.ts:656:export const DEFAULT_SYNTHESIS_MAX_ATTEMPTS = 2;
+lib/ai-orchestrator/src/tool-execution-engine.ts:664:export function createSourceRetrievalTelemetry(): SourceRetrievalTelemetry {
+lib/ai-orchestrator/src/tool-execution-engine.ts:680:export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToolResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts:750:            opts.signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:760:              opts.signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:768:            opts.signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:777:              const failureKind = opts.signal?.aborted
+lib/ai-orchestrator/src/tool-execution-engine.ts:799:              opts.signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:805:      console.error(JSON.stringify({
+lib/ai-orchestrator/src/tool-execution-engine.ts:844:  } catch (error) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:846:    const cancelled = opts.signal?.aborted === true;
+lib/ai-orchestrator/src/tool-execution-engine.ts:847:    console.error(JSON.stringify({
+lib/ai-orchestrator/src/tool-execution-engine.ts:913:    console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:1133:  /** Maximum number of model API calls (default: DEFAULT_MAX_ITERATIONS = 96). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1136:  /** Maximum real (non-cached) tool executions (default: DEFAULT_MAX_TOOL_CALLS = 360). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1182:  /** Cancellation signal owned by the durable execution controller. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1183:  signal?: AbortSignal;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1257:   * Never throws — errors inside onStep are silently swallowed so a buggy
+lib/ai-orchestrator/src/tool-execution-engine.ts:1260:  onStep?: (step: AgentStep) => void;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1439: * Callers supply an onStep callback to receive these in real time — useful
+lib/ai-orchestrator/src/tool-execution-engine.ts:1667:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1685:    synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1699:    signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1710:    onStep,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1717:      signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1723:          (requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS) * 3 +
+lib/ai-orchestrator/src/tool-execution-engine.ts:1725:        toolCalls: requestedMaxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1731:    requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1735:    requestedMaxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1748:        executionLedger.signal.aborted ? "TIMEOUT" : "NON_200",
+lib/ai-orchestrator/src/tool-execution-engine.ts:1756:        signal: callSignal ?? executionLedger.signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1764:        status: executionLedger.signal.aborted ? "failed" : "completed",
+lib/ai-orchestrator/src/tool-execution-engine.ts:1771:      Math.floor(Number.isFinite(maxValidationAttempts) ? maxValidationAttempts! : MAX_REPAIR_ATTEMPTS),
+lib/ai-orchestrator/src/tool-execution-engine.ts:1772:      MAX_REPAIR_ATTEMPTS,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1978:      } catch {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2088:      onStep?.({ kind: "diagnostic", code, details: details.slice(0, 2) });
+lib/ai-orchestrator/src/tool-execution-engine.ts:2089:    } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2100:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2106:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2115:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2132:    } catch { /* observers must not change terminal semantics */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2171:    } catch (err) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2181:      console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:2224:      if (opts.signal?.aborted) controller.abort();
+lib/ai-orchestrator/src/tool-execution-engine.ts:2225:      else opts.signal?.addEventListener("abort", abortFromParent, { once: true });
+lib/ai-orchestrator/src/tool-execution-engine.ts:2249:          signal: controller.signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2250:        }, "synthesis", controller.signal);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2251:      } catch (error) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2262:        opts.signal?.removeEventListener("abort", abortFromParent);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2295:    console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:2314:    } catch {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2448:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2455:    } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2517:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2535:    } catch { /* observers must not change terminal semantics */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2550:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2567:    } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2585:      onStep?.({ kind: "diagnostic", code: diagnosticCode, details: [`${tool}: ${failureKind}`] });
+lib/ai-orchestrator/src/tool-execution-engine.ts:2586:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2595:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2605:    } catch { /* observers must not change the terminal result */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2622:    if (signal?.aborted) return cancelledResult();
+lib/ai-orchestrator/src/tool-execution-engine.ts:2623:    try { onStep?.({ kind: "iteration_start", iter, maxIterations }); } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2646:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2654:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2656:      try { onStep?.({ kind: "soft_limit", iter }); } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2666:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2676:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2698:      console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:2729:        onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2734:      } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2773:        ...(opts.signal ? { signal: opts.signal } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2783:    } catch (err) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2784:      if (signal?.aborted) return cancelledResult();
+lib/ai-orchestrator/src/tool-execution-engine.ts:2798:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:2827:             ...(opts.signal ? { signal: opts.signal } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2856:            console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:2867:              onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2884:            } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2905:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:2927:            console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:2939:              onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2956:            } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2986:              onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:2996:            } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3008:              onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3018:            } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3035:            onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3045:          } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3066:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3071:    } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3113:           ...(opts.signal ? { signal: opts.signal } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3119:          console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3131:      } catch (err) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3132:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3163:        } catch {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3180:          onStep?.({ kind: "synthesis_start", iter, maxIterations });
+lib/ai-orchestrator/src/tool-execution-engine.ts:3181:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3216:            onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3221:          } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3230:        } catch (err) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3234:          console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3257:        onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3274:      } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3309:        onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3319:      } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3359:        } catch { /* fall through to repair */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3385:      } catch {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3443:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3456:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3461:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3488:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3498:          onStep?.({ kind: "repair_state", state: "BLOCKED", detail });
+lib/ai-orchestrator/src/tool-execution-engine.ts:3499:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3545:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3552:        } catch { /* observers must not change execution semantics */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3564:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3585:            onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3593:          } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3596:            onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3603:          } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3628:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3650:          console.warn(JSON.stringify({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3748:            onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3755:          } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3820:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3842:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3903:          console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3919:          console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3930:            onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3936:          } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:3939:            onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3949:          } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4010:        try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4020:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4033:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4034:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:4068:          console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:4084:          console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:4135:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:4166:        onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4175:      } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4178:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4185:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4224:        signal,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4228:        console.error(
+lib/ai-orchestrator/src/tool-execution-engine.ts:4270:        console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:4296:        } catch { /* keep the bounded unavailable fallback below */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4324:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4341:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4350:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4441:        onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4454:      } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4500:            onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4510:          } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4550:          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4560:        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4576:  console.warn(
+lib/ai-orchestrator/src/tool-execution-engine.ts:4599:      onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4609:    } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:4623:    onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4633:  } catch { /* ignore */ }
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:31:export function isCatalogFreeModel(modelId: string): boolean {
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:45:export function isCatalogFreeModelForCapability(
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:88:export function emitModelDecisionTrace(trace: ModelDecisionTrace): void {
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:89:  console.info(JSON.stringify({ scope: "model-resolver", ...trace }));
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:123:export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:173:  console.info(
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:197:export function resolveModel(opts: ResolveModelOpts): ResolvedModel {
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:247:export function buildFallbackChainFromId(
+lib/ai-orchestrator/src/provider-strategy.ts:45:  /** Caller-owned cancellation signal for the active provider request. */
+lib/ai-orchestrator/src/provider-strategy.ts:46:  signal?: AbortSignal;
+lib/ai-orchestrator/src/provider-strategy.ts:71:  /** Caller-owned cancellation signal for the active provider stream. */
+lib/ai-orchestrator/src/provider-strategy.ts:72:  signal?: AbortSignal;
+lib/ai-orchestrator/src/schemas/workflow.schema.ts:22:export function parseWorkflowPhases(
+lib/ai-orchestrator/src/execution-ledger.ts:77:  readonly signal: AbortSignal;
+lib/ai-orchestrator/src/execution-ledger.ts:126:export function createExecutionLedger(options?: {
+lib/ai-orchestrator/src/execution-ledger.ts:129:  signal?: AbortSignal;
+lib/ai-orchestrator/src/execution-ledger.ts:141:  if (options?.signal?.aborted) controller.abort();
+lib/ai-orchestrator/src/execution-ledger.ts:142:  else options?.signal?.addEventListener("abort", abortFromParent, { once: true });
+lib/ai-orchestrator/src/execution-ledger.ts:168:    if (controller.signal.aborted) {
+lib/ai-orchestrator/src/execution-ledger.ts:174:    if (controller.signal.aborted) return Date.now() >= deadlineAt ? "deadline" : "cancelled";
+lib/ai-orchestrator/src/execution-ledger.ts:184:    signal: controller.signal,
+lib/ai-orchestrator/src/execution-ledger.ts:243:      options?.signal?.removeEventListener("abort", abortFromParent);
+lib/ai-orchestrator/src/context-runtime/context-object.ts:69:export function estimateTokens(content: string): number {
+lib/ai-orchestrator/src/context-runtime/context-object.ts:77:export function buildSlice(
+lib/ai-orchestrator/src/schemas/scan.schema.ts:5:// returned by OpenRouter / GPT-class models are silently stripped rather than
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:38:export function isDynamicCatalogLoaded(): boolean {
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:49:export function getDynamicModelIds(): Set<string> | null {
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:54:export function getUsableDynamicModelIds(): Set<string> | null {
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:67:export function getDynamicCatalogStatus(): DynamicCatalogStatus {
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:86:export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:107:        signal: controller.signal,
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:112:        console.warn(
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:129:        console.warn(
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:156:        console.warn(
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:172:      console.info(
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:180:    } catch (err) {
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:184:      console.warn(
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:206:export function auditStaticCatalog(staticModelIds: readonly string[]): string[] {
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:210:    console.warn(
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:225:export function _resetForTest(): void {
+lib/ai-orchestrator/src/index.ts:232:  MAX_CATALOG_ENTRIES,
+lib/ai-orchestrator/src/index.ts:233:  MAX_CATALOG_SUGGESTIONS,
+lib/ai-orchestrator/src/index.ts:621:  CODE_AGENT_BENCHMARK_MAX_QUALITY_REGRESSION,
+lib/ai-orchestrator/src/startup-validator.ts:55:  } catch (error) {
+lib/ai-orchestrator/src/startup-validator.ts:56:    console.warn(
+lib/ai-orchestrator/src/startup-validator.ts:79:export async function validateAiProvidersAtStartup(
+lib/ai-orchestrator/src/startup-validator.ts:102:      console.info(
+lib/ai-orchestrator/src/startup-validator.ts:120:      console.warn(
+lib/ai-orchestrator/src/startup-validator.ts:138:      } catch (error) {
+lib/ai-orchestrator/src/startup-validator.ts:150:        console.warn(
+lib/ai-orchestrator/src/startup-validator.ts:174:        console.warn(
+lib/ai-orchestrator/src/startup-validator.ts:206:    console.info(
+lib/ai-orchestrator/src/startup-validator.ts:225:    } catch {
+lib/ai-orchestrator/src/startup-validator.ts:234:    console.warn(
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts:131:export function applyLifetime(
+lib/ai-orchestrator/src/provider-registry.ts:148:    consoleUrl: "console.groq.com",
+lib/ai-orchestrator/src/provider-registry.ts:189:export function getProviderCapabilities(id: ProviderId): ProviderCapabilitySummary {
+lib/ai-orchestrator/src/provider-registry.ts:194:export function registerProvider(config: ProviderConfig): ProviderConfig {
+lib/ai-orchestrator/src/provider-registry.ts:199:export function loadProvider(id: ProviderId): ProviderConfig {
+lib/ai-orchestrator/src/provider-registry.ts:205:export function discoverProviders(hints?: ProviderCapabilityHints): ProviderConfig[] {
+lib/ai-orchestrator/src/provider-registry.ts:215:      const priorityA = priorityIndex.get(a.providerId) ?? Number.MAX_SAFE_INTEGER;
+lib/ai-orchestrator/src/provider-registry.ts:216:      const priorityB = priorityIndex.get(b.providerId) ?? Number.MAX_SAFE_INTEGER;
+lib/ai-orchestrator/src/provider-registry.ts:222:export function discoverProvider(hints?: ProviderCapabilityHints): ProviderConfig | undefined {
+lib/ai-orchestrator/src/provider-registry.ts:226:export function getProvider(id: ProviderId): ProviderConfig {
+lib/ai-orchestrator/src/provider-registry.ts:244:export function getStrategy(id: ProviderId): ProviderStrategy {
+lib/ai-orchestrator/src/provider-registry.ts:277:export function recordProviderTelemetry(entry: ProviderTelemetry): void {
+lib/ai-orchestrator/src/provider-registry.ts:279:  console.info(JSON.stringify({ scope: "provider-telemetry", ...entry }));
+lib/ai-orchestrator/src/validation-result.ts:99:export function toPublicValidationResult(result: ValidationResult): PublicValidationResult {
+lib/ai-orchestrator/src/validation-result.ts:135:export function hasValidationEvidence(result: ValidationResult | null | undefined): boolean {
+lib/ai-orchestrator/src/validation-result.ts:144:export function isProvenValidation(result: ValidationResult | null | undefined): boolean {
+lib/ai-orchestrator/src/untrusted-content.ts:23:const MAX_UNTRUSTED_CONTENT_CHARS = 48_000;
+lib/ai-orchestrator/src/untrusted-content.ts:25:export function createUntrustedContent(
+lib/ai-orchestrator/src/untrusted-content.ts:33:    content: (text ?? "").slice(0, MAX_UNTRUSTED_CONTENT_CHARS),
+lib/ai-orchestrator/src/untrusted-content.ts:42:export function formatUntrustedContent(
+lib/ai-orchestrator/src/untrusted-content.ts:60:export function isUntrustedContent(value: unknown): value is UntrustedContent {
+lib/ai-orchestrator/src/untrusted-content.ts:69:export const UNTRUSTED_CONTENT_LIMIT = MAX_UNTRUSTED_CONTENT_CHARS;
+lib/ai-orchestrator/src/turn-intent.ts:83:export function resolveTurnIntent(
+lib/ai-orchestrator/src/tools/git-tools.ts:19:const GIT_MAX_BUFFER = 512 * 1024; // 512 KB
+lib/ai-orchestrator/src/tools/git-tools.ts:80:      maxBuffer: GIT_MAX_BUFFER,
+lib/ai-orchestrator/src/tools/git-tools.ts:85:  } catch (err: unknown) {
+lib/ai-orchestrator/src/tools/git-tools.ts:92:export async function executeGitTool(
+lib/ai-orchestrator/src/tools/file-tools.ts:27:const MAX_READ_BYTES = 128_000; // ~128 KB per normal file read — keeps previews bounded
+lib/ai-orchestrator/src/tools/file-tools.ts:28:const MAX_FORENSIC_READ_BYTES = 512_000;
+lib/ai-orchestrator/src/tools/file-tools.ts:29:const MAX_TARGETED_READ_LINES = 4_000; // read_file_range window cap
+lib/ai-orchestrator/src/tools/file-tools.ts:30:const MAX_TARGETED_READ_BYTES = 128_000; // safety byte cap on a targeted window
+lib/ai-orchestrator/src/tools/file-tools.ts:31:const MAX_FULL_REPLACEMENT_BYTES = 128_000; // full-file write safety cap remains independent from read previews
+lib/ai-orchestrator/src/tools/file-tools.ts:32:const MAX_SEARCH_LINES = 50;
+lib/ai-orchestrator/src/tools/file-tools.ts:333:  } catch {
+lib/ai-orchestrator/src/tools/file-tools.ts:353:      } catch {
+lib/ai-orchestrator/src/tools/file-tools.ts:380:export function stripReadFileWrapper(body: string): string {
+lib/ai-orchestrator/src/tools/file-tools.ts:403:export async function executeFileTool(
+lib/ai-orchestrator/src/tools/file-tools.ts:416:  } catch {
+lib/ai-orchestrator/src/tools/file-tools.ts:431:          const truncated = buf.length > MAX_FORENSIC_READ_BYTES;
+lib/ai-orchestrator/src/tools/file-tools.ts:432:          const sliced = truncated ? buf.subarray(0, MAX_FORENSIC_READ_BYTES) : buf;
+lib/ai-orchestrator/src/tools/file-tools.ts:439:        // MAX_READ_BYTES in the string representation.
+lib/ai-orchestrator/src/tools/file-tools.ts:440:        const truncated = buf.length > MAX_READ_BYTES;
+lib/ai-orchestrator/src/tools/file-tools.ts:441:        const sliced = truncated ? buf.subarray(0, MAX_READ_BYTES) : buf;
+lib/ai-orchestrator/src/tools/file-tools.ts:461:      if (endLine - startLine + 1 > MAX_TARGETED_READ_LINES) {
+lib/ai-orchestrator/src/tools/file-tools.ts:462:        return `Error: requested range exceeds the ${MAX_TARGETED_READ_LINES}-line targeted read window. Narrow the range around the symbol you need.`;
+lib/ai-orchestrator/src/tools/file-tools.ts:478:        if (windowBytes > MAX_TARGETED_READ_BYTES) {
+lib/ai-orchestrator/src/tools/file-tools.ts:501:          const truncated = buf.length > MAX_READ_BYTES;
+lib/ai-orchestrator/src/tools/file-tools.ts:502:          const text = (truncated ? buf.subarray(0, MAX_READ_BYTES) : buf).toString("utf-8");
+lib/ai-orchestrator/src/tools/file-tools.ts:556:        const lines = relative.trim().split("\n").slice(0, MAX_SEARCH_LINES).join("\n");
+lib/ai-orchestrator/src/tools/file-tools.ts:558:      } catch (err) {
+lib/ai-orchestrator/src/tools/file-tools.ts:635:      } catch {
+lib/ai-orchestrator/src/tools/file-tools.ts:641:        Buffer.byteLength(originalContent, "utf8") > MAX_FULL_REPLACEMENT_BYTES &&
+lib/ai-orchestrator/src/tools/file-tools.ts:645:          `Error: "${relativePath}" is an existing source file larger than ${MAX_FULL_REPLACEMENT_BYTES} bytes. ` +
+lib/ai-orchestrator/src/tools/execution-tools.ts:21:export const MAX_REPAIR_ATTEMPTS = 3;
+lib/ai-orchestrator/src/tools/execution-tools.ts:40:  signal?: AbortSignal;
+lib/ai-orchestrator/src/tools/execution-tools.ts:52:  signal?: AbortSignal;
+lib/ai-orchestrator/src/tools/execution-tools.ts:59:  signal,
+lib/ai-orchestrator/src/tools/execution-tools.ts:68:  signal,
+lib/ai-orchestrator/src/tools/execution-tools.ts:92:  signal?: AbortSignal,
+lib/ai-orchestrator/src/tools/execution-tools.ts:208:export async function executeBrowserValidationTool(
+lib/ai-orchestrator/src/tools/execution-tools.ts:213:  signal?: AbortSignal,
+lib/ai-orchestrator/src/tools/execution-tools.ts:231:  const result = await runner({ profile, rootPath, signal, pendingChanges, ...context });
+lib/ai-orchestrator/src/tools/execution-tools.ts:255:export async function executeCommandTool(
+lib/ai-orchestrator/src/tools/execution-tools.ts:261:  signal?: AbortSignal,
+lib/ai-orchestrator/src/tools/execution-tools.ts:301:  const result = await runner({ profile, rootPath, signal, ...context });
+lib/ai-orchestrator/src/tools/execution-tools.ts:307:    signal: result.signal,
+lib/ai-orchestrator/src/tools/execution-tools.ts:317:export async function executeValidationTool(
+lib/ai-orchestrator/src/tools/execution-tools.ts:322:  signal?: AbortSignal,
+lib/ai-orchestrator/src/tools/execution-tools.ts:349:  const rawResult = !hasPendingChanges && signal === undefined
+lib/ai-orchestrator/src/tools/execution-tools.ts:352:      ? await runner(profile, targetPaths, signal)
+lib/ai-orchestrator/src/tools/execution-tools.ts:353:      : await runner(profile, targetPaths, signal, pendingChanges);
+lib/ai-orchestrator/src/tools/analysis-tools.ts:23:  signal?: AbortSignal,
+lib/ai-orchestrator/src/tools/analysis-tools.ts:86:export async function executeAnalysisTool(
+lib/ai-orchestrator/src/tools/analysis-tools.ts:90:  signal?: AbortSignal,
+lib/ai-orchestrator/src/tools/analysis-tools.ts:103:  if (signal?.aborted) {
+lib/ai-orchestrator/src/tools/analysis-tools.ts:117:    const result = await runner(name, args, signal, correlation);
+lib/ai-orchestrator/src/tools/analysis-tools.ts:119:      console.error(JSON.stringify({
+lib/ai-orchestrator/src/tools/analysis-tools.ts:144:  } catch (error) {
+lib/ai-orchestrator/src/tools/analysis-tools.ts:145:    console.error(JSON.stringify({
+lib/ai-orchestrator/src/tools/analysis-tools.ts:147:      code: signal?.aborted ? "ANALYSIS_CANCELLED" : "ANALYSIS_FAILED",
+lib/ai-orchestrator/src/tools/analysis-tools.ts:152:      status: signal?.aborted ? "unavailable" : "failed",
+lib/ai-orchestrator/src/tools/analysis-tools.ts:153:      output: signal?.aborted
+lib/ai-orchestrator/src/tool-policy.ts:53:export function resolveToolPolicy(opts: {
+lib/ai-orchestrator/src/tool-policy.ts:106:  console.info(
+lib/ai-orchestrator/src/tool-policy.ts:127:export function isToolAllowed(policy: ToolPolicy, toolName: string): boolean {
+lib/ai-orchestrator/src/tool-policy.ts:137:export function getAllowedToolDefinitions(policy: ToolPolicy): ToolDefinitionLike[] {
+lib/ai-orchestrator/src/tool-policy.ts:147:export function authorizeToolInvocation(opts: {
+lib/ai-orchestrator/src/task-session-state.ts:196:export function buildImplementationExecutionNodes(
+lib/ai-orchestrator/src/task-session-state.ts:224:export function buildExecutionNodes(phases: readonly RepairPlanMetadata[]): ExecutionNode[] {
+lib/ai-orchestrator/src/task-session-state.ts:267:export function getRunnableExecutionNodes(
+lib/ai-orchestrator/src/task-session-state.ts:300:export function transitionExecutionNode(
+lib/ai-orchestrator/src/task-session-state.ts:334:export function buildActiveTaskExecutionPlan(args: {
+lib/ai-orchestrator/src/task-session-state.ts:445:export function isImplementationPlanContinuation(
+lib/ai-orchestrator/src/task-session-state.ts:456:export function advanceImplementationPlan(
+lib/ai-orchestrator/src/task-session-state.ts:485:export function parseActiveTaskState(value: string | null | undefined): ActiveTaskState | null {
+lib/ai-orchestrator/src/task-session-state.ts:493:  } catch {
+lib/ai-orchestrator/src/task-session-state.ts:498:export function serializeActiveTaskState(value: ActiveTaskState | null | undefined): string | null {
+lib/ai-orchestrator/src/task-session-state.ts:503:export function isTaskContinuationRequest(message: string): boolean {
+lib/ai-orchestrator/src/task-session-state.ts:508:export function isResumableTaskType(taskType: ForensicTaskType): boolean {
+lib/ai-orchestrator/src/task-session-state.ts:512:export function buildActiveTaskState(args: {
+lib/ai-orchestrator/src/task-session-state.ts:541:export function touchActiveTaskState(state: ActiveTaskState, now = new Date()): ActiveTaskState {
+lib/ai-orchestrator/src/task-session-state.ts:549:export function mergeActiveTaskEvidence(
+lib/ai-orchestrator/src/task-session-state.ts:573:export function resumeActiveTaskClassification(
+lib/ai-orchestrator/src/task-execution-partial-report.ts:176:export function buildTaskExecutionPartialReport(
+lib/ai-orchestrator/src/task-contracts.ts:162:export function capBudgetForTask(
+lib/ai-orchestrator/src/task-contracts.ts:184:export function validateResponseLanguage(
+lib/ai-orchestrator/src/task-contracts.ts:211:export function buildResponseLanguageFallback(responseLanguage: "ar" | "en"): string {

@@ -1,0 +1,268 @@
+7: * GET  /api/ai/chat/:sessionId/messages
+17:  aiChatSessionsTable,
+20:  aiExecutionsTable,
+464:  sessionId: string;
+566:    sessionId: params.sessionId,
+849:  }).from(browserValidationProfilesTable).where(and(
+915:  sessionId: string;
+934:}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date }> {
+938:        .select({ id: aiChatSessionsTable.id })
+939:        .from(aiChatSessionsTable)
+940:        .where(eq(aiChatSessionsTable.id, params.sessionId))
+943:        await tx.insert(aiChatSessionsTable).values({
+944:          id: params.sessionId,
+961:            .where(and(
+962:              eq(aiChatMessagesTable.sessionId, params.sessionId),
+980:        sessionId: params.sessionId,
+1010:            .where(and(
+1011:              eq(aiChatMessagesTable.sessionId, params.sessionId),
+1028:        sessionId: params.sessionId,
+1058:      sessionId: params.sessionId,
+1083:    await tx.update(aiChatSessionsTable)
+1085:      .where(eq(aiChatSessionsTable.id, params.sessionId));
+1088:      sessionId: params.sessionId,
+1982:    NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+1983:    ${aiChatSessionsTable.updatedAt}
+1985:  AND ${aiChatSessionsTable.updatedAt} <= ${msgNow}`;
+2017:    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+2033:  const { projectId, message, sessionId, linkedTaskId, objective } = chatBody.data;
+2041:  if (!sessionId && isImmediateExecutionRequest(message)) {
+2055:  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+2056:  if (sessionId) {
+2059:      .from(aiChatSessionsTable)
+2060:      .where(eq(aiChatSessionsTable.id, sessionId))
+2081:        .where(eq(tasksTable.id, effectiveLinkedTaskId))
+2160:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+2198:      sessionId: existingSession?.id ?? sessionId ?? null,
+2211:        sessionId: existingSession?.id ?? sessionId ?? null,
+2274:    const sessionIdToUse = existingSession?.id ?? randomUUID();
+2290:        sessionId: sessionIdToUse,
+2310:        sessionId: sessionIdToUse,
+2323:        sessionId: sessionIdToUse,
+2423:          .select({ id: aiChatSessionsTable.id })
+2424:          .from(aiChatSessionsTable)
+2425:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+2430:          .insert(aiChatSessionsTable)
+2432:            id: sessionIdToUse,
+2457:        sessionId: sessionIdToUse,
+2468:          sessionId: sessionIdToUse,
+2489:          sessionId: sessionIdToUse,
+2507:        .update(aiChatSessionsTable)
+2510:          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+2512:        .where(and(
+2513:          eq(aiChatSessionsTable.id, sessionIdToUse),
+2520:      sessionIdToUse,
+2529:      sessionId: sessionIdToUse,
+2567:    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+2598:    sessionId,
+2622:  if (!sessionId && isImmediateExecutionRequest(message)) {
+2628:  if (effectiveExecutionId && !sessionId) {
+2655:    if (!sessionId) {
+2671:        session: aiChatSessionsTable,
+2675:        aiChatSessionsTable,
+2676:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+2678:      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
+2687:    if (planRow.session.id !== sessionId) {
+2776:  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+2777:  if (sessionId) {
+2780:      .from(aiChatSessionsTable)
+2781:      .where(eq(aiChatSessionsTable.id, sessionId))
+2885:        .where(eq(tasksTable.id, effectiveLinkedTaskId))
+2907:    const sessionIdToUse = existingSession?.id ?? randomUUID();
+2915:        .insert(aiChatSessionsTable)
+2917:          id: sessionIdToUse,
+2939:        sessionId: createdSession.id,
+2953:      sessionId: sessionIdToUse,
+2993:        storedRequest.sessionId === executionRequest.sessionId &&
+3081:        sessionId: sessionIdToUse,
+3292:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+3325:      sessionId: existingSession?.id ?? sessionId ?? null,
+3338:        sessionId: existingSession?.id ?? sessionId ?? null,
+3762:      ? (await db.select().from(browserValidationProfilesTable).where(and(
+3957:          sessionId: sessionIdToUse,
+3976:          sessionId: sessionIdToUse,
+3995:            sessionId: sessionIdToUse,
+4004:            sessionId: sessionIdToUse,
+4007:              sessionId: sessionIdToUse,
+4142:        sessionId: sessionIdToUse,
+4153:      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+4171:          sessionId: sessionIdToUse,
+4182:        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+4279:          sessionId: sessionIdToUse,
+4296:          { persistError, sessionId: sessionIdToUse },
+4308:          .select({ id: aiChatSessionsTable.id })
+4309:          .from(aiChatSessionsTable)
+4310:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+4315:          .insert(aiChatSessionsTable)
+4317:            id: sessionIdToUse,
+4346:          sessionId: sessionIdToUse,
+4359:          sessionId: sessionIdToUse,
+4382:          sessionId: sessionIdToUse,
+4389:          .update(aiExecutionsTable)
+4391:          .where(eq(aiExecutionsTable.id, aiExecutionId));
+4409:        .update(aiChatSessionsTable)
+4412:          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+4414:        .where(and(
+4415:          eq(aiChatSessionsTable.id, sessionIdToUse),
+4533:          .where(eq(aiChatMessagesTable.id, assistantMsg.id));
+4552:          sessionId: sessionIdToUse,
+4564:      sessionIdToUse,
+4591:      sessionId: assistantMsg.sessionId,
+4605:      sessionId: sessionIdToUse,
+4680:    .from(aiExecutionsTable)
+4681:    .where(and(
+4682:      eq(aiExecutionsTable.projectId, project.id),
+4683:      eq(aiExecutionsTable.userId, req.userId),
+4684:      inArray(aiExecutionsTable.status, ["paused", "cancelled", "failed"]),
+4686:    .orderBy(desc(aiExecutionsTable.updatedAt))
+4712:      sessionId: execution.sessionId,
+4766:      .where(eq(aiChangeProposalsTable.id, execution.proposalId))
+4774:      .where(and(
+4801:    sessionId: execution.sessionId,
+4903:    .where(and(
+4984:      sessionId: execution.sessionId,
+5095:    .from(aiChatSessionsTable)
+5096:    .where(eq(aiChatSessionsTable.projectId, project.id))
+5097:    .orderBy(desc(aiChatSessionsTable.updatedAt))
+5105:      sessionId: aiChatMessagesTable.sessionId,
+5112:    .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
+5117:    if (message.role === "assistant" && !latestAssistantBySession.has(message.sessionId)) {
+5118:      latestAssistantBySession.set(message.sessionId, message);
+5155:// ── POST /api/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate
+5159:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+5163:  const { sessionId, messageId } = req.params;
+5166:    .from(aiChatSessionsTable)
+5167:    .where(eq(aiChatSessionsTable.id, sessionId))
+5182:    .where(and(
+5184:      eq(aiChatMessagesTable.sessionId, sessionId),
+5210:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+5216:        id: aiExecutionsTable.id,
+5217:        operationId: aiExecutionsTable.operationId,
+5218:        request: aiExecutionsTable.request,
+5219:        checkpoint: aiExecutionsTable.checkpoint,
+5220:        checkpointVersion: aiExecutionsTable.checkpointVersion,
+5221:        status: aiExecutionsTable.status,
+5223:      .from(aiExecutionsTable)
+5224:      .where(and(
+5225:        eq(aiExecutionsTable.id, target.executionId),
+5226:        eq(aiExecutionsTable.sessionId, sessionId),
+5227:        eq(aiExecutionsTable.projectId, session.projectId),
+5234:    .where(eq(aiChangeProposalsTable.sessionId, sessionId))
+5240:    .where(and(
+5250:      sessionId,
+5268:    .where(and(
+5270:      eq(aiChatMessagesTable.sessionId, sessionId),
+5280:// ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+5282:router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+5283:  const { sessionId } = req.params;
+5287:    .from(aiChatSessionsTable)
+5288:    .where(eq(aiChatSessionsTable.id, sessionId))
+5301:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+5358:      session: aiChatSessionsTable,
+5362:      aiChatSessionsTable,
+5363:      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+5365:    .where(eq(aiChatMessagesTable.id, req.params.messageId))
+5446:    .where(and(
+5472:    .update(aiChatSessionsTable)
+5474:    .where(eq(aiChatSessionsTable.id, row.session.id));
+5584:router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
+5587:    .from(aiChatSessionsTable)
+5588:    .where(eq(aiChatSessionsTable.id, req.params.sessionId))
+5597:    .where(and(
+5598:      eq(aiChangeProposalsTable.sessionId, req.params.sessionId),
+5606:      id: aiExecutionsTable.id,
+5607:      operationId: aiExecutionsTable.operationId,
+5608:      buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+5610:    .from(aiExecutionsTable)
+5611:    .where(and(
+5612:      eq(aiExecutionsTable.proposalId, proposal.id),
+5613:      eq(aiExecutionsTable.projectId, session.projectId),
+5615:    .orderBy(desc(aiExecutionsTable.updatedAt))
+5678:    .where(and(
+5714:      sessionId: proposal.sessionId,
+5743:    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+5796:    }).where(and(
+5847:  }).where(and(
+5854:      .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
+5867:    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+5881:  }).where(and(eq(aiChangeProposalsTable.id, proposal.id), eq(aiChangeProposalsTable.status, "pending"))).returning({ id: aiChangeProposalsTable.id });
+5966:      .where(and(
+6141:        .where(and(
+6207:    .where(and(
+6234:      .where(and(
+6278:    .where(eq(aiChangeProposalsTable.id, req.params.proposalId))
+6295:    .where(and(
+6367:    .where(and(
+6428:      .where(and(
+6478:        id: aiExecutionsTable.id,
+6479:        operationId: aiExecutionsTable.operationId,
+6480:        buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+6482:      .from(aiExecutionsTable)
+6483:      .where(and(
+6484:        eq(aiExecutionsTable.proposalId, proposal.id),
+6485:        eq(aiExecutionsTable.projectId, projectId),
+6487:      .orderBy(desc(aiExecutionsTable.updatedAt))
+6525:      .where(and(
+6760:      .where(and(
+7149:          .where(and(
+7168:          .where(and(
+artifacts/api-server/src/routes/ai/providers.ts
+231:router.get("/ai/providers/:provider/key", async (req, res) => {
+241:router.put("/ai/providers/:provider/key", async (req, res) => {
+251:router.delete("/ai/providers/:provider/key", async (req, res) => {
+264:router.get("/ai/active-provider", async (req, res) => {
+285:router.get("/ai/metrics", async (req, res) => {
+362:router.get("/ai/groq-key",        (req, res) => handleGetKey(req, res, "groq"));
+363:router.put("/ai/groq-key",        (req, res) => handlePutKey(req, res, "groq"));
+364:router.delete("/ai/groq-key",     (req, res) => handleDeleteKey(req, res, "groq"));
+366:router.get("/ai/deepseek-key",    (req, res) => handleGetKey(req, res, "deepseek"));
+367:router.put("/ai/deepseek-key",    (req, res) => handlePutKey(req, res, "deepseek"));
+368:router.delete("/ai/deepseek-key", (req, res) => handleDeleteKey(req, res, "deepseek"));
+370:router.get("/ai/openrouter-key",    (req, res) => handleGetKey(req, res, "openrouter"));
+371:router.put("/ai/openrouter-key",    (req, res) => handlePutKey(req, res, "openrouter"));
+372:router.delete("/ai/openrouter-key", (req, res) => handleDeleteKey(req, res, "openrouter"));
+374:router.get("/ai/gemini-key",    (req, res) => handleGetKey(req, res, "gemini"));
+375:router.put("/ai/gemini-key",    (req, res) => handlePutKey(req, res, "gemini"));
+376:router.delete("/ai/gemini-key", (req, res) => handleDeleteKey(req, res, "gemini"));
+
+artifacts/api-server/src/routes/ai/tasks.ts
+58:router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+
+artifacts/api-server/src/routes/ai/operator-alerts.ts
+16:router.get("/ai/operator-alerts", async (req, res) => {
+
+artifacts/api-server/src/routes/ai/chat.ts
+2013:router.post("/ai/chat", async (req, res) => {
+2563:router.post("/ai/chat/stream", async (req, res) => {
+4668:router.get("/ai/executions/history", async (req, res) => {
+4746:router.get("/ai/executions/:executionId", async (req, res) => {
+4863:router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
+5014:router.post("/ai/executions/:executionId/recovery", async (req, res) => {
+5041:router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+5062:router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+5085:router.get("/ai/chat/sessions", async (req, res) => {
+5159:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+5282:router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+5344:router.post("/ai/chat/plans/:messageId/decision", async (req, res) => {
+5492:router.get("/ai/chat/file-content", async (req, res) => {
+5584:router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
+5667:router.get("/ai/delivery/recoverable", async (req, res) => {
+5741:router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+5865:router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
+5893:router.post("/ai/chat/rebase-changes", async (req, res) => {
+6188:router.post("/ai/chat/proposals/:proposalId/approve", async (req, res) => {
+6274:router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
+6307:router.post("/ai/chat/apply-changes", async (req, res) => {
+
+artifacts/api-server/src/routes/ai/workflows.ts
+47:router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
+
+artifacts/api-server/src/routes/ai/analysis.ts
+321:router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req, res) => {
+435:router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, res) => {
+565:router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, async (req, res) => {
+707:router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async (req, res) => {
+
+artifacts/api-server/src/routes/ai/benchmark.ts
+451:router.get("/ai/benchmark/scorecard", async (_req, res) => {
+475:router.get("/ai/mission-control", async (req, res) => {

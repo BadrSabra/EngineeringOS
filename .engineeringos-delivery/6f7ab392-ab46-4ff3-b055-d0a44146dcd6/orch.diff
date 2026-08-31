@@ -1,0 +1,385 @@
+diff --git a/lib/ai-orchestrator/src/capability-contract.ts b/lib/ai-orchestrator/src/capability-contract.ts
+index 1d955a9..e6410b8 100644
+--- a/lib/ai-orchestrator/src/capability-contract.ts
++++ b/lib/ai-orchestrator/src/capability-contract.ts
+@@ -1,3 +1,5 @@
++import { realpath } from "node:fs/promises";
++import { isAbsolute, relative, resolve } from "node:path";
+ import { z } from "zod";
+ 
+ /**
+@@ -245,8 +247,19 @@ export type CapabilityExecutionContext = {
+   operation: string;
+   /** Server-owned approved profile set, if the capability uses profiles. */
+   approvedCommandProfiles?: ReadonlySet<string>;
++  /** Server-owned scope copied from the current recipe node. */
++  scope?: {
++    kind: CapabilityScopeKind;
++    paths: readonly string[];
++  };
++  /** Relative paths approved by the current recipe node. */
++  allowedFiles?: readonly string[];
+   /** Server-owned approval state; model output cannot satisfy this gate. */
+   approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
++  /** Server-owned authorization state for catalog capabilities. */
++  authorized?: boolean;
++  /** Server-owned source revision for runtime profile checks. */
++  revision?: string;
+   signal?: AbortSignal;
+ };
+ 
+@@ -263,11 +276,13 @@ export type CapabilityFailureCode =
+   | "CAPABILITY_RECIPE_VERSION_UNSUPPORTED"
+   | "CAPABILITY_OPERATION_NOT_ALLOWED"
+   | "CAPABILITY_PROFILE_NOT_APPROVED"
++  | "CAPABILITY_AUTHORIZATION_REQUIRED"
+   | "CAPABILITY_APPROVAL_REQUIRED"
+   | "CAPABILITY_INPUT_INVALID"
+   | "CAPABILITY_INPUT_TOO_LARGE"
+   | "CAPABILITY_OUTPUT_INVALID"
+   | "CAPABILITY_OUTPUT_TOO_LARGE"
++  | "CAPABILITY_SCOPE_VIOLATION"
+   | "CAPABILITY_EXECUTION_FAILED";
+ 
+ export type CapabilityFailure = {
+@@ -334,6 +349,78 @@ function hasReservedInputKey(
+   return false;
+ }
+ 
++const PATH_INPUT_KEYS = new Set(["path", "paths", "target", "targetpath", "targetpaths"]);
++const SENSITIVE_PATH = /^(?:\.env(?:\..*)?|\.git(?:\/|$)|\.ssh(?:\/|$)|(?:secrets?|credentials?)(?:[._-]|\/|$)|.*(?:private[_-]?key|password|token|api[_-]?key).*)$/i;
++
++function normalizedInvocationPath(value: string): string {
++  return value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "");
++}
++
++function collectInvocationPaths(value: unknown, key?: string): string[] {
++  if (typeof value === "string" && key && PATH_INPUT_KEYS.has(key.replace(/[_-]/g, "").toLowerCase())) {
++    return [normalizedInvocationPath(value)];
++  }
++  if (!value || typeof value !== "object") return [];
++  if (Array.isArray(value)) return value.flatMap((item) => collectInvocationPaths(item, key));
++  return Object.entries(value).flatMap(([childKey, child]) => collectInvocationPaths(child, childKey));
++}
++
++function pathIsContained(root: string, candidate: string): boolean {
++  const within = relative(root, candidate);
++  return within === "" || (!isAbsolute(within) && within !== ".." && !within.startsWith(`..${"/"}`));
++}
++
++/**
++ * Re-check the current node's path scope at the point of invocation.
++ * Compilation and durable binding checks are intentionally not sufficient:
++ * symlinks and a changed workspace can invalidate a previously safe path.
++ */
++export async function validateCapabilityInvocationScope(
++  capability: Pick<CapabilityAdapter, "id" | "catalog">,
++  input: unknown,
++  context: CapabilityExecutionContext,
++  recipeVersion = 1,
++): Promise<CapabilityFailure | undefined> {
++  if (!capability.catalog && !context.scope && !(context.allowedFiles?.length)) return undefined;
++  const scopeKind = capability.catalog?.defaultScope;
++  const paths = collectInvocationPaths(input);
++  const approved = new Set(
++    [...(context.allowedFiles ?? []), ...(context.scope?.paths ?? [])]
++      .map(normalizedInvocationPath)
++      .filter(Boolean),
++  );
++  const requiresPath = scopeKind === "file" || scopeKind === "paths" || scopeKind === "workspace";
++  if (requiresPath && paths.length === 0) {
++    return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "A scoped capability requires a server-approved target path.");
++  }
++
++  let root: string;
++  try {
++    root = await realpath(resolve(context.rootPath));
++  } catch {
++    return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability project root is unavailable.");
++  }
++  for (const path of paths) {
++    if (!path || isAbsolute(path) || path === "." || path.startsWith("../") || path.includes("/../") || SENSITIVE_PATH.test(path)) {
++      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability target is outside the approved safe path scope.");
++    }
++    if (approved.size > 0 && ![...approved].some((allowed) =>
++      path === allowed || path.startsWith(`${allowed.replace(/\/+$/, "")}/`))) {
++      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability target is not in the node's approved path scope.");
++    }
++    let target: string;
++    try {
++      target = await realpath(resolve(root, path));
++    } catch {
++      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability target could not be resolved safely.");
++    }
++    if (!pathIsContained(root, target)) {
++      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability target resolves outside the project root.");
++    }
++  }
++  return undefined;
++}
++
+ function validateRegistration(adapter: CapabilityAdapter | null | undefined): CapabilityFailure | undefined {
+   if (!adapter || typeof adapter !== "object") {
+     return failure("", 0, "CAPABILITY_CONTRACT_INVALID", "A capability registration must be an object.");
+@@ -502,6 +589,14 @@ export class CapabilityRegistry {
+     )) {
+       return failure(capability.id, recipeVersion, "CAPABILITY_PROFILE_NOT_APPROVED", "The capability requires a server-approved command profile.");
+     }
++    if (capability.catalog?.requiresAuthorization && context.authorized !== true) {
++      return failure(capability.id, recipeVersion, "CAPABILITY_AUTHORIZATION_REQUIRED", "The capability requires server authorization before execution.");
++    }
++    if (capability.catalog && context.scope && !capability.catalog.supportedScopes.includes(context.scope.kind)) {
++      return failure(capability.id, recipeVersion, "CAPABILITY_SCOPE_VIOLATION", "The capability does not support the requested invocation scope.");
++    }
++    const scopeFailure = await validateCapabilityInvocationScope(capability, validation.input, context, recipeVersion);
++    if (scopeFailure) return scopeFailure;
+ 
+     let output: unknown;
+     try {
+diff --git a/lib/ai-orchestrator/src/index.ts b/lib/ai-orchestrator/src/index.ts
+index 4190e3e..7421a69 100644
+--- a/lib/ai-orchestrator/src/index.ts
++++ b/lib/ai-orchestrator/src/index.ts
+@@ -225,8 +225,13 @@ export {
+   CapabilityRegistry,
+   CapabilityRegistryError,
+   DEFAULT_CAPABILITY_POLICY,
++  validateCapabilityInvocationScope,
+ } from "./capability-contract.js";
+-export { READ_PROJECT_FILE_CAPABILITY, createServerCapabilityRegistry } from "./recipe-capabilities.js";
++export {
++  READ_PROJECT_FILE_CAPABILITY,
++  createServerCapabilityRegistry,
++} from "./recipe-capabilities.js";
++export type { RecipeCapabilityRuntime } from "./recipe-capabilities.js";
+ export {
+   CAPABILITY_CATALOG_VERSION,
+   MAX_CATALOG_ENTRIES,
+@@ -342,6 +347,8 @@ export type {
+ export {
+   RECIPE_CONTRACT_VERSION,
+   RecipeIdSchema,
++  RecipeApprovedPathSchema,
++  RecipeRequestSchema,
+   RecipeNodeIdSchema,
+   RecipeOutputNameSchema,
+   EvidencePredicateSchema,
+@@ -360,6 +367,7 @@ export {
+ } from "./recipe-contract.js";
+ export type {
+   RecipeId,
++  RecipeRequest,
+   RecipeNodeId,
+   RecipeOutputName,
+   EvidencePredicate,
+@@ -394,6 +402,11 @@ export type {
+   CompileCapabilityRecipeOptions,
+   RecipeTransitionAdvanceResult,
+ } from "./recipe-compiler.js";
++export {
++  RecipeDefinitionRegistry,
++  createServerRecipeDefinitionRegistry,
++} from "./recipe-definition-registry.js";
++export type { RecipeDefinition } from "./recipe-definition-registry.js";
+ 
+ // Wave 2: context lifetime management
+ export { applyLifetime, DEFAULT_LIFETIME_POLICY } from "./context-runtime/context-lifetime.js";
+diff --git a/lib/ai-orchestrator/src/recipe-capabilities.ts b/lib/ai-orchestrator/src/recipe-capabilities.ts
+index fd13945..ac038d9 100644
+--- a/lib/ai-orchestrator/src/recipe-capabilities.ts
++++ b/lib/ai-orchestrator/src/recipe-capabilities.ts
+@@ -6,6 +6,13 @@ import {
+   DEFAULT_CAPABILITY_POLICY,
+   type CapabilityAdapter,
+ } from "./capability-contract.js";
++import type {
++  BrowserValidationRunner,
++  CommandProfile,
++  CommandRunner,
++  ValidationRunner,
++} from "./tools/execution-tools.js";
++import type { ValidationProfile } from "./schemas/chat.schema.js";
+ 
+ const ReadProjectFileInputSchema = z.object({
+   path: z.string().min(1).max(240).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/),
+@@ -59,6 +66,177 @@ export const READ_PROJECT_FILE_CAPABILITY: CapabilityAdapter<
+   },
+ };
+ 
+-export function createServerCapabilityRegistry(): CapabilityRegistry {
+-  return new CapabilityRegistry([READ_PROJECT_FILE_CAPABILITY]);
++const VALIDATION_PROFILES: readonly ValidationProfile[] = [
++  "ai-orchestrator-tests",
++  "knowledge-engine-tests",
++  "api-ai-tests",
++  "workspace-typecheck",
++];
++
++const ValidationOutputSchema = z.object({
++  status: z.string().min(1).max(40),
++  profile: z.string().min(1).max(120),
++  evidence: z.record(z.unknown()).optional(),
++  detail: z.string().max(4_000).optional(),
++}).passthrough();
++
++const TargetPathsSchema = z.object({
++  targetPaths: z.array(z.string().min(1).max(500)).max(48),
++}).strict();
++
++export type RecipeCapabilityRuntime = {
++  validationRunner?: ValidationRunner;
++  browserValidationRunner?: BrowserValidationRunner;
++  commandRunner?: CommandRunner;
++  commandProfiles?: readonly CommandProfile[];
++  browserProfiles?: readonly string[];
++};
++
++function validationCapability(
++  profile: ValidationProfile,
++  runtime: RecipeCapabilityRuntime,
++): CapabilityAdapter {
++  return {
++    contractVersion: 1,
++    id: `validation.run.${profile}`,
++    supportedRecipeVersions: [1] as const,
++    policy: { ...DEFAULT_CAPABILITY_POLICY, maxOutputBytes: 256_000 },
++    catalog: {
++      purpose: `Run the server-registered ${profile} validation profile.`,
++      inputShape: {
++        type: "object",
++        fields: [{ name: "targetPaths", type: "array", required: true, description: "Approved project-relative validation targets." }],
++      },
++      defaultScope: "paths",
++      supportedScopes: ["paths", "project"],
++      estimatedCost: "high",
++      mutatesProject: false,
++      keywords: ["validation", "test", profile],
++      allowedPhases: ["validation", "recovery"],
++      projectIds: [],
++      requiresAuthorization: true,
++      expectedEvidence: ["validation_passed"],
++    },
++    inputSchema: TargetPathsSchema,
++    outputSchema: ValidationOutputSchema,
++    execute: async (input, context) => {
++      const parsedInput = TargetPathsSchema.parse(input);
++      if (!runtime.validationRunner) {
++        return { status: "unavailable", profile, detail: "Validation runner is not enabled for this operation." };
++      }
++      const result = await runtime.validationRunner(profile, parsedInput.targetPaths, context.signal);
++      return {
++        status: result.status,
++        profile,
++        detail: result.detail?.slice(0, 4_000),
++        ...("evidence" in result && result.evidence ? { evidence: result.evidence } : {}),
++      };
++    },
++  };
++}
++
++function browserCapability(profile: string, runtime: RecipeCapabilityRuntime): CapabilityAdapter {
++  return {
++    contractVersion: 1,
++    id: `browser.verify.${profile}`,
++    supportedRecipeVersions: [1] as const,
++    policy: { ...DEFAULT_CAPABILITY_POLICY, maxOutputBytes: 256_000 },
++    catalog: {
++      purpose: `Run the server-registered ${profile} browser verification profile.`,
++      inputShape: {
++        type: "object",
++        fields: [{ name: "targetPaths", type: "array", required: true, description: "Approved project-relative browser targets." }],
++      },
++      defaultScope: "workspace",
++      supportedScopes: ["workspace", "paths"],
++      estimatedCost: "high",
++      mutatesProject: false,
++      keywords: ["browser", "verification", profile],
++      allowedPhases: ["validation"],
++      projectIds: [],
++      requiresAuthorization: true,
++      expectedEvidence: ["browser_verified"],
++    },
++    inputSchema: TargetPathsSchema,
++    outputSchema: ValidationOutputSchema,
++    execute: async (input, context) => {
++      if (!runtime.browserValidationRunner) {
++        return { status: "unavailable", profile, detail: "Browser validation runner is not enabled for this operation." };
++      }
++      const result = await runtime.browserValidationRunner({
++        profile,
++        rootPath: context.rootPath,
++        operationId: context.operation,
++        revision: context.revision,
++        signal: context.signal,
++      });
++      return {
++        status: result.status,
++        profile,
++        detail: result.detail?.slice(0, 4_000),
++        evidence: result.evidence,
++      };
++    },
++  };
++}
++
++function commandCapability(profile: CommandProfile, runtime: RecipeCapabilityRuntime): CapabilityAdapter {
++  return {
++    contractVersion: 1,
++    id: `command.run.${profile.name}`,
++    supportedRecipeVersions: [1] as const,
++    policy: { ...DEFAULT_CAPABILITY_POLICY, maxOutputBytes: profile.maxOutputBytes },
++    catalog: {
++      purpose: `Run the server-registered ${profile.name} command profile.`,
++      inputShape: {
++        type: "object",
++        fields: [{ name: "targetPaths", type: "array", required: true, description: "Approved project-relative command targets." }],
++      },
++      defaultScope: "paths",
++      supportedScopes: ["paths", "project"],
++      estimatedCost: "high",
++      mutatesProject: false,
++      keywords: ["command", profile.name],
++      allowedPhases: ["validation", "recovery"],
++      projectIds: [],
++      requiresAuthorization: true,
++      expectedEvidence: ["command_result"],
++    },
++    inputSchema: TargetPathsSchema,
++    outputSchema: z.object({
++      status: z.string().min(1).max(40),
++      profile: z.string().min(1).max(120),
++      exitCode: z.number().int().nullable().optional(),
++      detail: z.string().max(4_000).optional(),
++    }).passthrough(),
++    execute: async (input, context) => {
++      const parsedInput = TargetPathsSchema.parse(input);
++      if (!runtime.commandRunner) {
++        return { status: "unavailable", profile: profile.name, detail: "Command runner is not enabled for this operation." };
++      }
++      const result = await runtime.commandRunner({
++        profile,
++        rootPath: context.rootPath,
++        signal: context.signal,
++        operationId: context.operation,
++        targetPaths: parsedInput.targetPaths,
++      });
++      return {
++        status: result.status,
++        profile: profile.name,
++        exitCode: result.exitCode,
++        detail: result.status === "passed" ? "Registered command completed successfully." : "Registered command failed.",
++      };
++    },
++  };
++}
++
++export function createServerCapabilityRegistry(runtime: RecipeCapabilityRuntime = {}): CapabilityRegistry {
++  const adapters: CapabilityAdapter[] = [
++    READ_PROJECT_FILE_CAPABILITY,
++    ...VALIDATION_PROFILES.map((profile) => validationCapability(profile, runtime)),
++    ...(runtime.browserProfiles ?? ["default"]).map((profile) => browserCapability(profile, runtime)),
++    ...(runtime.commandProfiles ?? []).map((profile) => commandCapability(profile, runtime)),
++  ];
++  return new CapabilityRegistry(adapters);
+ }
+\ No newline at end of file

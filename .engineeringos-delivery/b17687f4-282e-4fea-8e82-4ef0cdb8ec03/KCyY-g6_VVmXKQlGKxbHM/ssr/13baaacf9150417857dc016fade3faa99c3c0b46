@@ -1,0 +1,32 @@
+__vite_ssr_exportName__("default", () => { try { return __vite_ssr_export_default__ } catch {} });
+const __vite_ssr_import_0__ = await __vite_ssr_import__("/@fs/home/runner/workspace/node_modules/.pnpm/express@5.2.1/node_modules/express/index.js", {"importedNames":["Router"]});
+const __vite_ssr_import_1__ = await __vite_ssr_import__("/@fs/home/runner/workspace/node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/drizzle-orm/index.js", {"importedNames":["desc","eq"]});
+const __vite_ssr_import_2__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/index.ts", {"importedNames":["db","operatorAlertsTable"]});
+const __vite_ssr_import_3__ = await __vite_ssr_import__("/src/middlewares/requireAuth.ts", {"importedNames":["requireAuth"]});
+"use strict";
+
+
+
+
+const router = (0,__vite_ssr_import_0__.Router)();
+router.use((0,__vite_ssr_import_3__.requireAuth));
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 100;
+router.get("/ai/operator-alerts", async (req, res) => {
+  const rawLimit = req.query.limit === void 0 ? DEFAULT_LIMIT : Number(req.query.limit);
+  if (!Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > MAX_LIMIT) {
+    return res.status(400).json({ error: `limit must be an integer between 1 and ${MAX_LIMIT}` });
+  };
+  const rawActiveOnly = req.query.activeOnly;
+  const activeOnly = rawActiveOnly === void 0 || rawActiveOnly === "true";
+  if (rawActiveOnly !== void 0 && rawActiveOnly !== "true" && rawActiveOnly !== "false") {
+    return res.status(400).json({ error: "activeOnly must be true or false" });
+  };
+  const alerts = await __vite_ssr_import_2__.db.select().from((0,__vite_ssr_import_2__.operatorAlertsTable)).where(activeOnly ? (0,__vite_ssr_import_1__.eq)(__vite_ssr_import_2__.operatorAlertsTable.status, "open") : void 0).orderBy((0,__vite_ssr_import_1__.desc)(__vite_ssr_import_2__.operatorAlertsTable.lastSeenAt), (0,__vite_ssr_import_1__.desc)(__vite_ssr_import_2__.operatorAlertsTable.id)).limit(rawLimit);
+  return res.json({ alerts });
+});
+const __vite_ssr_export_default__ = router;
+//# sourceMappingSource=vite-generated
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJtYXBwaW5ncyI6IkFBQUEsQ0FBQTtBQUFBO0FBQ0E7QUFDQTtBQUNBOzs7Ozs7QUFFQSxNQUFNLFlBQVMsOEJBQU87QUFDdEIsT0FBTyxPQUFJLGtDQUFXO0FBRXRCLE1BQU0sZ0JBQWdCO0FBQ3RCLE1BQU0sWUFBWTtBQU1sQixPQUFPLElBQUksdUJBQXVCLE9BQU8sS0FBSyxRQUFRO0FBQ3BELFFBQU0sV0FBVyxJQUFJLE1BQU0sVUFBVSxTQUFZLGdCQUFnQixPQUFPLElBQUksTUFBTSxLQUFLO0FBQ3ZGLE1BQUksQ0FBQyxPQUFPLGNBQWMsUUFBUSxLQUFLLFdBQVcsS0FBSyxXQUFXLFdBQVc7QUFDM0UsV0FBTyxJQUFJLE9BQU8sR0FBRyxFQUFFLEtBQUssRUFBRSxPQUFPLDBDQUEwQyxTQUFTLEdBQUcsQ0FBQztBQUFBLEVBQzlGO0FBRUEsUUFBTSxnQkFBZ0IsSUFBSSxNQUFNO0FBQ2hDLFFBQU0sYUFBYSxrQkFBa0IsVUFBYSxrQkFBa0I7QUFDcEUsTUFBSSxrQkFBa0IsVUFBYSxrQkFBa0IsVUFBVSxrQkFBa0IsU0FBUztBQUN4RixXQUFPLElBQUksT0FBTyxHQUFHLEVBQUUsS0FBSyxFQUFFLE9BQU8sbUNBQW1DLENBQUM7QUFBQSxFQUMzRTtBQUVBLFFBQU0sU0FBUyxNQUFNLHlCQUNsQixPQUFPLEVBQ1AsUUFBSywwQ0FBbUIsRUFDeEIsTUFBTSxnQkFBYSwwQkFBRywwQ0FBb0IsUUFBUSxNQUFNLElBQUksTUFBUyxFQUNyRSxXQUFRLDRCQUFLLDBDQUFvQixVQUFVLE1BQUcsNEJBQUssMENBQW9CLEVBQUUsQ0FBQyxFQUMxRSxNQUFNLFFBQVE7QUFFakIsU0FBTyxJQUFJLEtBQUssRUFBRSxPQUFPLENBQUM7QUFDNUIsQ0FBQztBQUVELG9DQUFlIiwibmFtZXMiOltdLCJpZ25vcmVMaXN0IjpbXSwic291cmNlcyI6WyJvcGVyYXRvci1hbGVydHMudHMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IHsgUm91dGVyIH0gZnJvbSBcImV4cHJlc3NcIjtcbmltcG9ydCB7IGRlc2MsIGVxIH0gZnJvbSBcImRyaXp6bGUtb3JtXCI7XG5pbXBvcnQgeyBkYiwgb3BlcmF0b3JBbGVydHNUYWJsZSB9IGZyb20gXCJAd29ya3NwYWNlL2RiXCI7XG5pbXBvcnQgeyByZXF1aXJlQXV0aCB9IGZyb20gXCIuLi8uLi9taWRkbGV3YXJlcy9yZXF1aXJlQXV0aC5qc1wiO1xuXG5jb25zdCByb3V0ZXIgPSBSb3V0ZXIoKTtcbnJvdXRlci51c2UocmVxdWlyZUF1dGgpO1xuXG5jb25zdCBERUZBVUxUX0xJTUlUID0gNTA7XG5jb25zdCBNQVhfTElNSVQgPSAxMDA7XG5cbi8qKlxuICogRGVwbG95bWVudC13aWRlIG9wZXJhdG9yIGFsZXJ0cy4gUmVzcG9uc2VzIGNvbnRhaW4gb25seSBzYWZlIG9wZXJhdGlvbmFsXG4gKiBtZXRhZGF0YSBhbmQgbmV2ZXIgcHJvdmlkZXIgY3JlZGVudGlhbHMgb3IgcmF3IHByb3ZpZGVyIHJlc3BvbnNlcy5cbiAqL1xucm91dGVyLmdldChcIi9haS9vcGVyYXRvci1hbGVydHNcIiwgYXN5bmMgKHJlcSwgcmVzKSA9PiB7XG4gIGNvbnN0IHJhd0xpbWl0ID0gcmVxLnF1ZXJ5LmxpbWl0ID09PSB1bmRlZmluZWQgPyBERUZBVUxUX0xJTUlUIDogTnVtYmVyKHJlcS5xdWVyeS5saW1pdCk7XG4gIGlmICghTnVtYmVyLmlzU2FmZUludGVnZXIocmF3TGltaXQpIHx8IHJhd0xpbWl0IDwgMSB8fCByYXdMaW1pdCA+IE1BWF9MSU1JVCkge1xuICAgIHJldHVybiByZXMuc3RhdHVzKDQwMCkuanNvbih7IGVycm9yOiBgbGltaXQgbXVzdCBiZSBhbiBpbnRlZ2VyIGJldHdlZW4gMSBhbmQgJHtNQVhfTElNSVR9YCB9KTtcbiAgfVxuXG4gIGNvbnN0IHJhd0FjdGl2ZU9ubHkgPSByZXEucXVlcnkuYWN0aXZlT25seTtcbiAgY29uc3QgYWN0aXZlT25seSA9IHJhd0FjdGl2ZU9ubHkgPT09IHVuZGVmaW5lZCB8fCByYXdBY3RpdmVPbmx5ID09PSBcInRydWVcIjtcbiAgaWYgKHJhd0FjdGl2ZU9ubHkgIT09IHVuZGVmaW5lZCAmJiByYXdBY3RpdmVPbmx5ICE9PSBcInRydWVcIiAmJiByYXdBY3RpdmVPbmx5ICE9PSBcImZhbHNlXCIpIHtcbiAgICByZXR1cm4gcmVzLnN0YXR1cyg0MDApLmpzb24oeyBlcnJvcjogXCJhY3RpdmVPbmx5IG11c3QgYmUgdHJ1ZSBvciBmYWxzZVwiIH0pO1xuICB9XG5cbiAgY29uc3QgYWxlcnRzID0gYXdhaXQgZGJcbiAgICAuc2VsZWN0KClcbiAgICAuZnJvbShvcGVyYXRvckFsZXJ0c1RhYmxlKVxuICAgIC53aGVyZShhY3RpdmVPbmx5ID8gZXEob3BlcmF0b3JBbGVydHNUYWJsZS5zdGF0dXMsIFwib3BlblwiKSA6IHVuZGVmaW5lZClcbiAgICAub3JkZXJCeShkZXNjKG9wZXJhdG9yQWxlcnRzVGFibGUubGFzdFNlZW5BdCksIGRlc2Mob3BlcmF0b3JBbGVydHNUYWJsZS5pZCkpXG4gICAgLmxpbWl0KHJhd0xpbWl0KTtcblxuICByZXR1cm4gcmVzLmpzb24oeyBhbGVydHMgfSk7XG59KTtcblxuZXhwb3J0IGRlZmF1bHQgcm91dGVyOyJdLCJmaWxlIjoiL3NyYy9yb3V0ZXMvYWkvb3BlcmF0b3ItYWxlcnRzLnRzIn0=
+
+//# vitestCache=W3siZmlsZSI6IjEiLCJpZCI6IjEiLCJ1cmwiOiIyIiwiaW1wb3J0ZWRVcmxzIjoiMyIsIm1hcHBpbmdzIjpmYWxzZX0sIi9ob21lL3J1bm5lci93b3Jrc3BhY2UvYXJ0aWZhY3RzL2FwaS1zZXJ2ZXIvc3JjL3JvdXRlcy9haS9vcGVyYXRvci1hbGVydHMudHMiLCIvc3JjL3JvdXRlcy9haS9vcGVyYXRvci1hbGVydHMudHMiLFtdXQ==

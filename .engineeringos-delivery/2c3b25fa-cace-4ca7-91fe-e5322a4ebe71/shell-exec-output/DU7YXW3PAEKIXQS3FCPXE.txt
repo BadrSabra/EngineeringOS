@@ -1,0 +1,574 @@
+--- orchestrator top-level ---
+lib/ai-orchestrator/src/agent-complete.ts
+lib/ai-orchestrator/src/agents/base-agent.ts
+lib/ai-orchestrator/src/agents/chat-agent.ts
+lib/ai-orchestrator/src/agents/code-reviewer.ts
+lib/ai-orchestrator/src/agents/hierarchical-executor.ts
+lib/ai-orchestrator/src/agents/implementation-planner.ts
+lib/ai-orchestrator/src/agents/query-planner.ts
+lib/ai-orchestrator/src/agents/scan-analyst.ts
+lib/ai-orchestrator/src/agents/speculative-prefetch.test.ts
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+lib/ai-orchestrator/src/audit-telemetry.ts
+lib/ai-orchestrator/src/behavioral-scorecard.ts
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts
+lib/ai-orchestrator/src/benchmark/baseline-approval.ts
+lib/ai-orchestrator/src/benchmark/behavioral-oracle-gate.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.ts
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts
+lib/ai-orchestrator/src/benchmark/benchmark-shards.test.ts
+lib/ai-orchestrator/src/benchmark/benchmark-shards.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/contract-oracle.test.ts
+lib/ai-orchestrator/src/benchmark/contract-oracle.ts
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts
+lib/ai-orchestrator/src/benchmark/free-only-policy.test.ts
+lib/ai-orchestrator/src/benchmark/free-only-policy.ts
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.test.ts
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.test.ts
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts
+lib/ai-orchestrator/src/benchmark/provider-health-probe.test.ts
+lib/ai-orchestrator/src/benchmark/provider-health-probe.ts
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark-deterministic.ts
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark.ts
+lib/ai-orchestrator/src/benchmark/run-forensic-benchmark.ts
+lib/ai-orchestrator/src/benchmark/run-free-tier-quality-envelope.ts
+lib/ai-orchestrator/src/benchmark/validate-code-agent-benchmark-scenarios.ts
+lib/ai-orchestrator/src/capability-catalog.ts
+lib/ai-orchestrator/src/capability-contract.ts
+lib/ai-orchestrator/src/context-builder.test.ts
+lib/ai-orchestrator/src/context-builder.ts
+lib/ai-orchestrator/src/context-cache-manager.ts
+lib/ai-orchestrator/src/context-compressor.ts
+lib/ai-orchestrator/src/context-loader.ts
+lib/ai-orchestrator/src/context-manifest.ts
+lib/ai-orchestrator/src/context-runtime/context-admission.ts
+lib/ai-orchestrator/src/context-runtime/context-diff.ts
+lib/ai-orchestrator/src/context-runtime/context-lifetime.ts
+lib/ai-orchestrator/src/context-runtime/context-object.ts
+lib/ai-orchestrator/src/context-serializer.ts
+lib/ai-orchestrator/src/deepseek-client.ts
+lib/ai-orchestrator/src/errors.ts
+lib/ai-orchestrator/src/evidence-integrity.ts
+lib/ai-orchestrator/src/execution-kernel.test.ts
+lib/ai-orchestrator/src/execution-kernel.ts
+lib/ai-orchestrator/src/execution-ledger.ts
+lib/ai-orchestrator/src/execution-node-coordinator.ts
+lib/ai-orchestrator/src/filesystem-manifest.ts
+lib/ai-orchestrator/src/flight-deck-state.ts
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts
+lib/ai-orchestrator/src/forensic-evidence-packets.ts
+lib/ai-orchestrator/src/forensic-output-guard.ts
+lib/ai-orchestrator/src/forensic-recovery.ts
+lib/ai-orchestrator/src/forensic-source-policy.ts
+lib/ai-orchestrator/src/groq-client.ts
+lib/ai-orchestrator/src/index.ts
+lib/ai-orchestrator/src/model-selection/decision-engine.ts
+lib/ai-orchestrator/src/model-selection/execution-plan.ts
+lib/ai-orchestrator/src/model-selection/model-resolver.ts
+lib/ai-orchestrator/src/model-selection/provider-strategy.ts
+lib/ai-orchestrator/src/objective-scope.ts
+lib/ai-orchestrator/src/openai-compatible-client.ts
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts
+lib/ai-orchestrator/src/openrouter/index.ts
+lib/ai-orchestrator/src/openrouter/model-catalog.ts
+lib/ai-orchestrator/src/openrouter/model-resolver.ts
+lib/ai-orchestrator/src/parsing.ts
+lib/ai-orchestrator/src/patch-contract.ts
+lib/ai-orchestrator/src/prompts/capability-probe.ts
+lib/ai-orchestrator/src/prompts/chat.prompt.ts
+lib/ai-orchestrator/src/prompts/implementation-plan.prompt.ts
+lib/ai-orchestrator/src/prompts/index.ts
+lib/ai-orchestrator/src/prompts/profile-classifier.ts
+lib/ai-orchestrator/src/prompts/prompt-composer.ts
+lib/ai-orchestrator/src/prompts/prompt-planner.ts
+lib/ai-orchestrator/src/prompts/review.prompt.ts
+lib/ai-orchestrator/src/prompts/scan.prompt.ts
+lib/ai-orchestrator/src/prompts/task.prompt.ts
+lib/ai-orchestrator/src/prompts/workflow.prompt.ts
+lib/ai-orchestrator/src/provider-capabilities.ts
+lib/ai-orchestrator/src/provider-metrics.ts
+lib/ai-orchestrator/src/provider-registry.ts
+lib/ai-orchestrator/src/provider-strategy.ts
+lib/ai-orchestrator/src/provider-tool-calls.ts
+lib/ai-orchestrator/src/quality-engine.ts
+lib/ai-orchestrator/src/quality/execution-phases.ts
+lib/ai-orchestrator/src/quality/quality-planner.ts
+lib/ai-orchestrator/src/quality/retry-controller.ts
+lib/ai-orchestrator/src/quality/task-profile.ts
+lib/ai-orchestrator/src/recipe-capabilities.ts
+lib/ai-orchestrator/src/recipe-compiler.ts
+lib/ai-orchestrator/src/recipe-contract.ts
+lib/ai-orchestrator/src/required-claims.ts
+lib/ai-orchestrator/src/schemas/chat.schema.ts
+lib/ai-orchestrator/src/schemas/code-review.schema.ts
+lib/ai-orchestrator/src/schemas/context.schema.ts
+lib/ai-orchestrator/src/schemas/implementation-plan.schema.ts
+lib/ai-orchestrator/src/schemas/index.ts
+lib/ai-orchestrator/src/schemas/scan.schema.ts
+lib/ai-orchestrator/src/schemas/task.schema.ts
+lib/ai-orchestrator/src/schemas/workflow.schema.ts
+lib/ai-orchestrator/src/semantic-trace.ts
+lib/ai-orchestrator/src/session-memory.ts
+lib/ai-orchestrator/src/startup-validator.ts
+lib/ai-orchestrator/src/strategies/deepseek.strategy.ts
+lib/ai-orchestrator/src/strategies/gemini.strategy.ts
+lib/ai-orchestrator/src/strategies/groq.strategy.ts
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts
+lib/ai-orchestrator/src/task-checklist.ts
+lib/ai-orchestrator/src/task-contracts.ts
+lib/ai-orchestrator/src/task-execution-partial-report.ts
+lib/ai-orchestrator/src/task-session-state.ts
+lib/ai-orchestrator/src/__tests__/agent-prompt-boundary.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-005-objective-gate-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-013-status-telemetry.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ai-obj-objective-completion-gate.test.ts
+lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts
+lib/ai-orchestrator/src/__tests__/behavioral-scorecard.test.ts
+lib/ai-orchestrator/src/__tests__/capability-catalog.test.ts
+lib/ai-orchestrator/src/__tests__/capability-contract.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-intent.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-task-result.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+lib/ai-orchestrator/src/__tests__/chat-behavior-grounded-notproven-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-behavior-span-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-capability-probe-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-evidence-integrity-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-failure-after-read-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-required-claim-unclosed-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-scoped-verdict-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-task-contract-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/chat-workspace-review-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/code-reviewer.test.ts
+lib/ai-orchestrator/src/__tests__/context-loader.test.ts
+lib/ai-orchestrator/src/__tests__/conversation-history.test.ts
+lib/ai-orchestrator/src/__tests__/ei-017-recovery-integration.test.ts
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-041-scoped-verdict-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ei-045-production-verdict-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts
+lib/ai-orchestrator/src/__tests__/execution-ledger.test.ts
+lib/ai-orchestrator/src/__tests__/execution-node-coordinator.test.ts
+lib/ai-orchestrator/src/__tests__/execution-phases.test.ts
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts
+lib/ai-orchestrator/src/__tests__/fixture-guards.test.ts
+lib/ai-orchestrator/src/__tests__/fixture-guards.ts
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts
+lib/ai-orchestrator/src/__tests__/flight-deck-state.test.ts
+lib/ai-orchestrator/src/__tests__/flight-recorder-reasoning.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-deterministic-findings.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-evidence-packets.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-live-read.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-prompt-safety.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-recovery.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-single-file-isolation.test.ts
+lib/ai-orchestrator/src/__tests__/forensic-terminal-kind.test.ts
+lib/ai-orchestrator/src/__tests__/free-model-override.test.ts
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts
+lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts
+lib/ai-orchestrator/src/__tests__/implementation-planner-grounding.test.ts
+lib/ai-orchestrator/src/__tests__/live-review-receipt.test.ts
+lib/ai-orchestrator/src/__tests__/objective-scope.test.ts
+lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts
+lib/ai-orchestrator/src/__tests__/parsing.test.ts
+lib/ai-orchestrator/src/__tests__/patch-contract.test.ts
+lib/ai-orchestrator/src/__tests__/profile-classifier.test.ts
+lib/ai-orchestrator/src/__tests__/prompt-composer.test.ts
+lib/ai-orchestrator/src/__tests__/provider-tool-calls.test.ts
+lib/ai-orchestrator/src/__tests__/quality-engine.test.ts
+lib/ai-orchestrator/src/__tests__/query-planner.test.ts
+lib/ai-orchestrator/src/__tests__/reachability-gate-e2e.test.ts
+lib/ai-orchestrator/src/__tests__/reachability-proof.test.ts
+lib/ai-orchestrator/src/__tests__/recipe-compiler.test.ts
+lib/ai-orchestrator/src/__tests__/required-claims.test.ts
+lib/ai-orchestrator/src/__tests__/retry-controller.test.ts
+lib/ai-orchestrator/src/__tests__/schemas.test.ts
+lib/ai-orchestrator/src/__tests__/semantic-trace.test.ts
+lib/ai-orchestrator/src/__tests__/startup-validator.test.ts
+lib/ai-orchestrator/src/__tests__/structured-review-fallback.release.test.ts
+lib/ai-orchestrator/src/__tests__/task-checklist.test.ts
+lib/ai-orchestrator/src/__tests__/task-contract-regression.test.ts
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts
+lib/ai-orchestrator/src/__tests__/task-execution-partial-report.test.ts
+lib/ai-orchestrator/src/__tests__/task-profile.test.ts
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts
+lib/ai-orchestrator/src/__tests__/turn-intent.test.ts
+lib/ai-orchestrator/src/__tests__/untrusted-content.test.ts
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/tool-policy.ts
+lib/ai-orchestrator/src/tools/analysis-tools.ts
+lib/ai-orchestrator/src/tools/execution-tools.ts
+lib/ai-orchestrator/src/tools/file-tools.ts
+lib/ai-orchestrator/src/tools/git-tools.ts
+lib/ai-orchestrator/src/turn-intent.ts
+lib/ai-orchestrator/src/untrusted-content.ts
+lib/ai-orchestrator/src/validation-result.ts
+lib/ai-orchestrator/src/zzz_test.txt
+--- API AI files ---
+artifacts/api-server/src/lib/ai-analysis-tools.ts
+artifacts/api-server/src/lib/ai-change-guard.ts
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+artifacts/api-server/src/lib/ai-execution-state.test.ts
+artifacts/api-server/src/lib/ai-execution-state.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+artifacts/api-server/src/lib/ai-repair-validation.test.ts
+artifacts/api-server/src/lib/ai-repair-validation.ts
+artifacts/api-server/src/lib/ai-route-helpers.test.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+artifacts/api-server/src/lib/ai-terminal-outcome.test.ts
+artifacts/api-server/src/lib/ai-terminal-outcome.ts
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+artifacts/api-server/src/lib/run-live-provider-review-campaign.ts
+artifacts/api-server/src/routes/ai/analysis.ts
+artifacts/api-server/src/routes/ai/benchmark.test.ts
+artifacts/api-server/src/routes/ai/benchmark.ts
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+artifacts/api-server/src/routes/ai/chat.ts
+artifacts/api-server/src/routes/ai/index.ts
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts
+artifacts/api-server/src/routes/ai/operator-alerts.ts
+artifacts/api-server/src/routes/ai/providers.ts
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts
+artifacts/api-server/src/routes/ai-route-parity.test.ts
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+artifacts/api-server/src/routes/ai/tasks.ts
+artifacts/api-server/src/routes/ai.test.ts
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/routes/ai/workflows.ts
+--- docs ---
+docs/actual-capability-baseline-v1.md  docs/architecture.md
+docs/ai-model-capability-probe-prompt.md
+--- exact capability/recipe names ---
+docs/validation-artifact-cleanup-report.json:174:      "owner": "recipe-capability-validation",
+docs/validation-artifact-cleanup-report.json:175:      "dispositionReason": "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+docs/validation-artifact-cleanup-report.json:272:        "owner": "recipe-capability-validation",
+docs/validation-artifact-cleanup-report.json:273:        "reason": "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+docs/validation-artifact-cleanup-report.json:369:        "owner": "recipe-capability-validation",
+docs/validation-artifact-cleanup-report.json:370:        "reason": "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+lib/ai-orchestrator/src/index.ts:212:  SUPPORTED_RECIPE_VERSIONS,
+lib/ai-orchestrator/src/index.ts:214:  RecipeVersionSchema,
+lib/ai-orchestrator/src/index.ts:229:export { READ_PROJECT_FILE_CAPABILITY, createServerCapabilityRegistry } from "./recipe-capabilities.js";
+lib/ai-orchestrator/src/index.ts:252:  RecipeVersion,
+lib/ai-orchestrator/src/index.ts:343:  RECIPE_CONTRACT_VERSION,
+lib/ai-orchestrator/src/index.ts:344:  RecipeIdSchema,
+lib/ai-orchestrator/src/index.ts:345:  RecipeNodeIdSchema,
+lib/ai-orchestrator/src/index.ts:346:  RecipeOutputNameSchema,
+lib/ai-orchestrator/src/index.ts:349:  RecipeTargetSchema,
+lib/ai-orchestrator/src/index.ts:350:  CapabilityRecipeNodeSchema,
+lib/ai-orchestrator/src/index.ts:351:  RecipeTransitionSchema,
+lib/ai-orchestrator/src/index.ts:352:  RecipeOutcomeOutputSchema,
+lib/ai-orchestrator/src/index.ts:353:  RecipeOutcomeContractSchema,
+lib/ai-orchestrator/src/index.ts:354:  CapabilityRecipeSchema,
+lib/ai-orchestrator/src/index.ts:355:  RecipeExecutionPolicySchema,
+lib/ai-orchestrator/src/index.ts:356:  RecipeContextSchema,
+lib/ai-orchestrator/src/index.ts:357:  CompiledRecipeTransitionSchema,
+lib/ai-orchestrator/src/index.ts:358:  RecipeStateSchema,
+lib/ai-orchestrator/src/index.ts:359:  recipeVersionIsSupported,
+lib/ai-orchestrator/src/index.ts:360:} from "./recipe-contract.js";
+lib/ai-orchestrator/src/index.ts:362:  RecipeId,
+lib/ai-orchestrator/src/index.ts:363:  RecipeNodeId,
+lib/ai-orchestrator/src/index.ts:364:  RecipeOutputName,
+lib/ai-orchestrator/src/index.ts:366:  RecipeTarget,
+lib/ai-orchestrator/src/index.ts:367:  CapabilityRecipeNode,
+lib/ai-orchestrator/src/index.ts:368:  RecipeTransition,
+lib/ai-orchestrator/src/index.ts:369:  RecipeOutcomeOutput,
+lib/ai-orchestrator/src/index.ts:370:  RecipeOutcomeContract,
+lib/ai-orchestrator/src/index.ts:371:  CapabilityRecipe,
+lib/ai-orchestrator/src/index.ts:372:  RecipeExecutionPolicy,
+lib/ai-orchestrator/src/index.ts:373:  RecipeContext,
+lib/ai-orchestrator/src/index.ts:374:  CompiledRecipeTransition,
+lib/ai-orchestrator/src/index.ts:375:  RecipeState,
+lib/ai-orchestrator/src/index.ts:376:  RecipeEvidenceNode,
+lib/ai-orchestrator/src/index.ts:377:  RecipeEvidence,
+lib/ai-orchestrator/src/index.ts:378:} from "./recipe-contract.js";
+lib/ai-orchestrator/src/index.ts:380:  DEFAULT_RECIPE_EXECUTION_POLICY,
+lib/ai-orchestrator/src/index.ts:381:  RecipeCompilationError,
+lib/ai-orchestrator/src/index.ts:382:  compileCapabilityRecipe,
+lib/ai-orchestrator/src/index.ts:383:  compileCapabilityRecipeOrThrow,
+lib/ai-orchestrator/src/index.ts:384:  compileSafeRecipe,
+lib/ai-orchestrator/src/index.ts:385:  compileRecipe,
+lib/ai-orchestrator/src/index.ts:386:  evaluateRecipeEvidencePredicate,
+lib/ai-orchestrator/src/index.ts:387:  advanceCompiledRecipeTransition,
+lib/ai-orchestrator/src/index.ts:388:} from "./recipe-compiler.js";
+lib/ai-orchestrator/src/index.ts:390:  RecipeCompilationDiagnosticCode,
+lib/ai-orchestrator/src/index.ts:391:  RecipeCompilationDiagnostic,
+lib/ai-orchestrator/src/index.ts:392:  RecipeCompilationResult,
+lib/ai-orchestrator/src/index.ts:393:  RecipeCompilationContext,
+lib/ai-orchestrator/src/index.ts:394:  CompileCapabilityRecipeOptions,
+lib/ai-orchestrator/src/index.ts:395:  RecipeTransitionAdvanceResult,
+lib/ai-orchestrator/src/index.ts:396:} from "./recipe-compiler.js";
+lib/ai-orchestrator/src/execution-node-coordinator.ts:60:   * Server-owned lifecycle fence for recipe nodes. The callback must re-check
+lib/ai-orchestrator/src/execution-node-coordinator.ts:154:function isRecipeNode(node: ExecutionNode): boolean {
+lib/ai-orchestrator/src/execution-node-coordinator.ts:166:    return isRecipeNode(node)
+lib/ai-orchestrator/src/execution-node-coordinator.ts:167:      ? { allowed: false, reason: "recipe node has no server-owned operation authorization" }
+lib/ai-orchestrator/src/task-session-state.ts:19:import { CapabilityIdSchema, RecipeVersionSchema } from "./capability-contract.js";
+lib/ai-orchestrator/src/task-session-state.ts:21:  CapabilityRecipeSchema,
+lib/ai-orchestrator/src/task-session-state.ts:23:  CompiledRecipeTransitionSchema,
+lib/ai-orchestrator/src/task-session-state.ts:24:  RecipeContextSchema,
+lib/ai-orchestrator/src/task-session-state.ts:25:  RecipeExecutionPolicySchema,
+lib/ai-orchestrator/src/task-session-state.ts:26:  RecipeStateSchema,
+lib/ai-orchestrator/src/task-session-state.ts:27:} from "./recipe-contract.js";
+lib/ai-orchestrator/src/task-session-state.ts:96:  recipeVersion: RecipeVersionSchema.optional(),
+lib/ai-orchestrator/src/task-session-state.ts:101:  executionContext: RecipeContextSchema.optional(),
+lib/ai-orchestrator/src/task-session-state.ts:124:  /** Capability recipe fields are nullable for legacy forensic plans. */
+lib/ai-orchestrator/src/task-session-state.ts:125:  recipe: CapabilityRecipeSchema.nullable().default(null),
+lib/ai-orchestrator/src/task-session-state.ts:134:  transitions: z.array(CompiledRecipeTransitionSchema).max(48).default([]),
+lib/ai-orchestrator/src/task-session-state.ts:135:  executionPolicy: RecipeExecutionPolicySchema.nullable().default(null),
+lib/ai-orchestrator/src/task-session-state.ts:136:  recipeContext: RecipeContextSchema.nullable().default(null),
+lib/ai-orchestrator/src/task-session-state.ts:137:  recipeState: RecipeStateSchema.nullable().default(null),
+lib/ai-orchestrator/src/capability-contract.ts:9:export const SUPPORTED_RECIPE_VERSIONS = [1] as const;
+lib/ai-orchestrator/src/capability-contract.ts:18:export const RecipeVersionSchema = z.number().int().min(1).max(100);
+lib/ai-orchestrator/src/capability-contract.ts:19:export type RecipeVersion = z.infer<typeof RecipeVersionSchema>;
+lib/ai-orchestrator/src/capability-contract.ts:26: * not an execution recipe: command names, argv, cwd, environment, profiles,
+lib/ai-orchestrator/src/capability-contract.ts:179:    supportedRecipeVersions: z.array(RecipeVersionSchema).min(1).max(32),
+lib/ai-orchestrator/src/capability-contract.ts:185:    if (new Set(descriptor.supportedRecipeVersions).size !== descriptor.supportedRecipeVersions.length) {
+lib/ai-orchestrator/src/capability-contract.ts:188:        path: ["supportedRecipeVersions"],
+lib/ai-orchestrator/src/capability-contract.ts:189:        message: "supported recipe versions must be unique",
+lib/ai-orchestrator/src/capability-contract.ts:192:    if (descriptor.supportedRecipeVersions.some(
+lib/ai-orchestrator/src/capability-contract.ts:193:      (version) => !(SUPPORTED_RECIPE_VERSIONS as readonly number[]).includes(version),
+lib/ai-orchestrator/src/capability-contract.ts:197:        path: ["supportedRecipeVersions"],
+lib/ai-orchestrator/src/capability-contract.ts:198:        message: "registration includes a recipe version unsupported by this contract",
+lib/ai-orchestrator/src/capability-contract.ts:263:  | "CAPABILITY_RECIPE_VERSION_UNSUPPORTED"
+lib/ai-orchestrator/src/capability-contract.ts:276:  recipeVersion: number;
+lib/ai-orchestrator/src/capability-contract.ts:289:      recipeVersion: RecipeVersion;
+lib/ai-orchestrator/src/capability-contract.ts:296:  recipeVersion: number,
+lib/ai-orchestrator/src/capability-contract.ts:300:  return { ok: false, capabilityId, recipeVersion, code, detail };
+lib/ai-orchestrator/src/capability-contract.ts:344:    supportedRecipeVersions: adapter.supportedRecipeVersions,
+lib/ai-orchestrator/src/capability-contract.ts:350:      Number(adapter.supportedRecipeVersions?.[0] ?? 0),
+lib/ai-orchestrator/src/capability-contract.ts:358:      adapter.supportedRecipeVersions[0],
+lib/ai-orchestrator/src/capability-contract.ts:367:      adapter.supportedRecipeVersions[0],
+lib/ai-orchestrator/src/capability-contract.ts:392:    supportedRecipeVersions: Object.freeze([...adapter.supportedRecipeVersions]),
+lib/ai-orchestrator/src/capability-contract.ts:406: * validate the opaque ID, recipe version, input, operation, and output before
+lib/ai-orchestrator/src/capability-contract.ts:448:    recipeVersion: number,
+lib/ai-orchestrator/src/capability-contract.ts:452:    if (!id.success) return failure(capabilityId, recipeVersion, "CAPABILITY_UNKNOWN_ID", "The capability ID is not registered.");
+lib/ai-orchestrator/src/capability-contract.ts:455:    if (!adapter) return failure(id.data, recipeVersion, "CAPABILITY_UNKNOWN_ID", "The capability ID is not registered.");
+lib/ai-orchestrator/src/capability-contract.ts:456:    if (!RecipeVersionSchema.safeParse(recipeVersion).success ||
+lib/ai-orchestrator/src/capability-contract.ts:457:        !adapter.supportedRecipeVersions.includes(recipeVersion as RecipeVersion)) {
+lib/ai-orchestrator/src/capability-contract.ts:458:      return failure(id.data, recipeVersion, "CAPABILITY_RECIPE_VERSION_UNSUPPORTED", "The recipe version is not supported by this capability.");
+lib/ai-orchestrator/src/capability-contract.ts:463:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input must be JSON-serializable.");
+lib/ai-orchestrator/src/capability-contract.ts:466:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_TOO_LARGE", "Capability input exceeds the server input limit.");
+lib/ai-orchestrator/src/capability-contract.ts:469:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input contains a server-owned execution control.");
+lib/ai-orchestrator/src/capability-contract.ts:476:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input could not be validated.");
+lib/ai-orchestrator/src/capability-contract.ts:479:      return failure(id.data, recipeVersion, "CAPABILITY_INPUT_INVALID", "Capability input does not match the registered input schema.");
+lib/ai-orchestrator/src/capability-contract.ts:486:    recipeVersion: number,
+lib/ai-orchestrator/src/capability-contract.ts:490:    const validation = this.validateInput(capabilityId, recipeVersion, input);
+lib/ai-orchestrator/src/capability-contract.ts:495:      return failure(capability.id, recipeVersion, "CAPABILITY_APPROVAL_REQUIRED", "The capability requires server approval before execution.");
+lib/ai-orchestrator/src/capability-contract.ts:498:      return failure(capability.id, recipeVersion, "CAPABILITY_OPERATION_NOT_ALLOWED", "The capability is not approved for this operation.");
+lib/ai-orchestrator/src/capability-contract.ts:503:      return failure(capability.id, recipeVersion, "CAPABILITY_PROFILE_NOT_APPROVED", "The capability requires a server-approved command profile.");
+lib/ai-orchestrator/src/capability-contract.ts:510:      return failure(capability.id, recipeVersion, "CAPABILITY_EXECUTION_FAILED", "The registered capability failed during execution.");
+lib/ai-orchestrator/src/capability-contract.ts:517:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_INVALID", "Capability output could not be validated.");
+lib/ai-orchestrator/src/capability-contract.ts:520:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_INVALID", "The capability produced output outside its registered schema.");
+lib/ai-orchestrator/src/capability-contract.ts:524:      return failure(capability.id, recipeVersion, "CAPABILITY_OUTPUT_TOO_LARGE", "Capability output exceeds the server output limit.");
+lib/ai-orchestrator/src/capability-contract.ts:529:      recipeVersion: recipeVersion as RecipeVersion,
+lib/ai-orchestrator/src/capability-contract.ts:551:  allowedOperations: ["recipe"],
+lib/ai-orchestrator/src/capability-catalog.ts:8:  RecipeVersionSchema,
+lib/ai-orchestrator/src/capability-catalog.ts:77:    supportedRecipeVersions: z.array(RecipeVersionSchema).min(1).max(32),
+lib/ai-orchestrator/src/capability-catalog.ts:98:    recipeVersion: RecipeVersionSchema,
+lib/ai-orchestrator/src/capability-catalog.ts:120:  "CAPABILITY_RECIPE_VERSION_UNSUPPORTED",
+lib/ai-orchestrator/src/capability-catalog.ts:132:    recipeVersion: z.number().int().min(1).max(100),
+lib/ai-orchestrator/src/capability-catalog.ts:142:  recipeVersion: number;
+lib/ai-orchestrator/src/capability-catalog.ts:183:      adapter.supportedRecipeVersions.some((version) => !Number.isInteger(version) || version < 1)) {
+lib/ai-orchestrator/src/capability-catalog.ts:220:  const operation = request.operation ?? "recipe";
+lib/ai-orchestrator/src/capability-catalog.ts:299:    supportedRecipeVersions: [...adapter.supportedRecipeVersions].sort((a, b) => a - b),
+lib/ai-orchestrator/src/capability-catalog.ts:349:        recipeVersion: entry.supportedRecipeVersions[0],
+lib/ai-orchestrator/src/capability-catalog.ts:394:  recipeVersion: number,
+lib/ai-orchestrator/src/capability-catalog.ts:403:    recipeVersion: Number.isInteger(recipeVersion) ? Math.max(1, Math.min(100, recipeVersion)) : 1,
+lib/ai-orchestrator/src/capability-catalog.ts:413: * recipe binding and invocation remain separate server-owned operations.
+lib/ai-orchestrator/src/capability-catalog.ts:422:      recipeVersion: z.number().int().min(1).max(100).optional(),
+lib/ai-orchestrator/src/capability-catalog.ts:427:  if (!parsed.success || !parsed.data.capabilityId || parsed.data.recipeVersion === undefined) {
+lib/ai-orchestrator/src/capability-catalog.ts:433:      typeof (rawRequest as Record<string, unknown> | null)?.recipeVersion === "number"
+lib/ai-orchestrator/src/capability-catalog.ts:434:        ? Number((rawRequest as Record<string, unknown>).recipeVersion)
+lib/ai-orchestrator/src/capability-catalog.ts:437:      "Provide only a capability ID, a supported recipe version, and server-owned discovery context.",
+lib/ai-orchestrator/src/capability-catalog.ts:445:      parsed.data.recipeVersion,
+lib/ai-orchestrator/src/capability-catalog.ts:447:      "Choose an ID from the current capability catalog.",
+lib/ai-orchestrator/src/capability-catalog.ts:452:  if (!adapter || !adapter.supportedRecipeVersions.includes(parsed.data.recipeVersion as never)) {
+lib/ai-orchestrator/src/capability-catalog.ts:454:      "CAPABILITY_RECIPE_VERSION_UNSUPPORTED",
+lib/ai-orchestrator/src/capability-catalog.ts:456:      parsed.data.recipeVersion,
+lib/ai-orchestrator/src/capability-catalog.ts:457:      "The requested recipe version is not supported by this capability.",
+lib/ai-orchestrator/src/capability-catalog.ts:458:      "Choose one of the supported recipe versions shown in the current catalog.",
+lib/ai-orchestrator/src/capability-catalog.ts:474:      parsed.data.recipeVersion,
+lib/ai-orchestrator/src/capability-catalog.ts:492:      "The capability catalog request is malformed.",
+lib/ai-orchestrator/src/capability-catalog.ts:511:    return `- ${entry.id} v${entry.supportedRecipeVersions.join("/")} — ${entry.purpose}; input {${fields}}; scope ${entry.defaultScope}; cost ${entry.cost}; risk ${entry.risk}; ${availability}; automatic execution ${entry.autonomy.automaticExecution}`;
+lib/ai-orchestrator/src/capability-catalog.ts:515:      `- ${suggestion.capabilityId} v${suggestion.recipeVersion}: ${suggestion.reason} (confidence ${suggestion.confidence})`,
+lib/ai-orchestrator/src/capability-catalog.ts:519:    "CAPABILITY CATALOG — PLANNING ONLY",
+lib/ai-orchestrator/src/capability-catalog.ts:520:    "Capability IDs and recipe versions are opaque request identifiers. This catalog is not a tool manifest and does not grant execution authority.",
+lib/ai-orchestrator/src/capability-catalog.ts:524:    "To request a capability, name only its capability ID, recipe version, and business input. Never provide commands, argv, cwd, environment, profiles, or process settings.",
+lib/ai-orchestrator/src/recipe-contract.ts:4:  RecipeVersionSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:5:  type RecipeVersion,
+lib/ai-orchestrator/src/recipe-contract.ts:9: * Recipe input is a request for business intent only. The strict schemas in
+lib/ai-orchestrator/src/recipe-contract.ts:13:export const RECIPE_CONTRACT_VERSION = 1 as const;
+lib/ai-orchestrator/src/recipe-contract.ts:15:export const RecipeIdSchema = z
+lib/ai-orchestrator/src/recipe-contract.ts:19:  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "recipe IDs must be safe identifiers");
+lib/ai-orchestrator/src/recipe-contract.ts:20:export type RecipeId = z.infer<typeof RecipeIdSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:22:export const RecipeNodeIdSchema = z
+lib/ai-orchestrator/src/recipe-contract.ts:26:  .regex(/^[A-Za-z][A-Za-z0-9._:-]*$/, "recipe node IDs must be safe identifiers");
+lib/ai-orchestrator/src/recipe-contract.ts:27:export type RecipeNodeId = z.infer<typeof RecipeNodeIdSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:29:export const RecipeOutputNameSchema = z
+lib/ai-orchestrator/src/recipe-contract.ts:33:  .regex(/^[A-Za-z][A-Za-z0-9._:-]*$/, "recipe output names must be safe identifiers");
+lib/ai-orchestrator/src/recipe-contract.ts:34:export type RecipeOutputName = z.infer<typeof RecipeOutputNameSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:36:const RequiredRecipeValueSchema = z.custom<unknown>(
+lib/ai-orchestrator/src/recipe-contract.ts:38:  "recipe values must be present",
+lib/ai-orchestrator/src/recipe-contract.ts:41:const RecipeNodeStatusSchema = z.enum(["queued", "running", "passed", "failed", "blocked"]);
+lib/ai-orchestrator/src/recipe-contract.ts:42:export type RecipeNodeStatus = z.infer<typeof RecipeNodeStatusSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:45:  | { kind: "node_status"; nodeId: string; status: RecipeNodeStatus }
+lib/ai-orchestrator/src/recipe-contract.ts:57:      nodeId: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:58:      status: RecipeNodeStatusSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:62:      nodeId: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:63:      output: RecipeOutputNameSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:67:      nodeId: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:68:      output: RecipeOutputNameSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:69:      value: RequiredRecipeValueSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:73:      nodeId: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:97:      status: RecipeNodeStatusSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:102:      output: RecipeOutputNameSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:107:      output: RecipeOutputNameSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:108:      value: RequiredRecipeValueSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:130:export const RecipeTargetSchema = z.discriminatedUnion("kind", [
+lib/ai-orchestrator/src/recipe-contract.ts:133:    nodeId: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:140:export type RecipeTarget = z.infer<typeof RecipeTargetSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:142:export const CapabilityRecipeNodeSchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:143:  id: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:146:  recipeVersion: RecipeVersionSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:147:  input: RequiredRecipeValueSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:148:  dependsOn: z.array(RecipeNodeIdSchema).max(12).default([]),
+lib/ai-orchestrator/src/recipe-contract.ts:149:  declaredOutputs: z.array(RecipeOutputNameSchema).max(16).default([]),
+lib/ai-orchestrator/src/recipe-contract.ts:166:export type CapabilityRecipeNode = z.infer<typeof CapabilityRecipeNodeSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:168:export const RecipeTransitionSchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:169:  id: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:170:  fromNodeId: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:172:  then: RecipeTargetSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:173:  otherwise: RecipeTargetSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:175:export type RecipeTransition = z.infer<typeof RecipeTransitionSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:177:export const RecipeOutcomeOutputSchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:178:  name: RecipeOutputNameSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:179:  nodeId: RecipeNodeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:180:  output: RecipeOutputNameSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:182:export type RecipeOutcomeOutput = z.infer<typeof RecipeOutcomeOutputSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:184:export const RecipeOutcomeContractSchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:186:  outputs: z.array(RecipeOutcomeOutputSchema).max(24).default([]),
+lib/ai-orchestrator/src/recipe-contract.ts:188:export type RecipeOutcomeContract = z.infer<typeof RecipeOutcomeContractSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:190:export const CapabilityRecipeSchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:191:  contractVersion: z.literal(RECIPE_CONTRACT_VERSION),
+lib/ai-orchestrator/src/recipe-contract.ts:192:  recipeId: RecipeIdSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:193:  recipeVersion: RecipeVersionSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:194:  nodes: z.array(CapabilityRecipeNodeSchema).min(1).max(24),
+lib/ai-orchestrator/src/recipe-contract.ts:195:  transitions: z.array(RecipeTransitionSchema).max(48).default([]),
+lib/ai-orchestrator/src/recipe-contract.ts:196:  outcome: RecipeOutcomeContractSchema,
+lib/ai-orchestrator/src/recipe-contract.ts:198:export type CapabilityRecipe = z.infer<typeof CapabilityRecipeSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:201: * These values are written by the compiler, never accepted from a recipe.
+lib/ai-orchestrator/src/recipe-contract.ts:204:export const RecipeExecutionPolicySchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:213:export type RecipeExecutionPolicy = z.infer<typeof RecipeExecutionPolicySchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:215:export const RecipeContextSchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:219:  operation: z.string().min(1).max(80).default("recipe"),
+lib/ai-orchestrator/src/recipe-contract.ts:225:export type RecipeContext = z.infer<typeof RecipeContextSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:227:export const CompiledRecipeTransitionSchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:240:export type CompiledRecipeTransition = z.infer<typeof CompiledRecipeTransitionSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:242:export const RecipeStateSchema = z.object({
+lib/ai-orchestrator/src/recipe-contract.ts:248:export type RecipeState = z.infer<typeof RecipeStateSchema>;
+lib/ai-orchestrator/src/recipe-contract.ts:250:export type RecipeEvidenceNode = {
+lib/ai-orchestrator/src/recipe-contract.ts:251:  status: RecipeNodeStatus;
+lib/ai-orchestrator/src/recipe-contract.ts:258:export type RecipeEvidence = Readonly<Record<string, RecipeEvidenceNode>>;
+lib/ai-orchestrator/src/recipe-contract.ts:260:export function recipeVersionIsSupported(version: number): version is RecipeVersion {
+lib/ai-orchestrator/src/recipe-compiler.ts:13:  CapabilityRecipeSchema,
+lib/ai-orchestrator/src/recipe-compiler.ts:15:  CompiledRecipeTransitionSchema,
+lib/ai-orchestrator/src/recipe-compiler.ts:16:  RecipeContextSchema,
+lib/ai-orchestrator/src/recipe-compiler.ts:17:  RecipeExecutionPolicySchema,
+lib/ai-orchestrator/src/recipe-compiler.ts:18:  RecipeStateSchema,
+lib/ai-orchestrator/src/recipe-compiler.ts:19:  type CapabilityRecipe,
+lib/ai-orchestrator/src/recipe-compiler.ts:20:  type CapabilityRecipeNode,
+lib/ai-orchestrator/src/recipe-compiler.ts:21:  type CompiledRecipeTransition,
+lib/ai-orchestrator/src/recipe-compiler.ts:23:  type RecipeContext,
+lib/ai-orchestrator/src/recipe-compiler.ts:24:  type RecipeEvidence,
+lib/ai-orchestrator/src/recipe-compiler.ts:25:  type RecipeExecutionPolicy,
+lib/ai-orchestrator/src/recipe-compiler.ts:26:  type RecipeState,
+lib/ai-orchestrator/src/recipe-compiler.ts:27:  type RecipeTarget,
+lib/ai-orchestrator/src/recipe-compiler.ts:28:} from "./recipe-contract.js";
+lib/ai-orchestrator/src/recipe-compiler.ts:30:export const DEFAULT_RECIPE_EXECUTION_POLICY: RecipeExecutionPolicy = {
+lib/ai-orchestrator/src/recipe-compiler.ts:40:export type RecipeCompilationDiagnosticCode =
+lib/ai-orchestrator/src/recipe-compiler.ts:41:  | "RECIPE_INVALID"
+lib/ai-orchestrator/src/recipe-compiler.ts:42:  | "RECIPE_VERSION_UNSUPPORTED"
+lib/ai-orchestrator/src/recipe-compiler.ts:43:  | "RECIPE_TOO_LARGE"
+lib/ai-orchestrator/src/recipe-compiler.ts:48:  | "CAPABILITY_RECIPE_VERSION_UNSUPPORTED"
+lib/ai-orchestrator/src/recipe-compiler.ts:69:export type RecipeCompilationDiagnostic = {
+lib/ai-orchestrator/src/recipe-compiler.ts:70:  code: RecipeCompilationDiagnosticCode;
+lib/ai-orchestrator/src/recipe-compiler.ts:75:export type RecipeCompilationResult =
+lib/ai-orchestrator/src/recipe-compiler.ts:77:  | { ok: false; diagnostics: RecipeCompilationDiagnostic[] };
+lib/ai-orchestrator/src/recipe-compiler.ts:79:export class RecipeCompilationError extends Error {
+lib/ai-orchestrator/src/recipe-compiler.ts:80:  public readonly diagnostics: readonly RecipeCompilationDiagnostic[];
+lib/ai-orchestrator/src/recipe-compiler.ts:82:  public constructor(diagnostics: readonly RecipeCompilationDiagnostic[]) {
+lib/ai-orchestrator/src/recipe-compiler.ts:84:    this.name = "RecipeCompilationError";
+lib/ai-orchestrator/src/recipe-compiler.ts:89:export type RecipeCompilationContext = Omit<RecipeContext, "operation" | "scope"> & {
+lib/ai-orchestrator/src/recipe-compiler.ts:91:  scope?: RecipeContext["scope"];
+lib/ai-orchestrator/src/recipe-compiler.ts:100:export type CompileCapabilityRecipeOptions = {
+lib/ai-orchestrator/src/recipe-compiler.ts:102:  context: RecipeCompilationContext;
+lib/ai-orchestrator/src/recipe-compiler.ts:103:  policy?: RecipeExecutionPolicy;
+lib/ai-orchestrator/src/recipe-compiler.ts:115:  code: RecipeCompilationDiagnosticCode,
+lib/ai-orchestrator/src/recipe-compiler.ts:118:): RecipeCompilationDiagnostic {
+lib/ai-orchestrator/src/recipe-compiler.ts:122:function nodeId(recipeId: string, sourceId: string): string {
+lib/ai-orchestrator/src/recipe-compiler.ts:123:  return `recipe:${recipeId}:${sourceId}`;
+lib/ai-orchestrator/src/recipe-compiler.ts:126:function transitionId(recipeId: string, sourceId: string): string {
+lib/ai-orchestrator/src/recipe-compiler.ts:127:  return `recipe:${recipeId}:transition:${sourceId}`;
+lib/ai-orchestrator/src/recipe-compiler.ts:178:  sourceNodes: ReadonlyMap<string, CapabilityRecipeNode>,
+lib/ai-orchestrator/src/recipe-compiler.ts:180:  diagnostics: RecipeCompilationDiagnostic[],
+lib/ai-orchestrator/src/recipe-compiler.ts:218:  target: RecipeTarget,
+lib/ai-orchestrator/src/recipe-compiler.ts:220:  diagnostics: RecipeCompilationDiagnostic[],
+lib/ai-orchestrator/src/recipe-compiler.ts:222:): RecipeTarget {
+lib/ai-orchestrator/src/recipe-compiler.ts:232:  nodes: readonly CapabilityRecipeNode[],
+lib/ai-orchestrator/src/recipe-compiler.ts:234:  diagnostics: RecipeCompilationDiagnostic[],
+lib/ai-orchestrator/src/recipe-compiler.ts:235:): CapabilityRecipeNode[] {
+lib/ai-orchestrator/src/recipe-compiler.ts:250:  const ordered: CapabilityRecipeNode[] = [];
+lib/ai-orchestrator/src/recipe-compiler.ts:261:    diagnostics.push(diagnostic("DEPENDENCY_CYCLE", "nodes", "Recipe dependencies must form an acyclic graph."));
+lib/ai-orchestrator/src/recipe-compiler.ts:266:function graphHasCycle(transitions: readonly CompiledRecipeTransition[]): boolean {
+lib/ai-orchestrator/src/recipe-compiler.ts:290:  transitions: readonly CompiledRecipeTransition[],
+lib/ai-orchestrator/src/recipe-compiler.ts:293:  const outgoing = new Map<string, CompiledRecipeTransition[]>();
+lib/ai-orchestrator/src/recipe-compiler.ts:315:function safeFailureCode(failure: CapabilityFailure): RecipeCompilationDiagnosticCode {
+lib/ai-orchestrator/src/recipe-compiler.ts:317:    case "CAPABILITY_RECIPE_VERSION_UNSUPPORTED": return failure.code;
+lib/ai-orchestrator/src/recipe-compiler.ts:328:function parseRecipe(value: unknown): { recipe?: CapabilityRecipe; diagnostics: RecipeCompilationDiagnostic[] } {
+lib/ai-orchestrator/src/recipe-compiler.ts:329:  const parsed = CapabilityRecipeSchema.safeParse(value);
+lib/ai-orchestrator/src/recipe-compiler.ts:330:  if (parsed.success) return { recipe: parsed.data, diagnostics: [] };
+lib/ai-orchestrator/src/recipe-compiler.ts:333:      diagnostic("RECIPE_INVALID", issue.path.join(".") || "$", issue.message)),
+lib/ai-orchestrator/src/recipe-compiler.ts:338:  recipe: CapabilityRecipe,
+lib/ai-orchestrator/src/recipe-compiler.ts:339:  source: CapabilityRecipeNode,
+lib/ai-orchestrator/src/recipe-compiler.ts:341:  context: RecipeCompilationContext,
+lib/ai-orchestrator/src/recipe-compiler.ts:342:  policy: RecipeExecutionPolicy,
+lib/ai-orchestrator/src/recipe-compiler.ts:346:  const recipeContext = RecipeContextSchema.parse({
+lib/ai-orchestrator/src/recipe-compiler.ts:363:    recipeVersion: source.recipeVersion,
+lib/ai-orchestrator/src/recipe-compiler.ts:368:    executionContext: recipeContext,
+lib/ai-orchestrator/src/recipe-compiler.ts:373:  recipe: CapabilityRecipe,
+lib/ai-orchestrator/src/recipe-compiler.ts:374:  ordered: readonly CapabilityRecipeNode[],
+lib/ai-orchestrator/src/recipe-compiler.ts:376:  transitions: CompiledRecipeTransition[],
+lib/ai-orchestrator/src/recipe-compiler.ts:377:  policy: RecipeExecutionPolicy,
+lib/ai-orchestrator/src/recipe-compiler.ts:386:    const then: RecipeTarget = next

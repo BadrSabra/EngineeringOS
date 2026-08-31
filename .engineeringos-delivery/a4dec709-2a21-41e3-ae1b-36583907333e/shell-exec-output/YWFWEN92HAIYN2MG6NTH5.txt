@@ -1,0 +1,352 @@
+artifacts/api-server/src/lib/scan-runner.ts:33:  heartbeatScanJob,
+artifacts/api-server/src/lib/scan-runner.ts:148:  let heartbeatInterval: NodeJS.Timeout | undefined = setInterval(() => {
+artifacts/api-server/src/lib/scan-runner.ts:149:    heartbeatScanJob(jobId, workerId, SCAN_LEASE_MS).catch((hbErr) => {
+artifacts/api-server/src/lib/scan-runner.ts:150:      logger.warn({ hbErr, jobId }, "scan-runner: heartbeat failed");
+artifacts/api-server/src/lib/scan-runner.ts:156:    clearInterval(heartbeatInterval);
+artifacts/api-server/src/lib/scan-runner.ts:157:    heartbeatInterval = undefined;
+artifacts/api-server/src/lib/scan-runner.ts:172:      if (heartbeatInterval !== undefined) {
+artifacts/api-server/src/lib/scan-runner.ts:173:        clearInterval(heartbeatInterval);
+artifacts/api-server/src/lib/scan-runner.ts:174:        heartbeatInterval = undefined;
+artifacts/api-server/src/lib/scan-runner.ts:213:    // Safety net: ensure heartbeat is cleared even if an unexpected path
+artifacts/api-server/src/lib/scan-runner.ts:215:    if (heartbeatInterval !== undefined) clearInterval(heartbeatInterval);
+artifacts/api-server/src/lib/recipe-operation-runner.ts:15:  checkpointAiExecution,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:213:          leaseUntil: new Date(Date.now() + 300_000).toISOString(),
+artifacts/api-server/src/lib/recipe-operation-runner.ts:267:        void checkpointAiExecution({
+artifacts/api-server/src/lib/recipe-operation-runner.ts:270:          recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/recipe-operation-runner.ts:287:        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/recipe-operation-runner.ts:303:        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/recipe-operation-runner.ts:313:      recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/job-reconciliation.ts:216:    lt(scanJobsTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:217:    isNull(scanJobsTable.leaseUntil),
+artifacts/api-server/src/lib/job-reconciliation.ts:254:          leaseUntil: null,
+artifacts/api-server/src/lib/job-reconciliation.ts:278:          leaseUntil: null,
+artifacts/api-server/src/lib/job-reconciliation.ts:358:    lt(discoverySessionsTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:359:    isNull(discoverySessionsTable.leaseUntil),
+artifacts/api-server/src/lib/job-reconciliation.ts:379:        leaseUntil: null,
+artifacts/api-server/src/lib/job-reconciliation.ts:504:          //   (a) New rows with a lease: worker stopped heartbeating → lease expired.
+artifacts/api-server/src/lib/job-reconciliation.ts:507:            lt(scanJobsTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:508:            and(isNull(scanJobsTable.leaseUntil), lt(scanJobsTable.startedAt, cutoff)),
+artifacts/api-server/src/lib/job-reconciliation.ts:523:          leaseUntil: null,
+artifacts/api-server/src/lib/job-reconciliation.ts:554: * ownership fence: a live worker that heartbeats or finishes concurrently
+artifacts/api-server/src/lib/job-reconciliation.ts:566:        lt(discoverySessionsTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:574:        leaseUntil: null,
+artifacts/api-server/src/lib/job-reconciliation.ts:579:        lt(discoverySessionsTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:612:      lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:622:        leaseUntil: null,
+artifacts/api-server/src/lib/job-reconciliation.ts:627:        lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:807:      db.select({ value: count() }).from(scanJobsTable).where(and(eq(scanJobsTable.status, "running"), lt(scanJobsTable.leaseUntil, now))),
+artifacts/api-server/src/lib/job-reconciliation.ts:808:      db.select({ value: count() }).from(discoverySessionsTable).where(and(eq(discoverySessionsTable.status, "discovering"), lt(discoverySessionsTable.leaseUntil, now))),
+artifacts/api-server/src/lib/job-reconciliation.ts:809:      db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "running"), lt(tasksTable.leaseUntil, now))),
+artifacts/api-server/src/lib/job-reconciliation.ts:916:    lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:917:    isNull(tasksTable.leaseUntil),
+artifacts/api-server/src/lib/job-reconciliation.ts:950:          leaseUntil: null,
+artifacts/api-server/src/lib/job-reconciliation.ts:990:          leaseUntil: null,
+artifacts/api-server/src/lib/job-reconciliation.test.ts:150:      leaseUntil: new Date(Date.now() + 60_000),
+artifacts/api-server/src/lib/job-reconciliation.test.ts:312:      leaseUntil: new Date(Date.now() - 1_000),
+artifacts/api-server/src/lib/job-reconciliation.test.ts:325:      leaseUntil: new Date(Date.now() - 1_000),
+artifacts/api-server/src/lib/job-lease.ts:2: * PR-01 (Durable Jobs): Atomic claim / heartbeat / complete / fail helpers.
+artifacts/api-server/src/lib/job-lease.ts:14: *   2. Start a setInterval that calls heartbeatXxx to extend lease_until
+artifacts/api-server/src/lib/job-lease.ts:30:/** How long a scan-job worker's lease stays valid between heartbeats (ms). */
+artifacts/api-server/src/lib/job-lease.ts:35:/** How often a scan-job worker should send a heartbeat to extend its lease (ms). */
+artifacts/api-server/src/lib/job-lease.ts:42: * heartbeats. Longer than scan leases because the pipeline (9 steps)
+artifacts/api-server/src/lib/job-lease.ts:49:/** How often a discovery-session worker should heartbeat (ms). */
+artifacts/api-server/src/lib/job-lease.ts:54:/** How long an AI-task worker's lease stays valid between heartbeats (ms). */
+artifacts/api-server/src/lib/job-lease.ts:59:/** How often an AI-task worker should heartbeat (ms). */
+artifacts/api-server/src/lib/job-lease.ts:78:  const leaseUntil = new Date(now.getTime() + leaseMs);
+artifacts/api-server/src/lib/job-lease.ts:84:      leaseUntil,
+artifacts/api-server/src/lib/job-lease.ts:98:export async function heartbeatScanJob(
+artifacts/api-server/src/lib/job-lease.ts:104:  const leaseUntil = new Date(now.getTime() + leaseMs);
+artifacts/api-server/src/lib/job-lease.ts:107:    .set({ leaseUntil, lastHeartbeatAt: now })
+artifacts/api-server/src/lib/job-lease.ts:130:      leaseUntil: null,
+artifacts/api-server/src/lib/job-lease.ts:154:      leaseUntil: null,
+artifacts/api-server/src/lib/job-lease.ts:174:  const leaseUntil = new Date(now.getTime() + leaseMs);
+artifacts/api-server/src/lib/job-lease.ts:180:      leaseUntil,
+artifacts/api-server/src/lib/job-lease.ts:197:export async function heartbeatDiscoverySession(
+artifacts/api-server/src/lib/job-lease.ts:203:  const leaseUntil = new Date(now.getTime() + leaseMs);
+artifacts/api-server/src/lib/job-lease.ts:206:    .set({ leaseUntil, lastHeartbeatAt: now })
+artifacts/api-server/src/lib/job-lease.ts:224:    .set({ workerId: null, leaseUntil: null, lastHeartbeatAt: null })
+artifacts/api-server/src/lib/job-lease.ts:240:  const leaseUntil = new Date(now.getTime() + leaseMs);
+artifacts/api-server/src/lib/job-lease.ts:243:    .set({ status: "running", workerId, leaseUntil, lastHeartbeatAt: now, updatedAt: now })
+artifacts/api-server/src/lib/job-lease.ts:252:export async function heartbeatAiTask(
+artifacts/api-server/src/lib/job-lease.ts:258:  const leaseUntil = new Date(now.getTime() + leaseMs);
+artifacts/api-server/src/lib/job-lease.ts:261:    .set({ leaseUntil, lastHeartbeatAt: now, updatedAt: now })
+artifacts/api-server/src/lib/job-lease.ts:272:    .set({ workerId: null, leaseUntil: null, lastHeartbeatAt: null })
+artifacts/api-server/src/lib/job-lease.test.ts:2: * PR-01 (Durable Jobs): Unit tests for atomic claim / heartbeat / complete / fail
+artifacts/api-server/src/lib/job-lease.test.ts:12:  heartbeatScanJob,
+artifacts/api-server/src/lib/job-lease.test.ts:16:  heartbeatDiscoverySession,
+artifacts/api-server/src/lib/job-lease.test.ts:79:    expect(row.leaseUntil).not.toBeNull();
+artifacts/api-server/src/lib/job-lease.test.ts:83:    expect(row.leaseUntil!.getTime()).toBeGreaterThan(Date.now());
+artifacts/api-server/src/lib/job-lease.test.ts:106:  it("heartbeatScanJob extends lease_until forward in time", async () => {
+artifacts/api-server/src/lib/job-lease.test.ts:112:      .select({ leaseUntil: scanJobsTable.leaseUntil })
+artifacts/api-server/src/lib/job-lease.test.ts:117:    await heartbeatScanJob(jobId, workerId, SCAN_LEASE_MS);
+artifacts/api-server/src/lib/job-lease.test.ts:120:      .select({ leaseUntil: scanJobsTable.leaseUntil })
+artifacts/api-server/src/lib/job-lease.test.ts:124:    expect(after.leaseUntil!.getTime()).toBeGreaterThanOrEqual(before.leaseUntil!.getTime());
+artifacts/api-server/src/lib/job-lease.test.ts:127:  it("heartbeatScanJob is a silent no-op when workerId does not match", async () => {
+artifacts/api-server/src/lib/job-lease.test.ts:133:      .select({ leaseUntil: scanJobsTable.leaseUntil })
+artifacts/api-server/src/lib/job-lease.test.ts:137:    // Rogue worker tries to heartbeat — should silently no-op
+artifacts/api-server/src/lib/job-lease.test.ts:138:    await heartbeatScanJob(jobId, randomUUID(), SCAN_LEASE_MS);
+artifacts/api-server/src/lib/job-lease.test.ts:141:      .select({ leaseUntil: scanJobsTable.leaseUntil })
+artifacts/api-server/src/lib/job-lease.test.ts:145:    expect(after.leaseUntil!.getTime()).toBe(before.leaseUntil!.getTime());
+artifacts/api-server/src/lib/job-lease.test.ts:157:    expect(row.leaseUntil).toBeNull();
+artifacts/api-server/src/lib/job-lease.test.ts:172:    expect(row.leaseUntil).toBeNull();
+artifacts/api-server/src/lib/job-lease.test.ts:215:    expect(row.leaseUntil).not.toBeNull();
+artifacts/api-server/src/lib/job-lease.test.ts:216:    expect(row.leaseUntil!.getTime()).toBeGreaterThan(Date.now());
+artifacts/api-server/src/lib/job-lease.test.ts:238:  it("heartbeatDiscoverySession no-ops when workerId does not match", async () => {
+artifacts/api-server/src/lib/job-lease.test.ts:244:      .select({ leaseUntil: discoverySessionsTable.leaseUntil })
+artifacts/api-server/src/lib/job-lease.test.ts:248:    await heartbeatDiscoverySession(sessionId, randomUUID(), DISCOVERY_LEASE_MS);
+artifacts/api-server/src/lib/job-lease.test.ts:251:      .select({ leaseUntil: discoverySessionsTable.leaseUntil })
+artifacts/api-server/src/lib/job-lease.test.ts:255:    expect(after.leaseUntil!.getTime()).toBe(before.leaseUntil!.getTime());
+artifacts/api-server/src/lib/job-lease.test.ts:258:  it("releaseDiscoverySessionLease clears workerId, leaseUntil, lastHeartbeatAt", async () => {
+artifacts/api-server/src/lib/job-lease.test.ts:277:    expect(released.leaseUntil).toBeNull();
+artifacts/api-server/src/lib/workflow-phase-execution.ts:4:  checkpointAiExecution,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:128:    const checkpointed = await checkpointAiExecution({
+artifacts/api-server/src/lib/discovery-runner.ts:37:  heartbeatDiscoverySession,
+artifacts/api-server/src/lib/discovery-runner.ts:374:  let heartbeatInterval: NodeJS.Timeout | undefined = setInterval(() => {
+artifacts/api-server/src/lib/discovery-runner.ts:375:    heartbeatDiscoverySession(sessionId, workerId, DISCOVERY_LEASE_MS).catch((hbErr) => {
+artifacts/api-server/src/lib/discovery-runner.ts:376:      logger.warn({ hbErr, sessionId }, "discovery-runner: heartbeat failed");
+artifacts/api-server/src/lib/discovery-runner.ts:577:    // terminal state. Clears workerId/leaseUntil/lastHeartbeatAt atomically.
+artifacts/api-server/src/lib/discovery-runner.ts:590:    // Safety net: clear heartbeat even if an unexpected path skips the
+artifacts/api-server/src/lib/discovery-runner.ts:592:    if (heartbeatInterval !== undefined) clearInterval(heartbeatInterval);
+artifacts/api-server/src/lib/task-execution-service.ts:18:  checkpointAiExecution,
+artifacts/api-server/src/lib/task-execution-service.ts:21:  heartbeatAiExecution,
+artifacts/api-server/src/lib/task-execution-service.ts:231:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+artifacts/api-server/src/lib/task-execution-service.ts:262:  const initialCheckpointed = await checkpointAiExecution({
+artifacts/api-server/src/lib/task-execution-service.ts:273:      status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
+artifacts/api-server/src/lib/task-execution-service.ts:278:  const heartbeat = setInterval(() => {
+artifacts/api-server/src/lib/task-execution-service.ts:279:    void heartbeatAiExecution({ executionId, workerId });
+artifacts/api-server/src/lib/task-execution-service.ts:281:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+artifacts/api-server/src/lib/task-execution-service.ts:299:    await checkpointAiExecution({
+artifacts/api-server/src/lib/task-execution-service.ts:338:        status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
+artifacts/api-server/src/lib/task-execution-service.ts:403:        leaseUntil: null,
+        eq(aiExecutionsTable.projectId, params.recipeBinding.projectId),
+        eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
+      ] : []),
+      inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
+      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+    ))
+    .returning();
+  return claimed;
+}
+
+export async function checkpointAiExecution(params: {
+  executionId: string;
+  workerId: string;
+  checkpoint: AiExecutionCheckpoint;
+  recipeBinding?: RecipeOperationBinding;
+}): Promise<boolean> {
+  // Keep this update atomic: the worker lease and checkpoint version are the
+  // concurrency boundary. Callers that advance an operation include its
+  // server-validated contract in the checkpoint; legacy stage-only writers
+  // remain compatible and do not get a second read/race window here.
+  const durableOperation = params.checkpoint.operation
+    ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
+    : undefined;
+  const checkpointBinding = params.checkpoint.recipeBinding ?? durableOperation?.binding;
+  if (params.recipeBinding) {
+    if (!checkpointBinding) return false;
+    try {
+      assertRecipeOperationBinding(checkpointBinding, {
+        projectId: params.recipeBinding.projectId,
+        operationId: params.recipeBinding.operationId,
+        sourceRevision: params.recipeBinding.sourceRevision,
+        candidateIdentity: params.recipeBinding.candidateIdentity,
+        candidateWorkspace: params.recipeBinding.candidateWorkspace,
+        leaseOwner: params.workerId,
+        requireLease: true,
+      });
+    } catch {
+      return false;
+    }
+    if (JSON.stringify(checkpointBinding) !== JSON.stringify(params.recipeBinding)) return false;
+  }
+  const durableCheckpoint = durableOperation
+    ? { ...params.checkpoint, operation: durableOperation, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) }
+    : { ...params.checkpoint, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) };
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      checkpoint: JSON.stringify(durableCheckpoint),
+      checkpointVersion: durableCheckpoint.sequence,
+      updatedAt: new Date(),
+      lastHeartbeatAt: new Date(),
+      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
+      // A stale worker must not overwrite a newer durable checkpoint.
+      lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
+export async function heartbeatAiExecution(params: {
+  executionId: string;
+  workerId: string;
+}): Promise<boolean> {
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      lastHeartbeatAt: new Date(),
+      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
+export async function completeAiExecution(params: {
+  executionId: string;
+  workerId: string;
+  finalMessageId: string;
+  proposalId?: string;
+  operation?: AutonomousOperationContract;
+  nodeStates?: AiExecutionCheckpoint["nodeStates"];
+  evidenceVerdict?: FlightDeckEvidenceVerdict;
+  evidenceReason?: string;
+  proofRequired?: boolean;
+  evidenceRefs?: readonly string[];
+  recipeBinding?: RecipeOperationBinding;
+}): Promise<boolean> {
+  const [current] = await db
+    .select({
+      projectId: aiExecutionsTable.projectId,
+      operationId: aiExecutionsTable.operationId,
+      request: aiExecutionsTable.request,
+      checkpoint: aiExecutionsTable.checkpoint,
+      leaseUntil: aiExecutionsTable.leaseUntil,
+    })
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      ...(terminalCheckpoint ? { checkpoint: JSON.stringify(terminalCheckpoint) } : {}),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
+      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  if (updated) return true;
+
+  // Cancellation is an authoritative terminal fence. If the worker learned
+  // about cancellation through the database (rather than its local signal),
+  // its ordinary failure path must still settle `cancelling` as cancelled and
+  // must never publish a failed outcome after the cancellation won.
+  if (!params.cancelled) {
+    const cancellationCheckpoint = current
+      ? mergeTerminalCheckpoint(current, { ...params, cancelled: true })
+      : undefined;
+    const [cancelled] = await db
+      .update(aiExecutionsTable)
+      .set({
+        status: "cancelled",
+        error: params.error.slice(0, 1000),
+        completedAt: new Date(),
+        updatedAt: new Date(),
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+        ...(cancellationCheckpoint ? { checkpoint: JSON.stringify(cancellationCheckpoint) } : {}),
+      })
+      .where(and(
+        eq(aiExecutionsTable.id, params.executionId),
+        eq(aiExecutionsTable.workerId, params.workerId),
+        eq(aiExecutionsTable.status, "cancelling"),
+      ))
+      .returning({ id: aiExecutionsTable.id });
+    return Boolean(cancelled);
+  }
+  return false;
+}
+
+export async function requestAiExecutionCancel(params: {
+  executionId: string;
+  userId: string;
+}): Promise<AiExecution | undefined> {
+  const now = new Date();
+  const current = await getAiExecutionForUser(params.executionId, params.userId);
+  if (!current) return undefined;
+  const cancelledCheckpoint = JSON.stringify(mergeTerminalCheckpoint(current, {
+    cancelled: true,
+    error: "Execution cancelled before a worker started.",
+  }));
+
+  // Queued and paused executions have no active worker to observe the
+  // cancellation signal. Transition them directly to a terminal state so
+  // they cannot remain permanently stuck in `cancelling`.
+  const [cancelledBeforeStart] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: "cancelled",
+      cancelRequestedAt: now,
+      completedAt: now,
+      checkpoint: cancelledCheckpoint,
+      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      updatedAt: now,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      inArray(aiExecutionsTable.status, ["queued", "paused"]),
+    ))
+    .returning();
+  if (cancelledBeforeStart) return cancelledBeforeStart;
+
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: "cancelling",
+      cancelRequestedAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.status, "running"),
+    ))
+    .returning();
+  if (updated) activeControllers.get(updated.id)?.abort(new Error("AI execution cancellation requested"));
+  return updated;
+}
+
+export function registerAiExecutionController(executionId: string, controller: AbortController): void {
+  activeControllers.set(executionId, controller);
+}
+
+export function unregisterAiExecutionController(executionId: string, controller: AbortController): void {
+  if (activeControllers.get(executionId) === controller) activeControllers.delete(executionId);
+}
+
+export async function reconcileAiExecutions(): Promise<number> {
+  const now = new Date();
+  const running = await db.select().from(aiExecutionsTable).where(
+    inArray(aiExecutionsTable.status, ["running", "cancelling"]),
+  );
+  let count = 0;
+  for (const execution of running) {
+    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+    if (execution.status === "cancelling") {
+      const terminalCheckpoint = mergeTerminalCheckpoint(execution, {
+        cancelled: true,
+        error: "Execution cancellation was finalized after the server restarted.",
+      });
+      const [updated] = await db.update(aiExecutionsTable).set({
+        status: "cancelled",
+        error: "Execution cancelled by the user.",
+        completedAt: now,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        updatedAt: now,

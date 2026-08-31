@@ -1,0 +1,110 @@
+d2a52f2 (HEAD -> main, gitsafe-backup/main) Update orchestrator agent logic and tool execution engine implementation
+98279f1 Add durable deduplicated alerts for Groq model catalog drift
+c48f82d Update AiChat component and corresponding tests
+a8bed6b Update dashboard e2e and AiChat test suites
+lib/ai-orchestrator/src/openai-compatible-client.ts:7: * groq-sdk client (which adds circuit-breaking and retry-with-backoff on top).
+lib/ai-orchestrator/src/openai-compatible-client.ts:44:  /** Disable transient retry when the caller owns bounded model fallback. */
+lib/ai-orchestrator/src/openai-compatible-client.ts:45:  retryTransient?: boolean;
+lib/ai-orchestrator/src/openai-compatible-client.ts:276:/** Resolve after `ms` milliseconds (used for retry back-off). */
+lib/ai-orchestrator/src/openai-compatible-client.ts:277:const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+lib/ai-orchestrator/src/openai-compatible-client.ts:285: * OR-005: True for transient OpenRouter errors that warrant a single retry.
+lib/ai-orchestrator/src/openai-compatible-client.ts:299:  | "retry"
+lib/ai-orchestrator/src/openai-compatible-client.ts:325:      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:423:  const value = headers?.get("retry-after")?.trim();
+lib/ai-orchestrator/src/openai-compatible-client.ts:450:    retryAfterMs:    status === 429 ? parseRetryAfterMs(headers) : undefined,
+lib/ai-orchestrator/src/openai-compatible-client.ts:492:      `${providerName} API rate limit exceeded — wait a moment before retrying`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:646:  const timer = setTimeout(() => controller.abort(), timeoutMs);
+lib/ai-orchestrator/src/openai-compatible-client.ts:846:  const timer = setTimeout(() => controller.abort(), timeoutMs);
+lib/ai-orchestrator/src/openai-compatible-client.ts:999:    // retry the same model once with the prompt-only contract.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1011:          action: "retry_without_response_format",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1019:      err.retryAfterMs !== undefined
+lib/ai-orchestrator/src/openai-compatible-client.ts:1023:    if (!isTransientError(err) || opts.retryTransient === false) throw err;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1029:        backoffMs: 1500,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1146:      // per-model retry above and advances immediately to the next live
+lib/ai-orchestrator/src/openai-compatible-client.ts:1150:        opts.retryTransient === false && isTransientError(err);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1260:        // Once bytes have been emitted, retrying would duplicate or splice the
+lib/ai-orchestrator/src/openai-compatible-client.ts:1279:          opts.retryTransient !== false &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:1281:          providerError.retryAfterMs === undefined
+lib/ai-orchestrator/src/openai-compatible-client.ts:1288:          (opts.retryTransient === false && isTransientError(providerError));
+lib/ai-orchestrator/src/tool-execution-engine.ts:770:            // provider retry/resume; the analysis tool validates it before
+lib/ai-orchestrator/src/tool-execution-engine.ts:935: * return EMPTY_RESPONSE or spend its output budget on a malformed retry.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1034:   * When the strategy returns a transient error, the loop may retry with
+lib/ai-orchestrator/src/tool-execution-engine.ts:1045:  /** Optional per-user API key forwarded to every strategy.call(). */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1720:        // every provider attempt (empty-response retry, model fallback and
+lib/ai-orchestrator/src/tool-execution-engine.ts:1753:      return await strategy.call(callMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2066:    * 4 096 gives synthesis enough room while the existing length-retry and
+lib/ai-orchestrator/src/tool-execution-engine.ts:2077:   * OR-004: Transient error codes that warrant a powerModel retry within
+lib/ai-orchestrator/src/tool-execution-engine.ts:2079:   * retried. EMPTY_RESPONSE gets one bounded same-model retry below because
+lib/ai-orchestrator/src/tool-execution-engine.ts:2092:    // server-owned manifest. Do not retry it, append a synthetic tool result,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2195:      } catch (retryErr) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2196:        if (retryErr instanceof GroqClientError) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2198:            `provider failure code: ${retryErr.code}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2201:        throw retryErr;
+lib/ai-orchestrator/src/tool-execution-engine.ts:2229:      const timer = setTimeout(() => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2916:        // TIMEOUT (already on powerModel, or non-retryable transient): degrade
+lib/ai-orchestrator/src/tool-execution-engine.ts:2971:          // surface a meaningful retryable error to the user.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3093:      const retryMaxTokens = iterMaxTokens === undefined ? undefined : iterMaxTokens * 2;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3094:      const retryMessages = compactModelMessages([
+lib/ai-orchestrator/src/tool-execution-engine.ts:3106:        const retry = await callWithExecutionBudget(retryMessages, {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3108:          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3115:        if (retry.content?.trim()) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3116:          result = retry;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3117:          lastTextSeen = retry;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3123:              model: retry.model || model,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3125:              retryMaxTokens,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3126:              finishReason: retry.finishReason ?? null,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3514:      // retry slot without actually testing the pending workspace state.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4078:                    : "guided_retry",
+lib/ai-orchestrator/src/agents/chat-agent.ts:536:    timer = setTimeout(() => {
+lib/ai-orchestrator/src/agents/chat-agent.ts:1659:      const invoke = (retry: boolean) =>
+lib/ai-orchestrator/src/agents/chat-agent.ts:1661:          (recoverySignal) => opts.strategy.call(
+lib/ai-orchestrator/src/agents/chat-agent.ts:1665:              maxTokens: retry ? 500 : 900,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1667:                retry ? 25_000 : 45_000,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1670:                  : retry ? 25_000 : 45_000,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1672:              retryTransient: false,
+lib/ai-orchestrator/src/agents/chat-agent.ts:1680:            : (retry ? 25_000 : 45_000),
+lib/ai-orchestrator/src/agents/chat-agent.ts:1696:      const retryRequirement =
+lib/ai-orchestrator/src/agents/chat-agent.ts:1705:        retryRequirement &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:1706:        !retryRequirement.test(result.content ?? "")
+lib/ai-orchestrator/src/agents/chat-agent.ts:1709:          const retryResult = await invoke(true);
+lib/ai-orchestrator/src/agents/chat-agent.ts:1710:          if (retryResult.content) result = retryResult;
+lib/ai-orchestrator/src/agents/chat-agent.ts:2503:  /^(?:retry|try\s+again|regenerate|rerun)(?:\s+(?:the\s+)?(?:report|audit|repair\s+plan|plan))?$/i,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3131:    retryTransient: false,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3156:      // same-model retry without this field for free models that reject it.
+lib/ai-orchestrator/src/agents/chat-agent.ts:3179:        timer = setTimeout(() => {
+lib/ai-orchestrator/src/agents/chat-agent.ts:3610:          if (stage.toLowerCase().includes("retry")) onDelta?.(`\n_${stage}_\n`);
+lib/ai-orchestrator/src/agents/chat-agent.ts:4243:  // A provider retry may not expose tools (for example Gemini), but its
+lib/ai-orchestrator/src/agents/chat-agent.ts:5208:          // consumed count is returned on the node outcome for the next retry.
+lib/ai-orchestrator/src/agents/chat-agent.ts:5230:        // before scheduling a retry. This turns "forgot to call validation"
+lib/ai-orchestrator/src/agents/chat-agent.ts:5339:                  ? "Server-owned automatic validation failed; a bounded repair retry is allowed."
+lib/ai-orchestrator/src/agents/chat-agent.ts:5367:            detail: "Validation evidence crossed the approved file boundary; no repair retry is permitted.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:5429:                detail: "Server-owned behavioral proof failed; the node will receive a bounded repair retry.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6379:      const streamGen = strategy.stream(streamMessages, {
+lib/ai-orchestrator/src/agents/chat-agent.ts:6728:    console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
+lib/ai-orchestrator/src/agents/chat-agent.ts:6748:      const retry = await strategy.call(
+lib/ai-orchestrator/src/agents/chat-agent.ts:6752:      const retryContent = retry.content ?? "";
+lib/ai-orchestrator/src/agents/chat-agent.ts:6753:      const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
+lib/ai-orchestrator/src/agents/chat-agent.ts:6754:      if (retryParsed.ok) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:6756:        parsed = retryParsed;
+lib/ai-orchestrator/src/agents/chat-agent.ts:6757:        content = retryContent;
+lib/ai-orchestrator/src/agents/chat-agent.ts:6761:          `correction parse code: ${retryParsed.code}`,
+lib/ai-orchestrator/src/agents/chat-agent.ts:7297:                strategy.call(recoveryRoundMessages, recoveryOptions),
+lib/ai-orchestrator/src/agents/chat-agent.ts:8358:      const recovery = await strategy.call(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8369:          retryTransient: false,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8437:        (recoverySignal) => strategy.call(
+lib/ai-orchestrator/src/agents/chat-agent.ts:8450:            retryTransient: false,
+lib/ai-orchestrator/src/agents/chat-agent.ts:9190:  // Mirrored from the retry limit used in the recovery loop; controls
+lib/ai-orchestrator/src/groq-client.ts:7: *   complete()    → orchestrates the above with a small bounded retry for
+lib/ai-orchestrator/src/groq-client.ts:69: * Exponential backoff with full jitter for transient failures.
+lib/ai-orchestrator/src/groq-client.ts:72: *   attempt 0 (first retry): 1 000 ms  ±50 %  →  500 – 1 500 ms
+lib/ai-orchestrator/src/groq-client.ts:80:function retryDelayMs(attempt: number, code: GroqErrorCode): number {
+lib/ai-orchestrator/src/groq-client.ts:88:  return new Promise((resolve) => setTimeout(resolve, ms));
+lib/ai-orchestrator/src/groq-client.ts:242:  const timer = setTimeout(() => controller.abort(), timeoutMs);
+lib/ai-orchestrator/src/groq-client.ts:453:        const delay = retryDelayMs(attempt, lastError.code);
+lib/ai-orchestrator/src/groq-client.ts:454:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/groq-client.ts:513:  const timer = setTimeout(() => controller.abort(), timeoutMs);
+lib/ai-orchestrator/src/groq-client.ts:547:  // (not retried). Now that they are distinct codes, retry both: rate-limit
+lib/ai-orchestrator/src/groq-client.ts:550:  // never retryable — a retry cannot change the outcome.
+lib/ai-orchestrator/src/groq-client.ts:615:  const timer = setTimeout(() => controller.abort(), timeoutMs);
+lib/ai-orchestrator/src/groq-client.ts:700:        const delay = retryDelayMs(attempt, lastError.code);
+lib/ai-orchestrator/src/groq-client.ts:701:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));

@@ -1,0 +1,300 @@
+./package.json:15:    "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
+./package.json:17:    "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
+./package.json:18:    "validate:app-origins": "NODE_ENV=production node scripts/validate-app-origins.mjs",
+./package.json:19:    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+./package.json:20:    "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+./package.json:21:    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+./package.json:22:    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+./package.json:23:    "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+./package.json:24:    "validate:live-provider-review": "pnpm --filter @workspace/api-server run validate:live-provider-review",
+./package.json:25:    "deployment:post-build": "pnpm run db:schema:apply && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+./package.json:26:    "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
+./package.json:27:    "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
+./package.json:28:    "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+./package.json:31:    "truth:validate": "pnpm --filter @workspace/scripts run validate-truth-flow",
+./package.json:32:    "benchmark:baseline:check": "pnpm --filter @workspace/scripts run validate-benchmark-baseline",
+./scripts/dashboard-journey-contract.test.mjs:98:    await new Promise((resolveRetry) => setTimeout(resolveRetry, 50));
+./scripts/dashboard-journey-contract.test.mjs:105:test("release API listener enforces approved and hostile-origin CORS", async () => {
+./scripts/dashboard-journey-contract.test.mjs:151:      `${harness.baseUrl}/api/release-cors-contract`,
+./scripts/dashboard-journey-contract.test.mjs:173:      `${harness.baseUrl}/api/release-cors-contract`,
+./scripts/dashboard-journey-contract.test.mjs:191:test("release API listener protects upload and live-update requests", async () => {
+./scripts/dashboard-journey-contract.test.mjs:216:      "release-contract.zip",
+./scripts/dashboard-journey-contract.test.mjs:237:      "release-contract.zip",
+./scripts/dashboard-journey-contract.test.mjs:315:    "The release runner and browser journey must use the same live timeout default.",
+./scripts/dashboard-journey-contract.test.mjs:333:test("the standard release journey remains provider-free", () => {
+./scripts/dashboard-journey-contract.test.mjs:382:    /Retry Connection/,
+./scripts/dashboard-journey-contract.test.mjs:390:    /Perform a bounded forensic audit of this disposable project using read-only tools/,
+./scripts/dashboard-journey-contract.test.mjs:427:    "The release runner must validate the report boundary before starting the browser journey.",
+./scripts/dashboard-journey-contract.test.mjs:432:    "The release runner must invoke the provider-free report contract test.",
+./scripts/dashboard-journey-contract.test.mjs:436:test("release teardown reports each service and any surviving listener", () => {
+./scripts/dashboard-journey-contract.test.mjs:439:    /Release service teardown results:/,
+./scripts/dashboard-journey-contract.test.mjs:440:    "The release runner must report lifecycle results for every managed service.",
+./scripts/dashboard-journey-contract.test.mjs:444:    /Release services surviving teardown: none\./,
+./scripts/dashboard-journey-contract.test.mjs:445:    "The release runner must explicitly report a clean teardown.",
+./scripts/dashboard-journey-contract.test.mjs:449:    /Release services surviving teardown:/,
+./scripts/dashboard-journey-contract.test.mjs:450:    "The release runner must identify a service that remains on its release port.",
+./scripts/dashboard-journey-contract.test.mjs:454:    /ensureReleasePortsFree\(\)/,
+./scripts/dashboard-journey-contract.test.mjs:459:test("release teardown writes a structured CI artifact", () => {
+./scripts/dashboard-journey-contract.test.mjs:462:    /release-teardown\.json/,
+./scripts/dashboard-journey-contract.test.mjs:463:    "The release runner must write a stable teardown artifact.",
+./scripts/dashboard-journey-contract.test.mjs:483:    "The teardown artifact must preserve the release process group.",
+./scripts/dashboard-journey-contract.test.mjs:492:    /Release teardown artifact:/,
+./scripts/dashboard-journey-contract.test.mjs:493:    "The release logs must surface the teardown artifact path.",
+./scripts/dashboard-journey-contract.test.mjs:497:test("release diagnostics expose a run-scoped summary and artifact link", () => {
+./scripts/dashboard-journey-contract.test.mjs:500:    /Release teardown evidence summary: validation run/,
+./scripts/dashboard-journey-contract.test.mjs:501:    "The release runner must identify the validation run beside the retained artifact.",
+./scripts/dashboard-journey-contract.test.mjs:505:    /Release teardown evidence coverage:/,
+./scripts/dashboard-journey-contract.test.mjs:506:    "The release runner must identify the services and descendant coverage.",
+./scripts/dashboard-journey-contract.test.mjs:511:    /Summarize retained release diagnostics/,
+./scripts/dashboard-journey-contract.test.mjs:512:    "CI must publish a human-readable release diagnostics summary.",
+./scripts/dashboard-journey-contract.test.mjs:526:test("release diagnostics remain useful when teardown evidence is absent", () => {
+./scripts/dashboard-journey-contract.test.mjs:594:test("release output reports redacted proof counts and non-success status", () => {
+./scripts/dashboard-journey-contract.test.mjs:598:    "The release runner must format the validated redacted report.",
+./scripts/dashboard-journey-contract.test.mjs:603:    "The release runner must print the validated summary.",
+./scripts/dashboard-journey-contract.test.mjs:607:test("release journey passes the complete approved origin list to API and browser checks", () => {
+./scripts/dashboard-journey-contract.test.mjs:611:    "The release runner must derive checks from the configured APP_ORIGINS list.",
+./scripts/dashboard-journey-contract.test.mjs:616:    "The release API must receive the same approved origin list.",
+./scripts/dashboard-journey-contract.test.mjs:640:test("release journey gates browser work on one bounded readiness handshake", () => {
+./scripts/dashboard-journey-contract.test.mjs:643:    /async function performReleaseReadinessHandshake\(\)/,
+./scripts/dashboard-journey-contract.test.mjs:644:    "The release runner must define one readiness handshake.",
+./scripts/dashboard-journey-contract.test.mjs:649:    "The release runner must probe the API readiness endpoint.",
+./scripts/dashboard-journey-contract.test.mjs:654:    "The release handshake must verify database and schema readiness.",
+./scripts/dashboard-journey-contract.test.mjs:659:    "The release handshake must carry an explicit test mode.",
+./scripts/dashboard-journey-contract.test.mjs:668:    /await performReleaseReadinessHandshake\(\)/g,
+./scripts/dashboard-journey-contract.test.mjs:730:    "The browser journey must write origin diagnostics for the release runner.",
+./scripts/dashboard-journey-contract.test.mjs:747:    "The release runner must pass the diagnostics path to Playwright.",
+./scripts/dashboard-journey-contract.test.mjs:752:    "The release teardown artifact must retain origin diagnostics.",
+./scripts/dashboard-journey-contract.test.mjs:756:    /headers\[["'](?:cookie|set-cookie|authorization)["']\]/i,
+./pnpm-workspace.yaml:2:# SECURITY: Minimum release age for npm packages (supply-chain attack defense)
+./pnpm-workspace.yaml:8:# malicious npm releases are discovered and pulled within hours, so a 1-day
+./pnpm-workspace.yaml:17:# `minimumReleaseAgeExclude` allowlist below. Only consider doing this for
+./pnpm-workspace.yaml:18:# packages released by trusted organizations with an impeccable security
+./pnpm-workspace.yaml:23:#   minimumReleaseAgeExclude:
+./pnpm-workspace.yaml:28:minimumReleaseAge: 1440
+./pnpm-workspace.yaml:30:minimumReleaseAgeExclude:
+./pnpm-workspace.yaml:31:  # Exclude @replit scoped packages from the minimum release age check.
+./pnpm-lock.yaml:370:      '@radix-ui/react-tooltip':
+./pnpm-lock.yaml:586:      '@radix-ui/react-tooltip':
+./pnpm-lock.yaml:694:      groq-sdk:
+./pnpm-lock.yaml:823:  '@adobe/css-tools@4.5.0':
+./pnpm-lock.yaml:986:  '@csstools/color-helpers@6.1.0':
+./pnpm-lock.yaml:990:  '@csstools/css-calc@3.3.0':
+./pnpm-lock.yaml:994:      '@csstools/css-parser-algorithms': ^4.0.0
+./pnpm-lock.yaml:995:      '@csstools/css-tokenizer': ^4.0.0
+./pnpm-lock.yaml:997:  '@csstools/css-color-parser@4.1.10':
+./pnpm-lock.yaml:1001:      '@csstools/css-parser-algorithms': ^4.0.0
+./pnpm-lock.yaml:1002:      '@csstools/css-tokenizer': ^4.0.0
+./pnpm-lock.yaml:1004:  '@csstools/css-parser-algorithms@4.0.0':
+./pnpm-lock.yaml:1008:      '@csstools/css-tokenizer': ^4.0.0
+./pnpm-lock.yaml:1010:  '@csstools/css-syntax-patches-for-csstree@1.1.7':
+./pnpm-lock.yaml:1018:  '@csstools/css-tokenizer@4.0.0':
+./pnpm-lock.yaml:1670:  '@radix-ui/react-tooltip@1.2.11':
+./pnpm-lock.yaml:2860:  groq-sdk@0.9.1:
+./pnpm-lock.yaml:3247:    resolution: {integrity: sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==}
+./pnpm-lock.yaml:3326:  node-releases@2.0.50:
+./pnpm-lock.yaml:4246:  '@adobe/css-tools@4.5.0': {}
+./pnpm-lock.yaml:4251:      '@csstools/css-calc': 3.3.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4252:      '@csstools/css-color-parser': 4.1.10(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4253:      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4254:      '@csstools/css-tokenizer': 4.0.0
+./pnpm-lock.yaml:4448:  '@csstools/color-helpers@6.1.0': {}
+./pnpm-lock.yaml:4450:  '@csstools/css-calc@3.3.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
+./pnpm-lock.yaml:4452:      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4453:      '@csstools/css-tokenizer': 4.0.0
+./pnpm-lock.yaml:4455:  '@csstools/css-color-parser@4.1.10(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
+./pnpm-lock.yaml:4457:      '@csstools/color-helpers': 6.1.0
+./pnpm-lock.yaml:4458:      '@csstools/css-calc': 3.3.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4459:      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4460:      '@csstools/css-tokenizer': 4.0.0
+./pnpm-lock.yaml:4462:  '@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0)':
+./pnpm-lock.yaml:4464:      '@csstools/css-tokenizer': 4.0.0
+./pnpm-lock.yaml:4466:  '@csstools/css-syntax-patches-for-csstree@1.1.7(css-tree@3.2.1)':
+./pnpm-lock.yaml:4470:  '@csstools/css-tokenizer@4.0.0': {}
+./pnpm-lock.yaml:5250:  '@radix-ui/react-tooltip@1.2.11(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)':
+./pnpm-lock.yaml:5469:      '@adobe/css-tools': 4.5.0
+./pnpm-lock.yaml:5837:      node-releases: 2.0.50
+./pnpm-lock.yaml:6358:  groq-sdk@0.9.1:
+./pnpm-lock.yaml:6530:      '@csstools/css-syntax-patches-for-csstree': 1.1.7(css-tree@3.2.1)
+./pnpm-lock.yaml:6928:  node-releases@2.0.50: {}
+./scripts/verify-benchmark-rollout.mjs:36:function validateRolloutScorecard(raw) {
+./scripts/verify-benchmark-rollout.mjs:43:    validateBaseline(scorecard);
+./scripts/verify-benchmark-rollout.mjs:99:function validateBaseline(raw) {
+./scripts/verify-benchmark-rollout.mjs:129:  validateBaseline(baseline);
+./scripts/verify-benchmark-rollout.mjs:130:  const liveSummary = validateRolloutScorecard(live);
+./scripts/verify-benchmark-rollout.mjs:139:  console.error(`Benchmark rollout gate blocked deployment: ${error instanceof Error ? error.message : String(error)}`);
+./scripts/release-port-cleanup.test.mjs:71:          RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+./scripts/release-port-cleanup.test.mjs:102:test("release port cleanup supports consecutive runs", async () => {
+./scripts/release-port-cleanup.test.mjs:119:test("release journey teardown diagnostics identify a real surviving descendant", async () => {
+./scripts/release-port-cleanup.test.mjs:127:      `Release services surviving teardown: API release service \\(configured release port ${apiPort}; surviving process IDs: \\d+; release process group: \\d+\\)`,
+./scripts/release-port-cleanup.test.mjs:130:  assert.match(output, new RegExp(`configured release port ${apiPort}`));
+./scripts/release-port-cleanup.test.mjs:132:  assert.match(output, /release process group: \d+/);
+./scripts/release-port-cleanup.test.mjs:137:test("release journey teardown diagnostics keep both service labels and process-group details", async () => {
+./scripts/release-port-cleanup.test.mjs:143:  assert.match(journey, /configured release port \$\{port\}/);
+./scripts/release-port-cleanup.test.mjs:145:  assert.match(journey, /release process group/);
+./scripts/release-port-cleanup.test.mjs:146:  assert.match(journey, /API release service/);
+./scripts/release-port-cleanup.test.mjs:147:  assert.match(journey, /Dashboard release service/);
+./scripts/validation-artifact-cleanup.mjs:43:    owner: "release-browser-validation",
+./scripts/validation-artifact-cleanup.mjs:50:    owner: "release-validation",
+./scripts/validation-artifact-cleanup.mjs:51:    reason: "Historical release-contract test caches, shell output, test sessions, and a stale X-server lock; no active writer, durable owner, or artifact manifest was found.",
+./scripts/release-configuration.test.ts:10:const runControlledReleaseValidation =
+./scripts/release-configuration.test.ts:11:  process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1";
+./scripts/release-configuration.test.ts:24:type ReleaseFailureScenario = {
+./scripts/release-configuration.test.ts:38:const releaseFailureScenarios: ReleaseFailureScenario[] = [
+./scripts/release-configuration.test.ts:45:      "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:46:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:55:      "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:56:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:61:    name: "release fixture collision check",
+./scripts/release-configuration.test.ts:62:    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:63:    diagnostic: "release fixture collision check failed: duplicate fixture identity",
+./scripts/release-configuration.test.ts:65:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:70:    name: "release synthesis telemetry",
+./scripts/release-configuration.test.ts:71:    command: "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:72:    diagnostic: "release synthesis telemetry failed: expected audit event was absent",
+./scripts/release-configuration.test.ts:93:      "run validate:release",
+./scripts/release-configuration.test.ts:103:      "run validate:release",
+./scripts/release-configuration.test.ts:111:    laterCommands: ["run validate:release", "store prune"],
+./scripts/release-configuration.test.ts:114:    name: "release validation",
+./scripts/release-configuration.test.ts:115:    command: "run validate:release",
+./scripts/release-configuration.test.ts:116:    diagnostic: "release validation failed: process recovery did not complete",
+./scripts/release-configuration.test.ts:121:async function runReleaseWithInjectedFailure(
+./scripts/release-configuration.test.ts:122:  scenario: ReleaseFailureScenario,
+./scripts/release-configuration.test.ts:125:    resolve(tmpdir(), "release-step-failure-"),
+./scripts/release-configuration.test.ts:136:printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+./scripts/release-configuration.test.ts:141:if [ "$*" != "run validate:release" ]; then
+./scripts/release-configuration.test.ts:151:    const result = spawnSync("pnpm", ["run", "validate:release"], {
+./scripts/release-configuration.test.ts:157:        RELEASE_VALIDATION_TRACE: tracePath,
+./scripts/release-configuration.test.ts:186:printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+./scripts/release-configuration.test.ts:207:        RELEASE_VALIDATION_TRACE: tracePath,
+./scripts/release-configuration.test.ts:239:printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+./scripts/release-configuration.test.ts:255:      RELEASE_VALIDATION_TRACE: tracePath,
+./scripts/release-configuration.test.ts:268:test("keeps release recovery validation before deployment cleanup", async () => {
+./scripts/release-configuration.test.ts:278:  const recoveryIndex = deploymentSteps.indexOf("pnpm run validate:release");
+./scripts/release-configuration.test.ts:285:    "release recovery validation must run before pnpm store prune",
+./scripts/release-configuration.test.ts:289:test("surfaces recovery gate failures in the deployment post-build result", async () => {
+./scripts/release-configuration.test.ts:312:    (step) => step === "pnpm run validate:release",
+./scripts/release-configuration.test.ts:314:  assert.equal(recoveryStep, "pnpm run validate:release");
+./scripts/release-configuration.test.ts:318:    "release gate failures must propagate instead of being masked",
+./scripts/release-configuration.test.ts:323:  "allows deployment post-build to continue after a successful recovery gate",
+./scripts/release-configuration.test.ts:325:    skip: !runControlledReleaseValidation,
+./scripts/release-configuration.test.ts:329:    const result = spawnSync("pnpm", ["run", "validate:release:controlled"], {
+./scripts/release-configuration.test.ts:333:        RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+./scripts/release-configuration.test.ts:343:      `controlled release validation must complete after recovery succeeds:\n${output}`,
+./scripts/release-configuration.test.ts:353:test("runs deployment checks in order and prunes only after successful release validation", async () => {
+./scripts/release-configuration.test.ts:371:      "run validate:release",
+./scripts/release-configuration.test.ts:375:      fixture.trace.indexOf("run validate:release") <
+./scripts/release-configuration.test.ts:377:      "pnpm store prune must start only after release validation succeeds",
+./scripts/release-configuration.test.ts:397:    ["run", "validate:release"],
+./scripts/release-configuration.test.ts:414:    /> workspace@[^ ]+ validate:release/,
+./scripts/release-configuration.test.ts:415:    "deployment output must identify the release validation command",
+./scripts/release-configuration.test.ts:424:test("stops release validation after an API typecheck diagnostic", async () => {
+./scripts/release-configuration.test.ts:426:    resolve(tmpdir(), "release-typecheck-failure-"),
+./scripts/release-configuration.test.ts:437:printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+./scripts/release-configuration.test.ts:451:      ["run", "validate:release"],
+./scripts/release-configuration.test.ts:458:          RELEASE_VALIDATION_TRACE: tracePath,
+./scripts/release-configuration.test.ts:469:      `release validation must fail when the API typecheck fails:\n${output}`,
+./scripts/release-configuration.test.ts:474:      "the API compiler diagnostic must remain visible in release output",
+./scripts/release-configuration.test.ts:479:      "the API typecheck must be the first release step",
+./scripts/release-configuration.test.ts:491:for (const scenario of releaseFailureScenarios) {
+./scripts/release-configuration.test.ts:492:  test(`stops release validation after a ${scenario.name} diagnostic`, async () => {
+./scripts/release-configuration.test.ts:493:    const { output, trace, status } = await runReleaseWithInjectedFailure(scenario);
+./scripts/release-configuration.test.ts:498:      `${scenario.name} failure must keep release validation non-zero`,
+./scripts/release-configuration.test.ts:503:      `${scenario.name} diagnostic must remain visible in release output`,
+./scripts/release-configuration.test.ts:508:      `${scenario.name} must start before release validation stops`,
+./scripts/release-configuration.test.ts:550:test("keeps the local Project workflow and release validation separate", async () => {
+./scripts/release-configuration.test.ts:559:  const releaseWorkflowStart = replitConfig.indexOf(
+./scripts/release-configuration.test.ts:560:    'name = "release-process-recovery"',
+./scripts/release-configuration.test.ts:563:  assert.ok(releaseWorkflowStart > projectWorkflowStart);
+./scripts/release-configuration.test.ts:572:    /validate:release|release-process-recovery|dashboard-restart-smoke/,
+./scripts/release-configuration.test.ts:575:  const releaseWorkflowCommands = commandsBetween(
+./scripts/release-configuration.test.ts:577:    'name = "release-process-recovery"',
+./scripts/release-configuration.test.ts:580:  assert.deepEqual(releaseWorkflowCommands, [
+./scripts/release-configuration.test.ts:581:    'args = "APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs"',
+./scripts/release-configuration.test.ts:585:  const releaseTestCommand = packageJson.scripts?.["validate:release"];
+./scripts/release-configuration.test.ts:586:  const controlledReleaseTestCommand =
+./scripts/release-configuration.test.ts:587:    packageJson.scripts?.["validate:release:controlled"];
+./scripts/release-configuration.test.ts:590:    releaseTestCommand,
+./scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+./scripts/release-configuration.test.ts:594:    controlledReleaseTestCommand,
+./scripts/release-configuration.test.ts:595:    "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+./scripts/release-configuration.test.ts:597:  assert.notEqual(normalTestCommand, releaseTestCommand);
+./scripts/release-configuration.test.ts:602:  const journeyStart = replitConfig.indexOf('name = "release-dashboard-journey"');
+./scripts/release-configuration.test.ts:607:    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+./scripts/release-configuration.test.ts:611:    /name = "release-dashboard-journey"/,
+./scripts/release-configuration.test.ts:615:test("keeps release teardown evidence attached to the controlled journey", async () => {
+./scripts/release-configuration.test.ts:617:  const releaseJobStart = workflow.indexOf("  release-validation:");
+./scripts/release-configuration.test.ts:618:  assert.ok(releaseJobStart >= 0, "release-validation job must remain configured");
+./scripts/release-configuration.test.ts:621:    .slice(releaseJobStart + 1)
+./scripts/release-configuration.test.ts:624:    nextJobOffset >= 0 ? releaseJobStart + 1 + nextJobOffset : -1;
+./scripts/release-configuration.test.ts:625:  const releaseJob = workflow.slice(
+./scripts/release-configuration.test.ts:626:    releaseJobStart,
+./scripts/release-configuration.test.ts:631:    releaseJob,
+./scripts/release-configuration.test.ts:632:    /pnpm run validate:dashboard-journey/,
+./scripts/release-configuration.test.ts:633:    "release validation must run the controlled dashboard journey",
+./scripts/release-configuration.test.ts:636:    releaseJob,
+./scripts/release-configuration.test.ts:637:    /DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+./scripts/release-configuration.test.ts:638:    "release validation must configure the teardown report path",
+./scripts/release-configuration.test.ts:641:    releaseJob,
+./scripts/release-configuration.test.ts:642:    /name:\s*release-validation-\$\{\{\s*github\.run_id\s*\}\}-teardown/,
+./scripts/release-configuration.test.ts:643:    "release teardown evidence must use a run-specific artifact name",
+./scripts/release-configuration.test.ts:646:    releaseJob,
+./scripts/release-configuration.test.ts:648:    "release teardown evidence must upload even after validation fails",
+./scripts/release-configuration.test.ts:651:    releaseJob,
+./scripts/release-configuration.test.ts:652:    /path:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+./scripts/release-configuration.test.ts:653:    "release teardown upload must use the configured report path",
+./scripts/validate-truth-flow.ts:3: * Truth Flow Matrix — drift gate.
+./scripts/validate-truth-flow.ts:5: * Reads the canonical truth-flow JSON baseline and validates it against
+./scripts/validate-truth-flow.ts:10: *   Layer 1 — Structural gate (TruthFlowMatrixSchema):
+./scripts/validate-truth-flow.ts:14: *   Layer 2 — Baseline drift gate (CurrentTruthFlowMatrixSchema + listTruthFlowDriftSignals):
+./scripts/validate-truth-flow.ts:23: *   HISTORICAL — attached_assets/* (context only; not validated here)
+./scripts/validate-truth-flow.ts:24: *   RUNTIME   — live graph/scan output (informs future baseline updates; not validated here)
+./scripts/validate-truth-flow.ts:27: *   pnpm run truth:validate
+./scripts/validate-truth-flow.ts:37:  safeValidateCurrentTruthFlowMatrix,
+./scripts/validate-truth-flow.ts:72:// ─── 3. Layer 2 — Baseline drift gate ────────────────────────────────────────
+./scripts/validate-truth-flow.ts:75:const result = safeValidateCurrentTruthFlowMatrix(raw);
+./scripts/validate-truth-flow.ts:117:  Then re-run:   pnpm run truth:validate
+./scripts/validate-github-workflows.test.mjs:7:import { validateWorkflows } from "./validate-github-workflows.mjs";
+./scripts/validate-github-workflows.test.mjs:20:      join(workflowsDirectory, "nested", "release.yaml"),
+./scripts/validate-github-workflows.test.mjs:21:      "name: Release\non: [push]\njobs:\n  deploy: {\n",
+./scripts/validate-github-workflows.test.mjs:25:      validateWorkflows(workflowsDirectory, root),
+./scripts/validate-github-workflows.test.mjs:33:          /\.github\/workflows\/nested\/release\.yaml: YAML syntax error at line 5, column 1/,
+./scripts/validate-github-workflows.test.mjs:66:      validateWorkflows(workflowsDirectory, root),
+./scripts/validate-github-workflows.test.mjs:91:    "release.yml",
+./scripts/validate-github-workflows.test.mjs:110:      validateWorkflows(workflowsDirectory, root),
+./scripts/validate-github-workflows.test.mjs:114:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` must be a YAML mapping\./,
+./scripts/validate-github-workflows.test.mjs:131:    "release.yml",
+./scripts/validate-github-workflows.test.mjs:152:      validateWorkflows(workflowsDirectory, root),
+./scripts/validate-github-workflows.test.mjs:156:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` steps must be a YAML sequence\./,
+./scripts/validate-github-workflows.test.mjs:173:    "release.yml",
+./scripts/validate-github-workflows.test.mjs:193:      validateWorkflows(workflowsDirectory, root),
+./scripts/validate-github-workflows.test.mjs:197:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` must define either `runs-on` or `uses`\./,
+./scripts/validate-github-workflows.test.mjs:252:      validateWorkflows(workflowsDirectory, root),
+./scripts/validate-github-workflows.test.mjs:277:    "release.yml",
+./scripts/validate-github-workflows.test.mjs:297:      validateWorkflows(workflowsDirectory, root),
+./scripts/validate-github-workflows.test.mjs:301:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` `uses` must reference a reusable workflow/,
+./scripts/validate-github-workflows.test.mjs:341:    await assert.doesNotReject(validateWorkflows(workflowsDirectory, root));
+./scripts/validate-github-workflows.mjs:77:export async function validateWorkflow(workflowPath, rootDirectory = root) {
+./scripts/validate-github-workflows.mjs:125:export async function validateWorkflows(
+./scripts/validate-github-workflows.mjs:139:      await validateWorkflow(workflowPath, rootDirectory);
+./scripts/validate-github-workflows.mjs:154:    const workflowFiles = await validateWorkflows();
+./scripts/parse-check-spec.ts:3: * PR-01: OpenAPI spec parse-check — CI gate against a broken source-of-truth.
+./scripts/parse-check-spec.ts:5: * Validates that `lib/api-spec/openapi.yaml` can be parsed cleanly *before*
+./scripts/parse-check-spec.ts:14: *   0 — openapi.yaml parses and validates as a minimal OpenAPI 3.x document
+./scripts/validate-benchmark-baseline.ts:3: * Validate the checked-in provider-free Code Agent benchmark contract baseline.
+./scripts/package.json:9:    "validate-github-workflows": "node ./validate-github-workflows.mjs",
+./scripts/package.json:14:    "validate-truth-flow": "tsx ./validate-truth-flow.ts",
+./scripts/package.json:15:    "validate-benchmark-baseline": "tsx ./validate-benchmark-baseline.ts",
+./scripts/validate-app-origins.mjs:39:  `Validated ${normalized.length} approved application origin${normalized.length === 1 ? "" : "s"}.`,
+./scripts/mission-correlation-report.test.mjs:53:        GROQ_API_KEY: "provider-secret-that-must-not-leak",
+./scripts/mission-correlation-report.test.mjs:97:test("formats a redacted release summary with evidence and validation counts", () => {
+./scripts/mission-correlation-report.test.mjs:108:test("labels non-success release terminals without exposing report contents", () => {
+./scripts/mission-correlation-report.test.mjs:121:test("validates child-process release output and keeps the emitted summary redacted", async () => {
+./scripts/mission-correlation-report.test.mjs:162:test("rejects malformed validator stdout before release summary formatting", () => {
+./scripts/trigger-scan.mts:2: * SCAN-01 + SCAN-02 + SCAN-03: Manual scan trigger that delegates to the
+./scripts/trigger-scan.mts:61:  // ── 3. Delegate to production path ─────────────────────────────────────
+./scripts/generate-truth-flow.ts:33:      `\n    Review the generated diff, then run: pnpm run truth:validate\n`,
+./scripts/generate-truth-flow.ts:47:      `      pnpm run truth:validate\n`,
+./scripts/generate-truth-flow.ts:61:      `    Finish with: pnpm run truth:validate\n`,
+./scripts/dashboard-contract-trigger.test.mjs:100:    "Contract-drift must be gated by the changed-path filter output.",
+./scripts/run-release-validation.mjs:7:  acquireReleaseLock,
+./scripts/run-release-validation.mjs:9:} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";

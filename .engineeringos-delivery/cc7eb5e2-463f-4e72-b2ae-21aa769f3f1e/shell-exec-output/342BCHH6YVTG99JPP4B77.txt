@@ -1,0 +1,272 @@
+30:  buildProjectContext,
+215:    const parsed = JSON.parse(trimmed);
+235:    const parsed: unknown = JSON.parse(value);
+237:    return result.success ? result.data : undefined;
+247:    return JSON.parse(value);
+255:    ? JSON.stringify(redactUserFacingValue(value))
+262:    const parsed: unknown = JSON.parse(value);
+264:    return result.success ? result.data : undefined;
+272:    ? JSON.stringify(redactUserFacingValue(value))
+279:    const parsed: unknown = JSON.parse(value);
+281:    return result.success ? result.data : undefined;
+288:  return value ? JSON.stringify(redactUserFacingValue(value)) : null;
+302:  return result.success
+307:const REPORT_REGENERATION_MAX_MESSAGES = 100;
+308:const REPORT_REGENERATION_MAX_EVENTS = 500;
+495:    return Array.isArray(parsed) ? parsed.slice(0, REPORT_REGENERATION_MAX_EVENTS) : [];
+541:    sseEvents: Math.min(traces.length, REPORT_REGENERATION_MAX_EVENTS),
+599:  return JSON.stringify(projectMissionCorrelationReportForExport(parsed.data));
+699:  const currentContext = await buildProjectContext(projectId);
+749:  baseProjectContext: Awaited<ReturnType<typeof buildProjectContext>>,
+752:): Promise<Awaited<ReturnType<typeof buildProjectContext>>> {
+1042:          return JSON.stringify([
+1064:        ? JSON.stringify(redactUserFacingValue(params.sources))
+1067:        ? JSON.stringify(redactUserFacingValue(params.taskResult))
+1070:        ? JSON.stringify(redactUserFacingValue(params.behaviorEvidence))
+1073:        ? JSON.stringify(redactUserFacingValue(params.repairPlanMetadata))
+1182:  return JSON.stringify(canonicalize(value));
+1284:  return JSON.stringify(changes);
+1479:    | "provider_timeout"
+1482:    | "claim_unclosed"
+1848:  return redactUserFacingText(JSON.stringify(entries));
+1869:// Maps the classifier's contextProfile to the DB sections buildProjectContext
+2013:router.post("/ai/chat", async (req, res) => {
+2031:    return res.status(400).json({ error });
+2037:  if (!project) return;
+2039:  // Keep execution handoff fail-closed in the streaming route too. This check
+2042:    return res.status(409).json({
+2050:    return res.status(429).json({
+2065:      return res.status(403).json({ error: "Session does not belong to this project" });
+2068:      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+2084:      return res.status(404).json({ error: "Task not found", code: "TASK_NOT_FOUND" });
+2088:      return res.status(400).json({ error: "Invalid task context — task does not belong to this project", code: "INVALID_TASK_CONTEXT" });
+2169:  if (!providerResolved) return;
+2176:    return res.status(409).json({
+2182:    const baseProjectContext = await buildProjectContext(projectId, {
+2270:      })) return;
+2322:      return res.status(200).json({
+2344:        return res.status(422).json({
+2367:        return res.status(422).json({
+2473:          sources: JSON.stringify(redactUserFacingValue(result.sources)),
+2528:    return res.json({
+2541:          ? "Repair changes require closed Finding/claim evidence before approval."
+2563:router.post("/ai/chat/stream", async (req, res) => {
+2593:    return res.status(400).json({ error });
+2616:  if (!project) return;
+2620:  // Keep execution handoff fail-closed in the streaming route too. This check
+2623:    return res.status(409).json({
+2629:    return res.status(400).json({
+2637:    return res.status(429).json({
+2656:      return res.status(400).json({
+2662:      return res.status(409).json({
+2682:      return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+2685:      return res.status(403).json({ error: "Implementation plan does not belong to this project" });
+2688:      return res.status(409).json({
+2696:      return res.status(400).json({ error: "The selected message is not an implementation plan", code: "PLAN_INVALID" });
+2699:      return res.status(409).json({
+2708:      return res.status(409).json({
+2724:        return res.status(409).json(contextFailure);
+2732:    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+2749:      return res.status(409).json({
+2767:      "BUILD HANDOFF — execute only the approved implementation plan below.",
+2772:      `Approved plan JSON: ${JSON.stringify(storedPlan)}`,
+2784:      return res.status(403).json({ error: "Session does not belong to this project" });
+2787:      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+2845:  if (!providerResolved) return;
+2852:    return res.status(409).json({
+2874:      res.write(`data: ${JSON.stringify(data)}\n\n`);
+2890:        return;
+2896:        return;
+2934:        return;
+2979:      return;
+3001:        JSON.stringify(storedRequest.validationTargetPaths) === JSON.stringify(executionRequest.validationTargetPaths) &&
+3002:        JSON.stringify(storedRequest.objective ?? null) === JSON.stringify(executionRequest.objective ?? null) &&
+3014:        return;
+3024:        return;
+3034:        return;
+3044:        return;
+3071:        return;
+3101:        return;
+3140:      return;
+3274:    res.on("close", () => {
+3298:    const baseProjectContext = await buildProjectContext(projectId, {
+3368:            | "provider_timeout"
+3371:            | "claim_unclosed"
+3443:            stage: "execute",
+3454:              stage: "execute",
+3474:          executionEvidenceReason = step.result.detail ?? "Validation could not be executed.";
+3662:           ...(executionDiagnosticDetails.length > 0 && !activeExecutionAbortController.signal.aborted
+3721:          stage: "execute",
+3816:                timeoutMs: browserValidationProfile.timeoutMs,
+3836:                : error instanceof Error && /limit|timeout|steps|selector|screenshot/i.test(error.message)
+3855:          timeoutMs: 10 * 60 * 1000,
+3924:        !activeExecutionAbortController.signal.aborted &&
+3945:        cancelled: activeExecutionAbortController.signal.aborted,
+4010:              sources: JSON.stringify(redactUserFacingValue(result.sources)),
+4048:        return;
+4073:          return;
+4147:        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+4155:      return;
+4184:        return;
+4300:        return;
+4365:          sources: JSON.stringify(redactUserFacingValue(result.sources)),
+4441:        executionEvidenceReason = finalValidation.detail ?? "Validation could not be executed.";
+4469:    if (checkpointFailure && !activeExecutionAbortController.signal.aborted) {
+4481:    } else if (activeExecutionAbortController.signal.aborted) {
+4483:      // bounded incomplete report after observing the abort. The report is
+4521:            toolTrace: JSON.stringify([
+4557:        return;
+4620:          ? "Repair changes require closed Finding/claim evidence before approval."
+4641:    return;
+4647:        error: executionAbortController?.signal.aborted
+4650:        cancelled: executionAbortController?.signal.aborted,
+4668:router.get("/ai/executions/history", async (req, res) => {
+4674:  if (!project) return;
+4693:  return res.json(executions.map((execution) => {
+4746:router.get("/ai/executions/:executionId", async (req, res) => {
+4748:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4752:    checkpoint = JSON.parse(execution.checkpoint);
+4798:  return res.json({
+4863:router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
+4865:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4870:      const value: unknown = JSON.parse(raw);
+5011:  return res.json(body);
+5014:router.post("/ai/executions/:executionId/recovery", async (req, res) => {
+5019:  if (!parsed.success) return res.status(400).json({ error: "Recovery action must be resume or abandon." });
+5025:  if (!recovered) return res.status(404).json({ error: "AI execution not found" });
+5027:    return res.status(409).json({ error: "This recovery request targets a stale workspace revision.", code: "EXECUTION_STALE" });
+5030:    return res.status(409).json({ error: "This execution is not eligible for operator recovery.", code: "EXECUTION_NOT_RECOVERABLE" });
+5032:  return res.json({
+5041:router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+5047:    return res.json({
+5054:  if (!current) return res.status(404).json({ error: "AI execution not found" });
+5055:  return res.status(409).json({
+5062:router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+5069:    if (!current) return res.status(404).json({ error: "AI execution not found" });
+5070:    return res.status(409).json({
+5076:  return res.json({
+5085:router.get("/ai/chat/sessions", async (req, res) => {
+5091:  if (!project) return;
+5100:  if (sessions.length === 0) return res.json(sessions);
+5122:  return res.json(sessions.map((session) => {
+5159:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+5161:    return res.status(400).json({ error: "This report recovery action does not accept a request body.", code: "REPORT_REGENERATION_BODY_NOT_ALLOWED" });
+5170:  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+5172:  if (!project) return;
+5187:  if (!target) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+5189:    return res.status(409).json({ error: "Only assistant run reports can be regenerated.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+5192:    return res.status(409).json({ error: "This historical run has no unavailable report to regenerate.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+5195:    return res.status(409).json({ error: "This historical mission report is already available.", code: "REPORT_ALREADY_AVAILABLE" });
+5212:    .limit(REPORT_REGENERATION_MAX_MESSAGES);
+5235:    .limit(REPORT_REGENERATION_MAX_EVENTS);
+5244:    .limit(REPORT_REGENERATION_MAX_EVENTS);
+5259:    return res.status(409).json({
+5273:  if (!updated) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+5274:  return res.json({
+5282:router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+5291:  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+5295:    if (!ownerProject) return;
+5304:  return res.json(messages.map((message) => {
+5311:        ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
+5314:        ? JSON.stringify(redactUserFacingValue(
+5344:router.post("/ai/chat/plans/:messageId/decision", async (req, res) => {
+5349:    return res.status(400).json({
+5369:    return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+5373:  if (!project) return;
+5377:    return res.status(400).json({
+5384:    return res.status(400).json({
+5390:    return res.status(409).json({
+5402:      return res.status(409).json({
+5412:    if (contextFailure) return res.status(409).json(contextFailure);
+5418:    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+5421:      return res.status(409).json({
+5438:    return res.status(500).json({ error: "Could not persist the plan decision", code: "PLAN_DECISION_SCHEMA_FAILED" });
+5453:    return res.status(409).json({
+5476:  return res.json({
+5492:router.get("/ai/chat/file-content", async (req, res) => {
+5498:  if (!project) return;
+5502:    return res.status(400).json({ error: "path is required", code: "FILE_PATH_REQUIRED" });
+5507:    return res.status(400).json({ error: "path must be a project-relative file path", code: "FILE_PATH_INVALID" });
+5524:    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+5534:    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+5539:    return res.status(200).json({ available: false, reason: "outside_project_root" });
+5548:    return res.status(200).json({ available: false, reason: "file_not_found" });
+5551:    return res.status(200).json({ available: false, reason: "outside_project_root" });
+5558:    return res.status(200).json({ available: false, reason: "file_unreadable" });
+5567:  const MAX_WINDOW = 200;
+5568:  const to = Math.min(allLines.length, endLine, startLine + MAX_WINDOW - 1);
+5570:  return res.status(200).json({
+5584:router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
+5590:  if (!session) return res.status(404).json({ error: "Chat session not found" });
+5592:  if (!project) return;
+5602:  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
+5626:    return res.json({
+5661:    return res.status(500).json({ error: "Stored change proposal is invalid" });
+5667:router.get("/ai/delivery/recoverable", async (req, res) => {
+5673:  if (!project) return;
+5738:  return res.json({ operations });
+5741:router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+5744:  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+5746:  if (!project) return;
+5749:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+5760:    return res.status(409).json({
+5779:    return res.status(409).json({ error: "Stored delivery changes are invalid.", code: "DELIVERY_INVALID" });
+5800:    return res.status(409).json({
+5842:  const evidence = JSON.stringify(results);
+5855:    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+5857:  return res.json({
+5865:router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
+5868:  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+5870:  if (!project) return;
+5872:    return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
+5875:    return res.status(409).json({ error: "Only abandoned or blocked delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
+5885:  return res.json({ proposalId: proposal.id, lifecycle: "cancelled", discarded: Boolean(updated) });
+5893:router.post("/ai/chat/rebase-changes", async (req, res) => {
+5934:    return res.status(400).json({
+5942:  if (!project) return;
+5946:    return res.status(409).json({
+5955:    return res.status(409).json({
+5972:      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+5975:      return res.status(409).json({
+5985:      return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
+5988:      return res.status(409).json({
+6117:      return res.status(409).json({
+6126:            error: "Batch rebase aborted because another file conflicted.",
+6163:    return res.status(200).json({
+6172:      return res.status(409).json({
+6188:router.post("/ai/chat/proposals/:proposalId/approve", async (req, res) => {
+6194:    return res.status(400).json({
+6202:  if (!project) return;
+6213:    return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+6216:    return res.status(409).json({
+6222:    return res.status(409).json({
+6261:    return res.status(409).json({
+6267:  return res.status(200).json({
+6274:router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
+6281:    return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+6284:  if (!project) return;
+6286:    return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
+6302:  return res.status(204).send();
+6307:router.post("/ai/chat/apply-changes", async (req, res) => {
+6356:    return res.status(400).json({ error });
+6361:  if (!project) return;
+6375:        ? JSON.parse(preflightProposal.changes)
+6379:        return res.status(409).json({
+6390:    return res.status(409).json({
+6400:    return res.status(409).json({
+6434:      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+6437:      return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
+6440:      return res.status(409).json({
+6451:        ? JSON.parse(proposal.changes)
+6454:      return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
+6464:      return res.status(409).json({
+6470:      return res.status(409).json({
+6494:      return res.status(409).json({
+6728:      // A dangerous or invalid change aborts the whole batch. Do not allow a
+6731:        "Apply aborted because at least one requested change failed preflight; no files were written.";
+6876:          results.push({ path: change.path, ok: false, error: `Apply aborted: ${writeFailure}` });
+7067:        action: "ai_executed",
+7136:            validationEvidence: JSON.stringify(validationEvidence),
+7143:              ? JSON.stringify(writtenChanges.map((change) => ({
+7162:            validationEvidence: JSON.stringify(validationEvidence),
+7178:    return res.status(rollbackFailed ? 500 : allOk ? 200 : 207).json({

@@ -1,0 +1,975 @@
+ .../__tests__/ei-017-recovery-integration.test.ts  |  144 +
+ .../ei-017-targeted-read-chat-e2e.test.ts          |  418 +
+ .../ei-041-scoped-verdict-chat-e2e.test.ts         |  277 +
+ .../ei-045-production-verdict-chat-e2e.test.ts     |  233 +
+ .../__tests__/ep4-feg-first-read-chat-e2e.test.ts  |  518 +
+ .../src/__tests__/evidence-integrity.test.ts       |  854 ++
+ .../__tests__/execution-node-coordinator.test.ts   |  258 +
+ .../src/__tests__/execution-phases.test.ts         |   96 +
+ .../src/__tests__/execution-tools.test.ts          |  190 +
+ .../feg-018-regression-benchmark-chat-e2e.test.ts  |  533 ++
+ .../src/__tests__/file-tools.test.ts               |  450 +
+ .../src/__tests__/fixture-guards.test.ts           |   38 +
+ .../src/__tests__/fixture-guards.ts                |   53 +
+ .../src/__tests__/fixture-local-detection.test.ts  | 1463 +++
+ .../src/__tests__/fixtures/known-defect.ts         |    3 +
+ .../src/__tests__/flight-deck-state.test.ts        |   88 +
+ .../__tests__/flight-recorder-reasoning.test.ts    |  247 +
+ .../forensic-deterministic-findings.test.ts        |   86 +
+ .../__tests__/forensic-evidence-packets.test.ts    |  115 +
+ .../src/__tests__/forensic-live-read.test.ts       |   96 +
+ .../src/__tests__/forensic-output-guard.test.ts    | 2002 ++++
+ .../src/__tests__/forensic-prompt-safety.test.ts   |  139 +
+ .../src/__tests__/forensic-recovery.test.ts        |  873 ++
+ .../forensic-single-file-isolation.test.ts         |  877 ++
+ .../src/__tests__/forensic-terminal-kind.test.ts   |  202 +
+ .../src/__tests__/free-model-override.test.ts      |   24 +
+ .../src/__tests__/golden-repair-matrix.test.ts     |  197 +
+ .../src/__tests__/groq-client.test.ts              |  252 +
+ .../src/__tests__/hierarchical-executor.test.ts    |  469 +
+ .../implementation-planner-grounding.test.ts       |  165 +
+ .../src/__tests__/live-review-receipt.test.ts      |  111 +
+ .../src/__tests__/objective-scope.test.ts          |   59 +
+ .../src/__tests__/openai-compatible-client.test.ts | 1026 ++
+ .../src/__tests__/openrouter-reliability.test.ts   | 1162 +++
+ lib/ai-orchestrator/src/__tests__/parsing.test.ts  |  153 +
+ .../src/__tests__/patch-contract.test.ts           |   73 +
+ .../src/__tests__/profile-classifier.test.ts       |  432 +
+ .../src/__tests__/prompt-composer.test.ts          |   80 +
+ .../src/__tests__/provider-tool-calls.test.ts      |  226 +
+ .../src/__tests__/quality-engine.test.ts           |   79 +
+ .../src/__tests__/query-planner.test.ts            |  336 +
+ .../src/__tests__/reachability-gate-e2e.test.ts    | 1232 +++
+ .../src/__tests__/reachability-proof.test.ts       |  771 ++
+ .../src/__tests__/recipe-compiler.test.ts          |  268 +
+ .../src/__tests__/required-claims.test.ts          |  148 +
+ .../src/__tests__/retry-controller.test.ts         |   39 +
+ lib/ai-orchestrator/src/__tests__/schemas.test.ts  |  335 +
+ .../src/__tests__/semantic-trace.test.ts           |   76 +
+ .../structured-review-fallback.release.test.ts     |  275 +
+ .../src/__tests__/task-checklist.test.ts           |  151 +
+ .../src/__tests__/task-contract-regression.test.ts |  168 +
+ .../src/__tests__/task-contracts.test.ts           |  535 ++
+ .../task-execution-partial-report.test.ts          |  133 +
+ .../src/__tests__/task-profile.test.ts             |   68 +
+ .../src/__tests__/task-session-state.test.ts       |  462 +
+ .../src/__tests__/tool-execution-engine.test.ts    | 4389 +++++++++
+ .../src/__tests__/tool-policy.test.ts              |   72 +
+ .../src/__tests__/turn-intent.test.ts              |  245 +
+ .../src/__tests__/untrusted-content.test.ts        |   42 +
+ .../src/__tests__/validation-result.test.ts        |  113 +
+ .../src/__tests__/workflow-gate.test.ts            |  221 +
+ .../src/__tests__/workflow-orchestrator.test.ts    |  444 +
+ lib/ai-orchestrator/src/agent-complete.ts          |  227 +
+ lib/ai-orchestrator/src/agents/base-agent.ts       |  138 +
+ lib/ai-orchestrator/src/agents/chat-agent.ts       | 9404 +++++++++++++++++++
+ lib/ai-orchestrator/src/agents/code-reviewer.ts    |  230 +
+ .../src/agents/hierarchical-executor.ts            |  672 ++
+ .../src/agents/implementation-planner.ts           |  142 +
+ lib/ai-orchestrator/src/agents/query-planner.ts    |  875 ++
+ lib/ai-orchestrator/src/agents/scan-analyst.ts     |   54 +
+ .../src/agents/speculative-prefetch.test.ts        |  348 +
+ .../src/agents/speculative-prefetch.ts             |  605 ++
+ lib/ai-orchestrator/src/agents/task-agent.ts       |   72 +
+ .../src/agents/workflow-engine/executor.ts         |   47 +
+ .../src/agents/workflow-engine/guard.ts            |   49 +
+ .../src/agents/workflow-engine/state.ts            |   21 +
+ .../src/agents/workflow-engine/transition.ts       |   14 +
+ .../src/agents/workflow-orchestrator.ts            |  177 +
+ lib/ai-orchestrator/src/audit-telemetry.ts         |  163 +
+ lib/ai-orchestrator/src/behavioral-scorecard.ts    |  168 +
+ .../autonomous-delivery-acceptance.test.ts         |   99 +
+ .../benchmark/autonomous-delivery-acceptance.ts    |  169 +
+ .../src/benchmark/baseline-approval.test.ts        |  147 +
+ .../src/benchmark/baseline-approval.ts             |  103 +
+ .../src/benchmark/behavioral-oracle-gate.test.ts   |   51 +
+ .../src/benchmark/benchmark-airlock.test.ts        |  459 +
+ .../src/benchmark/benchmark-airlock.ts             |  450 +
+ .../src/benchmark/benchmark-campaign.test.ts       |  109 +
+ .../src/benchmark/benchmark-campaign.ts            |  120 +
+ .../src/benchmark/benchmark-parity-report.test.ts  |  107 +
+ .../src/benchmark/benchmark-parity-report.ts       |  176 +
+ .../src/benchmark/benchmark-shards.test.ts         |   33 +
+ .../src/benchmark/benchmark-shards.ts              |   36 +
+ .../code-agent-benchmark-fixtures.test.ts          |  329 +
+ .../src/benchmark/code-agent-benchmark-fixtures.ts |  871 ++
+ .../src/benchmark/code-agent-benchmark.test.ts     |  635 ++
+ .../src/benchmark/code-agent-benchmark.ts          | 1222 +++
+ .../src/benchmark/contract-oracle.test.ts          |   70 +
+ .../src/benchmark/contract-oracle.ts               |   96 +
+ .../src/benchmark/forensic-benchmark.test.ts       |   48 +
+ .../src/benchmark/forensic-benchmark.ts            |  777 ++
+ .../src/benchmark/free-only-policy.test.ts         |   76 +
+ .../src/benchmark/free-only-policy.ts              |   51 +
+ .../benchmark/free-tier-failure-analysis.test.ts   |   74 +
+ .../src/benchmark/free-tier-failure-analysis.ts    |  144 +
+ .../benchmark/free-tier-quality-envelope.test.ts   |  218 +
+ .../src/benchmark/free-tier-quality-envelope.ts    |  575 ++
+ .../benchmark/live-code-agent-benchmark.test.ts    |   84 +
+ .../src/benchmark/live-code-agent-benchmark.ts     |  423 +
+ .../src/benchmark/live-response-quality.test.ts    |   92 +
+ .../src/benchmark/live-response-quality.ts         |  355 +
+ .../src/benchmark/provider-health-probe.test.ts    |  203 +
+ .../src/benchmark/provider-health-probe.ts         |  295 +
+ .../run-code-agent-benchmark-deterministic.ts      |  100 +
+ .../src/benchmark/run-code-agent-benchmark.ts      |   45 +
+ .../src/benchmark/run-forensic-benchmark.ts        |   69 +
+ .../benchmark/run-free-tier-quality-envelope.ts    |   73 +
+ .../validate-code-agent-benchmark-scenarios.ts     |   90 +
+ lib/ai-orchestrator/src/capability-catalog.ts      |  531 ++
+ lib/ai-orchestrator/src/capability-contract.ts     |  555 ++
+ lib/ai-orchestrator/src/context-builder.test.ts    |  634 ++
+ lib/ai-orchestrator/src/context-builder.ts         |  185 +
+ lib/ai-orchestrator/src/context-cache-manager.ts   |  206 +
+ lib/ai-orchestrator/src/context-compressor.ts      |  113 +
+ lib/ai-orchestrator/src/context-loader.ts          |  444 +
+ lib/ai-orchestrator/src/context-manifest.ts        |   67 +
+ .../src/context-runtime/context-admission.ts       |  116 +
+ .../src/context-runtime/context-diff.ts            |  197 +
+ .../src/context-runtime/context-lifetime.ts        |  189 +
+ .../src/context-runtime/context-object.ts          |   97 +
+ lib/ai-orchestrator/src/context-serializer.ts      |  280 +
+ lib/ai-orchestrator/src/deepseek-client.ts         |  330 +
+ lib/ai-orchestrator/src/errors.ts                  |  171 +
+ lib/ai-orchestrator/src/evidence-integrity.ts      | 2358 +++++
+ lib/ai-orchestrator/src/execution-kernel.test.ts   |  141 +
+ lib/ai-orchestrator/src/execution-kernel.ts        |  249 +
+ .../src/execution-node-coordinator.ts              |  462 +
+ lib/ai-orchestrator/src/filesystem-manifest.ts     |  297 +
+ lib/ai-orchestrator/src/flight-deck-state.ts       |   75 +
+ .../src/forensic-deterministic-findings.ts         |  124 +
+ .../src/forensic-evidence-packets.ts               |  162 +
+ lib/ai-orchestrator/src/forensic-output-guard.ts   | 1904 ++++
+ lib/ai-orchestrator/src/forensic-recovery.ts       |  846 ++
+ lib/ai-orchestrator/src/forensic-source-policy.ts  |   48 +
+ lib/ai-orchestrator/src/groq-client.ts             |  656 ++
+ lib/ai-orchestrator/src/index.ts                   |  839 ++
+ .../src/model-selection/decision-engine.ts         |   25 +
+ .../src/model-selection/execution-plan.ts          |   38 +
+ .../src/model-selection/model-resolver.ts          |  198 +
+ .../src/model-selection/provider-strategy.ts       |   61 +
+ lib/ai-orchestrator/src/objective-scope.ts         |   68 +
+ .../src/openai-compatible-client.ts                | 1357 +++
+ .../src/openrouter/circuit-breaker.ts              |  168 +
+ .../src/openrouter/dynamic-catalog.ts              |  232 +
+ lib/ai-orchestrator/src/openrouter/index.ts        |   30 +
+ .../src/openrouter/model-catalog.ts                |  201 +
+ .../src/openrouter/model-resolver.ts               |  300 +
+ lib/ai-orchestrator/src/parsing.ts                 |  168 +
+ lib/ai-orchestrator/src/patch-contract.ts          |  169 +
+ .../src/prompts/capability-probe.ts                |   85 +
+ lib/ai-orchestrator/src/prompts/chat.prompt.ts     |  389 +
+ .../src/prompts/implementation-plan.prompt.ts      |   94 +
+ lib/ai-orchestrator/src/prompts/index.ts           |   14 +
+ .../src/prompts/profile-classifier.ts              |  668 ++
+ lib/ai-orchestrator/src/prompts/prompt-composer.ts |   81 +
+ lib/ai-orchestrator/src/prompts/prompt-planner.ts  |   51 +
+ lib/ai-orchestrator/src/prompts/review.prompt.ts   |   69 +
+ lib/ai-orchestrator/src/prompts/scan.prompt.ts     |   41 +
+ lib/ai-orchestrator/src/prompts/task.prompt.ts     |   90 +
+ lib/ai-orchestrator/src/prompts/workflow.prompt.ts |   72 +
+ lib/ai-orchestrator/src/provider-capabilities.ts   |   94 +
+ lib/ai-orchestrator/src/provider-metrics.ts        |  144 +
+ lib/ai-orchestrator/src/provider-registry.ts       |  279 +
+ lib/ai-orchestrator/src/provider-strategy.ts       |  103 +
+ lib/ai-orchestrator/src/provider-tool-calls.ts     |  502 +
+ lib/ai-orchestrator/src/quality-engine.ts          |  354 +
+ .../src/quality/execution-phases.ts                |  139 +
+ lib/ai-orchestrator/src/quality/quality-planner.ts |  108 +
+ .../src/quality/retry-controller.ts                |  104 +
+ lib/ai-orchestrator/src/quality/task-profile.ts    |   65 +
+ lib/ai-orchestrator/src/recipe-capabilities.ts     |   64 +
+ lib/ai-orchestrator/src/recipe-compiler.ts         |  766 ++
+ lib/ai-orchestrator/src/recipe-contract.ts         |  262 +
+ lib/ai-orchestrator/src/required-claims.ts         |  302 +
+ lib/ai-orchestrator/src/schemas/chat.schema.ts     |  284 +
+ .../src/schemas/code-review.schema.ts              |   34 +
+ lib/ai-orchestrator/src/schemas/context.schema.ts  |   44 +
+ .../src/schemas/implementation-plan.schema.ts      |   41 +
+ lib/ai-orchestrator/src/schemas/index.ts           |   52 +
+ lib/ai-orchestrator/src/schemas/scan.schema.ts     |   30 +
+ lib/ai-orchestrator/src/schemas/task.schema.ts     |   11 +
+ lib/ai-orchestrator/src/schemas/workflow.schema.ts |  102 +
+ lib/ai-orchestrator/src/semantic-trace.ts          |  478 +
+ lib/ai-orchestrator/src/session-memory.ts          |  303 +
+ lib/ai-orchestrator/src/startup-validator.ts       |  126 +
+ .../src/strategies/deepseek.strategy.ts            |   44 +
+ .../src/strategies/gemini.strategy.ts              |   50 +
+ .../src/strategies/groq.strategy.ts                |   27 +
+ .../src/strategies/openrouter.strategy.ts          |  232 +
+ lib/ai-orchestrator/src/task-checklist.ts          |  309 +
+ lib/ai-orchestrator/src/task-contracts.ts          | 1157 +++
+ .../src/task-execution-partial-report.ts           |  236 +
+ lib/ai-orchestrator/src/task-session-state.ts      |  603 ++
+ lib/ai-orchestrator/src/tool-execution-engine.ts   | 4584 +++++++++
+ lib/ai-orchestrator/src/tool-policy.ts             |  178 +
+ lib/ai-orchestrator/src/tools/analysis-tools.ts    |  159 +
+ lib/ai-orchestrator/src/tools/execution-tools.ts   |  356 +
+ lib/ai-orchestrator/src/tools/file-tools.ts        |  737 ++
+ lib/ai-orchestrator/src/tools/git-tools.ts         |  137 +
+ lib/ai-orchestrator/src/turn-intent.ts             |  264 +
+ lib/ai-orchestrator/src/untrusted-content.ts       |   69 +
+ lib/ai-orchestrator/src/validation-result.ts       |  146 +
+ lib/ai-orchestrator/src/zzz_test.txt               |    1 +
+ lib/ai-orchestrator/tsconfig.json                  |   15 +
+ lib/ai-orchestrator/vitest.config.ts               |   14 +
+ lib/api-client-react/package.json                  |   22 +
+ lib/api-client-react/src/custom-fetch.ts           |  377 +
+ lib/api-client-react/src/generated/api.schemas.ts  | 3417 +++++++
+ lib/api-client-react/src/generated/api.ts          | 9033 ++++++++++++++++++
+ lib/api-client-react/src/index.ts                  |   53 +
+ lib/api-client-react/src/project-error.ts          |  171 +
+ .../src/use-ai-chat-stream.test.ts                 |  675 ++
+ lib/api-client-react/src/use-ai-chat-stream.ts     | 1211 +++
+ lib/api-client-react/tsconfig.json                 |   12 +
+ lib/api-client-react/vitest.config.ts              |    9 +
+ lib/api-spec/openapi.yaml                          | 6940 ++++++++++++++
+ lib/api-spec/orval.config.ts                       |  118 +
+ lib/api-spec/package.json                          |   11 +
+ lib/api-zod/package.json                           |   12 +
+ lib/api-zod/src/generated/api.ts                   | 5396 +++++++++++
+ .../src/generated/types/activeProviderStatus.ts    |   18 +
+ .../types/activeProviderStatusProvider.ts          |   22 +
+ .../src/generated/types/aiApplyChangesRequest.ts   |   17 +
+ .../types/aiApplyChangesRequestChangesItem.ts      |   33 +
+ .../types/aiApplyChangesRequestChangesItemRisk.ts  |   16 +
+ ...lyChangesRequestChangesItemValidationProfile.ts |   20 +
+ .../src/generated/types/aiApplyChangesResult.ts    |   27 +
+ .../types/aiApplyChangesResultApplyStatus.ts       |   17 +
+ .../types/aiApplyChangesResultIntegrityOutcome.ts  |   17 +
+ .../types/aiApplyChangesResultResultsItem.ts       |   24 +
+ ...angesResultResultsItemBehavioralVerification.ts |   18 +
+ ...esultResultsItemBehavioralVerificationStatus.ts |   18 +
+ .../aiApplyChangesResultResultsItemConflict.ts     |   15 +
+ .../aiApplyChangesResultResultsItemConflictKind.ts |   15 +
+ .../aiApplyChangesResultResultsItemWriteStatus.ts  |   18 +
+ .../aiApplyChangesResultRollbackFailuresItem.ts    |   12 +
+ .../types/aiApproveRebasedProposalRequest.ts       |   13 +
+ .../types/aiApproveRebasedProposalResult.ts        |   15 +
+ .../types/aiAutonomousDeliveryAcceptance.ts        |   26 +
+ .../aiAutonomousDeliveryAcceptanceCampaign.ts      |   17 +
+ ...AutonomousDeliveryAcceptanceCampaignProvider.ts |   15 +
+ .../types/aiAutonomousDeliveryAcceptanceKind.ts    |   14 +
+ .../types/aiAutonomousDeliveryAcceptanceMetrics.ts |   18 +
+ ...aiAutonomousDeliveryAcceptanceOperationsItem.ts |   18 +
+ ...omousDeliveryAcceptanceOperationsItemOutcome.ts |   17 +
+ .../aiAutonomousDeliveryAcceptanceOutcomeCounts.ts |   14 +
+ .../src/generated/types/aiBehaviorAnswerResult.ts  |   15 +
+ .../types/aiBehaviorAnswerResultAnswer.ts          |   12 +
+ .../generated/types/aiBehaviorAnswerResultKind.ts  |   14 +
+ .../types/aiBenchmarkBaselineComparison.ts         |   17 +
+ .../aiBenchmarkBaselineComparisonMetricDeltas.ts   |    9 +
+ .../types/aiBenchmarkBaselineComparisonStatus.ts   |   17 +
+ .../src/generated/types/aiBenchmarkBaselineRef.ts  |   13 +
+ .../generated/types/aiBenchmarkBaselineSnapshot.ts |   15 +
+ .../src/generated/types/aiBenchmarkMetrics.ts      |   18 +
+ .../types/aiBenchmarkMetricsGradeCounts.ts         |    9 +
+ .../src/generated/types/aiBenchmarkScorecard.ts    |   26 +
+ lib/api-zod/src/generated/types/aiChatMessage.ts   |   51 +
+ .../generated/types/aiChatMessageFailureKind.ts    |   20 +
+ .../src/generated/types/aiChatMessageOutcome.ts    |   16 +
+ .../generated/types/aiChatMessageRecoveryState.ts  |   19 +
+ .../src/generated/types/aiChatMessageRole.ts       |   16 +
+ lib/api-zod/src/generated/types/aiChatOutput.ts    |   37 +
+ .../generated/types/aiChatOutputRepairPlanItem.ts  |    9 +
+ lib/api-zod/src/generated/types/aiChatRequest.ts   |   33 +
+ lib/api-zod/src/generated/types/aiChatSession.ts   |   20 +
+ .../generated/types/aiChatSessionForensicStatus.ts |   20 +
+ .../src/generated/types/aiCodeExtractionResult.ts  |   14 +
+ .../generated/types/aiCodeExtractionResultKind.ts  |   14 +
+ lib/api-zod/src/generated/types/aiCodeIssue.ts     |   18 +
+ .../src/generated/types/aiCodeIssueSeverity.ts     |   17 +
+ lib/api-zod/src/generated/types/aiCodeIssueType.ts |   18 +
+ lib/api-zod/src/generated/types/aiCodeReview.ts    |   26 +
+ .../src/generated/types/aiCodeReviewVerdict.ts     |   16 +
+ .../types/aiDiagnosticsRetentionHealth.ts          |   21 +
+ .../types/aiDiagnosticsRetentionHealthStatus.ts    |   15 +
+ .../generated/types/aiExecutionRecoveryRequest.ts  |   14 +
+ .../types/aiExecutionRecoveryRequestAction.ts      |   15 +
+ lib/api-zod/src/generated/types/aiFileContent.ts   |   20 +
+ .../src/generated/types/aiFileContentLine.ts       |   12 +
+ lib/api-zod/src/generated/types/aiFilePatchHunk.ts |   23 +
+ .../src/generated/types/aiFilePatchHunkRisk.ts     |   16 +
+ lib/api-zod/src/generated/types/aiFindingResult.ts |   15 +
+ .../src/generated/types/aiFindingResultFinding.ts  |   12 +
+ .../src/generated/types/aiFindingResultKind.ts     |   14 +
+ .../src/generated/types/aiForensicReportResult.ts  |   17 +
+ .../types/aiForensicReportResultEvidenceItem.ts    |    9 +
+ .../generated/types/aiForensicReportResultKind.ts  |   14 +
+ .../generated/types/aiImplementationPlanResult.ts  |   23 +
+ .../aiImplementationPlanResultApprovalStatus.ts    |   16 +
+ .../types/aiImplementationPlanResultKind.ts        |   14 +
+ .../types/aiImplementationPlanResultStepsItem.ts   |    9 +
+ .../types/aiImplementationPlanResultWriteAccess.ts |   15 +
+ .../src/generated/types/aiMissionControl.ts        |   16 +
+ .../generated/types/aiMissionControlBenchmark.ts   |   17 +
+ .../generated/types/aiMissionControlEvidence.ts    |   15 +
+ .../generated/types/aiMissionControlExecution.ts   |   40 +
+ .../types/aiMissionControlRecorderEvent.ts         |   16 +
+ .../src/generated/types/aiOrchestrateRequest.ts    |   11 +
+ .../src/generated/types/aiOrchestrationDecision.ts |   16 +
+ .../types/aiOrchestrationDecisionAction.ts         |   17 +
+ .../src/generated/types/aiPatchEvidenceLink.ts     |   23 +
+ .../src/generated/types/aiPatchEvidenceLinkKind.ts |   16 +
+ lib/api-zod/src/generated/types/aiPendingChange.ts |   40 +
+ .../src/generated/types/aiPendingChangeRisk.ts     |   19 +
+ .../types/aiPendingChangeValidationProfile.ts      |   20 +
+ .../src/generated/types/aiPendingProposal.ts       |   36 +
+ .../generated/types/aiPendingProposalLifecycle.ts  |   22 +
+ .../src/generated/types/aiPlanDecisionRequest.ts   |   12 +
+ .../types/aiPlanDecisionRequestDecision.ts         |   15 +
+ .../src/generated/types/aiRebaseChangesRequest.ts  |   19 +
+ .../src/generated/types/aiRebaseChangesResult.ts   |   21 +
+ lib/api-zod/src/generated/types/aiRepairResult.ts  |   17 +
+ .../src/generated/types/aiRepairResultKind.ts      |   14 +
+ .../generated/types/aiRepairResultPhasesItem.ts    |    9 +
+ .../src/generated/types/aiRepairResultReadiness.ts |   16 +
+ lib/api-zod/src/generated/types/aiReviewRequest.ts |   12 +
+ .../generated/types/aiReviewRequestFileContents.ts |    9 +
+ lib/api-zod/src/generated/types/aiScanAnalysis.ts  |   23 +
+ lib/api-zod/src/generated/types/aiScanInsight.ts   |   17 +
+ .../src/generated/types/aiScanInsightCategory.ts   |   18 +
+ .../src/generated/types/aiScanInsightSeverity.ts   |   17 +
+ .../generated/types/aiStructuredAuditTraceEntry.ts |   14 +
+ .../types/aiStructuredAuditTraceEntryStatus.ts     |   17 +
+ .../src/generated/types/aiWorkspaceReviewResult.ts |   17 +
+ .../types/aiWorkspaceReviewResultEvidenceItem.ts   |    9 +
+ .../generated/types/aiWorkspaceReviewResultKind.ts |   14 +
+ lib/api-zod/src/generated/types/apiError.ts        |   15 +
+ .../src/generated/types/archiveUploadInput.ts      |   12 +
+ .../src/generated/types/archiveUploadOutput.ts     |   14 +
+ .../src/generated/types/behaviorEvidence.ts        |   19 +
+ .../generated/types/behaviorEvidenceDirectness.ts  |   15 +
+ .../generated/types/behavioralModelScorecard.ts    |   23 +
+ .../generated/types/cancelAiExecutionById200.ts    |   14 +
+ .../types/cancelAiExecutionById200Status.ts        |   15 +
+ .../src/generated/types/createProjectInput.ts      |   15 +
+ lib/api-zod/src/generated/types/createRuleInput.ts |   19 +
+ lib/api-zod/src/generated/types/createTaskInput.ts |   20 +
+ .../src/generated/types/createWorkflowInput.ts     |   15 +
+ .../src/generated/types/crossFileSemanticTrace.ts  |   22 +
+ .../types/crossFileSemanticTraceStatus.ts          |   16 +
+ .../src/generated/types/dashboardOverview.ts       |   24 +
+ .../types/dashboardOverviewProjectScoresItem.ts    |   15 +
+ .../dashboardOverviewProjectScoresItemTrend.ts     |   16 +
+ .../types/dashboardOverviewTaskStatusBreakdown.ts  |    9 +
+ .../types/dashboardOverviewTopRulesItem.ts         |   14 +
+ .../types/decideAiImplementationPlan200.ts         |   12 +
+ .../decideAiImplementationPlan200TaskResult.ts     |    9 +
+ .../src/generated/types/deepSeekKeyStatus.ts       |   18 +
+ .../src/generated/types/deleteDeepSeekKey200.ts    |   11 +
+ .../src/generated/types/deleteGeminiKey200.ts      |   11 +
+ .../src/generated/types/deleteGroqKey200.ts        |   11 +
+ .../src/generated/types/deleteOpenRouterKey200.ts  |   11 +
+ .../src/generated/types/deleteProviderKey200.ts    |   11 +
+ .../generated/types/discoveryGraphSummaryData.ts   |   16 +
+ .../discoveryGraphSummaryDataEntitiesByType.ts     |    9 +
+ .../discoveryGraphSummaryDataFilesByLanguage.ts    |    9 +
+ .../src/generated/types/discoveryOptions.ts        |   18 +
+ lib/api-zod/src/generated/types/discoveryReport.ts |   49 +
+ .../generated/types/discoveryRuleViolationItem.ts  |   24 +
+ .../src/generated/types/discoverySessionStatus.ts  |   25 +
+ .../types/discoverySessionStatusStatus.ts          |   18 +
+ .../generated/types/discoverySourceCapability.ts   |   18 +
+ .../src/generated/types/discoverySourceConfig.ts   |   26 +
+ .../types/discoverySourceConfigCredentials.ts      |   15 +
+ .../src/generated/types/discoveryStepItem.ts       |   15 +
+ .../src/generated/types/discoveryStepItemStatus.ts |   17 +
+ lib/api-zod/src/generated/types/entityType.ts      |   21 +
+ .../src/generated/types/evaluateRuleRequest.ts     |   11 +
+ lib/api-zod/src/generated/types/event.ts           |   23 +
+ lib/api-zod/src/generated/types/eventPayload.ts    |    9 +
+ lib/api-zod/src/generated/types/eventSeverity.ts   |   17 +
+ .../generated/types/exportAiExecutionAudit200.ts   |   23 +
+ .../types/exportAiExecutionAudit200Execution.ts    |    9 +
+ .../types/exportAiExecutionAudit200Redaction.ts    |   11 +
+ .../types/exportAiExecutionAudit200TimelineItem.ts |    9 +
+ .../exportAiExecutionAudit200ValidationsItem.ts    |    9 +
+ .../src/generated/types/failWorkflowPhaseInput.ts  |   11 +
+ lib/api-zod/src/generated/types/geminiKeyStatus.ts |   18 +
+ .../generated/types/getAiChatFileContentParams.ts  |   23 +
+ .../src/generated/types/getAiExecution200.ts       |   55 +
+ .../generated/types/getAiExecution200Checkpoint.ts |    9 +
+ .../types/getAiExecution200EvidenceVerdict.ts      |   21 +
+ .../types/getAiExecution200FlightState.ts          |   26 +
+ .../generated/types/getAiExecution200Objective.ts  |   12 +
+ .../generated/types/getAiExecution200Recovery.ts   |   15 +
+ .../src/generated/types/getAiExecution200Status.ts |   20 +
+ lib/api-zod/src/generated/types/getAiMetrics200.ts |   14 +
+ .../generated/types/getAiMetrics200MetricsItem.ts  |    9 +
+ .../generated/types/getGraphEntityImpactParams.ts  |   16 +
+ .../generated/types/getGraphEntityNeighbors200.ts  |   16 +
+ .../src/generated/types/getGraphPathParams.ts      |   17 +
+ .../types/getGraphSemanticNeighborhoodParams.ts    |   21 +
+ .../src/generated/types/getGraphSubgraphParams.ts  |   17 +
+ .../src/generated/types/getLatestMetricsParams.ts  |   11 +
+ lib/api-zod/src/generated/types/gitCommitEntry.ts  |   20 +
+ lib/api-zod/src/generated/types/gitCommitInput.ts  |   19 +
+ lib/api-zod/src/generated/types/gitConfig.ts       |   14 +
+ .../src/generated/types/gitHubTokenStatus.ts       |   14 +
+ lib/api-zod/src/generated/types/gitLog.ts          |   12 +
+ .../src/generated/types/gitOperationResult.ts      |   19 +
+ lib/api-zod/src/generated/types/gitPushInput.ts    |   14 +
+ lib/api-zod/src/generated/types/gitPushResult.ts   |   21 +
+ lib/api-zod/src/generated/types/gitStatus.ts       |   14 +
+ lib/api-zod/src/generated/types/gitStatusFile.ts   |   14 +
+ .../src/generated/types/graphCentralityScore.ts    |   16 +
+ lib/api-zod/src/generated/types/graphEdgeType.ts   |   25 +
+ lib/api-zod/src/generated/types/graphEntity.ts     |   43 +
+ lib/api-zod/src/generated/types/graphEntityList.ts |   14 +
+ .../src/generated/types/graphEntityMetadata.ts     |    9 +
+ lib/api-zod/src/generated/types/graphEvidence.ts   |   20 +
+ .../src/generated/types/graphEvidenceBundle.ts     |   14 +
+ .../src/generated/types/graphEvidenceKind.ts       |   19 +
+ .../src/generated/types/graphEvidenceResponse.ts   |   14 +
+ lib/api-zod/src/generated/types/graphImpactHop.ts  |   16 +
+ .../src/generated/types/graphImpactResult.ts       |   15 +
+ .../src/generated/types/graphLayerCounts.ts        |   12 +
+ lib/api-zod/src/generated/types/graphListMeta.ts   |   14 +
+ lib/api-zod/src/generated/types/graphPathResult.ts |   14 +
+ lib/api-zod/src/generated/types/graphPathStep.ts   |   14 +
+ lib/api-zod/src/generated/types/graphProvenance.ts |   21 +
+ .../src/generated/types/graphRelationship.ts       |   54 +
+ .../src/generated/types/graphRelationshipList.ts   |   14 +
+ .../generated/types/graphRelationshipMetadata.ts   |    9 +
+ .../src/generated/types/graphRuntimeSubgraph.ts    |   14 +
+ .../generated/types/graphSemanticNeighborhood.ts   |   15 +
+ lib/api-zod/src/generated/types/graphSubgraph.ts   |   18 +
+ .../src/generated/types/graphSubgraphFilters.ts    |   20 +
+ .../src/generated/types/graphSubgraphLayered.ts    |   14 +
+ lib/api-zod/src/generated/types/graphSummary.ts    |   24 +
+ .../generated/types/graphSummaryEntitiesByType.ts  |    9 +
+ .../src/generated/types/graphSummaryLayer.ts       |   17 +
+ .../generated/types/graphSummaryRelationsByType.ts |    9 +
+ lib/api-zod/src/generated/types/groqKeyStatus.ts   |   18 +
+ lib/api-zod/src/generated/types/healthStatus.ts    |   22 +
+ .../src/generated/types/healthStatusStatus.ts      |   14 +
+ .../src/generated/types/importProjectInput.ts      |   13 +
+ .../generated/types/importProjectInputOverrides.ts |   14 +
+ lib/api-zod/src/generated/types/index.ts           |  355 +
+ lib/api-zod/src/generated/types/jobQueueStats.ts   |   19 +
+ .../src/generated/types/jobRecoveryHealth.ts       |   22 +
+ .../src/generated/types/jobRecoveryHealthStatus.ts |   15 +
+ .../src/generated/types/layeredGraphSummary.ts     |   18 +
+ .../types/layeredGraphSummaryByEdgeType.ts         |   12 +
+ .../generated/types/layeredGraphSummaryByLayer.ts  |   14 +
+ .../generated/types/listAiChatSessionsParams.ts    |   11 +
+ .../types/listAiExecutionHistory200Item.ts         |   31 +
+ .../listAiExecutionHistory200ItemDisposition.ts    |   15 +
+ ...listAiExecutionHistory200ItemEvidenceVerdict.ts |   18 +
+ ...stAiExecutionHistory200ItemRecommendedAction.ts |   16 +
+ .../types/listAiExecutionHistory200ItemStatus.ts   |   16 +
+ .../types/listAiExecutionHistoryParams.ts          |   16 +
+ lib/api-zod/src/generated/types/listEvents200.ts   |   17 +
+ .../src/generated/types/listEventsParams.ts        |   36 +
+ .../src/generated/types/listEventsSeverity.ts      |   17 +
+ .../src/generated/types/listGraphEntitiesParams.ts |   22 +
+ .../types/listGraphRelationshipsParams.ts          |   21 +
+ .../src/generated/types/listMetricsParams.ts       |   22 +
+ .../src/generated/types/listProjectsParams.ts      |   19 +
+ .../types/listRecoverableAiDeliveries200.ts        |   12 +
+ ...listRecoverableAiDeliveries200OperationsItem.ts |    9 +
+ .../types/listRecoverableAiDeliveriesParams.ts     |   11 +
+ lib/api-zod/src/generated/types/listRulesParams.ts |   22 +
+ lib/api-zod/src/generated/types/listTasksParams.ts |   24 +
+ .../src/generated/types/listWorkflowsParams.ts     |   11 +
+ lib/api-zod/src/generated/types/metricRecord.ts    |   26 +
+ .../src/generated/types/metricRecordBuildStatus.ts |   16 +
+ .../generated/types/missionCorrelationReport.ts    |   29 +
+ .../types/missionCorrelationReportAgreement.ts     |   18 +
+ .../types/missionCorrelationReportCounts.ts        |   24 +
+ .../types/missionCorrelationReportKind.ts          |   14 +
+ .../types/missionCorrelationReportTerminalState.ts |   22 +
+ .../types/missionCorrelationReportVersion.ts       |   17 +
+ .../src/generated/types/objectiveContract.ts       |   26 +
+ .../types/objectiveContractRequiredClaimsItem.ts   |   14 +
+ .../objectiveContractRequiredEvidenceEdgesItem.ts  |   16 +
+ .../types/objectiveContractScopePolicy.ts          |   28 +
+ .../src/generated/types/openRouterKeyStatus.ts     |   18 +
+ .../generated/types/operationEvidenceProjection.ts |   29 +
+ .../operationEvidenceProjectionCompleteness.ts     |   20 +
+ .../types/operationEvidenceProjectionCounts.ts     |   17 +
+ .../types/operationEvidenceProjectionGapsItem.ts   |   15 +
+ .../operationEvidenceProjectionGapsItemKind.ts     |   18 +
+ .../operationEvidenceProjectionGapsItemSource.ts   |   21 +
+ .../types/operationEvidenceProjectionHashes.ts     |   14 +
+ .../operationEvidenceProjectionReceiptsItem.ts     |    9 +
+ .../types/operationEvidenceProjectionVersion.ts    |   14 +
+ .../src/generated/types/operationalCounters.ts     |   25 +
+ lib/api-zod/src/generated/types/plugin.ts          |   18 +
+ .../src/generated/types/pluginCapabilitiesItem.ts  |   18 +
+ .../src/generated/types/pluginProjectRequest.ts    |   11 +
+ .../generated/types/productionReachabilityTrace.ts |   17 +
+ .../types/productionReachabilityTraceStatus.ts     |   16 +
+ lib/api-zod/src/generated/types/project.ts         |   24 +
+ lib/api-zod/src/generated/types/projectStatus.ts   |   17 +
+ lib/api-zod/src/generated/types/projectSummary.ts  |   18 +
+ .../generated/types/projectSummaryTaskCounts.ts    |   15 +
+ .../src/generated/types/providerKeyStatus.ts       |   21 +
+ .../src/generated/types/publicValidationResult.ts  |   32 +
+ .../types/publicValidationResultReasonCode.ts      |   17 +
+ .../types/publicValidationResultStatus.ts          |   18 +
+ .../types/publicValidationResultTerminalState.ts   |   19 +
+ .../generated/types/recordTaskVerificationInput.ts |   14 +
+ .../src/generated/types/recoverAiExecution200.ts   |   16 +
+ .../types/recoverAiExecution200Outcome.ts          |   17 +
+ .../types/recoverAiExecutionResumeCapability200.ts |   13 +
+ .../types/regenerateMissionCorrelationReport200.ts |   13 +
+ .../src/generated/types/remediationEvidence.ts     |   16 +
+ lib/api-zod/src/generated/types/remediationPlan.ts |   35 +
+ .../src/generated/types/remediationPlanSource.ts   |   19 +
+ .../types/remediationPlanSourceCompleteness.ts     |   18 +
+ .../generated/types/remediationPlanSourceType.ts   |   15 +
+ .../src/generated/types/remediationPlanStatus.ts   |   16 +
+ .../src/generated/types/remediationPlanVersion.ts  |   14 +
+ .../types/resumeAiDeliveryValidation200.ts         |    9 +
+ .../generated/types/rollbackWorkflowPhaseInput.ts  |   12 +
+ lib/api-zod/src/generated/types/rule.ts            |   24 +
+ .../src/generated/types/ruleEvaluationResult.ts    |   16 +
+ .../types/ruleEvaluationResultMatchesItem.ts       |   13 +
+ lib/api-zod/src/generated/types/ruleSeverity.ts    |   18 +
+ .../src/generated/types/ruleVerificationCheck.ts   |   14 +
+ .../generated/types/ruleVerificationCheckKind.ts   |   14 +
+ .../src/generated/types/saveDeepSeekKeyInput.ts    |   15 +
+ .../src/generated/types/saveGeminiKeyInput.ts      |   15 +
+ .../src/generated/types/saveGitHubTokenInput.ts    |   15 +
+ .../src/generated/types/saveGroqKeyInput.ts        |   15 +
+ .../src/generated/types/saveOpenRouterKeyInput.ts  |   15 +
+ lib/api-zod/src/generated/types/scanJob.ts         |   23 +
+ lib/api-zod/src/generated/types/scanJobStatus.ts   |   17 +
+ lib/api-zod/src/generated/types/scanResult.ts      |   16 +
+ .../src/generated/types/semanticTraceEdge.ts       |   20 +
+ .../src/generated/types/semanticTraceEdgeStatus.ts |   16 +
+ .../src/generated/types/semanticTraceNode.ts       |   15 +
+ .../src/generated/types/semanticTraceNodeStage.ts  |   19 +
+ .../src/generated/types/semanticTraceSourceSpan.ts |   16 +
+ lib/api-zod/src/generated/types/sourceSpan.ts      |   14 +
+ lib/api-zod/src/generated/types/sourceType.ts      |   19 +
+ .../src/generated/types/startDiscoveryInput.ts     |   16 +
+ lib/api-zod/src/generated/types/task.ts            |   34 +
+ .../types/taskExecutionRetentionHealth.ts          |   21 +
+ .../types/taskExecutionRetentionHealthStatus.ts    |   15 +
+ lib/api-zod/src/generated/types/taskLog.ts         |   18 +
+ lib/api-zod/src/generated/types/taskLogLevel.ts    |   17 +
+ lib/api-zod/src/generated/types/taskLogMetadata.ts |    9 +
+ lib/api-zod/src/generated/types/taskPriority.ts    |   17 +
+ lib/api-zod/src/generated/types/taskStatus.ts      |   20 +
+ .../src/generated/types/updateGitConfigInput.ts    |   14 +
+ .../src/generated/types/updateProjectInput.ts      |   14 +
+ .../generated/types/updateProjectInputStatus.ts    |   17 +
+ lib/api-zod/src/generated/types/updateRuleInput.ts |   17 +
+ lib/api-zod/src/generated/types/updateTaskInput.ts |   16 +
+ lib/api-zod/src/generated/types/validationError.ts |   16 +
+ .../generated/types/validationErrorIssuesItem.ts   |   16 +
+ .../src/generated/types/validationEvidence.ts      |   32 +
+ .../src/generated/types/validationFailure.ts       |   14 +
+ .../src/generated/types/validationResult.ts        |   46 +
+ .../src/generated/types/validationResultStatus.ts  |   18 +
+ .../types/validationResultTerminalState.ts         |   19 +
+ .../generated/types/verificationHistoryEntry.ts    |   20 +
+ .../types/verificationHistoryEntryKind.ts          |   15 +
+ .../src/generated/types/verificationResult.ts      |   18 +
+ .../generated/types/verificationResultDecision.ts  |   17 +
+ .../generated/types/verificationResultStepsItem.ts |   18 +
+ .../types/verificationResultStepsItemKind.ts       |   15 +
+ lib/api-zod/src/generated/types/workflow.ts        |   23 +
+ .../src/generated/types/workflowExecution.ts       |   19 +
+ lib/api-zod/src/generated/types/workflowPhase.ts   |   13 +
+ lib/api-zod/src/generated/types/workflowStatus.ts  |   18 +
+ lib/api-zod/src/index.ts                           |    3 +
+ lib/api-zod/src/truth-flow-matrix.schema.ts        |  452 +
+ lib/api-zod/tsconfig.json                          |   12 +
+ lib/db/SCHEMA_DELIVERY.md                          |   25 +
+ lib/db/drizzle.config.ts                           |   14 +
+ lib/db/package.json                                |   30 +
+ lib/db/src/application-schema-check.test.ts        |  362 +
+ lib/db/src/application-schema-check.ts             |  619 ++
+ lib/db/src/audit-schema-check.test.ts              |   93 +
+ lib/db/src/audit-schema-check.ts                   |   90 +
+ lib/db/src/check-audit-schema.ts                   |   21 +
+ lib/db/src/check-schema.ts                         |   24 +
+ lib/db/src/index.ts                                |   35 +
+ lib/db/src/schema/ai_apply_journal.ts              |   34 +
+ lib/db/src/schema/ai_change_proposals.ts           |   80 +
+ lib/db/src/schema/ai_chats.ts                      |  132 +
+ lib/db/src/schema/ai_executions.ts                 |   77 +
+ lib/db/src/schema/ai_provider_credentials.ts       |   29 +
+ lib/db/src/schema/audit_logs.ts                    |   86 +
+ lib/db/src/schema/browser_validation_profiles.ts   |   21 +
+ lib/db/src/schema/discovery.ts                     |  187 +
+ lib/db/src/schema/events.ts                        |   59 +
+ lib/db/src/schema/graph.ts                         |  292 +
+ lib/db/src/schema/index.ts                         |   21 +
+ lib/db/src/schema/metrics.ts                       |   70 +
+ lib/db/src/schema/pending_audit_logs.ts            |   19 +
+ lib/db/src/schema/plugins.ts                       |   17 +
+ lib/db/src/schema/projects.ts                      |   42 +
+ lib/db/src/schema/rate_limits.ts                   |   37 +
+ lib/db/src/schema/rules.ts                         |   72 +
+ lib/db/src/schema/scan_jobs.ts                     |   92 +
+ lib/db/src/schema/task_logs.ts                     |   32 +
+ lib/db/src/schema/tasks.ts                         |  148 +
+ lib/db/src/schema/uploads.ts                       |   52 +
+ lib/db/src/schema/workflows.ts                     |   81 +
+ lib/db/tsconfig.json                               |   12 +
+ lib/knowledge-engine/package.json                  |   22 +
+ .../src/__tests__/inference.test.ts                |  269 +
+ lib/knowledge-engine/src/__tests__/queries.test.ts |  740 ++
+ lib/knowledge-engine/src/graph-limits.ts           |   13 +
+ lib/knowledge-engine/src/index.ts                  |   66 +
+ lib/knowledge-engine/src/inference.ts              |  371 +
+ lib/knowledge-engine/src/queries.ts                | 1013 ++
+ lib/knowledge-engine/src/types.ts                  |  266 +
+ lib/knowledge-engine/tsconfig.json                 |   15 +
+ lib/scanner/package.json                           |   22 +
+ lib/scanner/src/__tests__/file-walker.test.ts      |  146 +
+ lib/scanner/src/__tests__/graph-extractor.test.ts  |  782 ++
+ lib/scanner/src/__tests__/metrics-calc.test.ts     |  227 +
+ lib/scanner/src/__tests__/rule-matcher.test.ts     |  108 +
+ lib/scanner/src/file-walker.ts                     |  303 +
+ lib/scanner/src/graph-extractor.ts                 | 1180 +++
+ lib/scanner/src/index.ts                           |   29 +
+ lib/scanner/src/metrics-calc.ts                    |  240 +
+ lib/scanner/src/python-ast-script.py               |  118 +
+ lib/scanner/src/python-ast-script.ts               |   10 +
+ lib/scanner/src/python-extractor.ts                |  108 +
+ lib/scanner/src/rule-matcher.ts                    |  156 +
+ lib/scanner/tsconfig.json                          |   12 +
+ lib/scanner/vitest.config.ts                       |   14 +
+ package.json                                       |   46 +
+ pnpm-lock.yaml                                     | 7869 ++++++++++++++++
+ pnpm-workspace.yaml                                |  160 +
+ release-evidence/live-mission-correlation.json     |   30 +
+ replit.md                                          |   46 +
+ scripts/check-codegen-drift.ts                     |  220 +
+ scripts/dashboard-contract-trigger.test.mjs        |  172 +
+ scripts/dashboard-journey-contract.test.mjs        |  746 ++
+ scripts/generate-truth-flow.ts                     |   70 +
+ scripts/mission-correlation-report.mjs             |  224 +
+ scripts/mission-correlation-report.test.mjs        |  515 +
+ scripts/package.json                               |   27 +
+ scripts/parse-check-spec.ts                        |  140 +
+ scripts/patch-generated-zod.test.ts                |   90 +
+ scripts/patch-generated-zod.ts                     |   80 +
+ scripts/post-merge.sh                              |   13 +
+ scripts/release-configuration.test.ts              |  655 ++
+ scripts/release-port-cleanup.test.mjs              |  148 +
+ scripts/run-dashboard-journey.mjs                  | 1070 +++
+ scripts/run-release-validation.mjs                 |   47 +
+ scripts/src/hello.ts                               |    1 +
+ scripts/trigger-scan.mts                           |   95 +
+ scripts/tsconfig.json                              |    8 +
+ scripts/validate-app-origins.mjs                   |   40 +
+ scripts/validate-benchmark-baseline.ts             |  115 +
+ scripts/validate-dashboard-client-contract.mjs     |   65 +
+ scripts/validate-github-workflows.mjs              |  162 +
+ scripts/validate-github-workflows.test.mjs         |  345 +
+ scripts/validate-truth-flow.ts                     |  120 +
+ scripts/validation-artifact-cleanup.mjs            |  305 +
+ scripts/verify-benchmark-rollout.mjs               |  141 +
+ scripts/verify-benchmark-rollout.test.mjs          |   88 +
+ scripts/verify-setup.sh                            |   87 +
+ tsconfig.base.json                                 |   26 +
+ tsconfig.base.json.bak                             |   26 +
+ tsconfig.json                                      |   25 +
+ 12871 files changed, 1153496 insertions(+)
+commit ef2ecf0965e1da43e5e80b5eed786508aa19a6fc
+Author:     bsabra220 <63799280-bsabra220@users.noreply.replit.com>
+AuthorDate: Sun Aug 30 16:52:09 2026 +0000
+Commit:     bsabra220 <63799280-bsabra220@users.noreply.replit.com>
+CommitDate: Sun Aug 30 16:52:09 2026 +0000
+
+    Recover recipe operation binding with safe capability execution and durable lifecycle fences
+    
+    Replit-Task-Id: 78934a59-03b6-4bf1-a30e-809a4d864550
+    Replit-Merge-Attempt: MergeTask:78934a59-03b6-4bf1-a30e-809a4d864550:1:e53a2919
+
+diff --git a/artifacts/api-server/src/lib/ai-execution-state.ts b/artifacts/api-server/src/lib/ai-execution-state.ts
+new file mode 100644
+index 0000000..201c380
+--- /dev/null
++++ b/artifacts/api-server/src/lib/ai-execution-state.ts
+@@ -0,0 +1,1700 @@
++import { createHash, randomUUID } from "node:crypto";
++import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
++import { db, aiExecutionsTable } from "@workspace/db";
++import type { AiExecution } from "@workspace/db";
++import type { ExecutionNode, FlightDeckEvidenceVerdict } from "@workspace/ai-orchestrator";
++import { formatUntrustedContent } from "@workspace/ai-orchestrator";
++
++export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
++export const AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT = 12_000;
++export const AI_EXECUTION_TRACE_LIMIT = 80;
++export const AI_EXECUTION_NODE_LIMIT = 24;
++export const AI_EXECUTION_NODE_FILES_LIMIT = 48;
++const activeControllers = new Map<string, AbortController>();
++
++/**
++ * The durable operation state is intentionally separate from the provider
++ * lifecycle status. `ai_executions.status` answers "is a worker alive?", while
++ * this state answers "which guarded operation stage owns the next action?"
++ * Keeping both prevents a reconnect or provider response from being treated as
++ * proof that a mutation, promotion, or delivery succeeded.
++ */
++export const AUTONOMOUS_OPERATION_STATES = [
++  "planned",
++  "inspecting",
++  "mutating",
++  "validating",
++  "diagnosing",
++  "repairing",
++  "promoting",
++  "delivering",
++  "succeeded",
++  "failed",
++  "cancelled",
++  "blocked",
++  "uncertain",
++] as const;
++export type AutonomousOperationState = (typeof AUTONOMOUS_OPERATION_STATES)[number];
++export type AutonomousOperationNodeKind =
++  | "inspect"
++  | "mutate"
++  | "validate"
++  | "diagnose"
++  | "repair"
++  | "promote"
++  | "delivery";
++
++export type AutonomousOperationNode = {
++  id: string;
++  kind: AutonomousOperationNodeKind;
++  dependencies: string[];
++  status: "queued" | "running" | "passed" | "failed" | "blocked";
++  attempts: number;
++  validationAttempts: number;
++  allowedFiles: string[];
++  validationProfile: string;
++  evidenceRefs: string[];
++};
++
++export const RECIPE_OPERATION_PHASES = [
++  "planned",
++  "queued",
++  "running",
++  "mutating",
++  "validating",
++  "completed",
++  "failed",
++  "cancelled",
++] as const;
++export type RecipeOperationPhase = (typeof RECIPE_OPERATION_PHASES)[number];
++
++export type RecipeOperationBudget = {
++  maxNodes: number;
++  maxParallelNodes: number;
++  maxTotalTimeoutMs: number;
++  maxProcessCount: number;
++  maxOutputBytes: number;
++};
++
++export type RecipeOperationBinding = {
++  projectId: string;
++  operationId: string;
++  sourceRevision: string;
++  candidateIdentity: string | null;
++  candidateWorkspace: string | null;
++  approvedPaths: string[];
++  phase: RecipeOperationPhase;
++  leaseOwner: string | null;
++  leaseUntil: string | null;
++  missionBudget: RecipeOperationBudget;
++  concurrencyBudget: {
++    maxInFlightNodes: number;
++    maxProcesses: number;
++  };
++};
++
++export type RecipeBindingExpectation = {
++  projectId?: string;
++  operationId?: string;
++  sourceRevision?: string;
++  candidateIdentity?: string | null;
++  candidateWorkspace?: string | null;
++  leaseOwner?: string | null;
++  phase?: RecipeOperationPhase;
++  now?: Date;
++  requireLease?: boolean;
++  approvedPaths?: readonly string[];
++};
++
++export type RecipeBindingCheck = {
++  allowed: boolean;
++  reason:
++    | "allowed"
++    | "invalid_binding"
++    | "project_mismatch"
++    | "operation_mismatch"
++    | "revision_mismatch"
++    | "candidate_mismatch"
++    | "workspace_mismatch"
++    | "scope_mismatch"
++    | "phase_mismatch"
++    | "lease_owner_mismatch"
++    | "lease_expired"
++    | "budget_exceeded";
++  detail: string;
++};
++
++const RECIPE_PATH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!\.\.?$).+$/;
++
++function normalizedRecipePath(value: string): string {
++  return value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "");
++}
++
++function validRecipeBudget(value: unknown): value is RecipeOperationBudget {
++  if (!value || typeof value !== "object") return false;
++  const budget = value as Partial<RecipeOperationBudget>;
++  return Number.isInteger(budget.maxNodes) && budget.maxNodes! >= 1 && budget.maxNodes! <= AI_EXECUTION_NODE_LIMIT
++    && Number.isInteger(budget.maxParallelNodes) && budget.maxParallelNodes! >= 1 && budget.maxParallelNodes! <= 8
++    && Number.isInteger(budget.maxTotalTimeoutMs) && budget.maxTotalTimeoutMs! >= 1 && budget.maxTotalTimeoutMs! <= 900_000
++    && Number.isInteger(budget.maxProcessCount) && budget.maxProcessCount! >= 1 && budget.maxProcessCount! <= 24
++    && Number.isInteger(budget.maxOutputBytes) && budget.maxOutputBytes! >= 1 && budget.maxOutputBytes! <= 8 * 1024 * 1024;
++}
++
++function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | undefined {
++  if (!value || typeof value !== "object") return undefined;
++  const candidate = value as Partial<RecipeOperationBinding> & {
++    concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
++  };
++  const approvedPaths = Array.isArray(candidate.approvedPaths)
++    ? candidate.approvedPaths.filter((item): item is string => typeof item === "string").map(normalizedRecipePath)
++    : [];
++  const leaseUntil = candidate.leaseUntil;
++  const concurrencyBudget = candidate.concurrencyBudget;
++  if (
++    typeof candidate.projectId !== "string" || candidate.projectId.length < 1 || candidate.projectId.length > 160
++    || typeof candidate.operationId !== "string" || candidate.operationId.length < 1 || candidate.operationId.length > 160
++    || typeof candidate.sourceRevision !== "string" || candidate.sourceRevision.length < 1 || candidate.sourceRevision.length > 240
++    || candidate.sourceRevision === "unbound"
++    || (candidate.candidateIdentity !== null && typeof candidate.candidateIdentity !== "string")
++    || (candidate.candidateWorkspace !== null && typeof candidate.candidateWorkspace !== "string")
++    || !RECIPE_OPERATION_PHASES.includes(candidate.phase as RecipeOperationPhase)
++    || (candidate.leaseOwner !== null && typeof candidate.leaseOwner !== "string")
++    || (leaseUntil !== null && typeof leaseUntil !== "string")
++    || (leaseUntil !== null && Number.isNaN(Date.parse(leaseUntil)))
++    || approvedPaths.length > 48
++    || approvedPaths.some((item) => !RECIPE_PATH_PATTERN.test(item))
++    || !validRecipeBudget(candidate.missionBudget)
++    || !concurrencyBudget
++    || !Number.isInteger(concurrencyBudget.maxInFlightNodes)
++    || concurrencyBudget.maxInFlightNodes < 1 || concurrencyBudget.maxInFlightNodes > 8
++    || !Number.isInteger(concurrencyBudget.maxProcesses)
++    || concurrencyBudget.maxProcesses < 1 || concurrencyBudget.maxProcesses > 24
++  ) return undefined;
++  return {
++    projectId: candidate.projectId,
++    operationId: candidate.operationId,
++    sourceRevision: candidate.sourceRevision,
++    candidateIdentity: candidate.candidateIdentity ?? null,
++    candidateWorkspace: candidate.candidateWorkspace ?? null,
++    approvedPaths: [...new Set(approvedPaths)],
++    phase: candidate.phase as RecipeOperationPhase,
++    leaseOwner: candidate.leaseOwner ?? null,
++    leaseUntil: leaseUntil ?? null,
++    missionBudget: { ...candidate.missionBudget },
++    concurrencyBudget: {
++      maxInFlightNodes: concurrencyBudget.maxInFlightNodes,
++      maxProcesses: concurrencyBudget.maxProcesses,
++    },
++  };
++}
++
++export function createRecipeOperationBinding(params: {
++  projectId: string;
++  operationId: string;
++  sourceRevision: string;
++  candidateIdentity?: string | null;
++  candidateWorkspace?: string | null;
++  approvedPaths?: readonly string[];
++  phase?: RecipeOperationPhase;
++  leaseOwner?: string | null;
++  leaseUntil?: Date | string | null;
++  missionBudget?: Partial<RecipeOperationBudget>;
++  concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
++}): RecipeOperationBinding {
++  const binding = parseRecipeOperationBinding({
++    projectId: params.projectId,
++    operationId: params.operationId,
++    sourceRevision: params.sourceRevision,
++    candidateIdentity: params.candidateIdentity ?? null,
++    candidateWorkspace: params.candidateWorkspace ?? null,
++    approvedPaths: (params.approvedPaths ?? []).map(normalizedRecipePath),
++    phase: params.phase ?? "planned",
++    leaseOwner: params.leaseOwner ?? null,
++    leaseUntil: params.leaseUntil instanceof Date ? params.leaseUntil.toISOString() : params.leaseUntil ?? null,
++    missionBudget: {
++      maxNodes: params.missionBudget?.maxNodes ?? AI_EXECUTION_NODE_LIMIT,
++      maxParallelNodes: params.missionBudget?.maxParallelNodes ?? 3,
++      maxTotalTimeoutMs: params.missionBudget?.maxTotalTimeoutMs ?? 900_000,
++      maxProcessCount: params.missionBudget?.maxProcessCount ?? 24,
++      maxOutputBytes: params.missionBudget?.maxOutputBytes ?? 8 * 1024 * 1024,
++    },
++    concurrencyBudget: {
++      maxInFlightNodes: params.concurrencyBudget?.maxInFlightNodes ?? 3,
++      maxProcesses: params.concurrencyBudget?.maxProcesses ?? 8,
++    },
++  });
++  if (!binding) throw new Error("Invalid server-owned recipe operation binding.");
++  return binding;
++}
++
++export function checkRecipeOperationBinding(
++  binding: RecipeOperationBinding,
++  expected: RecipeBindingExpectation = {},
++): RecipeBindingCheck {
++  const parsed = parseRecipeOperationBinding(binding);
++  if (!parsed) return { allowed: false, reason: "invalid_binding", detail: "Recipe operation binding is invalid." };
++  if (expected.projectId !== undefined && parsed.projectId !== expected.projectId) {
++    return { allowed: false, reason: "project_mismatch", detail: "Recipe operation belongs to a different project." };
++  }
++  if (expected.operationId !== undefined && parsed.operationId !== expected.operationId) {
++    return { allowed: false, reason: "operation_mismatch", detail: "Recipe operation identity does not match the durable execution." };
++  }
++  if (expected.sourceRevision !== undefined && parsed.sourceRevision !== expected.sourceRevision) {
++    return { allowed: false, reason: "revision_mismatch", detail: "Recipe source revision is stale." };
++  }
++  if (expected.candidateIdentity !== undefined && parsed.candidateIdentity !== expected.candidateIdentity) {
++    return { allowed: false, reason: "candidate_mismatch", detail: "Recipe candidate identity does not match the durable execution." };
++  }
++  if (expected.candidateWorkspace !== undefined && parsed.candidateWorkspace !== expected.candidateWorkspace) {
++    return { allowed: false, reason: "workspace_mismatch", detail: "Recipe candidate workspace does not match the durable execution." };
++  }
++  if (expected.phase !== undefined && parsed.phase !== expected.phase) {
++    return { allowed: false, reason: "phase_mismatch", detail: "Recipe operation is not in the required phase." };
++  }
++  if (expected.leaseOwner !== undefined && parsed.leaseOwner !== expected.leaseOwner) {
++    return { allowed: false, reason: "lease_owner_mismatch", detail: "Recipe worker does not own the operation lease." };
++  }
++  if (expected.approvedPaths !== undefined) {
++    const approved = new Set(parsed.approvedPaths);
++    const outside = expected.approvedPaths.map(normalizedRecipePath).find((item) => !approved.has(item));
++    if (outside) return { allowed: false, reason: "scope_mismatch", detail: "Recipe action is outside the approved path scope." };
++  }
++  if (expected.requireLease && (!parsed.leaseOwner || !parsed.leaseUntil
++    || Date.parse(parsed.leaseUntil) <= (expected.now ?? new Date()).getTime())) {
++    return { allowed: false, reason: "lease_expired", detail: "Recipe operation lease is missing or expired." };
++  }
++  if (parsed.missionBudget.maxParallelNodes > parsed.concurrencyBudget.maxInFlightNodes
++    || parsed.missionBudget.maxProcessCount > parsed.concurrencyBudget.maxProcesses) {
++    return { allowed: false, reason: "budget_exceeded", detail: "Recipe mission budget exceeds its concurrency budget." };
++  }
++  return { allowed: true, reason: "allowed", detail: "Recipe operation binding is authorized." };
++}
++
++export function assertRecipeOperationBinding(binding: RecipeOperationBinding, expected: RecipeBindingExpectation = {}): void {
++  const result = checkRecipeOperationBinding(binding, expected);
++  if (!result.allowed) throw new Error(`Recipe operation binding rejected: ${result.reason}`);
++}
++
++export function assertRecipeNodeBinding(
++  binding: RecipeOperationBinding,
++  node: Pick<ExecutionNode, "allowedFiles" | "validationProfile" | "executionContext">,
++  expected: RecipeBindingExpectation = {},
++): void {
++  assertRecipeOperationBinding(binding, expected);

@@ -1,0 +1,500 @@
+lib/ai-orchestrator/src/openai-compatible-client.ts:147:          groupMsgs.push(messages[j]);
+lib/ai-orchestrator/src/openai-compatible-client.ts:154:      groups.push({ kind: "tool_group", messages: groupMsgs });
+lib/ai-orchestrator/src/openai-compatible-client.ts:157:      groups.push({ kind: "single", message: m });
+lib/ai-orchestrator/src/openai-compatible-client.ts:193:      sanitized.push(message);
+lib/ai-orchestrator/src/openai-compatible-client.ts:200:      sanitized.push(message);
+lib/ai-orchestrator/src/openai-compatible-client.ts:205:    sanitized.push(message);
+lib/ai-orchestrator/src/openai-compatible-client.ts:351:  terminal: boolean;
+lib/ai-orchestrator/src/openai-compatible-client.ts:365:      return { action: "wait", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:369:      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:376:        terminal: false,
+lib/ai-orchestrator/src/openai-compatible-client.ts:380:      return { action: "narrow-request", terminal: true, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:385:      return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
+lib/ai-orchestrator/src/openai-compatible-client.ts:981:            for (const safeText of streamGuard.push(delta)) yield safeText;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1000:          for (const safeText of streamGuard.push(delta)) yield safeText;
+lib/ai-orchestrator/src/openai-compatible-client.ts:1224:    attemptedModels.push(model);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1332:    attemptedModels.push(model);
+lib/ai-orchestrator/src/openai-compatible-client.ts:1345:        // answer. The caller must terminalize the partial stream instead.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1347:          const terminalError = providerError ?? new GroqClientError(
+lib/ai-orchestrator/src/openai-compatible-client.ts:1352:          throw new GroqClientError(terminalError.code, terminalError.message, {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1353:            cause: terminalError,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1355:              ...terminalError.toProviderContext(),
+lib/ai-orchestrator/src/openai-compatible-client.ts:1356:              providerModel: terminalError.providerModel ?? model,
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:105:    if (dynamicIds.has(m.id)) live.push(m);
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:106:    else stale.push(m);
+artifacts/api-server/src/lib/ai-route-helpers.ts:92:      skipped.push({ provider, reason: "no_api_key" });
+artifacts/api-server/src/lib/ai-route-helpers.ts:101:      skipped.push({ provider, reason });
+artifacts/api-server/src/lib/ai-route-helpers.ts:110:      skipped.push({ provider, reason: "circuit_open" });
+artifacts/api-server/src/lib/ai-route-helpers.ts:113:    available.push({ provider, apiKey: key });
+artifacts/api-server/src/lib/ai-route-helpers.ts:382:     * AI-OBJ-005: a validated Objective Completion contract from the request.
+artifacts/api-server/src/lib/ai-route-helpers.ts:391:    /** Enabled only after the route validates an approved implementation plan. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:393:    /** Server-owned validation callback; never derived from model arguments. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:394:    validationRunner?: ValidationRunner;
+artifacts/api-server/src/lib/ai-route-helpers.ts:395:    browserValidationRunner?: import("@workspace/ai-orchestrator").BrowserValidationRunner;
+artifacts/api-server/src/lib/ai-route-helpers.ts:396:    browserValidationContext?: { operationId?: string; revision?: string };
+artifacts/api-server/src/lib/ai-route-helpers.ts:406:    validationTargetPaths?: string[];
+artifacts/api-server/src/lib/ai-route-helpers.ts:410:     * True only for a route-validated approved implementation-plan Build
+artifacts/api-server/src/lib/ai-route-helpers.ts:476:        validationRunner: baseParams.validationRunner,
+artifacts/api-server/src/lib/ai-route-helpers.ts:477:        browserValidationRunner: baseParams.browserValidationRunner,
+artifacts/api-server/src/lib/ai-route-helpers.ts:478:        browserValidationContext: baseParams.browserValidationContext,
+artifacts/api-server/src/lib/ai-route-helpers.ts:486:        validationTargetPaths: baseParams.validationTargetPaths,
+artifacts/api-server/src/lib/ai-route-helpers.ts:502:        providerErrors.push({ provider: providerEntry.provider, code: err.code, message: err.message });
+artifacts/api-server/src/lib/ai-route-helpers.ts:659:    outcomeClass: "terminal-incomplete" as const,
+artifacts/api-server/src/lib/ai-route-helpers.ts:660:    terminalStatus: "INCOMPLETE" as const,
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:36: * Used by the resolver to decide whether to apply the filter.
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:202: * PR-006 / PR-002 helper: validate static FREE_MODELS against the dynamic
+lib/ai-orchestrator/src/groq-client.ts:275:export async function validateGroqDefaultModels(
+lib/ai-orchestrator/src/groq-client.ts:711:        for (const safeText of streamGuard.push(delta)) yield safeText;
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:45:    fingerprints.push(openFingerprint, resolvedFingerprint);
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:69:    fingerprints.push(...fingerprintsForTest);
+artifacts/api-server/src/lib/workflow-phase-execution.ts:32: * response timeout consequently observes the same terminal operation.
+artifacts/api-server/src/lib/workflow-phase-execution.ts:34:export async function executeWorkflowPhase(params: {
+artifacts/api-server/src/lib/workflow-phase-execution.ts:57:    validationTargetPaths: [],
+artifacts/api-server/src/lib/workflow-phase-execution.ts:97:    validationAttempts: 0,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:99:    validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:160:      validationAttempts: 1,
+lib/ai-orchestrator/src/tool-execution-engine.ts:7: *   executeSingleTool(opts)  — dispatches one tool call by name (file-tools or
+lib/ai-orchestrator/src/tool-execution-engine.ts:9: *   executeToolLoop(opts)    — runs the loop until a non-tool response or the
+lib/ai-orchestrator/src/tool-execution-engine.ts:42:import { FILE_TOOL_DEFINITIONS, executeFileTool } from "./tools/file-tools.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:43:import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:46:  executeCommandTool,
+lib/ai-orchestrator/src/tool-execution-engine.ts:47:  executeBrowserValidationTool,
+lib/ai-orchestrator/src/tool-execution-engine.ts:48:  executeValidationTool,
+lib/ai-orchestrator/src/tool-execution-engine.ts:56:  executeAnalysisTool,
+lib/ai-orchestrator/src/tool-execution-engine.ts:64:import type { ValidationResult } from "./validation-result.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:113:      artifactRef: `validation-attempt:${evidenceId}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:293:    : name === "run_command" || name === "run_validation" || ANALYSIS_TOOL_NAMES.has(name)
+lib/ai-orchestrator/src/tool-execution-engine.ts:333:    matches.push({ path, line });
+lib/ai-orchestrator/src/tool-execution-engine.ts:424:  /** Server-owned validation runner, enabled only for an approved Build handoff. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:425:  validationRunner?: ValidationRunner;
+lib/ai-orchestrator/src/tool-execution-engine.ts:426:  /** Server-owned browser contract runner; model selects a profile only. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:427:  browserValidationRunner?: BrowserValidationRunner;
+lib/ai-orchestrator/src/tool-execution-engine.ts:428:  browserValidationContext?: { operationId?: string; revision?: string };
+lib/ai-orchestrator/src/tool-execution-engine.ts:437:  validationTargetPaths?: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:440:  /** Server-owned approval and scope manifest; never inferred from model text. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:441:  approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+lib/ai-orchestrator/src/tool-execution-engine.ts:620:   * (never read, and no usable prefetch). Such a terminal is classified
+lib/ai-orchestrator/src/tool-execution-engine.ts:672: *   - Names in GIT_TOOL_NAMES   → executeGitTool
+lib/ai-orchestrator/src/tool-execution-engine.ts:673: *   - Names in FILE_TOOL_NAMES  → executeFileTool
+lib/ai-orchestrator/src/tool-execution-engine.ts:680:export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToolResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts:711:      approvalState: opts.approvalState,
+lib/ai-orchestrator/src/tool-execution-engine.ts:741:      ? await executeGitTool(name, effectiveArgs, rootPath)
+lib/ai-orchestrator/src/tool-execution-engine.ts:743:        ? await executeFileTool(name, effectiveArgs, rootPath, pendingChanges)
+lib/ai-orchestrator/src/tool-execution-engine.ts:744:        : name === "run_validation"
+lib/ai-orchestrator/src/tool-execution-engine.ts:745:        ? await executeValidationTool(
+lib/ai-orchestrator/src/tool-execution-engine.ts:748:            opts.validationTargetPaths ?? [],
+lib/ai-orchestrator/src/tool-execution-engine.ts:749:            opts.validationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:754:          ? await executeCommandTool(
+lib/ai-orchestrator/src/tool-execution-engine.ts:764:          ? executeAnalysisTool(
+lib/ai-orchestrator/src/tool-execution-engine.ts:770:            // provider retry/resume; the analysis tool validates it before
+lib/ai-orchestrator/src/tool-execution-engine.ts:794:          : executeBrowserValidationTool(
+lib/ai-orchestrator/src/tool-execution-engine.ts:798:              opts.browserValidationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:800:              opts.browserValidationContext,
+lib/ai-orchestrator/src/tool-execution-engine.ts:896:      result.push(m);
+lib/ai-orchestrator/src/tool-execution-engine.ts:903:      result.push(m);
+lib/ai-orchestrator/src/tool-execution-engine.ts:908:      result.push(m);
+lib/ai-orchestrator/src/tool-execution-engine.ts:938: * collectForensicEvidence() can still validate Findings against the complete
+lib/ai-orchestrator/src/tool-execution-engine.ts:979:export type AgentLoopPhase = "planning" | "evidence" | "reasoning" | "recovery" | "terminal";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1012:  terminalReason?:
+lib/ai-orchestrator/src/tool-execution-engine.ts:1017:    | "validation_incomplete"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1055:   * Whether a zero-read terminal is an evidence failure. Ordinary chat,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1079:   * OpenAI-compatible clients ignore this while tools are present and apply it
+lib/ai-orchestrator/src/tool-execution-engine.ts:1092:   * Absolute path to the project root.  Required for executeSingleTool but
+lib/ai-orchestrator/src/tool-execution-engine.ts:1141:   * no tools are executed and the provider is asked to finish from gathered
+lib/ai-orchestrator/src/tool-execution-engine.ts:1161:  /** Enables the server-owned validation tool for an approved Build handoff. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1164:  /** Server-owned callback used by run_validation. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1165:  validationRunner?: ValidationRunner;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1166:  browserValidationRunner?: BrowserValidationRunner;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1167:  browserValidationContext?: { operationId?: string; revision?: string };
+lib/ai-orchestrator/src/tool-execution-engine.ts:1175:  validationTargetPaths?: string[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1177:   * Maximum number of fresh validation executions in one Build handoff.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1198:  /** Server-owned approval/scope manifest, never inferred from repository text. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1199:  approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1210:   * instead of being executed.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1350:      reason: "claim_unclosed" | "evidence_incomplete" | "no_progress" | "validation_incomplete";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1419:  // normal terminal - and, within the recovery allocation, the loop forces a
+lib/ai-orchestrator/src/tool-execution-engine.ts:1424:  // it is required; an unproven dependency read is blocked, not executed.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1438: * Discriminated union of observable events emitted during executeToolLoop.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1445:      stage: "understand" | "scope" | "plan" | "execute" | "validate";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1452:      approvalRequired?: boolean;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1453:      approvalReason?: string;
+lib/ai-orchestrator/src/tool-execution-engine.ts:1490:      kind: "validation";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1554:  | { kind: "forensic_terminal"; terminalKind: ForensicTerminalKind }
+lib/ai-orchestrator/src/tool-execution-engine.ts:1555:  | { kind: "verification"; trace: VerificationTrace }
+lib/ai-orchestrator/src/tool-execution-engine.ts:1634:         | "validation_incomplete"
+lib/ai-orchestrator/src/tool-execution-engine.ts:1659: *        d. Execute via executeSingleTool, cache result, record source.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1667:export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResult> {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1691:    validationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1692:    browserValidationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1693:    browserValidationContext,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1697:    validationTargetPaths = [],
+lib/ai-orchestrator/src/tool-execution-engine.ts:1701:    approvalState,
+lib/ai-orchestrator/src/tool-execution-engine.ts:1780:  // dependency-proof gate validates from_file/reference against, populated from
+lib/ai-orchestrator/src/tool-execution-engine.ts:1809:  const validationAttempts = new Map<string, number>();
+lib/ai-orchestrator/src/tool-execution-engine.ts:1811:  const validationAttemptPatches = new Map<string, RepairPatchSnapshot>();
+lib/ai-orchestrator/src/tool-execution-engine.ts:1837:      sourceRetrieval.scopeExpansions.push(expansion);
+lib/ai-orchestrator/src/tool-execution-engine.ts:1866:          sourceRetrieval.readPaths.push(path);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2079:   * the same provider. User/validation errors (NON_200, AUTH_ERROR) are not
+lib/ai-orchestrator/src/tool-execution-engine.ts:2091:  const terminalInvalidToolCall = (error: GroqClientError, iter: number): ToolLoopResult => {
+lib/ai-orchestrator/src/tool-execution-engine.ts:2094:    // or expose the provider's raw diagnostic. A single terminal step keeps
+lib/ai-orchestrator/src/tool-execution-engine.ts:2132:    } catch { /* observers must not change terminal semantics */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2273:   * tools. That response cannot be executed in the synthesis window and often
+lib/ai-orchestrator/src/tool-execution-engine.ts:2428:  // ── Zero-read terminal classification (FEG-010) ────────────────────────────
+lib/ai-orchestrator/src/tool-execution-engine.ts:2430:  // weigh — that is NOT a normal terminal, it is INCOMPLETE_BEFORE_EVIDENCE.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2431:  // We flag it (telemetry + diagnostic) at every terminal return so a caller
+lib/ai-orchestrator/src/tool-execution-engine.ts:2436:  // `elapsedIterations` is the loop's actual terminal iteration count (the same
+lib/ai-orchestrator/src/tool-execution-engine.ts:2466:    terminalReason?: AgentLoopState["terminalReason"],
+lib/ai-orchestrator/src/tool-execution-engine.ts:2500:      ...(terminalReason ? { terminalReason } : {}),
+lib/ai-orchestrator/src/tool-execution-engine.ts:2511:    reason: "claim_unclosed" | "evidence_incomplete" | "no_progress" | "validation_incomplete",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2514:    loopPhase = "terminal";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2535:    } catch { /* observers must not change terminal semantics */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2547:    loopPhase = "terminal";
+lib/ai-orchestrator/src/tool-execution-engine.ts:2605:    } catch { /* observers must not change the terminal result */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts:2697:      messages.push({ role: "user", content: synthesisHint });
+lib/ai-orchestrator/src/tool-execution-engine.ts:2745:    // Keep the complete messages in memory for provenance/evidence validation,
+lib/ai-orchestrator/src/tool-execution-engine.ts:2786:        return terminalInvalidToolCall(err, iter);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2789:      // not on user/validation errors like NON_200 or AUTH_ERROR.
+lib/ai-orchestrator/src/tool-execution-engine.ts:2843:            return terminalInvalidToolCall(fallbackErr, iter);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3290:    // must be terminal. Preserve any usable text. When there is no text,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3295:      const terminalResult: RawGroqResponse = { ...result, toolCalls: null };
+lib/ai-orchestrator/src/tool-execution-engine.ts:3306:        return incompleteResult(incompleteReason, terminalResult);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3323:          result: terminalResult,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3368:    messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3376:    // replayed evidence is detected, do not execute the remainder of that
+lib/ai-orchestrator/src/tool-execution-engine.ts:3389:      const isValidationCall = tc.function.name === "run_validation";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3390:      const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:3391:      const validationAttempt = isValidationCall
+lib/ai-orchestrator/src/tool-execution-engine.ts:3392:        ? (validationAttempts.get(validationProfile ?? "") ?? 0) + 1
+lib/ai-orchestrator/src/tool-execution-engine.ts:3395:        validationAttempts.set(validationProfile ?? "", validationAttempt!);
+lib/ai-orchestrator/src/tool-execution-engine.ts:3397:      const validationFingerprint = isValidationCall
+lib/ai-orchestrator/src/tool-execution-engine.ts:3401:      // the same profile must execute again against the new workspace state.
+lib/ai-orchestrator/src/tool-execution-engine.ts:3403:        ? `${toolCacheKey(tc.function.name, args)}::attempt:${validationAttempt}`
+lib/ai-orchestrator/src/tool-execution-engine.ts:3408:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3419:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3423:            "Forensic collection stopped. This batched tool call was not executed after cached evidence was detected. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3429:      if (isValidationCall && validationAttempt! > boundedMaxValidationAttempts) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3433:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3434:          attempt: validationAttempt,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3438:            `Validation attempt limit reached for "${validationProfile || "the selected profile"}". ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3439:            "Stop repairing and return BLOCKED; no further validation will run in this handoff.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3441:        messages.push({ role: "tool", tool_call_id: tc.id, content: blockedOutput });
+lib/ai-orchestrator/src/tool-execution-engine.ts:3444:            kind: "validation",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3446:              validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3450:            attempt: validationAttempt!,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3453:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3469:        && validationAttempt! > 1
+lib/ai-orchestrator/src/tool-execution-engine.ts:3470:        && validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts:3471:        && failedValidationFingerprints.get(validationProfile ?? "") === validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts:3475:          "Make a bounded patch change or return BLOCKED; repeated validation without progress is incomplete.";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3480:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3481:          attempt: validationAttempt,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3486:        messages.push({ role: "tool", tool_call_id: tc.id, content: blockedOutput });
+lib/ai-orchestrator/src/tool-execution-engine.ts:3489:            kind: "validation",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3490:            result: syntheticValidationResult(validationProfile ?? "", detail),
+lib/ai-orchestrator/src/tool-execution-engine.ts:3492:            attempt: validationAttempt!,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3495:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3512:      // Build-mode validation is server-authorized execution evidence, not a
+lib/ai-orchestrator/src/tool-execution-engine.ts:3521:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3537:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3557:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3604:          messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3622:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3643:          messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3661:            messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3671:          messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3692:      // to the model, never silently executed or ignored, so a planner cannot
+lib/ai-orchestrator/src/tool-execution-engine.ts:3756:          messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3778:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3797:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3813:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:3852:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4094:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4101:              ? `[cached — identical call already executed this request]\n${cached}\n\n` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:4104:              : `[cached — identical call already executed this request]\n${cached}` +
+lib/ai-orchestrator/src/tool-execution-engine.ts:4125:          messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4144:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4154:      // Guard 3: Registry check + dispatch via executeSingleTool.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4181:            detail: validationProfile
+lib/ai-orchestrator/src/tool-execution-engine.ts:4182:              ? `Running registered validation profile "${validationProfile}".`
+lib/ai-orchestrator/src/tool-execution-engine.ts:4183:              : "Running registered validation.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4189:        const previousPatch = validationAttemptPatches.get(validationProfile ?? "");
+lib/ai-orchestrator/src/tool-execution-engine.ts:4190:        if (validationAttempt! > 1 && previousPatch) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4194:              `attempt ${validationAttempt!} vs ${validationAttempt! - 1}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4199:        // Save only the patch that is actually about to be validated. A
+lib/ai-orchestrator/src/tool-execution-engine.ts:4202:        validationAttemptPatches.set(validationProfile ?? "", currentPatch);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4204:      const toolResult = await executeSingleTool({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4211:        validationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4212:        browserValidationRunner,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4213:        browserValidationContext,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4217:        validationTargetPaths,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4218:        approvalState,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4239:        messages.push({ role: "tool", tool_call_id: tc.id, content: "The requested tool is not available. The operation did not complete." });
+lib/ai-orchestrator/src/tool-execution-engine.ts:4249:        messages.push({
+lib/ai-orchestrator/src/tool-execution-engine.ts:4283:        let validation: ValidationResult | undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts:4294:            validation = parsed as ValidationResult;
+lib/ai-orchestrator/src/tool-execution-engine.ts:4297:        if (!validation) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4299:          validation = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4300:            profile: validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4312:              artifactRef: `validation-attempt:${evidenceId}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4318:          validation.status === "passed"
+lib/ai-orchestrator/src/tool-execution-engine.ts:4320:            : validation.status === "failed" && validationAttempt! < boundedMaxValidationAttempts
+lib/ai-orchestrator/src/tool-execution-engine.ts:4325:            kind: "validation",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4326:            result: validation,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4328:            attempt: validationAttempt!,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4330:            status: validation.status,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4331:            profile: validation.profile,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4332:            scenario: validation.scenario,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4333:            command: validation.command,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4334:            exitCode: validation.exitCode,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4335:            failedTests: validation.failedTests.map((failure) => failure.name || failure.message),
+lib/ai-orchestrator/src/tool-execution-engine.ts:4336:            affectedFiles: validation.changedFiles,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4337:            failedTestDetails: validation.failedTests,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4338:            changedFiles: validation.changedFiles,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4339:            detail: validation.detail,
+lib/ai-orchestrator/src/tool-execution-engine.ts:4352:          if (executionMode === "repair_plan" && validationFingerprint) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4353:            failedValidationFingerprints.set(validationProfile ?? "", validationFingerprint);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4355:          // A validation failure is new, actionable execution evidence. Do not
+lib/ai-orchestrator/src/tool-execution-engine.ts:4361:        } else if (executionMode === "repair_plan" && validation.status === "passed") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4362:          failedValidationFingerprints.delete(validationProfile ?? "");
+lib/ai-orchestrator/src/tool-execution-engine.ts:4437:        toolSources.push(toolResult.source);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4455:      messages.push({
+lib/ai-orchestrator/src/provider-strategy.ts:50:  /** Full authorized execution manifest used to validate stale per-iteration calls. */
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:108:    // this override environment-only so ordinary provider-free validation and
+artifacts/api-server/src/routes/ai/index.ts:6: *   chat       — chat, stream, sessions, messages, apply-changes
+lib/ai-orchestrator/src/forensic-recovery.ts:4:  applyForensicEvidenceGate,
+lib/ai-orchestrator/src/forensic-recovery.ts:5:  applyForensicOutputContract,
+lib/ai-orchestrator/src/forensic-recovery.ts:48:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/forensic-recovery.ts:61:    validationChecklist: z.array(z.string().min(1).max(600)).max(12),
+lib/ai-orchestrator/src/forensic-recovery.ts:77: * candidate; callers must validate it against the complete global evidence.
+lib/ai-orchestrator/src/forensic-recovery.ts:85:  const validationChecklist: string[] = [];
+lib/ai-orchestrator/src/forensic-recovery.ts:92:      // not leave partial data in the shared output arrays.  Only commit
+lib/ai-orchestrator/src/forensic-recovery.ts:101:        localFindings.push({ ...finding, id: mergedId });
+lib/ai-orchestrator/src/forensic-recovery.ts:108:          localPlan.push({ ...phase, findingId: mergedFindingId });
+lib/ai-orchestrator/src/forensic-recovery.ts:113:      for (const item of envelope.validationChecklist) {
+lib/ai-orchestrator/src/forensic-recovery.ts:114:        localChecklist.push(item);
+lib/ai-orchestrator/src/forensic-recovery.ts:119:      // All accesses succeeded — commit atomically.
+lib/ai-orchestrator/src/forensic-recovery.ts:121:      findings.push(...localFindings);
+lib/ai-orchestrator/src/forensic-recovery.ts:122:      repairPlan.push(...localPlan);
+lib/ai-orchestrator/src/forensic-recovery.ts:124:        if (!validationChecklist.includes(item)) validationChecklist.push(item);
+lib/ai-orchestrator/src/forensic-recovery.ts:126:      if (localBasis) noFindingBases.push(localBasis);
+lib/ai-orchestrator/src/forensic-recovery.ts:130:      // and committed only at the end, the shared state remains consistent
+lib/ai-orchestrator/src/forensic-recovery.ts:145:    validationChecklist,
+lib/ai-orchestrator/src/forensic-recovery.ts:239:      validationChecklist: [
+lib/ai-orchestrator/src/forensic-recovery.ts:253:  validationChecklist: [],
+lib/ai-orchestrator/src/forensic-recovery.ts:273: * Return the validation profile that is registered for a known source scope.
+lib/ai-orchestrator/src/forensic-recovery.ts:279:function validationProfileForFiles(
+lib/ai-orchestrator/src/forensic-recovery.ts:302:  /\b(?:test|tests|testing|regression|assert|verify|verified|validate|validation|behavior|behaviour|reproduc|security|endpoint|route|api|query|graph|orchestrator|chat|input|output|request|response|failure|error|eval)\b/i;
+lib/ai-orchestrator/src/forensic-recovery.ts:304:function validationChecklistViolations(
+lib/ai-orchestrator/src/forensic-recovery.ts:309:    return ["FINDING_PROVEN requires a non-empty behavior-specific validation checklist"];
+lib/ai-orchestrator/src/forensic-recovery.ts:323:    /^(?:run|execute|perform|check|verify|validate|test)\s+(?:the\s+)?(?:focused|relevant|appropriate|requested)?\s*(?:test|tests|validation|scenario|suite)\.?$/i.test(
+lib/ai-orchestrator/src/forensic-recovery.ts:340:  return [...new Set(plans.map((plan) => plan.validationProfile))]
+lib/ai-orchestrator/src/forensic-recovery.ts:350: * Files and validation profiles are derived from accepted Findings and the
+lib/ai-orchestrator/src/forensic-recovery.ts:366:      violations.push(`Repair phase ${phase.findingId} is duplicated; each Finding requires one linked phase`);
+lib/ai-orchestrator/src/forensic-recovery.ts:373:      violations.push(`Repair phase references unknown finding ${phase.findingId}`);
+lib/ai-orchestrator/src/forensic-recovery.ts:380:      violations.push(`Repair phase ${phase.findingId} has no concrete source files`);
+lib/ai-orchestrator/src/forensic-recovery.ts:391:      violations.push(`Repair phase ${phase.findingId} must use project-relative files`);
+lib/ai-orchestrator/src/forensic-recovery.ts:395:      violations.push(`Repair phase ${phase.findingId} names a file outside its Finding`);
+lib/ai-orchestrator/src/forensic-recovery.ts:402:      violations.push(`Repair phase ${phase.findingId} names a file outside the forensic scope`);
+lib/ai-orchestrator/src/forensic-recovery.ts:406:      violations.push(`Repair phase ${phase.findingId} names a file without a completed read`);
+lib/ai-orchestrator/src/forensic-recovery.ts:410:      violations.push(`Repair phase ${phase.findingId} contains no concrete source change`);
+lib/ai-orchestrator/src/forensic-recovery.ts:414:    const profile = validationProfileForFiles(phaseFiles);
+lib/ai-orchestrator/src/forensic-recovery.ts:416:      violations.push(`Repair phase ${phase.findingId} has no registered validation profile`);
+lib/ai-orchestrator/src/forensic-recovery.ts:419:    if (phase.validationProfile && profile && phase.validationProfile !== profile) {
+lib/ai-orchestrator/src/forensic-recovery.ts:420:      violations.push(`Repair phase ${phase.findingId} uses a mismatched validation profile`);
+lib/ai-orchestrator/src/forensic-recovery.ts:424:    plans.push({
+lib/ai-orchestrator/src/forensic-recovery.ts:428:      validationProfile: profile,
+lib/ai-orchestrator/src/forensic-recovery.ts:465:    : "No executable validation scenario is authorized for this audit scope.";
+lib/ai-orchestrator/src/forensic-recovery.ts:468:    : "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.";
+lib/ai-orchestrator/src/forensic-recovery.ts:523:            : "* Repair linkage: NOT PROVEN — no phase is accepted without a linked validated Finding.",
+lib/ai-orchestrator/src/forensic-recovery.ts:538:          : "APPLIED — files were written, but registered behavioral validation is still pending."
+lib/ai-orchestrator/src/forensic-recovery.ts:541:          : "PROPOSED — files are not applied and registered behavioral validation is still pending.";
+lib/ai-orchestrator/src/forensic-recovery.ts:546:        const profile = validationProfileForFiles(files);
+lib/ai-orchestrator/src/forensic-recovery.ts:567:            : "Blocked by — analysis cancellation before synthesis and validation completed.",
+lib/ai-orchestrator/src/forensic-recovery.ts:573:  const validationText = findings.length === 0
+lib/ai-orchestrator/src/forensic-recovery.ts:576:        ...envelope.validationChecklist.map((item) => `- ${oneLine(item)}`),
+lib/ai-orchestrator/src/forensic-recovery.ts:578:    : envelope.validationChecklist.length > 0
+lib/ai-orchestrator/src/forensic-recovery.ts:579:      ? envelope.validationChecklist.map((item) => `- ${oneLine(item)}`).join("\n")
+lib/ai-orchestrator/src/forensic-recovery.ts:583:        : "- FAIL — no validated scenario was supplied for the proposed repair phases."
+lib/ai-orchestrator/src/forensic-recovery.ts:587:  const checklistViolations = validationChecklistViolations(
+lib/ai-orchestrator/src/forensic-recovery.ts:588:    envelope.validationChecklist,
+lib/ai-orchestrator/src/forensic-recovery.ts:615:          : "FINDING PROVEN — the Finding, complete linked Repair Plan, and behavior-specific validation checklist passed the deterministic gates."
+lib/ai-orchestrator/src/forensic-recovery.ts:618:          : "NOT PROVEN — the candidate Finding lacks a complete linked Repair Plan and behavior-specific validation checklist; no repair is executable."
+lib/ai-orchestrator/src/forensic-recovery.ts:636:    validationText,
+lib/ai-orchestrator/src/forensic-recovery.ts:646:          : "NOT PROVEN — every accepted Finding requires a linked Repair Plan with concrete files, an actionable change, a registered validation profile, and a behavior-specific checklist. No Repair Plan is executable."
+lib/ai-orchestrator/src/forensic-recovery.ts:663:export function validateStructuredForensicRecovery(
+lib/ai-orchestrator/src/forensic-recovery.ts:704:      const contract = applyForensicOutputContract(report);
+lib/ai-orchestrator/src/forensic-recovery.ts:713:      const evidenceGate = applyForensicEvidenceGate(
+lib/ai-orchestrator/src/forensic-recovery.ts:737:      if (envelope.validationChecklist.length === 0) {
+lib/ai-orchestrator/src/forensic-recovery.ts:743:            "Fixture-local FINDING_PROVEN requires a validation checklist even though repair is blocked",
+lib/ai-orchestrator/src/forensic-recovery.ts:747:      const contract = applyForensicOutputContract(report);
+lib/ai-orchestrator/src/forensic-recovery.ts:758:      const evidenceGate = applyForensicEvidenceGate(contract.response, evidence);
+lib/ai-orchestrator/src/forensic-recovery.ts:769:      repairViolations.push("FINDING_PROVEN requires at least one linked Repair Plan phase");
+lib/ai-orchestrator/src/forensic-recovery.ts:775:        repairViolations.push(`Finding ${finding.id} has no linked Repair Plan phase`);
+lib/ai-orchestrator/src/forensic-recovery.ts:779:    repairViolations.push(
+lib/ai-orchestrator/src/forensic-recovery.ts:780:      ...validationChecklistViolations(
+lib/ai-orchestrator/src/forensic-recovery.ts:781:        envelope.validationChecklist,
+lib/ai-orchestrator/src/forensic-recovery.ts:786:      repairViolations.push(
+lib/ai-orchestrator/src/forensic-recovery.ts:827:  const contract = applyForensicOutputContract(report);
+lib/ai-orchestrator/src/forensic-recovery.ts:839:  const evidenceGate = applyForensicEvidenceGate(contract.response, evidence);
+lib/ai-orchestrator/src/forensic-output-guard.ts:136:  /\b(?:test|tests|testing|regression|assert|verify|verified|validate|validation|behavior|behaviour|reproduc|security|endpoint|route|api|query|graph|orchestrator|chat|input|output|request|response|failure|error|eval)\b/i;
+lib/ai-orchestrator/src/forensic-output-guard.ts:190:    reasons.push("JSON text cannot contain a circular object reference for JSON.parse to detect");
+lib/ai-orchestrator/src/forensic-output-guard.ts:197:    reasons.push("the Finding confuses slice construction with the separate admission/budget pass");
+lib/ai-orchestrator/src/forensic-output-guard.ts:204:    reasons.push("a bounded attempt <= maxRetries loop with an attempt < maxRetries continuation guard is not infinite");
+lib/ai-orchestrator/src/forensic-output-guard.ts:211:    reasons.push("an exported error type does not prove that internal error handling is absent");
+lib/ai-orchestrator/src/forensic-output-guard.ts:221:    reasons.push("a missing schema/context read is a verification gap, not a proven implementation defect");
+lib/ai-orchestrator/src/forensic-output-guard.ts:231:    reasons.push("the performance or memory impact is asserted without a completed measurement or reproducible result");
+lib/ai-orchestrator/src/forensic-output-guard.ts:240:    reasons.push("a package-manager catalog alias does not prove a missing version without the root catalog or lockfile");
+lib/ai-orchestrator/src/forensic-output-guard.ts:262:    reasons.push("the implementation caps maxDepth at 6 and bounds traversal by the capped depth");
+lib/ai-orchestrator/src/forensic-output-guard.ts:269:    reasons.push("a barrel export does not establish the presence or absence of API authentication or rate limiting");
+lib/ai-orchestrator/src/forensic-output-guard.ts:277:    reasons.push("the cited entityCount implementation is absent from the inspected source");
+lib/ai-orchestrator/src/forensic-output-guard.ts:285:    reasons.push("the fallback path emits structured console telemetry and is not silent in the inspected source");
+lib/ai-orchestrator/src/forensic-output-guard.ts:296:    if (path) paths.push(path);
+lib/ai-orchestrator/src/forensic-output-guard.ts:302:    if (path) paths.push(path);
+lib/ai-orchestrator/src/forensic-output-guard.ts:314:      /^\[cached — identical call already executed this request\]\s*\n?/u,
+lib/ai-orchestrator/src/forensic-output-guard.ts:318:      /^\[cached — identical call already executed this request\]\s*\n?/u,
+lib/ai-orchestrator/src/forensic-output-guard.ts:642:          violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:650:          violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:661:        violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:691:        violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:701:        violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:711:        violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:723:    violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:730:    violations.push("Evidence Map does not cite a concrete inspected source file");
+lib/ai-orchestrator/src/forensic-output-guard.ts:742:      violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:758:      violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:847:        violations.push(`Finding is missing required field: ${required.slice(0, -1)}`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:873:  const validationBody = sectionBody(
+lib/ai-orchestrator/src/forensic-output-guard.ts:896:      violations.push("Repair Plan phase must use `Phase N (F-XX):` and link to a Finding");
+lib/ai-orchestrator/src/forensic-output-guard.ts:902:      violations.push(`Repair Plan phase references unknown finding ${phaseMatch[1]}`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:905:      violations.push(`Repair Plan phase ${findingId} contains no actionable source change`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:911:      violations.push(`Repair Plan phase ${findingId} must name concrete project-relative files`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:915:      violations.push(`Repair Plan phase ${findingId} must use project-relative files`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:922:      violations.push(`Repair Plan phase ${findingId} must name a registered validation profile`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:928:      violations.push(`Finding ${findingId} has no linked Repair Plan phase`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:933:    !validationBody ||
+lib/ai-orchestrator/src/forensic-output-guard.ts:934:    /^(?:No validation|BLOCKED|FAIL\b|No behavioral)/i.test(validationBody)
+lib/ai-orchestrator/src/forensic-output-guard.ts:936:    violations.push("Every accepted Finding requires a behavior-specific validation checklist");
+lib/ai-orchestrator/src/forensic-output-guard.ts:937:  } else if (!BEHAVIORAL_VALIDATION_SIGNAL.test(validationBody)) {
+lib/ai-orchestrator/src/forensic-output-guard.ts:938:    violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:942:    const checklistItems = validationBody
+lib/ai-orchestrator/src/forensic-output-guard.ts:949:        /^(?:run|execute|perform|check|verify|validate|test)\s+(?:the\s+)?(?:focused|relevant|appropriate|requested)?\s*(?:test|tests|validation|scenario|suite)\.?$/i.test(
+lib/ai-orchestrator/src/forensic-output-guard.ts:954:      violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1130:  const [verdictBody, directEvidence, findingBody, repairBody, validationBody] = bodies;
+lib/ai-orchestrator/src/forensic-output-guard.ts:1190:    ? `Phase 1 (F-01): ${oneLine(repairBody)} — File(s): \`${file}\` — Validation profile: ${registeredProfile} — PROPOSED: files are not applied and behavioral validation is pending.`
+lib/ai-orchestrator/src/forensic-output-guard.ts:1192:  const validationText = findingAccepted && validationBody &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:1193:      !/no\s+validation|not\s+available/i.test(validationBody)
+lib/ai-orchestrator/src/forensic-output-guard.ts:1194:    ? `- ${oneLine(validationBody)}`
+lib/ai-orchestrator/src/forensic-output-guard.ts:1195:    : "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.";
+lib/ai-orchestrator/src/forensic-output-guard.ts:1211:    validationText,
+lib/ai-orchestrator/src/forensic-output-guard.ts:1221: * Repair only harmless Markdown heading variants before applying the forensic
+lib/ai-orchestrator/src/forensic-output-guard.ts:1314:    if (count === 0) violations.push(`missing required section: ${header}`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1315:    if (count > 1) violations.push(`duplicate required section: ${header}`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1317:  violations.push(...sectionOrderViolations(response));
+lib/ai-orchestrator/src/forensic-output-guard.ts:1320:    if (pattern.test(response)) violations.push(reason);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1326:    violations.push("Final Judgment contains an unresolved repair-scope choice");
+lib/ai-orchestrator/src/forensic-output-guard.ts:1328:  violations.push(...executiveVerdictContractViolations(response));
+lib/ai-orchestrator/src/forensic-output-guard.ts:1329:  violations.push(...broadReportClaimViolations(response));
+lib/ai-orchestrator/src/forensic-output-guard.ts:1330:  violations.push(...findingsContractViolations(response));
+lib/ai-orchestrator/src/forensic-output-guard.ts:1331:  violations.push(...repairPlanContractViolations(response));
+lib/ai-orchestrator/src/forensic-output-guard.ts:1333:    violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1337:  violations.push(...evidenceMapContractViolations(response, evidence));
+lib/ai-orchestrator/src/forensic-output-guard.ts:1338:  violations.push(...compoundReportContractViolations(response, evidence));
+lib/ai-orchestrator/src/forensic-output-guard.ts:1385:      violations.push(`compound part missing: ${part.id}`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1392:        violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1400:        violations.push(`compound part ${part.id} contains a supported claim without a citation`);
+lib/ai-orchestrator/src/forensic-output-guard.ts:1404:          violations.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1414:export function validateCompoundReport(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1436:    reason.includes("Every accepted Finding requires a behavior-specific validation checklist") ||
+lib/ai-orchestrator/src/forensic-output-guard.ts:1501:        "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.",
+lib/ai-orchestrator/src/forensic-output-guard.ts:1541:  const validation = hasCompletedEvidence
+lib/ai-orchestrator/src/forensic-output-guard.ts:1572:    validation,
+lib/ai-orchestrator/src/forensic-output-guard.ts:1615: * Enforce the report-level contract before evidence validation. A response
+lib/ai-orchestrator/src/forensic-output-guard.ts:1619:export function applyForensicOutputContract(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1702:export function applyForensicEvidenceGate(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1728:      reasons.push("the cited source is a test or fixture file excluded from production Findings");
+lib/ai-orchestrator/src/forensic-output-guard.ts:1731:    if (filePaths.length === 0) reasons.push("no concrete source path was cited");
+lib/ai-orchestrator/src/forensic-output-guard.ts:1733:      reasons.push("the cited file/evidence was not verified by a completed read result");
+lib/ai-orchestrator/src/forensic-output-guard.ts:1740:      reasons.push(
+lib/ai-orchestrator/src/forensic-output-guard.ts:1745:    reasons.push(...sourceConflictsWithFinding(block, evidenceText, sourceContents));
+lib/ai-orchestrator/src/forensic-output-guard.ts:1749:    violations.push({ findingId: id, reasons });
+artifacts/api-server/src/lib/task-state.ts:13:  | "verification"
+artifacts/api-server/src/lib/task-state.ts:21:  verification: new Set(["running->completed", "running->failed", "running->verifying", "verifying->completed"]),
+artifacts/api-server/src/routes/ai/providers.ts:23:  validateProviderKey,
+artifacts/api-server/src/routes/ai/providers.ts:29:  validateGroqDefaultModels,
+artifacts/api-server/src/routes/ai/providers.ts:81:    const validation = await validateGroqDefaultModels(apiKey, checkedModels);
+artifacts/api-server/src/routes/ai/providers.ts:83:      status: validation.valid ? "available" : "unavailable",
+artifacts/api-server/src/routes/ai/providers.ts:85:      checkedModels: validation.checkedModels,
+artifacts/api-server/src/routes/ai/providers.ts:86:      unavailableRoles: validation.missing,
+artifacts/api-server/src/routes/ai/providers.ts:88:      ...(validation.reason ? { reason: validation.reason } : {}),
+artifacts/api-server/src/routes/ai/providers.ts:164:/** Shared PUT handler — validate and persist the API key. */
+artifacts/api-server/src/routes/ai/providers.ts:176:  const validation = await validateProviderKey(provider, trimmed);
+artifacts/api-server/src/routes/ai/providers.ts:177:  if (!validation.valid) {
+artifacts/api-server/src/routes/ai/providers.ts:181:      detail: validation.reason,
+lib/ai-orchestrator/src/execution-ledger.ts:49:  kind: ExecutionAttemptKind | "terminal";
+lib/ai-orchestrator/src/execution-ledger.ts:70:  terminalReason?: ExecutionTerminalReason;
+lib/ai-orchestrator/src/execution-ledger.ts:161:  let terminalReason: ExecutionTerminalReason | undefined;
+lib/ai-orchestrator/src/execution-ledger.ts:164:    if (value && !list.includes(value) && list.length < 16) list.push(value);
+lib/ai-orchestrator/src/execution-ledger.ts:167:    if (terminalReason) return terminalReason;
+lib/ai-orchestrator/src/execution-ledger.ts:194:        const terminal = reason ?? rejectReason(kind);
+lib/ai-orchestrator/src/execution-ledger.ts:195:        events.push({
+lib/ai-orchestrator/src/execution-ledger.ts:200:          reason: terminal,
+lib/ai-orchestrator/src/execution-ledger.ts:202:        if (!terminalReason) terminalReason = terminal;
+lib/ai-orchestrator/src/execution-ledger.ts:209:      events.push({ kind, status: "started", at: now, ...details });
+lib/ai-orchestrator/src/execution-ledger.ts:217:      events.push({
+lib/ai-orchestrator/src/execution-ledger.ts:239:      if (!terminalReason) terminalReason = reason;
+lib/ai-orchestrator/src/execution-ledger.ts:240:      events.push({ kind: "terminal", status: "completed", at: Date.now(), reason });
+lib/ai-orchestrator/src/execution-ledger.ts:258:        ...(terminalReason || currentReason()
+lib/ai-orchestrator/src/execution-ledger.ts:259:          ? { terminalReason: terminalReason ?? currentReason() }
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:98:    packetFiles.push(file);
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:36:          : "Fixture-local: dynamic evaluation executes source text at runtime"
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:39:          : "Dynamic evaluation executes source text at runtime",
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:46:            : "This fixture directly demonstrates that eval executes its argument as program text at runtime. Production reachability is NOT PROVEN by this fixture-local audit."
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:49:            : "eval executes its argument as program text at runtime, so an expression that reaches this call is not constrained to a data-only value.",
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:68:    validationChecklist: fixtureLocal
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:75:            : "Do not modify this fixture; validate any production repair against the real implementation scope.",
+lib/ai-orchestrator/src/filesystem-manifest.ts:84: * Builds a bounded, read-only inventory of a validated project root.
+lib/ai-orchestrator/src/filesystem-manifest.ts:87: * execute project commands. Symlinks are skipped so the inventory cannot
+lib/ai-orchestrator/src/filesystem-manifest.ts:122:          directories.push(relativePath);
+lib/ai-orchestrator/src/filesystem-manifest.ts:132:        files.push(relativePath);
+lib/ai-orchestrator/src/filesystem-manifest.ts:233:      files.push({ path: relativePath, content: excerpt, truncated: fileTruncated });
+artifacts/api-server/src/lib/task-execution-service.ts:12:  executeTask,
+artifacts/api-server/src/lib/task-execution-service.ts:13:  invalidateContextCache,
+artifacts/api-server/src/lib/task-execution-service.ts:40:  const checks = plan.verificationChecks?.length
+artifacts/api-server/src/lib/task-execution-service.ts:41:    ? plan.verificationChecks
+artifacts/api-server/src/lib/task-execution-service.ts:42:    : buildRuleVerificationChecks(plan.verificationSteps ?? []);
+artifacts/api-server/src/lib/task-execution-service.ts:45:    name: `Rule verification ${check.id.replace("rule-verification-", "#")}`,
+artifacts/api-server/src/lib/task-execution-service.ts:82:  terminalStatus: "SUCCEEDED" | "BLOCKED" | "FAILED" | "CANCELLED";
+artifacts/api-server/src/lib/task-execution-service.ts:83:  terminalReason: string;
+artifacts/api-server/src/lib/task-execution-service.ts:104:    terminalReason: safeText(receiptValue.terminalReason, 240),
+artifacts/api-server/src/lib/task-execution-service.ts:122:  result: Awaited<ReturnType<typeof executeTask>>;
+artifacts/api-server/src/lib/task-execution-service.ts:135:    terminalStatus: params.result.needsHumanReview ? "BLOCKED" : "SUCCEEDED",
+artifacts/api-server/src/lib/task-execution-service.ts:136:    terminalReason: params.result.needsHumanReview ? "human_review_required" : "structured_result_verified",
+artifacts/api-server/src/lib/task-execution-service.ts:167:    terminalStatus: cancelled ? "CANCELLED" : "FAILED",
+artifacts/api-server/src/lib/task-execution-service.ts:168:    terminalReason: safeText(params.code, 120),
+artifacts/api-server/src/lib/task-execution-service.ts:178:export async function executeTaskLifecycle(params: {
+artifacts/api-server/src/lib/task-execution-service.ts:201:    validationTargetPaths: Array.isArray(before.relatedFiles) ? before.relatedFiles : [],
+artifacts/api-server/src/lib/task-execution-service.ts:295:    stages.push("context");
+artifacts/api-server/src/lib/task-execution-service.ts:305:    stages.push("provider_call");
+artifacts/api-server/src/lib/task-execution-service.ts:306:    const { result, effectiveProvider } = await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
+artifacts/api-server/src/lib/task-execution-service.ts:309:      (opts) => executeTask({
+artifacts/api-server/src/lib/task-execution-service.ts:322:    if (effectiveProvider !== params.provider.provider) stages.push("provider_fallback");
+artifacts/api-server/src/lib/task-execution-service.ts:329:      stages.push("parse");
+artifacts/api-server/src/lib/task-execution-service.ts:372:    // tasks remain in verification until the explicit verification path passes.
+artifacts/api-server/src/lib/task-execution-service.ts:378:    stages.push("finalize");
+artifacts/api-server/src/lib/task-execution-service.ts:406:        verificationResult: {
+artifacts/api-server/src/lib/task-execution-service.ts:407:          passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
+artifacts/api-server/src/lib/task-execution-service.ts:410:            : taskReceipt.terminalStatus === "SUCCEEDED"
+artifacts/api-server/src/lib/task-execution-service.ts:417:              passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
+artifacts/api-server/src/lib/task-execution-service.ts:440:        message: `AI executed "${before.title}" → ${finalStatus}`,
+artifacts/api-server/src/lib/task-execution-service.ts:451:          terminalStatus: taskReceipt.terminalStatus,
+artifacts/api-server/src/lib/task-execution-service.ts:452:          terminalReason: taskReceipt.terminalReason,
+artifacts/api-server/src/lib/task-execution-service.ts:457:        entityType: "task", entityId: before.id, action: "ai_executed",
+artifacts/api-server/src/lib/task-execution-service.ts:461:          revision: taskReceipt.revision, terminalStatus: taskReceipt.terminalStatus,
+artifacts/api-server/src/lib/task-execution-service.ts:462:          terminalReason: taskReceipt.terminalReason,
+artifacts/api-server/src/lib/task-execution-service.ts:487:    invalidateContextCache(before.projectId);
+artifacts/api-server/src/lib/task-execution-service.ts:523:        terminalStatus: failure.terminalStatus,
+artifacts/api-server/src/lib/task-execution-service.ts:524:        terminalReason: failure.terminalReason,
+artifacts/api-server/src/lib/task-execution-service.ts:537:        terminalStatus: failure.terminalStatus,
+artifacts/api-server/src/lib/task-execution-service.ts:538:        terminalReason: failure.terminalReason,
+artifacts/api-server/src/lib/task-execution-service.ts:541:    invalidateContextCache(before.projectId);
+artifacts/api-server/src/routes/ai/workflows.ts:18:  invalidateContextCache,

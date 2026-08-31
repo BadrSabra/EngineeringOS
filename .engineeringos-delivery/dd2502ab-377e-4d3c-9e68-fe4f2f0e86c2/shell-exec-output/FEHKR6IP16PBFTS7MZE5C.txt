@@ -1,0 +1,108 @@
+artifacts/api-server/src/lib/recipe-operation-runner.ts:22:  createRecipeOperationBinding,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:27:  type RecipeOperationBinding,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:32:export type PrepareRecipeOperationParams = {
+artifacts/api-server/src/lib/recipe-operation-runner.ts:45:export type PreparedRecipeOperation = {
+artifacts/api-server/src/lib/recipe-operation-runner.ts:47:  binding: RecipeOperationBinding;
+artifacts/api-server/src/lib/recipe-operation-runner.ts:77:export function prepareRecipeOperation(params: PrepareRecipeOperationParams): PreparedRecipeOperation {
+artifacts/api-server/src/lib/recipe-operation-runner.ts:114:  const binding = createRecipeOperationBinding({
+artifacts/api-server/src/lib/recipe-operation-runner.ts:141:export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
+artifacts/api-server/src/lib/recipe-operation-runner.ts:152:    const evidenceType = node.capabilityId?.startsWith("browser.verify.")
+artifacts/api-server/src/lib/recipe-operation-runner.ts:192:export async function runRecipeOperation(params: RunRecipeOperationParams): Promise<{
+artifacts/api-server/src/lib/recipe-operation-runner.ts:197:  const prepared = prepareRecipeOperation(params);
+artifacts/api-server/src/lib/recipe-operation-runner.ts:215:    recipeBinding: prepared.binding,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:222:    recipeBinding: prepared.binding,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:335:          recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/recipe-operation-runner.ts:354:        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/recipe-operation-runner.ts:370:        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/recipe-operation-runner.ts:383:        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/recipe-operation-runner.ts:393:      recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/ai-execution-state.ts:69:export type RecipeOperationPhase = (typeof RECIPE_OPERATION_PHASES)[number];
+artifacts/api-server/src/lib/ai-execution-state.ts:71:export type RecipeOperationBudget = {
+artifacts/api-server/src/lib/ai-execution-state.ts:79:export type RecipeOperationBinding = {
+artifacts/api-server/src/lib/ai-execution-state.ts:86:  phase: RecipeOperationPhase;
+artifacts/api-server/src/lib/ai-execution-state.ts:89:  missionBudget: RecipeOperationBudget;
+artifacts/api-server/src/lib/ai-execution-state.ts:103:  phase?: RecipeOperationPhase;
+artifacts/api-server/src/lib/ai-execution-state.ts:133:function validRecipeBudget(value: unknown): value is RecipeOperationBudget {
+artifacts/api-server/src/lib/ai-execution-state.ts:135:  const budget = value as Partial<RecipeOperationBudget>;
+artifacts/api-server/src/lib/ai-execution-state.ts:143:function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | undefined {
+artifacts/api-server/src/lib/ai-execution-state.ts:145:  const candidate = value as Partial<RecipeOperationBinding> & {
+artifacts/api-server/src/lib/ai-execution-state.ts:146:    concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
+artifacts/api-server/src/lib/ai-execution-state.ts:160:    || !RECIPE_OPERATION_PHASES.includes(candidate.phase as RecipeOperationPhase)
+artifacts/api-server/src/lib/ai-execution-state.ts:180:    phase: candidate.phase as RecipeOperationPhase,
+artifacts/api-server/src/lib/ai-execution-state.ts:191:export function createRecipeOperationBinding(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:198:  phase?: RecipeOperationPhase;
+artifacts/api-server/src/lib/ai-execution-state.ts:201:  missionBudget?: Partial<RecipeOperationBudget>;
+artifacts/api-server/src/lib/ai-execution-state.ts:202:  concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
+artifacts/api-server/src/lib/ai-execution-state.ts:203:}): RecipeOperationBinding {
+artifacts/api-server/src/lib/ai-execution-state.ts:204:  const binding = parseRecipeOperationBinding({
+artifacts/api-server/src/lib/ai-execution-state.ts:230:export function checkRecipeOperationBinding(
+artifacts/api-server/src/lib/ai-execution-state.ts:231:  binding: RecipeOperationBinding,
+artifacts/api-server/src/lib/ai-execution-state.ts:234:  const parsed = parseRecipeOperationBinding(binding);
+artifacts/api-server/src/lib/ai-execution-state.ts:273:export function assertRecipeOperationBinding(binding: RecipeOperationBinding, expected: RecipeBindingExpectation = {}): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:274:  const result = checkRecipeOperationBinding(binding, expected);
+artifacts/api-server/src/lib/ai-execution-state.ts:279:  binding: RecipeOperationBinding,
+artifacts/api-server/src/lib/ai-execution-state.ts:283:  assertRecipeOperationBinding(binding, expected);
+artifacts/api-server/src/lib/ai-execution-state.ts:320:  binding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:515:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:550:  binding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:696:    const recipeBinding = value.recipeBinding === undefined
+artifacts/api-server/src/lib/ai-execution-state.ts:698:      : parseRecipeOperationBinding(value.recipeBinding);
+artifacts/api-server/src/lib/ai-execution-state.ts:699:    if (value.recipeBinding !== undefined && !recipeBinding) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:700:    if (recipeBinding && operation?.binding
+artifacts/api-server/src/lib/ai-execution-state.ts:701:      && JSON.stringify(recipeBinding) !== JSON.stringify(operation.binding)) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:731:      ...(recipeBinding ? { recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:802:  const binding = candidate.binding === undefined ? undefined : parseRecipeOperationBinding(candidate.binding);
+artifacts/api-server/src/lib/ai-execution-state.ts:949:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:951:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:952:    assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:987:    ...(params.recipeBinding ? { binding: params.recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1008:        ...(params.recipeBinding ? { recipeBinding: params.recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1063:  binding: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1081:  const storedBinding = checkpoint?.recipeBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1096:    assertRecipeOperationBinding(params.binding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1166:  const previousBinding = previous?.recipeBinding ?? operation?.binding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1186:    ...(terminalBinding ? { recipeBinding: terminalBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1288:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1291:  const existing = params.recipeBinding
+artifacts/api-server/src/lib/ai-execution-state.ts:1294:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1296:    const storedBinding = parseAiExecutionCheckpoint(existing.checkpoint)?.recipeBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1297:    if (!storedBinding || JSON.stringify(storedBinding) !== JSON.stringify(params.recipeBinding)) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1299:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1310:  const claimCheckpoint = existing && params.recipeBinding ? parseAiExecutionCheckpoint(existing.checkpoint) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1311:  const claimedBinding = params.recipeBinding
+artifacts/api-server/src/lib/ai-execution-state.ts:1312:    ? { ...params.recipeBinding, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
+artifacts/api-server/src/lib/ai-execution-state.ts:1328:          recipeBinding: claimedBinding,
+artifacts/api-server/src/lib/ai-execution-state.ts:1339:      ...(params.recipeBinding ? [
+artifacts/api-server/src/lib/ai-execution-state.ts:1340:        eq(aiExecutionsTable.projectId, params.recipeBinding.projectId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1341:        eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1354:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1363:  const checkpointBinding = params.checkpoint.recipeBinding ?? durableOperation?.binding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1364:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1367:      assertRecipeOperationBinding(checkpointBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1368:        projectId: params.recipeBinding.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1369:        operationId: params.recipeBinding.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1370:        sourceRevision: params.recipeBinding.sourceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts:1371:        candidateIdentity: params.recipeBinding.candidateIdentity,
+artifacts/api-server/src/lib/ai-execution-state.ts:1372:        candidateWorkspace: params.recipeBinding.candidateWorkspace,
+artifacts/api-server/src/lib/ai-execution-state.ts:1379:    if (JSON.stringify(checkpointBinding) !== JSON.stringify(params.recipeBinding)) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1382:    ? { ...params.checkpoint, operation: durableOperation, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) }
+artifacts/api-server/src/lib/ai-execution-state.ts:1383:    : { ...params.checkpoint, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) };
+artifacts/api-server/src/lib/ai-execution-state.ts:1436:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1455:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1458:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1468:    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1538:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1557:  if (params.recipeBinding && current) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1561:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1571:    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+artifacts/api-server/src/lib/ai-execution-state.test.ts:87:  createRecipeOperationBinding,
+artifacts/api-server/src/lib/ai-execution-state.test.ts:88:  checkRecipeOperationBinding,
+artifacts/api-server/src/lib/ai-execution-state.test.ts:164:    const binding = createRecipeOperationBinding({
+artifacts/api-server/src/lib/ai-execution-state.test.ts:175:    expect(checkRecipeOperationBinding(binding, { projectId: "project-2" }).reason).toBe("project_mismatch");
+artifacts/api-server/src/lib/ai-execution-state.test.ts:176:    expect(checkRecipeOperationBinding(binding, { sourceRevision: "revision-2" }).reason).toBe("revision_mismatch");
+artifacts/api-server/src/lib/ai-execution-state.test.ts:177:    expect(checkRecipeOperationBinding(binding, { approvedPaths: ["src/other.ts"] }).reason).toBe("scope_mismatch");
+artifacts/api-server/src/lib/ai-execution-state.test.ts:178:    expect(checkRecipeOperationBinding(binding, { phase: "queued" }).reason).toBe("phase_mismatch");
+artifacts/api-server/src/lib/ai-execution-state.test.ts:179:    expect(checkRecipeOperationBinding(binding, { leaseOwner: "worker-2" }).reason).toBe("lease_owner_mismatch");
+artifacts/api-server/src/lib/ai-execution-state.test.ts:180:    expect(checkRecipeOperationBinding(binding, {
+artifacts/api-server/src/lib/operation-evidence.ts:166:  const recipeBinding = record(checkpoint.recipeBinding);
+artifacts/api-server/src/lib/operation-evidence.ts:168:  if (Object.keys(recipeBinding).length > 0) {

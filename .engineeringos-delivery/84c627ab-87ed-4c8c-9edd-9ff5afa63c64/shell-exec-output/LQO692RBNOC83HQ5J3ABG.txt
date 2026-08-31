@@ -1,0 +1,336 @@
+  | "id"
+  | "title"
+  | "status"
+  | "allowedFiles"
+  | "dependencies"
+  | "validationProfile"
+  | "attempts"
+  | "validationAttempts"
+  | "lastFailure"
+> & {
+  evidenceRefs?: string[];
+};
+
+export type AiExecutionCheckpoint = {
+  stage:
+    | "queued"
+    | "running"
+    | "client_disconnected"
+    | "model_call"
+    | "tool_loop"
+    | "finalizing"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  sequence: number;
+  streamedPreview?: string;
+  recentSteps?: Array<Record<string, unknown>>;
+  nodeStates?: AiExecutionNodeCheckpoint[];
+  currentNode?: string;
+  completedNodes?: string[];
+  evidenceVerdict?: FlightDeckEvidenceVerdict;
+  evidenceReason?: string;
+  proofRequired?: boolean;
+  detail?: string;
+  operation?: AutonomousOperationContract;
+  recipeBinding?: RecipeOperationBinding;
+  updatedAt: string;
+};
+
+const AI_EXECUTION_CHECKPOINT_STAGES = new Set<AiExecutionCheckpoint["stage"]>([
+  "queued",
+  "running",
+  "client_disconnected",
+  "model_call",
+  "tool_loop",
+  "finalizing",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+export function hashResumeToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function createResumeToken(): string {
+  return randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "");
+}
+
+export function createAutonomousOperationContract(params: {
+  operationId: string;
+  objective: string;
+  revisionManifest?: string;
+  planHash?: string;
+  policyRevision?: string;
+  candidateIdentity?: string | null;
+  targetPaths?: string[];
+  expectedBehavior?: string;
+  acceptanceChecks?: AutonomousAcceptanceCheck[];
+  nodes?: AutonomousOperationNode[];
+  binding?: RecipeOperationBinding;
+}): AutonomousOperationContract {
+  const objective = params.objective.slice(0, 2_000);
+  if (params.binding && params.binding.operationId !== params.operationId) {
+    throw new Error("Recipe operation binding identity does not match the operation.");
+  }
+  return {
+    operationId: params.operationId,
+    objective,
+    revisionManifest: (params.revisionManifest ?? "unbound").slice(0, 2_000),
+    planHash: params.planHash ?? createHash("sha256").update(objective).digest("hex"),
+    policyRevision: params.policyRevision ?? "server-policy-v1",
+    candidateIdentity: params.candidateIdentity ?? null,
+    targetPaths: [...new Set((params.targetPaths ?? []).filter(Boolean))].slice(0, 48),
+    expectedBehavior: (params.expectedBehavior ?? objective).slice(0, 2_000),
+    acceptanceChecks: (params.acceptanceChecks ?? [
+      {
+        id: "validation-passed",
+        kind: "validation",
+        description: "Registered validation passes for the approved scope.",
+        required: true,
+      },
+      {
+        id: "evidence-bound",
+        kind: "evidence",
+        description: "Completion evidence is bound to this operation and revision.",
+        required: true,
+      },
+    ]).slice(0, 12),
+    state: "planned",
+    nodes: params.nodes ?? [],
+    retryBudget: 3,
+    repairAttempts: 0,
+    evidenceRefs: [],
+    ...(params.binding ? { binding: params.binding } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope | undefined {
+  try {
+    const value = JSON.parse(raw) as AiExecutionRequestEnvelope;
+    if (
+      !value ||
+      typeof value.projectId !== "string" ||
+      (value.operationId !== undefined && typeof value.operationId !== "string") ||
+      (value.sessionId !== undefined && typeof value.sessionId !== "string") ||
+      typeof value.message !== "string" ||
+      typeof value.modelMessage !== "string" ||
+      !Array.isArray(value.validationTargetPaths)
+    ) {
+      return undefined;
+    }
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint | undefined {
+  try {
+    const value = JSON.parse(raw) as Partial<AiExecutionCheckpoint>;
+    if (
+      !value ||
+      typeof value.stage !== "string" ||
+      !AI_EXECUTION_CHECKPOINT_STAGES.has(value.stage as AiExecutionCheckpoint["stage"]) ||
+      typeof value.sequence !== "number" ||
+      !Number.isFinite(value.sequence) ||
+      typeof value.updatedAt !== "string"
+    ) {
+      return undefined;
+    }
+    const nodeStates = Array.isArray(value.nodeStates)
+      ? value.nodeStates
+        .slice(0, AI_EXECUTION_NODE_LIMIT)
+        .flatMap((node) => {
+          if (!node || typeof node !== "object") return [];
+          const candidate = node as Partial<AiExecutionNodeCheckpoint>;
+          if (
+            typeof candidate.id !== "string" ||
+            typeof candidate.title !== "string" ||
+            !["queued", "running", "passed", "failed", "blocked"].includes(candidate.status ?? "") ||
+            !Array.isArray(candidate.allowedFiles) ||
+            !Array.isArray(candidate.dependencies) ||
+            typeof candidate.validationProfile !== "string" ||
+            typeof candidate.attempts !== "number" ||
+            !Number.isInteger(candidate.attempts) ||
+            candidate.attempts < 0 ||
+            candidate.attempts > 3 ||
+            (candidate.validationAttempts !== undefined && (
+              typeof candidate.validationAttempts !== "number"
+              || !Number.isInteger(candidate.validationAttempts)
+              || candidate.validationAttempts < 0
+              || candidate.validationAttempts > 3
+            ))
+            || (candidate.lastFailure !== undefined && (
+              !candidate.lastFailure
+              || typeof candidate.lastFailure !== "object"
+              || !["failed", "blocked"].includes((candidate.lastFailure as { status?: unknown }).status as string)
+              || typeof (candidate.lastFailure as { attempt?: unknown }).attempt !== "number"
+              || !Number.isInteger((candidate.lastFailure as { attempt: number }).attempt)
+              || (candidate.lastFailure as { attempt: number }).attempt < 1
+              || (candidate.lastFailure as { attempt: number }).attempt > 3
+              || typeof (candidate.lastFailure as { validationAttempts?: unknown }).validationAttempts !== "number"
+              || !Number.isInteger((candidate.lastFailure as { validationAttempts: number }).validationAttempts)
+              || (candidate.lastFailure as { validationAttempts: number }).validationAttempts < 0
+              || (candidate.lastFailure as { validationAttempts: number }).validationAttempts > 3
+              || typeof (candidate.lastFailure as { detail?: unknown }).detail !== "string"
+            ))
+          ) return [];
+          return [{
+            id: candidate.id.slice(0, 160),
+            title: candidate.title.slice(0, 240),
+            status: candidate.status as AiExecutionNodeCheckpoint["status"],
+            allowedFiles: candidate.allowedFiles
+              .filter((file): file is string => typeof file === "string")
+              .slice(0, AI_EXECUTION_NODE_FILES_LIMIT)
+              .map((file) => file.slice(0, 500)),
+            dependencies: candidate.dependencies
+              .filter((dependency): dependency is string => typeof dependency === "string")
+              .slice(0, 12)
+              .map((dependency) => dependency.slice(0, 160)),
+            validationProfile: candidate.validationProfile as AiExecutionNodeCheckpoint["validationProfile"],
+            attempts: candidate.attempts,
+            validationAttempts: candidate.validationAttempts ?? 0,
+            ...(Array.isArray(candidate.evidenceRefs) ? { evidenceRefs: candidate.evidenceRefs
+              .filter((ref): ref is string => typeof ref === "string")
+              .slice(0, 8)
+              .map((ref) => ref.slice(0, 500)) } : {}),
+            ...(candidate.lastFailure
+              ? {
+                  lastFailure: {
+                    status: (candidate.lastFailure as { status: "failed" | "blocked" }).status,
+                    attempt: (candidate.lastFailure as { attempt: number }).attempt,
+                    validationAttempts: (candidate.lastFailure as { validationAttempts: number }).validationAttempts,
+                    detail: (candidate.lastFailure as { detail: string }).detail.slice(0, 4_000),
+                  },
+                }
+              : {}),
+          }];
+        })
+      : undefined;
+    const operation = value.operation && typeof value.operation === "object"
+      ? parseAutonomousOperation(value.operation)
+      : undefined;
+    if (value.operation !== undefined && !operation) return undefined;
+    const recipeBinding = value.recipeBinding === undefined
+      ? operation?.binding
+      : parseRecipeOperationBinding(value.recipeBinding);
+    if (value.recipeBinding !== undefined && !recipeBinding) return undefined;
+    if (recipeBinding && operation?.binding
+      && JSON.stringify(recipeBinding) !== JSON.stringify(operation.binding)) return undefined;
+    return {
+      stage: value.stage as AiExecutionCheckpoint["stage"],
+      sequence: value.sequence,
+      ...(typeof value.streamedPreview === "string"
+        ? { streamedPreview: value.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) }
+        : {}),
+      ...(Array.isArray(value.recentSteps)
+        ? { recentSteps: value.recentSteps.slice(-AI_EXECUTION_TRACE_LIMIT) as Array<Record<string, unknown>> }
+        : {}),
+      ...(nodeStates && nodeStates.length > 0 ? { nodeStates } : {}),
+      ...(typeof value.currentNode === "string" ? { currentNode: value.currentNode.slice(0, 160) } : {}),
+      ...(Array.isArray(value.completedNodes)
+        ? {
+            completedNodes: value.completedNodes
+              .filter((nodeId): nodeId is string => typeof nodeId === "string")
+              .slice(0, AI_EXECUTION_NODE_LIMIT)
+              .map((nodeId) => nodeId.slice(0, 160)),
+          }
+        : {}),
+      ...(typeof value.evidenceVerdict === "string" &&
+        ["PROVEN", "PARTIAL", "UNAVAILABLE", "BLOCKED", "NOT_RECORDED"].includes(value.evidenceVerdict)
+        ? { evidenceVerdict: value.evidenceVerdict as FlightDeckEvidenceVerdict }
+        : {}),
+      ...(typeof value.evidenceReason === "string"
+        ? { evidenceReason: value.evidenceReason.slice(0, 500) }
+        : {}),
+      ...(typeof value.proofRequired === "boolean" ? { proofRequired: value.proofRequired } : {}),
+      ...(typeof value.detail === "string" ? { detail: value.detail.slice(0, 500) } : {}),
+      ...(operation ? { operation } : {}),
+      ...(recipeBinding ? { recipeBinding } : {}),
+      updatedAt: value.updatedAt,
+    };
+  } catch {
+    return undefined;
+import {
+  compileCapabilityRecipe,
+  createServerCapabilityRegistry,
+  executeExecutionNodePlan,
+  type ActiveTaskExecutionPlan,
+} from "@workspace/ai-orchestrator";
+import {
+  assertRecipeNodeBinding,
+  checkpointAiExecution,
+  claimAiExecution,
+  completeAiExecution,
+  createAiExecution,
+  createRecipeOperationBinding,
+  type RecipeOperationBinding,
+} from "./ai-execution-state.js";
+
+export type PrepareRecipeOperationParams = {
+  projectId: string;
+  operationId: string;
+  rootPath: string;
+  sourceRevision: string;
+  approvedPaths?: readonly string[];
+  candidateIdentity?: string | null;
+  candidateWorkspace?: string | null;
+  recipe: unknown;
+};
+
+export type PreparedRecipeOperation = {
+  plan: ActiveTaskExecutionPlan;
+  binding: RecipeOperationBinding;
+};
+
+/**
+ * Compile only after the server has established the project context. This is
+ * intentionally the sole entry point for recipe compilation in the API
+ * server; callers cannot supply a root, profile, timeout, or process budget.
+ */
+export function prepareRecipeOperation(params: PrepareRecipeOperationParams): PreparedRecipeOperation {
+  const approvedPaths = [...new Set((params.approvedPaths ?? []).map((path) => path.trim().replaceAll("\\", "/")))];
+  const registry = createServerCapabilityRegistry();
+  const compiled = compileCapabilityRecipe(params.recipe, {
+    registry,
+    context: {
+      projectId: params.projectId,
+      rootPath: params.rootPath,
+      revision: params.sourceRevision,
+      operation: "recipe",
+      scope: { kind: approvedPaths.length === 1 ? "file" : "paths", paths: approvedPaths },
+      allowedFiles: approvedPaths,
+      authorized: true,
+      approvalState: "APPROVED",
+      maxRisk: "low",
+      validationProfile: "workspace-typecheck",
+    },
+  });
+  if (!compiled.ok) {
+    throw new Error(compiled.diagnostics.map((diagnostic) => diagnostic.code).join(", "));
+  }
+  if (compiled.plan.nodes.length !== 1 || compiled.plan.nodes[0]?.capabilityId === undefined) {
+    throw new Error("Only one-node capability recipes are eligible for durable execution.");
+  }
+  const binding = createRecipeOperationBinding({
+    projectId: params.projectId,
+    operationId: params.operationId,
+    sourceRevision: params.sourceRevision,
+    approvedPaths,
+    candidateIdentity: params.candidateIdentity,
+    candidateWorkspace: params.candidateWorkspace,
+    missionBudget: {
+      maxNodes: compiled.plan.executionPolicy?.maxNodes ?? 1,
+      maxParallelNodes: 1,
+      maxTotalTimeoutMs: compiled.plan.executionPolicy?.maxTotalTimeoutMs ?? 900_000,
+      maxProcessCount: 1,
+      maxOutputBytes: 200_000,
+    },
+    concurrencyBudget: { maxInFlightNodes: 1, maxProcesses: 1 },
+  });
+  assertRecipeNodeBinding(binding, compiled.plan.nodes[0]!);
+  return { plan: compiled.plan, binding };
+}

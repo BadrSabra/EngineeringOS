@@ -1,0 +1,360 @@
+./artifacts/api-server/src/lib/db-rate-limiter.ts
+./artifacts/dashboard/test-results/.playwright-artifacts-0/traces/1d7119bd2f937e5509dd-1451c26929db74b89217.network
+./artifacts/dashboard/test-results/.playwright-artifacts-0/traces/1d7119bd2f937e5509dd-1451c26929db74b89217.trace
+./artifacts/dashboard/test-results/.playwright-artifacts-0/traces/1d7119bd2f937e5509dd-fbdbd7361df6c83ac370-recording1.network
+./artifacts/dashboard/test-results/.playwright-artifacts-0/traces/1d7119bd2f937e5509dd-fbdbd7361df6c83ac370-recording1.trace
+./artifacts/dashboard/test-results/.playwright-artifacts-0/traces/resources/23b7b85710f1620dc4bedbc8f5ad2cea5d14d5f0.html
+./artifacts/mockup-sandbox/components.json
+./artifacts/mockup-sandbox/index.html
+./artifacts/mockup-sandbox/mockupPreviewPlugin.ts
+./artifacts/mockup-sandbox/node_modules/.bin/vite
+./artifacts/mockup-sandbox/node_modules/.vite/deps/chunk-JH7YDYIP.js
+./artifacts/mockup-sandbox/node_modules/.vite/deps/chunk-JH7YDYIP.js.map
+./artifacts/mockup-sandbox/node_modules/.vite/deps/chunk-KIUX3UVM.js
+./artifacts/mockup-sandbox/node_modules/.vite/deps/chunk-KIUX3UVM.js.map
+./artifacts/mockup-sandbox/node_modules/.vite/deps/_metadata.json
+./artifacts/mockup-sandbox/node_modules/.vite/deps/package.json
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react-dom_client.js
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react-dom_client.js.map
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react-dom.js
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react-dom.js.map
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react.js
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react.js.map
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react_jsx-dev-runtime.js
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react_jsx-dev-runtime.js.map
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react_jsx-runtime.js
+./artifacts/mockup-sandbox/node_modules/.vite/deps/react_jsx-runtime.js.map
+./artifacts/mockup-sandbox/package.json
+./artifacts/mockup-sandbox/.replit-artifact/artifact.toml
+./artifacts/mockup-sandbox/src/App.tsx
+./artifacts/mockup-sandbox/src/components/ui/accordion.tsx
+./artifacts/mockup-sandbox/src/components/ui/alert-dialog.tsx
+./artifacts/mockup-sandbox/src/components/ui/alert.tsx
+./artifacts/mockup-sandbox/src/components/ui/aspect-ratio.tsx
+./artifacts/mockup-sandbox/src/components/ui/avatar.tsx
+./artifacts/mockup-sandbox/src/components/ui/badge.tsx
+./artifacts/mockup-sandbox/src/components/ui/breadcrumb.tsx
+./artifacts/mockup-sandbox/src/components/ui/button-group.tsx
+./artifacts/mockup-sandbox/src/components/ui/button.tsx
+./artifacts/mockup-sandbox/src/components/ui/calendar.tsx
+./artifacts/mockup-sandbox/src/components/ui/card.tsx
+./artifacts/mockup-sandbox/src/components/ui/carousel.tsx
+./artifacts/mockup-sandbox/src/components/ui/chart.tsx
+./artifacts/mockup-sandbox/src/components/ui/checkbox.tsx
+./artifacts/mockup-sandbox/src/components/ui/collapsible.tsx
+./artifacts/mockup-sandbox/src/components/ui/command.tsx
+./artifacts/mockup-sandbox/src/components/ui/context-menu.tsx
+./artifacts/mockup-sandbox/src/components/ui/dialog.tsx
+./artifacts/mockup-sandbox/src/components/ui/drawer.tsx
+./artifacts/mockup-sandbox/src/components/ui/dropdown-menu.tsx
+./artifacts/mockup-sandbox/src/components/ui/empty.tsx
+./artifacts/mockup-sandbox/src/components/ui/field.tsx
+./artifacts/mockup-sandbox/src/components/ui/form.tsx
+./artifacts/mockup-sandbox/src/components/ui/hover-card.tsx
+./artifacts/mockup-sandbox/src/components/ui/input-group.tsx
+./artifacts/mockup-sandbox/src/components/ui/input-otp.tsx
+./artifacts/mockup-sandbox/src/components/ui/input.tsx
+./artifacts/mockup-sandbox/src/components/ui/item.tsx
+./artifacts/mockup-sandbox/src/components/ui/kbd.tsx
+./artifacts/mockup-sandbox/src/components/ui/label.tsx
+./artifacts/mockup-sandbox/src/components/ui/menubar.tsx
+./artifacts/mockup-sandbox/src/components/ui/navigation-menu.tsx
+./artifacts/mockup-sandbox/src/components/ui/pagination.tsx
+./artifacts/mockup-sandbox/src/components/ui/popover.tsx
+./artifacts/mockup-sandbox/src/components/ui/progress.tsx
+./artifacts/mockup-sandbox/src/components/ui/radio-group.tsx
+./artifacts/mockup-sandbox/src/components/ui/resizable.tsx
+./artifacts/mockup-sandbox/src/components/ui/scroll-area.tsx
+./artifacts/mockup-sandbox/src/components/ui/select.tsx
+./artifacts/mockup-sandbox/src/components/ui/separator.tsx
+./artifacts/mockup-sandbox/src/components/ui/sheet.tsx
+./artifacts/mockup-sandbox/src/components/ui/sidebar.tsx
+./artifacts/mockup-sandbox/src/components/ui/skeleton.tsx
+./artifacts/mockup-sandbox/src/components/ui/slider.tsx
+./artifacts/mockup-sandbox/src/components/ui/sonner.tsx
+./artifacts/mockup-sandbox/src/components/ui/spinner.tsx
+./artifacts/mockup-sandbox/src/components/ui/switch.tsx
+./artifacts/mockup-sandbox/src/components/ui/table.tsx
+./artifacts/mockup-sandbox/src/components/ui/tabs.tsx
+./artifacts/mockup-sandbox/src/components/ui/textarea.tsx
+./artifacts/mockup-sandbox/src/components/ui/toaster.tsx
+./artifacts/mockup-sandbox/src/components/ui/toast.tsx
+./artifacts/mockup-sandbox/src/components/ui/toggle-group.tsx
+./artifacts/mockup-sandbox/src/components/ui/toggle.tsx
+./artifacts/mockup-sandbox/src/components/ui/tooltip.tsx
+./artifacts/mockup-sandbox/src/.generated/mockup-components.ts
+./artifacts/mockup-sandbox/src/hooks/use-mobile.tsx
+./artifacts/mockup-sandbox/src/hooks/use-toast.ts
+./artifacts/mockup-sandbox/src/index.css
+./artifacts/mockup-sandbox/src/lib/utils.ts
+./artifacts/mockup-sandbox/src/main.tsx
+./artifacts/mockup-sandbox/tsconfig.json
+./artifacts/mockup-sandbox/vite.config.ts
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/040a06335499fc11cec3dcfdb3eb5d8b5702f47f
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/049388584e46929d26c0c3211e3d2db1d831c0aa
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/052fe06dbc4b755d83014c8f423458229d7a21c1
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/05b3962a665a27fcbd9a8174d3db0e4686915a53
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/061cf30d997ee6003dadbddec5ace3f39202f46b
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/0751357b1fd44db308d3f9750f2d72e49526ac12
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/0938bc840ca9dbbaffae4aa65e26a336722d3854
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/0bdb4979dc5faa585040fef116f4a92252be6fed
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/0fa92020b74d3dbca4f4419906653aecece04a95
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/10bd374db4b9ccd9f8a4bce8228614801121843a
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/121cd68f4159db9550bb9730883ff987817aa9b6
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/14ddda972510302d64cc30ddb9ffd60a7622cdd0
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/15ca71b9bd724ecef9d637593db50cfcb2a0754a
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/1a0d9869ae2832c01bb4af90921dbd62b6957a28
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/1db3d7c3dfb03cb2ad04267f21f7ba7392b42994
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/231b0ee0b5248fefa860ccd0f88a5d66dbf446e5
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/241ad5d07c515c48af50b2f653e52edb6ee5a3ec
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/242dfe8bebf1f54c98059371a8b05fdb7e04d8a8
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/2c85d8debe4a0242dbc7ae81f24c80c7a6db3bd9
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/31fdfa304ac182db2a83a0957dc828a5827ca605
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/35ac55e2b6245b3b787b08d832ddbf63a5e18872
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/3809eae5d5709ff2404d88535c07b97bdb687042
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/3bdbaea9855e791bdf81bbe56605f52eeaa043e8
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/3e331229c300ebd2d5eb835b6adbd655d031e894
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/40c8b7f6560414021cef92ddb05a3864c726bdc3
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/461b49b9a2ab99dca02edbd39615a830a44bf78a
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/4766ed32ddb7de4ce993600a36efe403a5b65ec5
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/4eff3a33b3031a092257621ad50db672fd2788d6
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/50e81ccc600d7bf879c83176eb598fbdb874ef05
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/521b02e322a86ca951ee80b69c5f5addb736a98a
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/5370c9abd3c68b2e8bb0f670c86dbae68ae6d5dd
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/59ebfd6c2c3c313834e814af06a8f8f8dba38825
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/5b18686f45a7becea5499338a27870dbe0debd45
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/5c2d0c04db132c495fa7424c1e5aab16c4ba076e
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/5c84dc5e71e95bb1223db4db39977f0c3b0801a4
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/5cb40adbec16b37c30dd3fd60ad82bff9b7d84a6
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/5fdaadb1dc9a67c64c70af772f6745288401b016
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/62a031dae143a59ed19a146444db3615c81d2907
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/699adcf51db29d3a54aa4ca7a391e971e02dd2c9
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/6bf2a0dc4d1525b13515f7b646c5747dbfe63d6f
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/6e0d8ef2e7398d694d44869bddb62a36c7b7ff3d
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/7023b0a8c6574e5adb661e325c7ed42996b76775
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/729f3a33c399c95eb9c7b9ae754901fe98bdb14f
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/72a20ffb27db60c8ff8bdc2855a0351f5581e178
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/7477069cfce6d787c8eff72454cdbdeadd224c30
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/79cb1ebcab66eb4b33d4aadba67947e2463bc779
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/7fc33fe90c34334de44679b1cdbb0c8838d4a293
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/8039e222fb0a817a90db98ae6bfe103db6e6d1b2
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/82faae1cab2118d45b8fb4f08cedd1006d1db990
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/84ea9bc561f88c041740a565d50dbf8af52dcc03
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/86bf459889db84c2a703d2095ba3d7fa6803b0d5
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/88db1f05ed9be2984661726b2eb52270624fd4d7
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/8a1aa899dedfdb128fb11f786426dbaea3c1f371
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/8af362603278c476477811f3a411edb47f012626
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/8fcd74399dfbdf6f93a8065d9a0766db24f85052
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/9bdf21bff46e4c8b95db0dd7994b560f256a59bb
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/9cf1a3b0e576efce0b37423ddbe2dcb0f1bc2d2e
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/9dd64dbbbe99b67d0b33c827f186d94a91da0504
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/a189617d588638ecfb029473c0e6f3ecdb28a714
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/a3bf2f591e60f607dd117ec68fa3e6765bbdbe13
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/a6abe7fcff701309893e8597087c4730a7f3ecdb
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/ab54a43c870b2adba5389d95d6e878cc13a50d3b
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/ad97db5d32f46cc3afd0aba0a4766b08783fa79e
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/af6b83e86b952de0f997dbe096e1a69730256dc7
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/b25c9fbe9008c3194e9bacdda7e1dfa0c6dba9ed
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/b3ca6cc9975a7295bdbd0c82bb5e33a12968683d
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/b5b89e3f2a4aafc52d08ea22036afa9f78dbe690
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/bd4b61cca02161ee74fda88edb94b7a6bf12b649
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/bd547734db376eef231943123eb234ab656df94b
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/be75c29846dbdf0cc8c90a8e39ba263685c674ad
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/c4f5c3c9b81e12dbc690564ce9a94ccc241095da
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/d053cb68c77c95dbdfcfcf7fd9d45ea221ee0b3c
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/d4d3abb3da8db2daa83e20e915e00512213d3f4d
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/d7d6dfff234950733a8097c907bdbe1d88fd182d
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/dbfafc035da407da07e2b549e3927dbe9f8082f6
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/dc97fe8cec314201fdffdb295581de3a200836ea
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/dcad203c039683ecc696dbdab9aad4fd949c0e00
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/dd44d2b697ab6dbefae48dcdbaa42ed6ed081ac0
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/ddb9e49b236636ffea4a9ac0c69041f235259c4d
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/e7388449d19c9618cb00db92770640bc22421576
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/e9b11a7cdf2361b2659e26ec421fdb83e9db7601
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/f0a656234a337054899071065167d66cc05aedb6
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/f1a1776463bf836db1c902eabf1ff4ff60988996
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/fa5a91dbda6ffab6e975719d421aea7ab338d1f2
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/03ePD2z-6y8tX20gvGWCP/ssr/fb5386352c996211d8c3679cdddb6ae088146d89
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/ai-test-4dbc2af8-0edd-4356-aa57-954feb4e5c17/src/loop.ts
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/code-execution-output/1788123525640_edde3ddb.txt
+./.engineeringos-delivery/00c1e581-d8d6-4390-b674-2048d18a7233/.config/chromium/Crash Reports/pending/83f5e7ba-4d39-488d-bdac-f87dbbd73e15.dmp
+./artifacts/api-server/src/routes/ai.test.ts:24:  aiExecutionsTable,
+./artifacts/api-server/src/routes/ai.test.ts:30:  aiProviderCredentialsTable,
+./artifacts/api-server/src/routes/ai.test.ts:651:  await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+./artifacts/api-server/src/routes/ai.test.ts:708:    await db.delete(aiProviderCredentialsTable).where(eq(aiProviderCredentialsTable.ownerId, "test-user"));
+./artifacts/api-server/src/routes/ai.test.ts:741:      await db.delete(aiProviderCredentialsTable).where(eq(aiProviderCredentialsTable.ownerId, "test-user"));
+./artifacts/api-server/src/routes/ai.test.ts:1541:    await db.update(aiExecutionsTable).set({
+./artifacts/api-server/src/routes/ai.test.ts:1556:    }).where(eq(aiExecutionsTable.id, created.execution.id));
+./artifacts/api-server/src/routes/ai.test.ts:1605:      .update(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai.test.ts:1645:      .where(eq(aiExecutionsTable.id, created.execution.id));
+./artifacts/api-server/src/routes/ai.test.ts:1701:      .update(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai.test.ts:1703:      .where(eq(aiExecutionsTable.id, created.execution.id));
+./artifacts/api-server/src/routes/tasks.ts:7:  aiExecutionsTable,
+./artifacts/api-server/src/routes/tasks.ts:244:    const activeExecutions = await tx.select({ id: aiExecutionsTable.id })
+./artifacts/api-server/src/routes/tasks.ts:245:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/tasks.ts:247:        eq(aiExecutionsTable.linkedTaskId, taskId),
+./artifacts/api-server/src/routes/tasks.ts:248:        inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+./artifacts/api-server/src/routes/tasks.ts:845:  const activeExecutions = await db.select({ id: aiExecutionsTable.id })
+./artifacts/api-server/src/routes/tasks.ts:846:    .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/tasks.ts:848:      eq(aiExecutionsTable.linkedTaskId, taskId),
+./artifacts/api-server/src/routes/tasks.ts:849:      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+./artifacts/api-server/src/routes/projects.ts:10:  aiExecutionsTable,
+./artifacts/api-server/src/routes/projects.ts:273:    db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable).where(and(
+./artifacts/api-server/src/routes/projects.ts:274:      eq(aiExecutionsTable.projectId, projectId),
+./artifacts/api-server/src/routes/projects.ts:275:      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+./artifacts/api-server/src/routes/git.ts:23:  aiProviderCredentialsTable,
+./artifacts/api-server/src/routes/git.ts:88:  const rows = await db.select().from(aiProviderCredentialsTable).where(and(
+./artifacts/api-server/src/routes/git.ts:89:    eq(aiProviderCredentialsTable.ownerId, userId),
+./artifacts/api-server/src/routes/git.ts:90:    eq(aiProviderCredentialsTable.provider, "github"),
+./artifacts/api-server/src/routes/git.ts:125:    .select({ last4: aiProviderCredentialsTable.last4, updatedAt: aiProviderCredentialsTable.updatedAt })
+./artifacts/api-server/src/routes/git.ts:126:    .from(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/git.ts:129:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+./artifacts/api-server/src/routes/git.ts:130:        eq(aiProviderCredentialsTable.provider, "github"),
+./artifacts/api-server/src/routes/git.ts:148:    .insert(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/git.ts:159:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+./artifacts/api-server/src/routes/git.ts:169:    .delete(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/git.ts:172:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+./artifacts/api-server/src/routes/git.ts:173:        eq(aiProviderCredentialsTable.provider, "github"),
+./artifacts/api-server/src/routes/git.test.ts:16:  aiProviderCredentialsTable,
+./artifacts/api-server/src/routes/git.test.ts:140:    await db.delete(aiProviderCredentialsTable).where(eq(aiProviderCredentialsTable.id, credentialId)).catch(() => undefined);
+./artifacts/api-server/src/routes/git.test.ts:258:    await db.insert(aiProviderCredentialsTable).values({
+./artifacts/api-server/src/routes/git.test.ts:267:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+./artifacts/api-server/src/routes/git.test.ts:275:      .select({ id: aiProviderCredentialsTable.id })
+./artifacts/api-server/src/routes/git.test.ts:276:      .from(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/git.test.ts:278:        eq(aiProviderCredentialsTable.ownerId, "test-user"),
+./artifacts/api-server/src/routes/git.test.ts:279:        eq(aiProviderCredentialsTable.provider, "github"),
+./artifacts/api-server/src/routes/ai/providers.ts:17:import { aiProviderCredentialsTable } from "@workspace/db";
+./artifacts/api-server/src/routes/ai/providers.ts:110:      encryptedApiKey: aiProviderCredentialsTable.encryptedApiKey,
+./artifacts/api-server/src/routes/ai/providers.ts:111:      last4: aiProviderCredentialsTable.last4,
+./artifacts/api-server/src/routes/ai/providers.ts:112:      updatedAt: aiProviderCredentialsTable.updatedAt,
+./artifacts/api-server/src/routes/ai/providers.ts:114:    .from(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/ai/providers.ts:117:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+./artifacts/api-server/src/routes/ai/providers.ts:118:        eq(aiProviderCredentialsTable.provider, provider),
+./artifacts/api-server/src/routes/ai/providers.ts:196:    .insert(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/ai/providers.ts:207:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+./artifacts/api-server/src/routes/ai/providers.ts:219:    .delete(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/ai/providers.ts:222:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+./artifacts/api-server/src/routes/ai/providers.ts:223:        eq(aiProviderCredentialsTable.provider, provider),
+./artifacts/api-server/src/routes/ai/providers.ts:288:    .select({ provider: aiProviderCredentialsTable.provider })
+./artifacts/api-server/src/routes/ai/providers.ts:289:    .from(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/ai/providers.ts:290:    .where(eq(aiProviderCredentialsTable.ownerId, req.userId));
+./artifacts/api-server/src/routes/ai/chat.ts:20:  aiExecutionsTable,
+./artifacts/api-server/src/routes/ai/chat.ts:4389:          .update(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai/chat.ts:4391:          .where(eq(aiExecutionsTable.id, aiExecutionId));
+./artifacts/api-server/src/routes/ai/chat.ts:4680:    .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai/chat.ts:4682:      eq(aiExecutionsTable.projectId, project.id),
+./artifacts/api-server/src/routes/ai/chat.ts:4683:      eq(aiExecutionsTable.userId, req.userId),
+./artifacts/api-server/src/routes/ai/chat.ts:4684:      inArray(aiExecutionsTable.status, ["paused", "cancelled", "failed"]),
+./artifacts/api-server/src/routes/ai/chat.ts:4686:    .orderBy(desc(aiExecutionsTable.updatedAt))
+./artifacts/api-server/src/routes/ai/chat.ts:5216:        id: aiExecutionsTable.id,
+./artifacts/api-server/src/routes/ai/chat.ts:5217:        operationId: aiExecutionsTable.operationId,
+./artifacts/api-server/src/routes/ai/chat.ts:5218:        request: aiExecutionsTable.request,
+./artifacts/api-server/src/routes/ai/chat.ts:5219:        checkpoint: aiExecutionsTable.checkpoint,
+./artifacts/api-server/src/routes/ai/chat.ts:5220:        checkpointVersion: aiExecutionsTable.checkpointVersion,
+./artifacts/api-server/src/routes/ai/chat.ts:5221:        status: aiExecutionsTable.status,
+./artifacts/api-server/src/routes/ai/chat.ts:5223:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai/chat.ts:5225:        eq(aiExecutionsTable.id, target.executionId),
+./artifacts/api-server/src/routes/ai/chat.ts:5226:        eq(aiExecutionsTable.sessionId, sessionId),
+./artifacts/api-server/src/routes/ai/chat.ts:5227:        eq(aiExecutionsTable.projectId, session.projectId),
+./artifacts/api-server/src/routes/ai/chat.ts:5606:      id: aiExecutionsTable.id,
+./artifacts/api-server/src/routes/ai/chat.ts:5607:      operationId: aiExecutionsTable.operationId,
+./artifacts/api-server/src/routes/ai/chat.ts:5608:      buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+./artifacts/api-server/src/routes/ai/chat.ts:5610:    .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai/chat.ts:5612:      eq(aiExecutionsTable.proposalId, proposal.id),
+./artifacts/api-server/src/routes/ai/chat.ts:5613:      eq(aiExecutionsTable.projectId, session.projectId),
+./artifacts/api-server/src/routes/ai/chat.ts:5615:    .orderBy(desc(aiExecutionsTable.updatedAt))
+./artifacts/api-server/src/routes/ai/chat.ts:6478:        id: aiExecutionsTable.id,
+./artifacts/api-server/src/routes/ai/chat.ts:6479:        operationId: aiExecutionsTable.operationId,
+./artifacts/api-server/src/routes/ai/chat.ts:6480:        buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+./artifacts/api-server/src/routes/ai/chat.ts:6482:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai/chat.ts:6484:        eq(aiExecutionsTable.proposalId, proposal.id),
+./artifacts/api-server/src/routes/ai/chat.ts:6485:        eq(aiExecutionsTable.projectId, projectId),
+./artifacts/api-server/src/routes/ai/chat.ts:6487:      .orderBy(desc(aiExecutionsTable.updatedAt))
+./artifacts/api-server/src/routes/ai/chat-sse.test.ts:221:    aiExecutionsTable:     { _tag: "aiExecutionsTable" },
+./artifacts/api-server/src/routes/ai/benchmark.ts:5:import { db, aiExecutionsTable } from "@workspace/db";
+./artifacts/api-server/src/routes/ai/benchmark.ts:286:  execution: typeof aiExecutionsTable.$inferSelect,
+./artifacts/api-server/src/routes/ai/benchmark.ts:484:        .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai/benchmark.ts:485:        .where(eq(aiExecutionsTable.userId, req.userId))
+./artifacts/api-server/src/routes/ai/benchmark.ts:486:        .orderBy(desc(aiExecutionsTable.updatedAt))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:35:  aiExecutionsTable,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:36:  aiProviderCredentialsTable,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:403:  await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:492:      .from(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:494:        eq(aiProviderCredentialsTable.ownerId, ownerId),
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:495:        eq(aiProviderCredentialsTable.provider, provider),
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:505:      await db.insert(aiProviderCredentialsTable).values({
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:530:          id: aiProviderCredentialsTable.id,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:531:          last4: aiProviderCredentialsTable.last4,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:533:        .from(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:535:          eq(aiProviderCredentialsTable.ownerId, ownerId),
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:536:          eq(aiProviderCredentialsTable.provider, provider),
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:546:          .update(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:552:          .where(eq(aiProviderCredentialsTable.id, originalCredential[0].id));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:555:          .delete(aiProviderCredentialsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:556:          .where(eq(aiProviderCredentialsTable.id, fixtureId));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:590:    await db.update(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:592:      .where(eq(aiExecutionsTable.id, created.execution.id));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:615:    await db.update(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:617:      .where(eq(aiExecutionsTable.id, created.execution.id));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:755:            .select({ status: aiExecutionsTable.status, checkpoint: aiExecutionsTable.checkpoint })
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:756:            .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:757:            .where(eq(aiExecutionsTable.id, created.execution.id));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1074:      .select({ status: aiExecutionsTable.status })
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1075:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1076:      .where(eq(aiExecutionsTable.id, created.execution.id))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1124:        id: aiExecutionsTable.id,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1125:        status: aiExecutionsTable.status,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1126:        finalMessageId: aiExecutionsTable.finalMessageId,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1128:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1129:      .where(eq(aiExecutionsTable.id, created.execution.id))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1225:      .select({ status: aiExecutionsTable.status, checkpoint: aiExecutionsTable.checkpoint })
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1226:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1227:      .where(eq(aiExecutionsTable.id, created.execution.id))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1483:        id: aiExecutionsTable.id,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1484:        operationId: aiExecutionsTable.operationId,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1485:        proposalId: aiExecutionsTable.proposalId,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1487:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:1488:      .where(eq(aiExecutionsTable.sessionId, sessionId))
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2047:    await db.insert(aiProviderCredentialsTable).values({
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2054:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2624:      .select({ sessionId: aiExecutionsTable.sessionId, request: aiExecutionsTable.request })
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2625:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:2626:      .where(eq(aiExecutionsTable.sessionId, sessionId));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:3957:            .select({ id: aiExecutionsTable.id })
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:3958:            .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:3959:            .where(eq(aiExecutionsTable.projectId, projectId));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4129:      .select({ sessionId: aiExecutionsTable.sessionId })
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4130:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4131:      .where(eq(aiExecutionsTable.projectId, projectId));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4150:      .select({ status: aiExecutionsTable.status, error: aiExecutionsTable.error, checkpoint: aiExecutionsTable.checkpoint })
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4151:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4152:      .where(eq(aiExecutionsTable.sessionId, String(sessionId)));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4254:        id: aiExecutionsTable.id,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4255:        operationId: aiExecutionsTable.operationId,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4256:        request: aiExecutionsTable.request,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4257:        checkpoint: aiExecutionsTable.checkpoint,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4258:        checkpointVersion: aiExecutionsTable.checkpointVersion,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4259:        status: aiExecutionsTable.status,
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4261:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4262:      .where(eq(aiExecutionsTable.id, String(started?.executionId)));
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4331:      .from(aiExecutionsTable)
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:4332:      .where(eq(aiExecutionsTable.projectId, projectId));
+./artifacts/api-server/src/lib/ai-route-helpers.ts:12:import { aiProviderCredentialsTable, eventsTable } from "@workspace/db";
+./artifacts/api-server/src/lib/ai-route-helpers.ts:172:    .from(aiProviderCredentialsTable)
+./artifacts/api-server/src/lib/ai-route-helpers.ts:175:        eq(aiProviderCredentialsTable.ownerId, userId),
+./artifacts/api-server/src/lib/ai-route-helpers.ts:176:        eq(aiProviderCredentialsTable.provider, provider),
+./artifacts/api-server/src/lib/task-execution-service.ts:5:  aiExecutionsTable,
+./artifacts/api-server/src/lib/task-execution-service.ts:390:        .select({ status: aiExecutionsTable.status })
+./artifacts/api-server/src/lib/task-execution-service.ts:391:        .from(aiExecutionsTable)
+./artifacts/api-server/src/lib/task-execution-service.ts:393:          eq(aiExecutionsTable.id, executionId),
+./artifacts/api-server/src/lib/task-execution-service.ts:394:          eq(aiExecutionsTable.workerId, workerId),
+./artifacts/api-server/src/lib/task-execution-service.ts:466:      await tx.update(aiExecutionsTable).set({
+./artifacts/api-server/src/lib/task-execution-service.ts:481:        eq(aiExecutionsTable.id, executionId),
+./artifacts/api-server/src/lib/task-execution-service.ts:482:        eq(aiExecutionsTable.workerId, workerId),
+./artifacts/api-server/src/lib/task-execution-service.ts:483:        eq(aiExecutionsTable.status, "running"),
+./artifacts/api-server/src/lib/task-execution-retention.test.ts:4:  aiExecutionsTable,
+./artifacts/api-server/src/lib/task-execution-retention.test.ts:109:    await db.insert(aiExecutionsTable).values({
+./artifacts/api-server/src/lib/task-execution-retention.test.ts:150:          .update(aiExecutionsTable)
+./artifacts/api-server/src/lib/task-execution-retention.test.ts:152:          .where(eq(aiExecutionsTable.id, racingExecutionId));
+./artifacts/api-server/src/lib/task-execution-retention.test.ts:169:        .select({ id: aiExecutionsTable.id, status: aiExecutionsTable.status })
+./artifacts/api-server/src/lib/task-execution-retention.test.ts:170:        .from(aiExecutionsTable)

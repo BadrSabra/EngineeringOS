@@ -1,0 +1,284 @@
+stdout:
+--- #11 Let operators see why an AI request stopped ---
+# Let operators see why an AI request stopped
+
+## What & Why
+The orchestration layer now owns a bounded request ledger, but its safe snapshot is not yet presented in the operator-facing dashboard. Showing the terminal reason, elapsed time, attempted providers/models, and bounded phase counts would make deadline, cancellation, and budget failures understandable without exposing prompts, credentials, or source content.
+
+## Done looks like
+- Persist an allowlisted execution-ledger snapshot with completed AI turn metadata
+- Show a concise stop reason and phase counts in the existing Flight Recorder / activity UI
+- Keep JSON, SSE reconnect, and durable resume views consistent
+- Add authenticated browser coverage for deadline, cancellation, and provider-exhaustion states
+
+## Relevant files
+- lib/ai-orchestrator/src/execution-ledger.ts
+- artifacts/api-server/src/lib/ai-route-helpers.ts
+- artifacts/api-server/src/routes/ai/chat-sse.test.ts
+- artifacts/dashboard/src/pages/AiChat.tsx
+- artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx
+--- #13 Make simple AI questions use the shortest safe path ---
+# Make simple AI questions use the shortest safe path
+
+## What & Why
+
+Greetings, factual questions, and small conversational requests should not pay for planner, hierarchical execution, forensic recovery, or broad tool discovery. Keeping these requests on a short direct-completion path reduces latency and provider exposure while preserving the existing guarded path for project questions and broad investigations.
+
+## Done looks like
+
+- Simple chat is classified once and makes no planner or hierarchical dispatch.
+- Simple chat does not initialize filesystem or forensic evidence machinery unless the request explicitly needs it.
+- Tool-assisted, project, implementation, and broad forensic requests continue using their current guarded paths.
+- The response contract, provider fallback, cancellation, and SSE/non-streaming behavior remain unchanged.
+- Deterministic tests prove a greeting and a short conversational question use one bounded completion path.
+- A regression test proves an explicit project/file question still enters the tool path.
+
+## Minimal implementation plan
+
+1. Reuse the existing turn-intent/classification result as the only routing decision.
+2. Add a narrow early branch after intent resolution and before planner/prefetch setup.
+3. Call the existing provider strategy/fallback boundary with the shared execution ledger; do not add a second completion implementation.
+4. Preserve the existing JSON parsing and safe redaction behavior.
+5. Add unit tests around routing and one API-level parity test for SSE versus non-streaming output.
+
+## Out of scope
+
+- Rewriting the classifier or prompt system.
+- Changing provider priority or model defaults.
+- Changing broad-query decomposition.
+- Dashboard changes.
+
+## Dependencies
+
+- Depends on Task #9 (completed): use the shared request budget.
+- Should be implemented after the retry consolidation task if both are accepted, so both paths use the same provider-call adapter.
+
+## Relevant files
+
+- lib/ai-orchestrator/src/agents/chat-agent.ts
+- lib/ai-orchestrator/src/turn-intent.ts
+- lib/ai-orchestrator/src/prompts/profile-classifier.ts
+- lib/ai-orchestrator/src/agent-complete.ts
+- artifacts/api-server/src/lib/ai-route-helpers.ts
+- lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+- artifacts/api-server/src/routes/ai/chat-sse.test.ts
+
+--- #14 Prevent long investigations from looping without progress ---
+# Prevent long investigations from looping without progress
+
+## What & Why
+
+Long investigations can still spend several model turns repeating reads, searches, or planning without producing new evidence or closing a claim. Existing duplicate and soft-limit guards help, but a small explicit progress policy would make broad investigations terminate earlier and produce a truthful partial result instead of consuming the full budget.
+
+## Done looks like
+
+- Each investigation turn is classified as new evidence, new dependency, claim closure, useful edit/validation, or no progress.
+- A bounded consecutive no-progress streak forces synthesis or a safe incomplete result.
+- Repeated cached reads and searches cannot reset the progress streak.
+- Hierarchical children report progress and exhaustion consistently to the parent aggregate.
+- No-progress termination preserves collected evidence and uses the existing incomplete/verdict semantics.
+- Deterministic tests cover repeated reads, repeated searches, a productive turn after a stall, hierarchical child exhaustion, and cancellation.
+
+## Minimal implementation plan
+
+1. Reuse existing source-retrieval telemetry, duplicate detection, and objective claim state rather than adding a second evidence tracker.
+2. Define one small progress predicate at the tool-loop boundary.
+3. Make the existing no-progress/force-primary/synthesis guards consume that predicate.
+4. Pass only the resulting status to hierarchical receipts; do not redesign scheduling.
+5. Add focused tests for the transition boundaries and verify that ordinary chat remains unaffected.
+
+## Out of scope
+
+- New planning algorithms or recursive task decomposition.
+- Changes to evidence acceptance rules.
+- Provider retry/backoff behavior; covered by the retry task.
+- Operator UI; covered by Task #11.
+
+## Dependencies
+
+- Depends on Task #9 (completed).
+- Should follow the retry consolidation task to avoid conflating provider failure with no-progress behavior.
+
+## Relevant files
+
+- lib/ai-orchestrator/src/tool-execution-engine.ts
+- lib/ai-orchestrator/src/agents/hierarchical-executor.ts
+- lib/ai-orchestrator/src/agents/chat-agent.ts
+- lib/ai-orchestrator/src/required-claims.ts
+- lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+- lib/ai-orchestrator/src/__tests__/hierarchical-executor.test.ts
+--- #17 Idempotent JSON AI Chat ---
+# Idempotent JSON AI Chat
+
+## What & Why
+
+The non-streaming `/api/ai/chat` endpoint accepts a message and immediately starts orchestration, but it does not expose the durable execution/idempotency handoff used by the streaming path. Browser double-clicks, client retries, or proxy retries can therefore create duplicate turns and duplicate model work for one logical user request.
+
+## Done looks like
+
+- A client retry of the same non-streaming chat submission resolves to one logical user turn and one assistant outcome.
+- Concurrent identical submissions are serialized or replay the existing durable result instead of starting duplicate model executions.
+- Ownership, project/session linkage, and authorization are checked before replaying any result.
+- In-progress, completed, failed, and cancelled executions have deterministic response behavior, while the existing JSON response shape remains compatible.
+- Tests cover retries, concurrent submissions, replay after completion, and a distinct message or idempotency key starting a new turn.
+
+## Out of scope
+
+- Consolidating provider retries inside one request (covered by the retry-budget task).
+- Changing the SSE protocol or streaming reconnect behavior.
+- Deduplicating intentionally different user messages.
+
+## Steps
+
+1. **Define the request identity** — Add a bounded client/request idempotency contract for the JSON route and bind it to the authenticated user, project, session, and message context.
+2. **Use durable execution state** — Claim the logical request atomically before provider work, and return or replay the durable outcome when an equivalent request is already active or complete.
+3. **Handle races and terminal states** — Make concurrent claims, provider failure, cancellation, and recovery produce one authoritative result without duplicate user/assistant persistence.
+4. **Add API regression coverage** — Exercise duplicate HTTP submissions and concurrent requests, then verify normal new messages and existing streaming behavior remain unchanged.
+
+## Relevant files
+
+- `artifacts/api-server/src/routes/ai/chat.ts`
+- `artifacts/api-server/src/lib/ai-execution-state.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.test.ts`
+- `artifacts/api-server/src/routes/ai/chat-sse.test.ts`
+
+--- #19 Redact Provider Error Diagnostics ---
+# Redact Provider Error Diagnostics
+
+## What & Why
+
+OpenAI-compatible provider failures currently place portions of upstream error bodies and provider messages in logs and thrown diagnostic text. Providers can echo request fragments, account metadata, or other sensitive content. Preserve operational classification while ensuring provider-derived diagnostics are safe and bounded at the client boundary.
+
+## Done looks like
+
+- Logs contain only allowlisted provider status, stable error code, provider identity, model identity, and bounded retry metadata.
+- Raw upstream response bodies and untrusted provider messages never reach logs, persisted user-facing records, JSON responses, or SSE payloads.
+- Error classification for authentication, quota, rate limiting, model availability, and server failures remains unchanged.
+- Redaction and truncation behavior is centralized and consistent across OpenAI-compatible and Groq-compatible paths.
+- Regression tests prove sensitive body fragments are absent while safe classification fields remain available.
+
+## Out of scope
+
+- Changing provider retry or fallback policy.
+- Hiding safe user-facing recovery guidance.
+- Rotating credentials or changing provider authentication configuration.
+
+## Steps
+
+1. **Define safe provider diagnostics** — Separate classification inputs from outward error fields and retain only allowlisted, bounded values needed for operations.
+2. **Harden logging and exceptions** — Remove raw body/message interpolation from logs and thrown messages, applying the existing user-facing redaction boundary to every API and stream path.
+3. **Verify all provider adapters** — Apply the same contract to the OpenAI-compatible and Groq-compatible clients without changing status-code classification or fallback decisions.
+4. **Add leakage regression tests** — Feed representative credential-like, prompt-like, and account-like upstream bodies through non-streaming and streaming failures and assert they cannot escape into user-visible or persisted diagnostics.
+
+## Relevant files
+
+- `lib/ai-orchestrator/src/openai-compatible-client.ts`
+- `lib/ai-orchestrator/src/groq-client.ts`
+- `lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts`
+- `lib/ai-orchestrator/src/__tests__/groq-client.test.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.ts`
+- `artifacts/api-server/src/lib/ai-route-helpers.test.ts`
+
+--- #20 Harden AI Data Boundary ---
+# Harden AI Data Boundary
+
+## What & Why
+
+AI read and Git tools can currently return sensitive repository material to the model, and path validation is separated from later filesystem access. This creates a data-exfiltration and symlink-swap risk even though writes already have a sensitive-file guard. Make repository data exposure and file access fail closed at the tool boundary.
+
+## Done looks like
+
+- Sensitive files and credential-bearing content are denied or safely redacted before any read result, Git diff, or tool output can reach a provider.
+- Normal source inspection and approved project-relative Git review continue to work, while secret-file names, private keys, environment files, and comparable credential material are not exposed as content.
+- File reads and deferred writes remain inside the canonical project root even if a symlink or rename changes the filesystem between validation and access.
+- Tool failures are bounded and do not disclose absolute runtime paths, raw secret contents, or OS internals.
+- Regression coverage demonstrates read, ranged-read, Git diff, symlink-swap, and benign-source behavior.
+
+## Out of scope
+
+- Changing project-root establishment or tenant authorization.
+- Adding new tools or validation profiles.
+- Model/provider selection, retry policy, and prompt-injection classification.
+- Replacing the existing approval flow for proposed writes.
+
+## Steps
+
+1. **Define the repository egress policy** — Establish one server-owned sensitive-path/content policy shared by file reads and Git inspection, with an explicit behavior for denied files and bounded redaction for mixed diffs.
+2. **Enforce the policy before provider exposure** — Apply it to full reads, ranged reads, directory-adjacent file reads, search output, and staged/unstaged Git diffs without weakening ordinary source analysis.
+3. **Close the filesystem race window** — Make the validated path and the subsequent read/write operation use a race-resistant canonical handle or equivalent revalidation so a symlink or rename cannot redirect access outside the approved root.
+4. **Add security regression coverage** — Test secret extensions, key-like content, mixed safe/secret diffs, traversal, symlink replacement, and normal source reads; verify returned diagnostics remain safe.
+
+## Relevant files
+
+- `lib/ai-orchestrator/src/tools/file-tools.ts`
+- `lib/ai-orchestrator/src/tools/git-tools.ts`
+- `lib/ai-orchestrator/src/__tests__/file-tools.test.ts`
+- `lib/ai-orchestrator/src/__tests__/git-tools.test.ts`
+- `lib/ai-orchestrator/src/__tests__/forensic-prompt-safety.test.ts`
+- `lib/ai-orchestrator/src/tool-execution-engine.ts`
+
+--- #21 Add AI Usage Guardrails ---
+# Add AI Usage Guardrails
+
+## What & Why
+
+AI admission is currently limited per project and request, but users can multiply work across projects and nested retries/fallbacks, while the execution ledger does not account for aggregate tokens, spend, or concurrent provider work. Add owner- and provider-aware guardrails so reliability controls also protect shared quotas and cost.
+
+## Done looks like
+
+- Chat, analysis, workflow, and task routes use one consistent owner/account and project-aware admission policy rather than separate bypassable limits.
+- Concurrent AI work is bounded, and a reservation is released on completion, failure, cancellation, timeout, and worker recovery.
+- Prompt/completion usage is recorded when providers return usage metadata, with bounded fallback accounting when usage is unavailable; configured token/cost ceilings can deny new work before provider calls begin.
+- Provider fallback, recovery, and nested execution consume the same request and aggregate budget without double-counting a logical request.
+- Restarts and multiple API instances cannot silently reset the durable guardrail state; safe 429/503 responses explain the operator action without exposing credentials or prompts.
+- Tests cover cross-route limits, multiple projects under one owner, concurrent admission races, fallback usage, cancellation cleanup, restart persistence, and unavailable usage metadata.
+
+## Out of scope
+
+- Changing provider priority, model quality, prompts, or retry classification.
+- Billing-provider integration or charging users.
+- Replacing the request execution ledger or the durable execution lease/state machine.
+- Dashboard redesign beyond exposing the existing safe limit status if required by the API contract.
+
+## Steps
+
+1. **Define the aggregate budget contract** — Set server-owned limits for concurrent executions, request/model tokens, and optional provider/account spend, including the identity dimensions and reservation lifecycle.
+2. **Extend durable admission and accounting** — Add atomic, restart-safe counters/reservations and usage settlement that cover every AI route and nested provider attempt while preserving the existing per-project limiter.
+3. **Bind orchestration to the guardrail** — Thread admission, remaining budget, and usage settlement through provider fallback, recovery, task workers, and cancellation paths so no route can bypass or double-charge the policy.
+4. **Expose safe enforcement outcomes** — Return stable rate-limit/resource-exhausted responses and safe telemetry fields, preserving operation correlation while excluding keys, prompts, and source content.
+5. **Add concurrency and persistence coverage** — Exercise simultaneous requests, cross-project owners, provider fallback, aborted workers, and ...
+--- #22 Restore Provider Observability ---
+# Restore Provider Observability
+
+## What & Why
+
+The provider metrics module and `/api/ai/metrics` contract exist, but the counters are not wired into the real provider execution paths and are in-memory only. Operators therefore see zero or misleading health data and cannot correlate failures, fallback behavior, latency, or token usage across restarts.
+
+## Done looks like
+
+- Every provider attempt records one consistent request, success/failure, latency, fallback, and model-availability outcome without counting retries and logical requests ambiguously.
+- `/api/ai/metrics` reflects real activity for Groq, OpenRouter, DeepSeek, and Gemini, including safe health state and correlation metadata.
+- Provider usage metadata is captured as bounded token telemetry where available, with no prompts, responses, API keys, raw upstream bodies, or untrusted messages in metrics.
+- Aggregated health data survives API restarts and remains correctly scoped for the requesting owner; stale or unavailable data is explicitly labeled rather than reported as healthy.
+- Existing circuit-breaker, catalog, retry, and redaction behavior remains unchanged.
+- Tests prove instrumentation on success, retry/fallback, timeout, model failure, and restart/retention paths, including nonzero endpoint output from a real provider fixture.
+
+## Out of scope
+
+- Changing provider selection, retry/backoff, model catalogs, or circuit-breaker thresholds.
+- Building a new analytics product or exposing raw provider diagnostics.
+- Live-provider enablement by default.
+- Replacing the operator stop-reason UI covered by Task #11.
+
+## Steps
+
+1. **Define the telemetry contract** — Reconcile logical request, physical attempt, fallback, latency, status, usage, and ownership dimensions so each metric has one unambiguous meaning and bounded fields.
+2. **Instrument all provider boundaries** — Connect the existing metrics API to Groq and OpenAI-compatible clients plus route-level fallback/success paths, ensuring exceptions, cancellations, and retries finalize their attempt records.
+3. **Add durable aggregation and safe scoping** — Persist or checkpoint the minimal allowlisted aggregates needed across restarts and enforce owner/provider visibility without retaining prompts, output, credentials, or raw error bodies.
+4. **Harden the metrics endpoint** — Report explicit unknown/degraded/stale states, safe correlation identifiers, and token/usage summaries while preserving the current circuit and catalog projections.
+5. **Add deterministic and integration coverage** — Verify counter semantics, fallback attribution, provider failure classification, restart behavior, owner isolation, and redaction through the metrics route.
+
+## Relevant files
+
+- `lib/ai-orchestrator/src/provider-metrics.ts`...

@@ -19,6 +19,20 @@ export const RecipeIdSchema = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "recipe IDs must be safe identifiers");
 export type RecipeId = z.infer<typeof RecipeIdSchema>;
 
+export const RecipeApprovedPathSchema = z
+  .string()
+  .min(1)
+  .max(500)
+  .regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/, "approved paths must be project-relative");
+
+export const RecipeRequestSchema = z.object({
+  recipeId: RecipeIdSchema,
+  recipeVersion: RecipeVersionSchema,
+  approvedPaths: z.array(RecipeApprovedPathSchema).max(48).default([]),
+  candidateIdentity: z.string().min(1).max(160).nullable().optional(),
+}).strict();
+export type RecipeRequest = z.infer<typeof RecipeRequestSchema>;
+
 export const RecipeNodeIdSchema = z
   .string()
   .min(1)

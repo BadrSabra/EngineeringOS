@@ -1,0 +1,175 @@
+lib/ai-orchestrator/src/agents/chat-agent.ts:56:import { CAPABILITY_PROBE_SOURCE_FILES } from "../prompts/capability-probe.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:82:  buildCapabilityCatalog,
+lib/ai-orchestrator/src/agents/chat-agent.ts:83:  formatCapabilityCatalogPrompt,
+lib/ai-orchestrator/src/agents/chat-agent.ts:85:} from "../capability-catalog.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:86:import { CapabilityRegistry } from "../capability-contract.js";
+lib/ai-orchestrator/src/agents/chat-agent.ts:517:    const error = new Error("capability probe recovery deadline exhausted");
+lib/ai-orchestrator/src/agents/chat-agent.ts:522:    const error = new Error("capability probe recovery cancelled");
+lib/ai-orchestrator/src/agents/chat-agent.ts:538:      const error = new Error("capability probe recovery timed out");
+lib/ai-orchestrator/src/agents/chat-agent.ts:547:          const error = new Error("capability probe recovery cancelled");
+lib/ai-orchestrator/src/agents/chat-agent.ts:554:          const error = new Error("capability probe recovery cancelled");
+lib/ai-orchestrator/src/agents/chat-agent.ts:740: * result is a BEHAVIOR_QUERY capability report, not a six-section forensic
+lib/ai-orchestrator/src/agents/chat-agent.ts:774:  for (const capability of ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:777:      .find((candidate) => new RegExp(`^\\s*(?:[-*]\\s*)?${capability}\\b`, "i").test(candidate));
+lib/ai-orchestrator/src/agents/chat-agent.ts:779:      violations.push(`${capability} is missing`);
+lib/ai-orchestrator/src/agents/chat-agent.ts:781:      violations.push(`${capability} must be labelled PASS or FAIL`);
+lib/ai-orchestrator/src/agents/chat-agent.ts:784:  const lineFor = (capability: string): string =>
+lib/ai-orchestrator/src/agents/chat-agent.ts:787:      .find((candidate) => new RegExp(`^\\s*(?:[-*]\\s*)?${capability}\\b`, "i").test(candidate)) ?? "";
+lib/ai-orchestrator/src/agents/chat-agent.ts:797:  for (const [capability, requirement, message] of semanticRequirements) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:798:    if (!requirement.test(lineFor(capability))) violations.push(message);
+lib/ai-orchestrator/src/agents/chat-agent.ts:834: * the capability/evidence validators remain authoritative after normalization.
+lib/ai-orchestrator/src/agents/chat-agent.ts:861:    const capabilityRecord = nestedResponse ?? value;
+lib/ai-orchestrator/src/agents/chat-agent.ts:862:    const capabilityKeys = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"];
+lib/ai-orchestrator/src/agents/chat-agent.ts:863:    if (capabilityKeys.every((key) => key in capabilityRecord)) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:864:      const lines = capabilityKeys.map((key) => {
+lib/ai-orchestrator/src/agents/chat-agent.ts:865:        const field = capabilityRecord[key];
+lib/ai-orchestrator/src/agents/chat-agent.ts:872:        typeof capabilityRecord.overall === "string"
+lib/ai-orchestrator/src/agents/chat-agent.ts:873:          ? capabilityRecord.overall
+lib/ai-orchestrator/src/agents/chat-agent.ts:874:          : typeof capabilityRecord.score === "string" || typeof capabilityRecord.score === "number"
+lib/ai-orchestrator/src/agents/chat-agent.ts:875:            ? `Overall score: ${String(capabilityRecord.score)}`
+lib/ai-orchestrator/src/agents/chat-agent.ts:1326: * from the C1-C7 capability-probe recovery contract.
+lib/ai-orchestrator/src/agents/chat-agent.ts:1523:        "You are running one tiny read-only capability micro-probe. " +
+lib/ai-orchestrator/src/agents/chat-agent.ts:2759: * A Repair Plan execution is a capability boundary: the model may only queue
+lib/ai-orchestrator/src/agents/chat-agent.ts:3156:      capability: "reasoning",
+lib/ai-orchestrator/src/agents/chat-agent.ts:3508:    * Optional server-owned capability registry. Its catalog is injected into
+lib/ai-orchestrator/src/agents/chat-agent.ts:3511:   capabilityRegistry?: CapabilityRegistry;
+lib/ai-orchestrator/src/agents/chat-agent.ts:3512:   capabilityCatalogRequest?: CapabilityCatalogRequest;
+lib/ai-orchestrator/src/agents/chat-agent.ts:3551:    capabilityRegistry,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3552:    capabilityCatalogRequest,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3644:  const capabilityProbeRequest = isCapabilityProbeRequest(message);
+lib/ai-orchestrator/src/agents/chat-agent.ts:3662:  const capabilityCatalogPrompt = capabilityRegistry
+lib/ai-orchestrator/src/agents/chat-agent.ts:3663:    ? formatCapabilityCatalogPrompt(buildCapabilityCatalog(capabilityRegistry, {
+lib/ai-orchestrator/src/agents/chat-agent.ts:3664:        ...capabilityCatalogRequest,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3665:        ...(projectId && !capabilityCatalogRequest?.projectId ? { projectId } : {}),
+lib/ai-orchestrator/src/agents/chat-agent.ts:3670:  // A fixture capability audit is itself an evidence-grounded behavioral
+lib/ai-orchestrator/src/agents/chat-agent.ts:3672:  // capability on the named file. Production audits still require explicit
+lib/ai-orchestrator/src/agents/chat-agent.ts:3674:  // for an explicit fixture/capability scope.
+lib/ai-orchestrator/src/agents/chat-agent.ts:4067:    !capabilityProbeRequest;
+lib/ai-orchestrator/src/agents/chat-agent.ts:4078:    !capabilityProbeRequest &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:4094:    structuredOutputMode || capabilityProbeRequest || turnIntent.requiresEvidence;
+lib/ai-orchestrator/src/agents/chat-agent.ts:4137:    const capabilityViolations = capabilityProbeRequest
+lib/ai-orchestrator/src/agents/chat-agent.ts:4140:    if (validation.valid && capabilityViolations.length === 0) return response;
+lib/ai-orchestrator/src/agents/chat-agent.ts:4146:        violations: [...validation.violations, ...capabilityViolations].slice(0, 2),
+lib/ai-orchestrator/src/agents/chat-agent.ts:4168:    structuredOutputMode || capabilityProbeRequest ? 0 : CONVERSATION_HISTORY_TURNS;
+lib/ai-orchestrator/src/agents/chat-agent.ts:4175:  // Switching to "forensic-scan" → "analysis" taskType → capability:"reasoning"
+lib/ai-orchestrator/src/agents/chat-agent.ts:4191:    ...(capabilityProbeRequest
+lib/ai-orchestrator/src/agents/chat-agent.ts:4193:          qualityProfile: "capability_probe" as const,
+lib/ai-orchestrator/src/agents/chat-agent.ts:4554:         capabilityCatalog: capabilityCatalogPrompt,
+lib/ai-orchestrator/src/agents/chat-agent.ts:4564:               ? "\n- Fixture/capability mode: a direct defect may be proven locally, but production reachability remains NOT PROVEN unless separately evidenced; do not modify the fixture."
+lib/ai-orchestrator/src/agents/chat-agent.ts:5511:    capability: modelDecision.capability,
+lib/ai-orchestrator/src/agents/chat-agent.ts:5579:    capabilityProbeRequest &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:5587:        "initial capability-report synthesis exhausted its server-owned deadline",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6371:          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: contextProfile, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: suppressHistoricalSessionMemory, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+lib/ai-orchestrator/src/agents/chat-agent.ts:6684:  // and sends only a generic fallback into capability recovery.
+lib/ai-orchestrator/src/agents/chat-agent.ts:6686:    capabilityProbeRequest &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:6803:  let capabilityProbeRecoveryDeadlineAt: number | null = null;
+lib/ai-orchestrator/src/agents/chat-agent.ts:6804:  let capabilityProbeClaimUnclosed = false;
+lib/ai-orchestrator/src/agents/chat-agent.ts:7071:                capability: "reasoning",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8357:    !capabilityProbeRequest &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:8431:    capabilityProbeRequest &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:8439:    capabilityProbeRecoveryDeadlineAt =
+lib/ai-orchestrator/src/agents/chat-agent.ts:8456:              Math.max(1, capabilityProbeRecoveryDeadlineAt! - Date.now()),
+lib/ai-orchestrator/src/agents/chat-agent.ts:8468:          Math.max(1, capabilityProbeRecoveryDeadlineAt - Date.now()),
+lib/ai-orchestrator/src/agents/chat-agent.ts:8564:    capabilityProbeRequest &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:8582:      deadlineAt: capabilityProbeRecoveryDeadlineAt ?? undefined,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8616:          details: ["bounded capability-specific micro-probes produced a source-grounded report"],
+lib/ai-orchestrator/src/agents/chat-agent.ts:8628:          details: ["bounded capability-specific recovery did not close the C1–C7 evidence gate"],
+lib/ai-orchestrator/src/agents/chat-agent.ts:8633:  const capabilityProbeResponseViolations = capabilityProbeRequest
+lib/ai-orchestrator/src/agents/chat-agent.ts:8636:  capabilityProbeClaimUnclosed =
+lib/ai-orchestrator/src/agents/chat-agent.ts:8637:    capabilityProbeRequest &&
+lib/ai-orchestrator/src/agents/chat-agent.ts:8640:      capabilityProbeResponseViolations.length > 0 ||
+lib/ai-orchestrator/src/agents/chat-agent.ts:8643:  if (capabilityProbeRequest && !hasCompleteCapabilityProbeEvidence(forensicFileContents)) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:8649:  } else if (capabilityProbeClaimUnclosed) {
+lib/ai-orchestrator/src/agents/chat-agent.ts:8654:      details: capabilityProbeResponseViolations.slice(0, 2).length > 0
+lib/ai-orchestrator/src/agents/chat-agent.ts:8655:        ? capabilityProbeResponseViolations.slice(0, 2)
+lib/ai-orchestrator/src/agents/chat-agent.ts:8686:    // The probe has seven independently labelled capability claims. The
+lib/ai-orchestrator/src/agents/chat-agent.ts:8691:    shouldValidate: shouldValidateBehaviorEvidence && !capabilityProbeRequest,
+lib/ai-orchestrator/src/agents/chat-agent.ts:8961:  const capabilityProbeEvidenceIncomplete =
+lib/ai-orchestrator/src/agents/chat-agent.ts:8962:    capabilityProbeRequest && !hasCompleteCapabilityProbeEvidence(forensicFileContents);
+lib/ai-orchestrator/src/agents/chat-agent.ts:8964:    capabilityProbeEvidenceIncomplete
+lib/ai-orchestrator/src/agents/chat-agent.ts:8965:      ? "ANALYSIS_INCOMPLETE — the capability probe did not retain complete source bodies for both named files; no C1–C7 result is proven."
+lib/ai-orchestrator/src/agents/chat-agent.ts:8966:      : capabilityProbeClaimUnclosed
+lib/ai-orchestrator/src/agents/chat-agent.ts:8967:      ? "ANALYSIS_INCOMPLETE — the capability probe retained both named source bodies, but strict evidence validation could not close every C1–C7 claim."
+lib/ai-orchestrator/src/agents/chat-agent.ts:9261:    ...(capabilityProbeClaimUnclosed ? ["capability_probe:claim_unclosed"] : []),
+artifacts/dashboard/src/pages/AiChat.tsx:53:import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-probe';
+artifacts/dashboard/src/pages/AiChat.tsx:1153:  const capabilityProbeRecoveryStarted = [...diagnosticCodes].some(
+artifacts/dashboard/src/pages/AiChat.tsx:1181:      capabilityProbeRecoveryStarted,
+artifacts/dashboard/src/pages/AiChat.tsx:1741:    return 'The capability probe Recovery response was accepted after validating all C1–C7 labels and an exact executable excerpt against the declared source reads.';
+artifacts/dashboard/src/pages/AiChat.tsx:1744:    return 'The capability probe Recovery response could not be parsed into a source-grounded C1–C7 report, so the result stayed fail-closed.';
+artifacts/dashboard/src/pages/AiChat.tsx:1747:    return 'The bounded capability probe Recovery attempt failed, so the result stayed fail-closed instead of accepting unsupported claims.';
+artifacts/dashboard/src/pages/AiChat.tsx:1750:    return 'The capability probe Recovery response was rejected because it did not satisfy the exact-source C1–C7 evidence gate.';
+artifacts/dashboard/src/pages/AiChat.tsx:5209:  // #80: one-click model capability probe. Sends the canonical probe body
+artifacts/dashboard/src/pages/AiChat.tsx:7520:    void fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/resume-capability`, {
+artifacts/dashboard/src/pages/AiChat.tsx:7537:        // Persist the capability in the same turn as recovery. The effect
+artifacts/dashboard/src/pages/AiChat.tsx:7561:              : 'Could not recover the resume capability. Try again.',
+artifacts/dashboard/src/pages/AiChat.tsx:9046:        title: resumeRecoveryError ? 'Resume unavailable' : 'Recovering resume capability',
+artifacts/dashboard/src/pages/AiChat.tsx:9047:        description: resumeRecoveryError ?? 'The saved execution capability is being refreshed.',
+artifacts/api-server/src/lib/ai-route-helpers.ts:96:      const reason = options?.requireTools ? "no_tool_support" : "capability_mismatch";
+artifacts/api-server/src/routes/ai/chat.ts:5041:router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+artifacts/api-server/src/routes/ai/benchmark.ts:400:  "network", "server", "request", "capability", "unknown",
+artifacts/api-server/src/lib/operation-evidence.ts:121:  if (/recipe|capability|node/.test(normalized)) return "recipe";
+artifacts/api-server/src/lib/operation-evidence.ts:166:  const recipeBinding = record(checkpoint.recipeBinding);
+artifacts/api-server/src/lib/operation-evidence.ts:168:  if (Object.keys(recipeBinding).length > 0) {
+artifacts/api-server/src/lib/ai-execution-state.ts:515:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:696:    const recipeBinding = value.recipeBinding === undefined
+artifacts/api-server/src/lib/ai-execution-state.ts:698:      : parseRecipeOperationBinding(value.recipeBinding);
+artifacts/api-server/src/lib/ai-execution-state.ts:699:    if (value.recipeBinding !== undefined && !recipeBinding) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:700:    if (recipeBinding && operation?.binding
+artifacts/api-server/src/lib/ai-execution-state.ts:701:      && JSON.stringify(recipeBinding) !== JSON.stringify(operation.binding)) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:731:      ...(recipeBinding ? { recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:949:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:951:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:952:    assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:987:    ...(params.recipeBinding ? { binding: params.recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1008:        ...(params.recipeBinding ? { recipeBinding: params.recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1111:  const previousBinding = previous?.recipeBinding ?? operation?.binding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1131:    ...(terminalBinding ? { recipeBinding: terminalBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1147: * Operator recovery is deliberately narrower than the legacy capability
+artifacts/api-server/src/lib/ai-execution-state.ts:1233:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1236:  const existing = params.recipeBinding
+artifacts/api-server/src/lib/ai-execution-state.ts:1239:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1241:    const storedBinding = parseAiExecutionCheckpoint(existing.checkpoint)?.recipeBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1242:    if (!storedBinding || JSON.stringify(storedBinding) !== JSON.stringify(params.recipeBinding)) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1244:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1255:  const claimCheckpoint = existing && params.recipeBinding ? parseAiExecutionCheckpoint(existing.checkpoint) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1256:  const claimedBinding = params.recipeBinding
+artifacts/api-server/src/lib/ai-execution-state.ts:1257:    ? { ...params.recipeBinding, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
+artifacts/api-server/src/lib/ai-execution-state.ts:1273:          recipeBinding: claimedBinding,
+artifacts/api-server/src/lib/ai-execution-state.ts:1284:      ...(params.recipeBinding ? [
+artifacts/api-server/src/lib/ai-execution-state.ts:1285:        eq(aiExecutionsTable.projectId, params.recipeBinding.projectId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1286:        eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1299:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1308:  const checkpointBinding = params.checkpoint.recipeBinding ?? durableOperation?.binding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1309:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1313:        projectId: params.recipeBinding.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1314:        operationId: params.recipeBinding.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1315:        sourceRevision: params.recipeBinding.sourceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts:1316:        candidateIdentity: params.recipeBinding.candidateIdentity,
+artifacts/api-server/src/lib/ai-execution-state.ts:1317:        candidateWorkspace: params.recipeBinding.candidateWorkspace,
+artifacts/api-server/src/lib/ai-execution-state.ts:1324:    if (JSON.stringify(checkpointBinding) !== JSON.stringify(params.recipeBinding)) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1327:    ? { ...params.checkpoint, operation: durableOperation, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) }
+artifacts/api-server/src/lib/ai-execution-state.ts:1328:    : { ...params.checkpoint, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) };
+artifacts/api-server/src/lib/ai-execution-state.ts:1381:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1400:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1403:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1413:    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1483:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1502:  if (params.recipeBinding && current) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1506:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1516:    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+artifacts/api-server/src/lib/recipe-operation-runner.ts:2:  compileCapabilityRecipe,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:3:  createServerCapabilityRegistry,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:38:export function prepareRecipeOperation(params: PrepareRecipeOperationParams): PreparedRecipeOperation {
+artifacts/api-server/src/lib/recipe-operation-runner.ts:40:  const registry = createServerCapabilityRegistry();
+artifacts/api-server/src/lib/recipe-operation-runner.ts:41:  const compiled = compileCapabilityRecipe(params.recipe, {
+artifacts/api-server/src/lib/recipe-operation-runner.ts:59:  if (compiled.plan.nodes.length !== 1 || compiled.plan.nodes[0]?.capabilityId === undefined) {
+artifacts/api-server/src/lib/recipe-operation-runner.ts:60:    throw new Error("Only one-node capability recipes are eligible for durable execution.");
+artifacts/api-server/src/lib/recipe-operation-runner.ts:88:export async function runRecipeOperation(params: RunRecipeOperationParams): Promise<{
+artifacts/api-server/src/lib/recipe-operation-runner.ts:93:  const prepared = prepareRecipeOperation(params);
+artifacts/api-server/src/lib/recipe-operation-runner.ts:109:    recipeBinding: prepared.binding,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:115:    recipeBinding: prepared.binding,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:119:  const registry = createServerCapabilityRegistry();
+artifacts/api-server/src/lib/recipe-operation-runner.ts:127:        node.capabilityId!,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:129:        node.capabilityInput,
+artifacts/api-server/src/lib/recipe-operation-runner.ts:143:        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: `recipe:${params.operationId}`, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+artifacts/api-server/src/lib/recipe-operation-runner.ts:161:      recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: `recipe:${params.operationId}`, leaseUntil: new Date(Date.now() + 300_000).toISOString() },

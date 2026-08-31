@@ -1,0 +1,560 @@
+? { recipeBinding: terminalBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1132-    ...(params.streamedPreview
+artifacts/api-server/src/lib/ai-execution-state.ts-1133-      ? { streamedPreview: params.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) }
+artifacts/api-server/src/lib/ai-execution-state.ts-1134-      : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1135-    ...(params.recentSteps && params.recentSteps.length > 0
+artifacts/api-server/src/lib/ai-execution-state.ts-1136-      ? { recentSteps: params.recentSteps.slice(-AI_EXECUTION_TRACE_LIMIT) }
+artifacts/api-server/src/lib/ai-execution-state.ts-1137-      : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1138-    ...(params.nodeStates && params.nodeStates.length > 0
+artifacts/api-server/src/lib/ai-execution-state.ts-1139-      ? { nodeStates: params.nodeStates }
+artifacts/api-server/src/lib/ai-execution-state.ts-1140-      : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1141-    detail: params.error.slice(0, 500),
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1223-  return updated
+artifacts/api-server/src/lib/ai-execution-state.ts-1224-    ? { execution: updated, outcome: "abandoned" }
+artifacts/api-server/src/lib/ai-execution-state.ts-1225-    : { execution: current, outcome: "not_eligible" };
+artifacts/api-server/src/lib/ai-execution-state.ts-1226-}
+artifacts/api-server/src/lib/ai-execution-state.ts-1227-
+artifacts/api-server/src/lib/ai-execution-state.ts-1228-export async function claimAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts-1229-  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1230-  userId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1231-  workerId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1232-  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1233:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts-1234-}): Promise<AiExecution | undefined> {
+artifacts/api-server/src/lib/ai-execution-state.ts-1235-  const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1236:  const existing = params.recipeBinding
+artifacts/api-server/src/lib/ai-execution-state.ts-1237-    ? await getAiExecutionForUser(params.executionId, params.userId)
+artifacts/api-server/src/lib/ai-execution-state.ts-1238-    : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1239:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts-1240-    if (!existing) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1241:    const storedBinding = parseAiExecutionCheckpoint(existing.checkpoint)?.recipeBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1242:    if (!storedBinding || JSON.stringify(storedBinding) !== JSON.stringify(params.recipeBinding)) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-1243-    try {
+artifacts/api-server/src/lib/ai-execution-state.ts:1244:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts-1245-        projectId: existing.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1246-        operationId: existing.operationId ?? undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts-1247-        sourceRevision: parseExecutionRequest(existing.request)?.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts-1248-      });
+artifacts/api-server/src/lib/ai-execution-state.ts-1249-    } catch {
+artifacts/api-server/src/lib/ai-execution-state.ts-1250-      return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-1251-    }
+artifacts/api-server/src/lib/ai-execution-state.ts-1252-  }
+artifacts/api-server/src/lib/ai-execution-state.ts-1253-  const claimTime = new Date();
+artifacts/api-server/src/lib/ai-execution-state.ts-1254-  const claimLeaseUntil = new Date(claimTime.getTime() + AI_EXECUTION_LEASE_MS);
+artifacts/api-server/src/lib/ai-execution-state.ts:1255:  const claimCheckpoint = existing && params.recipeBinding ? parseAiExecutionCheckpoint(existing.checkpoint) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1256:  const claimedBinding = params.recipeBinding
+artifacts/api-server/src/lib/ai-execution-state.ts:1257:    ? { ...params.recipeBinding, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
+artifacts/api-server/src/lib/ai-execution-state.ts-1258-    : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-1259-  const [claimed] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts-1260-    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts-1261-    .set({
+artifacts/api-server/src/lib/ai-execution-state.ts-1262-      status: "running",
+artifacts/api-server/src/lib/ai-execution-state.ts-1263-      workerId: params.workerId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1264-      leaseUntil: claimLeaseUntil,
+artifacts/api-server/src/lib/ai-execution-state.ts-1265-      lastHeartbeatAt: claimTime,
+artifacts/api-server/src/lib/ai-execution-state.ts-1266-      startedAt: claimTime,
+artifacts/api-server/src/lib/ai-execution-state.ts-1267-      updatedAt: claimTime,
+artifacts/api-server/src/lib/ai-execution-state.ts-1268-      error: null,
+artifacts/api-server/src/lib/ai-execution-state.ts-1269-      cancelRequestedAt: null,
+artifacts/api-server/src/lib/ai-execution-state.ts-1270-      ...(claimedBinding && claimCheckpoint ? {
+artifacts/api-server/src/lib/ai-execution-state.ts-1271-        checkpoint: JSON.stringify({
+artifacts/api-server/src/lib/ai-execution-state.ts-1272-          ...claimCheckpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1273:          recipeBinding: claimedBinding,
+artifacts/api-server/src/lib/ai-execution-state.ts-1274-          ...(claimCheckpoint.operation ? { operation: { ...claimCheckpoint.operation, binding: claimedBinding } } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1275-          sequence: claimCheckpoint.sequence + 1,
+artifacts/api-server/src/lib/ai-execution-state.ts-1276-          updatedAt: claimTime.toISOString(),
+artifacts/api-server/src/lib/ai-execution-state.ts-1277-        } satisfies AiExecutionCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts-1278-        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts-1279-      } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1280-    })
+artifacts/api-server/src/lib/ai-execution-state.ts-1281-    .where(and(
+artifacts/api-server/src/lib/ai-execution-state.ts-1282-      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts-1283-      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1284:      ...(params.recipeBinding ? [
+artifacts/api-server/src/lib/ai-execution-state.ts:1285:        eq(aiExecutionsTable.projectId, params.recipeBinding.projectId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1286:        eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
+artifacts/api-server/src/lib/ai-execution-state.ts-1287-      ] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts-1288-      inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
+artifacts/api-server/src/lib/ai-execution-state.ts-1289-      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts-1290-    ))
+artifacts/api-server/src/lib/ai-execution-state.ts-1291-    .returning();
+artifacts/api-server/src/lib/ai-execution-state.ts-1292-  return claimed;
+artifacts/api-server/src/lib/ai-execution-state.ts-1293-}
+artifacts/api-server/src/lib/ai-execution-state.ts-1294-
+artifacts/api-server/src/lib/ai-execution-state.ts-1295-export async function checkpointAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts-1296-  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1297-  workerId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1298-  checkpoint: AiExecutionCheckpoint;
+artifacts/api-server/src/lib/ai-execution-state.ts:1299:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts-1300-}): Promise<boolean> {
+artifacts/api-server/src/lib/ai-execution-state.ts-1301-  // Keep this update atomic: the worker lease and checkpoint version are the
+artifacts/api-server/src/lib/ai-execution-state.ts-1302-  // concurrency boundary. Callers that advance an operation include its
+artifacts/api-server/src/lib/ai-execution-state.ts-1303-  // server-validated contract in the checkpoint; legacy stage-only writers
+artifacts/api-server/src/lib/ai-execution-state.ts-1304-  // remain compatible and do not get a second read/race window here.
+artifacts/api-server/src/lib/ai-execution-state.ts-1305-  const durableOperation = params.checkpoint.operation
+artifacts/api-server/src/lib/ai-execution-state.ts-1306-    ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
+artifacts/api-server/src/lib/ai-execution-state.ts-1307-    : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1308:  const checkpointBinding = params.checkpoint.recipeBinding ?? durableOperation?.binding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1309:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts-1310-    if (!checkpointBinding) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1311-    try {
+artifacts/api-server/src/lib/ai-execution-state.ts:1312:      assertRecipeOperationBinding(checkpointBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1313:        projectId: params.recipeBinding.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1314:        operationId: params.recipeBinding.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1315:        sourceRevision: params.recipeBinding.sourceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts:1316:        candidateIdentity: params.recipeBinding.candidateIdentity,
+artifacts/api-server/src/lib/ai-execution-state.ts:1317:        candidateWorkspace: params.recipeBinding.candidateWorkspace,
+artifacts/api-server/src/lib/ai-execution-state.ts-1318-        leaseOwner: params.workerId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1319-        requireLease: true,
+artifacts/api-server/src/lib/ai-execution-state.ts-1320-      });
+artifacts/api-server/src/lib/ai-execution-state.ts-1321-    } catch {
+artifacts/api-server/src/lib/ai-execution-state.ts-1322-      return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1323-    }
+artifacts/api-server/src/lib/ai-execution-state.ts:1324:    if (JSON.stringify(checkpointBinding) !== JSON.stringify(params.recipeBinding)) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1325-  }
+artifacts/api-server/src/lib/ai-execution-state.ts-1326-  const durableCheckpoint = durableOperation
+artifacts/api-server/src/lib/ai-execution-state.ts:1327:    ? { ...params.checkpoint, operation: durableOperation, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) }
+artifacts/api-server/src/lib/ai-execution-state.ts:1328:    : { ...params.checkpoint, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) };
+artifacts/api-server/src/lib/ai-execution-state.ts-1329-  const [updated] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts-1330-    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts-1331-    .set({
+artifacts/api-server/src/lib/ai-execution-state.ts-1332-      checkpoint: JSON.stringify(durableCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts-1333-      checkpointVersion: durableCheckpoint.sequence,
+artifacts/api-server/src/lib/ai-execution-state.ts-1334-      updatedAt: new Date(),
+artifacts/api-server/src/lib/ai-execution-state.ts-1335-      lastHeartbeatAt: new Date(),
+artifacts/api-server/src/lib/ai-execution-state.ts-1336-      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+artifacts/api-server/src/lib/ai-execution-state.ts-1337-    })
+artifacts/api-server/src/lib/ai-execution-state.ts-1338-    .where(and(
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1371-  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1372-  workerId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1373-  finalMessageId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1374-  proposalId?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1375-  operation?: AutonomousOperationContract;
+artifacts/api-server/src/lib/ai-execution-state.ts-1376-  nodeStates?: AiExecutionCheckpoint["nodeStates"];
+artifacts/api-server/src/lib/ai-execution-state.ts-1377-  evidenceVerdict?: FlightDeckEvidenceVerdict;
+artifacts/api-server/src/lib/ai-execution-state.ts-1378-  evidenceReason?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1379-  proofRequired?: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts-1380-  evidenceRefs?: readonly string[];
+artifacts/api-server/src/lib/ai-execution-state.ts:1381:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts-1382-}): Promise<boolean> {
+artifacts/api-server/src/lib/ai-execution-state.ts-1383-  const [current] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts-1384-    .select({
+artifacts/api-server/src/lib/ai-execution-state.ts-1385-      projectId: aiExecutionsTable.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1386-      operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1387-      request: aiExecutionsTable.request,
+artifacts/api-server/src/lib/ai-execution-state.ts-1388-      checkpoint: aiExecutionsTable.checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts-1389-      leaseUntil: aiExecutionsTable.leaseUntil,
+artifacts/api-server/src/lib/ai-execution-state.ts-1390-    })
+artifacts/api-server/src/lib/ai-execution-state.ts-1391-    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts-1392-    .where(and(
+artifacts/api-server/src/lib/ai-execution-state.ts-1393-      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts-1394-      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts-1395-      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts-1396-    ))
+artifacts/api-server/src/lib/ai-execution-state.ts-1397-    .limit(1);
+artifacts/api-server/src/lib/ai-execution-state.ts-1398-  const request = current ? parseExecutionRequest(current.request) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-1399-  const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1400:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts-1401-    if (!current?.leaseUntil || current.leaseUntil <= new Date()) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1402-    try {
+artifacts/api-server/src/lib/ai-execution-state.ts:1403:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts-1404-        projectId: current.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1405-        operationId: current.operationId ?? undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts-1406-        sourceRevision: request?.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts-1407-        leaseOwner: params.workerId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1408-        requireLease: true,
+artifacts/api-server/src/lib/ai-execution-state.ts-1409-      });
+artifacts/api-server/src/lib/ai-execution-state.ts-1410-    } catch {
+artifacts/api-server/src/lib/ai-execution-state.ts-1411-      return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1412-    }
+artifacts/api-server/src/lib/ai-execution-state.ts:1413:    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1414-  }
+artifacts/api-server/src/lib/ai-execution-state.ts-1415-  const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1416-  const operation = params.operation ?? checkpoint?.operation;
+artifacts/api-server/src/lib/ai-execution-state.ts-1417-  if (requiresProof) {
+artifacts/api-server/src/lib/ai-execution-state.ts-1418-    if (!operation) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1419-    const completion = validateAutonomousOperationCompletion(operation, {
+artifacts/api-server/src/lib/ai-execution-state.ts-1420-      evidenceRefs: params.evidenceRefs,
+artifacts/api-server/src/lib/ai-execution-state.ts-1421-      evidenceVerdict: params.evidenceVerdict,
+artifacts/api-server/src/lib/ai-execution-state.ts-1422-      workspaceRevision: request?.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts-1423-      candidateIdentity: operation.candidateIdentity,
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1473-
+artifacts/api-server/src/lib/ai-execution-state.ts-1474-export async function failAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts-1475-  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1476-  workerId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1477-  error: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1478-  cancelled?: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts-1479-  nodeStates?: AiExecutionCheckpoint["nodeStates"];
+artifacts/api-server/src/lib/ai-execution-state.ts-1480-  recentSteps?: Array<Record<string, unknown>>;
+artifacts/api-server/src/lib/ai-execution-state.ts-1481-  streamedPreview?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1482-  operation?: AutonomousOperationContract;
+artifacts/api-server/src/lib/ai-execution-state.ts:1483:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts-1484-}): Promise<boolean> {
+artifacts/api-server/src/lib/ai-execution-state.ts-1485-  const status = params.cancelled ? "cancelled" : "failed";
+artifacts/api-server/src/lib/ai-execution-state.ts-1486-  const [current] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts-1487-    .select()
+artifacts/api-server/src/lib/ai-execution-state.ts-1488-    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts-1489-    .where(and(
+artifacts/api-server/src/lib/ai-execution-state.ts-1490-      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts-1491-      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts-1492-      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts-1493-      inArray(
+artifacts/api-server/src/lib/ai-execution-state.ts-1494-        aiExecutionsTable.status,
+artifacts/api-server/src/lib/ai-execution-state.ts-1495-        params.cancelled ? ["running", "cancelling"] : ["running"],
+artifacts/api-server/src/lib/ai-execution-state.ts-1496-      ),
+artifacts/api-server/src/lib/ai-execution-state.ts-1497-    ))
+artifacts/api-server/src/lib/ai-execution-state.ts-1498-    .limit(1);
+artifacts/api-server/src/lib/ai-execution-state.ts-1499-  const terminalCheckpoint = current
+artifacts/api-server/src/lib/ai-execution-state.ts-1500-    ? mergeTerminalCheckpoint(current, { ...params, cancelled: params.cancelled ?? false })
+artifacts/api-server/src/lib/ai-execution-state.ts-1501-    : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1502:  if (params.recipeBinding && current) {
+artifacts/api-server/src/lib/ai-execution-state.ts-1503-    const request = parseExecutionRequest(current.request);
+artifacts/api-server/src/lib/ai-execution-state.ts-1504-    const checkpoint = parseAiExecutionCheckpoint(current.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts-1505-    try {
+artifacts/api-server/src/lib/ai-execution-state.ts:1506:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts-1507-        projectId: current.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1508-        operationId: current.operationId ?? undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts-1509-        sourceRevision: request?.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts-1510-        leaseOwner: params.workerId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1511-        requireLease: true,
+artifacts/api-server/src/lib/ai-execution-state.ts-1512-      });
+artifacts/api-server/src/lib/ai-execution-state.ts-1513-    } catch {
+artifacts/api-server/src/lib/ai-execution-state.ts-1514-      return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1515-    }
+artifacts/api-server/src/lib/ai-execution-state.ts:1516:    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1517-  }
+artifacts/api-server/src/lib/ai-execution-state.ts-1518-  const [updated] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts-1519-    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts-1520-    .set({
+artifacts/api-server/src/lib/ai-execution-state.ts-1521-      status,
+artifacts/api-server/src/lib/ai-execution-state.ts-1522-      error: params.error.slice(0, 1000),
+artifacts/api-server/src/lib/ai-execution-state.ts-1523-      completedAt: new Date(),
+artifacts/api-server/src/lib/ai-execution-state.ts-1524-      updatedAt: new Date(),
+artifacts/api-server/src/lib/ai-execution-state.ts-1525-      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts-1526-      lastHeartbeatAt: null,
+--
+docs/actual-capability-baseline-v1.md-24-- **Blocked** — the path intentionally cannot run without a provider, credential,
+docs/actual-capability-baseline-v1.md-25-  or other prerequisite.
+docs/actual-capability-baseline-v1.md-26-- **Not implemented** — the source explicitly does not provide the capability.
+docs/actual-capability-baseline-v1.md-27-
+docs/actual-capability-baseline-v1.md-28-“Proposed”, “validated”, “committed”, and “pushed” describe change state, not
+docs/actual-capability-baseline-v1.md-29-capability state:
+docs/actual-capability-baseline-v1.md-30-
+docs/actual-capability-baseline-v1.md-31-| Change state | Meaning in this baseline |
+docs/actual-capability-baseline-v1.md-32-|---|---|
+docs/actual-capability-baseline-v1.md-33-| Safe proposed | A future change could be suggested without applying it. |
+docs/actual-capability-baseline-v1.md:34:| Validated | A change or candidate passed its applicable validation receipt/gate. |
+docs/actual-capability-baseline-v1.md-35-| Committed | Git commit endpoint completed for the approved candidate. |
+docs/actual-capability-baseline-v1.md-36-| Pushed | Git push endpoint completed with configured credentials/remotes. |
+docs/actual-capability-baseline-v1.md-37-
+docs/actual-capability-baseline-v1.md-38-This update did not propose or apply a product change. The report records
+docs/actual-capability-baseline-v1.md-39-capabilities already present in the merged source and the latest validation
+docs/actual-capability-baseline-v1.md:40:receipts; its committed/pushed state is determined by the task merge process.
+docs/actual-capability-baseline-v1.md-41-
+docs/actual-capability-baseline-v1.md-42-### Update ledger
+docs/actual-capability-baseline-v1.md-43-
+docs/actual-capability-baseline-v1.md-44-The previous 2026-08-25 baseline remains the historical starting point. This
+docs/actual-capability-baseline-v1.md-45-revision incorporates the merged work tracked by the repository task plans:
+docs/actual-capability-baseline-v1.md-46-
+docs/actual-capability-baseline-v1.md-47-- source-revision binding and server-derived candidate integrity for release
+docs/actual-capability-baseline-v1.md-48-  evidence (`.local/tasks/bind-releases-source-revision-v2.md`);
+docs/actual-capability-baseline-v1.md-49-- provider fallback/health classification and safe recovery guidance
+docs/actual-capability-baseline-v1.md-50-  (`.local/tasks/openrouter-fallback-root-cause.md` and provider diagnostics
+--
+docs/actual-capability-baseline-v1.md-94-| Structured scan analysis | `POST /api/ai/projects/:projectId/analyze` and `/stream`; context, provider fallback, parse/error envelope, audit log and completion event persistence | **Partial / live blocked** | Provider-free contracts and provider diagnostics are covered; live execution and authenticated E2E remain unproven |
+docs/actual-capability-baseline-v1.md-95-| Structured code review | `POST /api/ai/projects/:projectId/review` and `/stream`; validates relative file keys and 50 KB aggregate input, persists audit/event result | **Partial / blocked** | Same provider limitation; input safety is code-backed |
+docs/actual-capability-baseline-v1.md-96-| AI task execution | `POST /api/ai/tasks/:taskId/execute`; task ownership/status/rate-limit checks delegate to `executeTaskLifecycle`, with task logs/events and durable job helpers | **Partial / blocked** | `tasks.test.ts` covers scheduling/HTTP behavior; real provider execution was not run |
+docs/actual-capability-baseline-v1.md-97-| Workflow orchestration | `POST /api/ai/workflows/:workflowId/orchestrate`; regular workflow API supports start/stop/advance/fail/retry/rollback and execution history | **Partial / blocked** | Workflow route tests passed within selected run; AI orchestration still needs provider and E2E confirmation |
+docs/actual-capability-baseline-v1.md-98-| Execution history and Flight Deck | `GET /api/ai/executions/history`, detail, audit export; `FlightDeck.tsx` renders operation/checkpoint/evidence/validation state | **Verified by code** | `ai-execution-state.test.ts` and dashboard Flight Deck tests exist; no real browser/API journey |
+docs/actual-capability-baseline-v1.md-99-| Mission Control/correlation | Mission Control page consumes execution history; chat route can regenerate a redacted correlation report solely from retained durable evidence | **Verified by automated test** | Dashboard Mission Control/correlation tests passed (part of 101 dashboard tests) |
+docs/actual-capability-baseline-v1.md-100-| Cancellation and recovery | Chat route exposes cancel/recovery/resume-capability; `ai-execution-state.ts` owns leases, resume-token hashing, checkpoint recovery, restart reconciliation, cancellation terminalization | **Verified by automated test** | Latest AI SSE and operational-safety release checks pass; browser reload/restart evidence is still absent |
+docs/actual-capability-baseline-v1.md-101-| Implementation planning | `implementation-planner.ts` requires verified filesystem manifest/source excerpts, validates provider paths, and returns `PENDING_APPROVAL`/`NOT_AUTHORIZED` fallback when grounding is absent | **Verified by code** | No provider-backed plan generation was run |
+docs/actual-capability-baseline-v1.md-102-| Proposed changes and approval | Chat route stores `aiChangeProposalsTable`; write tools queue `pendingChanges`; plan decision and proposal approve/delete routes are present; dashboard shows approval state | **Partial** | Approval boundary is code-backed; complete browser approval journey was not run |
+docs/actual-capability-baseline-v1.md-103-| Isolated delivery workspace | `delivery-workspace.ts` defines the versioned canonical tree digest shared by candidate/live roots, with common exclusions, normalized paths, file-kind records, byte encoding, and symlink targets; chat Apply records base/candidate/promoted proof | **Verified by automated test; operationally partial** | Deterministic workspace and Apply integrity checks pass; no full authenticated promotion journey |
+docs/actual-capability-baseline-v1.md:104:| Validation and repair | `ai-repair-validation.ts` provides server-owned profiles, isolated validation/runtime/preview runners and scope checks; public validation receipts are redacted at route boundary | **Verified by automated test; live journey partial** | Bounded validation and repair-loop checks pass; no live delivery workspace campaign |
+docs/actual-capability-baseline-v1.md-105-| Rebase/conflict handling | Chat route `rebase-changes` and apply path hash base content, rebase hunks, reject conflicts, and preserve conflict metadata | **Verified by code** | Route tests cover conflict-shaped responses; no full user journey |
+docs/actual-capability-baseline-v1.md:106:| Promotion/apply | Apply route checks owner/proposal state, root containment, duplicate paths, base hashes, candidate stability, complete-tree live drift, validation receipts, and full promoted-tree equality before atomically promoting files | **Verified by automated test; operationally partial** | Deterministic full/partial scope and integrity gates are code-backed; no authenticated E2E promotion journey |
+docs/actual-capability-baseline-v1.md-107-| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; scoped AI commit/push require matching operation, canonical tree, change-set, Git identity, and post-commit proof while generic commits retain their existing behavior | **Verified by automated test; operationally partial** | Isolated route proof passed Apply → commit → push with matching base/candidate/promoted/committed tree digests and separate commit identity; Clerk-authenticated live delivery and push against a real GitHub remote remain unrun |
+docs/actual-capability-baseline-v1.md-108-| Audit export | Execution audit export and project export routes project allowlisted/redacted durable evidence | **Verified by code** | Export path is present; no downloaded artifact/API smoke check in this baseline |
+docs/actual-capability-baseline-v1.md-109-| Direct arbitrary model shell execution | Tool policy and execution tools accept server-owned command profiles; the model does not supply arbitrary executable/argv | **Not implemented by design** | `tool-execution-engine.ts` and execution-tools contract enforce the safer profile boundary |
+docs/actual-capability-baseline-v1.md-110-
+docs/actual-capability-baseline-v1.md-111-## 4. Agent loop trace
+docs/actual-capability-baseline-v1.md-112-
+docs/actual-capability-baseline-v1.md-113-1. The chat route loads the owner-scoped project/session and provider selection,
+docs/actual-capability-baseline-v1.md-114-   then builds project context and history.
+docs/actual-capability-baseline-v1.md-115-2. `resolveTurnIntent`/classification and task routing determine whether the
+docs/actual-capability-baseline-v1.md-116-   request is ordinary chat, behavior/forensic work, implementation planning,
+--
+docs/actual-capability-baseline-v1.md-142-
+docs/actual-capability-baseline-v1.md-143-The source backs the major gates:
+docs/actual-capability-baseline-v1.md-144-
+docs/actual-capability-baseline-v1.md-145-- Plans require verified manifests and source excerpts and are not write-authorized
+docs/actual-capability-baseline-v1.md-146-  by default (`implementation-planner.ts`).
+docs/actual-capability-baseline-v1.md-147-- Execution nodes are server-owned, bounded, dependency-aware, and disjoint by
+docs/actual-capability-baseline-v1.md-148-  file scope (`task-session-state.ts`).
+docs/actual-capability-baseline-v1.md-149-- Delivery workspaces and change sets have hashes and a captured base revision
+docs/actual-capability-baseline-v1.md-150-  (`delivery-workspace.ts`).
+docs/actual-capability-baseline-v1.md-151-- Apply checks root containment, duplicate paths, base/hash conflicts, proposal
+docs/actual-capability-baseline-v1.md:152:  state, validation receipt, and journal state (`routes/ai/chat.ts`,
+docs/actual-capability-baseline-v1.md-153-  `ai-change-guard.ts`).
+docs/actual-capability-baseline-v1.md-154-- Validation uses server-owned profiles and isolated workspaces rather than
+docs/actual-capability-baseline-v1.md-155-  model-provided shell text (`ai-repair-validation.ts`,
+docs/actual-capability-baseline-v1.md-156-  `tool-execution-engine.ts`).
+docs/actual-capability-baseline-v1.md-157-- Git commit/push are separate API transitions and require project write access
+docs/actual-capability-baseline-v1.md-158-  (`routes/git.ts`).
+docs/actual-capability-baseline-v1.md-159-
+docs/actual-capability-baseline-v1.md-160-The entire sequence is **partial operationally** because the authenticated
+docs/actual-capability-baseline-v1.md-161-browser campaign did not reach a complete delivery terminal state. The isolated
+docs/actual-capability-baseline-v1.md-162-Git route proof passed, while real Git discovery and live-provider promotion
+--
+docs/actual-capability-baseline-v1.md-174-- **Passed:** `src/routes/git.test.ts` (4 tests), including scoped Apply →
+docs/actual-capability-baseline-v1.md-175-  commit → push, rejection of a mismatched operation, and matching local and
+docs/actual-capability-baseline-v1.md-176-  remote commit identity.
+docs/actual-capability-baseline-v1.md-177-- **Blocked:** the real Git discovery fixture in
+docs/actual-capability-baseline-v1.md-178-  `src/routes/discovery.test.ts` uses a localhost smart-HTTP repository, while
+docs/actual-capability-baseline-v1.md-179-  the production adapter intentionally accepts only credential-free HTTPS
+docs/actual-capability-baseline-v1.md-180-  `github.com` URLs. The route returned the expected `400` policy response
+docs/actual-capability-baseline-v1.md-181-  instead of starting a discovery session.
+docs/actual-capability-baseline-v1.md-182-- **Incomplete:** the full Playwright campaign reached the running Clerk
+docs/actual-capability-baseline-v1.md-183-  services but timed out in later fixture-backed AI/citation tests and exposed a
+docs/actual-capability-baseline-v1.md:184:  restart/readiness failure before any live delivery receipt could be retained.
+docs/actual-capability-baseline-v1.md-185-- **Not run by design:** `DASHBOARD_E2E_LIVE_PROVIDER=1` and
+docs/actual-capability-baseline-v1.md-186-  `DASHBOARD_E2E_LIVE_CAMPAIGN=1`; no provider-backed project, production
+docs/actual-capability-baseline-v1.md-187-  deployment, or broad campaign was used.
+docs/actual-capability-baseline-v1.md-188-
+docs/actual-capability-baseline-v1.md-189-Therefore this is authenticated operational evidence plus isolated Git route
+docs/actual-capability-baseline-v1.md:190:evidence, not a complete end-to-end discovery-to-push receipt. The missing
+docs/actual-capability-baseline-v1.md:191:receipt must remain an explicit release blocker.
+docs/actual-capability-baseline-v1.md-192-
+docs/actual-capability-baseline-v1.md-193-## 6. Safety and durability inventory
+docs/actual-capability-baseline-v1.md-194-
+docs/actual-capability-baseline-v1.md-195-| Guarantee | Enforcement | Baseline assessment |
+docs/actual-capability-baseline-v1.md-196-|---|---|---|
+docs/actual-capability-baseline-v1.md-197-| User/project authorization | Clerk middleware and `requireProjectAccess`/write access on routes | Code-backed; route tests exist |
+docs/actual-capability-baseline-v1.md-198-| Project-root containment | `establishProjectRoot`, `resolveRootPath`, path validation, delivery/apply guards | Code-backed; project-root/path/discovery tests exist |
+docs/actual-capability-baseline-v1.md-199-| Untrusted-content separation | `formatUntrustedContent` on tool output; redaction helpers at AI route persistence/SSE | Code-backed; no live journey |
+docs/actual-capability-baseline-v1.md-200-| Tool authorization | Registered definitions plus `authorizeToolInvocation` and phase/policy checks | Code-backed |
+docs/actual-capability-baseline-v1.md-201-| Server-owned commands | Fixed command profiles; no model-supplied executable or argv | Code-backed |
+--
+lib/ai-orchestrator/src/forensic-recovery.ts-188-}
+lib/ai-orchestrator/src/forensic-recovery.ts-189-
+lib/ai-orchestrator/src/forensic-recovery.ts-190-/**
+lib/ai-orchestrator/src/forensic-recovery.ts-191- * Build an evidence-limited negative assessment when Recovery formatting fails
+lib/ai-orchestrator/src/forensic-recovery.ts-192- * after complete reads. This does not claim the implementation is correct: it
+lib/ai-orchestrator/src/forensic-recovery.ts-193- * records one exact inspected implementation fragment and states only that the
+lib/ai-orchestrator/src/forensic-recovery.ts-194- * retained evidence did not establish a verified defect.
+lib/ai-orchestrator/src/forensic-recovery.ts-195- *
+lib/ai-orchestrator/src/forensic-recovery.ts-196- * The helper deliberately refuses truncated, incomplete, test-only (unless the
+lib/ai-orchestrator/src/forensic-recovery.ts-197- * audit opted into test sources), or non-implementation bodies. That keeps this
+lib/ai-orchestrator/src/forensic-recovery.ts:198: * deterministic fallback from turning an arbitrary read receipt into a
+lib/ai-orchestrator/src/forensic-recovery.ts-199- * behavioral conclusion.
+lib/ai-orchestrator/src/forensic-recovery.ts-200- */
+lib/ai-orchestrator/src/forensic-recovery.ts-201-export function buildSourceGroundedNoFindingEnvelope(
+lib/ai-orchestrator/src/forensic-recovery.ts-202-  evidence: ForensicEvidence,
+lib/ai-orchestrator/src/forensic-recovery.ts-203-): ForensicRecoveryEnvelope | null {
+lib/ai-orchestrator/src/forensic-recovery.ts-204-  if (evidence.fileContents.size === 0) return null;
+lib/ai-orchestrator/src/forensic-recovery.ts-205-  if (evidence.sourceCoverage && !evidence.sourceCoverage.complete) return null;
+lib/ai-orchestrator/src/forensic-recovery.ts-206-
+lib/ai-orchestrator/src/forensic-recovery.ts-207-  const candidates = [...evidence.fileContents.entries()]
+lib/ai-orchestrator/src/forensic-recovery.ts-208-    .filter(([file, source]) => {
+--
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-103-): AutonomousDeliveryAcceptanceSummary {
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-104-  return buildAutonomousDeliveryAcceptanceSummary({
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-105-    campaign: {
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-106-      provider: mode === "live" || mode === "free-only" ? "live" : "deterministic",
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-107-      browser: false,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-108-      deployment: false,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-109-      remoteDelivery: false,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-110-      isolated: true,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-111-      redacted: true,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-112-    },
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts:113:    receipts: observations.map((entry) => acceptanceReceipt(entry, runId)),
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-114-  });
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-115-}
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-116-
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-117-function unavailableTelemetry(
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-118-  allowedPaths: readonly string[],
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-119-  provenance: { candidateHash?: string; sourceRevision?: string } = {},
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-120-): CodeAgentExecutionTelemetry {
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-121-  return {
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-122-    ...(provenance.candidateHash ? { candidateHash: provenance.candidateHash } : {}),
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts-123-    ...(provenance.sourceRevision ? { sourceRevision: provenance.sourceRevision } : {}),
+--
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-1-/**
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-2- * Read-only acceptance accounting for the unified operation loop.
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-3- *
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:4: * This is deliberately not an executor. Callers provide bounded receipts from
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-5- * an isolated campaign; production operation state is never mutated here.
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-6- */
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-7-export const AUTONOMOUS_DELIVERY_ACCEPTANCE_VERSION = 1;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-8-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-9-export type AcceptanceTerminalOutcome =
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-10-  | "completed"
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-11-  | "safely-blocked"
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-12-  | "failed"
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-13-  | "uncertain";
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-14-
+--
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-56-    scopeViolation: boolean;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-57-    repeatedSideEffect: boolean;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-58-  }>;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-59-};
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-60-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-61-export function validateAutonomousDeliveryCampaignPolicy(
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-62-  campaign: AutonomousDeliveryCampaignPolicy,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-63-): string[] {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-64-  const errors: string[] = [];
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-65-  if (campaign.isolated !== true) errors.push("campaign workspace must be isolated");
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:66:  if (campaign.redacted !== true) errors.push("campaign receipts must be redacted");
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-67-  if (campaign.deployment && campaign.provider !== "live") {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-68-    errors.push("deployment side effects require an explicitly live provider campaign");
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-69-  }
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-70-  if (campaign.remoteDelivery && campaign.provider !== "live") {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-71-    errors.push("remote delivery side effects require an explicitly live provider campaign");
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-72-  }
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-73-  return errors;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-74-}
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-75-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-76-const OUTCOMES: readonly AcceptanceTerminalOutcome[] = [
+--
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-82-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-83-function rate(count: number, total: number): number {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-84-  return total === 0 ? 0 : count / total;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-85-}
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-86-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-87-function validId(value: string): boolean {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-88-  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-89-}
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-90-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-91-/**
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:92: * Rejects receipts that could make a campaign appear more complete than it
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-93- * is. Duplicate operation identities are never silently merged.
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-94- */
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-95-export function validateAutonomousDeliveryAcceptanceReceipts(
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:96:  receipts: readonly AutonomousDeliveryAcceptanceReceipt[],
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-97-): string[] {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-98-  const errors: string[] = [];
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-99-  const operationIds = new Set<string>();
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:100:  for (const receipt of receipts) {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:101:    if (!validId(receipt.operationId)) errors.push(`invalid operation identity: ${receipt.operationId}`);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:102:    if (!validId(receipt.caseId)) errors.push(`invalid case identity: ${receipt.caseId}`);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:103:    if (operationIds.has(receipt.operationId)) errors.push(`duplicate operation identity: ${receipt.operationId}`);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:104:    operationIds.add(receipt.operationId);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:105:    if (receipt.terminal === "completed" && !receipt.deliveryVerified) {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:106:      errors.push(`completed operation is not delivery-verified: ${receipt.operationId}`);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-107-    }
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:108:    if (receipt.terminal === "uncertain" && receipt.deliveryVerified) {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:109:      errors.push(`uncertain operation cannot be delivery-verified: ${receipt.operationId}`);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-110-    }
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-111-  }
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-112-  return errors;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-113-}
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-114-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-115-export function buildAutonomousDeliveryAcceptanceSummary(args: {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-116-  campaign: AutonomousDeliveryCampaignPolicy;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:117:  receipts: readonly AutonomousDeliveryAcceptanceReceipt[];
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-118-}): AutonomousDeliveryAcceptanceSummary {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-119-  const policyErrors = validateAutonomousDeliveryCampaignPolicy(args.campaign);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-120-  if (policyErrors.length > 0) {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-121-    throw new Error(`Invalid autonomous delivery campaign policy: ${policyErrors.join("; ")}`);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-122-  }
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:123:  const errors = validateAutonomousDeliveryAcceptanceReceipts(args.receipts);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-124-  if (errors.length > 0) {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:125:    throw new Error(`Invalid autonomous delivery acceptance receipts: ${errors.join("; ")}`);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-126-  }
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:127:  const total = args.receipts.length;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-128-  const outcomeCounts = Object.fromEntries(OUTCOMES.map((outcome) => [outcome, 0])) as Record<AcceptanceTerminalOutcome, number>;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-129-  let recovered = 0;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-130-  let scopeViolations = 0;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-131-  let repeatedSideEffects = 0;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-132-  let verifiedCompletions = 0;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:133:  const operations = args.receipts.map((receipt) => {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:134:    outcomeCounts[receipt.terminal] += 1;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:135:    if (receipt.recovered) recovered += 1;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:136:    if (receipt.scopeViolation) scopeViolations += 1;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:137:    if (receipt.repeatedSideEffect) repeatedSideEffects += 1;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:138:    const verifiedCompletion = receipt.terminal === "completed" && receipt.deliveryVerified &&
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:139:      !receipt.scopeViolation && !receipt.repeatedSideEffect;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-140-    if (verifiedCompletion) verifiedCompletions += 1;
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-141-    return {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:142:      operationId: receipt.operationId,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:143:      caseId: receipt.caseId,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:144:      outcome: receipt.terminal,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-145-      verifiedCompletion,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:146:      recovered: receipt.recovered,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:147:      scopeViolation: receipt.scopeViolation,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts:148:      repeatedSideEffect: receipt.repeatedSideEffect,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-149-    };
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-150-  });
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-151-  return {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-152-    kind: "autonomous-delivery-acceptance",
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-153-    version: AUTONOMOUS_DELIVERY_ACCEPTANCE_VERSION,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-154-    campaign: args.campaign,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-155-    operationCount: total,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-156-    outcomeCounts,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-157-    metrics: {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.ts-158-      completionRate: rate(verifiedCompletions, total),
+--
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-7-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-8-const campaign = {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-9-  provider: "deterministic" as const,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-10-  browser: false,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-11-  deployment: false,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-12-  remoteDelivery: false,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-13-  isolated: true as const,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-14-  redacted: true as const,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-15-};
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-16-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:17:function receipt(operationId: string, overrides: Partial<AutonomousDeliveryAcceptanceReceipt> = {}): AutonomousDeliveryAcceptanceReceipt {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-18-  return {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-19-    operationId,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-20-    caseId: `case-${operationId}`,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-21-    terminal: "completed",
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-22-    deliveryVerified: true,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-23-    recovered: false,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-24-    scopeViolation: false,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-25-    repeatedSideEffect: false,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-26-    ...overrides,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-27-  };
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-28-}
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-29-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-30-describe("autonomous delivery acceptance", () => {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-31-  it("reports operation-keyed completion, blocking, uncertainty, recovery, and safety metrics", () => {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-32-    const summary = buildAutonomousDeliveryAcceptanceSummary({
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-33-      campaign,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:34:      receipts: [
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:35:        receipt("op-1"),
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:36:        receipt("op-2", { terminal: "safely-blocked", deliveryVerified: false }),
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:37:        receipt("op-3", { terminal: "uncertain", deliveryVerified: false, recovered: true }),
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:38:        receipt("op-4", { terminal: "completed", scopeViolation: true }),
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:39:        receipt("op-5", { terminal: "failed", deliveryVerified: false, repeatedSideEffect: true }),
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-40-      ],
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-41-    });
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-42-    expect(summary.operationCount).toBe(5);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-43-    expect(summary.outcomeCounts).toEqual({ completed: 2, "safely-blocked": 1, failed: 1, uncertain: 1 });
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-44-    expect(summary.metrics).toMatchObject({
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-45-      completionRate: 1 / 5,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-46-      safeBlockRate: 1 / 5,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-47-      failureRate: 1 / 5,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-48-      uncertaintyRate: 1 / 5,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-49-      recoveryRate: 1 / 5,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-50-      scopeEscapeRate: 1 / 5,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-51-      repeatedSideEffectRate: 1 / 5,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-52-      verifiedCompletionCount: 1,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-53-    });
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-54-    expect(summary.operations.map((operation) => operation.operationId)).toEqual([
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-55-      "op-1", "op-2", "op-3", "op-4", "op-5",
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-56-    ]);
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-57-  });
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-58-
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-59-  it("fails closed for duplicate identities and unverifiable completion", () => {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:60:    const receipts = [
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:61:      receipt("same"),
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:62:      receipt("same"),
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:63:      receipt("op-2", { terminal: "completed", deliveryVerified: false }),
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-64-    ];
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:65:    expect(validateAutonomousDeliveryAcceptanceReceipts(receipts)).toEqual(expect.arrayContaining([
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts-66-      "duplicate operation identity: same",

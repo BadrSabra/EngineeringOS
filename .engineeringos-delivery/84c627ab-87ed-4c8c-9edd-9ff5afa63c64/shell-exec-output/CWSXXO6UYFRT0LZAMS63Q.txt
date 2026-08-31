@@ -1,0 +1,151 @@
+docs/architecture.md-9-## Current AI execution note (2026-08-27)
+docs/architecture.md-10-
+docs/architecture.md-11-The AI layer is provider-agnostic at the route boundary. Provider selection is
+docs/architecture.md-12-driven by `lib/ai-orchestrator/src/provider-registry.ts` and
+docs/architecture.md:13:`artifacts/api-server/src/lib/ai-route-helpers.ts`, with capability checks,
+docs/architecture.md-14-priority ordering, circuit handling, and bounded fallback across the configured
+docs/architecture.md-15-providers.
+docs/architecture.md-16-
+docs/architecture.md-17-The current analysis surfaces are:
+--
+docs/architecture.md-20-- `POST /api/ai/projects/:projectId/analyze` and `/analyze/stream`
+docs/architecture.md-21-- `POST /api/ai/projects/:projectId/review` and `/review/stream`
+docs/architecture.md-22-- `POST /api/ai/tasks/:taskId/execute`
+docs/architecture.md-23-- `POST /api/ai/workflows/:workflowId/orchestrate`
+docs/architecture.md:24:- `GET/POST /api/ai/executions/*` for history, recovery, resume capability,
+docs/architecture.md-25-  cancellation, and redacted audit export
+docs/architecture.md-26-
+docs/architecture.md-27-Context loading uses a repeatable-read database snapshot with a short-lived
+docs/architecture.md-28-cache. Streamed executions persist identity, checkpoints, evidence/proof
+--
+docs/architecture.md-178-  → buildProjectContext(projectId)
+docs/architecture.md-179-        context cache → requested sections in one REPEATABLE READ snapshot
+docs/architecture.md-180-        → context serialization/admission under the selected execution budget
+docs/architecture.md-181-  → chatWithFallback(...)
+docs/architecture.md:182:        provider registry/capability filtering → bounded provider fallback
+docs/architecture.md-183-        → tool policy + bounded tool loop when the request needs tools
+docs/architecture.md-184-        → parsing, evidence, objective, and terminal-outcome gates
+docs/architecture.md-185-  → sanitize provider-derived text and metadata at the user-facing boundary
+docs/architecture.md-186-  → JSON route: persist session and user/assistant messages → 200 response
+--
+docs/architecture.md-420-- esbuild bundles the API server to CJS for production; Vite bundles the dashboard.
+docs/architecture.md-421-
+docs/architecture.md-422-## 11. Autonomous readiness baseline
+docs/architecture.md-423-
+docs/architecture.md:424:The current readiness decision and observed capability status are documented in
+docs/architecture.md:425:`docs/actual-capability-baseline-v1.md`; the executable gate is described
+docs/architecture.md-426-below. Historical forensic reports may provide rationale, but are not current
+docs/architecture.md-427-status references. The gate is deliberately narrower than a product-parity
+docs/architecture.md-428-assessment:
+docs/architecture.md-429-
+--
+docs/actual-capability-baseline-v1.md:1:# EngineeringOS Actual Capability Baseline
+docs/actual-capability-baseline-v1.md-2-
+docs/actual-capability-baseline-v1.md-3-**Baseline version:** 2 (historical filename retained)
+docs/actual-capability-baseline-v1.md-4-**Observed date:** 2026-08-26
+docs/actual-capability-baseline-v1.md-5-**Scope:** repository source, merged provider-free release checks, and recorded
+--
+docs/actual-capability-baseline-v1.md-9-and no production deployment was used
+docs/actual-capability-baseline-v1.md-10-
+docs/actual-capability-baseline-v1.md-11-## 1. Reading this report
+docs/actual-capability-baseline-v1.md-12-
+docs/actual-capability-baseline-v1.md:13:This is a code-and-test baseline, not a parity claim. A capability is marked:
+docs/actual-capability-baseline-v1.md-14-
+docs/actual-capability-baseline-v1.md-15-- **Verified by code** — the implementation path and enforcement point are present,
+docs/actual-capability-baseline-v1.md-16-  but no relevant automated behavior check was established here.
+docs/actual-capability-baseline-v1.md-17-- **Verified by automated test** — a provider-free unit, route, contract, or
+docs/actual-capability-baseline-v1.md-18-  component test passed.
+docs/actual-capability-baseline-v1.md-19-- **Verified end-to-end** — a real browser/API journey passed against running
+docs/actual-capability-baseline-v1.md:20:  services. No capability receives this label in this update; the preview/browser
+docs/actual-capability-baseline-v1.md-21-  check is still disabled and live-provider checks were not run.
+docs/actual-capability-baseline-v1.md-22-- **Partial** — some path is implemented and/or tested, but an important
+docs/actual-capability-baseline-v1.md-23-  transition, prerequisite, or integration remains unverified or failed.
+docs/actual-capability-baseline-v1.md-24-- **Blocked** — the path intentionally cannot run without a provider, credential,
+docs/actual-capability-baseline-v1.md-25-  or other prerequisite.
+docs/actual-capability-baseline-v1.md:26:- **Not implemented** — the source explicitly does not provide the capability.
+docs/actual-capability-baseline-v1.md-27-
+docs/actual-capability-baseline-v1.md-28-“Proposed”, “validated”, “committed”, and “pushed” describe change state, not
+docs/actual-capability-baseline-v1.md:29:capability state:
+docs/actual-capability-baseline-v1.md-30-
+docs/actual-capability-baseline-v1.md-31-| Change state | Meaning in this baseline |
+docs/actual-capability-baseline-v1.md-32-|---|---|
+docs/actual-capability-baseline-v1.md-33-| Safe proposed | A future change could be suggested without applying it. |
+--
+docs/actual-capability-baseline-v1.md-35-| Committed | Git commit endpoint completed for the approved candidate. |
+docs/actual-capability-baseline-v1.md-36-| Pushed | Git push endpoint completed with configured credentials/remotes. |
+docs/actual-capability-baseline-v1.md-37-
+docs/actual-capability-baseline-v1.md-38-This update did not propose or apply a product change. The report records
+docs/actual-capability-baseline-v1.md:39:capabilities already present in the merged source and the latest validation
+docs/actual-capability-baseline-v1.md-40-receipts; its committed/pushed state is determined by the task merge process.
+docs/actual-capability-baseline-v1.md-41-
+docs/actual-capability-baseline-v1.md-42-### Update ledger
+docs/actual-capability-baseline-v1.md-43-
+--
+docs/actual-capability-baseline-v1.md-81-4. Provider-free contract, SSE/redaction, operational-safety, and deterministic
+docs/actual-capability-baseline-v1.md-82-   benchmark checks now pass. This supersedes the earlier targeted failures for
+docs/actual-capability-baseline-v1.md-83-   those gates, but does not prove every broad API suite or a live provider.
+docs/actual-capability-baseline-v1.md-84-
+docs/actual-capability-baseline-v1.md:85:## 3. User-visible capability map
+docs/actual-capability-baseline-v1.md-86-
+docs/actual-capability-baseline-v1.md:87:| Capability | Implementation path and persisted boundary | Status | Evidence/confidence |
+docs/actual-capability-baseline-v1.md-88-|---|---|---|---|
+docs/actual-capability-baseline-v1.md-89-| Authenticated console and project-scoped navigation | Clerk setup in `replit.md`; `artifacts/dashboard/src/App.tsx` protects project, AI, Flight Deck, Mission Control, task, workflow, Git-related views; API uses auth/project-access middleware | **Verified by automated test** | Dashboard auth/page and client-contract checks pass; authenticated browser journey remains skipped |
+docs/actual-capability-baseline-v1.md-90-| Project discovery/import | `artifacts/api-server/src/routes/discovery.ts`: source listing, discovery start/session/summary, import; durable materialization and owner-scoped cleanup; `DiscoverProjectWizard.tsx` calls generated discovery/import/scan hooks | **Partial** | Discovery route tests exist; selected run failed a durable Git fixture with HTTP 400 rather than expected 202 |
+docs/actual-capability-baseline-v1.md-91-| Ordinary AI chat | `POST /api/ai/chat` and `/stream` in `routes/ai/chat.ts`; context is built, request intent/classification selects route/profile, messages/session state persist in `aiChatSessionsTable`/`aiChatMessagesTable` | **Verified by automated test; live blocked** | AI JSON/SSE, redaction, resume, and false-success release contracts pass; provider checks are disabled |
+--
+docs/actual-capability-baseline-v1.md-96-| AI task execution | `POST /api/ai/tasks/:taskId/execute`; task ownership/status/rate-limit checks delegate to `executeTaskLifecycle`, with task logs/events and durable job helpers | **Partial / blocked** | `tasks.test.ts` covers scheduling/HTTP behavior; real provider execution was not run |
+docs/actual-capability-baseline-v1.md-97-| Workflow orchestration | `POST /api/ai/workflows/:workflowId/orchestrate`; regular workflow API supports start/stop/advance/fail/retry/rollback and execution history | **Partial / blocked** | Workflow route tests passed within selected run; AI orchestration still needs provider and E2E confirmation |
+docs/actual-capability-baseline-v1.md-98-| Execution history and Flight Deck | `GET /api/ai/executions/history`, detail, audit export; `FlightDeck.tsx` renders operation/checkpoint/evidence/validation state | **Verified by code** | `ai-execution-state.test.ts` and dashboard Flight Deck tests exist; no real browser/API journey |
+docs/actual-capability-baseline-v1.md-99-| Mission Control/correlation | Mission Control page consumes execution history; chat route can regenerate a redacted correlation report solely from retained durable evidence | **Verified by automated test** | Dashboard Mission Control/correlation tests passed (part of 101 dashboard tests) |
+docs/actual-capability-baseline-v1.md:100:| Cancellation and recovery | Chat route exposes cancel/recovery/resume-capability; `ai-execution-state.ts` owns leases, resume-token hashing, checkpoint recovery, restart reconciliation, cancellation terminalization | **Verified by automated test** | Latest AI SSE and operational-safety release checks pass; browser reload/restart evidence is still absent |
+docs/actual-capability-baseline-v1.md-101-| Implementation planning | `implementation-planner.ts` requires verified filesystem manifest/source excerpts, validates provider paths, and returns `PENDING_APPROVAL`/`NOT_AUTHORIZED` fallback when grounding is absent | **Verified by code** | No provider-backed plan generation was run |
+docs/actual-capability-baseline-v1.md-102-| Proposed changes and approval | Chat route stores `aiChangeProposalsTable`; write tools queue `pendingChanges`; plan decision and proposal approve/delete routes are present; dashboard shows approval state | **Partial** | Approval boundary is code-backed; complete browser approval journey was not run |
+docs/actual-capability-baseline-v1.md-103-| Isolated delivery workspace | `delivery-workspace.ts` defines the versioned canonical tree digest shared by candidate/live roots, with common exclusions, normalized paths, file-kind records, byte encoding, and symlink targets; chat Apply records base/candidate/promoted proof | **Verified by automated test; operationally partial** | Deterministic workspace and Apply integrity checks pass; no full authenticated promotion journey |
+docs/actual-capability-baseline-v1.md-104-| Validation and repair | `ai-repair-validation.ts` provides server-owned profiles, isolated validation/runtime/preview runners and scope checks; public validation receipts are redacted at route boundary | **Verified by automated test; live journey partial** | Bounded validation and repair-loop checks pass; no live delivery workspace campaign |
+docs/actual-capability-baseline-v1.md-105-| Rebase/conflict handling | Chat route `rebase-changes` and apply path hash base content, rebase hunks, reject conflicts, and preserve conflict metadata | **Verified by code** | Route tests cover conflict-shaped responses; no full user journey |
+docs/actual-capability-baseline-v1.md-106-| Promotion/apply | Apply route checks owner/proposal state, root containment, duplicate paths, base hashes, candidate stability, complete-tree live drift, validation receipts, and full promoted-tree equality before atomically promoting files | **Verified by automated test; operationally partial** | Deterministic full/partial scope and integrity gates are code-backed; no authenticated E2E promotion journey |
+docs/actual-capability-baseline-v1.md-107-| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; scoped AI commit/push require matching operation, canonical tree, change-set, Git identity, and post-commit proof while generic commits retain their existing behavior | **Verified by automated test; operationally partial** | Isolated route proof passed Apply → commit → push with matching base/candidate/promoted/committed tree digests and separate commit identity; Clerk-authenticated live delivery and push against a real GitHub remote remain unrun |
+docs/actual-capability-baseline-v1.md-108-| Audit export | Execution audit export and project export routes project allowlisted/redacted durable evidence | **Verified by code** | Export path is present; no downloaded artifact/API smoke check in this baseline |
+docs/actual-capability-baseline-v1.md:109:| Direct arbitrary model shell execution | Tool policy and execution tools accept server-owned command profiles; the model does not supply arbitrary executable/argv | **Not implemented by design** | `tool-execution-engine.ts` and execution-tools contract enforce the safer profile boundary |
+docs/actual-capability-baseline-v1.md-110-
+docs/actual-capability-baseline-v1.md-111-## 4. Agent loop trace
+docs/actual-capability-baseline-v1.md-112-
+docs/actual-capability-baseline-v1.md-113-1. The chat route loads the owner-scoped project/session and provider selection,
+--
+docs/actual-capability-baseline-v1.md-197-| User/project authorization | Clerk middleware and `requireProjectAccess`/write access on routes | Code-backed; route tests exist |
+docs/actual-capability-baseline-v1.md-198-| Project-root containment | `establishProjectRoot`, `resolveRootPath`, path validation, delivery/apply guards | Code-backed; project-root/path/discovery tests exist |
+docs/actual-capability-baseline-v1.md-199-| Untrusted-content separation | `formatUntrustedContent` on tool output; redaction helpers at AI route persistence/SSE | Code-backed; no live journey |
+docs/actual-capability-baseline-v1.md-200-| Tool authorization | Registered definitions plus `authorizeToolInvocation` and phase/policy checks | Code-backed |
+docs/actual-capability-baseline-v1.md:201:| Server-owned commands | Fixed command profiles; no model-supplied executable or argv | Code-backed |
+docs/actual-capability-baseline-v1.md:202:| Evidence lineage | Run IDs/read attempts/source scopes and final claim validation in `evidence-integrity.ts` | Code-backed; capability evidence boundary requires complete named reads |
+docs/actual-capability-baseline-v1.md-203-| Leases/checkpoints | Postgres execution rows, worker lease/heartbeat, checkpoint versioning and restart reconciliation | Code-backed; dedicated state/job tests exist |
+docs/actual-capability-baseline-v1.md-204-| Idempotency | User/idempotency-key binding, apply journal, task lifecycle/job idempotency helpers | Code-backed; no production concurrency journey |
+docs/actual-capability-baseline-v1.md-205-| Revision/hash binding | Workspace revision, candidate/change-set/promoted hashes and apply/rebase checks | Code-backed |
+docs/actual-capability-baseline-v1.md-206-| Terminal-state rules | Cancellation terminal fence, ownership checks, recovery-to-paused behavior, terminal completion gates | Provider-free AI SSE and operational-safety release checks pass; no browser restart proof |
+--
+docs/actual-capability-baseline-v1.md-236-- **OpenRouter:** startup can refresh a dynamic catalog when a key is present,
+docs/actual-capability-baseline-v1.md-237-  while static free-model candidates remain compatibility data when refresh
+docs/actual-capability-baseline-v1.md-238-  fails or expires. Provider classification and safe recovery guidance are
+docs/actual-capability-baseline-v1.md-239-  provider-free tested; live availability is not proven.
+docs/actual-capability-baseline-v1.md:240:- **Fixture guards:** explicit fixture/capability-audit mode and local verdict
+docs/actual-capability-baseline-v1.md-241-  handling exist, but a fixture result must not be promoted to production
+docs/actual-capability-baseline-v1.md-242-  behavior. The runtime-oracle blocker is closed for the provider-free gate.
+docs/actual-capability-baseline-v1.md-243-- **Provider availability:** dashboard AI operations intentionally require a
+docs/actual-capability-baseline-v1.md-244-  saved provider key. No key was added or changed for this audit.
+--
+docs/actual-capability-baseline-v1.md-253-- **Release status:** the latest provider-free AI release decision passed, but
+docs/actual-capability-baseline-v1.md-254-  the deterministic benchmark baseline still prevents quality rollout and the
+docs/actual-capability-baseline-v1.md-255-  preview/live campaign remains disabled.
+docs/actual-capability-baseline-v1.md-256-
+docs/actual-capability-baseline-v1.md:257:## 9. Capabilities requiring a real smoke check
+docs/actual-capability-baseline-v1.md-258-
+docs/actual-capability-baseline-v1.md-259-Before calling these operational rather than code-backed, run an authenticated,
+docs/actual-capability-baseline-v1.md-260-provider-configured, isolated check:
+docs/actual-capability-baseline-v1.md-261-
+--
+docs/actual-capability-baseline-v1.md-268-7. Flight Deck/Mission Control reload after cancellation, restart recovery, and
+docs/actual-capability-baseline-v1.md-269-   audit export.
+docs/actual-capability-baseline-v1.md-270-8. Git status → source-bound scoped commit → push with a safe fixture remote.
+docs/actual-capability-baseline-v1.md-271-
+docs/actual-capability-baseline-v1.md:272:These are acceptance prerequisites, not claims that the capabilities are
+docs/actual-capability-baseline-v1.md-273-absent.

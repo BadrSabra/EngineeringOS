@@ -1,0 +1,400 @@
+artifacts/api-server/src/lib/ai-execution-state.ts:13:const activeControllers = new Map<string, AbortController>();
+artifacts/api-server/src/lib/ai-execution-state.ts:19: * Keeping both prevents a reconnect or provider response from being treated as
+artifacts/api-server/src/lib/ai-execution-state.ts:33:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:67:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:81:  operationId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:87:  leaseOwner: string | null;
+artifacts/api-server/src/lib/ai-execution-state.ts:88:  leaseUntil: string | null;
+artifacts/api-server/src/lib/ai-execution-state.ts:98:  operationId?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:102:  leaseOwner?: string | null;
+artifacts/api-server/src/lib/ai-execution-state.ts:121:    | "lease_owner_mismatch"
+artifacts/api-server/src/lib/ai-execution-state.ts:122:    | "lease_expired"
+artifacts/api-server/src/lib/ai-execution-state.ts:151:  const leaseUntil = candidate.leaseUntil;
+artifacts/api-server/src/lib/ai-execution-state.ts:155:    || typeof candidate.operationId !== "string" || candidate.operationId.length < 1 || candidate.operationId.length > 160
+artifacts/api-server/src/lib/ai-execution-state.ts:161:    || (candidate.leaseOwner !== null && typeof candidate.leaseOwner !== "string")
+artifacts/api-server/src/lib/ai-execution-state.ts:162:    || (leaseUntil !== null && typeof leaseUntil !== "string")
+artifacts/api-server/src/lib/ai-execution-state.ts:163:    || (leaseUntil !== null && Number.isNaN(Date.parse(leaseUntil)))
+artifacts/api-server/src/lib/ai-execution-state.ts:175:    operationId: candidate.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:181:    leaseOwner: candidate.leaseOwner ?? null,
+artifacts/api-server/src/lib/ai-execution-state.ts:182:    leaseUntil: leaseUntil ?? null,
+artifacts/api-server/src/lib/ai-execution-state.ts:193:  operationId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:199:  leaseOwner?: string | null;
+artifacts/api-server/src/lib/ai-execution-state.ts:200:  leaseUntil?: Date | string | null;
+artifacts/api-server/src/lib/ai-execution-state.ts:206:    operationId: params.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:212:    leaseOwner: params.leaseOwner ?? null,
+artifacts/api-server/src/lib/ai-execution-state.ts:213:    leaseUntil: params.leaseUntil instanceof Date ? params.leaseUntil.toISOString() : params.leaseUntil ?? null,
+artifacts/api-server/src/lib/ai-execution-state.ts:239:  if (expected.operationId !== undefined && parsed.operationId !== expected.operationId) {
+artifacts/api-server/src/lib/ai-execution-state.ts:254:  if (expected.leaseOwner !== undefined && parsed.leaseOwner !== expected.leaseOwner) {
+artifacts/api-server/src/lib/ai-execution-state.ts:255:    return { allowed: false, reason: "lease_owner_mismatch", detail: "Recipe worker does not own the operation lease." };
+artifacts/api-server/src/lib/ai-execution-state.ts:262:  if (expected.requireLease && (!parsed.leaseOwner || !parsed.leaseUntil
+artifacts/api-server/src/lib/ai-execution-state.ts:263:    || Date.parse(parsed.leaseUntil) <= (expected.now ?? new Date()).getTime())) {
+artifacts/api-server/src/lib/ai-execution-state.ts:264:    return { allowed: false, reason: "lease_expired", detail: "Recipe operation lease is missing or expired." };
+artifacts/api-server/src/lib/ai-execution-state.ts:306:  operationId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:325:  planned: ["inspecting", "blocked", "cancelled"],
+artifacts/api-server/src/lib/ai-execution-state.ts:326:  inspecting: ["mutating", "validating", "blocked", "cancelled", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:327:  mutating: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:328:  validating: ["succeeded", "diagnosing", "promoting", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:329:  diagnosing: ["repairing", "blocked", "cancelled", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:330:  repairing: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:331:  promoting: ["delivering", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:332:  delivering: ["succeeded", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:335:  cancelled: [],
+artifacts/api-server/src/lib/ai-execution-state.ts:378: * lease is not evidence that the requested bytes or behavior were accepted.
+artifacts/api-server/src/lib/ai-execution-state.ts:439:    "operationId",
+artifacts/api-server/src/lib/ai-execution-state.ts:465:  operationId?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:503:    | "cancelled";
+artifacts/api-server/src/lib/ai-execution-state.ts:528:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:540:  operationId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:553:  if (params.binding && params.binding.operationId !== params.operationId) {
+artifacts/api-server/src/lib/ai-execution-state.ts:557:    operationId: params.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:595:      (value.operationId !== undefined && typeof value.operationId !== "string") ||
+artifacts/api-server/src/lib/ai-execution-state.ts:743:    typeof candidate.operationId !== "string"
+artifacts/api-server/src/lib/ai-execution-state.ts:804:  if (binding && binding.operationId !== candidate.operationId) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:806:    operationId: candidate.operationId.slice(0, 160),
+artifacts/api-server/src/lib/ai-execution-state.ts:830:  if (stage === "cancelled" || stage === "client_disconnected") return "cancelled";
+artifacts/api-server/src/lib/ai-execution-state.ts:840:  // A stage-only writer may resume directly at tool_loop after a process
+artifacts/api-server/src/lib/ai-execution-state.ts:852:      if (target === "failed" || target === "cancelled") {
+artifacts/api-server/src/lib/ai-execution-state.ts:867: * Reconcile checkpointed node progress with the server-owned plan that will be
+artifacts/api-server/src/lib/ai-execution-state.ts:868: * resumed. The checkpoint may advance status and attempts, but it must never
+artifacts/api-server/src/lib/ai-execution-state.ts:875:  checkpointNodes: AiExecutionCheckpoint["nodeStates"] | undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts:877:  if (!checkpointNodes || checkpointNodes.length === 0) return [...planNodes];
+artifacts/api-server/src/lib/ai-execution-state.ts:878:  if (planNodes.length !== checkpointNodes.length) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:880:  const checkpointById = new Map(checkpointNodes.map((node) => [node.id, node]));
+artifacts/api-server/src/lib/ai-execution-state.ts:881:  if (checkpointById.size !== planNodes.length) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:884:    const checkpointNode = checkpointById.get(planNode.id);
+artifacts/api-server/src/lib/ai-execution-state.ts:886:      !checkpointNode
+artifacts/api-server/src/lib/ai-execution-state.ts:887:      || !sameStringArray(planNode.allowedFiles, checkpointNode.allowedFiles)
+artifacts/api-server/src/lib/ai-execution-state.ts:888:      || !sameStringArray(planNode.dependencies, checkpointNode.dependencies)
+artifacts/api-server/src/lib/ai-execution-state.ts:889:      || planNode.validationProfile !== checkpointNode.validationProfile
+artifacts/api-server/src/lib/ai-execution-state.ts:890:      || checkpointNode.attempts < planNode.attempts
+artifacts/api-server/src/lib/ai-execution-state.ts:891:      || checkpointNode.validationAttempts < planNode.validationAttempts
+artifacts/api-server/src/lib/ai-execution-state.ts:894:          planNode.lastFailure.status !== checkpointNode.lastFailure?.status
+artifacts/api-server/src/lib/ai-execution-state.ts:895:          || planNode.lastFailure.attempt > (checkpointNode.lastFailure?.attempt ?? 0)
+artifacts/api-server/src/lib/ai-execution-state.ts:897:      || (planNode.status === "passed" && checkpointNode.status !== "passed")
+artifacts/api-server/src/lib/ai-execution-state.ts:898:      || (planNode.status === "blocked" && checkpointNode.status !== "blocked")
+artifacts/api-server/src/lib/ai-execution-state.ts:899:      || (checkpointNode.status === "running" && checkpointNode.attempts < 1)
+artifacts/api-server/src/lib/ai-execution-state.ts:906:    const checkpointNode = checkpointById.get(planNode.id)!;
+artifacts/api-server/src/lib/ai-execution-state.ts:909:      status: checkpointNode.status,
+artifacts/api-server/src/lib/ai-execution-state.ts:910:      attempts: checkpointNode.attempts,
+artifacts/api-server/src/lib/ai-execution-state.ts:911:      validationAttempts: checkpointNode.validationAttempts,
+artifacts/api-server/src/lib/ai-execution-state.ts:912:      ...(checkpointNode.lastFailure ? { lastFailure: checkpointNode.lastFailure } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:918: * Turns the last durable checkpoint into server-owned continuation context.
+artifacts/api-server/src/lib/ai-execution-state.ts:920: * the bounded checkpoint and can continue from the last observed stage instead
+artifacts/api-server/src/lib/ai-execution-state.ts:924:  checkpoint: AiExecutionCheckpoint | undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts:926:  if (!checkpoint || checkpoint.stage === "queued") return "";
+artifacts/api-server/src/lib/ai-execution-state.ts:929:    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+artifacts/api-server/src/lib/ai-execution-state.ts:932:    formatUntrustedContent(JSON.stringify(checkpoint), {
+artifacts/api-server/src/lib/ai-execution-state.ts:933:      source: "checkpoint",
+artifacts/api-server/src/lib/ai-execution-state.ts:934:      revision: checkpoint.updatedAt,
+artifacts/api-server/src/lib/ai-execution-state.ts:942:  idempotencyKey: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:950:}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+artifacts/api-server/src/lib/ai-execution-state.ts:954:      operationId: params.request.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:963:      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+artifacts/api-server/src/lib/ai-execution-state.ts:970:      throw new Error("Execution idempotency key is bound to a different request");
+artifacts/api-server/src/lib/ai-execution-state.ts:975:  const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:978:  const operationId = params.request.operationId ?? params.buildPlanMessageId ?? executionId;
+artifacts/api-server/src/lib/ai-execution-state.ts:980:    operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:995:      operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:999:      idempotencyKey: params.idempotencyKey,
+artifacts/api-server/src/lib/ai-execution-state.ts:1002:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:1004:      checkpoint: JSON.stringify({
+artifacts/api-server/src/lib/ai-execution-state.ts:1016:      target: [aiExecutionsTable.userId, aiExecutionsTable.idempotencyKey],
+artifacts/api-server/src/lib/ai-execution-state.ts:1020:  if (execution) return { execution, resumeToken, created: true };
+artifacts/api-server/src/lib/ai-execution-state.ts:1031:      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+artifacts/api-server/src/lib/ai-execution-state.ts:1037:    throw new Error("Execution idempotency key is bound to a different request");
+artifacts/api-server/src/lib/ai-execution-state.ts:1060:}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+artifacts/api-server/src/lib/ai-execution-state.ts:1061:  const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:1065:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:1074:  return execution ? { execution, resumeToken } : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1077:export type AiExecutionRecoveryAction = "resume" | "abandon";
+artifacts/api-server/src/lib/ai-execution-state.ts:1079:  | "resume_accepted"
+artifacts/api-server/src/lib/ai-execution-state.ts:1089:  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1093:  return parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:1099:    cancelled: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts:1107:  const previous = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:1115:        phase: params.cancelled ? "cancelled" as const : "failed" as const,
+artifacts/api-server/src/lib/ai-execution-state.ts:1116:        leaseOwner: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1117:        leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1122:    stage: params.cancelled ? "cancelled" : "failed",
+artifacts/api-server/src/lib/ai-execution-state.ts:1126:          operation: params.cancelled
+artifacts/api-server/src/lib/ai-execution-state.ts:1127:            ? { ...operation, state: "cancelled", ...(terminalBinding ? { binding: terminalBinding } : {}), updatedAt: now }
+artifacts/api-server/src/lib/ai-execution-state.ts:1149: * can be resumed or abandoned. The checkpoint and operation identity are
+artifacts/api-server/src/lib/ai-execution-state.ts:1160:  const checkpoint = recoveryCheckpoint(current);
+artifacts/api-server/src/lib/ai-execution-state.ts:1161:  const operation = checkpoint?.operation;
+artifacts/api-server/src/lib/ai-execution-state.ts:1166:  const priorRecovery = checkpoint && typeof checkpoint === "object"
+artifacts/api-server/src/lib/ai-execution-state.ts:1167:    ? (checkpoint as AiExecutionCheckpoint & { recovery?: { action?: string } }).recovery
+artifacts/api-server/src/lib/ai-execution-state.ts:1169:  if (priorRecovery?.action === "abandon" || current.status === "cancelled") {
+artifacts/api-server/src/lib/ai-execution-state.ts:1172:  if (params.action === "resume" && priorRecovery?.action === "resume") {
+artifacts/api-server/src/lib/ai-execution-state.ts:1173:    return { execution: current, outcome: "resume_accepted" };
+artifacts/api-server/src/lib/ai-execution-state.ts:1175:  if (params.action === "resume" && current.status === "running") {
+artifacts/api-server/src/lib/ai-execution-state.ts:1182:  if (params.action === "resume") {
+artifacts/api-server/src/lib/ai-execution-state.ts:1183:    const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:1185:      ...checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1186:      recovery: { action: "resume", outcome: "resume_accepted", updatedAt: new Date().toISOString() },
+artifacts/api-server/src/lib/ai-execution-state.ts:1189:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:1190:      checkpoint: JSON.stringify(nextCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:1198:      ? { execution: updated, outcome: "resume_accepted", resumeToken }
+artifacts/api-server/src/lib/ai-execution-state.ts:1204:    ...checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1205:    stage: "cancelled" as const,
+artifacts/api-server/src/lib/ai-execution-state.ts:1211:    status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1212:    checkpoint: JSON.stringify(nextCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:1213:    checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1216:    leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1232:  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1235:  const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1241:    const storedBinding = parseAiExecutionCheckpoint(existing.checkpoint)?.recipeBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1246:        operationId: existing.operationId ?? undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts:1255:  const claimCheckpoint = existing && params.recipeBinding ? parseAiExecutionCheckpoint(existing.checkpoint) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1257:    ? { ...params.recipeBinding, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
+artifacts/api-server/src/lib/ai-execution-state.ts:1264:      leaseUntil: claimLeaseUntil,
+artifacts/api-server/src/lib/ai-execution-state.ts:1269:      cancelRequestedAt: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1271:        checkpoint: JSON.stringify({
+artifacts/api-server/src/lib/ai-execution-state.ts:1278:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1286:        eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1289:      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts:1295:export async function checkpointAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:1298:  checkpoint: AiExecutionCheckpoint;
+artifacts/api-server/src/lib/ai-execution-state.ts:1301:  // Keep this update atomic: the worker lease and checkpoint version are the
+artifacts/api-server/src/lib/ai-execution-state.ts:1303:  // server-validated contract in the checkpoint; legacy stage-only writers
+artifacts/api-server/src/lib/ai-execution-state.ts:1305:  const durableOperation = params.checkpoint.operation
+artifacts/api-server/src/lib/ai-execution-state.ts:1306:    ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
+artifacts/api-server/src/lib/ai-execution-state.ts:1308:  const checkpointBinding = params.checkpoint.recipeBinding ?? durableOperation?.binding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1310:    if (!checkpointBinding) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1312:      assertRecipeOperationBinding(checkpointBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1314:        operationId: params.recipeBinding.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1318:        leaseOwner: params.workerId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1324:    if (JSON.stringify(checkpointBinding) !== JSON.stringify(params.recipeBinding)) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1327:    ? { ...params.checkpoint, operation: durableOperation, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) }
+artifacts/api-server/src/lib/ai-execution-state.ts:1328:    : { ...params.checkpoint, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) };
+artifacts/api-server/src/lib/ai-execution-state.ts:1332:      checkpoint: JSON.stringify(durableCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:1333:      checkpointVersion: durableCheckpoint.sequence,
+artifacts/api-server/src/lib/ai-execution-state.ts:1336:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+artifacts/api-server/src/lib/ai-execution-state.ts:1342:      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts:1343:      // A stale worker must not overwrite a newer durable checkpoint.
+artifacts/api-server/src/lib/ai-execution-state.ts:1344:      lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+artifacts/api-server/src/lib/ai-execution-state.ts:1358:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+artifacts/api-server/src/lib/ai-execution-state.ts:1386:      operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1388:      checkpoint: aiExecutionsTable.checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1389:      leaseUntil: aiExecutionsTable.leaseUntil,
+artifacts/api-server/src/lib/ai-execution-state.ts:1399:  const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1401:    if (!current?.leaseUntil || current.leaseUntil <= new Date()) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1405:        operationId: current.operationId ?? undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts:1407:        leaseOwner: params.workerId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1413:    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1416:  const operation = params.operation ?? checkpoint?.operation;
+artifacts/api-server/src/lib/ai-execution-state.ts:1439:      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1441:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1442:      checkpoint: JSON.stringify({
+artifacts/api-server/src/lib/ai-execution-state.ts:1468:      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts:1478:  cancelled?: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts:1485:  const status = params.cancelled ? "cancelled" : "failed";
+artifacts/api-server/src/lib/ai-execution-state.ts:1492:      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts:1495:        params.cancelled ? ["running", "cancelling"] : ["running"],
+artifacts/api-server/src/lib/ai-execution-state.ts:1500:    ? mergeTerminalCheckpoint(current, { ...params, cancelled: params.cancelled ?? false })
+artifacts/api-server/src/lib/ai-execution-state.ts:1504:    const checkpoint = parseAiExecutionCheckpoint(current.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:1508:        operationId: current.operationId ?? undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts:1510:        leaseOwner: params.workerId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1516:    if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts:1525:      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1527:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1528:      ...(terminalCheckpoint ? { checkpoint: JSON.stringify(terminalCheckpoint) } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1533:      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts:1534:      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1540:  // about cancellation through the database (rather than its local signal),
+artifacts/api-server/src/lib/ai-execution-state.ts:1541:  // its ordinary failure path must still settle `cancelling` as cancelled and
+artifacts/api-server/src/lib/ai-execution-state.ts:1542:  // must never publish a failed outcome after the cancellation won.
+artifacts/api-server/src/lib/ai-execution-state.ts:1543:  if (!params.cancelled) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1544:    const cancellationCheckpoint = current
+artifacts/api-server/src/lib/ai-execution-state.ts:1545:      ? mergeTerminalCheckpoint(current, { ...params, cancelled: true })
+artifacts/api-server/src/lib/ai-execution-state.ts:1547:    const [cancelled] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:1550:        status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1554:        leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1556:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1557:        ...(cancellationCheckpoint ? { checkpoint: JSON.stringify(cancellationCheckpoint) } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1562:        eq(aiExecutionsTable.status, "cancelling"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1565:    return Boolean(cancelled);
+artifacts/api-server/src/lib/ai-execution-state.ts:1577:  const cancelledCheckpoint = JSON.stringify(mergeTerminalCheckpoint(current, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1578:    cancelled: true,
+artifacts/api-server/src/lib/ai-execution-state.ts:1579:    error: "Execution cancelled before a worker started.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1583:  // cancellation signal. Transition them directly to a terminal state so
+artifacts/api-server/src/lib/ai-execution-state.ts:1584:  // they cannot remain permanently stuck in `cancelling`.
+artifacts/api-server/src/lib/ai-execution-state.ts:1585:  const [cancelledBeforeStart] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:1588:      status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1589:      cancelRequestedAt: now,
+artifacts/api-server/src/lib/ai-execution-state.ts:1591:      checkpoint: cancelledCheckpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1592:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1594:      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1603:  if (cancelledBeforeStart) return cancelledBeforeStart;
+artifacts/api-server/src/lib/ai-execution-state.ts:1608:      status: "cancelling",
+artifacts/api-server/src/lib/ai-execution-state.ts:1609:      cancelRequestedAt: now,
+artifacts/api-server/src/lib/ai-execution-state.ts:1618:  if (updated) activeControllers.get(updated.id)?.abort(new Error("AI execution cancellation requested"));
+artifacts/api-server/src/lib/ai-execution-state.ts:1622:export function registerAiExecutionController(executionId: string, controller: AbortController): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:1626:export function unregisterAiExecutionController(executionId: string, controller: AbortController): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:1633:    inArray(aiExecutionsTable.status, ["running", "cancelling"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:1637:    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:1638:    if (execution.status === "cancelling") {
+artifacts/api-server/src/lib/ai-execution-state.ts:1640:        cancelled: true,
+artifacts/api-server/src/lib/ai-execution-state.ts:1641:        error: "Execution cancellation was finalized after the server restarted.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1644:        status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1645:        error: "Execution cancelled by the user.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1648:        leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1651:        checkpoint: JSON.stringify(terminalCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:1652:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1655:        eq(aiExecutionsTable.status, "cancelling"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1660:    const operation = checkpoint?.operation;
+artifacts/api-server/src/lib/ai-execution-state.ts:1664:    const nextCheckpoint = checkpoint
+artifacts/api-server/src/lib/ai-execution-state.ts:1666:          ...checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1681:      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1684:      ...(nextCheckpoint ? { checkpoint: JSON.stringify(nextCheckpoint) } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1698:      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+artifacts/api-server/src/routes/ai/chat.ts:53:  resumeActiveTaskClassification,
+artifacts/api-server/src/routes/ai/chat.ts:115:  checkpointAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts:171:  checkpoint: Record<string, unknown>;
+artifacts/api-server/src/routes/ai/chat.ts:174:  const explicit = params.checkpoint.evidenceVerdict;
+artifacts/api-server/src/routes/ai/chat.ts:179:  const recentSteps = Array.isArray(params.checkpoint.recentSteps)
+artifacts/api-server/src/routes/ai/chat.ts:180:    ? params.checkpoint.recentSteps
+artifacts/api-server/src/routes/ai/chat.ts:401:      operationId: result.evidence.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:442:        ...(typeof evidence.operationId === "string" ? { operationId: evidence.operationId } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:479:    operationId: string | null;
+artifacts/api-server/src/routes/ai/chat.ts:481:    checkpoint: string;
+artifacts/api-server/src/routes/ai/chat.ts:482:    checkpointVersion: number;
+artifacts/api-server/src/routes/ai/chat.ts:512:  const operationId = params.execution?.operationId
+artifacts/api-server/src/routes/ai/chat.ts:513:    ?? (typeof request.operationId === "string" ? request.operationId : undefined)
+artifacts/api-server/src/routes/ai/chat.ts:525:  const checkpoint = parseJsonRecord(params.execution?.checkpoint);
+artifacts/api-server/src/routes/ai/chat.ts:526:  const terminalState = params.execution?.status === "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:528:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+artifacts/api-server/src/routes/ai/chat.ts:543:      ? Math.min(1, Math.max(0, params.execution.checkpointVersion > 0 || Object.keys(checkpoint).length > 0 ? 1 : 0))
+artifacts/api-server/src/routes/ai/chat.ts:554:    checkpoints: counts.executionCheckpoints > 0,
+artifacts/api-server/src/routes/ai/chat.ts:564:    operationId,
+artifacts/api-server/src/routes/ai/chat.ts:684: * approval or Build handoff. This is intentionally a live check: reconnects
+artifacts/api-server/src/routes/ai/chat.ts:1481:    | "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:1591:  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:1853: * public-safe shape there so a reconnect cannot recover the raw command,
+artifacts/api-server/src/routes/ai/chat.ts:1924:  resumed: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:1932:  if (args.persisted && (args.resumed || args.executionPlan)) {
+artifacts/api-server/src/routes/ai/chat.ts:2117:  const classificationResolution = resumeActiveTaskClassification(
+artifacts/api-server/src/routes/ai/chat.ts:2129:    resumed: classificationResolution.resumed,
+artifacts/api-server/src/routes/ai/chat.ts:2134:    operationId: string;
+artifacts/api-server/src/routes/ai/chat.ts:2140:    operationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts:2174:    : { acquired: true, release: async () => undefined };
+artifacts/api-server/src/routes/ai/chat.ts:2411:      resumed: classificationResolution.resumed,
+artifacts/api-server/src/routes/ai/chat.ts:2484:        const operationId = msg.id;
+artifacts/api-server/src/routes/ai/chat.ts:2490:          messageId: operationId,
+artifacts/api-server/src/routes/ai/chat.ts:2502:          correlationId: operationId,
+artifacts/api-server/src/routes/ai/chat.ts:2503:          payload: { messageId: operationId, proposalId: proposalId ?? null },
+artifacts/api-server/src/routes/ai/chat.ts:2557:    await applyProbe.release();
+artifacts/api-server/src/routes/ai/chat.ts:2576:    /** Durable execution identity used to reconnect or explicitly resume a run. */
+artifacts/api-server/src/routes/ai/chat.ts:2579:    resumeToken: z.string().min(32).max(128).optional(),
+artifacts/api-server/src/routes/ai/chat.ts:2581:    idempotencyKey: z.string().min(8).max(128).optional(),
+artifacts/api-server/src/routes/ai/chat.ts:2603:    resumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:2604:    idempotencyKey,
+artifacts/api-server/src/routes/ai/chat.ts:2613:  const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
+artifacts/api-server/src/routes/ai/chat.ts:2799:  const streamClassificationResolution = resumeActiveTaskClassification(
+artifacts/api-server/src/routes/ai/chat.ts:2811:    resumed: streamClassificationResolution.resumed,
+artifacts/api-server/src/routes/ai/chat.ts:2822:    operationId: string;
+artifacts/api-server/src/routes/ai/chat.ts:2828:    operationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts:2850:    : { acquired: true, release: async () => undefined };
+artifacts/api-server/src/routes/ai/chat.ts:2860:  let executionAbortController: AbortController | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:2863:  let resumeCheckpoint: AiExecutionCheckpoint | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:3026:      if (["cancelled", "completed", "cancelling"].includes(aiExecution.status)) {
+artifacts/api-server/src/routes/ai/chat.ts:3040:          message: "A resume token is required to continue this execution.",
+artifacts/api-server/src/routes/ai/chat.ts:3046:      // The original request owns the analysis revision. A reconnect must not
+artifacts/api-server/src/routes/ai/chat.ts:3052:      resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
+artifacts/api-server/src/routes/ai/chat.ts:3053:      const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
+artifacts/api-server/src/routes/ai/chat.ts:3054:      if (resumeContext) {
+artifacts/api-server/src/routes/ai/chat.ts:3055:        modelMessage = `${modelMessage}\n\n${resumeContext}`;
+artifacts/api-server/src/routes/ai/chat.ts:3061:        resumeToken: effectiveResumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:3067:          message: "Another resume won the execution claim. Retry after refreshing its status.",
+artifacts/api-server/src/routes/ai/chat.ts:3074:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+artifacts/api-server/src/routes/ai/chat.ts:3079:        idempotencyKey: idempotencyKey ?? randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts:3086:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+artifacts/api-server/src/routes/ai/chat.ts:3087:      executionResumeToken = created.resumeToken;
+artifacts/api-server/src/routes/ai/chat.ts:3104:      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+artifacts/api-server/src/routes/ai/chat.ts:3107:    let checkpointSequence = aiExecution.checkpointVersion;
+artifacts/api-server/src/routes/ai/chat.ts:3108:    const streamCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
+artifacts/api-server/src/routes/ai/chat.ts:3109:    let checkpointFailure: unknown;
+artifacts/api-server/src/routes/ai/chat.ts:3123:      resumeCheckpoint?.nodeStates,
+artifacts/api-server/src/routes/ai/chat.ts:3125:    if (resumeCheckpoint?.nodeStates && !reconciledExecutionNodes) {
+artifacts/api-server/src/routes/ai/chat.ts:3129:        error: "Execution node checkpoint does not match the server-owned plan.",
+artifacts/api-server/src/routes/ai/chat.ts:3130:        cancelled: false,
+artifacts/api-server/src/routes/ai/chat.ts:3143:    const checkpointOperation = resumeCheckpoint?.operation;
+artifacts/api-server/src/routes/ai/chat.ts:3144:    autonomousOperation = checkpointOperation ?? createAutonomousOperationContract({
+artifacts/api-server/src/routes/ai/chat.ts:3145:      operationId: aiExecution.operationId ?? aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:3164:    const activeExecutionAbortController = new AbortController();
+artifacts/api-server/src/routes/ai/chat.ts:3165:    executionAbortController = activeExecutionAbortController;
+artifacts/api-server/src/routes/ai/chat.ts:3166:    registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
+artifacts/api-server/src/routes/ai/chat.ts:3167:    let checkpointChain: Promise<void> = Promise.resolve();
+artifacts/api-server/src/routes/ai/chat.ts:3172:    const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
+artifacts/api-server/src/routes/ai/chat.ts:3173:      const sequence = ++checkpointSequence;
+artifacts/api-server/src/routes/ai/chat.ts:3175:        ...checkpoint,
+artifacts/api-server/src/routes/ai/chat.ts:3213:      checkpointChain = checkpointChain
+artifacts/api-server/src/routes/ai/chat.ts:3215:          const persisted = await checkpointAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts:3218:            checkpoint: completeCheckpoint,
+artifacts/api-server/src/routes/ai/chat.ts:3221:            const error = new Error("AI execution checkpoint rejected by lease/state gate");
+artifacts/api-server/src/routes/ai/chat.ts:3222:            checkpointFailure = error;
+artifacts/api-server/src/routes/ai/chat.ts:3227:          checkpointFailure = err;
+artifacts/api-server/src/routes/ai/chat.ts:3228:          logger.warn({ err, executionId: aiExecution!.id }, "AI execution checkpoint failed");
+artifacts/api-server/src/routes/ai/chat.ts:3253:      ...(executionResumeToken ? { resumeToken: executionResumeToken } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:3261:        return ["recovery_required", "resume_accepted", "abandoned", "already_abandoned"].includes(String(outcome))
+artifacts/api-server/src/routes/ai/chat.ts:3370:            | "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:3662:           ...(executionDiagnosticDetails.length > 0 && !activeExecutionAbortController.signal.aborted
+artifacts/api-server/src/routes/ai/chat.ts:3776:      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+artifacts/api-server/src/routes/ai/chat.ts:3809:              operationId: request.operationId ?? analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:3829:                evidenceId: `browser-start:${request.operationId ?? "unknown"}`,
+artifacts/api-server/src/routes/ai/chat.ts:3891:            operationId: analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:3901:             operationId: analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:3909:          signal: activeExecutionAbortController.signal,
+artifacts/api-server/src/routes/ai/chat.ts:3924:        !activeExecutionAbortController.signal.aborted &&
+artifacts/api-server/src/routes/ai/chat.ts:3939:      // identical and makes cancellation/tool/recovery precedence explicit.
+artifacts/api-server/src/routes/ai/chat.ts:3945:        cancelled: activeExecutionAbortController.signal.aborted,
+artifacts/api-server/src/routes/ai/chat.ts:4040:            cancelled: terminalOutcome.outcome === "INTERRUPTED",
+artifacts/api-server/src/routes/ai/chat.ts:4124:            ? "The AI request could not complete. Please retry."
+artifacts/api-server/src/routes/ai/chat.ts:4147:        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+artifacts/api-server/src/routes/ai/chat.ts:4240:      resumed: streamClassificationResolution.resumed,
+artifacts/api-server/src/routes/ai/chat.ts:4273:            cancelled: false,
+artifacts/api-server/src/routes/ai/chat.ts:4304:    let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
+artifacts/api-server/src/routes/ai/chat.ts:4340:      // A resumed execution already owns its original user turn. Only a new
+artifacts/api-server/src/routes/ai/chat.ts:4341:      // execution appends a user message; otherwise reconnecting duplicates
+artifacts/api-server/src/routes/ai/chat.ts:4376:        const operationId = assistantOperationId ?? proposalMessageId;
+artifacts/api-server/src/routes/ai/chat.ts:4377:        assistantOperationId = operationId;
+artifacts/api-server/src/routes/ai/chat.ts:4399:          correlationId: operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4402:            operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4426:    await checkpointChain;
+artifacts/api-server/src/routes/ai/chat.ts:4469:    if (checkpointFailure && !activeExecutionAbortController.signal.aborted) {
+artifacts/api-server/src/routes/ai/chat.ts:4470:      throw new Error("AI execution checkpoint persistence failed before finalization");
+artifacts/api-server/src/routes/ai/chat.ts:4477:        cancelled: false,
+artifacts/api-server/src/routes/ai/chat.ts:4481:    } else if (activeExecutionAbortController.signal.aborted) {
+artifacts/api-server/src/routes/ai/chat.ts:4484:      // still persisted above for reconnect/history, but the execution must
+artifacts/api-server/src/routes/ai/chat.ts:4485:      // remain terminally cancelled rather than entering the normal success
+artifacts/api-server/src/routes/ai/chat.ts:4486:      // finalizer (which can race the cancel endpoint's row update).
+artifacts/api-server/src/routes/ai/chat.ts:4491:        error: "Execution cancelled by the user.",
+artifacts/api-server/src/routes/ai/chat.ts:4492:        cancelled: true,
+artifacts/api-server/src/routes/ai/chat.ts:4538:          cancelled: false,
+artifacts/api-server/src/routes/ai/chat.ts:4616:      operationId: assistantOperationId,
+artifacts/api-server/src/routes/ai/chat.ts:4647:        error: executionAbortController?.signal.aborted
+artifacts/api-server/src/routes/ai/chat.ts:4648:          ? "Execution cancelled by the user."
+artifacts/api-server/src/routes/ai/chat.ts:4650:        cancelled: executionAbortController?.signal.aborted,
+artifacts/api-server/src/routes/ai/chat.ts:4658:      if (executionAbortController) {
+artifacts/api-server/src/routes/ai/chat.ts:4659:        unregisterAiExecutionController(aiExecution.id, executionAbortController);
+artifacts/api-server/src/routes/ai/chat.ts:4662:    await applyLock.release();
+artifacts/api-server/src/routes/ai/chat.ts:4684:      inArray(aiExecutionsTable.status, ["paused", "cancelled", "failed"]),
+artifacts/api-server/src/routes/ai/chat.ts:4695:    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/routes/ai/chat.ts:4696:    const checkpointRecord = checkpoint && typeof checkpoint === "object"
+artifacts/api-server/src/routes/ai/chat.ts:4697:      ? checkpoint as Record<string, unknown>
+artifacts/api-server/src/routes/ai/chat.ts:4702:      checkpoint: checkpointRecord,
+artifacts/api-server/src/routes/ai/chat.ts:4722:      evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+artifacts/api-server/src/routes/ai/chat.ts:4723:        ? safeText(checkpointRecord.evidenceReason, "", 500)
+artifacts/api-server/src/routes/ai/chat.ts:4725:      terminalReason: execution.status === "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:4726:        ? "Audit was cancelled before completion."
+artifacts/api-server/src/routes/ai/chat.ts:4729:          : "Execution is paused at a durable checkpoint.",
+artifacts/api-server/src/routes/ai/chat.ts:4730:      proofRequired: checkpointRecord.proofRequired === true
+artifacts/api-server/src/routes/ai/chat.ts:4737:      checkpointVersion: execution.checkpointVersion,
+artifacts/api-server/src/routes/ai/chat.ts:4738:      operationId: execution.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4750:  let checkpoint: unknown = {};
+artifacts/api-server/src/routes/ai/chat.ts:4752:    checkpoint = JSON.parse(execution.checkpoint);
+artifacts/api-server/src/routes/ai/chat.ts:4754:    checkpoint = { stage: "unknown", detail: "Checkpoint is unavailable." };
+artifacts/api-server/src/routes/ai/chat.ts:4756:  const checkpointRecord =
+artifacts/api-server/src/routes/ai/chat.ts:4757:    checkpoint && typeof checkpoint === "object"
+artifacts/api-server/src/routes/ai/chat.ts:4758:      ? checkpoint as Record<string, unknown>
+artifacts/api-server/src/routes/ai/chat.ts:4761:  let operationId = execution.operationId ?? execution.buildPlanMessageId ?? execution.proposalId ?? null;
+artifacts/api-server/src/routes/ai/chat.ts:4762:  if (!execution.operationId && execution.proposalId) {

@@ -1,0 +1,200 @@
+lib/db/src/schema/index.ts:16:export * from "./ai_executions.js";
+lib/db/src/schema/ai_executions.ts:23:export const aiExecutionsTable = pgTable("ai_executions", {
+lib/db/src/schema/ai_executions.ts:51:  checkpointVersion: integer("checkpoint_version").notNull().default(0),
+lib/db/src/schema/ai_executions.ts:68:  index("idx_ai_executions_project_status").on(t.projectId, t.status),
+lib/db/src/schema/ai_executions.ts:69:  index("idx_ai_executions_session_status").on(t.sessionId, t.status),
+lib/db/src/schema/ai_executions.ts:70:  index("idx_ai_executions_status_lease").on(t.status, t.leaseUntil),
+lib/db/src/schema/ai_executions.ts:71:  index("idx_ai_executions_linked_task").on(t.linkedTaskId),
+lib/db/src/schema/ai_executions.ts:72:  index("idx_ai_executions_correlation_id").on(t.correlationId),
+lib/db/src/schema/ai_executions.ts:73:  uniqueIndex("uq_ai_executions_user_idempotency").on(t.userId, t.idempotencyKey),
+lib/db/src/schema/ai_executions.ts:76:export type InsertAiExecution = typeof aiExecutionsTable.$inferInsert;
+lib/db/src/schema/ai_executions.ts:77:export type AiExecution = typeof aiExecutionsTable.$inferSelect;
+artifacts/api-server/src/lib/database-schema-preflight.ts:43:  { tableName: "ai_executions", columnName: "operation_id" },
+artifacts/api-server/src/lib/database-schema-preflight.ts:73:        OR (table_name = 'ai_executions' AND column_name = 'operation_id')
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:12:        { table_name: "ai_executions", column_name: "operation_id" },
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:21:        { table_name: "ai_executions", column_name: "operation_id" },
+artifacts/api-server/src/lib/database-schema-preflight.test.ts:31:        { table_name: "ai_executions", column_name: "operation_id" },
+artifacts/api-server/src/routes/ai.test.ts:24:  aiExecutionsTable,
+artifacts/api-server/src/routes/ai.test.ts:651:  await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+artifacts/api-server/src/routes/ai.test.ts:1541:    await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/routes/ai.test.ts:1543:      checkpointVersion: 3,
+artifacts/api-server/src/routes/ai.test.ts:1556:    }).where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/routes/ai.test.ts:1571:      checkpointVersion: 3,
+artifacts/api-server/src/routes/ai.test.ts:1605:      .update(aiExecutionsTable)
+artifacts/api-server/src/routes/ai.test.ts:1638:        checkpointVersion: 7,
+artifacts/api-server/src/routes/ai.test.ts:1645:      .where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/routes/ai.test.ts:1701:      .update(aiExecutionsTable)
+artifacts/api-server/src/routes/ai.test.ts:1703:      .where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/lib/ai-execution-state.ts:3:import { db, aiExecutionsTable } from "@workspace/db";
+artifacts/api-server/src/lib/ai-execution-state.ts:17: * lifecycle status. `ai_executions.status` answers "is a worker alive?", while
+artifacts/api-server/src/lib/ai-execution-state.ts:960:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:962:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:963:      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+artifacts/api-server/src/lib/ai-execution-state.ts:990:    .insert(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1016:      target: [aiExecutionsTable.userId, aiExecutionsTable.idempotencyKey],
+artifacts/api-server/src/lib/ai-execution-state.ts:1028:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1030:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1031:      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+artifacts/api-server/src/lib/ai-execution-state.ts:1048:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1050:      eq(aiExecutionsTable.id, executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1051:      eq(aiExecutionsTable.userId, userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1063:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1069:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1070:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1071:      inArray(aiExecutionsTable.status, ["paused", "failed"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:1188:    const [updated] = await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/ai-execution-state.ts:1193:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1194:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1195:      eq(aiExecutionsTable.status, "paused"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1210:  const [updated] = await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/ai-execution-state.ts:1213:    checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1219:    eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1220:    eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1221:    eq(aiExecutionsTable.status, "paused"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1260:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1278:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1282:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1283:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1285:        eq(aiExecutionsTable.projectId, params.recipeBinding.projectId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1286:        eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1288:      inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:1289:      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts:1330:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1333:      checkpointVersion: durableCheckpoint.sequence,
+artifacts/api-server/src/lib/ai-execution-state.ts:1339:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1340:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1341:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1342:      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts:1344:      lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+artifacts/api-server/src/lib/ai-execution-state.ts:1346:    .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1355:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1362:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1363:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1364:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1366:    .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1385:      projectId: aiExecutionsTable.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1386:      operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1387:      request: aiExecutionsTable.request,
+artifacts/api-server/src/lib/ai-execution-state.ts:1388:      checkpoint: aiExecutionsTable.checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1389:      leaseUntil: aiExecutionsTable.leaseUntil,
+artifacts/api-server/src/lib/ai-execution-state.ts:1391:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1393:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1394:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1395:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1432:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1441:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1465:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1466:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1467:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1468:      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts:1470:    .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1488:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1490:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1491:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1492:      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts:1494:        aiExecutionsTable.status,
+artifacts/api-server/src/lib/ai-execution-state.ts:1519:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1527:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1531:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1532:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1533:      gt(aiExecutionsTable.leaseUntil, new Date()),
+artifacts/api-server/src/lib/ai-execution-state.ts:1534:      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1536:    .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1548:      .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1556:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1560:        eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1561:        eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1562:        eq(aiExecutionsTable.status, "cancelling"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1564:      .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1586:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1592:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1598:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1599:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1600:      inArray(aiExecutionsTable.status, ["queued", "paused"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:1606:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1613:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1614:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1615:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1632:  const running = await db.select().from(aiExecutionsTable).where(
+artifacts/api-server/src/lib/ai-execution-state.ts:1633:    inArray(aiExecutionsTable.status, ["running", "cancelling"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:1643:      const [updated] = await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/ai-execution-state.ts:1652:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1654:        eq(aiExecutionsTable.id, execution.id),
+artifacts/api-server/src/lib/ai-execution-state.ts:1655:        eq(aiExecutionsTable.status, "cancelling"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1656:      )).returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1677:    const [updated] = await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/ai-execution-state.ts:1685:    }).where(and(eq(aiExecutionsTable.id, execution.id), eq(aiExecutionsTable.status, "running"))).returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1694:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1696:      eq(aiExecutionsTable.userId, userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1697:      eq(aiExecutionsTable.sessionId, sessionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1698:      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+artifacts/api-server/src/lib/workflow-phase-execution.ts:29: * dependency, checkpoint, and retained transition evidence in ai_executions.
+artifacts/api-server/src/lib/workflow-phase-execution.ts:133:        sequence: Math.max(1, durable.execution.checkpointVersion + 1),
+artifacts/api-server/src/lib/ai-execution-state.test.ts:28:    checkpointVersion: 0,
+artifacts/api-server/src/lib/ai-execution-state.test.ts:80:    aiExecutionsTable: executionTable,
+artifacts/api-server/src/routes/tasks.ts:7:  aiExecutionsTable,
+artifacts/api-server/src/routes/tasks.ts:244:    const activeExecutions = await tx.select({ id: aiExecutionsTable.id })
+artifacts/api-server/src/routes/tasks.ts:245:      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/tasks.ts:247:        eq(aiExecutionsTable.linkedTaskId, taskId),
+artifacts/api-server/src/routes/tasks.ts:248:        inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+artifacts/api-server/src/routes/tasks.ts:845:  const activeExecutions = await db.select({ id: aiExecutionsTable.id })
+artifacts/api-server/src/routes/tasks.ts:846:    .from(aiExecutionsTable)
+artifacts/api-server/src/routes/tasks.ts:848:      eq(aiExecutionsTable.linkedTaskId, taskId),
+artifacts/api-server/src/routes/tasks.ts:849:      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+artifacts/api-server/src/routes/projects.ts:10:  aiExecutionsTable,
+artifacts/api-server/src/routes/projects.ts:273:    db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable).where(and(
+artifacts/api-server/src/routes/projects.ts:274:      eq(aiExecutionsTable.projectId, projectId),
+artifacts/api-server/src/routes/projects.ts:275:      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+artifacts/api-server/src/lib/operation-evidence.ts:80:  execution: Pick<AiExecution, "id" | "projectId" | "operationId" | "correlationId" | "status" | "attempt" | "checkpoint" | "checkpointVersion" | "request" | "baseRevision" | "error" | "createdAt" | "startedAt" | "completedAt">;
+artifacts/api-server/src/lib/operation-evidence.ts:205:  if (execution.checkpointVersion <= 0 || Object.keys(checkpoint).length === 0) {
+artifacts/api-server/src/lib/operation-evidence.ts:250:      checkpoints: execution.checkpointVersion > 0 ? 1 : 0,
+artifacts/api-server/src/lib/operation-evidence.test.ts:18:      checkpointVersion: 2,
+artifacts/api-server/src/lib/operation-evidence.test.ts:62:        checkpointVersion: 0,
+artifacts/api-server/src/lib/task-execution-service.ts:5:  aiExecutionsTable,
+artifacts/api-server/src/lib/task-execution-service.ts:175: * The queue is only a concurrency limiter; ai_executions and the task lease
+artifacts/api-server/src/lib/task-execution-service.ts:390:        .select({ status: aiExecutionsTable.status })
+artifacts/api-server/src/lib/task-execution-service.ts:391:        .from(aiExecutionsTable)
+artifacts/api-server/src/lib/task-execution-service.ts:393:          eq(aiExecutionsTable.id, executionId),
+artifacts/api-server/src/lib/task-execution-service.ts:394:          eq(aiExecutionsTable.workerId, workerId),
+artifacts/api-server/src/lib/task-execution-service.ts:466:      await tx.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:481:        eq(aiExecutionsTable.id, executionId),
+artifacts/api-server/src/lib/task-execution-service.ts:482:        eq(aiExecutionsTable.workerId, workerId),
+artifacts/api-server/src/lib/task-execution-service.ts:483:        eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/routes/health.ts:14:  ["ai_executions", "operation_id"],
+artifacts/api-server/src/lib/task-execution-retention.ts:75:           SELECT 1 FROM ai_executions e
+artifacts/api-server/src/lib/task-execution-retention.ts:92:             SELECT 1 FROM ai_executions e
+artifacts/api-server/src/lib/task-execution-retention.ts:105:       FROM ai_executions e
+artifacts/api-server/src/lib/task-execution-retention.ts:109:           SELECT 1 FROM ai_executions newer
+artifacts/api-server/src/lib/task-execution-retention.ts:121:        `DELETE FROM ai_executions e
+artifacts/api-server/src/lib/task-execution-retention.ts:125:             SELECT 1 FROM ai_executions newer
+artifacts/api-server/src/lib/startup-migrations.ts:319:    }>("SELECT id, checkpoint FROM ai_executions WHERE checkpoint IS NOT NULL");
+artifacts/api-server/src/lib/startup-migrations.ts:324:          "UPDATE ai_executions SET checkpoint = $1 WHERE id = $2 AND checkpoint = $3",
+artifacts/api-server/src/lib/startup-migrations.ts:389:      "SELECT id, checkpoint FROM ai_executions WHERE updated_at < $1 AND status IN ('cancelled', 'completed', 'failed') AND checkpoint IS NOT NULL",
+artifacts/api-server/src/lib/startup-migrations.ts:403:          "UPDATE ai_executions SET checkpoint = $1 WHERE id = $2 AND checkpoint = $3",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:35:  aiExecutionsTable,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:403:  await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:590:    await db.update(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:592:      .where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:615:    await db.update(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:617:      .where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:755:            .select({ status: aiExecutionsTable.status, checkpoint: aiExecutionsTable.checkpoint })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:756:            .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:757:            .where(eq(aiExecutionsTable.id, created.execution.id));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1074:      .select({ status: aiExecutionsTable.status })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1075:      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1076:      .where(eq(aiExecutionsTable.id, created.execution.id))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1124:        id: aiExecutionsTable.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1125:        status: aiExecutionsTable.status,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1126:        finalMessageId: aiExecutionsTable.finalMessageId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1128:      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1129:      .where(eq(aiExecutionsTable.id, created.execution.id))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1225:      .select({ status: aiExecutionsTable.status, checkpoint: aiExecutionsTable.checkpoint })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1226:      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1227:      .where(eq(aiExecutionsTable.id, created.execution.id))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1483:        id: aiExecutionsTable.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1484:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1485:        proposalId: aiExecutionsTable.proposalId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1487:      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1488:      .where(eq(aiExecutionsTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2624:      .select({ sessionId: aiExecutionsTable.sessionId, request: aiExecutionsTable.request })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2625:      .from(aiExecutionsTable)

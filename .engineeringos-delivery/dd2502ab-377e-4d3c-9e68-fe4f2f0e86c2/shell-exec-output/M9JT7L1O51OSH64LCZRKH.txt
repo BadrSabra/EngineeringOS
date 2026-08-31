@@ -1,0 +1,60 @@
+9854 bytes
+- Build Safe Capability Recipes
+What & Why
+The current execution boundary is safe but narrow: the chat route exposes one server-owned run_command profile (workspace-typecheck), while validation exposes a small fixed set of test profiles. The orchestrator already has the right building blocks for a stronger model experience—phase policies, approved implementation scopes, isolated validation workspaces, durable execution nodes, candidate/revision evidence, bounded retries, and redacted receipts—but they are not exposed as a composable capability surface.
+
+Add a server-owned Capability Recipe layer that lets the model select and combine approved operations such as candidate verification, focused validation, typechecking, browser checks, and bounded repair recovery. The model may select an opaque recipe and server-issued target/options, but it must never provide an executable, shell text, raw argv, cwd, environment, URL, selector, or unregistered path. This should provide materially more useful agent autonomy without weakening the existing approval, scope, root-containment, candidate-integrity, failure-persistence, or evidence gates.
+
+Done looks like
+The model can choose an approved composite recipe, such as candidate verification, from a server-owned capability catalog and run its bounded steps in the correct phase and operation context.
+Recipe options are strict typed or opaque server-issued identifiers (for example, an approved validation target), not arbitrary paths, commands, arguments, scripts, URLs, or selectors. Unknown recipes, stale target IDs, invalid options, and pseudo-shell payloads fail closed with a safe diagnostic.
+Existing CommandProfile and validation profiles remain compatible as leaf capabilities. The current workspace-typecheck, ai-orchestrator-tests, knowledge-engine-tests, and api-ai-tests behaviors remain available and their execution details remain server-owned.
+Composite recipes compile into the existing server-owned execution-node model with bounded dependencies, parallelism, retry budgets, phase restrictions, operation/revision/candidate binding, and deterministic terminal outcomes.
+Mutating or validating recipes run against the approved candidate/isolated workspace when pending changes exist; they cannot silently switch to the live root, expand the approved file scope, reuse a stale revision, or promote changes.
+Every recipe and step produces a durable, redacted receipt containing the recipe/version, opaque step/profile identity, operation and revision correlation, candidate/change-set references when applicable, status, exit code, budget telemetry, and evidence references. Raw commands, arguments, provider output, secrets, and local paths do not cross the public boundary.
+A missing capability produces a visible, auditable capability-gap outcome and an optional request-for-capability record; it never causes the model to synthesize or execute a raw shell fallback.
+JSON/SSE chat, reconnect/recovery, and dashboard execution history agree on recipe progress and failed/incomplete/succeeded semantics. Completion is never inferred from model text or a worker callback without server-owned evidence.
+Deterministic tests cover policy bypasses, scope/revision/candidate drift, retries, cancellation, replay, redaction, malformed model payloads, and successful multi-step recipe execution without live providers.
+The capability baseline documents the new bounded-composition capability separately from the intentionally unsupported direct arbitrary model shell capability.
+Out of scope
+Adding unrestricted shell, sh -c/bash -c, node -e with model text, raw model-supplied argv, arbitrary cwd/environment, arbitrary network access, or a generic install/migration command.
+Replacing the existing command kernel, tool-call protocol normalization, unified failure classifier, candidate tree-integrity contract, approval flow, or durable job architecture; consume the adjacent hardening work from Tasks #54, #55, and #56.
+Letting the model create or edit command Profiles/Recipes at runtime. New executable capabilities remain reviewed server configuration/code.
+Treating repository text, validation output, or model claims as authorization, scope, or success evidence.
+Live provider campaigns, production deployment, GitHub credential flows, database schema redesign, or a dashboard visual redesign.
+Steps
+Define the capability contract and registry — Add strict server-owned types for leaf Profiles, composite Recipes, typed option slots, risk/approval requirements, allowed phases/operations, resource budgets, and recipe versions. Preserve CommandProfile as a leaf adapter, use opaque server-issued capability/target IDs, and reject unknown fields or executable-looking strings rather than coercing them into commands.
+Build a safe capability catalog — Expose only capabilities valid for the current provider/tool policy, operation phase, approved implementation plan, target scope, root, and candidate/revision. Derive selectable validation targets from an explicit allowlist and trusted project metadata; never turn arbitrary package scripts, model paths, or repository instructions directly into executable capabilities. Add a structured request_capability/capability-gap result for intents that have no registered match.
+Compile Recipes into bounded execution nodes — Implement server-side recipe compilation into the existing dependency-aware execution-node coordinator. Support an initial useful set such as candidate verification (typecheck plus one approved focused validation), validation recovery, and approved browser verification, while retaining existing direct validation behavior. The compiler owns step order, dependencies, parallelism, retry limits, phase transitions, and terminal success requirements; the model cannot alter the compiled graph.
+Bind execution to an operation lease — Issue an operation-scoped, expiring, single-use or idempotently replayable capability lease bound to operation ID, plan fingerprint, recipe version, phase, approved paths, project revision, and candidate identity. Revalidate the lease and all server-owned bindings immediately before every step and after asynchronous setup so stale tool calls, provider retries, and cross-operation replays fail closed.
+Harden workspace and process execution — Route recipe steps through the existing root-containment and non-shell kernel, using the isolated candidate workspace for pending-change validation. Require fixed executable/argv/cwd, bounded time/output/process groups, an explicit minimal environment policy, and an explicit network policy; do not inherit secrets or allow a trusted Profile to become an indirect shell escape through sh -c, dynamic code evaluation, or unrestricted script arguments.
+Create canonical recipe receipts — Extend the shared validation/execution evidence contract with recipe and step identity, policy/recipe version, operation/revision/candidate/change-set binding, resource usage, and evidence references. Keep public receipts allowlisted and redacted, store raw diagnostics only in protected server logs, and make missing, timed-out, cancelled, failed, or unavailable steps terminally distinguishable from a proven pass.
+Integrate route, stream, and dashboard state — Thread the catalog, recipe dispatch, lease, receipt, and capability-gap outcomes through the chat agent, tool loop, JSON/SSE route, durable execution checkpoint, reconnect/recovery path, and Flight Deck/AiChat rendering. Reuse the unified failure-persistence and candidate-integrity contracts from the dependent tasks so a recipe cannot appear successful after a failed step, stale candidate, cancellation, or incomplete evidence.
+Add deterministic security and behavior coverage — Test catalog filtering, strict payload parsing, raw-command rejection, unknown/stale IDs, phase and operation gating, path/root/symlink escape, profile limit violations, environment/network restrictions, candidate/revision drift, lease expiry/replay, dependency ordering, bounded retries, cancellation, recovery, redaction, capability-gap reporting, and a successful multi-step recipe with matching evidence. Keep existing kernel, profile, native/XML tool-call, and ordinary chat tests passing without live providers.
+Update capability documentation — Record the new capability-catalog and recipe-composition behavior in the architecture and capability baseline documents, including what is code-backed versus automated/e2e verified. State explicitly that stronger bounded Recipes are supported while direct arbitrary model shell execution remains intentionally unavailable.
+Relevant files
+lib/ai-orchestrator/src/tools/execution-tools.ts
+lib/ai-orchestrator/src/execution-kernel.ts
+lib/ai-orchestrator/src/tool-policy.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/task-session-state.ts
+lib/ai-orchestrator/src/execution-node-coordinator.ts
+lib/ai-orchestrator/src/quality/execution-phases.ts
+lib/ai-orchestrator/src/validation-result.ts
+artifacts/api-server/src/routes/ai/chat.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+artifacts/api-server/src/lib/ai-repair-validation.ts
+artifacts/api-server/src/lib/ai-execution-state.ts
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts
+lib/ai-orchestrator/src/execution-kernel.test.ts
+lib/ai-orchestrator/src/__tests__/tool-policy.test.ts
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts
+artifacts/api-server/src/routes/ai.test.ts
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+lib/api-client-react/src/use-ai-chat-stream.ts
+artifacts/dashboard/src/pages/AiChat.tsx
+artifacts/dashboard/src/pages/FlightDeck.tsx
+lib/api-spec/openapi.yaml
+docs/architecture.md
+docs/actual-capability-baseline-v1.md

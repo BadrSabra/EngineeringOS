@@ -1,0 +1,240 @@
+lib/ai-orchestrator/src/startup-validator.ts:59:        scope: "startup-validator",
+lib/ai-orchestrator/src/startup-validator.ts:105:          scope: "startup-validator",
+lib/ai-orchestrator/src/startup-validator.ts:123:          scope: "startup-validator",
+lib/ai-orchestrator/src/startup-validator.ts:153:            scope: "startup-validator",
+lib/ai-orchestrator/src/startup-validator.ts:178:            scope: "startup-validator",
+lib/ai-orchestrator/src/startup-validator.ts:210:        scope: "startup-validator",
+lib/ai-orchestrator/src/startup-validator.ts:238:        scope: "startup-validator",
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:89:  console.info(JSON.stringify({ scope: "model-resolver", ...trace }));
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:175:      scope: "model-resolver",
+lib/ai-orchestrator/src/capability-contract.ts:108:        message: "supported scopes must be unique",
+lib/ai-orchestrator/src/capability-contract.ts:115:        message: "the default scope must be supported",
+lib/ai-orchestrator/src/capability-contract.ts:409:export class CapabilityRegistry {
+lib/ai-orchestrator/src/capability-contract.ts:419:      throw new CapabilityRegistryError("CAPABILITY_CONTRACT_INVALID", invalid.detail);
+lib/ai-orchestrator/src/capability-contract.ts:423:      throw new CapabilityRegistryError(
+lib/ai-orchestrator/src/capability-contract.ts:535:export class CapabilityRegistryError extends Error {
+lib/ai-orchestrator/src/capability-contract.ts:543:    this.name = "CapabilityRegistryError";
+lib/ai-orchestrator/src/capability-catalog.ts:7:  CapabilityRegistry,
+lib/ai-orchestrator/src/capability-catalog.ts:59:  "scope_not_supported",
+lib/ai-orchestrator/src/capability-catalog.ts:68:    confirmationReasons: z.array(z.enum(["mutation", "cost", "risk", "approval", "scope"])).max(5),
+lib/ai-orchestrator/src/capability-catalog.ts:252:      reason: "scope_not_supported",
+lib/ai-orchestrator/src/capability-catalog.ts:253:      operatorGuidance: "Narrow or change the requested scope to one supported by this capability.",
+lib/ai-orchestrator/src/capability-catalog.ts:286:  if (requestedScope && requestedScope !== metadata.defaultScope) confirmationReasons.push("scope");
+lib/ai-orchestrator/src/capability-catalog.ts:342:        `The request fits the ${metadata.defaultScope} default scope.`,
+lib/ai-orchestrator/src/capability-catalog.ts:371:  registry: CapabilityRegistry,
+lib/ai-orchestrator/src/capability-catalog.ts:416:  registry: CapabilityRegistry,
+lib/ai-orchestrator/src/capability-catalog.ts:466:    const policyReason = entry?.availability.reason === "scope_not_supported"
+lib/ai-orchestrator/src/capability-catalog.ts:483:  registry: CapabilityRegistry,
+lib/ai-orchestrator/src/capability-catalog.ts:511:    return `- ${entry.id} v${entry.supportedRecipeVersions.join("/")} — ${entry.purpose}; input {${fields}}; scope ${entry.defaultScope}; cost ${entry.cost}; risk ${entry.risk}; ${availability}; automatic execution ${entry.autonomy.automaticExecution}`;
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:114:            scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:131:            scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:158:            scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:174:          scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:186:          scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:212:        scope: "dynamic-catalog",
+lib/ai-orchestrator/src/openai-compatible-client.ts:503:      scope: "openai-compatible-client",
+lib/ai-orchestrator/src/openai-compatible-client.ts:705:      scope: "openai-compatible-client",
+lib/ai-orchestrator/src/openai-compatible-client.ts:754:        scope: "openai-compatible-client",
+lib/ai-orchestrator/src/openai-compatible-client.ts:847:      scope: "openai-compatible-client",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1096:          scope: "openrouter-client",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1114:        scope: "openrouter-client",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1215:        scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1243:            scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1390:          scope: "openrouter-fallback",
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:53:        scope: "circuit-breaker",
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:69:      scope: "circuit-breaker",
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:95:        scope:              "circuit-breaker",
+lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:126:        scope:   "circuit-breaker",
+lib/ai-orchestrator/src/objective-scope.ts:43: * Classify a source access against the declared objective scope.
+lib/ai-orchestrator/src/context-loader.ts:151:        scope: "context-loader",
+lib/ai-orchestrator/src/groq-client.ts:223:        JSON.stringify({ scope: "groq-client", event: "circuit_closed", key: key === "env" ? key : "user" }),
+lib/ai-orchestrator/src/groq-client.ts:235:          scope: "groq-client",
+lib/ai-orchestrator/src/groq-client.ts:505:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/groq-client.ts:625:  const line = JSON.stringify({ scope: "groq-client", ...meta });
+lib/ai-orchestrator/src/groq-client.ts:785:        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+lib/ai-orchestrator/src/context-compressor.ts:27:      scope: "context-builder",
+lib/ai-orchestrator/src/context-compressor.ts:57:      scope: "context-builder",
+lib/ai-orchestrator/src/context-compressor.ts:103:      scope: "context-builder",
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:125:            scope: "model-resolver",
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:179:      scope: "model-resolver",
+lib/ai-orchestrator/src/context-cache-manager.ts:153:        console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ERROR", error: String(err) }));
+lib/ai-orchestrator/src/context-cache-manager.ts:159:          console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ENDED" }));
+lib/ai-orchestrator/src/context-cache-manager.ts:164:      console.info(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_READY", channel: "ctx_invalid" }));
+lib/ai-orchestrator/src/context-cache-manager.ts:170:      console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "CONNECT_FAILED", error: String(err) }));
+lib/ai-orchestrator/src/context-builder.ts:153:      scope: "context-builder",
+lib/ai-orchestrator/src/model-selection/decision-engine.ts:20:  scope: string,
+lib/ai-orchestrator/src/model-selection/decision-engine.ts:23:  const plan = buildExecutionPlan(scope, options);
+lib/ai-orchestrator/src/tool-execution-engine.ts:41:} from "./objective-scope.js";
+lib/ai-orchestrator/src/tool-execution-engine.ts:74: * Per-scope iteration and tool-call budgets (dynamic, complexity-keyed).
+lib/ai-orchestrator/src/tool-execution-engine.ts:440:  /** Server-owned approval and scope manifest; never inferred from model text. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:626:  /** AI-OBJ-008: bounded scope changes observed while retrieving evidence. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:627:  scopeExpansions: ScopeExpansion[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:651:  scopeExpansions: [],
+lib/ai-orchestrator/src/tool-execution-engine.ts:665:  return { ...EMPTY_SOURCE_RETRIEVAL_TELEMETRY, readPaths: [], scopeExpansions: [] };
+lib/ai-orchestrator/src/tool-execution-engine.ts:806:        scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:848:      scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:915:        scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:1198:  /** Server-owned approval/scope manifest, never inferred from repository text. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1221:   * AI-OBJ-008: objective-specific evidence scope. Primary paths are ordinary
+lib/ai-orchestrator/src/tool-execution-engine.ts:1223:   * are blocked as unjustified scope expansion.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1445:      stage: "understand" | "scope" | "plan" | "execute" | "validate";
+lib/ai-orchestrator/src/tool-execution-engine.ts:1526:      /** Structured audit scope: FIXTURE_LOCAL when all impl evidence is from test/spec paths. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1535:       * EI-036: reason from scopedRepairGate when repair is blocked by proof
+lib/ai-orchestrator/src/tool-execution-engine.ts:1536:       * scope (e.g. REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION). Absent when allowed.
+lib/ai-orchestrator/src/tool-execution-engine.ts:1542:      /** Explicit file manifest retained in request order for scoped audits. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1570:      scopeExpansions?: ScopeExpansion[];
+lib/ai-orchestrator/src/tool-execution-engine.ts:1833:      !sourceRetrieval.scopeExpansions.some(
+lib/ai-orchestrator/src/tool-execution-engine.ts:1837:      sourceRetrieval.scopeExpansions.push(expansion);
+lib/ai-orchestrator/src/tool-execution-engine.ts:1838:      if (sourceRetrieval.scopeExpansions.length > 24) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:1839:        sourceRetrieval.scopeExpansions.splice(24);
+lib/ai-orchestrator/src/tool-execution-engine.ts:2046:    // "." is the explicit project-root scope. Normalization above removes the
+lib/ai-orchestrator/src/tool-execution-engine.ts:2183:          scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2297:        scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2700:          scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2800:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2858:                scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2907:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:2929:                scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3121:              scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3134:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3236:              scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3566:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3589:                `objective evidence scope expanded to ${expansion.path}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3600:                `blocked objective evidence read outside declared scope: ${expansion.path}`,
+lib/ai-orchestrator/src/tool-execution-engine.ts:3609:              "declared objective scope. Read the primary target or provide an explicitly allowed " +
+lib/ai-orchestrator/src/tool-execution-engine.ts:3630:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3651:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3822:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3844:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3905:              scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3921:              scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4036:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4070:              scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4086:              scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4137:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4230:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4272:            scope: "tool-execution-engine",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4578:      scope: "tool-execution-engine",
+lib/ai-orchestrator/src/forensic-source-policy.ts:24:  scope: {
+lib/ai-orchestrator/src/forensic-source-policy.ts:34:  // First-Evidence Gate — are ALWAYS within scope. This matters when a
+lib/ai-orchestrator/src/forensic-source-policy.ts:39:  const admit = (scope.admit ?? []).map(normalizeForensicSourcePath).filter(Boolean);
+lib/ai-orchestrator/src/forensic-source-policy.ts:42:  const files = (scope.files ?? []).map(normalizeForensicSourcePath).filter(Boolean);
+lib/ai-orchestrator/src/forensic-source-policy.ts:45:  const roots = (scope.roots ?? []).map(normalizeForensicSourcePath).filter(Boolean);
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:104:    id: "ambiguous-scope-en",
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:111:      requiredFields: ["scope"],
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:160:  scopeAdhered: boolean;
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:175:  scopeAdhered: boolean;
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:193:  scopeAdherenceRate: number;
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:217:  "intentCorrect" | "languageCorrect" | "complete" | "evidenceGrounded" | "citationsValid" | "scopeAdhered">): number {
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:255:  if (!snapshot.scopeAdhered) failures.push("SCOPE_ESCAPE");
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:272:      scopeAdhered: snapshot.scopeAdhered, falseSuccess: false,
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:284:    scopeAdhered: snapshot.scopeAdhered, falseSuccess, userVisibleVerdictCorrect,
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:305:    scopeAdherenceRate: rate(results, "scopeAdhered"),
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:314:  if (results.some((score) => score.failureCodes.includes("SCOPE_ESCAPE"))) blockers.push("scope escape detected");
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:346:        evidenceGrounded: false, citationsValid: false, scopeAdhered: true,
+lib/ai-orchestrator/src/execution-node-coordinator.ts:27:   * validation failure, but they may not expand the approved scope or rewrite
+lib/ai-orchestrator/src/execution-node-coordinator.ts:61:   * the durable operation, lease, cancellation, revision, workspace, and scope.
+lib/ai-orchestrator/src/forensic-recovery.ts:133:        scope: "forensic-recovery",
+lib/ai-orchestrator/src/forensic-recovery.ts:273: * Return the validation profile that is registered for a known source scope.
+lib/ai-orchestrator/src/forensic-recovery.ts:399:      evidence.scope &&
+lib/ai-orchestrator/src/forensic-recovery.ts:400:      phaseFiles.some((file) => !isPathWithinForensicScope(file, evidence.scope))
+lib/ai-orchestrator/src/forensic-recovery.ts:402:      violations.push(`Repair phase ${phase.findingId} names a file outside the forensic scope`);
+lib/ai-orchestrator/src/forensic-recovery.ts:459:    : "No repair phases are authorized for this audit scope.";
+lib/ai-orchestrator/src/forensic-recovery.ts:465:    : "No executable validation scenario is authorized for this audit scope.";
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:18:    scopeAdhered: true,
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:70:      answeredFields: ["scope"],
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:77:  it("blocks rollout on false success and scope escape", () => {
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:86:        scopeAdhered: false,
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:90:    expect(scorecard.rolloutBlockers).toEqual(expect.arrayContaining(["false success detected", "scope escape detected"]));
+lib/ai-orchestrator/src/forensic-output-guard.ts:38:   * Explicit file manifest for file-scoped audits, retained in request order.
+lib/ai-orchestrator/src/forensic-output-guard.ts:64:  /** Optional project-relative scope enforced before evidence is exposed. */
+lib/ai-orchestrator/src/forensic-output-guard.ts:65:  scope?: ForensicEvidenceScope;
+lib/ai-orchestrator/src/forensic-output-guard.ts:68:  /** Deterministic scoped-discovery coverage. Incomplete coverage blocks Findings. */
+lib/ai-orchestrator/src/forensic-output-guard.ts:359:  scope?: ForensicEvidenceScope,
+lib/ai-orchestrator/src/forensic-output-guard.ts:363:    isPathWithinForensicScope(normalized, scope) &&
+lib/ai-orchestrator/src/forensic-output-guard.ts:1326:    violations.push("Final Judgment contains an unresolved repair-scope choice");
+lib/ai-orchestrator/src/forensic-output-guard.ts:1435:    reason.includes("unresolved repair-scope choice") ||
+lib/ai-orchestrator/src/forensic-output-guard.ts:1518:      reason.includes("unresolved repair-scope choice"),
+lib/ai-orchestrator/src/forensic-output-guard.ts:1526:      "NOT PROVEN — the available evidence does not establish a repair scope or numeric quality score.",
+lib/ai-orchestrator/src/forensic-output-guard.ts:1637:        scope: "forensic-output-guard",
+lib/ai-orchestrator/src/forensic-output-guard.ts:1671:        scope: "forensic-output-guard",
+lib/ai-orchestrator/src/forensic-output-guard.ts:1686:      scope: "forensic-output-guard",
+lib/ai-orchestrator/src/forensic-output-guard.ts:1742:          "the requested forensic source scope was not completely read",
+lib/ai-orchestrator/src/forensic-output-guard.ts:1784:        scope: "forensic-output-guard",
+lib/ai-orchestrator/src/forensic-output-guard.ts:1805:  scope?: ForensicEvidenceScope,
+lib/ai-orchestrator/src/forensic-output-guard.ts:1815:    if (!isAllowedEvidencePath(normalizedPath, allowTestSources, scope)) continue;
+lib/ai-orchestrator/src/forensic-output-guard.ts:1834:              if (isAllowedEvidencePath(normalizedPath, allowTestSources, scope)) {
+lib/ai-orchestrator/src/forensic-output-guard.ts:1891:          .filter((source) => isAllowedEvidencePath(source, allowTestSources, scope)),
+lib/ai-orchestrator/src/forensic-output-guard.ts:1897:    scope,
+lib/ai-orchestrator/src/provider-strategy.ts:32:  /** Behavioral routing is currently scoped to task execution. */
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:68:  /** Benchmark fixtures may include approved test sources in their read scope. */
+lib/ai-orchestrator/src/evidence-integrity.ts:23:import type { ScopeExpansion } from "./objective-scope.js";
+lib/ai-orchestrator/src/evidence-integrity.ts:93: * EI-033: the provenance scope of a source window. A window in a fixture can
+lib/ai-orchestrator/src/evidence-integrity.ts:107: * EI-029: the scope a verdict (or a claim) is allowed to assert. This is the
+lib/ai-orchestrator/src/evidence-integrity.ts:108: * "scoped verdict" that replaces the generic `FINDING PROVEN` with an exact
+lib/ai-orchestrator/src/evidence-integrity.ts:120: * EI-030: scoped finding statuses that replace the bare `FINDING_PROVEN`.
+lib/ai-orchestrator/src/evidence-integrity.ts:122: * production claim instead of asserting it (EI-031 scope-escalation guard).
+lib/ai-orchestrator/src/evidence-integrity.ts:167:   * EI-033: the provenance scope of this window (where the source lives). A
+lib/ai-orchestrator/src/evidence-integrity.ts:199:   * EI-032: the proof scope the claim asserts. Populated during verification
+lib/ai-orchestrator/src/evidence-integrity.ts:201:   * produce a PRODUCTION-scoped claim (EI-031/033).
+lib/ai-orchestrator/src/evidence-integrity.ts:203:  scope?: VerdictScope;
+lib/ai-orchestrator/src/evidence-integrity.ts:280:  /** EI-029: proof scope of the collected evidence; NOT_PROVEN when none established. */
+lib/ai-orchestrator/src/evidence-integrity.ts:282:  /** EI-030: scoped finding status derived from the evidence scope. */
+lib/ai-orchestrator/src/evidence-integrity.ts:283:  scopedFindingStatus: ScopedFindingStatus;
+lib/ai-orchestrator/src/evidence-integrity.ts:299:  /** AI-OBJ-011: bounded primary/expansion scope telemetry. */
+lib/ai-orchestrator/src/evidence-integrity.ts:300:  scopeExpansions?: ScopeExpansion[];
+lib/ai-orchestrator/src/evidence-integrity.ts:301:  /** Canonical paths that were attempted outside the objective scope. */
+lib/ai-orchestrator/src/evidence-integrity.ts:309:  /** Explicit file manifest retained in request order for scoped audits. */
+lib/ai-orchestrator/src/evidence-integrity.ts:327:/** EI-029: infer the proof scope a set of evidence is allowed to assert. */
+lib/ai-orchestrator/src/evidence-integrity.ts:341: * EI-030/031: map a set of evidence windows to a scoped finding status. The
+lib/ai-orchestrator/src/evidence-integrity.ts:342: * scope-escalation guard is intrinsic: fixture/test/spec windows can only ever
+lib/ai-orchestrator/src/evidence-integrity.ts:363: * EI-029/030: human-readable verdict label for a scoped finding status.
+lib/ai-orchestrator/src/evidence-integrity.ts:366: * Fixture, test, and spec evidence must carry an explicit scope qualifier so
+lib/ai-orchestrator/src/evidence-integrity.ts:389: * EI-036: derive a scoped finding status directly from a list of source paths
+lib/ai-orchestrator/src/evidence-integrity.ts:431:/** Machine-backed reason why a repair step may or may not execute under a scoped verdict. */
+lib/ai-orchestrator/src/evidence-integrity.ts:443: * EI-036: gate repair execution on proof scope. Only a production-scope finding
+lib/ai-orchestrator/src/evidence-integrity.ts:448:export function scopedRepairGate(scopedFindingStatus: ScopedFindingStatus): ScopedRepairGate {
+lib/ai-orchestrator/src/evidence-integrity.ts:449:  switch (scopedFindingStatus) {
+lib/ai-orchestrator/src/evidence-integrity.ts:472:        detail: "Finding rests on mixed production and fixture/test evidence; repair is blocked until a production-scope proof is established.",
+lib/ai-orchestrator/src/evidence-integrity.ts:479:        detail: "Finding is not proven; repair cannot be gated to production scope.",
+lib/ai-orchestrator/src/evidence-integrity.ts:556:   * EI-033: explicit provenance scope. When omitted it is derived from the
+lib/ai-orchestrator/src/evidence-integrity.ts:615: * EI-033: infer the provenance scope of a source file from its path. Explicit
+lib/ai-orchestrator/src/evidence-integrity.ts:616: * fixture/test/spec directories are always local scopes; everything else that
+lib/ai-orchestrator/src/evidence-integrity.ts:647:  // production-scope evidence, not UNKNOWN (which falls through to NOT_PROVEN
+lib/ai-orchestrator/src/evidence-integrity.ts:648:  // in deriveVerdictScope and defeats the scoped-verdict boundary).
+lib/ai-orchestrator/src/evidence-integrity.ts:678:  scope?: VerdictScope;
+lib/ai-orchestrator/src/evidence-integrity.ts:689:    ...(input.scope ? { scope: input.scope } : {}),
+lib/ai-orchestrator/src/evidence-integrity.ts:822:    // EI-033: scope-escalation guard
+lib/ai-orchestrator/src/evidence-integrity.ts:823:    if (claim.scope && !evidenceScopeSupportsClaimScope(record.sourceScope ?? "PRODUCTION", claim.scope)) {
+lib/ai-orchestrator/src/evidence-integrity.ts:825:        `${record.evidenceId} sourceScope ${record.sourceScope ?? "UNKNOWN"} cannot support claim scope ${claim.scope} (EI-033)`,
+lib/ai-orchestrator/src/evidence-integrity.ts:851:    if (claim.scope && !evidenceScopeSupportsClaimScope(record.sourceScope ?? "PRODUCTION", claim.scope)) return false;
+lib/ai-orchestrator/src/evidence-integrity.ts:1007:  const scopedFindingStatus = deriveScopedFindingStatus(evidenceRecords);
+lib/ai-orchestrator/src/evidence-integrity.ts:1028:    scopeExpansions: [],
+lib/ai-orchestrator/src/evidence-integrity.ts:1031:    scopedFindingStatus,
+lib/ai-orchestrator/src/evidence-integrity.ts:1086:        "verdictScope PRODUCTION asserted with no production-source evidence (EI-031 scope escalation)",
+lib/ai-orchestrator/src/evidence-integrity.ts:1132:    if (ledger.scopeExpansions === undefined || ledger.unjustifiedReads === undefined) {
+lib/ai-orchestrator/src/evidence-integrity.ts:1134:        "objective telemetry incomplete: scopeExpansions/unjustifiedReads are required when objectiveType is set",
+lib/ai-orchestrator/src/evidence-integrity.ts:1137:      const unjustifiedFromExpansions = ledger.scopeExpansions
+lib/ai-orchestrator/src/evidence-integrity.ts:1145:          `unjustified scope expansions missing from unjustifiedReads: ${missingUnjustifiedTelemetry.join(", ")}`,
+lib/ai-orchestrator/src/evidence-integrity.ts:1153:          `unjustifiedReads not represented by scopeExpansions: ${foreignUnjustifiedReads.join(", ")}`,
+lib/ai-orchestrator/src/evidence-integrity.ts:1157:        violations.push("completionGateResult PROVEN with unjustified objective scope reads");
+lib/ai-orchestrator/src/evidence-integrity.ts:1321:    scopeExpansions?: readonly ScopeExpansion[];
+lib/ai-orchestrator/src/evidence-integrity.ts:1409:  const scopeExpansions = [...(sourceRetrieval?.scopeExpansions ?? [])];
+lib/ai-orchestrator/src/evidence-integrity.ts:1410:  const unjustifiedReads = scopeExpansions
+lib/ai-orchestrator/src/evidence-integrity.ts:1416:    scopeExpansions,
+lib/ai-orchestrator/src/evidence-integrity.ts:1497:   * AI-OBJ-009/013-T5: recovery exceeded the bounded objective scope (read
+lib/ai-orchestrator/src/evidence-integrity.ts:1532: * AI-OBJ-013/014: the bounded file scope a PRODUCTION_REACHABILITY objective
+lib/ai-orchestrator/src/evidence-integrity.ts:1668: * `from` symbol as a callable scoped object and (b) contains a DIRECT invocation
+lib/ai-orchestrator/src/evidence-integrity.ts:1792:  /** Whether recovery exceeded the bounded objective scope (AI-OBJ-009/013-T5). */
+lib/ai-orchestrator/src/evidence-integrity.ts:1826:   * objective scope (non-required files) while closing a missing edge/symbol.
+lib/ai-orchestrator/src/evidence-integrity.ts:1845:  // reached SUPPORTED with a matching objective-scoped claimId.
+lib/ai-orchestrator/src/evidence-integrity.ts:1879:  // Fail-closed precedence (AI-OBJ-013): the two scope/object-kind failures
+lib/ai-orchestrator/src/evidence-integrity.ts:1882:  // bounded scope (T5) — no amount of collected evidence repairs those.
+lib/ai-orchestrator/src/evidence-integrity.ts:1905:      "recovery reads escaped the bounded objective scope; unjustified broad scan (AI-OBJ-009)",
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:66:function normalizeRoots(scope?: ForensicEvidenceScope, roots?: readonly string[]): string[] {
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:67:  const candidates = roots ?? scope?.roots ?? [];
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:83:  const orderedRoots = normalizeRoots(evidence.scope, roots);
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:87:    .filter((file) => isPathWithinForensicScope(file, evidence.scope ?? {}))
+lib/ai-orchestrator/src/forensic-evidence-packets.ts:126:        scope: root === "(unassigned)" ? undefined : { roots: [root] },
+lib/ai-orchestrator/src/forensic-deterministic-findings.ts:75:            : "Do not modify this fixture; validate any production repair against the real implementation scope.",
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:118:  "scopeEscape",

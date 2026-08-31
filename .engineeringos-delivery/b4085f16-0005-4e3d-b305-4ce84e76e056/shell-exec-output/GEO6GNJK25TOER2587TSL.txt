@@ -1,0 +1,600 @@
+lib/ai-orchestrator/src/execution-node-coordinator.ts-48-  | "blocked"
+lib/ai-orchestrator/src/execution-node-coordinator.ts-49-  | "cancelled";
+lib/ai-orchestrator/src/execution-node-coordinator.ts-50-
+lib/ai-orchestrator/src/execution-node-coordinator.ts-51-export type ExecutionNodeCoordinatorOptions = {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-52-  nodes: readonly ExecutionNode[];
+lib/ai-orchestrator/src/execution-node-coordinator.ts:53:  runNode: (
+lib/ai-orchestrator/src/execution-node-coordinator.ts-54-    node: ExecutionNode,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-55-    context: ExecutionNodeRunContext,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-56-  ) => Promise<ExecutionNodeOutcome>;
+lib/ai-orchestrator/src/execution-node-coordinator.ts-57-  maxParallelNodes?: number;
+lib/ai-orchestrator/src/execution-node-coordinator.ts-58-  signal?: AbortSignal;
+lib/ai-orchestrator/src/execution-node-coordinator.ts-59-  /**
+lib/ai-orchestrator/src/execution-node-coordinator.ts:60:   * Server-owned lifecycle fence for recipe nodes. The callback must re-check
+lib/ai-orchestrator/src/execution-node-coordinator.ts-61-   * the durable operation, lease, cancellation, revision, workspace, and scope.
+lib/ai-orchestrator/src/execution-node-coordinator.ts-62-   */
+lib/ai-orchestrator/src/execution-node-coordinator.ts:63:  authorizeNodeExecution?: (args: {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-64-    node: ExecutionNode;
+lib/ai-orchestrator/src/execution-node-coordinator.ts-65-    phase: ExecutionNodeAuthorizationPhase;
+lib/ai-orchestrator/src/execution-node-coordinator.ts-66-    attempt: number;
+lib/ai-orchestrator/src/execution-node-coordinator.ts-67-  }) => Promise<ExecutionNodeAuthorization> | ExecutionNodeAuthorization;
+lib/ai-orchestrator/src/execution-node-coordinator.ts-68-  onChange?: (args: {
+--
+lib/ai-orchestrator/src/execution-node-coordinator.ts-150-): ExecutionNode[] {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-151-  return transitionExecutionNode(nodes, nodeId, nextStatus);
+lib/ai-orchestrator/src/execution-node-coordinator.ts-152-}
+lib/ai-orchestrator/src/execution-node-coordinator.ts-153-
+lib/ai-orchestrator/src/execution-node-coordinator.ts-154-function isRecipeNode(node: ExecutionNode): boolean {
+lib/ai-orchestrator/src/execution-node-coordinator.ts:155:  return Boolean(node.capabilityId || node.executionContext);
+lib/ai-orchestrator/src/execution-node-coordinator.ts-156-}
+lib/ai-orchestrator/src/execution-node-coordinator.ts-157-
+lib/ai-orchestrator/src/execution-node-coordinator.ts-158-async function authorizeNode(
+lib/ai-orchestrator/src/execution-node-coordinator.ts-159-  opts: ExecutionNodeCoordinatorOptions,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-160-  node: ExecutionNode,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-161-  phase: ExecutionNodeAuthorizationPhase,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-162-  attempt: number,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-163-): Promise<ExecutionNodeAuthorization> {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-164-  if (opts.signal?.aborted) return { allowed: false, reason: "execution cancellation requested" };
+lib/ai-orchestrator/src/execution-node-coordinator.ts:165:  if (!opts.authorizeNodeExecution) {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-166-    return isRecipeNode(node)
+lib/ai-orchestrator/src/execution-node-coordinator.ts:167:      ? { allowed: false, reason: "recipe node has no server-owned operation authorization" }
+lib/ai-orchestrator/src/execution-node-coordinator.ts-168-      : { allowed: true };
+lib/ai-orchestrator/src/execution-node-coordinator.ts-169-  }
+lib/ai-orchestrator/src/execution-node-coordinator.ts-170-  try {
+lib/ai-orchestrator/src/execution-node-coordinator.ts:171:    const result = await opts.authorizeNodeExecution({ node, phase, attempt });
+lib/ai-orchestrator/src/execution-node-coordinator.ts-172-    return result?.allowed
+lib/ai-orchestrator/src/execution-node-coordinator.ts-173-      ? { allowed: true }
+lib/ai-orchestrator/src/execution-node-coordinator.ts-174-      : { allowed: false, reason: result?.reason ?? "server-owned operation authorization rejected the node" };
+lib/ai-orchestrator/src/execution-node-coordinator.ts-175-  } catch (error) {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-176-    return {
+--
+lib/ai-orchestrator/src/execution-node-coordinator.ts-309- *
+lib/ai-orchestrator/src/execution-node-coordinator.ts-310- * The callback is the only place where a child does real work. It must return
+lib/ai-orchestrator/src/execution-node-coordinator.ts-311- * `passed` only after validation has actually passed. The coordinator owns all
+lib/ai-orchestrator/src/execution-node-coordinator.ts-312- * node transitions, retries, dependency blocking, and progress snapshots.
+lib/ai-orchestrator/src/execution-node-coordinator.ts-313- */
+lib/ai-orchestrator/src/execution-node-coordinator.ts:314:export async function executeExecutionNodePlan(
+lib/ai-orchestrator/src/execution-node-coordinator.ts-315-  opts: ExecutionNodeCoordinatorOptions,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-316-): Promise<ExecutionNodeCoordinatorResult> {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-317-  const maxParallelNodes = clampParallelism(opts.maxParallelNodes);
+lib/ai-orchestrator/src/execution-node-coordinator.ts-318-  const previousFailures = new Map<string, ExecutionNodeRunContext["previousFailure"]>();
+lib/ai-orchestrator/src/execution-node-coordinator.ts-319-  for (const node of opts.nodes) {
+--
+lib/ai-orchestrator/src/execution-node-coordinator.ts-361-    const activeWave = wave.filter((node) => nodes.find((candidate) => candidate.id === node.id)?.status === "running");
+lib/ai-orchestrator/src/execution-node-coordinator.ts-362-    const outcomes = await Promise.all(activeWave.map(async (node) => {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-363-      try {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-364-        return {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-365-          node,
+lib/ai-orchestrator/src/execution-node-coordinator.ts:366:          outcome: await opts.runNode(node, {
+lib/ai-orchestrator/src/execution-node-coordinator.ts-367-            attempt: node.attempts + 1,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-368-            signal: opts.signal,
+lib/ai-orchestrator/src/execution-node-coordinator.ts-369-            ...(previousFailures.get(node.id)
+lib/ai-orchestrator/src/execution-node-coordinator.ts-370-              ? { previousFailure: previousFailures.get(node.id) }
+lib/ai-orchestrator/src/execution-node-coordinator.ts-371-              : {}),
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-3385-      } catch {
+lib/ai-orchestrator/src/tool-execution-engine.ts-3386-        // Malformed arguments — leave args empty; handler returns an error string.
+lib/ai-orchestrator/src/tool-execution-engine.ts-3387-      }
+lib/ai-orchestrator/src/tool-execution-engine.ts-3388-
+lib/ai-orchestrator/src/tool-execution-engine.ts-3389-      const isValidationCall = tc.function.name === "run_validation";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3390:      const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts-3391-      const validationAttempt = isValidationCall
+lib/ai-orchestrator/src/tool-execution-engine.ts:3392:        ? (validationAttempts.get(validationProfile ?? "") ?? 0) + 1
+lib/ai-orchestrator/src/tool-execution-engine.ts-3393-        : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts-3394-      if (isValidationCall) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:3395:        validationAttempts.set(validationProfile ?? "", validationAttempt!);
+lib/ai-orchestrator/src/tool-execution-engine.ts-3396-      }
+lib/ai-orchestrator/src/tool-execution-engine.ts-3397-      const validationFingerprint = isValidationCall
+lib/ai-orchestrator/src/tool-execution-engine.ts-3398-        ? pendingChangesFingerprint(pendingChanges)
+lib/ai-orchestrator/src/tool-execution-engine.ts-3399-        : undefined;
+lib/ai-orchestrator/src/tool-execution-engine.ts-3400-      // Validation is intentionally not replay-cached: after a pending patch,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-3428-
+lib/ai-orchestrator/src/tool-execution-engine.ts-3429-      if (isValidationCall && validationAttempt! > boundedMaxValidationAttempts) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-3430-        const blockedOutput = JSON.stringify({
+lib/ai-orchestrator/src/tool-execution-engine.ts-3431-          tool: tc.function.name,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3432-          status: "blocked",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3433:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3434-          attempt: validationAttempt,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3435-          maxAttempts: boundedMaxValidationAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3436-          code: "VALIDATION_ATTEMPT_LIMIT_REACHED",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3437-          detail:
+lib/ai-orchestrator/src/tool-execution-engine.ts:3438:            `Validation attempt limit reached for "${validationProfile || "the selected profile"}". ` +
+lib/ai-orchestrator/src/tool-execution-engine.ts-3439-            "Stop repairing and return BLOCKED; no further validation will run in this handoff.",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3440-        });
+lib/ai-orchestrator/src/tool-execution-engine.ts-3441-        messages.push({ role: "tool", tool_call_id: tc.id, content: blockedOutput });
+lib/ai-orchestrator/src/tool-execution-engine.ts-3442-        try {
+lib/ai-orchestrator/src/tool-execution-engine.ts-3443-          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts-3444-            kind: "validation",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3445-            result: syntheticValidationResult(
+lib/ai-orchestrator/src/tool-execution-engine.ts:3446:              validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3447-              "Validation attempt limit reached; execution is blocked.",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3448-            ),
+lib/ai-orchestrator/src/tool-execution-engine.ts-3449-            repairState: "BLOCKED",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3450-            attempt: validationAttempt!,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3451-            maxAttempts: boundedMaxValidationAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3452-            status: "blocked",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3453:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3454-            detail: "Validation attempt limit reached; execution is blocked.",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3455-          });
+lib/ai-orchestrator/src/tool-execution-engine.ts-3456-          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts-3457-            kind: "repair_state",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3458-            state: "BLOCKED",
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-3466-        executionMode === "repair_plan"
+lib/ai-orchestrator/src/tool-execution-engine.ts-3467-        &&
+lib/ai-orchestrator/src/tool-execution-engine.ts-3468-        isValidationCall
+lib/ai-orchestrator/src/tool-execution-engine.ts-3469-        && validationAttempt! > 1
+lib/ai-orchestrator/src/tool-execution-engine.ts-3470-        && validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts:3471:        && failedValidationFingerprints.get(validationProfile ?? "") === validationFingerprint
+lib/ai-orchestrator/src/tool-execution-engine.ts-3472-      ) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-3473-        const detail =
+lib/ai-orchestrator/src/tool-execution-engine.ts-3474-          "Validation was not rerun because the pending changes are identical to the last failed attempt. " +
+lib/ai-orchestrator/src/tool-execution-engine.ts-3475-          "Make a bounded patch change or return BLOCKED; repeated validation without progress is incomplete.";
+lib/ai-orchestrator/src/tool-execution-engine.ts-3476-        const blockedOutput = JSON.stringify({
+lib/ai-orchestrator/src/tool-execution-engine.ts-3477-          tool: tc.function.name,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3478-          status: "blocked",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3479-          repairState: "BLOCKED",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3480:          profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3481-          attempt: validationAttempt,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3482-          maxAttempts: boundedMaxValidationAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3483-          code: "VALIDATION_NO_PROGRESS",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3484-          detail,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3485-        });
+lib/ai-orchestrator/src/tool-execution-engine.ts-3486-        messages.push({ role: "tool", tool_call_id: tc.id, content: blockedOutput });
+lib/ai-orchestrator/src/tool-execution-engine.ts-3487-        try {
+lib/ai-orchestrator/src/tool-execution-engine.ts-3488-          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts-3489-            kind: "validation",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3490:            result: syntheticValidationResult(validationProfile ?? "", detail),
+lib/ai-orchestrator/src/tool-execution-engine.ts-3491-            repairState: "BLOCKED",
+lib/ai-orchestrator/src/tool-execution-engine.ts-3492-            attempt: validationAttempt!,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3493-            maxAttempts: boundedMaxValidationAttempts,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3494-            status: "blocked",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3495:            profile: validationProfile,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3496-            detail,
+lib/ai-orchestrator/src/tool-execution-engine.ts-3497-          });
+lib/ai-orchestrator/src/tool-execution-engine.ts-3498-          onStep?.({ kind: "repair_state", state: "BLOCKED", detail });
+lib/ai-orchestrator/src/tool-execution-engine.ts-3499-        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts-3500-        continue;
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-4176-      if (isValidationCall) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-4177-        try {
+lib/ai-orchestrator/src/tool-execution-engine.ts-4178-          onStep?.({
+lib/ai-orchestrator/src/tool-execution-engine.ts-4179-            kind: "repair_state",
+lib/ai-orchestrator/src/tool-execution-engine.ts-4180-            state: "VALIDATING",
+lib/ai-orchestrator/src/tool-execution-engine.ts:4181:            detail: validationProfile
+lib/ai-orchestrator/src/tool-execution-engine.ts:4182:              ? `Running registered validation profile "${validationProfile}".`
+lib/ai-orchestrator/src/tool-execution-engine.ts-4183-              : "Running registered validation.",
+lib/ai-orchestrator/src/tool-execution-engine.ts-4184-          });
+lib/ai-orchestrator/src/tool-execution-engine.ts-4185-        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4186-      }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4187-      if (isValidationCall && executionMode === "repair_plan") {
+lib/ai-orchestrator/src/tool-execution-engine.ts-4188-        const currentPatch = snapshotPendingChanges(pendingChanges);
+lib/ai-orchestrator/src/tool-execution-engine.ts:4189:        const previousPatch = validationAttemptPatches.get(validationProfile ?? "");
+lib/ai-orchestrator/src/tool-execution-engine.ts-4190-        if (validationAttempt! > 1 && previousPatch) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-4191-          const diff = buildRepairAttemptDiff(previousPatch, currentPatch);
+lib/ai-orchestrator/src/tool-execution-engine.ts-4192-          if (diff) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-4193-            emitExecutionDiagnostic("REPAIR_ATTEMPT_DIFF", [
+lib/ai-orchestrator/src/tool-execution-engine.ts-4194-              `attempt ${validationAttempt!} vs ${validationAttempt! - 1}`,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-4197-          }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4198-        }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4199-        // Save only the patch that is actually about to be validated. A
+lib/ai-orchestrator/src/tool-execution-engine.ts-4200-        // blocked no-progress attempt above must not become the baseline for
+lib/ai-orchestrator/src/tool-execution-engine.ts-4201-        // a later repair attempt.
+lib/ai-orchestrator/src/tool-execution-engine.ts:4202:        validationAttemptPatches.set(validationProfile ?? "", currentPatch);
+lib/ai-orchestrator/src/tool-execution-engine.ts-4203-      }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4204-      const toolResult = await executeSingleTool({
+lib/ai-orchestrator/src/tool-execution-engine.ts-4205-        name: tc.function.name,
+lib/ai-orchestrator/src/tool-execution-engine.ts-4206-        args,
+lib/ai-orchestrator/src/tool-execution-engine.ts-4207-        rootPath,
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-4295-          }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4296-        } catch { /* keep the bounded unavailable fallback below */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4297-        if (!validation) {
+lib/ai-orchestrator/src/tool-execution-engine.ts-4298-          const evidenceId = randomUUID();
+lib/ai-orchestrator/src/tool-execution-engine.ts-4299-          validation = {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4300:            profile: validationProfile ?? "",
+lib/ai-orchestrator/src/tool-execution-engine.ts-4301-            status: "unavailable",
+lib/ai-orchestrator/src/tool-execution-engine.ts-4302-            scenario: "Validation returned an unreadable result.",
+lib/ai-orchestrator/src/tool-execution-engine.ts-4303-            exitCode: null,
+lib/ai-orchestrator/src/tool-execution-engine.ts-4304-            command: "",
+lib/ai-orchestrator/src/tool-execution-engine.ts-4305-            stdout: "",
+--
+lib/ai-orchestrator/src/tool-execution-engine.ts-4348-                : "Validation did not produce an approved repair state.",
+lib/ai-orchestrator/src/tool-execution-engine.ts-4349-          });
+lib/ai-orchestrator/src/tool-execution-engine.ts-4350-        } catch { /* ignore */ }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4351-        if (repairState === "REPAIRING") {
+lib/ai-orchestrator/src/tool-execution-engine.ts-4352-          if (executionMode === "repair_plan" && validationFingerprint) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4353:            failedValidationFingerprints.set(validationProfile ?? "", validationFingerprint);
+lib/ai-orchestrator/src/tool-execution-engine.ts-4354-          }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4355-          // A validation failure is new, actionable execution evidence. Do not
+lib/ai-orchestrator/src/tool-execution-engine.ts-4356-          // let a stale forced-evidence latch reject the bounded repair patch
+lib/ai-orchestrator/src/tool-execution-engine.ts-4357-          // that is allowed to respond to that failure.
+lib/ai-orchestrator/src/tool-execution-engine.ts-4358-          forcedEvidenceActive = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts-4359-          forcedPrimaryEvidence = false;
+lib/ai-orchestrator/src/tool-execution-engine.ts-4360-          noProgressStreak = 0;
+lib/ai-orchestrator/src/tool-execution-engine.ts-4361-        } else if (executionMode === "repair_plan" && validation.status === "passed") {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4362:          failedValidationFingerprints.delete(validationProfile ?? "");
+lib/ai-orchestrator/src/tool-execution-engine.ts-4363-        }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4364-      }
+lib/ai-orchestrator/src/tool-execution-engine.ts-4365-      if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
+lib/ai-orchestrator/src/tool-execution-engine.ts-4366-        // Only a SUCCESSFUL source-evidence read counts as progress and clears
+lib/ai-orchestrator/src/tool-execution-engine.ts-4367-        // forced-evidence mode. A failed read (error, empty body, directory
+--
+lib/ai-orchestrator/src/index.ts-109-  type FlightDeckState,
+lib/ai-orchestrator/src/index.ts-110-  type FlightDeckStateInput,
+lib/ai-orchestrator/src/index.ts-111-  type FlightDeckEvidenceVerdict,
+lib/ai-orchestrator/src/index.ts-112-} from "./flight-deck-state.js";
+lib/ai-orchestrator/src/index.ts-113-export {
+lib/ai-orchestrator/src/index.ts:114:  executeExecutionNodePlan,
+lib/ai-orchestrator/src/index.ts-115-} from "./execution-node-coordinator.js";
+lib/ai-orchestrator/src/index.ts-116-export type {
+lib/ai-orchestrator/src/index.ts-117-  ExecutionNodeCoordinatorEvent,
+lib/ai-orchestrator/src/index.ts-118-  ExecutionNodeCoordinatorOptions,
+lib/ai-orchestrator/src/index.ts-119-  ExecutionNodeCoordinatorResult,
+--
+lib/ai-orchestrator/src/index.ts-224-  CAPABILITY_INPUT_LIMITS,
+lib/ai-orchestrator/src/index.ts-225-  CapabilityRegistry,
+lib/ai-orchestrator/src/index.ts-226-  CapabilityRegistryError,
+lib/ai-orchestrator/src/index.ts-227-  DEFAULT_CAPABILITY_POLICY,
+lib/ai-orchestrator/src/index.ts-228-} from "./capability-contract.js";
+lib/ai-orchestrator/src/index.ts:229:export { READ_PROJECT_FILE_CAPABILITY, createServerCapabilityRegistry } from "./recipe-capabilities.js";
+lib/ai-orchestrator/src/index.ts-230-export {
+lib/ai-orchestrator/src/index.ts-231-  CAPABILITY_CATALOG_VERSION,
+lib/ai-orchestrator/src/index.ts-232-  MAX_CATALOG_ENTRIES,
+lib/ai-orchestrator/src/index.ts-233-  MAX_CATALOG_SUGGESTIONS,
+lib/ai-orchestrator/src/index.ts-234-  CapabilityCatalogRequestSchema,
+--
+lib/ai-orchestrator/src/index.ts-354-  CapabilityRecipeSchema,
+lib/ai-orchestrator/src/index.ts-355-  RecipeExecutionPolicySchema,
+lib/ai-orchestrator/src/index.ts-356-  RecipeContextSchema,
+lib/ai-orchestrator/src/index.ts-357-  CompiledRecipeTransitionSchema,
+lib/ai-orchestrator/src/index.ts-358-  RecipeStateSchema,
+lib/ai-orchestrator/src/index.ts:359:  recipeVersionIsSupported,
+lib/ai-orchestrator/src/index.ts:360:} from "./recipe-contract.js";
+lib/ai-orchestrator/src/index.ts-361-export type {
+lib/ai-orchestrator/src/index.ts-362-  RecipeId,
+lib/ai-orchestrator/src/index.ts-363-  RecipeNodeId,
+lib/ai-orchestrator/src/index.ts-364-  RecipeOutputName,
+lib/ai-orchestrator/src/index.ts-365-  EvidencePredicate,
+--
+lib/ai-orchestrator/src/index.ts-373-  RecipeContext,
+lib/ai-orchestrator/src/index.ts-374-  CompiledRecipeTransition,
+lib/ai-orchestrator/src/index.ts-375-  RecipeState,
+lib/ai-orchestrator/src/index.ts-376-  RecipeEvidenceNode,
+lib/ai-orchestrator/src/index.ts-377-  RecipeEvidence,
+lib/ai-orchestrator/src/index.ts:378:} from "./recipe-contract.js";
+lib/ai-orchestrator/src/index.ts-379-export {
+lib/ai-orchestrator/src/index.ts-380-  DEFAULT_RECIPE_EXECUTION_POLICY,
+lib/ai-orchestrator/src/index.ts-381-  RecipeCompilationError,
+lib/ai-orchestrator/src/index.ts-382-  compileCapabilityRecipe,
+lib/ai-orchestrator/src/index.ts-383-  compileCapabilityRecipeOrThrow,
+lib/ai-orchestrator/src/index.ts-384-  compileSafeRecipe,
+lib/ai-orchestrator/src/index.ts-385-  compileRecipe,
+lib/ai-orchestrator/src/index.ts-386-  evaluateRecipeEvidencePredicate,
+lib/ai-orchestrator/src/index.ts-387-  advanceCompiledRecipeTransition,
+lib/ai-orchestrator/src/index.ts:388:} from "./recipe-compiler.js";
+lib/ai-orchestrator/src/index.ts-389-export type {
+lib/ai-orchestrator/src/index.ts-390-  RecipeCompilationDiagnosticCode,
+lib/ai-orchestrator/src/index.ts-391-  RecipeCompilationDiagnostic,
+lib/ai-orchestrator/src/index.ts-392-  RecipeCompilationResult,
+lib/ai-orchestrator/src/index.ts-393-  RecipeCompilationContext,
+lib/ai-orchestrator/src/index.ts-394-  CompileCapabilityRecipeOptions,
+lib/ai-orchestrator/src/index.ts-395-  RecipeTransitionAdvanceResult,
+lib/ai-orchestrator/src/index.ts:396:} from "./recipe-compiler.js";
+lib/ai-orchestrator/src/index.ts-397-
+lib/ai-orchestrator/src/index.ts-398-// Wave 2: context lifetime management
+lib/ai-orchestrator/src/index.ts-399-export { applyLifetime, DEFAULT_LIFETIME_POLICY } from "./context-runtime/context-lifetime.js";
+lib/ai-orchestrator/src/index.ts-400-export type { SliceLifetimePolicy, LifetimePolicy, SliceLifetimeState, LifetimeResult } from "./context-runtime/context-lifetime.js";
+lib/ai-orchestrator/src/index.ts-401-
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-50-  dependencies: string[];
+artifacts/api-server/src/lib/ai-execution-state.ts-51-  status: "queued" | "running" | "passed" | "failed" | "blocked";
+artifacts/api-server/src/lib/ai-execution-state.ts-52-  attempts: number;
+artifacts/api-server/src/lib/ai-execution-state.ts-53-  validationAttempts: number;
+artifacts/api-server/src/lib/ai-execution-state.ts-54-  allowedFiles: string[];
+artifacts/api-server/src/lib/ai-execution-state.ts:55:  validationProfile: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-56-  evidenceRefs: string[];
+artifacts/api-server/src/lib/ai-execution-state.ts-57-};
+artifacts/api-server/src/lib/ai-execution-state.ts-58-
+artifacts/api-server/src/lib/ai-execution-state.ts-59-export const RECIPE_OPERATION_PHASES = [
+artifacts/api-server/src/lib/ai-execution-state.ts-60-  "planned",
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-221-    concurrencyBudget: {
+artifacts/api-server/src/lib/ai-execution-state.ts-222-      maxInFlightNodes: params.concurrencyBudget?.maxInFlightNodes ?? 3,
+artifacts/api-server/src/lib/ai-execution-state.ts-223-      maxProcesses: params.concurrencyBudget?.maxProcesses ?? 8,
+artifacts/api-server/src/lib/ai-execution-state.ts-224-    },
+artifacts/api-server/src/lib/ai-execution-state.ts-225-  });
+artifacts/api-server/src/lib/ai-execution-state.ts:226:  if (!binding) throw new Error("Invalid server-owned recipe operation binding.");
+artifacts/api-server/src/lib/ai-execution-state.ts-227-  return binding;
+artifacts/api-server/src/lib/ai-execution-state.ts-228-}
+artifacts/api-server/src/lib/ai-execution-state.ts-229-
+artifacts/api-server/src/lib/ai-execution-state.ts-230-export function checkRecipeOperationBinding(
+artifacts/api-server/src/lib/ai-execution-state.ts-231-  binding: RecipeOperationBinding,
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-275-  if (!result.allowed) throw new Error(`Recipe operation binding rejected: ${result.reason}`);
+artifacts/api-server/src/lib/ai-execution-state.ts-276-}
+artifacts/api-server/src/lib/ai-execution-state.ts-277-
+artifacts/api-server/src/lib/ai-execution-state.ts-278-export function assertRecipeNodeBinding(
+artifacts/api-server/src/lib/ai-execution-state.ts-279-  binding: RecipeOperationBinding,
+artifacts/api-server/src/lib/ai-execution-state.ts:280:  node: Pick<ExecutionNode, "allowedFiles" | "validationProfile" | "executionContext">,
+artifacts/api-server/src/lib/ai-execution-state.ts-281-  expected: RecipeBindingExpectation = {},
+artifacts/api-server/src/lib/ai-execution-state.ts-282-): void {
+artifacts/api-server/src/lib/ai-execution-state.ts-283-  assertRecipeOperationBinding(binding, expected);
+artifacts/api-server/src/lib/ai-execution-state.ts-284-  const approved = new Set(binding.approvedPaths);
+artifacts/api-server/src/lib/ai-execution-state.ts-285-  if (node.allowedFiles.map(normalizedRecipePath).some((file) => !approved.has(file))) {
+artifacts/api-server/src/lib/ai-execution-state.ts-286-    throw new Error("Recipe node is outside the approved path scope.");
+artifacts/api-server/src/lib/ai-execution-state.ts-287-  }
+artifacts/api-server/src/lib/ai-execution-state.ts:288:  if (node.executionContext) {
+artifacts/api-server/src/lib/ai-execution-state.ts:289:    if (node.executionContext.projectId !== binding.projectId) throw new Error("Recipe node belongs to a different project.");
+artifacts/api-server/src/lib/ai-execution-state.ts:290:    if (node.executionContext.revision !== binding.sourceRevision) throw new Error("Recipe node belongs to a stale source revision.");
+artifacts/api-server/src/lib/ai-execution-state.ts:291:    if (node.executionContext.scope.paths.map(normalizedRecipePath).some((file) => !approved.has(file))) {
+artifacts/api-server/src/lib/ai-execution-state.ts-292-      throw new Error("Recipe node context is outside the approved path scope.");
+artifacts/api-server/src/lib/ai-execution-state.ts-293-    }
+artifacts/api-server/src/lib/ai-execution-state.ts-294-  }
+artifacts/api-server/src/lib/ai-execution-state.ts:295:  if (!node.validationProfile.trim()) throw new Error("Recipe node has no registered validation profile.");
+artifacts/api-server/src/lib/ai-execution-state.ts-296-}
+artifacts/api-server/src/lib/ai-execution-state.ts-297-
+artifacts/api-server/src/lib/ai-execution-state.ts-298-export type AutonomousAcceptanceCheck = {
+artifacts/api-server/src/lib/ai-execution-state.ts-299-  id: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-300-  kind: "scope" | "behavior" | "validation" | "evidence";
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-480-  | "id"
+artifacts/api-server/src/lib/ai-execution-state.ts-481-  | "title"
+artifacts/api-server/src/lib/ai-execution-state.ts-482-  | "status"
+artifacts/api-server/src/lib/ai-execution-state.ts-483-  | "allowedFiles"
+artifacts/api-server/src/lib/ai-execution-state.ts-484-  | "dependencies"
+artifacts/api-server/src/lib/ai-execution-state.ts:485:  | "validationProfile"
+artifacts/api-server/src/lib/ai-execution-state.ts-486-  | "attempts"
+artifacts/api-server/src/lib/ai-execution-state.ts-487-  | "validationAttempts"
+artifacts/api-server/src/lib/ai-execution-state.ts-488-  | "lastFailure"
+artifacts/api-server/src/lib/ai-execution-state.ts-489-> & {
+artifacts/api-server/src/lib/ai-execution-state.ts-490-  evidenceRefs?: string[];
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-510-  evidenceVerdict?: FlightDeckEvidenceVerdict;
+artifacts/api-server/src/lib/ai-execution-state.ts-511-  evidenceReason?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-512-  proofRequired?: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts-513-  detail?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-514-  operation?: AutonomousOperationContract;
+artifacts/api-server/src/lib/ai-execution-state.ts:515:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts-516-  updatedAt: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-517-};
+artifacts/api-server/src/lib/ai-execution-state.ts-518-
+artifacts/api-server/src/lib/ai-execution-state.ts-519-const AI_EXECUTION_CHECKPOINT_STAGES = new Set<AiExecutionCheckpoint["stage"]>([
+artifacts/api-server/src/lib/ai-execution-state.ts-520-  "queued",
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-629-            typeof candidate.id !== "string" ||
+artifacts/api-server/src/lib/ai-execution-state.ts-630-            typeof candidate.title !== "string" ||
+artifacts/api-server/src/lib/ai-execution-state.ts-631-            !["queued", "running", "passed", "failed", "blocked"].includes(candidate.status ?? "") ||
+artifacts/api-server/src/lib/ai-execution-state.ts-632-            !Array.isArray(candidate.allowedFiles) ||
+artifacts/api-server/src/lib/ai-execution-state.ts-633-            !Array.isArray(candidate.dependencies) ||
+artifacts/api-server/src/lib/ai-execution-state.ts:634:            typeof candidate.validationProfile !== "string" ||
+artifacts/api-server/src/lib/ai-execution-state.ts-635-            typeof candidate.attempts !== "number" ||
+artifacts/api-server/src/lib/ai-execution-state.ts-636-            !Number.isInteger(candidate.attempts) ||
+artifacts/api-server/src/lib/ai-execution-state.ts-637-            candidate.attempts < 0 ||
+artifacts/api-server/src/lib/ai-execution-state.ts-638-            candidate.attempts > 3 ||
+artifacts/api-server/src/lib/ai-execution-state.ts-639-            (candidate.validationAttempts !== undefined && (
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-667-              .map((file) => file.slice(0, 500)),
+artifacts/api-server/src/lib/ai-execution-state.ts-668-            dependencies: candidate.dependencies
+artifacts/api-server/src/lib/ai-execution-state.ts-669-              .filter((dependency): dependency is string => typeof dependency === "string")
+artifacts/api-server/src/lib/ai-execution-state.ts-670-              .slice(0, 12)
+artifacts/api-server/src/lib/ai-execution-state.ts-671-              .map((dependency) => dependency.slice(0, 160)),
+artifacts/api-server/src/lib/ai-execution-state.ts:672:            validationProfile: candidate.validationProfile as AiExecutionNodeCheckpoint["validationProfile"],
+artifacts/api-server/src/lib/ai-execution-state.ts-673-            attempts: candidate.attempts,
+artifacts/api-server/src/lib/ai-execution-state.ts-674-            validationAttempts: candidate.validationAttempts ?? 0,
+artifacts/api-server/src/lib/ai-execution-state.ts-675-            ...(Array.isArray(candidate.evidenceRefs) ? { evidenceRefs: candidate.evidenceRefs
+artifacts/api-server/src/lib/ai-execution-state.ts-676-              .filter((ref): ref is string => typeof ref === "string")
+artifacts/api-server/src/lib/ai-execution-state.ts-677-              .slice(0, 8)
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-691-      : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-692-    const operation = value.operation && typeof value.operation === "object"
+artifacts/api-server/src/lib/ai-execution-state.ts-693-      ? parseAutonomousOperation(value.operation)
+artifacts/api-server/src/lib/ai-execution-state.ts-694-      : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-695-    if (value.operation !== undefined && !operation) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:696:    const recipeBinding = value.recipeBinding === undefined
+artifacts/api-server/src/lib/ai-execution-state.ts-697-      ? operation?.binding
+artifacts/api-server/src/lib/ai-execution-state.ts:698:      : parseRecipeOperationBinding(value.recipeBinding);
+artifacts/api-server/src/lib/ai-execution-state.ts:699:    if (value.recipeBinding !== undefined && !recipeBinding) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:700:    if (recipeBinding && operation?.binding
+artifacts/api-server/src/lib/ai-execution-state.ts:701:      && JSON.stringify(recipeBinding) !== JSON.stringify(operation.binding)) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-702-    return {
+artifacts/api-server/src/lib/ai-execution-state.ts-703-      stage: value.stage as AiExecutionCheckpoint["stage"],
+artifacts/api-server/src/lib/ai-execution-state.ts-704-      sequence: value.sequence,
+artifacts/api-server/src/lib/ai-execution-state.ts-705-      ...(typeof value.streamedPreview === "string"
+artifacts/api-server/src/lib/ai-execution-state.ts-706-        ? { streamedPreview: value.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) }
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-726-        ? { evidenceReason: value.evidenceReason.slice(0, 500) }
+artifacts/api-server/src/lib/ai-execution-state.ts-727-        : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-728-      ...(typeof value.proofRequired === "boolean" ? { proofRequired: value.proofRequired } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-729-      ...(typeof value.detail === "string" ? { detail: value.detail.slice(0, 500) } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-730-      ...(operation ? { operation } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:731:      ...(recipeBinding ? { recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-732-      updatedAt: value.updatedAt,
+artifacts/api-server/src/lib/ai-execution-state.ts-733-    };
+artifacts/api-server/src/lib/ai-execution-state.ts-734-  } catch {
+artifacts/api-server/src/lib/ai-execution-state.ts-735-    return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-736-  }
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-758-    const item = node as Partial<AutonomousOperationNode>;
+artifacts/api-server/src/lib/ai-execution-state.ts-759-    if (
+artifacts/api-server/src/lib/ai-execution-state.ts-760-      typeof item.id !== "string" || !["inspect", "mutate", "validate", "diagnose", "repair", "promote", "delivery"].includes(item.kind ?? "")
+artifacts/api-server/src/lib/ai-execution-state.ts-761-      || !["queued", "running", "passed", "failed", "blocked"].includes(item.status ?? "")
+artifacts/api-server/src/lib/ai-execution-state.ts-762-      || !Array.isArray(item.dependencies) || !Array.isArray(item.allowedFiles)
+artifacts/api-server/src/lib/ai-execution-state.ts:763:      || !Array.isArray(item.evidenceRefs) || typeof item.validationProfile !== "string"
+artifacts/api-server/src/lib/ai-execution-state.ts-764-      || !Number.isInteger(item.attempts) || !Number.isInteger(item.validationAttempts)
+artifacts/api-server/src/lib/ai-execution-state.ts-765-    ) return [];
+artifacts/api-server/src/lib/ai-execution-state.ts-766-    const attempts = item.attempts as number;
+artifacts/api-server/src/lib/ai-execution-state.ts-767-    const validationAttempts = item.validationAttempts as number;
+artifacts/api-server/src/lib/ai-execution-state.ts-768-    return [{
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-771-      dependencies: item.dependencies.filter((v): v is string => typeof v === "string").slice(0, 12),
+artifacts/api-server/src/lib/ai-execution-state.ts-772-      status: item.status as AutonomousOperationNode["status"],
+artifacts/api-server/src/lib/ai-execution-state.ts-773-      attempts: Math.max(0, Math.min(attempts, 3)),
+artifacts/api-server/src/lib/ai-execution-state.ts-774-      validationAttempts: Math.max(0, Math.min(validationAttempts, 3)),
+artifacts/api-server/src/lib/ai-execution-state.ts-775-      allowedFiles: item.allowedFiles.filter((v): v is string => typeof v === "string").slice(0, AI_EXECUTION_NODE_FILES_LIMIT),
+artifacts/api-server/src/lib/ai-execution-state.ts:776:      validationProfile: item.validationProfile.slice(0, 120),
+artifacts/api-server/src/lib/ai-execution-state.ts-777-      evidenceRefs: item.evidenceRefs.filter((v): v is string => typeof v === "string").slice(0, 8),
+artifacts/api-server/src/lib/ai-execution-state.ts-778-    }];
+artifacts/api-server/src/lib/ai-execution-state.ts-779-  });
+artifacts/api-server/src/lib/ai-execution-state.ts-780-  const acceptanceChecks = (candidate.acceptanceChecks ?? []).slice(0, 12).flatMap((check) => {
+artifacts/api-server/src/lib/ai-execution-state.ts-781-    if (!check || typeof check !== "object") return [];
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-884-    const checkpointNode = checkpointById.get(planNode.id);
+artifacts/api-server/src/lib/ai-execution-state.ts-885-    if (
+artifacts/api-server/src/lib/ai-execution-state.ts-886-      !checkpointNode
+artifacts/api-server/src/lib/ai-execution-state.ts-887-      || !sameStringArray(planNode.allowedFiles, checkpointNode.allowedFiles)
+artifacts/api-server/src/lib/ai-execution-state.ts-888-      || !sameStringArray(planNode.dependencies, checkpointNode.dependencies)
+artifacts/api-server/src/lib/ai-execution-state.ts:889:      || planNode.validationProfile !== checkpointNode.validationProfile
+artifacts/api-server/src/lib/ai-execution-state.ts-890-      || checkpointNode.attempts < planNode.attempts
+artifacts/api-server/src/lib/ai-execution-state.ts-891-      || checkpointNode.validationAttempts < planNode.validationAttempts
+artifacts/api-server/src/lib/ai-execution-state.ts-892-      || (planNode.lastFailure
+artifacts/api-server/src/lib/ai-execution-state.ts-893-        && (
+artifacts/api-server/src/lib/ai-execution-state.ts-894-          planNode.lastFailure.status !== checkpointNode.lastFailure?.status
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-944-  attempt?: number;
+artifacts/api-server/src/lib/ai-execution-state.ts-945-  projectId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-946-  sessionId?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-947-  linkedTaskId?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-948-  buildPlanMessageId?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:949:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts-950-}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+artifacts/api-server/src/lib/ai-execution-state.ts:951:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts:952:    assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts-953-      projectId: params.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts-954-      operationId: params.request.operationId,
+artifacts/api-server/src/lib/ai-execution-state.ts-955-      sourceRevision: params.request.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts-956-    });
+artifacts/api-server/src/lib/ai-execution-state.ts-957-  }
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-982-      ? params.request.objective
+artifacts/api-server/src/lib/ai-execution-state.ts-983-      : params.request.message,
+artifacts/api-server/src/lib/ai-execution-state.ts-984-    revisionManifest: params.request.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts-985-    targetPaths: params.request.validationTargetPaths,
+artifacts/api-server/src/lib/ai-execution-state.ts-986-    expectedBehavior: params.request.message,
+artifacts/api-server/src/lib/ai-execution-state.ts:987:    ...(params.recipeBinding ? { binding: params.recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-988-  });
+artifacts/api-server/src/lib/ai-execution-state.ts-989-  const [execution] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts-990-    .insert(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts-991-    .values({
+artifacts/api-server/src/lib/ai-execution-state.ts-992-      id: executionId,
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1003-      request: JSON.stringify(params.request),
+artifacts/api-server/src/lib/ai-execution-state.ts-1004-      checkpoint: JSON.stringify({
+artifacts/api-server/src/lib/ai-execution-state.ts-1005-        stage: "queued",
+artifacts/api-server/src/lib/ai-execution-state.ts-1006-        sequence: 0,
+artifacts/api-server/src/lib/ai-execution-state.ts-1007-        operation,
+artifacts/api-server/src/lib/ai-execution-state.ts:1008:        ...(params.recipeBinding ? { recipeBinding: params.recipeBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1009-        updatedAt: now.toISOString(),
+artifacts/api-server/src/lib/ai-execution-state.ts-1010-      } satisfies AiExecutionCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts-1011-      status: "queued",
+artifacts/api-server/src/lib/ai-execution-state.ts-1012-      createdAt: now,
+artifacts/api-server/src/lib/ai-execution-state.ts-1013-      updatedAt: now,
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1106-): AiExecutionCheckpoint {
+artifacts/api-server/src/lib/ai-execution-state.ts-1107-  const previous = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts-1108-  const now = new Date().toISOString();
+artifacts/api-server/src/lib/ai-execution-state.ts-1109-  const operation = params.operation
+artifacts/api-server/src/lib/ai-execution-state.ts-1110-    ?? previous?.operation;
+artifacts/api-server/src/lib/ai-execution-state.ts:1111:  const previousBinding = previous?.recipeBinding ?? operation?.binding;
+artifacts/api-server/src/lib/ai-execution-state.ts-1112-  const terminalBinding = previousBinding
+artifacts/api-server/src/lib/ai-execution-state.ts-1113-    ? {
+artifacts/api-server/src/lib/ai-execution-state.ts-1114-        ...previousBinding,
+artifacts/api-server/src/lib/ai-execution-state.ts-1115-        phase: params.cancelled ? "cancelled" as const : "failed" as const,
+artifacts/api-server/src/lib/ai-execution-state.ts-1116-        leaseOwner: null,
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1126-          operation: params.cancelled
+artifacts/api-server/src/lib/ai-execution-state.ts-1127-            ? { ...operation, state: "cancelled", ...(terminalBinding ? { binding: terminalBinding } : {}), updatedAt: now }
+artifacts/api-server/src/lib/ai-execution-state.ts-1128-            : { ...operation, ...(terminalBinding ? { binding: terminalBinding } : {}) },
+artifacts/api-server/src/lib/ai-execution-state.ts-1129-        }
+artifacts/api-server/src/lib/ai-execution-state.ts-1130-      : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1131:    ...(terminalBinding ? { recipeBinding: terminalBinding } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1132-    ...(params.streamedPreview
+artifacts/api-server/src/lib/ai-execution-state.ts-1133-      ? { streamedPreview: params.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) }
+artifacts/api-server/src/lib/ai-execution-state.ts-1134-      : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1135-    ...(params.recentSteps && params.recentSteps.length > 0
+artifacts/api-server/src/lib/ai-execution-state.ts-1136-      ? { recentSteps: params.recentSteps.slice(-AI_EXECUTION_TRACE_LIMIT) }
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1228-export async function claimAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts-1229-  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1230-  userId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1231-  workerId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1232-  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1233:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts-1234-}): Promise<AiExecution | undefined> {
+artifacts/api-server/src/lib/ai-execution-state.ts-1235-  const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1236:  const existing = params.recipeBinding
+artifacts/api-server/src/lib/ai-execution-state.ts-1237-    ? await getAiExecutionForUser(params.executionId, params.userId)
+artifacts/api-server/src/lib/ai-execution-state.ts-1238-    : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1239:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts-1240-    if (!existing) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1241:    const storedBinding = parseAiExecutionCheckpoint(existing.checkpoint)?.recipeBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1242:    if (!storedBinding || JSON.stringify(storedBinding) !== JSON.stringify(params.recipeBinding)) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-1243-    try {
+artifacts/api-server/src/lib/ai-execution-state.ts:1244:      assertRecipeOperationBinding(params.recipeBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts-1245-        projectId: existing.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts-1246-        operationId: existing.operationId ?? undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts-1247-        sourceRevision: parseExecutionRequest(existing.request)?.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts-1248-      });
+artifacts/api-server/src/lib/ai-execution-state.ts-1249-    } catch {
+artifacts/api-server/src/lib/ai-execution-state.ts-1250-      return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-1251-    }
+artifacts/api-server/src/lib/ai-execution-state.ts-1252-  }
+artifacts/api-server/src/lib/ai-execution-state.ts-1253-  const claimTime = new Date();
+artifacts/api-server/src/lib/ai-execution-state.ts-1254-  const claimLeaseUntil = new Date(claimTime.getTime() + AI_EXECUTION_LEASE_MS);
+artifacts/api-server/src/lib/ai-execution-state.ts:1255:  const claimCheckpoint = existing && params.recipeBinding ? parseAiExecutionCheckpoint(existing.checkpoint) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1256:  const claimedBinding = params.recipeBinding
+artifacts/api-server/src/lib/ai-execution-state.ts:1257:    ? { ...params.recipeBinding, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
+artifacts/api-server/src/lib/ai-execution-state.ts-1258-    : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts-1259-  const [claimed] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts-1260-    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts-1261-    .set({
+artifacts/api-server/src/lib/ai-execution-state.ts-1262-      status: "running",
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1268-      error: null,
+artifacts/api-server/src/lib/ai-execution-state.ts-1269-      cancelRequestedAt: null,
+artifacts/api-server/src/lib/ai-execution-state.ts-1270-      ...(claimedBinding && claimCheckpoint ? {
+artifacts/api-server/src/lib/ai-execution-state.ts-1271-        checkpoint: JSON.stringify({
+artifacts/api-server/src/lib/ai-execution-state.ts-1272-          ...claimCheckpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1273:          recipeBinding: claimedBinding,
+artifacts/api-server/src/lib/ai-execution-state.ts-1274-          ...(claimCheckpoint.operation ? { operation: { ...claimCheckpoint.operation, binding: claimedBinding } } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1275-          sequence: claimCheckpoint.sequence + 1,
+artifacts/api-server/src/lib/ai-execution-state.ts-1276-          updatedAt: claimTime.toISOString(),
+artifacts/api-server/src/lib/ai-execution-state.ts-1277-        } satisfies AiExecutionCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts-1278-        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts-1279-      } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts-1280-    })
+artifacts/api-server/src/lib/ai-execution-state.ts-1281-    .where(and(
+artifacts/api-server/src/lib/ai-execution-state.ts-1282-      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts-1283-      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1284:      ...(params.recipeBinding ? [
+artifacts/api-server/src/lib/ai-execution-state.ts:1285:        eq(aiExecutionsTable.projectId, params.recipeBinding.projectId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1286:        eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
+artifacts/api-server/src/lib/ai-execution-state.ts-1287-      ] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts-1288-      inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
+artifacts/api-server/src/lib/ai-execution-state.ts-1289-      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts-1290-    ))
+artifacts/api-server/src/lib/ai-execution-state.ts-1291-    .returning();
+--
+artifacts/api-server/src/lib/ai-execution-state.ts-1294-
+artifacts/api-server/src/lib/ai-execution-state.ts-1295-export async function checkpointAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts-1296-  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1297-  workerId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts-1298-  checkpoint: AiExecutionCheckpoint;
+artifacts/api-server/src/lib/ai-execution-state.ts:1299:  recipeBinding?: RecipeOperationBinding;
+artifacts/api-server/src/lib/ai-execution-state.ts-1300-}): Promise<boolean> {
+artifacts/api-server/src/lib/ai-execution-state.ts-1301-  // Keep this update atomic: the worker lease and checkpoint version are the
+artifacts/api-server/src/lib/ai-execution-state.ts-1302-  // concurrency boundary. Callers that advance an operation include its
+artifacts/api-server/src/lib/ai-execution-state.ts-1303-  // server-validated contract in the checkpoint; legacy stage-only writers
+artifacts/api-server/src/lib/ai-execution-state.ts-1304-  // remain compatible and do not get a second read/race window here.
+artifacts/api-server/src/lib/ai-execution-state.ts-1305-  const durableOperation = params.checkpoint.operation
+artifacts/api-server/src/lib/ai-execution-state.ts-1306-    ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
+artifacts/api-server/src/lib/ai-execution-state.ts-1307-    : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1308:  const checkpointBinding = params.checkpoint.recipeBinding ?? durableOperation?.binding;
+artifacts/api-server/src/lib/ai-execution-state.ts:1309:  if (params.recipeBinding) {
+artifacts/api-server/src/lib/ai-execution-state.ts-1310-    if (!checkpointBinding) return false;
+artifacts/api-server/src/lib/ai-execution-state.ts-1311-    try {
+artifacts/api-server/src/lib/ai-execution-state.ts-1312-      assertRecipeOperationBinding(checkpointBinding, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1313:        projectId: params.recipeBinding.projectId,
+artifacts/api-server/src/lib/ai-execution-state.ts:1314:        operationId: params.recipeBinding.operationId,

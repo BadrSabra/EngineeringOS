@@ -1054,6 +1054,61 @@ export async function getAiExecutionForUser(
   return execution;
 }
 
+export type RecipeNodeAuthorizationPhase = "start" | "completion" | "retry";
+
+export async function authorizeRecipeNodeExecution(params: {
+  executionId: string;
+  userId: string;
+  workerId: string;
+  binding: RecipeOperationBinding;
+  phase: RecipeNodeAuthorizationPhase;
+}): Promise<{ allowed: boolean; reason?: string }> {
+  const execution = await getAiExecutionForUser(params.executionId, params.userId);
+  if (!execution) return { allowed: false, reason: "durable execution row is missing" };
+  if (execution.status === "cancelled" || execution.cancelRequestedAt) {
+    return { allowed: false, reason: "durable execution is cancelled" };
+  }
+  if (execution.status !== "running") {
+    return { allowed: false, reason: `durable execution status is ${execution.status}` };
+  }
+  if (execution.workerId !== params.workerId) {
+    return { allowed: false, reason: "recipe lease owner changed" };
+  }
+  if (!execution.leaseUntil || execution.leaseUntil <= new Date()) {
+    return { allowed: false, reason: "recipe lease expired" };
+  }
+  const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+  const storedBinding = checkpoint?.recipeBinding;
+  if (!storedBinding) return { allowed: false, reason: "durable recipe binding is missing" };
+  if (storedBinding.sourceRevision !== params.binding.sourceRevision) {
+    return { allowed: false, reason: "recipe source revision drifted" };
+  }
+  if (storedBinding.candidateIdentity !== params.binding.candidateIdentity) {
+    return { allowed: false, reason: "recipe candidate identity changed" };
+  }
+  if (storedBinding.candidateWorkspace !== params.binding.candidateWorkspace) {
+    return { allowed: false, reason: "recipe candidate workspace changed" };
+  }
+  if (storedBinding.leaseOwner !== params.workerId) {
+    return { allowed: false, reason: "durable recipe binding lease owner changed" };
+  }
+  try {
+    assertRecipeOperationBinding(params.binding, {
+      projectId: execution.projectId,
+      operationId: execution.operationId ?? undefined,
+      sourceRevision: parseExecutionRequest(execution.request)?.workspaceRevision,
+      candidateIdentity: storedBinding.candidateIdentity,
+      candidateWorkspace: storedBinding.candidateWorkspace,
+      leaseOwner: params.workerId,
+      requireLease: true,
+      now: new Date(),
+    });
+  } catch {
+    return { allowed: false, reason: `recipe binding rejected before ${params.phase}` };
+  }
+  return { allowed: true };
+}
+
 export async function recoverAiExecutionResumeToken(params: {
   executionId: string;
   userId: string;

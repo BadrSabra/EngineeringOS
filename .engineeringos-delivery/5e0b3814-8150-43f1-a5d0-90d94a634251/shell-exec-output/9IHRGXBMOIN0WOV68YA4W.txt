@@ -1,0 +1,265 @@
+artifacts/api-server/src/routes/ai/providers.ts:21:import { resolveProvider } from "../../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai/providers.ts:61:  apiKey: string | undefined,
+artifacts/api-server/src/routes/ai/providers.ts:67:  if (!apiKey) {
+artifacts/api-server/src/routes/ai/providers.ts:81:    const validation = await validateGroqDefaultModels(apiKey, checkedModels);
+artifacts/api-server/src/routes/ai/providers.ts:143:  let apiKey: string | undefined;
+artifacts/api-server/src/routes/ai/providers.ts:146:    apiKey = decryptApiKey(row.encryptedApiKey);
+artifacts/api-server/src/routes/ai/providers.ts:149:    apiKey = process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai/providers.ts:150:    source = apiKey ? "server" : "none";
+artifacts/api-server/src/routes/ai/providers.ts:153:    apiKey,
+artifacts/api-server/src/routes/ai/providers.ts:166:  const { apiKey } = req.body as { apiKey?: string };
+artifacts/api-server/src/routes/ai/providers.ts:167:  if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
+artifacts/api-server/src/routes/ai/providers.ts:168:    return res.status(400).json({ error: "apiKey must be at least 10 characters" });
+artifacts/api-server/src/routes/ai/providers.ts:170:  const trimmed = apiKey.trim();
+artifacts/api-server/src/routes/ai/providers.ts:231:router.get("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:241:router.put("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:251:router.delete("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:264:router.get("/ai/active-provider", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:265:  const resolved = await resolveProvider(req.userId);
+artifacts/api-server/src/routes/ai/providers.ts:285:router.get("/ai/metrics", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:362:router.get("/ai/groq-key",        (req, res) => handleGetKey(req, res, "groq"));
+artifacts/api-server/src/routes/ai/providers.ts:363:router.put("/ai/groq-key",        (req, res) => handlePutKey(req, res, "groq"));
+artifacts/api-server/src/routes/ai/providers.ts:364:router.delete("/ai/groq-key",     (req, res) => handleDeleteKey(req, res, "groq"));
+artifacts/api-server/src/routes/ai/providers.ts:366:router.get("/ai/deepseek-key",    (req, res) => handleGetKey(req, res, "deepseek"));
+artifacts/api-server/src/routes/ai/providers.ts:367:router.put("/ai/deepseek-key",    (req, res) => handlePutKey(req, res, "deepseek"));
+artifacts/api-server/src/routes/ai/providers.ts:368:router.delete("/ai/deepseek-key", (req, res) => handleDeleteKey(req, res, "deepseek"));
+artifacts/api-server/src/routes/ai/providers.ts:370:router.get("/ai/openrouter-key",    (req, res) => handleGetKey(req, res, "openrouter"));
+artifacts/api-server/src/routes/ai/providers.ts:371:router.put("/ai/openrouter-key",    (req, res) => handlePutKey(req, res, "openrouter"));
+artifacts/api-server/src/routes/ai/providers.ts:372:router.delete("/ai/openrouter-key", (req, res) => handleDeleteKey(req, res, "openrouter"));
+artifacts/api-server/src/routes/ai/providers.ts:374:router.get("/ai/gemini-key",    (req, res) => handleGetKey(req, res, "gemini"));
+artifacts/api-server/src/routes/ai/providers.ts:375:router.put("/ai/gemini-key",    (req, res) => handlePutKey(req, res, "gemini"));
+artifacts/api-server/src/routes/ai/providers.ts:376:router.delete("/ai/gemini-key", (req, res) => handleDeleteKey(req, res, "gemini"));
+artifacts/api-server/src/routes/ai/chat.ts:7: * GET  /api/ai/chat/:sessionId/messages
+artifacts/api-server/src/routes/ai/chat.ts:138:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/chat.ts:464:  sessionId: string;
+artifacts/api-server/src/routes/ai/chat.ts:566:    sessionId: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:915:  sessionId: string;
+artifacts/api-server/src/routes/ai/chat.ts:934:}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date }> {
+artifacts/api-server/src/routes/ai/chat.ts:940:        .where(eq(aiChatSessionsTable.id, params.sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:944:          id: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:962:              eq(aiChatMessagesTable.sessionId, params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:980:        sessionId: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:1011:              eq(aiChatMessagesTable.sessionId, params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:1028:        sessionId: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:1058:      sessionId: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:1085:      .where(eq(aiChatSessionsTable.id, params.sessionId));
+artifacts/api-server/src/routes/ai/chat.ts:1088:      sessionId: params.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:2013:router.post("/ai/chat", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:2017:    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+artifacts/api-server/src/routes/ai/chat.ts:2033:  const { projectId, message, sessionId, linkedTaskId, objective } = chatBody.data;
+artifacts/api-server/src/routes/ai/chat.ts:2036:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:2041:  if (!sessionId && isImmediateExecutionRequest(message)) {
+artifacts/api-server/src/routes/ai/chat.ts:2056:  if (sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2060:      .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:2160:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:2170:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/chat.ts:2198:      sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:2211:        sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:2246:        { provider, apiKey },
+artifacts/api-server/src/routes/ai/chat.ts:2274:    const sessionIdToUse = existingSession?.id ?? randomUUID();
+artifacts/api-server/src/routes/ai/chat.ts:2290:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2310:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2323:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2425:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+artifacts/api-server/src/routes/ai/chat.ts:2432:            id: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2457:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2468:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2489:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2513:          eq(aiChatSessionsTable.id, sessionIdToUse),
+artifacts/api-server/src/routes/ai/chat.ts:2520:      sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2529:      sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2563:router.post("/ai/chat/stream", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:2567:    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+artifacts/api-server/src/routes/ai/chat.ts:2598:    sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:2615:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:2622:  if (!sessionId && isImmediateExecutionRequest(message)) {
+artifacts/api-server/src/routes/ai/chat.ts:2628:  if (effectiveExecutionId && !sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2655:    if (!sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2676:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:2687:    if (planRow.session.id !== sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2777:  if (sessionId) {
+artifacts/api-server/src/routes/ai/chat.ts:2781:      .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:2846:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/chat.ts:2907:    const sessionIdToUse = existingSession?.id ?? randomUUID();
+artifacts/api-server/src/routes/ai/chat.ts:2917:          id: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2939:        sessionId: createdSession.id,
+artifacts/api-server/src/routes/ai/chat.ts:2953:      sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:2993:        storedRequest.sessionId === executionRequest.sessionId &&
+artifacts/api-server/src/routes/ai/chat.ts:3081:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:3292:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:3325:      sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:3338:        sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:3915:        { provider, apiKey },
+artifacts/api-server/src/routes/ai/chat.ts:3957:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:3976:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:3995:            sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4004:            sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4007:              sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4142:        sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4153:      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+artifacts/api-server/src/routes/ai/chat.ts:4171:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4182:        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+artifacts/api-server/src/routes/ai/chat.ts:4279:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4296:          { persistError, sessionId: sessionIdToUse },
+artifacts/api-server/src/routes/ai/chat.ts:4310:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+artifacts/api-server/src/routes/ai/chat.ts:4317:            id: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4346:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4359:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4382:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4415:          eq(aiChatSessionsTable.id, sessionIdToUse),
+artifacts/api-server/src/routes/ai/chat.ts:4552:          sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4564:      sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4591:      sessionId: assistantMsg.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4605:      sessionId: sessionIdToUse,
+artifacts/api-server/src/routes/ai/chat.ts:4668:router.get("/ai/executions/history", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4669:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/ai/chat.ts:4712:      sessionId: execution.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4746:router.get("/ai/executions/:executionId", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4801:    sessionId: execution.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4863:router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4984:      sessionId: execution.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:5014:router.post("/ai/executions/:executionId/recovery", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5041:router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5062:router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5085:router.get("/ai/chat/sessions", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5086:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/ai/chat.ts:5105:      sessionId: aiChatMessagesTable.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:5112:    .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
+artifacts/api-server/src/routes/ai/chat.ts:5117:    if (message.role === "assistant" && !latestAssistantBySession.has(message.sessionId)) {
+artifacts/api-server/src/routes/ai/chat.ts:5118:      latestAssistantBySession.set(message.sessionId, message);
+artifacts/api-server/src/routes/ai/chat.ts:5155:// ── POST /api/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate
+artifacts/api-server/src/routes/ai/chat.ts:5159:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5163:  const { sessionId, messageId } = req.params;
+artifacts/api-server/src/routes/ai/chat.ts:5167:    .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5171:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5184:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:5210:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5226:        eq(aiExecutionsTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:5234:    .where(eq(aiChangeProposalsTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5250:      sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:5270:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:5280:// ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts:5282:router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5283:  const { sessionId } = req.params;
+artifacts/api-server/src/routes/ai/chat.ts:5288:    .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5294:    const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5301:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5344:router.post("/ai/chat/plans/:messageId/decision", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5363:      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:5372:  const project = await loadProjectByIdForUser(row.session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5487:// quoted. Project-authorized (loadProjectByIdForUser) and path-guarded against
+artifacts/api-server/src/routes/ai/chat.ts:5492:router.get("/ai/chat/file-content", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5493:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/ai/chat.ts:5584:router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5588:    .where(eq(aiChatSessionsTable.id, req.params.sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5591:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5598:      eq(aiChangeProposalsTable.sessionId, req.params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:5667:router.get("/ai/delivery/recoverable", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5668:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/ai/chat.ts:5714:      sessionId: proposal.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:5741:router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5745:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5865:router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5869:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5893:router.post("/ai/chat/rebase-changes", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5941:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6188:router.post("/ai/chat/proposals/:proposalId/approve", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:6201:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6274:router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:6283:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:6307:router.post("/ai/chat/apply-changes", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:6360:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/tasks.ts:23:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/tasks.ts:28:  resolveProvider,
+artifacts/api-server/src/routes/ai/tasks.ts:58:router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+artifacts/api-server/src/routes/ai/tasks.ts:68:  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/tasks.ts:81:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/tasks.ts:95:      provider: { provider, apiKey },
+artifacts/api-server/src/routes/ai/tasks.ts:245:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/tasks.ts:447:      const resolved = await resolveProvider(userId, {
+artifacts/api-server/src/routes/ai/tasks.ts:463:      const { provider, apiKey } = resolved;
+artifacts/api-server/src/routes/ai/tasks.ts:477:        provider: { provider, apiKey },
+artifacts/api-server/src/routes/ai/tasks.ts:574:          { provider, apiKey },
+artifacts/api-server/src/routes/ai/operator-alerts.ts:16:router.get("/ai/operator-alerts", async (req, res) => {
+artifacts/api-server/src/routes/ai/workflows.ts:24:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/workflows.ts:47:router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
+artifacts/api-server/src/routes/ai/workflows.ts:65:  const ownerProject = await loadProjectByIdForUser(workflow.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/workflows.ts:84:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/workflows.ts:184:      apiKey,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:54:    sessionId: "test-session-id",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:65:    sessionId: "test-session-id",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:73:      sessionId: "test-session-id",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:177:              if (vals && "projectId" in vals && !("sessionId" in vals)) {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:181:              if (vals?.sessionId) {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:275:vi.mock("../../middlewares/requireProjectAccess.js", async (importOriginal) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:280:    loadProjectByIdForUser: vi.fn(),
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:310:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:532:  vi.mocked(loadProjectByIdForUser).mockReset();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:541:  vi.mocked(loadProjectByIdForUser).mockResolvedValue(FAKE_PROJECT as never);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:542:  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:625:    const sessionId = persistedSession?.id;
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:626:    expect(typeof sessionId).toBe("string");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:631:      .send({ projectId: "test-project-id", sessionId, message: "ابدأ" });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:640:      .send({ projectId: "test-project-id", sessionId, message: "ابدأ" });
+artifacts/api-server/src/routes/ai/analysis.ts:26:import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/analysis.ts:30:  resolveProvider,
+artifacts/api-server/src/routes/ai/analysis.ts:58:   | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string })
+artifacts/api-server/src/routes/ai/analysis.ts:94:  sessionId?: string;
+artifacts/api-server/src/routes/ai/analysis.ts:101:  let sessionId = params.sessionId;
+artifacts/api-server/src/routes/ai/analysis.ts:102:  const existingSession = sessionId
+artifacts/api-server/src/routes/ai/analysis.ts:107:        eq(aiChatSessionsTable.id, sessionId),
+artifacts/api-server/src/routes/ai/analysis.ts:112:  if (!existingSession) sessionId = randomUUID();
+artifacts/api-server/src/routes/ai/analysis.ts:127:        id: sessionId!,
+artifacts/api-server/src/routes/ai/analysis.ts:135:        sessionId: sessionId!,
+artifacts/api-server/src/routes/ai/analysis.ts:144:      sessionId: sessionId!,
+artifacts/api-server/src/routes/ai/analysis.ts:155:      .where(eq(aiChatSessionsTable.id, sessionId!));
+artifacts/api-server/src/routes/ai/analysis.ts:157:  return sessionId!;
+artifacts/api-server/src/routes/ai/analysis.ts:163:  options: Parameters<typeof resolveProvider>[1],
+artifacts/api-server/src/routes/ai/analysis.ts:167:    sessionId?: string;
+artifacts/api-server/src/routes/ai/analysis.ts:169:): Promise<Awaited<ReturnType<typeof resolveProvider>> | null> {
+artifacts/api-server/src/routes/ai/analysis.ts:170:  const resolved = await resolveProvider(userId, options);
+artifacts/api-server/src/routes/ai/analysis.ts:173:  const sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:188:    sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:277:  params: { projectId: string; userId: string; task: StructuredTask; sessionId?: string },
+artifacts/api-server/src/routes/ai/analysis.ts:288:  }).then((sessionId) => {
+artifacts/api-server/src/routes/ai/analysis.ts:301:      sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:321:router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:334:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/analysis.ts:356:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/analysis.ts:364:    let sessionId: string | undefined;
+artifacts/api-server/src/routes/ai/analysis.ts:366:      sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:382:      incompleteReview: { sessionId, failureKind: details.failureKind },
+artifacts/api-server/src/routes/ai/analysis.ts:435:router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:478:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/analysis.ts:488:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/analysis.ts:496:    let sessionId: string | undefined;
+artifacts/api-server/src/routes/ai/analysis.ts:498:      sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:514:      incompleteReview: { sessionId, failureKind: details.failureKind },
+artifacts/api-server/src/routes/ai/analysis.ts:565:router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:569:  const requestedSessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : undefined;
+artifacts/api-server/src/routes/ai/analysis.ts:576:    { projectId, task: "analyze", sessionId: requestedSessionId },
+artifacts/api-server/src/routes/ai/analysis.ts:582:    const sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:586:      sessionId: requestedSessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:598:      sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:612:    const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/analysis.ts:616:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/analysis.ts:634:      const sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:638:        sessionId: requestedSessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:652:        sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:699:      sessionId: requestedSessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:707:router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:711:  const { fileContents, sessionId: requestedSessionId } = req.body as {
+artifacts/api-server/src/routes/ai/analysis.ts:713:    sessionId?: string;
+artifacts/api-server/src/routes/ai/analysis.ts:740:    { projectId, task: "review", sessionId: requestedSessionId },
+artifacts/api-server/src/routes/ai/analysis.ts:746:    const sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:750:      sessionId: requestedSessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:762:      sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:776:    const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/analysis.ts:780:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/analysis.ts:798:      const sessionId = await persistStructuredFailure({
+artifacts/api-server/src/routes/ai/analysis.ts:802:        sessionId: requestedSessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:816:        sessionId,
+artifacts/api-server/src/routes/ai/analysis.ts:863:      sessionId: requestedSessionId,
+artifacts/api-server/src/routes/ai/operator-alerts.test.ts:63:    expect(JSON.stringify(res.body)).not.toContain("apiKey");
+artifacts/api-server/src/routes/ai/benchmark.ts:451:router.get("/ai/benchmark/scorecard", async (_req, res) => {
+artifacts/api-server/src/routes/ai/benchmark.ts:475:router.get("/ai/mission-control", async (req, res) => {

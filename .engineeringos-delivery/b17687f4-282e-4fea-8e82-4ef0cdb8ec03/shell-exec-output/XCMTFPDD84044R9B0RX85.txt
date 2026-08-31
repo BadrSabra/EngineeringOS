@@ -1,0 +1,648 @@
+lib/ai-orchestrator/src/schemas/chat.schema.ts-7-  SemanticBehaviorAnswerSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts-8-} from "../task-contracts.js";
+lib/ai-orchestrator/src/schemas/chat.schema.ts-9-import {
+lib/ai-orchestrator/src/schemas/chat.schema.ts-10-  CrossFileSemanticTraceSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts-11-  ProductionReachabilityTraceSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts-12-} from "../semantic-trace.js";
+lib/ai-orchestrator/src/schemas/chat.schema.ts-13-import { ImplementationPlanSchema } from "./implementation-plan.schema.js";
+lib/ai-orchestrator/src/schemas/chat.schema.ts-14-
+lib/ai-orchestrator/src/schemas/chat.schema.ts:15:export const ValidationProfileSchema = z.enum([
+lib/ai-orchestrator/src/schemas/chat.schema.ts:16:  "ai-orchestrator-tests",
+lib/ai-orchestrator/src/schemas/chat.schema.ts:17:  "knowledge-engine-tests",
+lib/ai-orchestrator/src/schemas/chat.schema.ts:18:  "api-ai-tests",
+lib/ai-orchestrator/src/schemas/chat.schema.ts:19:  "workspace-typecheck",
+lib/ai-orchestrator/src/schemas/chat.schema.ts-20-]);
+lib/ai-orchestrator/src/schemas/chat.schema.ts-21-
+lib/ai-orchestrator/src/schemas/chat.schema.ts:22:export type ValidationProfile = z.infer<typeof ValidationProfileSchema>;
+lib/ai-orchestrator/src/schemas/chat.schema.ts-23-
+lib/ai-orchestrator/src/schemas/chat.schema.ts-24-/**
+lib/ai-orchestrator/src/schemas/chat.schema.ts-25- * Server-verified metadata for a Repair Plan phase. This is deliberately
+lib/ai-orchestrator/src/schemas/chat.schema.ts-26- * separate from the Markdown report: execution handoff must not recover write
+lib/ai-orchestrator/src/schemas/chat.schema.ts-27- * targets from Evidence Map or Finding prose.
+lib/ai-orchestrator/src/schemas/chat.schema.ts-28- */
+lib/ai-orchestrator/src/schemas/chat.schema.ts-29-/**
+lib/ai-orchestrator/src/schemas/chat.schema.ts-30- * AI-OBJ-001: a single required claim a declared objective demands be closed.
+--
+lib/ai-orchestrator/src/schemas/chat.schema.ts-83-    }
+lib/ai-orchestrator/src/schemas/chat.schema.ts-84-  });
+lib/ai-orchestrator/src/schemas/chat.schema.ts-85-export type ObjectiveContract = z.infer<typeof ObjectiveContractSchema>;
+lib/ai-orchestrator/src/schemas/chat.schema.ts-86-
+lib/ai-orchestrator/src/schemas/chat.schema.ts-87-export const RepairPlanMetadataSchema = z.object({
+lib/ai-orchestrator/src/schemas/chat.schema.ts-88-  findingId: z.string().regex(/^F-\d+$/, "findingId must use the F-XX format"),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-89-  files: z.array(z.string().min(1).max(500)).min(1).max(8),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-90-  steps: z.array(z.string().min(1).max(600)).min(1).max(8),
+lib/ai-orchestrator/src/schemas/chat.schema.ts:91:  validationProfile: ValidationProfileSchema,
+lib/ai-orchestrator/src/schemas/chat.schema.ts-92-  /**
+lib/ai-orchestrator/src/schemas/chat.schema.ts-93-   * Task #46: the verdict's proof scope that produced this phase, persisted so
+lib/ai-orchestrator/src/schemas/chat.schema.ts-94-   * the execution-handoff context builder restores the SAME scope and the
+lib/ai-orchestrator/src/schemas/chat.schema.ts-95-   * Repair Scope Gate re-derives judgement from it instead of a fresh default.
+lib/ai-orchestrator/src/schemas/chat.schema.ts-96-   */
+lib/ai-orchestrator/src/schemas/chat.schema.ts-97-  verdictScope: z
+lib/ai-orchestrator/src/schemas/chat.schema.ts-98-    .enum(["PRODUCTION", "FIXTURE_LOCAL", "TEST_LOCAL", "SPEC_LOCAL", "MIXED", "NOT_PROVEN"])
+lib/ai-orchestrator/src/schemas/chat.schema.ts-99-    .optional(),
+--
+lib/ai-orchestrator/src/schemas/chat.schema.ts-162-      .refine(path.isAbsolute, { message: "absolutePath must be an absolute filesystem path" }),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-163-    newContent: z.string(),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-164-    originalContent: z.string().nullable(),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-165-    /** SHA-256 of the source content observed when the patch was generated. */
+lib/ai-orchestrator/src/schemas/chat.schema.ts-166-    baseHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-167-    /** Line-scoped evidence and replacement metadata for Patch Lab. */
+lib/ai-orchestrator/src/schemas/chat.schema.ts-168-    hunks: z.array(FilePatchHunkSchema).max(100).optional(),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-169-    reason: z.string().min(1),
+lib/ai-orchestrator/src/schemas/chat.schema.ts:170:    validationProfile: ValidationProfileSchema.optional(),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-171-    risk: z.enum(["low", "medium", "high"]).optional(),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-172-    evidence: z.array(PatchEvidenceLinkSchema).max(4).optional(),
+lib/ai-orchestrator/src/schemas/chat.schema.ts-173-  })
+lib/ai-orchestrator/src/schemas/chat.schema.ts-174-  .strict();
+lib/ai-orchestrator/src/schemas/chat.schema.ts-175-
+lib/ai-orchestrator/src/schemas/chat.schema.ts-176-export type PendingChange = z.infer<typeof PendingChangeSchema>;
+lib/ai-orchestrator/src/schemas/chat.schema.ts-177-
+lib/ai-orchestrator/src/schemas/chat.schema.ts-178-export const ChatResponseSchema = z.object({
+--
+artifacts/api-server/src/lib/ai-repair-validation.ts-1-import { promises as fs } from "node:fs";
+artifacts/api-server/src/lib/ai-repair-validation.ts-2-import path from "node:path";
+artifacts/api-server/src/lib/ai-repair-validation.ts-3-import { randomUUID } from "node:crypto";
+artifacts/api-server/src/lib/ai-repair-validation.ts-4-import {
+artifacts/api-server/src/lib/ai-repair-validation.ts-5-  runBoundedCommand,
+artifacts/api-server/src/lib/ai-repair-validation.ts:6:  type ValidationProfile,
+artifacts/api-server/src/lib/ai-repair-validation.ts-7-  type ValidationFailure as SharedValidationFailure,
+artifacts/api-server/src/lib/ai-repair-validation.ts-8-  type ValidationResult,
+artifacts/api-server/src/lib/ai-repair-validation.ts-9-  type ValidationStatus,
+artifacts/api-server/src/lib/ai-repair-validation.ts-10-} from "@workspace/ai-orchestrator";
+artifacts/api-server/src/lib/ai-repair-validation.ts-11-import {
+artifacts/api-server/src/lib/ai-repair-validation.ts-12-  verifyBrowserPreview,
+artifacts/api-server/src/lib/ai-repair-validation.ts-13-  type PreviewBrowser,
+artifacts/api-server/src/lib/ai-repair-validation.ts-14-  type PreviewSession,
+--
+artifacts/api-server/src/lib/ai-repair-validation.ts-23-/**
+artifacts/api-server/src/lib/ai-repair-validation.ts-24- * Legacy runner fixtures can still be supplied to the compatibility adapter.
+artifacts/api-server/src/lib/ai-repair-validation.ts-25- * New validation results returned by runRepairValidation are always canonical.
+artifacts/api-server/src/lib/ai-repair-validation.ts-26- */
+artifacts/api-server/src/lib/ai-repair-validation.ts-27-export type RepairVerificationResult =
+artifacts/api-server/src/lib/ai-repair-validation.ts-28-  | ValidationResult
+artifacts/api-server/src/lib/ai-repair-validation.ts-29-  | {
+artifacts/api-server/src/lib/ai-repair-validation.ts-30-      status: RepairVerificationStatus;
+artifacts/api-server/src/lib/ai-repair-validation.ts:31:      profile?: ValidationProfile;
+artifacts/api-server/src/lib/ai-repair-validation.ts-32-      scenario?: string;
+artifacts/api-server/src/lib/ai-repair-validation.ts-33-      command?: string;
+artifacts/api-server/src/lib/ai-repair-validation.ts-34-      exitCode?: number | null;
+artifacts/api-server/src/lib/ai-repair-validation.ts-35-      stdout?: string;
+artifacts/api-server/src/lib/ai-repair-validation.ts-36-      stderr?: string;
+artifacts/api-server/src/lib/ai-repair-validation.ts-37-      failedTests?: string[];
+artifacts/api-server/src/lib/ai-repair-validation.ts-38-      affectedFiles?: string[];
+artifacts/api-server/src/lib/ai-repair-validation.ts-39-      detail?: string;
+--
+artifacts/api-server/src/lib/ai-repair-validation.ts-45-};
+artifacts/api-server/src/lib/ai-repair-validation.ts-46-
+artifacts/api-server/src/lib/ai-repair-validation.ts-47-export type RuntimeOracleCommand = {
+artifacts/api-server/src/lib/ai-repair-validation.ts-48-  command: "pnpm";
+artifacts/api-server/src/lib/ai-repair-validation.ts-49-  args: readonly string[];
+artifacts/api-server/src/lib/ai-repair-validation.ts-50-  timeoutMs?: number;
+artifacts/api-server/src/lib/ai-repair-validation.ts-51-};
+artifacts/api-server/src/lib/ai-repair-validation.ts-52-
+artifacts/api-server/src/lib/ai-repair-validation.ts:53:type ValidationProfileDefinition = {
+artifacts/api-server/src/lib/ai-repair-validation.ts-54-  scenario: string;
+artifacts/api-server/src/lib/ai-repair-validation.ts-55-  allowedPath: (relativePath: string) => boolean;
+artifacts/api-server/src/lib/ai-repair-validation.ts-56-  command: string;
+artifacts/api-server/src/lib/ai-repair-validation.ts-57-  args: string[];
+artifacts/api-server/src/lib/ai-repair-validation.ts-58-  timeoutMs: number;
+artifacts/api-server/src/lib/ai-repair-validation.ts-59-  maxBuffer: number;
+artifacts/api-server/src/lib/ai-repair-validation.ts-60-};
+artifacts/api-server/src/lib/ai-repair-validation.ts-61-
+artifacts/api-server/src/lib/ai-repair-validation.ts:62:const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition> = {
+artifacts/api-server/src/lib/ai-repair-validation.ts:63:  "ai-orchestrator-tests": {
+artifacts/api-server/src/lib/ai-repair-validation.ts-64-    scenario: "Run the focused AI orchestrator Vitest suite.",
+artifacts/api-server/src/lib/ai-repair-validation.ts-65-    allowedPath: (file) => file === "lib/ai-orchestrator" || file.startsWith("lib/ai-orchestrator/"),
+artifacts/api-server/src/lib/ai-repair-validation.ts-66-    command: "pnpm",
+artifacts/api-server/src/lib/ai-repair-validation.ts-67-    args: ["--filter", "@workspace/ai-orchestrator", "exec", "vitest", "run"],
+artifacts/api-server/src/lib/ai-repair-validation.ts-68-    timeoutMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts-69-    maxBuffer: 2_000_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts-70-  },
+artifacts/api-server/src/lib/ai-repair-validation.ts:71:  "knowledge-engine-tests": {
+artifacts/api-server/src/lib/ai-repair-validation.ts-72-    scenario: "Run the focused knowledge engine Vitest suite.",
+artifacts/api-server/src/lib/ai-repair-validation.ts-73-    allowedPath: (file) => file === "lib/knowledge-engine" || file.startsWith("lib/knowledge-engine/"),
+artifacts/api-server/src/lib/ai-repair-validation.ts-74-    command: "pnpm",
+artifacts/api-server/src/lib/ai-repair-validation.ts-75-    args: ["--filter", "@workspace/knowledge-engine", "exec", "vitest", "run"],
+artifacts/api-server/src/lib/ai-repair-validation.ts-76-    timeoutMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts-77-    maxBuffer: 2_000_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts-78-  },
+artifacts/api-server/src/lib/ai-repair-validation.ts:79:  "api-ai-tests": {
+artifacts/api-server/src/lib/ai-repair-validation.ts-80-    scenario: "Run the AI API route Vitest suite.",
+artifacts/api-server/src/lib/ai-repair-validation.ts-81-    allowedPath: (file) =>
+artifacts/api-server/src/lib/ai-repair-validation.ts-82-      file === "artifacts/api-server/src/routes/ai.test.ts" ||
+artifacts/api-server/src/lib/ai-repair-validation.ts-83-      file.startsWith("artifacts/api-server/src/routes/ai/"),
+artifacts/api-server/src/lib/ai-repair-validation.ts-84-    command: "pnpm",
+artifacts/api-server/src/lib/ai-repair-validation.ts-85-    args: ["--filter", "@workspace/api-server", "exec", "vitest", "run", "src/routes/ai.test.ts"],
+artifacts/api-server/src/lib/ai-repair-validation.ts-86-    timeoutMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts-87-    maxBuffer: 2_000_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts-88-  },
+artifacts/api-server/src/lib/ai-repair-validation.ts:89:  "workspace-typecheck": {
+artifacts/api-server/src/lib/ai-repair-validation.ts-90-    scenario: "Run the workspace TypeScript typecheck.",
+artifacts/api-server/src/lib/ai-repair-validation.ts-91-    allowedPath: (file) => file.length > 0 && !file.startsWith("../"),
+artifacts/api-server/src/lib/ai-repair-validation.ts-92-    command: "pnpm",
+artifacts/api-server/src/lib/ai-repair-validation.ts-93-    args: ["run", "typecheck"],
+artifacts/api-server/src/lib/ai-repair-validation.ts-94-    timeoutMs: config.validationProcessTimeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts-95-    maxBuffer: 2_000_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts-96-  },
+artifacts/api-server/src/lib/ai-repair-validation.ts-97-};
+--
+artifacts/api-server/src/lib/ai-repair-validation.ts-238-}
+artifacts/api-server/src/lib/ai-repair-validation.ts-239-
+artifacts/api-server/src/lib/ai-repair-validation.ts-240-function emptyValidationDraft(
+artifacts/api-server/src/lib/ai-repair-validation.ts-241-  profile: string,
+artifacts/api-server/src/lib/ai-repair-validation.ts-242-  status: ValidationStatus,
+artifacts/api-server/src/lib/ai-repair-validation.ts-243-  scenario: string,
+artifacts/api-server/src/lib/ai-repair-validation.ts-244-  detail: string,
+artifacts/api-server/src/lib/ai-repair-validation.ts-245-): ValidationDraft {
+artifacts/api-server/src/lib/ai-repair-validation.ts:246:  const definition = PROFILE_DEFINITIONS[profile as ValidationProfile];
+artifacts/api-server/src/lib/ai-repair-validation.ts-247-  return {
+artifacts/api-server/src/lib/ai-repair-validation.ts-248-    profile,
+artifacts/api-server/src/lib/ai-repair-validation.ts-249-    status,
+artifacts/api-server/src/lib/ai-repair-validation.ts-250-    scenario,
+artifacts/api-server/src/lib/ai-repair-validation.ts-251-    command: definition ? [definition.command, ...definition.args].join(" ") : "",
+artifacts/api-server/src/lib/ai-repair-validation.ts-252-    exitCode: null,
+artifacts/api-server/src/lib/ai-repair-validation.ts-253-    stdout: "",
+artifacts/api-server/src/lib/ai-repair-validation.ts-254-    stderr: "",
+--
+artifacts/api-server/src/lib/ai-repair-validation.ts-281-    /(?:^|[\s("'`])((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json))(?:[:)\s"'`]|$)/g,
+artifacts/api-server/src/lib/ai-repair-validation.ts-282-  ) ?? [];
+artifacts/api-server/src/lib/ai-repair-validation.ts-283-  return paths
+artifacts/api-server/src/lib/ai-repair-validation.ts-284-    .map((match) => match.trim().replace(/^[\s("'`]+|[:)\s"'`]+$/g, ""))
+artifacts/api-server/src/lib/ai-repair-validation.ts-285-    .filter((file, index, files) => file.length > 0 && files.indexOf(file) === index)
+artifacts/api-server/src/lib/ai-repair-validation.ts-286-    .slice(0, 20);
+artifacts/api-server/src/lib/ai-repair-validation.ts-287-}
+artifacts/api-server/src/lib/ai-repair-validation.ts-288-
+artifacts/api-server/src/lib/ai-repair-validation.ts:289:export function getRepairValidationProfile(profile: ValidationProfile): ValidationProfileDefinition {
+artifacts/api-server/src/lib/ai-repair-validation.ts:290:  return PROFILE_DEFINITIONS[profile];
+artifacts/api-server/src/lib/ai-repair-validation.ts-291-}
+artifacts/api-server/src/lib/ai-repair-validation.ts-292-
+artifacts/api-server/src/lib/ai-repair-validation.ts-293-export function validateRepairValidationScope(
+artifacts/api-server/src/lib/ai-repair-validation.ts:294:  profile: ValidationProfile,
+artifacts/api-server/src/lib/ai-repair-validation.ts-295-  relativePaths: string[],
+artifacts/api-server/src/lib/ai-repair-validation.ts-296-): string | null {
+artifacts/api-server/src/lib/ai-repair-validation.ts:297:  const definition = PROFILE_DEFINITIONS[profile];
+artifacts/api-server/src/lib/ai-repair-validation.ts-298-  if (!definition) return `Validation profile "${profile}" is unavailable.`;
+artifacts/api-server/src/lib/ai-repair-validation.ts-299-  if (relativePaths.length === 0) return "No changed files were provided for behavioral verification.";
+artifacts/api-server/src/lib/ai-repair-validation.ts-300-  const invalid = relativePaths.find((file) => !definition.allowedPath(file));
+artifacts/api-server/src/lib/ai-repair-validation.ts-301-  return invalid
+artifacts/api-server/src/lib/ai-repair-validation.ts-302-    ? `Validation profile "${profile}" does not cover changed file "${invalid}".`
+artifacts/api-server/src/lib/ai-repair-validation.ts-303-    : null;
+artifacts/api-server/src/lib/ai-repair-validation.ts-304-}
+artifacts/api-server/src/lib/ai-repair-validation.ts-305-
+artifacts/api-server/src/lib/ai-repair-validation.ts-306-async function runRepairValidationCore(
+artifacts/api-server/src/lib/ai-repair-validation.ts-307-  rootPath: string,
+artifacts/api-server/src/lib/ai-repair-validation.ts:308:  profile: ValidationProfile,
+artifacts/api-server/src/lib/ai-repair-validation.ts-309-  relativePaths: string[],
+artifacts/api-server/src/lib/ai-repair-validation.ts-310-  signal?: AbortSignal,
+artifacts/api-server/src/lib/ai-repair-validation.ts-311-  pendingChanges: readonly PendingValidationChange[] = [],
+artifacts/api-server/src/lib/ai-repair-validation.ts-312-): Promise<ValidationDraft> {
+artifacts/api-server/src/lib/ai-repair-validation.ts:313:  const definition = PROFILE_DEFINITIONS[profile];
+artifacts/api-server/src/lib/ai-repair-validation.ts-314-  if (!definition) {
+artifacts/api-server/src/lib/ai-repair-validation.ts-315-    return emptyValidationDraft(
+artifacts/api-server/src/lib/ai-repair-validation.ts-316-      profile,
+artifacts/api-server/src/lib/ai-repair-validation.ts-317-      "unavailable",
+artifacts/api-server/src/lib/ai-repair-validation.ts-318-      "Registered validation profile is unavailable.",
+artifacts/api-server/src/lib/ai-repair-validation.ts-319-      `Validation profile "${profile}" is unavailable.`,
+artifacts/api-server/src/lib/ai-repair-validation.ts-320-    );
+artifacts/api-server/src/lib/ai-repair-validation.ts-321-  }
+--
+artifacts/api-server/src/lib/ai-repair-validation.ts-431-    };
+artifacts/api-server/src/lib/ai-repair-validation.ts-432-  } finally {
+artifacts/api-server/src/lib/ai-repair-validation.ts-433-    await validationWorkspace.cleanup();
+artifacts/api-server/src/lib/ai-repair-validation.ts-434-  }
+artifacts/api-server/src/lib/ai-repair-validation.ts-435-}
+artifacts/api-server/src/lib/ai-repair-validation.ts-436-
+artifacts/api-server/src/lib/ai-repair-validation.ts-437-async function runWithValidationDeadline(
+artifacts/api-server/src/lib/ai-repair-validation.ts-438-  rootPath: string,
+artifacts/api-server/src/lib/ai-repair-validation.ts:439:  profile: ValidationProfile,
+artifacts/api-server/src/lib/ai-repair-validation.ts-440-  relativePaths: string[],
+artifacts/api-server/src/lib/ai-repair-validation.ts-441-  signal: AbortSignal | undefined,
+artifacts/api-server/src/lib/ai-repair-validation.ts-442-  pendingChanges: readonly PendingValidationChange[],
+artifacts/api-server/src/lib/ai-repair-validation.ts-443-): Promise<ValidationDraft> {
+artifacts/api-server/src/lib/ai-repair-validation.ts-444-  const controller = new AbortController();
+artifacts/api-server/src/lib/ai-repair-validation.ts-445-  const abortFromCaller = (): void => controller.abort();
+artifacts/api-server/src/lib/ai-repair-validation.ts-446-  if (signal?.aborted) controller.abort();
+artifacts/api-server/src/lib/ai-repair-validation.ts-447-  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+--
+artifacts/api-server/src/lib/ai-repair-validation.ts-472-    if (timer) clearTimeout(timer);
+artifacts/api-server/src/lib/ai-repair-validation.ts-473-    signal?.removeEventListener("abort", abortFromCaller);
+artifacts/api-server/src/lib/ai-repair-validation.ts-474-    if (timedOut) void operation.catch(() => undefined);
+artifacts/api-server/src/lib/ai-repair-validation.ts-475-  }
+artifacts/api-server/src/lib/ai-repair-validation.ts-476-}
+artifacts/api-server/src/lib/ai-repair-validation.ts-477-
+artifacts/api-server/src/lib/ai-repair-validation.ts-478-export async function runRepairValidation(
+artifacts/api-server/src/lib/ai-repair-validation.ts-479-  rootPath: string,
+artifacts/api-server/src/lib/ai-repair-validation.ts:480:  profile: ValidationProfile,
+artifacts/api-server/src/lib/ai-repair-validation.ts-481-  relativePaths: string[],
+artifacts/api-server/src/lib/ai-repair-validation.ts-482-  signal?: AbortSignal,
+artifacts/api-server/src/lib/ai-repair-validation.ts-483-  pendingChanges: readonly PendingValidationChange[] = [],
+artifacts/api-server/src/lib/ai-repair-validation.ts-484-): Promise<ValidationResult> {
+artifacts/api-server/src/lib/ai-repair-validation.ts-485-  const startedAt = Date.now();
+artifacts/api-server/src/lib/ai-repair-validation.ts-486-  const result = await runWithValidationDeadline(rootPath, profile, relativePaths, signal, pendingChanges);
+artifacts/api-server/src/lib/ai-repair-validation.ts-487-  const elapsedMs = Math.max(result.elapsedMs ?? 0, Date.now() - startedAt);
+artifacts/api-server/src/lib/ai-repair-validation.ts-488-  const terminalState = result.terminalState ?? (
+--
+artifacts/api-server/src/routes/ai/chat.ts-17-  aiChatSessionsTable,
+artifacts/api-server/src/routes/ai/chat.ts-18-  aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts-19-  aiChangeProposalsTable,
+artifacts/api-server/src/routes/ai/chat.ts-20-  aiExecutionsTable,
+artifacts/api-server/src/routes/ai/chat.ts-21-  aiApplyJournalTable,
+artifacts/api-server/src/routes/ai/chat.ts-22-  auditLogsTable,
+artifacts/api-server/src/routes/ai/chat.ts-23-  eventsTable,
+artifacts/api-server/src/routes/ai/chat.ts-24-  tasksTable,
+artifacts/api-server/src/routes/ai/chat.ts:25:  browserValidationProfilesTable,
+artifacts/api-server/src/routes/ai/chat.ts-26-} from "@workspace/db";
+artifacts/api-server/src/routes/ai/chat.ts-27-import { eq, desc, and, inArray, sql } from "drizzle-orm";
+artifacts/api-server/src/routes/ai/chat.ts-28-import { walkProject } from "@workspace/scanner";
+artifacts/api-server/src/routes/ai/chat.ts-29-import {
+artifacts/api-server/src/routes/ai/chat.ts-30-  buildProjectContext,
+artifacts/api-server/src/routes/ai/chat.ts-31-  invalidateContextCache,
+artifacts/api-server/src/routes/ai/chat.ts-32-  contextManifestMatches,
+artifacts/api-server/src/routes/ai/chat.ts-33-  contextManifestAllowsExecution,
+--
+artifacts/api-server/src/routes/ai/chat.ts-77-  SourceRetrievalTelemetry,
+artifacts/api-server/src/routes/ai/chat.ts-78-  FilePatchHunk,
+artifacts/api-server/src/routes/ai/chat.ts-79-  PatchEvidenceLink,
+artifacts/api-server/src/routes/ai/chat.ts-80-  FlightDeckEvidenceVerdict,
+artifacts/api-server/src/routes/ai/chat.ts-81-  BrowserValidationBlockReason,
+artifacts/api-server/src/routes/ai/chat.ts-82-  ValidationResult,
+artifacts/api-server/src/routes/ai/chat.ts-83-  PublicValidationResult,
+artifacts/api-server/src/routes/ai/chat.ts-84-} from "@workspace/ai-orchestrator";
+artifacts/api-server/src/routes/ai/chat.ts:85:import type { ValidationProfile } from "@workspace/ai-orchestrator";
+artifacts/api-server/src/routes/ai/chat.ts-86-import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
+artifacts/api-server/src/routes/ai/chat.ts-87-import {
+artifacts/api-server/src/routes/ai/chat.ts-88-  RepairPlanMetadataSchema,
+artifacts/api-server/src/routes/ai/chat.ts-89-  type RepairPlanMetadata,
+artifacts/api-server/src/routes/ai/chat.ts-90-  EvidenceReferenceSchema,
+artifacts/api-server/src/routes/ai/chat.ts-91-  type EvidenceReference,
+artifacts/api-server/src/routes/ai/chat.ts-92-  ChatTaskResultSchema,
+artifacts/api-server/src/routes/ai/chat.ts-93-  type ChatTaskResult,
+artifacts/api-server/src/routes/ai/chat.ts-94-  ObjectiveContractSchema,
+artifacts/api-server/src/routes/ai/chat.ts:95:  ValidationProfileSchema,
+artifacts/api-server/src/routes/ai/chat.ts-96-} from "@workspace/ai-orchestrator";
+artifacts/api-server/src/routes/ai/chat.ts-97-import { logger } from "../../lib/logger.js";
+artifacts/api-server/src/routes/ai/chat.ts-98-import { resolveRootPath } from "../../lib/rootpath-validator.js";
+artifacts/api-server/src/routes/ai/chat.ts-99-import { establishProjectRoot } from "../../lib/project-root.js";
+artifacts/api-server/src/routes/ai/chat.ts-100-import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
+artifacts/api-server/src/routes/ai/chat.ts-101-import {
+artifacts/api-server/src/routes/ai/chat.ts:102:  getRepairValidationProfile,
+artifacts/api-server/src/routes/ai/chat.ts-103-  runRepairValidation,
+artifacts/api-server/src/routes/ai/chat.ts-104-  runRepairPreviewValidation,
+artifacts/api-server/src/routes/ai/chat.ts-105-  createValidationWorkspace,
+artifacts/api-server/src/routes/ai/chat.ts-106-  validateRepairValidationScope,
+artifacts/api-server/src/routes/ai/chat.ts-107-  type PendingValidationChange,
+artifacts/api-server/src/routes/ai/chat.ts-108-  type RepairVerificationResult,
+artifacts/api-server/src/routes/ai/chat.ts-109-} from "../../lib/ai-repair-validation.js";
+artifacts/api-server/src/routes/ai/chat.ts-110-import { PreviewSessionManager, type PreviewBrowser, type PreviewStep } from "../../lib/browser-preview-verification.js";
+--
+artifacts/api-server/src/routes/ai/chat.ts-840-
+artifacts/api-server/src/routes/ai/chat.ts-841-async function validateBrowserProfileForDelivery(
+artifacts/api-server/src/routes/ai/chat.ts-842-  projectId: string,
+artifacts/api-server/src/routes/ai/chat.ts-843-  projectRevision: string,
+artifacts/api-server/src/routes/ai/chat.ts-844-  profileName: string | undefined,
+artifacts/api-server/src/routes/ai/chat.ts-845-): Promise<PlanContextGateFailure | null> {
+artifacts/api-server/src/routes/ai/chat.ts-846-  if (!profileName) return null;
+artifacts/api-server/src/routes/ai/chat.ts-847-  const [profile] = await db.select({
+artifacts/api-server/src/routes/ai/chat.ts:848:    revision: browserValidationProfilesTable.revision,
+artifacts/api-server/src/routes/ai/chat.ts:849:  }).from(browserValidationProfilesTable).where(and(
+artifacts/api-server/src/routes/ai/chat.ts:850:    eq(browserValidationProfilesTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:851:    eq(browserValidationProfilesTable.name, profileName),
+artifacts/api-server/src/routes/ai/chat.ts-852-  )).limit(1);
+artifacts/api-server/src/routes/ai/chat.ts-853-  if (!profile) {
+artifacts/api-server/src/routes/ai/chat.ts-854-    return {
+artifacts/api-server/src/routes/ai/chat.ts-855-      error: "The selected browser validation profile is not registered for this project.",
+artifacts/api-server/src/routes/ai/chat.ts-856-      code: "PLAN_CONTEXT_INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts-857-      reasonCode: "invalid_profile",
+artifacts/api-server/src/routes/ai/chat.ts-858-    };
+artifacts/api-server/src/routes/ai/chat.ts-859-  }
+--
+artifacts/api-server/src/routes/ai/chat.ts-901-type ServerPendingChange = {
+artifacts/api-server/src/routes/ai/chat.ts-902-  path: string;
+artifacts/api-server/src/routes/ai/chat.ts-903-  absolutePath: string;
+artifacts/api-server/src/routes/ai/chat.ts-904-  newContent: string;
+artifacts/api-server/src/routes/ai/chat.ts-905-  originalContent: string | null;
+artifacts/api-server/src/routes/ai/chat.ts-906-  baseHash?: string;
+artifacts/api-server/src/routes/ai/chat.ts-907-  hunks?: FilePatchHunk[];
+artifacts/api-server/src/routes/ai/chat.ts-908-  reason: string;
+artifacts/api-server/src/routes/ai/chat.ts:909:  validationProfile?: ValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts-910-  risk?: "low" | "medium" | "high";
+artifacts/api-server/src/routes/ai/chat.ts-911-  evidence?: PatchEvidenceLink[];
+artifacts/api-server/src/routes/ai/chat.ts-912-};
+artifacts/api-server/src/routes/ai/chat.ts-913-
+artifacts/api-server/src/routes/ai/chat.ts-914-async function persistFailedChatTurn(params: {
+artifacts/api-server/src/routes/ai/chat.ts-915-  sessionId: string;
+artifacts/api-server/src/routes/ai/chat.ts-916-  projectId: string;
+artifacts/api-server/src/routes/ai/chat.ts-917-  message: string;
+--
+artifacts/api-server/src/routes/ai/chat.ts-1340-}
+artifacts/api-server/src/routes/ai/chat.ts-1341-
+artifacts/api-server/src/routes/ai/chat.ts-1342-function bindPendingChangesToImplementationPlan(
+artifacts/api-server/src/routes/ai/chat.ts-1343-  changes: ServerPendingChange[],
+artifacts/api-server/src/routes/ai/chat.ts-1344-  enabled: boolean,
+artifacts/api-server/src/routes/ai/chat.ts-1345-): ServerPendingChange[] {
+artifacts/api-server/src/routes/ai/chat.ts-1346-  if (!enabled) return changes;
+artifacts/api-server/src/routes/ai/chat.ts-1347-  return changes.map((change) => {
+artifacts/api-server/src/routes/ai/chat.ts:1348:    const validationProfile = change.validationProfile ?? "workspace-typecheck";
+artifacts/api-server/src/routes/ai/chat.ts-1349-    return withPatchLabMetadata(
+artifacts/api-server/src/routes/ai/chat.ts-1350-      { ...change, validationProfile },
+artifacts/api-server/src/routes/ai/chat.ts-1351-      {
+artifacts/api-server/src/routes/ai/chat.ts-1352-        risk: changes.length > 1 ? "medium" : "low",
+artifacts/api-server/src/routes/ai/chat.ts-1353-        evidence: [{
+artifacts/api-server/src/routes/ai/chat.ts-1354-          kind: "validation",
+artifacts/api-server/src/routes/ai/chat.ts-1355-          id: validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts-1356-          label: `Validation profile: ${validationProfile}`,
+--
+artifacts/api-server/src/routes/ai/chat.ts-2722-      if (contextFailure) {
+artifacts/api-server/src/routes/ai/chat.ts-2723-        logger.warn({ projectId, code: contextFailure.code }, "Build handoff context blocked");
+artifacts/api-server/src/routes/ai/chat.ts-2724-        return res.status(409).json(contextFailure);
+artifacts/api-server/src/routes/ai/chat.ts-2725-      }
+artifacts/api-server/src/routes/ai/chat.ts-2726-    }
+artifacts/api-server/src/routes/ai/chat.ts-2727-    const browserProfileFailure = await validateBrowserProfileForDelivery(
+artifacts/api-server/src/routes/ai/chat.ts-2728-      projectId,
+artifacts/api-server/src/routes/ai/chat.ts-2729-      project.updatedAt.toISOString(),
+artifacts/api-server/src/routes/ai/chat.ts:2730:      storedPlan.browserValidationProfile,
+artifacts/api-server/src/routes/ai/chat.ts-2731-    );
+artifacts/api-server/src/routes/ai/chat.ts-2732-    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+artifacts/api-server/src/routes/ai/chat.ts-2733-    approvedImplementationExecutionPlan = buildActiveTaskExecutionPlan({
+artifacts/api-server/src/routes/ai/chat.ts-2734-      implementationPlan: storedPlan,
+artifacts/api-server/src/routes/ai/chat.ts-2735-      objective,
+artifacts/api-server/src/routes/ai/chat.ts-2736-      projectId,
+artifacts/api-server/src/routes/ai/chat.ts-2737-      rootPath: validRootPath,
+artifacts/api-server/src/routes/ai/chat.ts-2738-    }) ?? undefined;
+--
+artifacts/api-server/src/routes/ai/chat.ts-3736-    const validationRunner =
+artifacts/api-server/src/routes/ai/chat.ts-3737-      approvedImplementationPlan && implementationPlanScope && validRootPath
+artifacts/api-server/src/routes/ai/chat.ts-3738-        ? async (
+artifacts/api-server/src/routes/ai/chat.ts-3739-            profile: string,
+artifacts/api-server/src/routes/ai/chat.ts-3740-            targetPaths: string[],
+artifacts/api-server/src/routes/ai/chat.ts-3741-            signal?: AbortSignal,
+artifacts/api-server/src/routes/ai/chat.ts-3742-            pendingChanges?: readonly PendingValidationChange[],
+artifacts/api-server/src/routes/ai/chat.ts-3743-          ) => {
+artifacts/api-server/src/routes/ai/chat.ts:3744:            const parsedProfile = ValidationProfileSchema.safeParse(profile);
+artifacts/api-server/src/routes/ai/chat.ts-3745-            if (!parsedProfile.success) {
+artifacts/api-server/src/routes/ai/chat.ts-3746-              return {
+artifacts/api-server/src/routes/ai/chat.ts-3747-                status: "unavailable" as const,
+artifacts/api-server/src/routes/ai/chat.ts-3748-                detail: `Validation profile "${profile}" is not registered.`,
+artifacts/api-server/src/routes/ai/chat.ts-3749-              };
+artifacts/api-server/src/routes/ai/chat.ts-3750-            }
+artifacts/api-server/src/routes/ai/chat.ts-3751-            return runRepairValidation(
+artifacts/api-server/src/routes/ai/chat.ts-3752-              validRootPath,
+artifacts/api-server/src/routes/ai/chat.ts-3753-              parsedProfile.data,
+artifacts/api-server/src/routes/ai/chat.ts-3754-              targetPaths,
+artifacts/api-server/src/routes/ai/chat.ts-3755-              signal,
+artifacts/api-server/src/routes/ai/chat.ts-3756-              pendingChanges ?? [],
+artifacts/api-server/src/routes/ai/chat.ts-3757-            );
+artifacts/api-server/src/routes/ai/chat.ts-3758-          }
+artifacts/api-server/src/routes/ai/chat.ts-3759-        : undefined;
+artifacts/api-server/src/routes/ai/chat.ts:3760:    const requestedBrowserValidationProfile = approvedImplementationPlan?.browserValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:3761:    const registeredBrowserProfile = requestedBrowserValidationProfile
+artifacts/api-server/src/routes/ai/chat.ts:3762:      ? (await db.select().from(browserValidationProfilesTable).where(and(
+artifacts/api-server/src/routes/ai/chat.ts:3763:          eq(browserValidationProfilesTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:3764:          eq(browserValidationProfilesTable.name, requestedBrowserValidationProfile),
+artifacts/api-server/src/routes/ai/chat.ts-3765-        )).limit(1))[0]
+artifacts/api-server/src/routes/ai/chat.ts-3766-      : undefined;
+artifacts/api-server/src/routes/ai/chat.ts-3767-    // A profile is valid only for the exact project revision it was registered
+artifacts/api-server/src/routes/ai/chat.ts-3768-    // against. Stale profiles are not silently rebound to the current project.
+artifacts/api-server/src/routes/ai/chat.ts:3769:    const browserValidationProfile = registeredBrowserProfile
+artifacts/api-server/src/routes/ai/chat.ts-3770-      && registeredBrowserProfile.revision === analysisCorrelation.projectRevision
+artifacts/api-server/src/routes/ai/chat.ts-3771-      ? registeredBrowserProfile
+artifacts/api-server/src/routes/ai/chat.ts-3772-      : undefined;
+artifacts/api-server/src/routes/ai/chat.ts:3773:    const browserValidationProfileName = requestedBrowserValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:3774:    const browserValidationManager = browserValidationProfile ? new PreviewSessionManager() : undefined;
+artifacts/api-server/src/routes/ai/chat.ts:3775:    const browserValidationRunner = browserValidationProfileName && validRootPath
+artifacts/api-server/src/routes/ai/chat.ts-3776-      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+artifacts/api-server/src/routes/ai/chat.ts:3777:          if (!browserValidationProfile || request.profile !== browserValidationProfile.name) {
+artifacts/api-server/src/routes/ai/chat.ts-3778-            return {
+artifacts/api-server/src/routes/ai/chat.ts-3779-              profile: request.profile, status: "unavailable" as const,
+artifacts/api-server/src/routes/ai/chat.ts-3780-              scenario: "Registered browser validation profile is unavailable.",
+artifacts/api-server/src/routes/ai/chat.ts-3781-              command: "browser-preview", exitCode: null, stdout: "", stderr: "",
+artifacts/api-server/src/routes/ai/chat.ts-3782-              failedTests: [], changedFiles: [],
+artifacts/api-server/src/routes/ai/chat.ts-3783-              evidence: {
+artifacts/api-server/src/routes/ai/chat.ts-3784-                evidenceId: `browser-profile:${request.profile}`,
+artifacts/api-server/src/routes/ai/chat.ts-3785-                observedAt: new Date().toISOString(),
+artifacts/api-server/src/routes/ai/chat.ts-3786-                artifactRef: "browser-preview:profile-unavailable",
+artifacts/api-server/src/routes/ai/chat.ts-3787-              },
+artifacts/api-server/src/routes/ai/chat.ts-3788-              detail: "The browser validation profile is not approved for this plan.",
+artifacts/api-server/src/routes/ai/chat.ts:3789:              reasonCode: (browserValidationProfile
+artifacts/api-server/src/routes/ai/chat.ts-3790-                ? "invalid_profile"
+artifacts/api-server/src/routes/ai/chat.ts-3791-                : registeredBrowserProfile
+artifacts/api-server/src/routes/ai/chat.ts-3792-                  ? "stale_revision"
+artifacts/api-server/src/routes/ai/chat.ts-3793-                  : "ownership") as BrowserValidationBlockReason,
+artifacts/api-server/src/routes/ai/chat.ts-3794-            };
+artifacts/api-server/src/routes/ai/chat.ts-3795-          }
+artifacts/api-server/src/routes/ai/chat.ts-3796-          const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
+artifacts/api-server/src/routes/ai/chat.ts-3797-          const session = await browserValidationManager!.start({
+--
+artifacts/api-server/src/routes/ai/chat.ts-3806-            browser = await playwright.chromium.launch({ headless: true }) as unknown as PreviewBrowser;
+artifacts/api-server/src/routes/ai/chat.ts-3807-            return await runRepairPreviewValidation({
+artifacts/api-server/src/routes/ai/chat.ts-3808-              session,
+artifacts/api-server/src/routes/ai/chat.ts-3809-              operationId: request.operationId ?? analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts-3810-              executionId: aiExecution?.id ?? "browser-validation",
+artifacts/api-server/src/routes/ai/chat.ts-3811-              revision: request.revision ?? analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts-3812-              contract: {
+artifacts/api-server/src/routes/ai/chat.ts-3813-                revision: request.revision ?? analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts:3814:                permittedOrigin: browserValidationProfile.permittedOrigin,
+artifacts/api-server/src/routes/ai/chat.ts:3815:                steps: browserValidationProfile.steps as PreviewStep[],
+artifacts/api-server/src/routes/ai/chat.ts:3816:                timeoutMs: browserValidationProfile.timeoutMs,
+artifacts/api-server/src/routes/ai/chat.ts-3817-              },
+artifacts/api-server/src/routes/ai/chat.ts:3818:              steps: browserValidationProfile.steps as PreviewStep[],
+artifacts/api-server/src/routes/ai/chat.ts-3819-              browser,
+artifacts/api-server/src/routes/ai/chat.ts:3820:              profileName: browserValidationProfile.name,
+artifacts/api-server/src/routes/ai/chat.ts-3821-            });
+artifacts/api-server/src/routes/ai/chat.ts-3822-          } catch (error) {
+artifacts/api-server/src/routes/ai/chat.ts-3823-            return {
+artifacts/api-server/src/routes/ai/chat.ts-3824-              profile: "browser-preview", status: "unavailable" as const,
+artifacts/api-server/src/routes/ai/chat.ts-3825-              scenario: "Run the registered browser checks against the project Preview.",
+artifacts/api-server/src/routes/ai/chat.ts-3826-              command: "browser-preview", exitCode: null, stdout: "", stderr: "",
+artifacts/api-server/src/routes/ai/chat.ts-3827-              failedTests: [], changedFiles: [],
+artifacts/api-server/src/routes/ai/chat.ts-3828-              evidence: {
+--
+artifacts/api-server/src/routes/ai/chat.ts-3844-        }
+artifacts/api-server/src/routes/ai/chat.ts-3845-      : undefined;
+artifacts/api-server/src/routes/ai/chat.ts-3846-    // Terminal execution is deliberately narrower than validation: one
+artifacts/api-server/src/routes/ai/chat.ts-3847-    // server-owned profile, fixed argv, and only during an approved Build
+artifacts/api-server/src/routes/ai/chat.ts-3848-    // handoff. The model can select the profile but cannot select a command,
+artifacts/api-server/src/routes/ai/chat.ts-3849-    // shell, cwd, or arguments.
+artifacts/api-server/src/routes/ai/chat.ts-3850-    const commandProfiles = approvedImplementationPlan && implementationPlanScope && validRootPath
+artifacts/api-server/src/routes/ai/chat.ts-3851-      ? [{
+artifacts/api-server/src/routes/ai/chat.ts:3852:          name: "workspace-typecheck",
+artifacts/api-server/src/routes/ai/chat.ts-3853-          command: "pnpm",
+artifacts/api-server/src/routes/ai/chat.ts-3854-          args: ["run", "typecheck"],
+artifacts/api-server/src/routes/ai/chat.ts-3855-          timeoutMs: 10 * 60 * 1000,
+artifacts/api-server/src/routes/ai/chat.ts-3856-          maxOutputBytes: 8 * 1024 * 1024,
+artifacts/api-server/src/routes/ai/chat.ts-3857-          allowedOperations: ["build"],
+artifacts/api-server/src/routes/ai/chat.ts-3858-          allowedPaths: [...implementationPlanScope],
+artifacts/api-server/src/routes/ai/chat.ts-3859-        }]
+artifacts/api-server/src/routes/ai/chat.ts-3860-      : undefined;
+--
+artifacts/api-server/src/routes/ai/chat.ts-3886-          objective,
+artifacts/api-server/src/routes/ai/chat.ts-3887-          allowValidationTools: Boolean(validationRunner),
+artifacts/api-server/src/routes/ai/chat.ts-3888-          validationRunner,
+artifacts/api-server/src/routes/ai/chat.ts-3889-          browserValidationRunner,
+artifacts/api-server/src/routes/ai/chat.ts-3890-          browserValidationContext: {
+artifacts/api-server/src/routes/ai/chat.ts-3891-            operationId: analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts-3892-            revision: analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts-3893-          },
+artifacts/api-server/src/routes/ai/chat.ts:3894:          approvedValidationProfiles: [
+artifacts/api-server/src/routes/ai/chat.ts:3895:            ...(validationRunner ? ["workspace-typecheck", "ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"] : []),
+artifacts/api-server/src/routes/ai/chat.ts:3896:            ...(browserValidationProfileName ? [browserValidationProfileName] : []),
+artifacts/api-server/src/routes/ai/chat.ts-3897-          ],
+artifacts/api-server/src/routes/ai/chat.ts-3898-           commandProfiles,
+artifacts/api-server/src/routes/ai/chat.ts-3899-           commandRunner: commandProfiles ? runRegisteredCommand : undefined,
+artifacts/api-server/src/routes/ai/chat.ts-3900-           commandContext: {
+artifacts/api-server/src/routes/ai/chat.ts-3901-             operationId: analysisCorrelation.operationId,
+artifacts/api-server/src/routes/ai/chat.ts-3902-             revision: analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts-3903-             targetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+artifacts/api-server/src/routes/ai/chat.ts-3904-             operation: "build",
+--
+artifacts/api-server/src/routes/ai/chat.ts-5408-      current,
+artifacts/api-server/src/routes/ai/chat.ts-5409-      row.session.projectId,
+artifacts/api-server/src/routes/ai/chat.ts-5410-      rootCheck.validRootPath,
+artifacts/api-server/src/routes/ai/chat.ts-5411-    );
+artifacts/api-server/src/routes/ai/chat.ts-5412-    if (contextFailure) return res.status(409).json(contextFailure);
+artifacts/api-server/src/routes/ai/chat.ts-5413-    const browserProfileFailure = await validateBrowserProfileForDelivery(
+artifacts/api-server/src/routes/ai/chat.ts-5414-      project.id,
+artifacts/api-server/src/routes/ai/chat.ts-5415-      project.updatedAt.toISOString(),
+artifacts/api-server/src/routes/ai/chat.ts:5416:      current.browserValidationProfile,
+artifacts/api-server/src/routes/ai/chat.ts-5417-    );
+artifacts/api-server/src/routes/ai/chat.ts-5418-    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+artifacts/api-server/src/routes/ai/chat.ts-5419-  }
+artifacts/api-server/src/routes/ai/chat.ts-5420-    if (body.data.decision === "approve" && !hasSafeImplementationPlanFileScope(current)) {
+artifacts/api-server/src/routes/ai/chat.ts-5421-      return res.status(409).json({
+artifacts/api-server/src/routes/ai/chat.ts-5422-        error: "This implementation plan has no verified file scope and cannot enter Build Mode",
+artifacts/api-server/src/routes/ai/chat.ts-5423-        code: "PLAN_FILE_SCOPE_REQUIRED",
+artifacts/api-server/src/routes/ai/chat.ts-5424-        approvalStatus: current.approvalStatus,
+--
+artifacts/api-server/src/routes/ai/chat.ts-5765-      lifecycle: proposal.lifecycle,
+artifacts/api-server/src/routes/ai/chat.ts-5766-      recoveryState: discarded ? "discarded" : workspaceAvailable ? "recoverable" : "missing_workspace",
+artifacts/api-server/src/routes/ai/chat.ts-5767-      nextAction: discarded
+artifacts/api-server/src/routes/ai/chat.ts-5768-        ? "No action is required."
+artifacts/api-server/src/routes/ai/chat.ts-5769-        : "Start a new delivery from the current project rather than retrying this recovery.",
+artifacts/api-server/src/routes/ai/chat.ts-5770-    });
+artifacts/api-server/src/routes/ai/chat.ts-5771-  }
+artifacts/api-server/src/routes/ai/chat.ts-5772-
+artifacts/api-server/src/routes/ai/chat.ts:5773:  let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
+artifacts/api-server/src/routes/ai/chat.ts-5774-  try {
+artifacts/api-server/src/routes/ai/chat.ts-5775-    const parsed = parseStoredJson(proposal.changes);
+artifacts/api-server/src/routes/ai/chat.ts-5776-    if (!Array.isArray(parsed)) throw new Error("not an array");
+artifacts/api-server/src/routes/ai/chat.ts-5777-    changes = parsed;
+artifacts/api-server/src/routes/ai/chat.ts-5778-  } catch {
+artifacts/api-server/src/routes/ai/chat.ts-5779-    return res.status(409).json({ error: "Stored delivery changes are invalid.", code: "DELIVERY_INVALID" });
+artifacts/api-server/src/routes/ai/chat.ts-5780-  }
+artifacts/api-server/src/routes/ai/chat.ts-5781-  const workspaceRoot = proposal.workspaceRoot!;
+--
+artifacts/api-server/src/routes/ai/chat.ts-5814-  const groups = new Map<string, typeof changes>();
+artifacts/api-server/src/routes/ai/chat.ts-5815-  for (const change of changes) {
+artifacts/api-server/src/routes/ai/chat.ts-5816-    if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
+artifacts/api-server/src/routes/ai/chat.ts-5817-    const group = groups.get(change.validationProfile) ?? [];
+artifacts/api-server/src/routes/ai/chat.ts-5818-    group.push(change);
+artifacts/api-server/src/routes/ai/chat.ts-5819-    groups.set(change.validationProfile, group);
+artifacts/api-server/src/routes/ai/chat.ts-5820-  }
+artifacts/api-server/src/routes/ai/chat.ts-5821-  for (const [profile, group] of groups) {
+artifacts/api-server/src/routes/ai/chat.ts:5822:    const parsedProfile = ValidationProfileSchema.safeParse(profile);
+artifacts/api-server/src/routes/ai/chat.ts-5823-    if (!parsedProfile.success) continue;
+artifacts/api-server/src/routes/ai/chat.ts-5824-    const result = await runRepairValidation(
+artifacts/api-server/src/routes/ai/chat.ts-5825-      workspaceRoot,
+artifacts/api-server/src/routes/ai/chat.ts-5826-      parsedProfile.data,
+artifacts/api-server/src/routes/ai/chat.ts-5827-      group.map((change) => change.path),
+artifacts/api-server/src/routes/ai/chat.ts-5828-      undefined,
+artifacts/api-server/src/routes/ai/chat.ts-5829-      [],
+artifacts/api-server/src/routes/ai/chat.ts-5830-    );
+--
+artifacts/api-server/src/routes/ai/chat.ts-5908-        kind: z.enum(["finding", "source", "validation"]),
+artifacts/api-server/src/routes/ai/chat.ts-5909-        id: z.string().min(1),
+artifacts/api-server/src/routes/ai/chat.ts-5910-        label: z.string().min(1).max(240),
+artifacts/api-server/src/routes/ai/chat.ts-5911-        file: z.string().min(1).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-5912-        line: z.number().int().min(1).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-5913-      }).strict()).max(4).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-5914-    }).strict()).max(100).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-5915-    reason: z.string().min(1),
+artifacts/api-server/src/routes/ai/chat.ts:5916:    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-5917-    risk: z.enum(["low", "medium", "high"]).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-5918-    evidence: z.array(z.object({
+artifacts/api-server/src/routes/ai/chat.ts-5919-      kind: z.enum(["finding", "source", "validation"]),
+artifacts/api-server/src/routes/ai/chat.ts-5920-      id: z.string().min(1),
+artifacts/api-server/src/routes/ai/chat.ts-5921-      label: z.string().min(1).max(240),
+artifacts/api-server/src/routes/ai/chat.ts-5922-      file: z.string().min(1).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-5923-      line: z.number().int().min(1).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-5924-    }).strict()).max(4).optional(),
+--
+artifacts/api-server/src/routes/ai/chat.ts-6324-        kind: z.enum(["finding", "source", "validation"]),
+artifacts/api-server/src/routes/ai/chat.ts-6325-        id: z.string().min(1),
+artifacts/api-server/src/routes/ai/chat.ts-6326-        label: z.string().min(1).max(240),
+artifacts/api-server/src/routes/ai/chat.ts-6327-        file: z.string().min(1).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-6328-        line: z.number().int().min(1).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-6329-      }).strict()).max(4).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-6330-    }).strict()).max(100).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-6331-    reason: z.string().min(1, "each change must have a non-empty reason"),
+artifacts/api-server/src/routes/ai/chat.ts:6332:    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]),
+artifacts/api-server/src/routes/ai/chat.ts-6333-    risk: z.enum(["low", "medium", "high"]).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-6334-    evidence: z.array(z.object({
+artifacts/api-server/src/routes/ai/chat.ts-6335-      kind: z.enum(["finding", "source", "validation"]),
+artifacts/api-server/src/routes/ai/chat.ts-6336-      id: z.string().min(1),
+artifacts/api-server/src/routes/ai/chat.ts-6337-      label: z.string().min(1).max(240),
+artifacts/api-server/src/routes/ai/chat.ts-6338-      file: z.string().min(1).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-6339-      line: z.number().int().min(1).optional(),
+artifacts/api-server/src/routes/ai/chat.ts-6340-    }).strict()).max(4).optional(),
+--
+artifacts/api-server/src/routes/ai/chat.ts-6562-    });
+artifacts/api-server/src/routes/ai/chat.ts-6563-
+artifacts/api-server/src/routes/ai/chat.ts-6564-    results = [];
+artifacts/api-server/src/routes/ai/chat.ts-6565-    const writableChanges: Array<{
+artifacts/api-server/src/routes/ai/chat.ts-6566-      path: string;
+artifacts/api-server/src/routes/ai/chat.ts-6567-      realPath: string;
+artifacts/api-server/src/routes/ai/chat.ts-6568-      newContent: string;
+artifacts/api-server/src/routes/ai/chat.ts-6569-      before: Buffer | null;
+artifacts/api-server/src/routes/ai/chat.ts:6570:      validationProfile?: ValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts-6571-    }> = [];
+artifacts/api-server/src/routes/ai/chat.ts-6572-    const writtenChanges: typeof writableChanges = [];
+artifacts/api-server/src/routes/ai/chat.ts-6573-    // Track every file whose write was attempted, including a file whose
+artifacts/api-server/src/routes/ai/chat.ts-6574-    // writeFile call mutates bytes and then throws before the success marker.
+artifacts/api-server/src/routes/ai/chat.ts-6575-    // Rollback must cover that file too.
+artifacts/api-server/src/routes/ai/chat.ts-6576-    const attemptedChanges: typeof writableChanges = [];
+artifacts/api-server/src/routes/ai/chat.ts-6577-    const seenRealPaths = new Set<string>();
+artifacts/api-server/src/routes/ai/chat.ts-6578-    let rollbackFailures: ApplyRollbackFailure[] = [];
+--
+artifacts/api-server/src/routes/ai/chat.ts-6692-          if (profileError) {
+artifacts/api-server/src/routes/ai/chat.ts-6693-            results.push({
+artifacts/api-server/src/routes/ai/chat.ts-6694-              path: change.path,
+artifacts/api-server/src/routes/ai/chat.ts-6695-              ok: false,
+artifacts/api-server/src/routes/ai/chat.ts-6696-              error: profileError,
+artifacts/api-server/src/routes/ai/chat.ts-6697-              behavioralVerification: makeSyntheticValidationResult(
+artifacts/api-server/src/routes/ai/chat.ts-6698-                change.validationProfile,
+artifacts/api-server/src/routes/ai/chat.ts-6699-                "unavailable",
+artifacts/api-server/src/routes/ai/chat.ts:6700:                getRepairValidationProfile(change.validationProfile).scenario,
+artifacts/api-server/src/routes/ai/chat.ts-6701-                profileError,
+artifacts/api-server/src/routes/ai/chat.ts-6702-              ),
+artifacts/api-server/src/routes/ai/chat.ts-6703-            });
+artifacts/api-server/src/routes/ai/chat.ts-6704-            continue;
+artifacts/api-server/src/routes/ai/chat.ts-6705-          }
+artifacts/api-server/src/routes/ai/chat.ts-6706-        }
+artifacts/api-server/src/routes/ai/chat.ts-6707-
+artifacts/api-server/src/routes/ai/chat.ts-6708-        writableChanges.push({
+--
+artifacts/api-server/src/routes/ai/chat.ts-6756-        baseTreeHash: deliveryWorkspace.baseTreeHash,
+artifacts/api-server/src/routes/ai/chat.ts-6757-        candidateTreeHash,
+artifacts/api-server/src/routes/ai/chat.ts-6758-        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+artifacts/api-server/src/routes/ai/chat.ts-6759-      })
+artifacts/api-server/src/routes/ai/chat.ts-6760-      .where(and(
+artifacts/api-server/src/routes/ai/chat.ts-6761-        eq(aiChangeProposalsTable.id, proposalId),
+artifacts/api-server/src/routes/ai/chat.ts-6762-        eq(aiChangeProposalsTable.status, "pending"),
+artifacts/api-server/src/routes/ai/chat.ts-6763-      ));
+artifacts/api-server/src/routes/ai/chat.ts:6764:    const profiles = new Map<ValidationProfile, string[]>();
+artifacts/api-server/src/routes/ai/chat.ts-6765-    for (const change of writableChanges) {
+artifacts/api-server/src/routes/ai/chat.ts-6766-      if (!change.validationProfile) continue;
+artifacts/api-server/src/routes/ai/chat.ts-6767-      const pathsForProfile = profiles.get(change.validationProfile) ?? [];
+artifacts/api-server/src/routes/ai/chat.ts-6768-      pathsForProfile.push(change.path);
+artifacts/api-server/src/routes/ai/chat.ts-6769-      profiles.set(change.validationProfile, pathsForProfile);
+artifacts/api-server/src/routes/ai/chat.ts-6770-    }
+artifacts/api-server/src/routes/ai/chat.ts-6771-
+artifacts/api-server/src/routes/ai/chat.ts:6772:    const verificationByProfile = new Map<ValidationProfile, RepairVerificationResult>();
+artifacts/api-server/src/routes/ai/chat.ts-6773-    if (profiles.size > 0) {
+artifacts/api-server/src/routes/ai/chat.ts-6774-      await appendApplyJournal("VALIDATING", {
+artifacts/api-server/src/routes/ai/chat.ts-6775-        profiles: [...profiles.entries()].map(([profile, paths]) => ({ profile, paths })),
+artifacts/api-server/src/routes/ai/chat.ts-6776-      });
+artifacts/api-server/src/routes/ai/chat.ts-6777-    }
+artifacts/api-server/src/routes/ai/chat.ts-6778-    for (const [profile, profilePaths] of profiles) {
+artifacts/api-server/src/routes/ai/chat.ts-6779-      const validation = await runRepairValidation(
+artifacts/api-server/src/routes/ai/chat.ts-6780-        deliveryWorkspace.workspaceRoot,

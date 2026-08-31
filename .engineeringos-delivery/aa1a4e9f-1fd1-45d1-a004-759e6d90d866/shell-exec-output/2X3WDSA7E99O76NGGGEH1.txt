@@ -1,0 +1,400 @@
+./release-evidence/live-mission-correlation.json:10:  "outcomeClass": "non-success",
+./pnpm-workspace.yaml:2:# SECURITY: Minimum release age for npm packages (supply-chain attack defense)
+./pnpm-workspace.yaml:8:# malicious npm releases are discovered and pulled within hours, so a 1-day
+./pnpm-workspace.yaml:17:# `minimumReleaseAgeExclude` allowlist below. Only consider doing this for
+./pnpm-workspace.yaml:18:# packages released by trusted organizations with an impeccable security
+./pnpm-workspace.yaml:23:#   minimumReleaseAgeExclude:
+./pnpm-workspace.yaml:28:minimumReleaseAge: 1440
+./pnpm-workspace.yaml:30:minimumReleaseAgeExclude:
+./pnpm-workspace.yaml:31:  # Exclude @replit scoped packages from the minimum release age check.
+./scripts/run-dashboard-journey.mjs:8:  acquireReleaseLock,
+./scripts/run-dashboard-journey.mjs:11:} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+./scripts/run-dashboard-journey.mjs:17:if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+./scripts/run-dashboard-journey.mjs:19:    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+./scripts/run-dashboard-journey.mjs:43:  "engineeringos-dashboard-release@example.com";
+./scripts/run-dashboard-journey.mjs:78:    "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+./scripts/run-dashboard-journey.mjs:87:    resolve(outputDir, "release-teardown.json"),
+./scripts/run-dashboard-journey.mjs:94:let releaseLockCleanup;
+./scripts/run-dashboard-journey.mjs:96:const releasePorts = [apiPort, dashboardPort];
+./scripts/run-dashboard-journey.mjs:141:    outcome: "blocked",
+./scripts/run-dashboard-journey.mjs:152:async function performReleaseReadinessHandshake() {
+./scripts/run-dashboard-journey.mjs:195:      "BLOCKED: release readiness handshake rejected the selected test mode.",
+./scripts/run-dashboard-journey.mjs:250:  if (!apiService) throw new Error("API release service is not running.");
+./scripts/run-dashboard-journey.mjs:256:    "API release service (restarted)",
+./scripts/run-dashboard-journey.mjs:267:  await performReleaseReadinessHandshake();
+./scripts/run-dashboard-journey.mjs:330:    `Release port ${port} did not become available; surviving process IDs: ${
+./scripts/run-dashboard-journey.mjs:351:    `Release process group ${child.pid} did not exit within its bounded restart deadline.`,
+./scripts/run-dashboard-journey.mjs:364:async function ensureReleasePortFree(port) {
+./scripts/run-dashboard-journey.mjs:391:async function ensureReleasePortsFree() {
+./scripts/run-dashboard-journey.mjs:392:  for (const port of releasePorts) await ensureReleasePortFree(port);
+./scripts/run-dashboard-journey.mjs:395:function releaseServiceForPort(port) {
+./scripts/run-dashboard-journey.mjs:396:  if (port === apiPort) return "API release service";
+./scripts/run-dashboard-journey.mjs:397:  if (port === dashboardPort) return "Dashboard release service";
+./scripts/run-dashboard-journey.mjs:398:  return `Release service on port ${port}`;
+./scripts/run-dashboard-journey.mjs:474:  console.log("Release service teardown results:");
+./scripts/run-dashboard-journey.mjs:492:    console.log("Release services surviving teardown: none.");
+./scripts/run-dashboard-journey.mjs:495:      `Release services surviving teardown: ${survivingServices
+./scripts/run-dashboard-journey.mjs:498:            `${label} (configured release port ${port}; surviving process IDs: ${pids.join(
+./scripts/run-dashboard-journey.mjs:500:            )}; release process group: ${
+./scripts/run-dashboard-journey.mjs:511:  for (const port of releasePorts) {
+./scripts/run-dashboard-journey.mjs:513:      await ensureReleasePortFree(port);
+./scripts/run-dashboard-journey.mjs:521:        `${service?.label ?? `Release service on port ${port}`} teardown failed`,
+./scripts/run-dashboard-journey.mjs:522:        `(configured release port ${port})`,
+./scripts/run-dashboard-journey.mjs:526:        `release process group: ${service?.child.pid ?? "unknown"}`,
+./scripts/run-dashboard-journey.mjs:540:    outcome: teardownFailed ? "failed" : "passed",
+./scripts/run-dashboard-journey.mjs:551:        cleanupOutcome: failure
+./scripts/run-dashboard-journey.mjs:565:    console.log("Release origin diagnostics:");
+./scripts/run-dashboard-journey.mjs:587:    console.log(`Release teardown artifact: ${teardownArtifactPath}`);
+./scripts/run-dashboard-journey.mjs:589:      `Release teardown evidence summary: validation run ${
+./scripts/run-dashboard-journey.mjs:594:      `Release teardown evidence coverage: ${teardownArtifact.services
+./scripts/run-dashboard-journey.mjs:606:        `Unable to write release teardown artifact ${teardownArtifactPath}: ${
+./scripts/run-dashboard-journey.mjs:640:async function startReleaseServices() {
+./scripts/run-dashboard-journey.mjs:642:    validationLockCleanup = await acquireReleaseLock(validationLockPath);
+./scripts/run-dashboard-journey.mjs:643:    releaseLockCleanup = await acquireReleaseLock(lockPath);
+./scripts/run-dashboard-journey.mjs:658:      "API release service",
+./scripts/run-dashboard-journey.mjs:670:      "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH; configure Chromium before starting services.",
+./scripts/run-dashboard-journey.mjs:673:  await ensureReleasePortsFree();
+./scripts/run-dashboard-journey.mjs:675:    "API release build",
+./scripts/run-dashboard-journey.mjs:680:  await waitForChild(apiBuild, "API release build");
+./scripts/run-dashboard-journey.mjs:682:    "API release service",
+./scripts/run-dashboard-journey.mjs:693:   * Start the dashboard separately from the Project workflow. The release
+./scripts/run-dashboard-journey.mjs:697:    "Dashboard release service",
+./scripts/run-dashboard-journey.mjs:975:    await startReleaseServices();
+./scripts/run-dashboard-journey.mjs:990:        "Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.",
+./scripts/run-dashboard-journey.mjs:993:    await startReleaseServices();
+./scripts/run-dashboard-journey.mjs:994:    await performReleaseReadinessHandshake();
+./scripts/run-dashboard-journey.mjs:1068:  if (releaseLockCleanup) await releaseLockCleanup();
+./scripts/release-port-cleanup.test.mjs:71:          RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+./scripts/release-port-cleanup.test.mjs:102:test("release port cleanup supports consecutive runs", async () => {
+./scripts/release-port-cleanup.test.mjs:119:test("release journey teardown diagnostics identify a real surviving descendant", async () => {
+./scripts/release-port-cleanup.test.mjs:127:      `Release services surviving teardown: API release service \\(configured release port ${apiPort}; surviving process IDs: \\d+; release process group: \\d+\\)`,
+./scripts/release-port-cleanup.test.mjs:130:  assert.match(output, new RegExp(`configured release port ${apiPort}`));
+./scripts/release-port-cleanup.test.mjs:132:  assert.match(output, /release process group: \d+/);
+./scripts/release-port-cleanup.test.mjs:137:test("release journey teardown diagnostics keep both service labels and process-group details", async () => {
+./scripts/release-port-cleanup.test.mjs:143:  assert.match(journey, /configured release port \$\{port\}/);
+./scripts/release-port-cleanup.test.mjs:145:  assert.match(journey, /release process group/);
+./scripts/release-port-cleanup.test.mjs:146:  assert.match(journey, /API release service/);
+./scripts/release-port-cleanup.test.mjs:147:  assert.match(journey, /Dashboard release service/);
+./scripts/release-configuration.test.ts:10:const runControlledReleaseValidation =
+./scripts/release-configuration.test.ts:11:  process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1";
+./scripts/release-configuration.test.ts:24:type ReleaseFailureScenario = {
+./scripts/release-configuration.test.ts:38:const releaseFailureScenarios: ReleaseFailureScenario[] = [
+./scripts/release-configuration.test.ts:45:      "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:46:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:55:      "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:56:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:61:    name: "release fixture collision check",
+./scripts/release-configuration.test.ts:62:    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+./scripts/release-configuration.test.ts:63:    diagnostic: "release fixture collision check failed: duplicate fixture identity",
+./scripts/release-configuration.test.ts:65:      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:70:    name: "release synthesis telemetry",
+./scripts/release-configuration.test.ts:71:    command: "--filter @workspace/api-server run test:release-synthesis-telemetry",
+./scripts/release-configuration.test.ts:72:    diagnostic: "release synthesis telemetry failed: expected audit event was absent",
+./scripts/release-configuration.test.ts:93:      "run validate:release",
+./scripts/release-configuration.test.ts:103:      "run validate:release",
+./scripts/release-configuration.test.ts:111:    laterCommands: ["run validate:release", "store prune"],
+./scripts/release-configuration.test.ts:114:    name: "release validation",
+./scripts/release-configuration.test.ts:115:    command: "run validate:release",
+./scripts/release-configuration.test.ts:116:    diagnostic: "release validation failed: process recovery did not complete",
+./scripts/release-configuration.test.ts:121:async function runReleaseWithInjectedFailure(
+./scripts/release-configuration.test.ts:122:  scenario: ReleaseFailureScenario,
+./scripts/release-configuration.test.ts:125:    resolve(tmpdir(), "release-step-failure-"),
+./scripts/release-configuration.test.ts:136:printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+./scripts/release-configuration.test.ts:141:if [ "$*" != "run validate:release" ]; then
+./scripts/release-configuration.test.ts:151:    const result = spawnSync("pnpm", ["run", "validate:release"], {
+./scripts/release-configuration.test.ts:157:        RELEASE_VALIDATION_TRACE: tracePath,
+./scripts/release-configuration.test.ts:186:printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+./scripts/release-configuration.test.ts:207:        RELEASE_VALIDATION_TRACE: tracePath,
+./scripts/release-configuration.test.ts:239:printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+./scripts/release-configuration.test.ts:255:      RELEASE_VALIDATION_TRACE: tracePath,
+./scripts/release-configuration.test.ts:268:test("keeps release recovery validation before deployment cleanup", async () => {
+./scripts/release-configuration.test.ts:278:  const recoveryIndex = deploymentSteps.indexOf("pnpm run validate:release");
+./scripts/release-configuration.test.ts:285:    "release recovery validation must run before pnpm store prune",
+./scripts/release-configuration.test.ts:312:    (step) => step === "pnpm run validate:release",
+./scripts/release-configuration.test.ts:314:  assert.equal(recoveryStep, "pnpm run validate:release");
+./scripts/release-configuration.test.ts:318:    "release gate failures must propagate instead of being masked",
+./scripts/release-configuration.test.ts:325:    skip: !runControlledReleaseValidation,
+./scripts/release-configuration.test.ts:329:    const result = spawnSync("pnpm", ["run", "validate:release:controlled"], {
+./scripts/release-configuration.test.ts:333:        RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+./scripts/release-configuration.test.ts:343:      `controlled release validation must complete after recovery succeeds:\n${output}`,
+./scripts/release-configuration.test.ts:353:test("runs deployment checks in order and prunes only after successful release validation", async () => {
+./scripts/release-configuration.test.ts:371:      "run validate:release",
+./scripts/release-configuration.test.ts:375:      fixture.trace.indexOf("run validate:release") <
+./scripts/release-configuration.test.ts:377:      "pnpm store prune must start only after release validation succeeds",
+./scripts/release-configuration.test.ts:397:    ["run", "validate:release"],
+./scripts/release-configuration.test.ts:414:    /> workspace@[^ ]+ validate:release/,
+./scripts/release-configuration.test.ts:415:    "deployment output must identify the release validation command",
+./scripts/release-configuration.test.ts:424:test("stops release validation after an API typecheck diagnostic", async () => {
+./scripts/release-configuration.test.ts:426:    resolve(tmpdir(), "release-typecheck-failure-"),
+./scripts/release-configuration.test.ts:437:printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+./scripts/release-configuration.test.ts:451:      ["run", "validate:release"],
+./scripts/release-configuration.test.ts:458:          RELEASE_VALIDATION_TRACE: tracePath,
+./scripts/release-configuration.test.ts:469:      `release validation must fail when the API typecheck fails:\n${output}`,
+./scripts/release-configuration.test.ts:474:      "the API compiler diagnostic must remain visible in release output",
+./scripts/release-configuration.test.ts:479:      "the API typecheck must be the first release step",
+./scripts/release-configuration.test.ts:491:for (const scenario of releaseFailureScenarios) {
+./scripts/release-configuration.test.ts:492:  test(`stops release validation after a ${scenario.name} diagnostic`, async () => {
+./scripts/release-configuration.test.ts:493:    const { output, trace, status } = await runReleaseWithInjectedFailure(scenario);
+./scripts/release-configuration.test.ts:498:      `${scenario.name} failure must keep release validation non-zero`,
+./scripts/release-configuration.test.ts:503:      `${scenario.name} diagnostic must remain visible in release output`,
+./scripts/release-configuration.test.ts:508:      `${scenario.name} must start before release validation stops`,
+./scripts/release-configuration.test.ts:550:test("keeps the local Project workflow and release validation separate", async () => {
+./scripts/release-configuration.test.ts:559:  const releaseWorkflowStart = replitConfig.indexOf(
+./scripts/release-configuration.test.ts:560:    'name = "release-process-recovery"',
+./scripts/release-configuration.test.ts:563:  assert.ok(releaseWorkflowStart > projectWorkflowStart);
+./scripts/release-configuration.test.ts:572:    /validate:release|release-process-recovery|dashboard-restart-smoke/,
+./scripts/release-configuration.test.ts:575:  const releaseWorkflowCommands = commandsBetween(
+./scripts/release-configuration.test.ts:577:    'name = "release-process-recovery"',
+./scripts/release-configuration.test.ts:580:  assert.deepEqual(releaseWorkflowCommands, [
+./scripts/release-configuration.test.ts:581:    'args = "APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs"',
+./scripts/release-configuration.test.ts:585:  const releaseTestCommand = packageJson.scripts?.["validate:release"];
+./scripts/release-configuration.test.ts:586:  const controlledReleaseTestCommand =
+./scripts/release-configuration.test.ts:587:    packageJson.scripts?.["validate:release:controlled"];
+./scripts/release-configuration.test.ts:590:    releaseTestCommand,
+./scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+./scripts/release-configuration.test.ts:594:    controlledReleaseTestCommand,
+./scripts/release-configuration.test.ts:595:    "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+./scripts/release-configuration.test.ts:597:  assert.notEqual(normalTestCommand, releaseTestCommand);
+./scripts/release-configuration.test.ts:602:  const journeyStart = replitConfig.indexOf('name = "release-dashboard-journey"');
+./scripts/release-configuration.test.ts:607:    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+./scripts/release-configuration.test.ts:611:    /name = "release-dashboard-journey"/,
+./scripts/release-configuration.test.ts:615:test("keeps release teardown evidence attached to the controlled journey", async () => {
+./scripts/release-configuration.test.ts:617:  const releaseJobStart = workflow.indexOf("  release-validation:");
+./scripts/release-configuration.test.ts:618:  assert.ok(releaseJobStart >= 0, "release-validation job must remain configured");
+./scripts/release-configuration.test.ts:621:    .slice(releaseJobStart + 1)
+./scripts/release-configuration.test.ts:624:    nextJobOffset >= 0 ? releaseJobStart + 1 + nextJobOffset : -1;
+./scripts/release-configuration.test.ts:625:  const releaseJob = workflow.slice(
+./scripts/release-configuration.test.ts:626:    releaseJobStart,
+./scripts/release-configuration.test.ts:631:    releaseJob,
+./scripts/release-configuration.test.ts:633:    "release validation must run the controlled dashboard journey",
+./scripts/release-configuration.test.ts:636:    releaseJob,
+./scripts/release-configuration.test.ts:637:    /DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+./scripts/release-configuration.test.ts:638:    "release validation must configure the teardown report path",
+./scripts/release-configuration.test.ts:641:    releaseJob,
+./scripts/release-configuration.test.ts:642:    /name:\s*release-validation-\$\{\{\s*github\.run_id\s*\}\}-teardown/,
+./scripts/release-configuration.test.ts:643:    "release teardown evidence must use a run-specific artifact name",
+./scripts/release-configuration.test.ts:646:    releaseJob,
+./scripts/release-configuration.test.ts:648:    "release teardown evidence must upload even after validation fails",
+./scripts/release-configuration.test.ts:651:    releaseJob,
+./scripts/release-configuration.test.ts:652:    /path:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+./scripts/release-configuration.test.ts:653:    "release teardown upload must use the configured report path",
+./scripts/mission-correlation-report.test.mjs:97:test("formats a redacted release summary with evidence and validation counts", () => {
+./scripts/mission-correlation-report.test.mjs:101:      outcomeClass: "success",
+./scripts/mission-correlation-report.test.mjs:104:    "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=3.",
+./scripts/mission-correlation-report.test.mjs:108:test("labels non-success release terminals without exposing report contents", () => {
+./scripts/mission-correlation-report.test.mjs:112:      outcomeClass: "non-success",
+./scripts/mission-correlation-report.test.mjs:117:    "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+./scripts/mission-correlation-report.test.mjs:121:test("validates child-process release output and keeps the emitted summary redacted", async () => {
+./scripts/mission-correlation-report.test.mjs:147:          ? "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=1."
+./scripts/mission-correlation-report.test.mjs:148:          : "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+./scripts/mission-correlation-report.test.mjs:162:test("rejects malformed validator stdout before release summary formatting", () => {
+./scripts/mission-correlation-report.test.mjs:224:  assert.equal(report.outcomeClass, "success");
+./scripts/mission-correlation-report.test.mjs:280:  assert.equal(report.outcomeClass, "non-success");
+./scripts/mission-correlation-report.test.mjs:384:  for (const [terminalState, outcomeClass] of terminalStates) {
+./scripts/mission-correlation-report.test.mjs:395:        status: outcomeClass === "success" ? "completed" : "failed",
+./scripts/mission-correlation-report.test.mjs:400:      evidenceCount: outcomeClass === "success" ? 1 : 0,
+./scripts/mission-correlation-report.test.mjs:401:      validation: outcomeClass === "success" ? [{ status: "passed" }] : [],
+./scripts/mission-correlation-report.test.mjs:406:    assert.equal(report.outcomeClass, outcomeClass);
+./scripts/mission-correlation-report.test.mjs:415:        "outcomeClass",
+./scripts/mission-correlation-report.test.mjs:480:  assert.equal(report.outcomeClass, "success");
+./scripts/mission-correlation-report.mjs:77:  const outcomeClass = report?.outcomeClass === "success" ? "success" : "non-success";
+./scripts/mission-correlation-report.mjs:80:    `Live mission correlation report: outcome=${outcomeClass} ` +
+./scripts/mission-correlation-report.mjs:182:    outcomeClass: success ? "success" : "non-success",
+./scripts/trigger-scan.mts:65:  // ── 4. Report outcome ──────────────────────────────────────────────────
+./scripts/run-release-validation.mjs:7:  acquireReleaseLock,
+./scripts/run-release-validation.mjs:9:} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+./scripts/run-release-validation.mjs:17:  const child = spawn("pnpm", ["run", "validate:release"], {
+./scripts/run-release-validation.mjs:28:    cleanup = await acquireReleaseLock(validationLockPath);
+./scripts/run-release-validation.mjs:36:  const child = spawn("pnpm", ["run", "validate:release"], {
+./scripts/validation-artifact-cleanup.mjs:43:    owner: "release-browser-validation",
+./scripts/validation-artifact-cleanup.mjs:50:    owner: "release-validation",
+./scripts/validation-artifact-cleanup.mjs:51:    reason: "Historical release-contract test caches, shell output, test sessions, and a stale X-server lock; no active writer, durable owner, or artifact manifest was found.",
+./scripts/validation-artifact-cleanup.mjs:58:    reason: "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+./scripts/validate-github-workflows.test.mjs:20:      join(workflowsDirectory, "nested", "release.yaml"),
+./scripts/validate-github-workflows.test.mjs:21:      "name: Release\non: [push]\njobs:\n  deploy: {\n",
+./scripts/validate-github-workflows.test.mjs:33:          /\.github\/workflows\/nested\/release\.yaml: YAML syntax error at line 5, column 1/,
+./scripts/validate-github-workflows.test.mjs:91:    "release.yml",
+./scripts/validate-github-workflows.test.mjs:114:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` must be a YAML mapping\./,
+./scripts/validate-github-workflows.test.mjs:131:    "release.yml",
+./scripts/validate-github-workflows.test.mjs:156:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` steps must be a YAML sequence\./,
+./scripts/validate-github-workflows.test.mjs:173:    "release.yml",
+./scripts/validate-github-workflows.test.mjs:197:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` must define either `runs-on` or `uses`\./,
+./scripts/validate-github-workflows.test.mjs:277:    "release.yml",
+./scripts/validate-github-workflows.test.mjs:301:          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` `uses` must reference a reusable workflow/,
+./package.json:15:    "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
+./package.json:19:    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+./package.json:20:    "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+./package.json:21:    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+./package.json:22:    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+./package.json:25:    "deployment:post-build": "pnpm run db:schema:apply && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+./scripts/dashboard-journey-contract.test.mjs:105:test("release API listener enforces approved and hostile-origin CORS", async () => {
+./scripts/dashboard-journey-contract.test.mjs:151:      `${harness.baseUrl}/api/release-cors-contract`,
+./scripts/dashboard-journey-contract.test.mjs:173:      `${harness.baseUrl}/api/release-cors-contract`,
+./scripts/dashboard-journey-contract.test.mjs:191:test("release API listener protects upload and live-update requests", async () => {
+./scripts/dashboard-journey-contract.test.mjs:216:      "release-contract.zip",
+./scripts/dashboard-journey-contract.test.mjs:237:      "release-contract.zip",
+./scripts/dashboard-journey-contract.test.mjs:315:    "The release runner and browser journey must use the same live timeout default.",
+./scripts/dashboard-journey-contract.test.mjs:333:test("the standard release journey remains provider-free", () => {
+./scripts/dashboard-journey-contract.test.mjs:427:    "The release runner must validate the report boundary before starting the browser journey.",
+./scripts/dashboard-journey-contract.test.mjs:432:    "The release runner must invoke the provider-free report contract test.",
+./scripts/dashboard-journey-contract.test.mjs:436:test("release teardown reports each service and any surviving listener", () => {
+./scripts/dashboard-journey-contract.test.mjs:439:    /Release service teardown results:/,
+./scripts/dashboard-journey-contract.test.mjs:440:    "The release runner must report lifecycle results for every managed service.",
+./scripts/dashboard-journey-contract.test.mjs:444:    /Release services surviving teardown: none\./,
+./scripts/dashboard-journey-contract.test.mjs:445:    "The release runner must explicitly report a clean teardown.",
+./scripts/dashboard-journey-contract.test.mjs:449:    /Release services surviving teardown:/,
+./scripts/dashboard-journey-contract.test.mjs:450:    "The release runner must identify a service that remains on its release port.",
+./scripts/dashboard-journey-contract.test.mjs:454:    /ensureReleasePortsFree\(\)/,
+./scripts/dashboard-journey-contract.test.mjs:459:test("release teardown writes a structured CI artifact", () => {
+./scripts/dashboard-journey-contract.test.mjs:462:    /release-teardown\.json/,
+./scripts/dashboard-journey-contract.test.mjs:463:    "The release runner must write a stable teardown artifact.",
+./scripts/dashboard-journey-contract.test.mjs:483:    "The teardown artifact must preserve the release process group.",
+./scripts/dashboard-journey-contract.test.mjs:487:    /cleanupOutcome:/,
+./scripts/dashboard-journey-contract.test.mjs:488:    "The teardown artifact must preserve cleanup outcome.",
+./scripts/dashboard-journey-contract.test.mjs:492:    /Release teardown artifact:/,
+./scripts/dashboard-journey-contract.test.mjs:493:    "The release logs must surface the teardown artifact path.",
+./scripts/dashboard-journey-contract.test.mjs:497:test("release diagnostics expose a run-scoped summary and artifact link", () => {
+./scripts/dashboard-journey-contract.test.mjs:500:    /Release teardown evidence summary: validation run/,
+./scripts/dashboard-journey-contract.test.mjs:501:    "The release runner must identify the validation run beside the retained artifact.",
+./scripts/dashboard-journey-contract.test.mjs:505:    /Release teardown evidence coverage:/,
+./scripts/dashboard-journey-contract.test.mjs:506:    "The release runner must identify the services and descendant coverage.",
+./scripts/dashboard-journey-contract.test.mjs:511:    /Summarize retained release diagnostics/,
+./scripts/dashboard-journey-contract.test.mjs:512:    "CI must publish a human-readable release diagnostics summary.",
+./scripts/dashboard-journey-contract.test.mjs:526:test("release diagnostics remain useful when teardown evidence is absent", () => {
+./scripts/dashboard-journey-contract.test.mjs:594:test("release output reports redacted proof counts and non-success status", () => {
+./scripts/dashboard-journey-contract.test.mjs:598:    "The release runner must format the validated redacted report.",
+./scripts/dashboard-journey-contract.test.mjs:603:    "The release runner must print the validated summary.",
+./scripts/dashboard-journey-contract.test.mjs:607:test("release journey passes the complete approved origin list to API and browser checks", () => {
+./scripts/dashboard-journey-contract.test.mjs:611:    "The release runner must derive checks from the configured APP_ORIGINS list.",
+./scripts/dashboard-journey-contract.test.mjs:616:    "The release API must receive the same approved origin list.",
+./scripts/dashboard-journey-contract.test.mjs:640:test("release journey gates browser work on one bounded readiness handshake", () => {
+./scripts/dashboard-journey-contract.test.mjs:643:    /async function performReleaseReadinessHandshake\(\)/,
+./scripts/dashboard-journey-contract.test.mjs:644:    "The release runner must define one readiness handshake.",
+./scripts/dashboard-journey-contract.test.mjs:649:    "The release runner must probe the API readiness endpoint.",
+./scripts/dashboard-journey-contract.test.mjs:654:    "The release handshake must verify database and schema readiness.",
+./scripts/dashboard-journey-contract.test.mjs:659:    "The release handshake must carry an explicit test mode.",
+./scripts/dashboard-journey-contract.test.mjs:668:    /await performReleaseReadinessHandshake\(\)/g,
+./scripts/dashboard-journey-contract.test.mjs:730:    "The browser journey must write origin diagnostics for the release runner.",
+./scripts/dashboard-journey-contract.test.mjs:747:    "The release runner must pass the diagnostics path to Playwright.",
+./scripts/dashboard-journey-contract.test.mjs:752:    "The release teardown artifact must retain origin diagnostics.",
+./docs/validation-artifact-cleanup-report.json:175:      "dispositionReason": "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+./docs/validation-artifact-cleanup-report.json:273:        "reason": "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+./docs/validation-artifact-cleanup-report.json:339:        "owner": "release-browser-validation",
+./docs/validation-artifact-cleanup-report.json:354:        "owner": "release-validation",
+./docs/validation-artifact-cleanup-report.json:355:        "reason": "Historical release-contract test caches, shell output, test sessions, and a stale X-server lock; no active writer, durable owner, or artifact manifest was found.",
+./docs/validation-artifact-cleanup-report.json:370:        "reason": "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+./docs/runtime-coverage-matrix.md:11:| Duplicate task submission and stale worker completion | `routes/ai.test.ts`, `lib/task-execution-service.test.ts`, `lib/ai-execution-state.test.ts` | one owner wins; late completion cannot overwrite a newer state |
+./docs/runtime-coverage-matrix.md:17:| Release isolation and provider-free default | `scripts/dashboard-journey-contract.test.mjs`, release validation contracts | live campaigns require explicit opt-in and disposable targets |
+./docs/replit-agent-parity-gaps.md:4:**Comparison target:** observable engineering-agent outcomes, not proprietary Replit
+./docs/replit-agent-parity-gaps.md:23:of those outcomes. “Parity” below means parity with the relevant workflow, not
+./docs/replit-agent-parity-gaps.md:27:The latest provider-free release decision passed its enabled AI contracts
+./docs/replit-agent-parity-gaps.md:40:  boundaries, source/candidate-bound release contracts, provider-free AI
+./docs/replit-agent-parity-gaps.md:54:- **Parity** — the relevant outcome exists and its observable contract is
+./docs/replit-agent-parity-gaps.md:60:- **Gap** — the outcome is missing, or a tested defect prevents a reliable user
+./docs/replit-agent-parity-gaps.md:61:  outcome. A provider outage alone is not classified as a missing capability.
+./docs/replit-agent-parity-gaps.md:67:| Observable outcome | Current EngineeringOS behavior and evidence | Assessment | Failure mode / user experience |
+./docs/replit-agent-parity-gaps.md:73:| Conversational planning | Implementation planning requires a verified manifest and source excerpts and returns an explicit pending-approval/not-authorized outcome when grounding is missing ([chat planning guards](../artifacts/api-server/src/routes/ai/chat.ts#L605-L738); [baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Specialized stronger** | The safe plan boundary is stronger than implicit “agent edits.” The missing proof is provider-backed generation and browser confirmation, not the authorization model. |
+./docs/replit-agent-parity-gaps.md:75:| Candidate validation | Server-owned validation profiles, isolated workspaces, scope checks, redacted public receipts, and repair runners exist ([repair validation](../artifacts/api-server/src/lib/ai-repair-validation.ts#L113-L441)). | **Specialized stronger, provider-free verified** | Bounded validation and repair-loop release checks pass. A live delivery workspace campaign remains unproven. |
+./docs/replit-agent-parity-gaps.md:80:| Cancellation, resume, and restart recovery | Durable execution rows, leases, checkpoints, hashed resume tokens, cancellation terminalization, ownership fences, and recovery endpoints exist ([execution state](../artifacts/api-server/src/lib/ai-execution-state.ts#L8-L205); [chat routes](../artifacts/api-server/src/routes/ai/chat.ts#L4632-L4700)). | **Specialized stronger, browser partial** | Provider-free SSE and operational-safety checks pass. Reload-after-restart and live transport evidence remain open; incomplete results must continue to be shown as incomplete. |
+./docs/replit-agent-parity-gaps.md:95:| P0 | Provider-free contract and model resolution must remain deterministic; the required runtime-oracle scenario previously reported `broken` instead of `fixed`. | **Closed by provider-free evidence; keep as a regression gate** | The latest benchmark scenario and AI release checks pass; rollout policy is unchanged | High if a future false green authorizes bad behavior | Preserve existing OpenRouter stabilization and benchmark governance |
+./docs/replit-agent-parity-gaps.md:101:| P1 | Discovery durable Git fixture must match its documented async contract. | **Closed for controlled API acceptance** | The focused release check proves the documented 202 → ready → import contract with an approved URL and test-only clone seam; browser and provider-backed journeys remain separate | Medium | Preserve the URL policy and receipt allowlist |
+./docs/replit-agent-parity-gaps.md:103:| P3 | Broaden general-Agent conveniences: richer recursive investigation, per-subtask streaming, more automatic environment setup. | Optional parity expansion | Improves speed and breadth, not correctness of the specialized product | Low relative to release blockers; may weaken boundedness | Only after production-ready specialized gates |
+./docs/replit-agent-parity-gaps.md:112:| Runtime-oracle/benchmark blocker | `validate:benchmark-scenarios`, deterministic benchmark, and release regression checks pass. The comparator may return `rolloutAllowed: true` for a clean regression comparison, while the approved baseline still has `qualityEligible: false` and `rolloutAllowed: false`; this does not authorize live-quality rollout. |
+./docs/replit-agent-parity-gaps.md:113:| Source-bound release identity | Release evidence carries server-observed source revision with the candidate hash; governance and comparison rules were not changed. |
+./docs/replit-agent-parity-gaps.md:119:Each item has a bounded outcome. These are recommendations only; this task does
+./docs/replit-agent-parity-gaps.md:124:#### R1 — Keep the provider-free release gate truthful *(closed; regression owner)*
+./docs/replit-agent-parity-gaps.md:126:- **Affected surfaces:** `package.json` release scripts; orchestrator benchmark
+./docs/replit-agent-parity-gaps.md:129:  verdict; the latest AI release decision has 9 passed checks and 0 blocking
+./docs/replit-agent-parity-gaps.md:134:- **Dependency/risk:** first gate; high release risk if skipped.
+./docs/replit-agent-parity-gaps.md:139:  profiles, release validation fixtures.
+./docs/replit-agent-parity-gaps.md:150:- **Affected surfaces:** `ai-execution-state.ts`, chat route SSE lifecycle,
+./docs/replit-agent-parity-gaps.md:151:  task execution state persistence, cancellation/reconnect fixtures.
+./docs/replit-agent-parity-gaps.md:192:  and subsequent session/summary/import states agree in the focused release
+./docs/replit-agent-parity-gaps.md:227:## 5. Release gates by maturity
+./docs/replit-agent-parity-gaps.md:232:| Usable internal tool | Prototype gates plus green provider-free API subset, green R1–R3 contracts, and one controlled authenticated journey covering chat or analysis and a persisted terminal result. | **Not established** | Targeted release contracts pass, but the required controlled authenticated journey is still missing; Git push, discovery breadth, and all delivery transitions remain unproven. |
+./docs/replit-agent-parity-gaps.md:233:| Production-ready specialized Agent | All provider-free release gates green; no validation timeout or terminal-ordering defect; controlled campaign passes discovery, grounded chat, analysis/review, task/workflow, plan approval, candidate-bound validation, apply, conflict retry, cancellation/restart, evidence reload/export, and safe Git commit/push. Provider diagnostics are actionable, and benchmark rollout is allowed. | **Not established** | The release decision passes its enabled provider-free checks, but preview/live checks are skipped and the benchmark baseline is not rollout-eligible. EngineeringOS remains intentionally narrower than a general IDE Agent. |
+./docs/replit-agent-parity-gaps.md:249:1. keep the provider-free release and benchmark gate truthful;
+./docs/gap-analysis-2026-07-27.md:10:> structured streaming, durable execution state, and several dashboard
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:11:The durable execution work materially improves the picture. `ai-executions` has ownership, idempotency, leases, checkpoints, bounded traces, cancellation state, and terminal receipts; task execution uses the same lifecycle service. File writes are approval-deferred, paths are guarded lexically and by realpath, command execution uses registered profiles and `shell:false`, browser checks are origin- and step-bounded, and Git delivery has scoped evidence gates. Scanner roots fail closed, graph data has provenance machinery, and audit writes use an outbox. These controls should be extended, not replaced.
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:59:`lib/db/src/schema/ai_executions.ts` stores queued/running/paused/cancelling/cancelled/completed/failed state, worker lease, heartbeat, checkpoint/version, request, operation/proposal/workspace/revision identity, and terminal linkage. `checkpointAiExecution` requires worker ownership, running status, and a strictly newer sequence; checkpoint contents are bounded and cannot redefine plan scope/dependencies/profile. Startup reconciliation pauses interrupted AI executions. The dashboard tracks execution identity and an opaque token, polls state, hydrates local state, and can obtain a replacement token for paused/failed execution.
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:100:| Cancellation / boundary failure | `ai-execution-state.ts` → `requestAiExecutionCancel`; `task-execution-service.ts` → owned controller and locked finalization | Task execution now propagates an owned abort signal through fallback/provider execution and refuses success after cancellation wins. Coverage of every downstream operation and restart continuation is not yet one unified loop. | high | Extend the existing signal and terminal-write fences through operation nodes, tools, validation, promotion, and recovery; do not create a second cancellation protocol. | partial |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:101:| Retry, lease, and checkpoint recovery / state inconsistency | `ai-execution-state.ts` → claim/checkpoint/recover; `job-reconciliation.ts` → restart handling | Durable leases and monotonic checkpoints exist. Resume-token rotation is last-writer-wins; chat checkpoint persistence can be best-effort; task crash recovery returns to verifying rather than autonomous continuation. | high | CAS token recovery, make checkpoint failure terminal/visible, and define one recovery state machine. | partial |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:104:| Workflow autonomy / missing capability | `routes/workflows.ts` → start/advance/fail/retry/rollback; `routes/ai/workflows.ts` → orchestrate | State machine transitions are guarded, but orchestration only returns a decision; no autonomous worker executes all phases and repairs. | high | Add durable workflow-operation linkage and worker-driven phase execution using existing leases and profiles. | missing |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:150:6. **Unified recovery:** leases/checkpoints/resume token CAS cover provider, tool, validation, workspace, and delivery states. Crash reconciliation chooses resume, block, or manual recovery explicitly.
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:161:| Task cancellation race | `task-execution-service`, provider/fallback and execution controller | P0; signal baseline merged, unified propagation belongs to Task #46 | Add nullable controller/lease semantics; old rows reconcile conservatively |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:163:| Unified operation/plan/revision | `ai-execution-state`, execution nodes, task/proposal links | P1 after P0; Task #46 sole owner | Add nullable fields/backfill links only where correlation is certain |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:165:| Workflow worker linkage | workflow execution rows + AI execution leases | P1; Task #46, with Task #52 limited to ledger visibility | Existing explicit endpoints remain authoritative |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:168:| Empirical parity campaign | validation scripts and isolated release workflow | P3 | No production behavior change |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:174:Task #45 completed the promotion protocol baseline: promotion intent, atomic per-file writes, persisted journal outcomes, and startup recovery classification are now source evidence. The remaining P0 work is validation-root integrity, conservative recovery verification, cancellation/checkpoint/token races, root policy, command TOCTOU, and graph/auth boundary hardening. These are prerequisites, not autonomous-loop behavior.
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:203:* Compare only observable acceptance outcomes; do not infer undocumented comparator internals.
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:211:| Lifecycle and task execution | Durable executions, leases, checkpoints, task receipts, owned cancellation signal, and locked finalization are in source. | Merged baseline; residual unified recovery is an intentional gap feeding Task #46. | Do not create another task-execution lifecycle or receipt system. |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:232:| P0-2 | delivery workspace, apply journal, startup reconciliation | Compensating rollback → atomic/recoverable promotion (Task #45 baseline) | Multi-file interruption still requires conservative classification | Task #51 recovery regressions; integration kill between files; restart/chaos; stale workspace cleanup | Every interrupted promotion ends `blocked`, `conflicted`, or a verified terminal outcome; never ambiguous success |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:234:| P0-4 | `ai-execution-state.ts` recovery/checkpoint; chat stream | Last-writer token and swallowed checkpoint → CAS and required failure state | Resume race and false live progress | Concurrent token test; crash/reconnect; checkpoint DB failure | One recovery token wins deterministically; client sees durable incomplete state |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:238:| P1-3 | workflows routes/execution state | Decision-only orchestration → leased phase worker | Removes manual continuation gap | Unit safe transitions; integration phase crash/retry; E2E workflow repair | Phase execution has operation ID, lease, evidence, and exactly-once transition |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:242:| P3-1 | release validation scripts/workflow | No source proof of parity → observable campaign | Comparator behavior cannot be inferred | Isolated provider/browser/deployment, including all required failure modes | Reproducible metrics for inspect/plan/repair/validate/deliver; no marketing claim |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:276:The release/browser workflow must remain opt-in for real providers and deployment. Screenshots, fixture names, and generated API contracts are not acceptance evidence by themselves. Each accepted result must include operation ID, revision, candidate/changeset hash, profile revision, terminal state, and retained evidence completeness. Live-provider, browser-in-deployment, and remote-push success remain **Cannot Verify From Current Source** until such an artifact is intentionally produced.
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:317:| Recovery | Leases, checkpoints, cancellation state, resume handling, recovery listing, owner checks, and redacted operator projections | **Partial** | Current owner, operation, revision, retained evidence, and explicit resume/discard outcome; token/checkpoint races remain gaps |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:326:| Live provider behavior | **NOT VERIFIED** | Deterministic fixtures and bounded fallback are available; the opt-in harness records outage, malformed-output, and delivery evidence without making live credentials a release prerequisite |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:327:| Deployment behavior | **NOT VERIFIED** | Deployment is intentionally opt-in and is not an ordinary-release prerequisite |
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:355:The release journey has an explicitly opt-in, disposable campaign mode. It is
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:382:* `pnpm run validate:ai-release`
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:385:* `pnpm --filter @workspace/api-server run test:release-fixture-collisions`
+./docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:398:* `pnpm --filter @workspace/api-server run test:release-synthesis-telemetry`
+./lib/db/src/operator-alert-schema-check.ts:88:    client.release();
+./lib/db/src/schema/tasks.ts:128:   * PR-01: Lease deadline for the executing worker. Heartbeated during long
+./lib/db/src/schema/tasks.ts:131:  leaseUntil: timestamp("lease_until"),
+./lib/db/src/schema/tasks.ts:143:  // PR-01: Covers lease-expiry detection: WHERE status='running' AND lease_until < NOW()
+./lib/db/src/schema/tasks.ts:144:  index("idx_tasks_status_lease_until").on(t.status, t.leaseUntil),
+./lib/db/src/schema/scan_jobs.ts:54:   * PR-01: Wall-clock deadline for the current worker's lease. The executing
+./lib/db/src/schema/scan_jobs.ts:58:  leaseUntil: timestamp("lease_until"),
+./lib/db/src/schema/scan_jobs.ts:85:   * PR-01: Covers lease-expiry detection in failStaleRunningJobs:
+./lib/db/src/schema/scan_jobs.ts:86:   *   WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until < NOW()
+./lib/db/src/schema/scan_jobs.ts:88:  index("idx_scan_jobs_status_lease_until").on(t.status, t.leaseUntil),
+./lib/db/src/schema/discovery.ts:155:   * PR-01: Lease deadline for the current worker. Heartbeated periodically;
+./lib/db/src/schema/discovery.ts:158:  leaseUntil: timestamp("lease_until"),
+./lib/db/src/schema/discovery.ts:170:  // PR-01: Covers lease-expiry detection: WHERE status='discovering' AND lease_until < NOW()
+./lib/db/src/schema/discovery.ts:171:  index("idx_discovery_sessions_status_lease_until").on(t.status, t.leaseUntil),
+./lib/db/src/schema/ai_executions.ts:54:  leaseUntil: timestamp("lease_until"),
+./lib/db/src/schema/ai_executions.ts:70:  index("idx_ai_executions_status_lease").on(t.status, t.leaseUntil),
+./lib/db/src/schema/ai_chats.ts:62:  /** Terminal outcome; failed/interrupted turns are retained without an answer. */
+./lib/db/src/schema/ai_chats.ts:63:  outcome: text("outcome"),
+./lib/db/src/check-schema.ts:11:    "Application schema is ready: public.tasks and public.task_logs satisfy the release contract.",
+./lib/db/src/audit-schema-check.ts:88:    client.release();
+./lib/db/src/application-schema-check.ts:56: * This is the release-critical subset of the Drizzle schema. Keep this list
+./lib/db/src/application-schema-check.ts:175:        name: "lease_until",
+./lib/db/src/application-schema-check.ts:230:      name: "idx_tasks_status_lease_until",
+./lib/db/src/application-schema-check.ts:231:      columns: ["status", "lease_until"],
+./lib/db/src/application-schema-check.ts:615:    client.release();
+./lib/db/SCHEMA_DELIVERY.md:17:Use `schema:check` when DDL is managed by another release step and only
+./lib/db/SCHEMA_DELIVERY.md:25:loss statements. Schema application must run before starting release traffic.
+./lib/api-zod/src/generated/api.ts:51:  "expiredScanLeases": zod.number(),
+./lib/api-zod/src/generated/api.ts:52:  "expiredDiscoveryLeases": zod.number(),
+./lib/api-zod/src/generated/api.ts:53:  "expiredTaskLeases": zod.number(),
+./lib/api-zod/src/generated/api.ts:56:}).optional().describe('Content-free health projection of durable background work. A degraded status means at least one worker lease has expired and needs recovery.\n')
+./lib/api-zod/src/generated/api.ts:3198:  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish(),
+./lib/api-zod/src/generated/api.ts:3203:  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
+./lib/api-zod/src/generated/api.ts:3226:  "outcomeClass": zod.string(),
+./lib/api-zod/src/generated/api.ts:3419:  "outcome": zod.string().nullable()
+./lib/api-zod/src/generated/api.ts:3582:  "outcome": zod.enum(['resume_accepted', 'abandoned', 'already_abandoned', 'already_running']),
+./lib/api-zod/src/generated/api.ts:3827: *       "outcome": "SUCCEEDED" | "FAILED" | "INTERRUPTED",
+./lib/api-zod/src/generated/api.ts:3858: *       "sessionId"?: "...", "outcome"?: "FAILED" | "INTERRUPTED",
+./lib/api-zod/src/generated/api.ts:4137:  "integrityOutcome": zod.enum(['verified', 'blocked', 'mismatch', 'unknown']).optional(),
+./lib/api-zod/src/generated/api.ts:4576:  "forensicStatus": zod.enum(['INCOMPLETE', 'NO_FINDING', 'FINDING_PROVEN', 'NOT_PROVEN']).nullish().describe('Derived forensic outcome for the latest assistant audit result, when available')
+./lib/api-zod/src/generated/api.ts:4625:  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish(),
+./lib/api-zod/src/generated/api.ts:4630:  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
+./lib/api-zod/src/generated/api.ts:4653:  "outcomeClass": zod.string(),
+./lib/api-zod/src/generated/api.ts:4738:  "outcomeClass": zod.string(),
+./docs/fact-record.md:57:| pnpm-workspace.yaml | تعريف workspace وسياسة أمان supply-chain عبر minimum release age. | أي تعديل هنا حساس ويؤثر على التثبيت. | يحمي سلسلة التوريد ويحدد نطاق الحزم. | High | pnpm-workspace.yaml |
+./docs/fact-record.md:561:| attached_assets/EngineeringOS_series30_release_handoff_audit_1783966530642.md | تدقيق جاهزية التسليم (السلسلة 30): يُحدد الفجوات الثلاث المتبقية قبل اعتبار المنصة مغلقة: RBAC، تغطية اختبارية للـ ai/events/rules/dashboard، إغلاق التوثيق. | وثيقة تحليلية؛ الفجوات مُوثَّقة في docs/completion-plan.md. | يؤرشف تقييم الجاهزية للتسليم. | Low | attached_assets/EngineeringOS_series30_release_handoff_audit_1783966530642.md |
+./docs/fact-record.md:562:| attached_assets/EngineeringOS_series31_release_handoff_audit_1783966530586.md | تدقيق التسليم التشغيلي (السلسلة 31): يُثبت مؤشرات النضج لكل طبقة (عقد، DB، scan، AI، audit) ويُحدد حدود الثقة والديمومة الصريحة. | وثيقة تحليلية. | يؤرشف مؤشرات نضج المنصة التشغيلية. | Low | attached_assets/EngineeringOS_series31_release_handoff_audit_1783966530586.md |
+./pnpm-lock.yaml:3326:  node-releases@2.0.50:
+./pnpm-lock.yaml:5837:      node-releases: 2.0.50
+./pnpm-lock.yaml:6928:  node-releases@2.0.50: {}
+./docs/code-agent-benchmark-rollout.md:147:## Release sequence
+./docs/code-agent-benchmark-rollout.md:149:The release decision is intentionally ordered:
+./docs/code-agent-benchmark-rollout.md:169:The read-only release gate checks the two run artifacts and the approved
+./docs/code-agent-benchmark-rollout.md:176:BENCHMARK_RELEASE_DECISION_PATH=/tmp/flight-deck-v2-release-decision.json \
+./docs/code-agent-benchmark-rollout.md:177:pnpm --filter @workspace/api-server run benchmark:release-gate
+./docs/code-agent-benchmark-campaign.md:171:Each receipt has exactly one terminal outcome:
+./docs/code-agent-benchmark-campaign.md:179:from terminal outcome. A completed receipt with an escape or repeated side
+./docs/code-agent-benchmark-campaign.md:187:make deterministic release checks depend on external availability.

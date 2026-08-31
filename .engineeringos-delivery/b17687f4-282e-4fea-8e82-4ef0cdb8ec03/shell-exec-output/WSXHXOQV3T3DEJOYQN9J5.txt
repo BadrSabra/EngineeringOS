@@ -1,0 +1,400 @@
+.pub:1:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID0IoRG1EXG6wGZICaNUHn3MEwMQROtLcdB4P0N1vDYP badraldien111@gmail.com
+./package.json:6:    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+./package.json:19:    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+./package.json:21:    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+./pnpm-lock.yaml:18:    '@tailwindcss/vite':
+./pnpm-lock.yaml:57:    tailwind-merge:
+./pnpm-lock.yaml:60:    tailwindcss:
+./pnpm-lock.yaml:94:  esbuild>@esbuild/aix-ppc64: '-'
+./pnpm-lock.yaml:109:  '@tailwindcss/oxide>@tailwindcss/oxide-android-arm64': '-'
+./pnpm-lock.yaml:110:  '@tailwindcss/oxide>@tailwindcss/oxide-darwin-arm64': '-'
+./pnpm-lock.yaml:111:  '@tailwindcss/oxide>@tailwindcss/oxide-darwin-x64': '-'
+./pnpm-lock.yaml:112:  '@tailwindcss/oxide>@tailwindcss/oxide-freebsd-x64': '-'
+./pnpm-lock.yaml:113:  '@tailwindcss/oxide>@tailwindcss/oxide-linux-arm-gnueabihf': '-'
+./pnpm-lock.yaml:114:  '@tailwindcss/oxide>@tailwindcss/oxide-linux-arm64-gnu': '-'
+./pnpm-lock.yaml:115:  '@tailwindcss/oxide>@tailwindcss/oxide-linux-arm64-musl': '-'
+./pnpm-lock.yaml:116:  '@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc': '-'
+./pnpm-lock.yaml:117:  '@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc': '-'
+./pnpm-lock.yaml:118:  '@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl': '-'
+./pnpm-lock.yaml:179:      '@workspace/ai-orchestrator':
+./pnpm-lock.yaml:181:        version: link:../../lib/ai-orchestrator
+./pnpm-lock.yaml:370:      '@radix-ui/react-tooltip':
+./pnpm-lock.yaml:382:      '@tailwindcss/typography':
+./pnpm-lock.yaml:384:        version: 0.5.20(tailwindcss@4.3.2)
+./pnpm-lock.yaml:385:      '@tailwindcss/vite':
+./pnpm-lock.yaml:418:      '@workspace/ai-orchestrator':
+./pnpm-lock.yaml:420:        version: link:../../lib/ai-orchestrator
+./pnpm-lock.yaml:478:      tailwind-merge:
+./pnpm-lock.yaml:481:      tailwindcss:
+./pnpm-lock.yaml:586:      '@radix-ui/react-tooltip':
+./pnpm-lock.yaml:595:      '@tailwindcss/vite':
+./pnpm-lock.yaml:664:      tailwind-merge:
+./pnpm-lock.yaml:667:      tailwindcss:
+./pnpm-lock.yaml:670:      tailwindcss-animate:
+./pnpm-lock.yaml:672:        version: 1.0.7(tailwindcss@4.3.2)
+./pnpm-lock.yaml:686:  lib/ai-orchestrator:
+./pnpm-lock.yaml:694:      groq-sdk:
+./pnpm-lock.yaml:823:  '@adobe/css-tools@4.5.0':
+./pnpm-lock.yaml:850:    resolution: {integrity: sha512-RgHBCvtjbOK2gXSNBNIkNoEc9qoVEtau3hj8gEqKQuL3HZAibKarWFEI3Lfm6EYKkLalOh8eSrj9b+ch9H/VBA==}
+./pnpm-lock.yaml:925:    resolution: {integrity: sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA==}
+./pnpm-lock.yaml:937:    resolution: {integrity: sha512-takrEE0nliUz39e8Ct1YG471eBcuU2I1ZStRIU9U0UAIuiNAxNTNuaVZSXaZeK4QTuJtdQhoGy8rvzxr/10Btw==}
+./pnpm-lock.yaml:986:  '@csstools/color-helpers@6.1.0':
+./pnpm-lock.yaml:990:  '@csstools/css-calc@3.3.0':
+./pnpm-lock.yaml:994:      '@csstools/css-parser-algorithms': ^4.0.0
+./pnpm-lock.yaml:995:      '@csstools/css-tokenizer': ^4.0.0
+./pnpm-lock.yaml:997:  '@csstools/css-color-parser@4.1.10':
+./pnpm-lock.yaml:1001:      '@csstools/css-parser-algorithms': ^4.0.0
+./pnpm-lock.yaml:1002:      '@csstools/css-tokenizer': ^4.0.0
+./pnpm-lock.yaml:1004:  '@csstools/css-parser-algorithms@4.0.0':
+./pnpm-lock.yaml:1008:      '@csstools/css-tokenizer': ^4.0.0
+./pnpm-lock.yaml:1010:  '@csstools/css-syntax-patches-for-csstree@1.1.7':
+./pnpm-lock.yaml:1011:    resolution: {integrity: sha512-fQ+05118eQS1cofO3aJpB5efgpBZMvIzwr/sbC8kDLVA5XLG8q1kJV5yzrUAI1f7lvhPnm8fgIjzFB8/O/5Dig==}
+./pnpm-lock.yaml:1018:  '@csstools/css-tokenizer@4.0.0':
+./pnpm-lock.yaml:1023:    resolution: {integrity: sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==}
+./pnpm-lock.yaml:1047:    resolution: {integrity: sha512-9gZSAI5XM36880PPMm//9dfiEngYoC6Am2izES1FF406YFsjvyBMmeJ2g4SAju3xWwtuynNRFL2s9hgxpLI5SQ==}
+./pnpm-lock.yaml:1056:    resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
+./pnpm-lock.yaml:1077:    resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
+./pnpm-lock.yaml:1130:    resolution: {integrity: sha512-6hnDtAFdP64SHuKlr1aOqps3RXPs4FUMUh3TWXrXvOf0s2HmWzYZOecNqowlswFFKLRWrh5fF5l1Nr0Q9zai7g==}
+./pnpm-lock.yaml:1175:    resolution: {integrity: sha512-6c2cXpNlAgHDhKguK24XcWHHayMpK+lk7/WwBXBco+ZJ4Dv7xP++GBM280KgTD/HCRu3jSdfe8WQiZssonYaIA==}
+./pnpm-lock.yaml:1310:    resolution: {integrity: sha512-C3vFhbyi4SW3PmbAi6Awpu4OzJtd0MxGurvSsYtr7p7nM8RNB3VAF3CUmnp2j50knpkrRcB7+ycVXzgLgF6yNA==}
+./pnpm-lock.yaml:1354:    resolution: {integrity: sha512-Mn88Vg2whaRocGJNOH+DKFqYm6ySFPQaiwHNxZPyjn99B52KAEJWWY9NP83+nWdk2HM3rdov+STu9AG471Rt9w==}
+./pnpm-lock.yaml:1402:    resolution: {integrity: sha512-Mht9BVd1AIsNFVQr4KG3bIK7XQn5IXF0TL/2ObsrzOdc1loaly/+kBDL5roSCYn8j8XZkvpOD0WYLz2FQtH1Eg==}
+./pnpm-lock.yaml:1658:    resolution: {integrity: sha512-bI2ILJrzwgmAsH05TsJ9pVrzqQwAip7OM2/krqAdYn0R16bl86UPWbe5VPHsALat0EnqpV01cGtkleaUKPNdNg==}
+./pnpm-lock.yaml:1670:  '@radix-ui/react-tooltip@1.2.11':
+./pnpm-lock.yaml:1844:  '@tabby_ai/hijri-converter@1.0.5':
+./pnpm-lock.yaml:1848:  '@tailwindcss/node@4.3.2':
+./pnpm-lock.yaml:1851:  '@tailwindcss/oxide-linux-x64-gnu@4.3.2':
+./pnpm-lock.yaml:1858:  '@tailwindcss/oxide-wasm32-wasi@4.3.2':
+./pnpm-lock.yaml:1870:  '@tailwindcss/oxide@4.3.2':
+./pnpm-lock.yaml:1874:  '@tailwindcss/typography@0.5.20':
+./pnpm-lock.yaml:1877:      tailwindcss: '>=3.0.0 || >=4.0.0 || insiders'
+./pnpm-lock.yaml:1879:  '@tailwindcss/vite@4.3.2':
+./pnpm-lock.yaml:1885:    resolution: {integrity: sha512-hH5MLoJhF7KaIGd7q3xTXGXvslI+GYlM1Z/35aSHHWaCJWB7XvTSHYuV3eM7tw+aE0mT/xMro4M4Q9rCGHT0lw==}
+./pnpm-lock.yaml:1893:    resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==}
+./pnpm-lock.yaml:1918:    resolution: {integrity: sha512-vq7fv0rnt+QTXgPxr5Hjc210p6YKq2kmdziLgnsZGgLJ9e6VAShx1pACLuRjd/AS/sr7phAR58OIIpf0LlmQNw==}
+./pnpm-lock.yaml:1930:    resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
+./pnpm-lock.yaml:1939:    resolution: {integrity: sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==}
+./pnpm-lock.yaml:1944:  '@types/chai@5.2.3':
+./pnpm-lock.yaml:1989:    resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
+./pnpm-lock.yaml:2031:    resolution: {integrity: sha512-GRaXQx6jGfL8sKfaIDD6OupbIHBr9jv7Jnaml9tB7l4v068PAOXqfcujMMo5PhbIs6ggR1XODELqahT2R8v0fg==}
+./pnpm-lock.yaml:2059:  '@types/superagent@8.1.10':
+./pnpm-lock.yaml:2075:    resolution: {integrity: sha512-YmKkfhOAi3wsB1PhJq5Scj3GXMn3WvtQ/JC0xoopuHoXSdmtdStOpFrYaT1kie2YgFBcIe64ROzMYRjCrYOdYw==}
+./pnpm-lock.yaml:2110:    resolution: {integrity: sha512-xRkfOT1qpTAi/Ti4Y1LtfRc3kEuqxGw59eN2jN9pRWMtS/XDevekhcFSqvQqjUNGksfjMJu3Y+oJ+4Ypn2OaJw==}
+./pnpm-lock.yaml:2135:  agentkeepalive@4.6.0:
+./pnpm-lock.yaml:2165:    resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
+./pnpm-lock.yaml:2168:    resolution: {integrity: sha512-ik3ZgC9dY/lYVVM++OISsaYDeg1tb0VtP5uL3ouh1koGOaUMDPpbFIei4JkFimWUFPn90sbMNMXQAIVOlnYKJA==}
+./pnpm-lock.yaml:2172:    resolution: {integrity: sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A==}
+./pnpm-lock.yaml:2179:    resolution: {integrity: sha512-BSHWgDSAiKs50o2Re8ppvp3seVHXSRM44cdSsT9FfNEUUZLOGWVCsiWaRPWM1Znn+mqZ1OfVZ3z3DWEzSp7hRA==}
+./pnpm-lock.yaml:2195:  bail@2.0.2:
+./pnpm-lock.yaml:2228:    resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
+./pnpm-lock.yaml:2247:    resolution: {integrity: sha512-MMHtuAz9Ys840zAY5F4k6fV5GaivZ9sPk+nz0mY+GYVzRBnYkN0mpqkSR92oWRQ19yQWo4HvBV/FnC16AJX8MA==}
+./pnpm-lock.yaml:2252:  chai@6.2.2:
+./pnpm-lock.yaml:2263:    resolution: {integrity: sha512-shx7oQ0Awen/BRIdkjkvz54PnEEI/EjwXDSIZp86/KKdbafHh1Df/RYGBhn4hbe2+uKC9FnT5UCEdyPz3ai9hQ==}
+./pnpm-lock.yaml:2314:    resolution: {integrity: sha512-5jRCH9Z/+DRP7rkvY83B+yGIGX96OYdJmzngqnw2SBSxqCFPd0w2km3s5iawpGX8krnwSGmF0FW5Nhr0Hfai3g==}
+./pnpm-lock.yaml:2370:    resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+./pnpm-lock.yaml:2389:    resolution: {integrity: sha512-3bYs1rOD33uo8aqJfKP3JWPAibgw8Zm2+L9vBKEHJ2Rg+viTR7o5Mmv5mZcieN+FRYaAOWX5SJATX6k1PWz72g==}
+./pnpm-lock.yaml:2413:    resolution: {integrity: sha512-ndfJ/JxxMd3nw31uyKoY2naivF+r29V+Lc0svZxe1JvvIRmi8hUsrMvdOwgS1o6uBHmiz91geQ0ylPP0aj1VUA==}
+./pnpm-lock.yaml:2476:    resolution: {integrity: sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg==}
+./pnpm-lock.yaml:2661:    resolution: {integrity: sha512-8VwMnyGCONIs6cWue2IdpHxHnAjzxnw2Zr7MkVxB2vjmQ2ivqGFb4LEG3SMnv0Gb2F/G/2yA8zUaiL1gywDCCg==}
+./pnpm-lock.yaml:2666:    resolution: {integrity: sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==}
+./pnpm-lock.yaml:2683:    resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
+./pnpm-lock.yaml:2708:    resolution: {integrity: sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw==}
+./pnpm-lock.yaml:2718:    resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
+./pnpm-lock.yaml:2754:    resolution: {integrity: sha512-YsGpe3WHLK8ZYi4tWDg2Jy3ebRz2rXowDxnld4bkQB00cc/1Zw9AWnC0i9ztDJitivtQvaI9KaLyKrc+hBW0yg==}
+./pnpm-lock.yaml:2799:    resolution: {integrity: sha512-Rx/WycZ60HOaqLKAi6cHRKKI7zxWbJ31MhntmtwMoaTeF7XFH9hhBp8vITaMidfljRQ6eYWCKkaTK+ykVJHP2A==}
+./pnpm-lock.yaml:2803:    resolution: {integrity: sha512-w8ZNZr2mKIc7qeNaQ9AVPT1+iFaI+Avd4xudVOvdDJ8VytREi1Ft5Ih7hd9jjehod8vAM5GMsfQ/TpPf4EyoEA==}
+./pnpm-lock.yaml:2828:    resolution: {integrity: sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ==}
+./pnpm-lock.yaml:2832:    resolution: {integrity: sha512-FJhYRoDaiatfEkUK8HKlicmu/3SGFD51q3itKDGoSTysQJBnfOcxU5GxnhE1E6soB76MbT0MBtnKJuXyAx+96Q==}
+./pnpm-lock.yaml:2851:    resolution: {integrity: sha512-lkX1HJXwyMcprw/5YUZc2s7DrpAiHB21/V+E1rHUrVNokkvB6bqMzT0VfV6/86ZNabt1k14YOIaT7nDvOX3Iiw==}
+./pnpm-lock.yaml:2854:    resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
+./pnpm-lock.yaml:2860:  groq-sdk@0.9.1:
+./pnpm-lock.yaml:2872:    resolution: {integrity: sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw==}
+./pnpm-lock.yaml:2921:    resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
+./pnpm-lock.yaml:2941:    resolution: {integrity: sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==}
+./pnpm-lock.yaml:2970:    resolution: {integrity: sha512-DgZQp241c8oO6cA1SbTEWiXeoxV42vlcJxgH+B3hi1AiqqKruZR3ZGF8In3fj4+/y/7rHvlOZLZtgJ/4ttYGZg==}
+./pnpm-lock.yaml:2976:  is-plain-obj@4.1.0:
+./pnpm-lock.yaml:3018:    resolution: {integrity: sha512-z/wZZgDrkNV1eA0ULjM/F9/50Ya8fbzgKneSpoPsXSGd0KnpdtHfOZWK+GcwLk+EZbS4F9RBhU+K2RgzuDaItw==}
+./pnpm-lock.yaml:3022:    resolution: {integrity: sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q==}
+./pnpm-lock.yaml:3089:    resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
+./pnpm-lock.yaml:3157:    resolution: {integrity: sha512-Lf+9+2r+Tdp5wXDXC4PcIBjTDtq4UKjCPMQhKIuzpJNW0b96kVqSwW0bT7FhRSfmAiFYgP+SCRvdrDozfh0U5w==}
+./pnpm-lock.yaml:3164:    resolution: {integrity: sha512-aisnrDP4GNe06UcKFnV5bfMNPBUw4jsLGaWwWfnH3v02GnBuXX2MCVn5RbrWo0j3pczUilYblq7fQ7Nw2t5XKw==}
+./pnpm-lock.yaml:3219:    resolution: {integrity: sha512-2cNEiYDhCWKI+Gs9T0Tiysk136SnR13hhO8yW6BGNyhOC4qYFnwF1nKfD3HFAIXA5c45RrIG1ub11GiXeYd1xA==}
+./pnpm-lock.yaml:3247:    resolution: {integrity: sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==}
+./pnpm-lock.yaml:3259:    resolution: {integrity: sha512-Lbgzdk0h4juoQ9fCKXW4by0UJqj+nOOrI9MJ1sSj4nI8aI2eo1qmvQEie4VD1glsS250n15LsWsYtCugiStS5A==}
+./pnpm-lock.yaml:3294:    resolution: {integrity: sha512-6rdyFg2kLrMh9Jee7/BMPuV9lEAd7lLW2YUpF9/YxR7njyoUwwQ0ZPh3TaIY50Sw6vlyD2HW3wGOkTS4P79xrQ==}
+./pnpm-lock.yaml:3355:    resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
+./pnpm-lock.yaml:3358:    resolution: {integrity: sha512-iL7aA/seKMxw1Ga7sJTqgT4+LXsE3JcPiYclJtjSTlPa9kai8cO39zX2U+6M1JeVftmjs/BDE2r7quE2nZqfjg==}
+./pnpm-lock.yaml:3445:    resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
+./pnpm-lock.yaml:3449:    resolution: {integrity: sha512-F63x5tizV6WCh4R6RHyi2Ml+M70DNRXt/+HANowMflpgGFMAym/VKm6G7ZOQRjqN7XbGxK1Lg9t6ZrtzOaivMw==}
+./pnpm-lock.yaml:3469:    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+./pnpm-lock.yaml:3586:    resolution: {integrity: sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==}
+./pnpm-lock.yaml:3631:    resolution: {integrity: sha512-b6jSvxvVnyptAiLjbkWLE/lOnR4lfTtDAl+eUC7RZy+QQWc6wRzIV2CE6xBuMmDxc2qIihtDCZD5NPOFl7fRBQ==}
+./pnpm-lock.yaml:3707:    resolution: {integrity: sha512-RFnrW4lhXA3s3eqHDZvN654g8OTjzRfqpIRJYczCGB6HzphckVAi/Qh4tbPUbRuDi7s1Llv8g/NspLkttY3gTA==}
+./pnpm-lock.yaml:3743:    resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
+./pnpm-lock.yaml:3775:    resolution: {integrity: sha512-WPS/HvHQTYnHisLo9McqBHOJk2FkHO/tlpvldyrnem4aeQp4hai3gythswg6p01oSoTl58rcpiFAjF2br2Ak2A==}
+./pnpm-lock.yaml:3779:    resolution: {integrity: sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ==}
+./pnpm-lock.yaml:3855:    resolution: {integrity: sha512-LIN7rULI0jBscWQYaSswptyderlarFkjQ+t79nzty8tcIAceVomEVlLzH5VP4Cmsv6MtKhs7qaAiwlcp+Mgaxw==}
+./pnpm-lock.yaml:3857:  superagent@10.3.0:
+./pnpm-lock.yaml:3877:  tailwind-merge@3.6.0:
+./pnpm-lock.yaml:3880:  tailwindcss-animate@1.0.7:
+./pnpm-lock.yaml:3883:      tailwindcss: '>=3.0.0 || insiders'
+./pnpm-lock.yaml:3885:  tailwindcss@4.3.2:
+./pnpm-lock.yaml:3899:    resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
+./pnpm-lock.yaml:3909:  tinyrainbow@3.1.0:
+./pnpm-lock.yaml:3929:    resolution: {integrity: sha512-exgYmnmL/sJpR3upZfXG5PoatXQii55xAiXGXzY+sROLZ/Y+SLcp9PgJNI9Vz37HpQ74WvDcLT8eqm+kV3FzrA==}
+./pnpm-lock.yaml:3968:    resolution: {integrity: sha512-baim3wyMkqpX7rBzL/6iZ7wzKJuSr9ffP16RHOsdTUNoHUZeXLIZHSUBtUhXmNHaUNRgfqdmKLBwyggbJjGdeQ==}
+./pnpm-lock.yaml:4027:    resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
+./pnpm-lock.yaml:4061:    resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
+./pnpm-lock.yaml:4066:    resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
+./pnpm-lock.yaml:4069:    resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
+./pnpm-lock.yaml:4183:    resolution: {integrity: sha512-sXcNcHOC51uPGF0P/D4NVtrkjSU2fNsm9iog4ZvZJsL3rjoDAzXZhkm2MWt1y+PUdggKAYVoMAIYcs78wJ51Cw==}
+./pnpm-lock.yaml:4216:    resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
+./pnpm-lock.yaml:4246:  '@adobe/css-tools@4.5.0': {}
+./pnpm-lock.yaml:4251:      '@csstools/css-calc': 3.3.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4252:      '@csstools/css-color-parser': 4.1.10(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4253:      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4254:      '@csstools/css-tokenizer': 4.0.0
+./pnpm-lock.yaml:4448:  '@csstools/color-helpers@6.1.0': {}
+./pnpm-lock.yaml:4450:  '@csstools/css-calc@3.3.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
+./pnpm-lock.yaml:4452:      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4453:      '@csstools/css-tokenizer': 4.0.0
+./pnpm-lock.yaml:4455:  '@csstools/css-color-parser@4.1.10(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
+./pnpm-lock.yaml:4457:      '@csstools/color-helpers': 6.1.0
+./pnpm-lock.yaml:4458:      '@csstools/css-calc': 3.3.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4459:      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
+./pnpm-lock.yaml:4460:      '@csstools/css-tokenizer': 4.0.0
+./pnpm-lock.yaml:4462:  '@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0)':
+./pnpm-lock.yaml:4464:      '@csstools/css-tokenizer': 4.0.0
+./pnpm-lock.yaml:4466:  '@csstools/css-syntax-patches-for-csstree@1.1.7(css-tree@3.2.1)':
+./pnpm-lock.yaml:4470:  '@csstools/css-tokenizer@4.0.0': {}
+./pnpm-lock.yaml:5250:  '@radix-ui/react-tooltip@1.2.11(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)':
+./pnpm-lock.yaml:5414:  '@tabby_ai/hijri-converter@1.0.5': {}
+./pnpm-lock.yaml:5416:  '@tailwindcss/node@4.3.2':
+./pnpm-lock.yaml:5424:      tailwindcss: 4.3.2
+./pnpm-lock.yaml:5426:  '@tailwindcss/oxide-linux-x64-gnu@4.3.2':
+./pnpm-lock.yaml:5429:  '@tailwindcss/oxide-wasm32-wasi@4.3.2':
+./pnpm-lock.yaml:5432:  '@tailwindcss/oxide@4.3.2':
+./pnpm-lock.yaml:5434:      '@tailwindcss/oxide-linux-x64-gnu': 4.3.2
+./pnpm-lock.yaml:5435:      '@tailwindcss/oxide-wasm32-wasi': 4.3.2
+./pnpm-lock.yaml:5437:  '@tailwindcss/typography@0.5.20(tailwindcss@4.3.2)':
+./pnpm-lock.yaml:5440:      tailwindcss: 4.3.2
+./pnpm-lock.yaml:5442:  '@tailwindcss/vite@4.3.2(vite@7.3.6(@types/node@25.9.4)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))':
+./pnpm-lock.yaml:5444:      '@tailwindcss/node': 4.3.2
+./pnpm-lock.yaml:5445:      '@tailwindcss/oxide': 4.3.2
+./pnpm-lock.yaml:5446:      tailwindcss: 4.3.2
+./pnpm-lock.yaml:5469:      '@adobe/css-tools': 4.5.0
+./pnpm-lock.yaml:5523:  '@types/chai@5.2.3':
+./pnpm-lock.yaml:5651:  '@types/superagent@8.1.10':
+./pnpm-lock.yaml:5661:      '@types/superagent': 8.1.10
+./pnpm-lock.yaml:5692:      tinyrainbow: 3.1.0
+./pnpm-lock.yaml:5698:      '@types/chai': 5.2.3
+./pnpm-lock.yaml:5701:      chai: 6.2.2
+./pnpm-lock.yaml:5702:      tinyrainbow: 3.1.0
+./pnpm-lock.yaml:5714:      tinyrainbow: 3.1.0
+./pnpm-lock.yaml:5734:      tinyrainbow: 3.1.0
+./pnpm-lock.yaml:5749:  agentkeepalive@4.6.0:
+./pnpm-lock.yaml:5800:  bail@2.0.2: {}
+./pnpm-lock.yaml:5862:  chai@6.2.2: {}
+./pnpm-lock.yaml:6165:      is-plain-obj: 4.1.0
+./pnpm-lock.yaml:6358:  groq-sdk@0.9.1:
+./pnpm-lock.yaml:6363:      agentkeepalive: 4.6.0
+./pnpm-lock.yaml:6433:      is-plain-obj: 4.1.0
+./pnpm-lock.yaml:6486:  is-plain-obj@4.1.0: {}
+./pnpm-lock.yaml:6530:      '@csstools/css-syntax-patches-for-csstree': 1.1.7(css-tree@3.2.1)
+./pnpm-lock.yaml:7197:      '@tabby_ai/hijri-converter': 1.0.5
+./pnpm-lock.yaml:7514:  superagent@10.3.0:
+./pnpm-lock.yaml:7532:      superagent: 10.3.0
+./pnpm-lock.yaml:7548:  tailwind-merge@3.6.0: {}
+./pnpm-lock.yaml:7550:  tailwindcss-animate@1.0.7(tailwindcss@4.3.2):
+./pnpm-lock.yaml:7552:      tailwindcss: 4.3.2
+./pnpm-lock.yaml:7554:  tailwindcss@4.3.2: {}
+./pnpm-lock.yaml:7573:  tinyrainbow@3.1.0: {}
+./pnpm-lock.yaml:7656:      bail: 2.0.2
+./pnpm-lock.yaml:7659:      is-plain-obj: 4.1.0
+./pnpm-lock.yaml:7790:      tinyrainbow: 3.1.0
+./scripts/dashboard-journey-contract.test.mjs:16:const [journeySource, runnerSource, workflowSource, healthSource] = await Promise.all([
+./scripts/dashboard-journey-contract.test.mjs:25:  assert.ok(match, `Expected ${name} to remain a numeric constant.`);
+./scripts/dashboard-journey-contract.test.mjs:71:      const response = await fetch(`${baseUrl}/api/healthz`);
+./scripts/dashboard-journey-contract.test.mjs:78:            await new Promise((resolveChild, reject) => {
+./scripts/dashboard-journey-contract.test.mjs:98:    await new Promise((resolveRetry) => setTimeout(resolveRetry, 50));
+./scripts/dashboard-journey-contract.test.mjs:108:  const harness = await startApiCorsHarness();
+./scripts/dashboard-journey-contract.test.mjs:111:    const getResponse = await fetch(`${harness.baseUrl}/api/healthz`, {
+./scripts/dashboard-journey-contract.test.mjs:124:    const preflightResponse = await fetch(`${harness.baseUrl}/api/projects`, {
+./scripts/dashboard-journey-contract.test.mjs:150:    const approvedMutation = await fetch(
+./scripts/dashboard-journey-contract.test.mjs:172:    const hostileMutation = await fetch(
+./scripts/dashboard-journey-contract.test.mjs:187:    await harness.close();
+./scripts/dashboard-journey-contract.test.mjs:194:  const harness = await startApiCorsHarness();
+./scripts/dashboard-journey-contract.test.mjs:218:    const approvedUpload = await fetch(
+./scripts/dashboard-journey-contract.test.mjs:239:    const hostileUpload = await fetch(
+./scripts/dashboard-journey-contract.test.mjs:260:    const approvedLiveUpdate = await fetch(
+./scripts/dashboard-journey-contract.test.mjs:261:      `${harness.baseUrl}/api/ai/chat/stream`,
+./scripts/dashboard-journey-contract.test.mjs:278:    const hostileLiveUpdate = await fetch(
+./scripts/dashboard-journey-contract.test.mjs:279:      `${harness.baseUrl}/api/ai/chat/stream`,
+./scripts/dashboard-journey-contract.test.mjs:300:    await harness.close();
+./scripts/dashboard-journey-contract.test.mjs:333:test("the standard release journey remains provider-free", () => {
+./scripts/dashboard-journey-contract.test.mjs:337:    "The provider-backed browser test must remain opt-in.",
+./scripts/dashboard-journey-contract.test.mjs:342:    "Live-only report validation must remain behind the opt-in flag.",
+./scripts/dashboard-journey-contract.test.mjs:372:    /await expect\(page\.getByText\("97", \{ exact: true \}\)\)\.toBeVisible\(\)/,
+./scripts/dashboard-journey-contract.test.mjs:377:    /await Promise\.all\(\[programmaticSignIn\(page\), programmaticSignIn\(secondPage\)\]\)/,
+./scripts/dashboard-journey-contract.test.mjs:382:    /Retry Connection/,
+./scripts/dashboard-journey-contract.test.mjs:383:    "Reconnect assertions must verify the available recovery action.",
+./scripts/dashboard-journey-contract.test.mjs:390:    /Perform a bounded forensic audit of this disposable project using read-only tools/,
+./scripts/dashboard-journey-contract.test.mjs:414:    "Live browser campaigns must not run against an unspecified or production project.",
+./scripts/dashboard-journey-contract.test.mjs:419:    "Live browser campaigns must identify their disposable project.",
+./scripts/dashboard-journey-contract.test.mjs:426:    /await runMissionCorrelationReportContracts\(\)/,
+./scripts/dashboard-journey-contract.test.mjs:450:    "The release runner must identify a service that remains on its release port.",
+./scripts/dashboard-journey-contract.test.mjs:501:    "The release runner must identify the validation run beside the retained artifact.",
+./scripts/dashboard-journey-contract.test.mjs:511:    /Summarize retained release diagnostics/,
+./scripts/dashboard-journey-contract.test.mjs:517:    "The CI summary must link directly to the retained run artifacts.",
+./scripts/dashboard-journey-contract.test.mjs:526:test("release diagnostics remain useful when teardown evidence is absent", () => {
+./scripts/dashboard-journey-contract.test.mjs:543:    /Retained teardown evidence: \[\$TEARDOWN_ARTIFACT_NAME\]\(\$\{\{ github\.server_url \}\}\/\$\{\{ github\.repository \}\}\/actions\/runs\/\$\{\{ github\.run_id \}\}\/artifacts\)/,
+./scripts/dashboard-journey-contract.test.mjs:544:    "The CI summary must retain the artifact location even without evidence.",
+./scripts/dashboard-journey-contract.test.mjs:548:    /teardown evidence file was not produced; see the job log for the failure/,
+./scripts/dashboard-journey-contract.test.mjs:571:test("live campaign covers provider failures and candidate-bound delivery", () => {
+./scripts/dashboard-journey-contract.test.mjs:575:    "The live campaign must define outage, malformed-output, and delivery-success scenarios.",
+./scripts/dashboard-journey-contract.test.mjs:584:    /AiChangesApplied[\s\S]*GitCommitCreated[\s\S]*GitPushed/,
+./scripts/dashboard-journey-contract.test.mjs:664:    "Missing prerequisites must retain a clear blocked receipt.",
+./scripts/dashboard-journey-contract.test.mjs:668:    /await performReleaseReadinessHandshake\(\)/g,
+./scripts/dashboard-journey-contract.test.mjs:678:    /await expectDashboardReady\(page\)/,
+./scripts/dashboard-journey-contract.test.mjs:704:  assert.match(healthSource, /database_unavailable/);
+./scripts/dashboard-journey-contract.test.mjs:711:    /waitForPortClosed\(apiPort, restartTimeoutMs\)/,
+./scripts/dashboard-journey-contract.test.mjs:712:    "Restart must wait for the old API listener with its own deadline.",
+./scripts/dashboard-journey-contract.test.mjs:716:    /waitForProcessGroupClosed\(previousApiService, restartTimeoutMs\)/,
+./scripts/dashboard-journey-contract.test.mjs:717:    "Restart must wait for the old service process group to disappear.",
+./scripts/dashboard-journey-contract.test.mjs:726:test("origin failures preserve only sanitized phase and CORS diagnostics", () => {
+./scripts/dashboard-journey-contract.test.mjs:742:    "Origin diagnostics must retain only relevant CORS response headers.",
+./scripts/dashboard-journey-contract.test.mjs:752:    "The release teardown artifact must retain origin diagnostics.",
+.pub:1:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO6IxuYuTPQ24fBRdk7rpuS+MmmWmRAPQeLN1dY6sbzh badraldien111@gmail.com
+./scripts/verify-setup.sh:6:set -euo pipefail
+./scripts/verify-setup.sh:9:FAIL=0
+./scripts/verify-setup.sh:19:    FAIL=$((FAIL + 1))
+./scripts/verify-setup.sh:79:echo "Result: $PASS passed, $FAIL failed"
+./scripts/verify-setup.sh:82:if [ "$FAIL" -gt 0 ]; then
+:5:AAAEDFEQdpOGvxt+aign7ZeykW2+0lO6yzI/LAUc79CbM3/T0IoRG1EXG6wGZICaNUHn3M
+./tsconfig.json:22:      "path": "./lib/ai-orchestrator"
+./scripts/verify-benchmark-rollout.test.mjs:15:  "lib/ai-orchestrator/benchmark-results/code-agent-benchmark-live.json",
+./scripts/verify-benchmark-rollout.test.mjs:19:  "lib/ai-orchestrator/benchmark-results/code-agent-benchmark-baseline.json",
+./scripts/verify-benchmark-rollout.test.mjs:23:  const directory = await mkdtemp(path.join(tmpdir(), "benchmark-rollout-"));
+./scripts/verify-benchmark-rollout.test.mjs:28:    await Promise.all([
+./scripts/verify-benchmark-rollout.test.mjs:33:    return await execFileAsync(process.execPath, [verifierPath], {
+./scripts/verify-benchmark-rollout.test.mjs:42:    await rm(directory, { recursive: true, force: true });
+./scripts/verify-benchmark-rollout.test.mjs:47:  return JSON.parse(await readFile(filePath, "utf8"));
+./scripts/verify-benchmark-rollout.test.mjs:52:    const live = await readFixture(liveFixturePath);
+./scripts/verify-benchmark-rollout.test.mjs:53:    const baseline = await readFixture(baselineFixturePath);
+./scripts/verify-benchmark-rollout.test.mjs:55:    const result = await runVerifier(live, baseline);
+./scripts/verify-benchmark-rollout.test.mjs:67:    const live = await readFixture(liveFixturePath);
+./scripts/verify-benchmark-rollout.test.mjs:68:    const baseline = await readFixture(baselineFixturePath);
+./scripts/verify-benchmark-rollout.test.mjs:69:    live.kind = "code-agent-benchmark";
+./scripts/verify-benchmark-rollout.test.mjs:72:    await rejects(runVerifier(live, baseline), (error) => {
+./scripts/verify-benchmark-rollout.test.mjs:79:    const live = await readFixture(liveFixturePath);
+./scripts/verify-benchmark-rollout.test.mjs:80:    const baseline = await readFixture(baselineFixturePath);
+./scripts/verify-benchmark-rollout.test.mjs:81:    live.metrics.providerUnavailableCount = 1;
+./scripts/verify-benchmark-rollout.test.mjs:83:    await rejects(runVerifier(live, baseline), (error) => {
+./scripts/verify-benchmark-rollout.test.mjs:84:      match(error.stderr, /provider-unavailable cases/);
+./scripts/verify-benchmark-rollout.mjs:6:const resultsRoot = path.join(projectRoot, "lib/ai-orchestrator/benchmark-results");
+./scripts/verify-benchmark-rollout.mjs:8:  process.env.BENCHMARK_LIVE_SCORECARD_PATH ?? path.join(resultsRoot, "code-agent-benchmark-live.json"),
+./scripts/verify-benchmark-rollout.mjs:11:  process.env.BENCHMARK_BASELINE_PATH ?? path.join(resultsRoot, "code-agent-benchmark-baseline.json"),
+./scripts/verify-benchmark-rollout.mjs:16:    return JSON.parse(await fs.readFile(filePath, "utf8"));
+./scripts/verify-benchmark-rollout.mjs:39:    scorecard.kind === "code-agent-benchmark-baseline" &&
+./scripts/verify-benchmark-rollout.mjs:50:  if (scorecard.kind !== "code-agent-benchmark") {
+./scripts/verify-benchmark-rollout.mjs:58:      `rolloutAllowed is false: ${(Array.isArray(scorecard.rolloutBlockers) ? scorecard.rolloutBlockers : ["no blocker details"]).join("; ")}`,
+./scripts/verify-benchmark-rollout.mjs:69:  requireNumber(metrics.providerUnavailableCount, "live benchmark providerUnavailableCount");
+./scripts/verify-benchmark-rollout.mjs:70:  if (metrics.providerUnavailableCount !== 0) {
+./scripts/verify-benchmark-rollout.mjs:71:    throw new Error("provider-unavailable cases block deployment");
+./scripts/verify-benchmark-rollout.mjs:74:    throw new Error("live benchmark contains rollout blockers");
+./scripts/verify-benchmark-rollout.mjs:79:  const unexplainedBlocked = scorecard.cases.filter(
+./scripts/verify-benchmark-rollout.mjs:83:  if (unexplainedBlocked.length > 0) {
+./scripts/verify-benchmark-rollout.mjs:84:    throw new Error(`live benchmark has ${unexplainedBlocked.length} D result(s) without a diagnosis`);
+./scripts/verify-benchmark-rollout.mjs:95:    throw new Error("baseline comparison contains blockers");
+./scripts/verify-benchmark-rollout.mjs:102:    baseline.kind !== "code-agent-benchmark-baseline" ||
+./scripts/verify-benchmark-rollout.mjs:118:  requireNumber(metrics.providerUnavailableCount, "benchmark baseline providerUnavailableCount");
+./scripts/verify-benchmark-rollout.mjs:119:  if (metrics.providerUnavailableCount !== 0) {
+./scripts/verify-benchmark-rollout.mjs:120:    throw new Error("benchmark baseline contains provider-unavailable cases");
+./scripts/verify-benchmark-rollout.mjs:125:  const [live, baseline] = await Promise.all([
+./scripts/validation-artifact-cleanup.mjs:18:const RETAINED_ROOT_DISPOSITIONS = new Map([
+./scripts/validation-artifact-cleanup.mjs:37:    reason: "Historical repair-validation caches and temporary validation subroots; no durable operation owner or artifact manifest was found.",
+./scripts/validation-artifact-cleanup.mjs:58:    reason: "Contains the tracked eos-reach recipe reachability fixtures required by recipe operation-binding work, alongside generated test caches.",
+./scripts/validation-artifact-cleanup.mjs:66:    "  node scripts/validation-artifact-cleanup.mjs [--apply --no-durable-owners] [--retained-only]",
+./scripts/validation-artifact-cleanup.mjs:70:    "with no open process handles. --retained-only scopes apply to the",
+./scripts/validation-artifact-cleanup.mjs:71:    "explicitly reviewed markerless roots from the retained disposition register.",
+./scripts/validation-artifact-cleanup.mjs:76:  const { stdout } = await execFileAsync("git", ["-C", workspaceRoot, "ls-files", "-z", "--", ".engineeringos-delivery"], {
+./scripts/validation-artifact-cleanup.mjs:92:    const { stdout } = await execFileAsync("lsof", ["-t", "--", root], {
+./scripts/validation-artifact-cleanup.mjs:105:  const retained = RETAINED_ROOT_DISPOSITIONS.get(name);
+./scripts/validation-artifact-cleanup.mjs:108:    marker = (await readFile(path.join(root, ".engineeringos-delivery-workspace"), "utf8")).trim();
+./scripts/validation-artifact-cleanup.mjs:115:    const entries = await readdir(directory, { withFileTypes: true });
+./scripts/validation-artifact-cleanup.mjs:121:        await visit(child, childRelative);
+./scripts/validation-artifact-cleanup.mjs:132:      const details = await stat(child);
+./scripts/validation-artifact-cleanup.mjs:134:      counts.bytes += details.size;
+./scripts/validation-artifact-cleanup.mjs:138:  await visit(root);
+./scripts/validation-artifact-cleanup.mjs:141:  const activePids = await openPids(root);
+./scripts/validation-artifact-cleanup.mjs:146:    classification: retained?.classification ?? (markerMatchesRoot ? "generated_delivery_workspace" : "unknown"),
+./scripts/validation-artifact-cleanup.mjs:151:    ...(retained ? {
+./scripts/validation-artifact-cleanup.mjs:152:      disposition: retained.disposition,
+./scripts/validation-artifact-cleanup.mjs:153:      owner: retained.owner,
+./scripts/validation-artifact-cleanup.mjs:154:      dispositionReason: retained.reason,
+./scripts/validation-artifact-cleanup.mjs:155:      operatorAction: retained.operatorAction,
+./scripts/validation-artifact-cleanup.mjs:167:  const roots = (await readdir(deliveryRoot, { withFileTypes: true }))
+./scripts/validation-artifact-cleanup.mjs:171:  const tracked = await trackedPaths();
+./scripts/validation-artifact-cleanup.mjs:174:    entries.push(await inspectRoot(root, tracked.get(path.basename(root)) ?? 0));
+./scripts/validation-artifact-cleanup.mjs:188:      retained: entries.filter((entry) => entry.disposition).length,
+./scripts/validation-artifact-cleanup.mjs:200:  await mkdir(path.dirname(reportPath), { recursive: true });
+./scripts/validation-artifact-cleanup.mjs:201:  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+./scripts/validation-artifact-cleanup.mjs:210:const retainedOnly = args.has("--retained-only");
+./scripts/validation-artifact-cleanup.mjs:216:const report = await inventory();
+./scripts/validation-artifact-cleanup.mjs:218:  (!retainedOnly && entry.classification === "generated_delivery_workspace" ||
+./scripts/validation-artifact-cleanup.mjs:227:  mode: apply ? (retainedOnly ? "apply-retained-only" : "apply") : "inventory",
+./scripts/validation-artifact-cleanup.mjs:228:  scope: retainedOnly ? "retained-disposition-register" : "all-approved-roots",
+./scripts/validation-artifact-cleanup.mjs:242:  retainedRoots: [...RETAINED_ROOT_DISPOSITIONS.entries()].map(([id, disposition]) => {
+./scripts/validation-artifact-cleanup.mjs:252:        ? "Removed by the retained-only cleanup after the recorded safety checks passed."
+./scripts/validation-artifact-cleanup.mjs:271:report.cleanup.unresolvedOperatorActions = report.cleanup.retainedRoots
+./scripts/validation-artifact-cleanup.mjs:280:  await writeReport(report);
+./scripts/validation-artifact-cleanup.mjs:283:    await rm(path.join(workspaceRoot, entry.root), { recursive: true, force: true });
+./scripts/validation-artifact-cleanup.mjs:286:    await execFileAsync("git", ["-C", workspaceRoot, "add", "-u", "--", ".engineeringos-delivery"], {
+./scripts/validation-artifact-cleanup.mjs:290:  report.cleanup.retainedRoots = report.cleanup.retainedRoots.map((retained) =>
+./scripts/validation-artifact-cleanup.mjs:291:    report.cleanup.removedRoots.includes(retained.root)
+./scripts/validation-artifact-cleanup.mjs:292:      ? { ...retained, present: false, disposition: "removed" }
+./scripts/validation-artifact-cleanup.mjs:293:      : retained,
+./scripts/validation-artifact-cleanup.mjs:297:await writeReport(report);
+./lib/scanner/src/rule-matcher.ts:68: * Match a single rule's pattern against a list of scanned files.
+./lib/scanner/src/rule-matcher.ts:96:  const allMatches: RuleMatch[] = [];
+./lib/scanner/src/rule-matcher.ts:112:      allMatches.push({ file: file.path, line: i + 1, snippet, occurrences: occ });
+./lib/scanner/src/rule-matcher.ts:117:      if (allMatches.length >= GLOBAL_MATCH_CAP) break outer;
+./lib/scanner/src/rule-matcher.ts:128:    matches: allMatches,
+./lib/scanner/src/rule-matcher.ts:133: * Run all enabled rules (with patterns) against the scanned files.
+./scripts/validate-truth-flow.ts:5: * Reads the canonical truth-flow JSON baseline and validates it against
+./scripts/validate-truth-flow.ts:12: *             Fails if required fields are missing or paths are malformed.
+./scripts/validate-truth-flow.ts:16: *             Fails if any node is missing, added, or has a status/confidence/path mismatch.
+./scripts/validate-truth-flow.ts:86:// ─── 4. Report drift (explicit failure) ──────────────────────────────────────
+./scripts/validate-github-workflows.test.mjs:10:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+./scripts/validate-github-workflows.test.mjs:14:    await mkdir(join(workflowsDirectory, "nested"), { recursive: true });
+./scripts/validate-github-workflows.test.mjs:15:    await writeFile(
+./scripts/validate-github-workflows.test.mjs:19:    await writeFile(
+./scripts/validate-github-workflows.test.mjs:24:    await assert.rejects(
+./scripts/validate-github-workflows.test.mjs:39:    await rm(root, { recursive: true, force: true });
+./scripts/validate-github-workflows.test.mjs:43:test("reports structural failures from every parseable workflow", async () => {
+./scripts/validate-github-workflows.test.mjs:44:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+./scripts/validate-github-workflows.test.mjs:48:    await mkdir(workflowsDirectory, { recursive: true });
+./scripts/validate-github-workflows.test.mjs:49:    await writeFile(
+./scripts/validate-github-workflows.test.mjs:53:    await writeFile(
+./scripts/validate-github-workflows.test.mjs:65:    await assert.rejects(
+./scripts/validate-github-workflows.test.mjs:80:    await rm(root, { recursive: true, force: true });
+./scripts/validate-github-workflows.test.mjs:84:test("reports structural failures with the complete path for nested workflows", async () => {
+./scripts/validate-github-workflows.test.mjs:85:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+./scripts/validate-github-workflows.test.mjs:95:    await mkdir(join(workflowsDirectory, "deployment", "production"), {
+./scripts/validate-github-workflows.test.mjs:98:    await writeFile(
+./scripts/validate-github-workflows.test.mjs:109:    await assert.rejects(
+./scripts/validate-github-workflows.test.mjs:120:    await rm(root, { recursive: true, force: true });
+./scripts/validate-github-workflows.test.mjs:125:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+./scripts/validate-github-workflows.test.mjs:135:    await mkdir(join(workflowsDirectory, "deployment", "production"), {
+./scripts/validate-github-workflows.test.mjs:138:    await writeFile(
+./scripts/validate-github-workflows.test.mjs:151:    await assert.rejects(
+./scripts/validate-github-workflows.test.mjs:162:    await rm(root, { recursive: true, force: true });
+./scripts/validate-github-workflows.test.mjs:167:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+./scripts/validate-github-workflows.test.mjs:177:    await mkdir(join(workflowsDirectory, "deployment", "production"), {
+./scripts/validate-github-workflows.test.mjs:180:    await writeFile(
+./scripts/validate-github-workflows.test.mjs:192:    await assert.rejects(
+./scripts/validate-github-workflows.test.mjs:203:    await rm(root, { recursive: true, force: true });
+./scripts/validate-github-workflows.test.mjs:208:  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+./scripts/validate-github-workflows.test.mjs:224:    await mkdir(join(workflowsDirectory, "deployment", "staging"), {
+./scripts/validate-github-workflows.test.mjs:227:    await writeFile(
+./scripts/validate-github-workflows.test.mjs:239:    await writeFile(
