@@ -3,6 +3,7 @@ import {
   extractOrderedForensicRoots,
   classifyRequest,
   isLowRiskChatQuestion,
+  isProjectOrientationQuestion,
 } from "../prompts/profile-classifier.js";
 
 describe("classifyRequest — simple greetings", () => {
@@ -22,15 +23,25 @@ describe("classifyRequest — ordinary orientation questions", () => {
     "ممكن تساعدني أفهم المشروع؟",
     "هل المشروع شغال حاليًا؟",
     "What is this project?",
-    "Can you help me?",
   ])("keeps %s on the fast chat profile", (message) => {
     const result = classifyRequest(message);
 
-    expect(isLowRiskChatQuestion(message)).toBe(true);
+    expect(isProjectOrientationQuestion(message)).toBe(true);
+    expect(isLowRiskChatQuestion(message)).toBe(false);
     expect(result.category).toBe("simple");
     expect(result.allowPrefetch).toBe(false);
     expect(result.orderedForensicRoots).toEqual([]);
     expect(result.structuredOutputMode).toBe(false);
+  });
+
+  it.each([
+    "ممكن تساعدني؟",
+    "كيف أبدأ؟",
+    "Can you help me?",
+    "How do I start?",
+  ])("keeps generic question %s separate from project orientation", (message) => {
+    expect(isLowRiskChatQuestion(message)).toBe(true);
+    expect(isProjectOrientationQuestion(message)).toBe(false);
   });
 
   it("does not downgrade an explicit forensic request", () => {

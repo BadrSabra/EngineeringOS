@@ -421,12 +421,25 @@ export function isSocialGreeting(message: string): boolean {
 }
 
 /**
- * Short, low-risk questions from ordinary users should stay on the chat path.
- * These messages ask for orientation or clarification; they do not authorize
- * repository-wide discovery merely because a project root is available.
+ * Generic/social questions should stay on the plain chat path. They do not
+ * authorize repository access merely because a project root is available.
+ * Project-oriented questions are intentionally kept separate: they remain
+ * lightweight, but their intent router may request read tools.
  */
 export function isLowRiskChatQuestion(message: string): boolean {
-  return /^(?:ما(?:\s+هو)?\s+(?:هذا\s+)?المشروع|ما\s+هذا\s+المشروع|ماذا\s+يمكنني\s+أن\s+أفعل|كيف\s+أبدأ|ساعدني(?:\s+في\s+فهم\s+المشروع)?|ممكن\s+تساعدني(?:\s+أفهم\s+المشروع)?|هل\s+المشروع\s+(?:شغال|يعمل)(?:\s+حاليًا)?|what(?:'s| is)\s+this\s+project|what\s+can\s+you\s+help\s+me\s+with|can\s+you\s+help\s+me|how\s+do\s+i\s+start|is\s+the\s+project\s+running)[؟?!.\s]*$/iu.test(
+  return /^(?:ماذا\s+يمكنني\s+أن\s+أفعل|كيف\s+أبدأ|ساعدني|ممكن\s+تساعدني|what\s+can\s+you\s+help\s+me\s+with|can\s+you\s+help\s+me|how\s+do\s+i\s+start)[؟?!.\s]*$/iu.test(
+    message.trim(),
+  );
+}
+
+/**
+ * Short questions about the current project need project context when it is
+ * available, without opting into a broad forensic scan. Keeping this detector
+ * explicit prevents a generic "can you help me?" from gaining repository
+ * capability just because it happens to share the same simple classification.
+ */
+export function isProjectOrientationQuestion(message: string): boolean {
+  return /^(?:ما(?:\s+هو)?\s+(?:هذا\s+)?المشروع|ماذا\s+(?:يفعل|يقدم|يحتوي)\s+(?:هذا\s+)?المشروع|عن\s+ماذا\s+يدور\s+(?:هذا\s+)?المشروع|اشرح(?:\s+لي)?\s+(?:هذا\s+)?المشروع|ساعدني(?:\s+في)?\s+(?:فهم|أفهم)(?:\s+هذا)?\s+المشروع|ممكن\s+تساعدني(?:\s+أن)?\s+(?:أفهم\s+)?المشروع|هل\s+(?:هذا\s+)?المشروع\s+(?:شغال|يعمل)(?:\s+حاليًا)?|what(?:'s| is)\s+(?:this\s+)?project|what\s+does\s+(?:this\s+)?project\s+do|(?:explain|describe)\s+(?:this\s+)?project|help\s+me\s+understand\s+(?:this\s+)?project|is\s+(?:this\s+)?project\s+running)[؟?!.\s]*$/iu.test(
     message.trim(),
   );
 }
@@ -566,11 +579,11 @@ export function classifyRequest(message: string): ClassifiedRequest {
       singleFileForensicMode ||
       orderedForensicRoots.length > 0);
 
-  // Keep ordinary orientation questions on the fast chat path even when a
-  // project root is present. A user asking "what is this project?" has not
-  // requested a repository-wide scan.
+  // Keep generic/social questions and project orientation on the lightweight
+  // profile. Project orientation is still routed to read-capable project chat
+  // by resolveTurnIntent; it does not imply a repository-wide scan.
   if (
-    isLowRiskChatQuestion(trimmed) &&
+    (isLowRiskChatQuestion(trimmed) || isProjectOrientationQuestion(trimmed)) &&
     !implementationTaskMode &&
     !implementationPlanMode &&
     !singleFileForensicMode

@@ -1,5 +1,7 @@
 import {
   classifyRequest,
+  isLowRiskChatQuestion,
+  isProjectOrientationQuestion,
   type ClassifiedRequest,
   type RequestCategory,
 } from "./prompts/profile-classifier.js";
@@ -106,8 +108,9 @@ export function resolveTurnIntent(
     );
   const hasProjectToolSignal =
     SOURCE_PATH_RE.test(message) || PROJECT_TOOL_SIGNAL_RE.test(message);
-  // Orientation questions classified as simple must remain fast, tool-free
-  // turns even when they contain a broad word such as "project".
+  // Generic/social questions classified as simple must remain fast, tool-free
+  // turns. Project-orientation questions use the same lightweight profile but
+  // intentionally remain eligible for project read capability below.
   const isLowRiskChat =
     classification.category === "simple" &&
     classification.allowPrefetch === false &&
@@ -116,6 +119,7 @@ export function resolveTurnIntent(
     !classification.structuredOutputMode &&
     !classification.singleFileForensicMode &&
     classification.orderedForensicRoots.length === 0 &&
+    isLowRiskChatQuestion(message) &&
     !implementationDelivery &&
     !classification.implementationTaskMode &&
     !classification.implementationPlanMode;
@@ -164,7 +168,11 @@ export function resolveTurnIntent(
           classification.orderedForensicRoots.length > 0
         )
       ) ||
-      (hasProjectToolSignal && isExplicitBehaviorQueryRequest(message)) ||
+      (
+        hasProjectToolSignal &&
+        !isProjectOrientationQuestion(message) &&
+        isExplicitBehaviorQueryRequest(message)
+      ) ||
       isProductionReachabilityRequest(message) ||
       FORENSIC_EVIDENCE_SIGNAL_RE.test(message)
      ) ||

@@ -223,13 +223,15 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(result.response).toBe("أهلًا بك!");
   });
 
-  it("keeps a project-orientation question tool-free and hides raw provenance sources", async () => {
+  it("enables project tools for orientation questions and hides raw provenance sources", async () => {
     const toolCalls: AgentStep[] = [];
+    const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
 
     vi.doMock("../model-selection/decision-engine.js", () => ({
-      resolveExecutionDecision: vi.fn((scope: string, opts: Record<string, unknown>) => ({
-        taskProfile: { taskType: scope },
-      })),
+      resolveExecutionDecision: vi.fn((scope: string, opts: Record<string, unknown>) => {
+        decisionCalls.push({ scope, opts });
+        return { taskProfile: { taskType: scope } };
+      }),
     }));
     vi.doMock("../model-selection/provider-strategy.js", () => ({
       resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
@@ -270,6 +272,10 @@ describe("chat agent — ChatOutputSchema validation", () => {
       onStep: (step) => toolCalls.push(step),
     });
 
+    expect(decisionCalls[0]).toMatchObject({
+      scope: "tool_chat",
+      opts: { hasTools: true, requireTools: true },
+    });
     expect(toolCalls.filter((step) => step.kind === "tool_call")).toHaveLength(0);
     expect(result.sources).toEqual([]);
     expect(result.response).toBe("This is the project workspace.");

@@ -54,7 +54,10 @@ import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
 import { CAPABILITY_PROBE_SOURCE_FILES } from "../prompts/capability-probe.js";
-import { classifyRequest } from "../prompts/profile-classifier.js";
+import {
+  classifyRequest,
+  isProjectOrientationQuestion,
+} from "../prompts/profile-classifier.js";
 import { resolveTurnIntent, type TurnIntent } from "../turn-intent.js";
 import {
   buildSemanticBehaviorAnswer,
@@ -3772,7 +3775,9 @@ export async function chat(opts: {
     !turnIntent.requiresTools &&
     !turnIntent.requiresEvidence;
   const explicitBehaviorQueryRequested =
-    !lowRiskChatTurn && isExplicitBehaviorQueryRequest(message);
+    !lowRiskChatTurn &&
+    !isProjectOrientationQuestion(message) &&
+    isExplicitBehaviorQueryRequest(message);
   const capabilityProbeRequest = isCapabilityProbeRequest(message);
   const taskChecklistSource = [activeTask?.description, message]
     .filter((value): value is string => Boolean(value?.trim()))

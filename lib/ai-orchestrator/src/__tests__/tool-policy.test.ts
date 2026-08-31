@@ -69,4 +69,18 @@ describe("tool policy", () => {
     expect(toolNames).not.toContain("write_file");
     expect(toolNames).not.toContain("run_validation");
   });
+
+  it("keeps project read capability fail-closed for unsupported providers", () => {
+    const missingRoot = resolveToolPolicy({ provider: "groq", mode: "read-only" });
+    const textOnly = resolveToolPolicy({
+      provider: "gemini",
+      rootPath: "/tmp/project",
+      mode: "read-only",
+    });
+
+    expect(getAllowedToolDefinitions(missingRoot)).toEqual([]);
+    expect(getAllowedToolDefinitions(textOnly)).toEqual([]);
+    expect(missingRoot.allowFileWrite).toBe(false);
+    expect(textOnly.allowFileRead).toBe(false);
+  });
 });

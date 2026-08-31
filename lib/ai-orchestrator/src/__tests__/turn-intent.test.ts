@@ -8,19 +8,34 @@ describe("resolveTurnIntent", () => {
     "ممكن تساعدني أفهم المشروع؟",
     "هل المشروع شغال حاليًا؟",
     "What is this project?",
-  ])("keeps low-risk orientation question tool-free: %s", (message) => {
+  ])("requests project capability for orientation question without evidence mode: %s", (message) => {
     const classification = classifyRequest(message);
     const intent = resolveTurnIntent(message, { classification });
 
     expect(classification.category).toBe("simple");
     expect(classification.allowPrefetch).toBe(false);
     expect(intent).toMatchObject({
-      kind: "CHAT",
-      requiresTools: false,
+      kind: "PROJECT_QUERY",
+      executionTaskType: "tool_chat",
+      requiresTools: true,
       requiresEvidence: false,
       operationMode: "CHAT",
     });
   });
+
+  it.each(["ممكن تساعدني؟", "كيف أبدأ؟", "Can you help me?"])(
+    "keeps generic question tool-free: %s",
+    (message) => {
+      const intent = resolveTurnIntent(message);
+
+      expect(intent).toMatchObject({
+        kind: "CHAT",
+        executionTaskType: "chat",
+        requiresTools: false,
+        requiresEvidence: false,
+      });
+    },
+  );
 
   it("does not weaken an explicit forensic request containing project language", () => {
     const message = "افحص المشروع عن الفجوات";
