@@ -18,11 +18,15 @@ describe("validateAiProvidersAtStartup", () => {
 
   afterEach(() => {
     vi.doUnmock("groq-sdk");
+    vi.unstubAllGlobals();
     for (const name of providerEnvironments) {
       const value = originalEnvironment[name];
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
+    delete process.env.AI_VALIDATE_GEMINI_MODELS;
+    delete process.env.RUN_CONTROLLED_RELEASE_VALIDATION;
+    delete process.env.GEMINI_MODEL_CHECK_FIXTURE_MODE;
   });
 
   it("marks Groq invalid with an actionable reason when a default is retired", async () => {
@@ -147,6 +151,89 @@ describe("validateAiProvidersAtStartup", () => {
       provider: "groq",
       valid: true,
       modelCheck: "unavailable",
+    });
+  });
+
+  it("does not contact Gemini during ordinary startup", async () => {
+    process.env.GEMINI_API_KEY = "valid-gemini-key";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    const results = await validateAiProvidersAtStartup();
+    const gemini = results.find((result) => result.provider === "gemini");
+
+    expect(gemini).toMatchObject({
+      provider: "gemini",
+      valid: true,
+      modelCheck: "skipped",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports Gemini retired defaults when the opt-in catalog check finds drift", async () => {
+    process.env.GEMINI_API_KEY = "valid-gemini-key";
+    process.env.AI_VALIDATE_GEMINI_MODELS = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [],
+      }),
+    }) as Response));
+
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    const results = await validateAiProvidersAtStartup();
+    const gemini = results.find((result) => result.provider === "gemini");
+
+    expect(gemini).toMatchObject({
+      provider: "gemini",
+      valid: false,
+      modelCheck: "missing",
+    });
+    expect(gemini?.reason).toContain("Update the Gemini default model IDs");
+    expect(gemini?.reason).not.toContain("valid-gemini-key");
+  });
+
+  it("keeps Gemini usable when its opt-in availability check is transiently unavailable", async () => {
+    process.env.GEMINI_API_KEY = "valid-gemini-key";
+    process.env.AI_VALIDATE_GEMINI_MODELS = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: { message: "temporary outage" } }),
+    }) as Response));
+
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    const results = await validateAiProvidersAtStartup();
+    const gemini = results.find((result) => result.provider === "gemini");
+
+    expect(gemini).toMatchObject({
+      provider: "gemini",
+      valid: true,
+      modelCheck: "unavailable",
+    });
+  });
+
+  it("confirms Gemini when both configured defaults are present", async () => {
+    process.env.GEMINI_API_KEY = "valid-gemini-key";
+    process.env.AI_VALIDATE_GEMINI_MODELS = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [{ name: "models/gemini-3-flash-preview" }],
+      }),
+    }) as Response));
+
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    const results = await validateAiProvidersAtStartup();
+    const gemini = results.find((result) => result.provider === "gemini");
+
+    expect(gemini).toMatchObject({
+      provider: "gemini",
+      valid: true,
+      modelCheck: "passed",
     });
   });
 });

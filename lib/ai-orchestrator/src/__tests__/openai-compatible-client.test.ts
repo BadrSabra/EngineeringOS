@@ -15,7 +15,12 @@
  *   • Provider error context preserved on error (PR-007)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { geminiCompleteRaw, openrouterCompleteWithFallback, oacCompleteRaw } from "../openai-compatible-client.js";
+import {
+  geminiCompleteRaw,
+  openrouterCompleteWithFallback,
+  oacCompleteRaw,
+  validateGeminiDefaultModels,
+} from "../openai-compatible-client.js";
 import { GroqClientError } from "../errors.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
 import { _resetForTest } from "../openrouter/dynamic-catalog.js";
@@ -103,6 +108,81 @@ describe("geminiCompleteRaw", () => {
       expect(error.message).toContain("[redacted]");
       expect(JSON.stringify(error.toProviderContext())).not.toContain(secret);
     });
+  });
+});
+
+describe("validateGeminiDefaultModels", () => {
+  const defaults = {
+    fast: "gemini-fast-fixture",
+    powerful: "gemini-powerful-fixture",
+  };
+
+  it("reports retired defaults from Google's model catalog without exposing the key", async () => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [
+          {
+            name: "models/gemini-fast-fixture",
+            supportedGenerationMethods: ["generateContent"],
+          },
+        ],
+      }),
+      text: async () => "",
+    }) as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await validateGeminiDefaultModels("valid-gemini-key", defaults);
+
+    expect(result).toMatchObject({
+      valid: false,
+      missing: ["powerful"],
+      checkedModels: defaults,
+    });
+    expect(result.reason).toContain("gemini-powerful-fixture");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          "x-goog-api-key": "valid-gemini-key",
+        }),
+      }),
+    );
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("valid-gemini-key");
+  });
+
+  it("classifies a transient provider response without treating it as model drift", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: { message: "temporary provider outage" } }),
+      text: async () => "temporary provider outage",
+    }) as Response));
+
+    await expect(validateGeminiDefaultModels("valid-gemini-key", defaults))
+      .rejects.toMatchObject({ code: "SERVER_ERROR" });
+  });
+
+  it("confirms both defaults when the provider catalog supports generation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [
+          { name: "models/gemini-fast-fixture" },
+          { name: "gemini-powerful-fixture" },
+        ],
+      }),
+    }) as Response));
+
+    await expect(validateGeminiDefaultModels("valid-gemini-key", defaults))
+      .resolves.toMatchObject({
+        valid: true,
+        missing: [],
+        checkedModels: defaults,
+      });
   });
 });
 

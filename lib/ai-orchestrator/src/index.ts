@@ -6,6 +6,9 @@ export {
   MODEL_FAST,
   validateGroqDefaultModels,
 } from "./groq-client.js";
+export {
+  validateGeminiDefaultModels,
+} from "./openai-compatible-client.js";
 export type { AgentStep, AgentDiagnosticCode, SourceRetrievalTelemetry, ReadStatus } from "./tool-execution-engine.js";
 export {
   buildProjectFileManifest,
@@ -102,6 +105,10 @@ export type {
   GroqDefaultModelRole,
   GroqDefaultModelValidation,
 } from "./groq-client.js";
+export type {
+  GeminiDefaultModelRole,
+  GeminiDefaultModelValidation,
+} from "./openai-compatible-client.js";
 
 export type { PendingChange } from "./tools/file-tools.js";
 export { buildPatchHunks, hashPatchBase, rebasePatchHunks } from "./patch-contract.js";

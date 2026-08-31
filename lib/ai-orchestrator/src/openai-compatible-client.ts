@@ -1412,6 +1412,146 @@ export async function* openrouterCompleteStream(
 // ── Pre-built Gemini client functions ─────────────────────────────────────────
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+const GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_MODEL_CHECK_TIMEOUT_MS = 5_000;
+
+export type GeminiDefaultModelRole = "fast" | "powerful";
+
+export type GeminiDefaultModelValidation = {
+  valid: boolean;
+  missing: GeminiDefaultModelRole[];
+  checkedModels: { fast: string; powerful: string };
+  reason?: string;
+};
+
+type GeminiModelListResponse = {
+  models?: Array<{
+    name?: unknown;
+    supportedGenerationMethods?: unknown;
+  }>;
+};
+
+function geminiModelId(name: unknown): string | undefined {
+  if (typeof name !== "string") return undefined;
+  const normalized = name.trim();
+  if (!normalized) return undefined;
+  return normalized.startsWith("models/") ? normalized.slice("models/".length) : normalized;
+}
+
+/**
+ * Check Gemini's configured defaults against Google's authenticated model
+ * catalog. This is deliberately separate from completion routing: a valid
+ * credential can still point at a retired or account-restricted model.
+ *
+ * The API key is sent in a header instead of the URL so provider diagnostics
+ * and proxy logs cannot accidentally retain it in a request query string.
+ */
+export async function validateGeminiDefaultModels(
+  apiKey: string,
+  defaults: { fast: string; powerful: string },
+): Promise<GeminiDefaultModelValidation> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEMINI_MODEL_CHECK_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(GEMINI_MODELS_URL, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new GroqClientError(
+          "AUTH_ERROR",
+          "Gemini rejected the credential while checking model availability.",
+          { context: { providerName: "Gemini", providerStatus: response.status } },
+        );
+      }
+      if (response.status === 429) {
+        throw new GroqClientError(
+          "RATE_LIMITED",
+          "Gemini model availability check was rate limited.",
+          { context: { providerName: "Gemini", providerStatus: response.status } },
+        );
+      }
+      if (response.status >= 500) {
+        throw new GroqClientError(
+          "SERVER_ERROR",
+          `Gemini model availability endpoint returned ${response.status}.`,
+          { context: { providerName: "Gemini", providerStatus: response.status } },
+        );
+      }
+      throw new GroqClientError(
+        "NON_200",
+        `Gemini model availability endpoint returned ${response.status}.`,
+        { context: { providerName: "Gemini", providerStatus: response.status } },
+      );
+    }
+
+    let payload: GeminiModelListResponse;
+    try {
+      payload = (await response.json()) as GeminiModelListResponse;
+    } catch (error) {
+      throw new GroqClientError(
+        "SERVER_ERROR",
+        "Gemini returned an invalid model availability response.",
+        { cause: error, context: { providerName: "Gemini" } },
+      );
+    }
+
+    const availableModels = new Set(
+      (Array.isArray(payload.models) ? payload.models : [])
+        .filter((model) => {
+          const methods = model.supportedGenerationMethods;
+          return !Array.isArray(methods) || methods.includes("generateContent");
+        })
+        .map((model) => geminiModelId(model.name))
+        .filter((model): model is string => Boolean(model)),
+    );
+    const missing = (["fast", "powerful"] as const).filter(
+      (role) => !availableModels.has(defaults[role]),
+    );
+
+    if (missing.length > 0) {
+      const missingIds = missing.map((role) => defaults[role]).join(", ");
+      return {
+        valid: false,
+        missing: [...missing],
+        checkedModels: { ...defaults },
+        reason:
+          `Gemini model catalog is missing the configured ${missing.join(" and ")} default model` +
+          `${missing.length === 1 ? "" : "s"} (${missingIds}). ` +
+          "Update the Gemini default model IDs to models currently available to the credential.",
+      };
+    }
+
+    return {
+      valid: true,
+      missing: [],
+      checkedModels: { ...defaults },
+    };
+  } catch (error) {
+    if (error instanceof GroqClientError) throw error;
+    if (controller.signal.aborted) {
+      throw new GroqClientError(
+        "TIMEOUT",
+        "Gemini model availability check timed out.",
+        { cause: error, context: { providerName: "Gemini" } },
+      );
+    }
+    throw new GroqClientError(
+      "NETWORK_ERROR",
+      "Gemini model availability check could not reach Google.",
+      { cause: error, context: { providerName: "Gemini" } },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Non-streaming completion via Google Gemini (OpenAI-compatible endpoint).

@@ -20,6 +20,10 @@ import {
   validateGroqDefaultModels,
   type GroqDefaultModelValidation,
 } from "./groq-client.js";
+import {
+  validateGeminiDefaultModels,
+  type GeminiDefaultModelValidation,
+} from "./openai-compatible-client.js";
 import { GroqClientError } from "./errors.js";
 import { FREE_MODELS } from "./openrouter/model-catalog.js";
 import {
@@ -33,11 +37,17 @@ export type ProviderValidationResult = {
   reason?: string;
   /** True when the key is absent but the provider is optional. */
   skipped?: boolean;
-  /** Whether Groq's configured defaults were confirmed by its live catalog. */
-  modelCheck?: "passed" | "missing" | "unavailable";
+  /** Whether a provider's configured defaults were confirmed by its live catalog. */
+  modelCheck?: "passed" | "missing" | "unavailable" | "skipped";
 };
 
 export type StartupValidatorOptions = {
+  /**
+   * Gemini's model catalog check is opt-in because ordinary development
+   * startup should not create provider traffic. Controlled release validation
+   * enables it automatically.
+   */
+  checkGeminiModels?: boolean;
   onGroqModelCatalogDrift?: (input: {
     role: GroqDefaultModelValidation["missing"][number];
     modelId: string;
@@ -85,6 +95,42 @@ function controlledGroqCatalogResult(
   throw new GroqClientError(
     "INVALID_CONFIG",
     "unsupported controlled Groq catalog fixture mode",
+  );
+}
+
+function controlledGeminiCatalogResult(
+  defaults: { fast: string; powerful: string },
+): GeminiDefaultModelValidation | undefined {
+  if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") return undefined;
+  const mode = process.env.GEMINI_MODEL_CHECK_FIXTURE_MODE;
+  if (!mode) return undefined;
+
+  if (mode === "timeout" || mode === "transient") {
+    throw new GroqClientError(
+      "TIMEOUT",
+      "controlled Gemini model availability fixture was temporarily unavailable",
+    );
+  }
+  if (mode === "healthy") {
+    return {
+      valid: true,
+      missing: [],
+      checkedModels: { ...defaults },
+    };
+  }
+  if (mode === "retired") {
+    return {
+      valid: false,
+      missing: ["fast"],
+      checkedModels: { ...defaults },
+      reason:
+        "Gemini model catalog fixture reports the configured fast model as retired.",
+    };
+  }
+
+  throw new GroqClientError(
+    "INVALID_CONFIG",
+    "unsupported controlled Gemini model availability fixture mode",
   );
 }
 
@@ -241,6 +287,102 @@ export async function validateAiProvidersAtStartup(
         valid: true,
         modelCheck: "passed",
       });
+    } else if (providerId === "gemini") {
+      const shouldCheck =
+        options.checkGeminiModels === true ||
+        (options.checkGeminiModels !== false &&
+          (process.env.AI_VALIDATE_GEMINI_MODELS === "1" ||
+            process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1"));
+
+      if (!shouldCheck) {
+        results.push({
+          provider: providerId,
+          valid: true,
+          modelCheck: "skipped",
+          reason:
+            "Gemini model availability check is disabled for normal startup; enable AI_VALIDATE_GEMINI_MODELS=1 for a live check.",
+        });
+        anyValid = true;
+        console.info(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: "ok",
+            modelCheck: "skipped",
+          }),
+        );
+        continue;
+      }
+
+      let modelValidation: GeminiDefaultModelValidation;
+      try {
+        const defaults = loadProvider("gemini").defaultModels;
+        modelValidation =
+          controlledGeminiCatalogResult(defaults) ??
+          (await validateGeminiDefaultModels(keyValue, defaults));
+      } catch (error) {
+        const code = error instanceof GroqClientError ? error.code : "UNKNOWN";
+        const reason =
+          code === "AUTH_ERROR"
+            ? "GEMINI_API_KEY was rejected while checking model availability — verify the key."
+            : `Gemini model availability could not be checked (${code}) — rerun startup or release validation before relying on Gemini.`;
+        results.push({
+          provider: providerId,
+          valid: code === "AUTH_ERROR" ? false : true,
+          modelCheck: "unavailable",
+          reason,
+        });
+        console.warn(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: code === "AUTH_ERROR" ? "invalid" : "degraded",
+            modelCheck: "unavailable",
+            reason,
+          }),
+        );
+        anyValid = code !== "AUTH_ERROR" || anyValid;
+        continue;
+      }
+
+      if (!modelValidation.valid) {
+        const reason =
+          modelValidation.reason ??
+          "Gemini model catalog is missing one or more configured default models.";
+        results.push({
+          provider: providerId,
+          valid: false,
+          modelCheck: "missing",
+          reason,
+        });
+        console.warn(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: "invalid",
+            modelCheck: "missing",
+            missing: modelValidation.missing,
+            reason,
+          }),
+        );
+        continue;
+      }
+
+      results.push({
+        provider: providerId,
+        valid: true,
+        modelCheck: "passed",
+      });
+      anyValid = true;
+      console.info(
+        JSON.stringify({
+          scope: "startup-validator",
+          provider: providerId,
+          status: "ok",
+          modelCheck: "passed",
+        }),
+      );
+      continue;
     } else {
       results.push({ provider: providerId, valid: true });
     }

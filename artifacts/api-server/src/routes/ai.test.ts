@@ -33,6 +33,7 @@ import {
   buildPatchHunks,
   hashPatchBase,
   validateGroqDefaultModels,
+  validateGeminiDefaultModels,
 } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import {
@@ -291,6 +292,11 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   }),
   validateProviderKey: vi.fn(async () => ({ valid: true })),
   validateGroqDefaultModels: vi.fn(async (_apiKey: string, defaults: { fast: string; powerful: string }) => ({
+    valid: true,
+    missing: [],
+    checkedModels: defaults,
+  })),
+  validateGeminiDefaultModels: vi.fn(async (_apiKey: string, defaults: { fast: string; powerful: string }) => ({
     valid: true,
     missing: [],
     checkedModels: defaults,
@@ -4649,6 +4655,48 @@ describe("resolveProvider tool-capability filtering", () => {
 
       if (savedGemini !== undefined) process.env.GEMINI_API_KEY = savedGemini;
       else delete process.env.GEMINI_API_KEY;
+    }
+  });
+});
+
+describe("resolveProvider Gemini model lifecycle", () => {
+  it("skips Gemini when the configured default is retired", async () => {
+    const providerKeys = [
+      "OPENROUTER_API_KEY",
+      "GEMINI_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "GROQ_API_KEY",
+    ] as const;
+    const saved = Object.fromEntries(providerKeys.map((name) => [name, process.env[name]]));
+
+    for (const name of providerKeys) delete process.env[name];
+    process.env.GEMINI_API_KEY = "valid-gemini-key";
+
+    try {
+      vi.mocked(validateGeminiDefaultModels).mockResolvedValueOnce({
+        valid: false,
+        missing: ["fast", "powerful"],
+        checkedModels: {
+          fast: "gemini-2.0-flash",
+          powerful: "gemini-2.0-flash",
+        },
+        reason: "configured Gemini default is retired",
+      });
+      const { resolveProvider } = await import("../lib/ai-route-helpers.js");
+      await expect(resolveProvider("test-user")).resolves.toBeUndefined();
+      expect(validateGeminiDefaultModels).toHaveBeenCalledWith(
+        "valid-gemini-key",
+        expect.objectContaining({
+          fast: expect.any(String),
+          powerful: expect.any(String),
+        }),
+      );
+    } finally {
+      for (const name of providerKeys) {
+        const value = saved[name];
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
     }
   });
 });

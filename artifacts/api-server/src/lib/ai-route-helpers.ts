@@ -21,6 +21,7 @@ import {
   isCircuitOpen,
   createExecutionLedger,
   validateGroqDefaultModels,
+  validateGeminiDefaultModels,
   toPublicExecutionLedgerSnapshot,
 } from "@workspace/ai-orchestrator";
 import type {
@@ -81,6 +82,11 @@ const groqModelValidationCache = new Map<
   string,
   { expiresAt: number; valid: boolean }
 >();
+const GEMINI_MODEL_VALIDATION_TTL_MS = 5 * 60 * 1_000;
+const geminiModelValidationCache = new Map<
+  string,
+  { expiresAt: number; valid: boolean }
+>();
 
 async function groqCanUseConfiguredModels(apiKey: string): Promise<boolean> {
   const now = Date.now();
@@ -120,6 +126,47 @@ async function groqCanUseConfiguredModels(apiKey: string): Promise<boolean> {
   }
 }
 
+async function geminiCanUseConfiguredModels(apiKey: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = geminiModelValidationCache.get(apiKey);
+  if (cached && cached.expiresAt > now) return cached.valid;
+
+  try {
+    const validation = await validateGeminiDefaultModels(
+      apiKey,
+      PROVIDER_REGISTRY.gemini.defaultModels,
+    );
+    geminiModelValidationCache.set(apiKey, {
+      expiresAt: now + GEMINI_MODEL_VALIDATION_TTL_MS,
+      valid: validation.valid,
+    });
+    if (!validation.valid) {
+      logger.warn(
+        {
+          provider: "gemini",
+          modelCheck: "missing",
+          missingRoles: validation.missing,
+        },
+        "Skipping Gemini: configured model is not available to the credential",
+      );
+    }
+    return validation.valid;
+  } catch (error) {
+    // A temporary availability outage must not turn a usable provider into a
+    // permanent configuration failure. The completion path still reports the
+    // provider error and can fall back if the request proves unusable.
+    logger.warn(
+      {
+        provider: "gemini",
+        modelCheck: "unavailable",
+        reason: error instanceof GroqClientError ? error.code : "UNKNOWN",
+      },
+      "Gemini model availability could not be checked; retaining provider as a best-effort candidate",
+    );
+    return true;
+  }
+}
+
 function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
   const config = PROVIDER_REGISTRY[provider];
   if (!config) return false;
@@ -147,6 +194,10 @@ async function collectAvailableProviders(
         "Skipping provider that cannot satisfy the current request",
       );
       skipped.push({ provider, reason });
+      continue;
+    }
+    if (provider === "gemini" && !(await geminiCanUseConfiguredModels(key))) {
+      skipped.push({ provider, reason: "model_unavailable" });
       continue;
     }
     if (provider === "groq" && !(await groqCanUseConfiguredModels(key))) {
