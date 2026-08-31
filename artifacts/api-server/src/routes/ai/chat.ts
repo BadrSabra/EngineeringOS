@@ -3058,7 +3058,13 @@ router.post("/ai/chat/stream", async (req, res) => {
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
 
-  const applyLock = streamModelHasTools
+  // Read-only project and forensic turns may safely overlap. The apply lock is
+  // reserved for an approved Build handoff, where the model can produce a
+  // scoped write proposal and the existing write/approval gates apply.
+  const requiresApplySerialization = Boolean(
+    approvedImplementationPlan && effectiveBuildPlanMessageId,
+  );
+  const applyLock = requiresApplySerialization
     ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
     : { acquired: true, release: async () => undefined };
   if (!applyLock.acquired) {
