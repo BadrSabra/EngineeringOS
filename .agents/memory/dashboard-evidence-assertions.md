@@ -7,6 +7,6 @@ Completed AI responses render activity and proof details in collapsed disclosure
 
 **Why:** Assertions that expect collapsed content to be visible or assume unique text matches produce false failures even when the user-visible journey is correct.
 
-**How to apply:** Reopen the persisted session from the visible session list after a page reload, open the relevant `summary` element before asserting its details, and use a scoped or explicitly disambiguated locator when source-backed text is intentionally repeated.
+**How to apply:** Reopen the persisted session from the visible session list after a page reload, open the relevant `summary` element before asserting its details, and use a scoped or explicitly disambiguated locator when source-backed text is intentionally repeated. Fixture-local forensic cards open by default, so assert `aria-expanded="true"` instead of clicking during stream-settlement re-renders.
 
 Recovery cards in task and workflow details may be siblings of the primary detail column; scope assertions to the complete expanded panel or execution row rather than a nearby heading's parent.

@@ -1300,6 +1300,81 @@ function installInterruptedResumeFixture() {
     "The release execution started before the browser disconnected.";
   const answer =
     "The original release execution resumed after capability recovery.";
+  const source = "src/release-resume.ts";
+  const toolTrace = [
+    {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+      prefetched: true,
+    },
+    {
+      kind: "tool_result",
+      tool: "read_file",
+      source,
+      cached: false,
+      prefetched: true,
+      resultKind: "success",
+      resultSummary: "Completed source read retained for the resumed execution.",
+    },
+    {
+      kind: "forensic_status",
+      auditScope: "FIXTURE_LOCAL",
+      isFixtureLocal: true,
+      productionReachability: "NOT_PROVEN",
+      sourceCoverage: "COMPLETE",
+      behavioralAssessment: "COMPLETE",
+      findingStatus: "PROVEN",
+      repairReadiness: "BLOCKED",
+      requestedFiles: [source],
+      reason: "The resumed fixture retains one complete source-backed evidence packet.",
+    },
+    {
+      kind: "evidence_integrity",
+      code: "EVIDENCE_INTEGRITY_OK",
+      consistent: true,
+      violations: [],
+      readAttempts: 1,
+      uniqueFilesRead: 1,
+      evidenceFileCount: 1,
+      acceptedEvidenceCount: 1,
+      acceptedClaimCount: 1,
+      completedReadFiles: [source],
+      retainedBodyFiles: [source],
+      acceptedEvidenceFiles: [source],
+      objectiveType: "BEHAVIORAL_QUERY",
+      requiredEdges: [],
+      provenEdges: [],
+      completionGateResult: "PROVEN",
+      finalAnswerType: "BEHAVIORAL_ANSWER",
+      evidenceSourceCoverage: {
+        status: "COMPLETE",
+        requestedFiles: [source],
+        roots: [
+          {
+            root: source,
+            discoveredFiles: 1,
+            readFiles: 1,
+            unreadFiles: 0,
+            status: "COMPLETE",
+          },
+        ],
+      },
+    },
+    {
+      kind: "done",
+      stopReason: "response",
+      iterations: 1,
+      maxIterations: 4,
+      toolCalls: 1,
+      prefetchToolCalls: 1,
+      loopToolCalls: 0,
+      synthesisStarted: true,
+      recoveryStarted: true,
+      diagnosticCodes: [],
+    },
+  ];
   const message = {
     id: "e2e-interrupted-resume-message",
     sessionId,
@@ -1307,6 +1382,9 @@ function installInterruptedResumeFixture() {
     content: answer,
     executionId,
     outcome: "COMPLETED",
+    operationMode: "FORENSIC_AUDIT",
+    sources: [source],
+    toolTrace: JSON.stringify(toolTrace),
     createdAt: "2026-01-01T00:03:00.000Z",
   };
   const sse = (event: Record<string, unknown>) =>
@@ -1314,7 +1392,7 @@ function installInterruptedResumeFixture() {
   const fixture: ArabicAiFixture = {
     question,
     answer,
-    source: "release-resume",
+    source,
     sessionId,
     executionId,
     streamBody: [
@@ -1351,6 +1429,8 @@ function installInterruptedResumeFixture() {
         sessionId,
         executionId,
         message,
+        sources: [source],
+        toolTrace: JSON.stringify(toolTrace),
         pendingChanges: [],
       }),
     ].join(""),
@@ -4010,6 +4090,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         },
       ),
     ).toBeVisible();
+    const executionProof = page.getByLabel("Agent execution proof");
+    await expect(executionProof).toBeVisible();
+    await expect(
+      executionProof.getByRole("button", { name: "Resume", exact: true }),
+    ).toBeVisible();
 
     const storageKey =
       "eos_ai_execution_e2e-project_e2e-interrupted-resume-session";
@@ -4047,6 +4132,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText(recovery.fixture.answer, { exact: true }),
     ).toBeVisible();
+    const evidenceButton = page.getByRole("button", {
+      name: /Forensic evidence/,
+    });
+    await expect(evidenceButton).toBeVisible();
+    await expect(evidenceButton).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      page.getByText("Telemetry reconciliation", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("EVIDENCE_INTEGRITY_OK", { exact: true })).toBeVisible();
     await expect.poll(() => streamRequests.length).toBe(2);
     expect(streamRequests[0]).toEqual(
       expect.objectContaining({
@@ -4068,6 +4162,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(
       streamRequests.map((request) => request.executionId).filter(Boolean),
     ).toEqual([recovery.fixture.executionId]);
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(
+      /(?:provider[_ ](?:diagnostic|error)|internal prompt|stack trace|\/home\/runner\/|\/tmp\/|(?:^|\s)at\s+(?:\/|[A-Za-z]:\\))/i,
+    );
   });
 
   test("projects delivery recovery states safely after reload", async ({
