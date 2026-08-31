@@ -23,7 +23,7 @@ All services start automatically via the configured workflows:
 ## Post-import setup (already done)
 
 1. `pnpm install` — restores node_modules
-2. `pnpm --filter @workspace/db run push` — pushes Drizzle schema to the DB
+2. `pnpm --filter @workspace/db run schema:apply` — pushes and verifies the full Drizzle schema
 3. `setupClerkWhitelabelAuth()` — provisions Clerk keys
 
 ## Required secrets (already provisioned)
