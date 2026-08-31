@@ -2631,6 +2631,90 @@ describe("Concurrent chat ordering and ownership", () => {
     expect(executions).toHaveLength(0);
   });
 
+  it("allows concurrent English and Arabic project reads while apply serialization is busy", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await createSession(projectId);
+    const turns = [
+      {
+        prompt: "Which handler is defined in src/english-read.ts?",
+        response: "The English read found the requested handler.",
+        source: "src/english-read.ts",
+      },
+      {
+        prompt: "ما الدالة الموجودة في src/arabic-read.ts؟",
+        response: "وجدت القراءة العربية الدالة المطلوبة.",
+        source: "src/arabic-read.ts",
+      },
+    ] as const;
+
+    // A real apply remains busy. Read-only turns must not probe this lock,
+    // reject with 409, or serialize behind it.
+    vi.mocked(tryAdvisoryLock).mockClear();
+    vi.mocked(tryAdvisoryLock).mockResolvedValue({ acquired: false });
+    const started = new Set<string>();
+    let readyResolve!: () => void;
+    const readsReady = new Promise<void>((resolve) => { readyResolve = resolve; });
+    let releaseReads!: () => void;
+    const readsReleased = new Promise<void>((resolve) => { releaseReads = resolve; });
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      const prompt = (args[1] as { message: string }).message;
+      const turn = turns.find((candidate) => candidate.prompt === prompt);
+      if (!turn) throw new Error(`Unexpected project-read prompt: ${prompt}`);
+      started.add(prompt);
+      if (started.size === turns.length) readyResolve();
+      await readsReleased;
+      args[3]?.(turn.response);
+      return {
+        result: {
+          response: turn.response,
+          sources: [turn.source],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const requests = Promise.all(turns.map((turn) =>
+      request(app)
+        .post("/api/ai/chat")
+        .set("Content-Type", "application/json")
+        .send({ projectId, sessionId, message: turn.prompt }),
+    ));
+    let readinessTimeout!: ReturnType<typeof setTimeout>;
+    try {
+      await Promise.race([
+        readsReady,
+        new Promise<never>((_, reject) => {
+          readinessTimeout = setTimeout(
+            () => reject(new Error("Timed out waiting for both project reads to start")),
+            2_000,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(readinessTimeout);
+    }
+    releaseReads();
+    const responses = await requests;
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(responses.map((response) => response.body.message.content)).toEqual(
+      turns.map((turn) => turn.response),
+    );
+    expect(vi.mocked(tryAdvisoryLock)).not.toHaveBeenCalled();
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    expect(history.body.map((row: { role: string; content: string }) => [row.role, row.content])).toEqual([
+      ["user", turns[0].prompt],
+      ["assistant", turns[0].response],
+      ["user", turns[1].prompt],
+      ["assistant", turns[1].response],
+    ]);
+  });
+
   it("keeps interleaved SSE deltas, evidence, executions, and done messages request-owned", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

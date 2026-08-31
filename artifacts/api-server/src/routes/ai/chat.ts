@@ -43,6 +43,7 @@ import {
   writeSessionMemories,
   classifyRequest,
   resolveTurnIntent,
+  isWriteCapableTurn,
   isImmediateExecutionRequest,
   isTaskContinuationRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
@@ -2349,7 +2350,7 @@ router.post("/ai/chat", async (req, res) => {
   });
   let executionLedgerSnapshot: ExecutionLedgerPublicSnapshot | undefined;
 
-  const applyProbe = modelHasTools
+  const applyProbe = isWriteCapableTurn(turnIntent)
     ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
     : { acquired: true, release: async () => undefined };
   if (!applyProbe.acquired) {
@@ -3061,9 +3062,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   // Read-only project and forensic turns may safely overlap. The apply lock is
   // reserved for an approved Build handoff, where the model can produce a
   // scoped write proposal and the existing write/approval gates apply.
-  const requiresApplySerialization = Boolean(
-    approvedImplementationPlan && effectiveBuildPlanMessageId,
-  );
+  const requiresApplySerialization = isWriteCapableTurn(streamTurnIntent);
   const applyLock = requiresApplySerialization
     ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
     : { acquired: true, release: async () => undefined };

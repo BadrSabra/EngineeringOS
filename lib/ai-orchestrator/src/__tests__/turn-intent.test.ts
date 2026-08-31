@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../prompts/profile-classifier.js";
-import { resolveTurnIntent } from "../turn-intent.js";
+import { isWriteCapableTurn, resolveTurnIntent } from "../turn-intent.js";
 
 describe("resolveTurnIntent", () => {
   it.each([
@@ -74,6 +74,15 @@ describe("resolveTurnIntent", () => {
       requiresEvidence: false,
       operationMode: "CHAT",
     });
+  });
+
+  it("only marks write-capable delivery turns for apply serialization", () => {
+    expect(isWriteCapableTurn(resolveTurnIntent("Open src/server.ts and explain the route."))).toBe(false);
+    expect(isWriteCapableTurn(resolveTurnIntent("Create an implementation plan for feature X."))).toBe(false);
+    expect(isWriteCapableTurn(resolveTurnIntent("Please fix the route in src/server.ts."))).toBe(true);
+    expect(isWriteCapableTurn(resolveTurnIntent("Build the approved implementation plan.", {
+      buildHandoff: true,
+    }))).toBe(true);
   });
 
   it("routes an explicit audit through tools and the evidence gate", () => {

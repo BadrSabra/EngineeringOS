@@ -51,6 +51,24 @@ export type TurnIntent = {
   classification: ClassifiedRequest;
 };
 
+/**
+ * Apply serialization is only needed while a turn is allowed to prepare
+ * write-capable changes. Tool availability alone is not sufficient: project
+ * questions, forensic reads, implementation-plan creation, and read-only plan
+ * continuations all use tools without changing project state.
+ */
+export function isWriteCapableTurn(intent: Pick<
+  TurnIntent,
+  "kind" | "implementationPlanResume" | "allowsBuildHandoff" | "classification"
+>): boolean {
+  return intent.allowsBuildHandoff ||
+    (
+      intent.kind === "DELIVERY" &&
+      !intent.implementationPlanResume &&
+      !intent.classification.implementationPlanMode
+    );
+}
+
 const RESUMABLE_FORENSIC_TASKS = new Set<ForensicTaskType>([
   "FINDING_ANALYSIS",
   "FULL_FORENSIC_AUDIT",
