@@ -2,15 +2,15 @@
   "kind": "live-api-process-recovery",
   "version": 1,
   "redacted": true,
-  "revision": "1268da51ddd3",
+  "revision": "b6a13a8df0a6",
   "build": {
     "artifact": "artifacts/api-server/dist/index.mjs",
-    "sha256": "03104ed2181755e239d612812f393da99b481bf4ad3de86c0c5dcc20ec6a64e1"
+    "sha256": "0927cba2de71553f101a1dd45f1864c901b6eba832326edfc14fe2c732803a3f"
   },
   "provider": {
     "id": "gemini",
     "model": "gemini-3-flash-preview",
-    "supportsTools": true,
+    "supportsTools": false,
     "credential": "environment-only",
     "fixtureProviderCredentialsForwarded": false
   },
@@ -26,7 +26,7 @@
     "testFilesPassed": 1,
     "testsPassed": 1,
     "testsSkipped": 50,
-    "durationMs": 12900
+    "durationMs": 14581
   },
   "milestones": {
     "initialHealth": "passed",

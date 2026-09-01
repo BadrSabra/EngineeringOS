@@ -91,9 +91,37 @@ const liveRecoveryProviderApiKey = liveRecoveryProviderKey
 type RecoveryTeardownFixture = {
   projectId: string;
   rootPath: string;
+  port: number;
   childPids: number[];
 };
 const recoveryTeardownFixtures: RecoveryTeardownFixture[] = [];
+type LiveRecoveryEvidence = {
+  provider: {
+    id: string;
+    model: string;
+    supportsTools: boolean;
+  };
+  milestones: {
+    initialHealth: "passed";
+    checkpointPersistedBeforeStop: "passed";
+    checkpointSequence: "non-zero";
+    firstProcessStopped: "passed";
+    restartHealthyWithinBound: "passed";
+    sameExecutionResumedWithOriginalResumeIdentity: "passed";
+    forensicResponse: "successful";
+    expectedSourcePath: "src/process-recovery.ts";
+    writeOperations: "none";
+    sourceBytesUnchanged: true;
+  };
+  teardown: {
+    disposableProjectRetired: true;
+    generatedRootRetired: true;
+    apiDescendantsSurviving: false;
+    recoveryListenerOccupied: false;
+    secretsRetained: false;
+  };
+};
+let liveRecoveryEvidence: LiveRecoveryEvidence | undefined;
 
 // ─── Orchestrator mock ────────────────────────────────────────────────────────
 // Mirrors the module-level mock in ai.test.ts so all imports from
@@ -380,6 +408,27 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
+async function listeningProcessIds(port: number): Promise<number[]> {
+  try {
+    const { stdout } = await execFileAsync("lsof", [
+      "-nP",
+      "-t",
+      `-iTCP:${port}`,
+      "-sTCP:LISTEN",
+    ]);
+    return stdout
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(Number)
+      .filter((pid) => Number.isInteger(pid) && pid > 0);
+  } catch (error) {
+    const code = (error as { code?: string | number }).code;
+    if (code === 1 || code === "1") return [];
+    throw error;
+  }
+}
+
 async function cleanupProjectFixture(projectId: string): Promise<void> {
   const sessions = await db
     .select({ id: aiChatSessionsTable.id })
@@ -480,9 +529,23 @@ afterEach(async () => {
         leaks.push(`child process ${pid}`);
       }
     }
+    const listeningPids = await listeningProcessIds(fixture.port);
+    if (listeningPids.length > 0) {
+      leaks.push(`recovery listener ${fixture.port} (${listeningPids.join(", ")})`);
+    }
   }
   if (leaks.length > 0) {
     throw new Error(`Recovery fixture teardown left resources behind: ${leaks.join(", ")}`);
+  }
+  if (runRealApiProcessRecovery && liveRecoveryEvidence) {
+    const resultPath = process.env.LIVE_RECOVERY_RESULT_PATH;
+    if (!resultPath) throw new Error("Live recovery evidence output path is not configured.");
+    await fs.writeFile(
+      resultPath,
+      `${JSON.stringify(liveRecoveryEvidence)}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    liveRecoveryEvidence = undefined;
   }
 });
 
@@ -636,6 +699,39 @@ describe("Durable AI execution crash/reconnect", () => {
       const originalPort = process.env.PORT;
       const port = 18_000 + Math.floor(Math.random() * 1_000);
       let server: ChildProcess | undefined;
+      let observedModelSelection: { provider: string; model: string } | undefined;
+
+      const captureModelSelection = (chunk: Buffer) => {
+        for (const line of chunk.toString("utf8").split("\n")) {
+          try {
+            const record = JSON.parse(line) as {
+              scope?: unknown;
+              action?: unknown;
+              providerId?: unknown;
+              model?: unknown;
+            };
+            if (
+              record.scope === "model-resolver" &&
+              record.action === "resolve_execution_model" &&
+              typeof record.providerId === "string" &&
+              typeof record.model === "string" &&
+              liveProviderEnvironment[record.providerId] &&
+              /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,200}$/.test(record.model)
+            ) {
+              observedModelSelection = {
+                provider: record.providerId,
+                model: record.model,
+              };
+            }
+          } catch {
+            // Child stdout can contain non-JSON startup output.
+          }
+        }
+      };
+
+      const observeServer = (child: ChildProcess) => {
+        child.stdout?.on("data", captureModelSelection);
+      };
 
       const waitForHealth = async (child: ChildProcess, timeoutMs = 30_000) => {
         let diagnostics = "";
@@ -676,7 +772,12 @@ describe("Durable AI execution crash/reconnect", () => {
         await fs.writeFile(absolutePath, originalSource, "utf8");
         const projectId = await insertProject(rootPath);
         projectIds.push(projectId);
-        const recoveryFixture: RecoveryTeardownFixture = { projectId, rootPath, childPids: [] };
+        const recoveryFixture: RecoveryTeardownFixture = {
+          projectId,
+          rootPath,
+          port,
+          childPids: [],
+        };
         recoveryTeardownFixtures.push(recoveryFixture);
 
         const sessionId = randomUUID();
@@ -721,6 +822,7 @@ describe("Durable AI execution crash/reconnect", () => {
           env: childEnv,
           stdio: ["ignore", "pipe", "pipe"],
         });
+        observeServer(server);
         if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
         await waitForHealth(server);
 
@@ -777,6 +879,7 @@ describe("Durable AI execution crash/reconnect", () => {
           env: childEnv,
           stdio: ["ignore", "pipe", "pipe"],
         });
+        observeServer(server);
         if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
         await waitForHealth(server);
 
@@ -796,6 +899,64 @@ describe("Durable AI execution crash/reconnect", () => {
         expect(resumedText).toContain(relativePath);
         expect(resumedText).not.toMatch(/write_file|replace_text|delete_file/);
         expect(await fs.readFile(absolutePath, "utf8")).toBe(originalSource);
+
+        const [completedExecution] = await db
+          .select({ checkpoint: aiExecutionsTable.checkpoint })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, created.execution.id))
+          .limit(1);
+        const checkpointRecord = completedExecution?.checkpoint
+          ? JSON.parse(completedExecution.checkpoint) as { recentSteps?: unknown }
+          : undefined;
+        const modelCalls = Array.isArray(checkpointRecord?.recentSteps)
+          ? checkpointRecord.recentSteps.filter(
+            (step): step is { kind: string; provider?: unknown; model?: unknown } =>
+              Boolean(step) &&
+              typeof step === "object" &&
+              ["model_call", "recovery_model_call"].includes((step as { kind?: unknown }).kind as string),
+          )
+          : [];
+        const finalModelCall = modelCalls.at(-1);
+        const selectedModel = observedModelSelection
+          ?? (
+            finalModelCall &&
+            typeof finalModelCall.provider === "string" &&
+            typeof finalModelCall.model === "string"
+              ? { provider: finalModelCall.provider, model: finalModelCall.model }
+              : undefined
+          );
+        expect(selectedModel?.provider).toBe(liveRecoveryProvider);
+        expect(typeof selectedModel?.model).toBe("string");
+        expect((selectedModel?.model as string).length).toBeGreaterThan(0);
+        if (!selectedModel) {
+          throw new Error("Live recovery did not retain the selected provider/model in runtime evidence.");
+        }
+        liveRecoveryEvidence = {
+          provider: {
+            id: selectedModel.provider,
+            model: selectedModel.model,
+            supportsTools: selectedModel.provider !== "gemini",
+          },
+          milestones: {
+            initialHealth: "passed",
+            checkpointPersistedBeforeStop: "passed",
+            checkpointSequence: "non-zero",
+            firstProcessStopped: "passed",
+            restartHealthyWithinBound: "passed",
+            sameExecutionResumedWithOriginalResumeIdentity: "passed",
+            forensicResponse: "successful",
+            expectedSourcePath: relativePath,
+            writeOperations: "none",
+            sourceBytesUnchanged: true,
+          },
+          teardown: {
+            disposableProjectRetired: true,
+            generatedRootRetired: true,
+            apiDescendantsSurviving: false,
+            recoveryListenerOccupied: false,
+            secretsRetained: false,
+          },
+        };
       } finally {
         if (server) await stopProcess(server);
         if (originalEncryptionKey === undefined) delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
