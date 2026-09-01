@@ -27,6 +27,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { ProjectContext } from "./context-builder.js";
+import type { ExecutionPlan } from "./model-selection/execution-plan.js";
 import { formatUntrustedContent } from "./untrusted-content.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ export async function fetchSessionMemories(
   projectId: string,
   limit = 20,
 ): Promise<MemoryRow[]> {
+  if (limit <= 0) return [];
   const now = new Date();
   try {
     return await db
@@ -214,8 +216,13 @@ export function formatMemoriesForPrompt(memories: MemoryRow[]): string | null {
 export async function enrichContextWithMemories(
   context: ProjectContext & { sessionMemories?: string },
   projectId: string,
+  plan?: Readonly<ExecutionPlan>,
 ): Promise<void> {
-  const memories = await fetchSessionMemories(projectId, 20);
+  if (plan?.taskProfile.memoryMode === "none" || plan?.memoryDepth === 0) {
+    delete context.sessionMemories;
+    return;
+  }
+  const memories = await fetchSessionMemories(projectId, plan?.memoryDepth ?? 20);
   const formatted = formatMemoriesForPrompt(memories);
   if (formatted) {
     context.sessionMemories = formatted;

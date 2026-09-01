@@ -1,10 +1,12 @@
 import type { ProjectContext } from "../context-builder.js";
+import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 import {
   buildTaskCompletionContract,
   type TaskChecklistItem,
 } from "../task-checklist.js";
 import type { OutputContract } from "../task-contracts.js";
 import { composePrompt, promptContextOverview, promptSection } from "./prompt-composer.js";
+import type { PromptContextProfile } from "./prompt-composer.js";
 import { formatUntrustedContent } from "../untrusted-content.js";
 
 /**
@@ -318,6 +320,7 @@ export function buildChatSystemPrompt({
   responseLanguage,
   fixtureAuditMode = false,
   suppressSessionMemory = false,
+  executionPlan,
   activeTask,
   taskChecklist = [],
 }: {
@@ -327,7 +330,7 @@ export function buildChatSystemPrompt({
   capabilityCatalog?: string;
   streamingMode?: boolean;
   focusHint?: string;
-  profile?: "chat-lite" | "chat-normal" | "chat-deep" | "chat";
+  profile?: PromptContextProfile;
   immediateExecution?: boolean;
   /**
    * When true the user's message defines an exact mandatory output schema.
@@ -356,6 +359,8 @@ export function buildChatSystemPrompt({
    * entirely so stale claims cannot bias the source-first investigation.
    */
   suppressSessionMemory?: boolean;
+  /** The immutable server-owned policy used to build this prompt. */
+  executionPlan?: Readonly<ExecutionPlan>;
   activeTask?: ActiveTask;
   taskChecklist?: TaskChecklistItem[];
 }): string {
@@ -377,6 +382,7 @@ export function buildChatSystemPrompt({
     identityLine,
     formatUntrustedContent(promptContextOverview(promptContext, profile, {
       includeSessionMemory: !suppressSessionMemory,
+      plan: executionPlan,
     }), {
       source: "source",
     }),

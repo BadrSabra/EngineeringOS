@@ -578,6 +578,7 @@ export {
   extractPriorRepairPlan,
   extractPriorRepairPlanMetadata,
   extractExecutionFilePaths,
+  isCapabilityProbeRequest,
 } from "./agents/chat-agent.js";
 export type { ChatMessage, ChatResult } from "./agents/chat-agent.js";
 export type { ActiveTask } from "./prompts/chat.prompt.js";

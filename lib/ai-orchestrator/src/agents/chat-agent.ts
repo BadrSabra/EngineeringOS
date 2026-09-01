@@ -46,6 +46,7 @@ import { createHash } from "node:crypto";
 import { getStrategy, recordProviderTelemetry, type ProviderId } from "../provider-registry.js";
 import { recordBehavioralFailure } from "../behavioral-scorecard.js";
 import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
+import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 import { resolveExecutionProvider } from "../model-selection/provider-strategy.js";
 import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import { resolveFallbackChain } from "../openrouter/model-resolver.js";
@@ -256,8 +257,9 @@ function compactHistoryContent(content: string): string {
 export function buildConversationHistoryWindow(
   history: ChatMessage[],
   turns = CONVERSATION_HISTORY_TURNS,
+  mode: "none" | "recent" | "summarized" = "summarized",
 ): { recentHistory: ChatMessage[]; episodeSummaryMessage: RawMessage | null } {
-  const recentMessageCount = Math.max(0, turns) * 2;
+  const recentMessageCount = mode === "none" ? 0 : Math.max(0, turns) * 2;
   // `slice(-0)` means "start at zero" and would accidentally re-enable the
   // entire history for intentionally stateless structured runs.
   if (recentMessageCount === 0) {
@@ -266,7 +268,7 @@ export function buildConversationHistoryWindow(
   const recentHistory = history.slice(-recentMessageCount);
   const olderHistory = history.length > recentMessageCount ? history.slice(0, -recentMessageCount) : [];
 
-  if (olderHistory.length === 0) {
+  if (olderHistory.length === 0 || mode === "recent") {
     return { recentHistory, episodeSummaryMessage: null };
   }
 
@@ -3635,6 +3637,8 @@ export async function chat(opts: {
    * must pass this when they augment `message` with Build/resume context.
    */
   turnIntent?: TurnIntent;
+  /** Immutable server-owned policy shared by context, memory, history, and prompt construction. */
+  executionPlan?: Readonly<ExecutionPlan>;
   /**
    * Server-owned source evidence retained while a route retries another
    * provider. This map is request-scoped and contains read bodies only.
@@ -3683,6 +3687,7 @@ export async function chat(opts: {
     productionTraceLinks,
     objective,
     turnIntent: suppliedTurnIntent,
+    executionPlan: suppliedExecutionPlan,
     retainedEvidence,
     capabilityRegistry,
     capabilityCatalogRequest,
@@ -4313,13 +4318,6 @@ export async function chat(opts: {
   const streamCallback =
     repairPlanExecution || forensicOutputMode ? undefined : onDelta;
 
-  // Forensic / structured-output audits are stateless: previous conversation
-  // turns contain prior architectural descriptions that strongly bias the model
-  // toward repeating them instead of following the forensic schema. Ordinary
-  // conversations use one stable window regardless of request classification.
-  const conversationHistoryTurns =
-    structuredOutputMode || capabilityProbeRequest ? 0 : CONVERSATION_HISTORY_TURNS;
-
   // Deep-analysis gate: forensic/audit prompts (structuredOutputMode) and
   // deep_analysis category are handled purely through prompt behavioural rules
   // (pacing + few-shot examples in buildStructuredOutputFewShot).
@@ -4338,7 +4336,7 @@ export async function chat(opts: {
     : "chat";
   const modelHasTools = !!rootPath && toolExecutionRequested;
 
-  const executionPlan = resolveExecutionDecision(agentScope, {
+  const executionPlan = suppliedExecutionPlan ?? resolveExecutionDecision(agentScope, {
     hasTools: modelHasTools,
     requireTools: modelHasTools,
     ...(capabilityProbeRequest
@@ -4351,6 +4349,10 @@ export async function chat(opts: {
         }
       : {}),
   });
+  const effectivePromptProfile = executionPlan.promptProfile ?? contextProfile;
+  const effectiveSuppressSessionMemory =
+    suppressHistoricalSessionMemory || executionPlan.taskProfile.memoryMode === "none";
+  const conversationHistoryTurns = executionPlan.historyDepth;
 
   console.info(JSON.stringify({
     scope: "chat-agent",
@@ -4658,6 +4660,7 @@ export async function chat(opts: {
   const { recentHistory, episodeSummaryMessage } = buildConversationHistoryWindow(
     history,
     conversationHistoryTurns,
+    executionPlan.taskProfile.historyMode,
   );
 
   // ── Prior repair-plan handoff message ────────────────────────────────────
@@ -4695,14 +4698,15 @@ export async function chat(opts: {
         hasTools: tools != null,
         streamingMode: false,
         focusHint: combinedFocusHint || undefined,
-        profile: contextProfile,
+        profile: effectivePromptProfile,
+        executionPlan,
         activeTask,
          taskChecklist,
         structuredOutputMode: promptStructuredOutputMode,
         outputContract: promptOutputContract,
         responseLanguage,
          fixtureAuditMode,
-        suppressSessionMemory: suppressHistoricalSessionMemory,
+        suppressSessionMemory: effectiveSuppressSessionMemory,
         immediateExecution,
          capabilityCatalog: capabilityCatalogPrompt,
       }) + implementationResumeInstruction +
@@ -6171,14 +6175,15 @@ export async function chat(opts: {
                   hasTools: tools != null,
                   streamingMode: true,
                   focusHint: combinedFocusHint || undefined,
-                  profile: contextProfile,
+                  profile: effectivePromptProfile,
+                  executionPlan,
                   activeTask,
                   taskChecklist,
                   structuredOutputMode: promptStructuredOutputMode,
                   outputContract: promptOutputContract,
                   responseLanguage,
                   fixtureAuditMode,
-                  suppressSessionMemory: suppressHistoricalSessionMemory,
+                  suppressSessionMemory: effectiveSuppressSessionMemory,
                   capabilityCatalog: capabilityCatalogPrompt,
                 }) + buildResumedEvidenceLedger(activeTaskState, resumedTask),
             }
@@ -6592,7 +6597,7 @@ export async function chat(opts: {
     // Replace system message with streaming-mode plain-markdown variant.
     const streamMessages = messages.map((m, i) =>
       i === 0 && m.role === "system"
-          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: contextProfile, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: suppressHistoricalSessionMemory, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
         : m,
     );
 

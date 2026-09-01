@@ -42,9 +42,11 @@ import {
   enrichContextWithMemories,
   writeSessionMemories,
   classifyRequest,
+  resolveExecutionDecision,
   resolveTurnIntent,
   isWriteCapableTurn,
   isImmediateExecutionRequest,
+  isCapabilityProbeRequest,
   isTaskContinuationRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
   buildActiveTaskState,
@@ -92,6 +94,7 @@ import type {
   ExecutionLedgerSnapshot,
   ExecutionTerminalReason,
   ForensicDiagnostic,
+  ExecutionPlan,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
@@ -2061,17 +2064,44 @@ function sanitizeExecutionCheckpointForClient(value: unknown): unknown {
   return redactUserFacingValue(scrubHistoricalValidationRecord(value));
 }
 
-// ── Profile → context sections mapping ──────────────────────────────────────
-// Maps the classifier's contextProfile to the DB sections buildProjectContext
-// should load. Lite turns load the minimum; deep turns load everything.
-type ContextSection = "tasks" | "metrics" | "graphEntities" | "graphRelationships" | "events" | "workflows";
-function profileContextSections(profile: "chat-lite" | "chat-normal" | "chat-deep" | "chat"): ContextSection[] {
-  switch (profile) {
-    case "chat-lite":   return ["tasks"];
-    case "chat-normal": return ["tasks", "metrics"];
-    case "chat-deep":   return ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"];
-    case "chat":        return ["tasks", "metrics"]; // legacy alias → chat-normal
-  }
+// ── Turn policy helpers ───────────────────────────────────────────────────────
+// Resolve the plan once at the authenticated route boundary. Every downstream
+// context, memory, history, prompt, and provider call receives this same
+// immutable value instead of reconstructing policy from augmented text.
+function resolveChatExecutionPlan(
+  intent: ReturnType<typeof resolveTurnIntent>,
+  hasTools: boolean,
+  message: string,
+): Readonly<ExecutionPlan> {
+  const stateless = intent.requiresEvidence ||
+    intent.kind === "FORENSIC_AUDIT" ||
+    isCapabilityProbeRequest(message);
+  return resolveExecutionDecision(intent.executionTaskType, {
+    hasTools,
+    requireTools: hasTools,
+    qualityProfile: intent.executionTaskType,
+    ...(stateless
+      ? {
+          memoryModeOverride: "none" as const,
+          historyModeOverride: "none" as const,
+        }
+      : {}),
+    ...(isCapabilityProbeRequest(message)
+      ? {
+          contextIntensityOverride: "lite" as const,
+          graphModeOverride: "off" as const,
+        }
+      : {}),
+  });
+}
+
+function historyFetchLimitForPlan(plan: Readonly<ExecutionPlan>): number {
+  if (plan.taskProfile.historyMode === "none") return 0;
+  // Summarized history needs older messages to build the bounded episode
+  // summary; recent history only needs the exact raw window.
+  return plan.taskProfile.historyMode === "summarized"
+    ? CONVERSATION_HISTORY_FETCH_MESSAGES
+    : plan.historyDepth * 2;
 }
 
 /**
@@ -2326,6 +2356,7 @@ router.post("/ai/chat", async (req, res) => {
     implementationPlanResume,
   });
   const modelHasTools = turnIntent.requiresTools;
+  const contextExecutionPlan = resolveChatExecutionPlan(turnIntent, modelHasTools, message);
   let analysisCorrelation: {
     operationId: string;
     projectId: string;
@@ -2357,7 +2388,7 @@ router.post("/ai/chat", async (req, res) => {
   // keeps the latest complete turns verbatim and summarizes older turns,
   // while execution handoffs can still recover an older repair plan from this
   // larger fixed window.
-  const historyLimit = CONVERSATION_HISTORY_FETCH_MESSAGES;
+  const historyLimit = historyFetchLimitForPlan(contextExecutionPlan);
 
     const historyRows = existingSession
       ? await db
@@ -2390,14 +2421,14 @@ router.post("/ai/chat", async (req, res) => {
   }
   try {
     const baseProjectContext = await buildProjectContext(projectId, {
-      sections: profileContextSections(chatClassification.contextProfile),
+      plan: contextExecutionPlan,
     });
     const projectContext = chatClassification.implementationPlanMode
       ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
     // Enrich context with cross-session memories (outside cache; always fresh).
     // Failure is non-fatal — agent proceeds without memory context.
-    await enrichContextWithMemories(projectContext, projectId).catch((err) => {
+    await enrichContextWithMemories(projectContext, projectId, contextExecutionPlan).catch((err) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
     });
     // AI-TASK-007: Structured chat context trace.
@@ -2416,6 +2447,30 @@ router.post("/ai/chat", async (req, res) => {
       requiresEvidence: turnIntent.requiresEvidence,
       qualityProfile: turnIntent.executionTaskType,
       contextProfile: chatClassification.contextProfile,
+      executionPlan: {
+        planned: {
+          taskType: contextExecutionPlan.taskProfile.taskType,
+          promptProfile: contextExecutionPlan.promptProfile,
+          contextIntensity: contextExecutionPlan.taskProfile.contextIntensity,
+          memoryMode: contextExecutionPlan.taskProfile.memoryMode,
+          graphMode: contextExecutionPlan.taskProfile.graphMode,
+          historyMode: contextExecutionPlan.taskProfile.historyMode,
+          contextBudget: contextExecutionPlan.contextBudget,
+          graphBudget: contextExecutionPlan.graphBudget,
+          historyDepth: contextExecutionPlan.historyDepth,
+          memoryDepth: contextExecutionPlan.memoryDepth,
+          cacheMode: contextExecutionPlan.cacheMode,
+        },
+        effective: {
+          contextSections: ["project", ...(contextExecutionPlan.contextSections ?? [])],
+          promptProfile: contextExecutionPlan.promptProfile,
+          historyMode: contextExecutionPlan.taskProfile.historyMode,
+          historyMessagesFetched: historyRows.length,
+          memoryMode: contextExecutionPlan.taskProfile.memoryMode,
+          memoryIncluded: Boolean(projectContext.sessionMemories),
+          cacheMode: contextExecutionPlan.cacheMode,
+        },
+      },
       executionHandoff: {
         requested: immediateExecutionRequest,
         sessionId: existingSession?.id ?? sessionId ?? null,
@@ -2442,6 +2497,7 @@ router.post("/ai/chat", async (req, res) => {
                 : {}),
             })),
           projectContext,
+          executionPlan: contextExecutionPlan,
           rootPath: validRootPath,
           projectId,
           activeTaskState: resumableStateForTurn,
@@ -2797,15 +2853,18 @@ router.post("/ai/chat", async (req, res) => {
         ));
       return msg;
     });
-    // Fire-and-forget memory write — must not block the JSON response.
-    writeSessionMemories(
-      sessionIdToUse,
-      projectId,
-      redactUserFacingValue(result.sources),
-      sanitizeResponseText(result.response),
-    ).catch((err) => {
-      logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
-    });
+    // Evidence-bound and forensic plans are stateless in both directions:
+    // do not persist their source-derived response as future navigation memory.
+    if (contextExecutionPlan.taskProfile.memoryMode !== "none") {
+      writeSessionMemories(
+        sessionIdToUse,
+        projectId,
+        redactUserFacingValue(result.sources),
+        sanitizeResponseText(result.response),
+      ).catch((err) => {
+        logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
+      });
+    }
 
     const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
     return res.json({
@@ -3107,6 +3166,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     auditScopeDescription?: string;
   }).auditScopeDescription;
   const streamModelHasTools = streamTurnIntent.requiresTools;
+  const streamExecutionPlan = resolveChatExecutionPlan(streamTurnIntent, streamModelHasTools, message);
   let analysisCorrelation: {
     operationId: string;
     projectId: string;
@@ -3602,7 +3662,7 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     const streamIsGreetingTurn = isolatedConversationTurn;
     const immediateExecutionRequest = isImmediateExecutionRequest(message);
-    const historyLimit = CONVERSATION_HISTORY_FETCH_MESSAGES;
+    const historyLimit = historyFetchLimitForPlan(streamExecutionPlan);
 
     const historyRows = existingSession
       ? await db
@@ -3615,13 +3675,13 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     sse({ type: "stage", stage: "building-context" });
     const baseProjectContext = await buildProjectContext(projectId, {
-      sections: profileContextSections(streamClassification.contextProfile),
+      plan: streamExecutionPlan,
     });
     const projectContext = streamClassification.implementationPlanMode
       ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
     // Enrich with cross-session memories (outside cache; always fresh).
-    await enrichContextWithMemories(projectContext, projectId).catch((err) => {
+    await enrichContextWithMemories(projectContext, projectId, streamExecutionPlan).catch((err) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
     });
 
@@ -3652,6 +3712,30 @@ router.post("/ai/chat/stream", async (req, res) => {
       requiresEvidence: streamTurnIntent.requiresEvidence,
       qualityProfile: streamTurnIntent.executionTaskType,
       contextProfile: streamClassification.contextProfile,
+      executionPlan: {
+        planned: {
+          taskType: streamExecutionPlan.taskProfile.taskType,
+          promptProfile: streamExecutionPlan.promptProfile,
+          contextIntensity: streamExecutionPlan.taskProfile.contextIntensity,
+          memoryMode: streamExecutionPlan.taskProfile.memoryMode,
+          graphMode: streamExecutionPlan.taskProfile.graphMode,
+          historyMode: streamExecutionPlan.taskProfile.historyMode,
+          contextBudget: streamExecutionPlan.contextBudget,
+          graphBudget: streamExecutionPlan.graphBudget,
+          historyDepth: streamExecutionPlan.historyDepth,
+          memoryDepth: streamExecutionPlan.memoryDepth,
+          cacheMode: streamExecutionPlan.cacheMode,
+        },
+        effective: {
+          contextSections: ["project", ...(streamExecutionPlan.contextSections ?? [])],
+          promptProfile: streamExecutionPlan.promptProfile,
+          historyMode: streamExecutionPlan.taskProfile.historyMode,
+          historyMessagesFetched: historyRows.length,
+          memoryMode: streamExecutionPlan.taskProfile.memoryMode,
+          memoryIncluded: Boolean(projectContext.sessionMemories),
+          cacheMode: streamExecutionPlan.cacheMode,
+        },
+      },
       executionHandoff: {
         requested: immediateExecutionRequest,
         sessionId: existingSession?.id ?? sessionId ?? null,
@@ -4201,6 +4285,7 @@ router.post("/ai/chat/stream", async (req, res) => {
                 : {}),
             })),
           projectContext,
+          executionPlan: streamExecutionPlan,
           rootPath: validRootPath,
           projectId,
           activeTaskState: streamResumableStateForTurn,
@@ -4979,15 +5064,17 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
     executionTerminal = true;
 
-    // Fire-and-forget memory write — must not block the SSE done event.
-    writeSessionMemories(
-      sessionIdToUse,
-      projectId,
-      redactUserFacingValue(result.sources),
-      sanitizeResponseText(result.response),
-    ).catch((err) => {
-      logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
-    });
+    // Evidence-bound and forensic plans are stateless in both directions.
+    if (streamExecutionPlan.taskProfile.memoryMode !== "none") {
+      writeSessionMemories(
+        sessionIdToUse,
+        projectId,
+        redactUserFacingValue(result.sources),
+        sanitizeResponseText(result.response),
+      ).catch((err) => {
+        logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
+      });
+    }
 
     // PR-010: surface latency and model info in done event.
     const chatLatencyMs = Date.now() - chatStartMs;

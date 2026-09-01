@@ -1,5 +1,6 @@
 import type { AgentContext as ProjectContext } from "./schemas/context.schema.js";
 import type { ExecutionPlan } from "./model-selection/execution-plan.js";
+import type { CacheMode } from "./model-selection/execution-plan.js";
 import type { SliceId } from "./context-runtime/context-object.js";
 
 const CONTEXT_CACHE_TTL_MS = 30_000;
@@ -28,6 +29,7 @@ export function hashExecutionPlan(
   plan: Pick<ExecutionPlan, "contextBudget" | "graphBudget"> & {
     contextIntensity?: string;
     graphMode?: string;
+    cacheMode?: CacheMode;
   },
 ): string {
   return [
@@ -35,6 +37,7 @@ export function hashExecutionPlan(
     plan.graphMode        ?? "?",
     plan.contextBudget,
     plan.graphBudget,
+    plan.cacheMode ?? "?",
   ].join(":");
 }
 
@@ -82,12 +85,24 @@ export function invalidateContextSlice(projectId: string, sliceId: SliceId): voi
   }
 }
 
-export function getCachedContext(cacheKey: string): { data: ProjectContext; expiresAt: number } | undefined {
+export function getCachedContext(
+  cacheKey: string,
+  cacheMode: CacheMode = "normal",
+): { data: ProjectContext; expiresAt: number } | undefined {
+  if (cacheMode === "bypass") return undefined;
   return contextCache.get(cacheKey);
 }
 
-export function setCachedContext(cacheKey: string, data: ProjectContext): void {
-  contextCache.set(cacheKey, { data, expiresAt: Date.now() + CONTEXT_CACHE_TTL_MS });
+export function setCachedContext(
+  cacheKey: string,
+  data: ProjectContext,
+  cacheMode: CacheMode = "normal",
+): void {
+  if (cacheMode === "bypass") return;
+  const ttl = cacheMode === "aggressive"
+    ? CONTEXT_CACHE_TTL_MS * 4
+    : CONTEXT_CACHE_TTL_MS;
+  contextCache.set(cacheKey, { data, expiresAt: Date.now() + ttl });
 }
 
 export function setInvalidationNotifier(fn: (projectId: string) => void): void {

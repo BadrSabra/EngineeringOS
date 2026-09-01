@@ -10,6 +10,7 @@ export type {
   ExecutionPlan,
   ExecutionPlanOptions,
   CacheMode,
+  ExecutionContextSection,
 } from "../quality/quality-planner.js";
 
 export type {
@@ -36,3 +37,4 @@ export type {
 } from "../quality/execution-phases.js";
 
 export { buildExecutionPlan } from "../quality/quality-planner.js";
+export { getExecutionPlanContextSections } from "../quality/quality-planner.js";

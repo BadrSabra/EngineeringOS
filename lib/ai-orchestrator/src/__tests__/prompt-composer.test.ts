@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { composePrompt, promptContextOverview } from "../prompts/prompt-composer.js";
+import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 
 describe("prompt composer", () => {
   it("drops empty fragments when composing prompts", () => {
@@ -75,6 +76,30 @@ describe("prompt composer", () => {
     expect(result).toContain("Tasks A");
     expect(result).toContain("**Recent Events:**");
     expect(result).toContain("Events A");
+    expect(result).not.toContain("**Workflows:**");
+  });
+
+  it("uses the execution plan manifest instead of the caller's profile", () => {
+    const context = {
+      project: "Project A",
+      latestMetrics: "Metrics A",
+      graphSummary: "Graph A",
+      recentTasks: "Tasks A",
+      recentEvents: "Events A",
+      workflows: "Workflows A",
+      metricsVerified: true,
+    };
+    const plan = resolveExecutionDecision("chat-agent", {
+      contextIntensityOverride: "lite",
+      graphModeOverride: "off",
+    });
+
+    const result = promptContextOverview(context, "full", { plan });
+
+    expect(result).toContain("**Project:**");
+    expect(result).toContain("**Recent Tasks:**");
+    expect(result).not.toContain("**Quality Metrics:**");
+    expect(result).not.toContain("**Knowledge Graph:**");
     expect(result).not.toContain("**Workflows:**");
   });
 });

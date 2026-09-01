@@ -115,6 +115,7 @@ import {
   startContextInvalidationChannel,
 } from "./context-builder.js";
 import { AgentContextSchema } from "./schemas/context.schema.js";
+import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -217,6 +218,24 @@ describe("buildProjectContext → AgentContextSchema", () => {
     invalidateContextCache(PROJECT_ID);
     const ctx = await buildProjectContext(PROJECT_ID);
     expect(ctx.metricsVerified).toBe(true);
+  });
+
+  it("uses the plan section manifest and bypasses cache for deep plans", async () => {
+    const plan = resolveExecutionDecision("scan-runner");
+    const first = await buildProjectContext(PROJECT_ID, { plan });
+    const hitsAfterFirst = new Map(_tableHits);
+    const second = await buildProjectContext(PROJECT_ID, { plan });
+
+    expect(second.project).toBe(first.project);
+    expect(_tableHits.get(metricsTable as object)).toBeGreaterThan(
+      hitsAfterFirst.get(metricsTable as object) ?? 0,
+    );
+    expect(_tableHits.get(graphEntitiesTable as object)).toBeGreaterThan(
+      hitsAfterFirst.get(graphEntitiesTable as object) ?? 0,
+    );
+    expect(_tableHits.get(eventsTable as object)).toBeGreaterThan(
+      hitsAfterFirst.get(eventsTable as object) ?? 0,
+    );
   });
 
   it("metricsVerified is false when scan never ran", async () => {

@@ -480,6 +480,8 @@ export async function chatWithFallback(
     objective?: ObjectiveContract;
     /** Route-owned decision derived from the unaugmented user message. */
     turnIntent?: TurnIntent;
+    /** Immutable route-owned context and execution policy. */
+    executionPlan?: import("@workspace/ai-orchestrator").ExecutionPlan;
   /** Request-scoped read evidence shared across provider retries. */
   retainedEvidence?: Map<string, string>;
     /** Enabled only after the route validates an approved implementation plan. */

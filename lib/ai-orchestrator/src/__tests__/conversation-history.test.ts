@@ -49,4 +49,32 @@ describe("conversation history window", () => {
     expect(window.recentHistory).toEqual([]);
     expect(window.episodeSummaryMessage).toBeNull();
   });
+
+  it("applies recent mode without synthesizing an older summary", () => {
+    const history = [
+      message("user", "old question"),
+      message("assistant", "old answer"),
+      message("user", "recent question"),
+      message("assistant", "recent answer"),
+    ];
+
+    const window = buildConversationHistoryWindow(history, 1, "recent");
+
+    expect(window.recentHistory.map((item) => item.content)).toEqual([
+      "recent question",
+      "recent answer",
+    ]);
+    expect(window.episodeSummaryMessage).toBeNull();
+  });
+
+  it("applies the explicit none mode even when a depth is supplied", () => {
+    const window = buildConversationHistoryWindow(
+      [message("user", "old question"), message("assistant", "old answer")],
+      4,
+      "none",
+    );
+
+    expect(window.recentHistory).toEqual([]);
+    expect(window.episodeSummaryMessage).toBeNull();
+  });
 });

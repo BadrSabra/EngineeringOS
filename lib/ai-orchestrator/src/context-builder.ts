@@ -107,14 +107,17 @@ export async function buildProjectContext(
     contextIntensityOverride: "normal",
   });
 
+  const sections = options.sections ??
+    [...(effectivePlan.contextSections ?? [])] as ContextLoadSection[];
   const planHash = hashExecutionPlan(effectivePlan);
-  const cacheKey = buildContextCacheKey(projectId, options.sections, planHash);
+  const cacheKey = buildContextCacheKey(projectId, sections, planHash);
   const now = Date.now();
-  const cached = getCachedContext(cacheKey);
+  const cacheMode = effectivePlan.cacheMode;
+  const cached = getCachedContext(cacheKey, cacheMode);
   if (cached && cached.expiresAt > now) return cached.data;
 
   // Load raw DB rows and serialize to prompt strings.
-  const loaded = await loadProjectContext(projectId, options);
+  const loaded = await loadProjectContext(projectId, { ...options, sections });
   const raw = buildProjectContextFromLoadedContext(loaded);
 
   // Wrap each string field as a ContextSlice with load metadata.
@@ -157,7 +160,18 @@ export async function buildProjectContext(
       budgetTokens: contextPlan.budgetTokens,
       graphBudgetTokens: contextPlan.graphBudgetTokens,
       sliceCount: contextPlan.slices.length,
-      sections: options.sections ?? null,
+       sections,
+       cacheMode,
+       planned: {
+         contextIntensity: effectivePlan.taskProfile.contextIntensity,
+         graphMode: effectivePlan.taskProfile.graphMode,
+         contextBudget: effectivePlan.contextBudget,
+         graphBudget: effectivePlan.graphBudget,
+       },
+       effective: {
+         loadedSections: [...loaded.requestedSections],
+         cacheMode,
+       },
       decisions: contextObject.plan.slices.map((s) => ({
         id: s.id,
         decision: s.admissionDecision,
@@ -180,6 +194,6 @@ export async function buildProjectContext(
     ...(raw.sessionMemories !== undefined && { sessionMemories: raw.sessionMemories }),
   };
 
-  setCachedContext(cacheKey, result);
+  setCachedContext(cacheKey, result, cacheMode);
   return result;
 }

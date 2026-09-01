@@ -1,5 +1,7 @@
 import type { ProjectContext } from "../context-builder.js";
 import { formatUntrustedContent, type UntrustedContentSource } from "../untrusted-content.js";
+import { getExecutionPlanContextSections } from "../model-selection/execution-plan.js";
+import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 
 export type PromptContextSection = keyof Pick<
   ProjectContext,
@@ -62,9 +64,29 @@ export function promptList(items: string[], indent = ""): string {
 export function promptContextOverview(
   context: ProjectContext,
   profile: PromptContextProfile = "full",
-  options: { includeSessionMemory?: boolean } = {},
+  options: { includeSessionMemory?: boolean; plan?: Readonly<ExecutionPlan> } = {},
 ): string {
-  const sections = new Set(PROFILE_SECTIONS[profile]);
+  const sections = new Set<PromptContextSection>();
+  if (options.plan) {
+    // The project record is always loaded by context-loader; the plan manifest
+    // covers the optional domain sections.
+    sections.add("project");
+    for (const section of options.plan.contextSections ?? getExecutionPlanContextSections(options.plan)) {
+      sections.add(
+        section === "tasks"
+          ? "recentTasks"
+          : section === "metrics"
+            ? "latestMetrics"
+            : section === "graphEntities" || section === "graphRelationships"
+              ? "graphSummary"
+              : section === "events"
+                ? "recentEvents"
+                : "workflows",
+      );
+    }
+  } else {
+    for (const section of PROFILE_SECTIONS[profile]) sections.add(section);
+  }
   const includeSessionMemory = options.includeSessionMemory ?? true;
 
   return composePrompt(

@@ -13,6 +13,13 @@ import {
 import { getPhaseBudget, type ExecutionPhase, type PhaseBudget } from "./execution-phases.js";
 
 export type CacheMode = "aggressive" | "normal" | "bypass";
+export type ExecutionContextSection =
+  | "tasks"
+  | "metrics"
+  | "graphEntities"
+  | "graphRelationships"
+  | "events"
+  | "workflows";
 
 export type ExecutionPlan = {
   taskProfile: TaskProfile;
@@ -31,6 +38,8 @@ export type ExecutionPlan = {
   memoryDepth: number;
   /** Cache aggressiveness driven by context intensity. */
   cacheMode: CacheMode;
+  /** Database context sections selected by this plan. */
+  contextSections: readonly ExecutionContextSection[];
   /** Server-owned phase contract; phase budgets cannot be shared by loops. */
   phases: Readonly<Record<ExecutionPhase, PhaseBudget>>;
 };
@@ -61,11 +70,63 @@ const CACHE_MODE_BY_INTENSITY: Record<ContextIntensity, CacheMode> = {
   deep:   "bypass",
 };
 
+const CONTEXT_SECTIONS_BY_PROFILE: Record<string, readonly ExecutionContextSection[]> = {
+  "chat-lite": ["tasks"],
+  "chat-normal": ["tasks", "metrics"],
+  "chat-deep": ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+  task: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+  scan: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+  review: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+  workflow: ["tasks", "metrics", "events", "workflows"],
+  full: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+  chat: ["tasks", "metrics"],
+};
+
+function normalizeExecutionScope(scope: string): string {
+  switch (scope.trim().toLowerCase()) {
+    case "analysis":
+      return "scan-runner";
+    case "task_execution":
+      return "task-runner";
+    case "code_review":
+      return "review-agent";
+    case "workflow":
+      return "workflow-orchestrator";
+    case "tool_chat":
+      return "chat-agent";
+    default:
+      return scope;
+  }
+}
+
+/**
+ * Return the section manifest owned by an execution plan.
+ *
+ * Graph mode is applied here, rather than by individual callers, so a plan
+ * with graph disabled never loads or displays graph data and indexed/expanded
+ * graph requests are visible in the final prompt.
+ */
+export function getExecutionPlanContextSections(
+  plan: Pick<ExecutionPlan, "promptProfile" | "taskProfile">,
+): readonly ExecutionContextSection[] {
+  const base = CONTEXT_SECTIONS_BY_PROFILE[plan.promptProfile] ??
+    CONTEXT_SECTIONS_BY_PROFILE["chat-normal"];
+  const sections = new Set(base);
+  if (plan.taskProfile.graphMode === "off") {
+    sections.delete("graphEntities");
+    sections.delete("graphRelationships");
+  } else {
+    sections.add("graphEntities");
+    sections.add("graphRelationships");
+  }
+  return [...sections];
+}
+
 export function buildExecutionPlan(
   scope: string,
   options?: ExecutionPlanOptions,
 ): ExecutionPlan {
-  const baseProfile = buildTaskProfile(scope, { hasTools: options?.hasTools });
+  const baseProfile = buildTaskProfile(normalizeExecutionScope(scope), { hasTools: options?.hasTools });
 
   // Apply any caller overrides on top of the task-type defaults.
   const taskProfile: TaskProfile = {
@@ -96,6 +157,10 @@ export function buildExecutionPlan(
     historyDepth:  HISTORY_DEPTH[historyMode],
     memoryDepth:   MEMORY_DEPTH[memoryMode],
     cacheMode:     CACHE_MODE_BY_INTENSITY[contextIntensity],
+    contextSections: getExecutionPlanContextSections({
+      promptProfile: promptPlan.contextProfile,
+      taskProfile,
+    }),
     phases: {
       localization: getPhaseBudget("localization"),
       evidence: getPhaseBudget("evidence"),
