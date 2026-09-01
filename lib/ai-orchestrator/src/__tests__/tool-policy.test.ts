@@ -10,12 +10,12 @@ describe("tool policy", () => {
     expect(getAllowedToolDefinitions(policy)).toEqual([]);
   });
 
-  it("disables tools for providers marked as text-only", () => {
+  it("allows tools for Gemini when a project root is available", () => {
     const policy = resolveToolPolicy({ provider: "gemini", rootPath: "/tmp/project" });
 
-    expect(policy.enabled).toBe(false);
-    expect(policy.reason).toContain("text-only");
-    expect(getAllowedToolDefinitions(policy)).toEqual([]);
+    expect(policy.enabled).toBe(true);
+    expect(policy.allowFileRead).toBe(true);
+    expect(getAllowedToolDefinitions(policy)).not.toEqual([]);
   });
 
   it("exposes the full tool suite in workspace mode", () => {
@@ -72,15 +72,15 @@ describe("tool policy", () => {
 
   it("keeps project read capability fail-closed for unsupported providers", () => {
     const missingRoot = resolveToolPolicy({ provider: "groq", mode: "read-only" });
-    const textOnly = resolveToolPolicy({
+    const gemini = resolveToolPolicy({
       provider: "gemini",
       rootPath: "/tmp/project",
       mode: "read-only",
     });
 
     expect(getAllowedToolDefinitions(missingRoot)).toEqual([]);
-    expect(getAllowedToolDefinitions(textOnly)).toEqual([]);
+    expect(getAllowedToolDefinitions(gemini)).not.toEqual([]);
     expect(missingRoot.allowFileWrite).toBe(false);
-    expect(textOnly.allowFileRead).toBe(false);
+    expect(gemini.allowFileRead).toBe(true);
   });
 });

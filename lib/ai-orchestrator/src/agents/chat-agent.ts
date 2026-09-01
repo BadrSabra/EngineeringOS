@@ -3006,9 +3006,9 @@ function buildRepairPlanExecutionResponse(
 /**
  * Build the tool list for the active provider.
  *
- * Gemini's OpenAI-compatible shim currently returns 404 when tool payloads are
- * included, so we keep it in text-only mode and let it answer from context.
- * Other providers receive the full file + git tool suite.
+ * Gemini tool calls are translated by the provider strategy to the native
+ * generateContent function-calling format. Other providers use their
+ * respective compatible tool transports.
  */
 function buildProviderTools(
   provider: ProviderId,

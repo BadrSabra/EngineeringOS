@@ -4,13 +4,13 @@
  * Wraps `geminiCompleteRaw` and `geminiCompleteStream` from
  * openai-compatible-client.ts behind the `ProviderStrategy` interface.
  *
- * `supportsNativeStream: false` — the Gemini shim strips tools and
- * responseFormat, and the free-tier endpoint is not reliable for SSE.
+ * `supportsNativeStream: false` — Gemini's native tool path is non-streaming
+ * and the free-tier endpoint is not reliable for SSE.
  * The agent re-emits the non-streaming response word-by-word.
  *
- * Tool payloads are stripped inside `geminiCompleteRaw` (the Gemini
- * OpenAI-compatible shim currently returns 404 with tools attached), while
- * response-format hints are preserved for structured JSON output.
+ * Tool payloads are translated to Gemini's native generateContent function
+ * calling API inside `geminiCompleteRaw`; no-tool calls retain the
+ * OpenAI-compatible JSON-mode path.
  */
 import {
   geminiCompleteRaw,
@@ -35,7 +35,6 @@ export const geminiStrategy: ProviderStrategy = {
         "Gemini requires an API key — save one in the AI settings panel",
       );
     }
-    // geminiCompleteRaw already strips tools and responseFormat internally.
     return geminiCompleteRaw(messages, { ...opts, apiKey: opts.apiKey });
   },
 

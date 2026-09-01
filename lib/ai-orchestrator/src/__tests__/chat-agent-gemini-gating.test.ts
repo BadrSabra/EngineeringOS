@@ -56,7 +56,7 @@ describe("chat agent provider tool gating", () => {
     vi.clearAllMocks();
   });
 
-  it("does not pass tools to Gemini when the provider is tools-disabled", async () => {
+  it("passes the authorized tools to Gemini when tool use is enabled", async () => {
     const { chat } = await import("../agents/chat-agent.js");
 
     const result = await chat({
@@ -73,6 +73,7 @@ describe("chat agent provider tool gating", () => {
     expect(result.response).toBe("ok");
     expect(capturedCalls).toHaveLength(1);
     expect(capturedCalls[0]?.provider).toBe("gemini");
-    expect(capturedCalls[0]?.opts).not.toHaveProperty("tools");
+    expect(capturedCalls[0]?.opts).toHaveProperty("tools");
+    expect(Array.isArray(capturedCalls[0]?.opts.tools)).toBe(true);
   });
 });

@@ -123,7 +123,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     consoleUrl: "aistudio.google.com/apikey",
     statusUrl: "status.cloud.google.com",
     supportsStreaming: true,
-    supportsTools: false,
+    supportsTools: true,
     supportsJsonMode: true,
     defaultModels: {
       fast: "gemini-3-flash-preview",
@@ -131,11 +131,11 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     },
     capabilities: {
       supportsStreaming: true,
-      supportsTools: false,
+      supportsTools: true,
       supportsJsonMode: true,
       supportsVision: true,
       supportsReasoning: true,
-      supportsFunctionCalling: false,
+      supportsFunctionCalling: true,
       supportsThinking: false,
       maxContext: 128_000,
       maxOutput: 8_192,

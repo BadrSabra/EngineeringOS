@@ -1553,17 +1553,288 @@ export async function validateGeminiDefaultModels(
   }
 }
 
+type GeminiPart = {
+  text?: string;
+  functionCall?: { name?: unknown; args?: unknown };
+  functionResponse?: { name?: unknown; response?: unknown };
+};
+
+type GeminiContent = {
+  role: "user" | "model";
+  parts: GeminiPart[];
+};
+
+function parseToolArguments(
+  value: string,
+  context: { providerName: string; model: string },
+): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("tool arguments must be an object");
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    throw new GroqClientError(
+      "INVALID_TOOL_CALL",
+      "Gemini returned invalid tool arguments",
+      { cause: error, context },
+    );
+  }
+}
+
+function parseToolResponseContent(content: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Tool output is allowed to be plain text; wrap it in the response object
+    // required by Gemini's functionResponse schema.
+  }
+  return { result: content };
+}
+
+function toGeminiContents(messages: RawMessage[]): {
+  contents: GeminiContent[];
+  systemInstruction?: { parts: Array<{ text: string }> };
+} {
+  const contents: GeminiContent[] = [];
+  const systemParts: Array<{ text: string }> = [];
+  const toolNamesById = new Map<string, string>();
+
+  for (const message of messages) {
+    if (message.role === "system") {
+      systemParts.push({ text: message.content });
+      continue;
+    }
+
+    if (message.role === "user") {
+      contents.push({ role: "user", parts: [{ text: message.content }] });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const parts: GeminiPart[] = [];
+      if (message.content) parts.push({ text: message.content });
+      for (const call of message.tool_calls ?? []) {
+        const args = parseToolArguments(call.function.arguments, {
+          providerName: "Gemini",
+          model: "tool-history",
+        });
+        toolNamesById.set(call.id, call.function.name);
+        parts.push({
+          functionCall: { name: call.function.name, args },
+        });
+      }
+      if (parts.length > 0) contents.push({ role: "model", parts });
+      continue;
+    }
+
+    const name = toolNamesById.get(message.tool_call_id);
+    if (!name) {
+      throw new GroqClientError(
+        "INVALID_TOOL_CALL",
+        "Gemini received a tool result without its assistant call",
+        { context: { providerName: "Gemini" } },
+      );
+    }
+    contents.push({
+      role: "user",
+      parts: [{
+        functionResponse: {
+          name,
+          response: parseToolResponseContent(message.content),
+        },
+      }],
+    });
+  }
+
+  return {
+    contents,
+    ...(systemParts.length > 0 ? { systemInstruction: { parts: systemParts } } : {}),
+  };
+}
+
+async function geminiCompleteWithTools(
+  messages: RawMessage[],
+  opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+): Promise<RawGroqResponse> {
+  const model = opts.model ?? "gemini-3-flash-preview";
+  const startedAt = admitProviderAttempt(opts.executionLedger, "Gemini", model);
+  let error: unknown;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort(opts.signal?.reason);
+  if (opts.signal?.aborted) onAbort();
+  else opts.signal?.addEventListener("abort", onAbort, { once: true });
+  const cleanup = () => {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", onAbort);
+  };
+
+  try {
+    const { contents, systemInstruction } = toGeminiContents(messages);
+    const tools = (opts.tools ?? []).map((tool) => ({
+      functionDeclarations: [{
+        name: tool.function.name,
+        description: tool.function.description,
+        parametersJsonSchema: tool.function.parameters,
+      }],
+    }));
+    const body: Record<string, unknown> = {
+      contents,
+      ...(systemInstruction ? { systemInstruction } : {}),
+      tools,
+      toolConfig: {
+        functionCallingConfig: {
+          mode: opts.toolChoice === "required" ? "ANY" : "AUTO",
+        },
+      },
+      generationConfig: {
+        temperature: opts.temperature ?? 0.2,
+        maxOutputTokens: opts.maxTokens ?? 4096,
+      },
+    };
+
+    console.info(JSON.stringify({
+      scope: "gemini-client",
+      action: "pre_fetch",
+      providerName: "Gemini",
+      model,
+      messageCount: messages.length,
+      hasTools: tools.length > 0,
+      toolCount: opts.tools?.length ?? 0,
+      toolChoice: opts.toolChoice ?? "auto",
+    }));
+
+    const response = await fetch(
+      `${GEMINI_BASE_URL.replace("/openai", "")}/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "x-goog-api-key": opts.apiKey,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      },
+    );
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw classifyStatus(response.status, text, "Gemini", model, response.headers);
+    }
+
+    type GeminiResponse = {
+      candidates?: Array<{
+        finishReason?: string;
+        content?: { parts?: GeminiPart[] };
+      }>;
+      usageMetadata?: {
+        promptTokenCount?: number;
+        candidatesTokenCount?: number;
+        thoughtsTokenCount?: number;
+      };
+    };
+    const data = (await response.json()) as GeminiResponse;
+    const candidate = data.candidates?.[0];
+    const parts = candidate?.content?.parts ?? [];
+    const content = parts
+      .map((part) => (typeof part.text === "string" ? part.text : ""))
+      .filter(Boolean)
+      .join("") || null;
+    const rawToolCalls = parts
+      .filter((part) => part.functionCall && typeof part.functionCall.name === "string")
+      .map((part, index) => {
+        const functionCall = part.functionCall!;
+        return {
+          id: `gemini_${model}_${index}`,
+          type: "function" as const,
+          function: {
+            name: functionCall.name as string,
+            arguments: JSON.stringify(functionCall.args ?? {}),
+          },
+        };
+      });
+    const normalized = normalizeProviderResponse(
+      {
+        content,
+        toolCalls: rawToolCalls,
+        model,
+        usage: {
+          promptTokens: data.usageMetadata?.promptTokenCount ?? 0,
+          completionTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+        },
+        finishReason: candidate?.finishReason ?? null,
+        reasoningContent: null,
+        outputText: content,
+        reasoningTokens: data.usageMetadata?.thoughtsTokenCount,
+      },
+      {
+        tools: opts.tools,
+        toolManifest: opts.toolManifest,
+        providerName: "Gemini",
+        model,
+      },
+    );
+    const toolCalls = normalized.toolCalls?.length ? normalized.toolCalls : null;
+    if (!normalized.content && !toolCalls) {
+      throw new GroqClientError(
+        "EMPTY_RESPONSE",
+        "Gemini returned neither content nor tool calls",
+        { context: { providerName: "Gemini", providerModel: model } },
+      );
+    }
+    console.info(JSON.stringify({
+      scope: "gemini-client",
+      action: "response_received",
+      providerName: "Gemini",
+      model,
+      contentLength: normalized.content?.length ?? 0,
+      hasToolCalls: Boolean(toolCalls),
+    }));
+    return { ...normalized, toolCalls };
+  } catch (caught) {
+    error = caught;
+    if (controller.signal.aborted && !(caught instanceof GroqClientError)) {
+      throw new GroqClientError("TIMEOUT", "Gemini request timed out", {
+        cause: caught,
+        context: { providerName: "Gemini", providerModel: model },
+      });
+    }
+    if (caught instanceof GroqClientError) throw caught;
+    throw new GroqClientError(
+      "NETWORK_ERROR",
+      caught instanceof Error ? caught.message : "Network error contacting Gemini",
+      { cause: caught, context: { providerName: "Gemini", providerModel: model } },
+    );
+  } finally {
+    cleanup();
+    completeProviderAttempt(opts.executionLedger, "Gemini", model, startedAt, error);
+  }
+}
+
 /**
- * Non-streaming completion via Google Gemini (OpenAI-compatible endpoint).
- * Free tier: 15 RPM / 1,500 RPD / 1M TPD on gemini-2.0-flash-lite.
+ * Non-streaming completion via Google Gemini.
+ *
+ * Tool calls use Gemini's native generateContent function-calling API because
+ * the OpenAI-compatible endpoint does not accept OpenAI tool payloads.
+ * No-tool structured responses continue using the OpenAI-compatible endpoint so
+ * Gemini's supported response_format JSON mode remains unchanged.
  */
 export function geminiCompleteRaw(
   messages: RawMessage[],
   opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): Promise<RawGroqResponse> {
-  const { tools: _tools, ...safeOpts } = opts;
+  if (Array.isArray(opts.tools) && opts.tools.length > 0) {
+    return geminiCompleteWithTools(messages, opts);
+  }
   return oacCompleteRaw(messages, {
-    ...safeOpts,
+    ...opts,
     baseUrl: GEMINI_BASE_URL,
     providerName: "Gemini",
   });
