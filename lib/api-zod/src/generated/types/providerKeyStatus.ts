@@ -6,12 +6,15 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { GroqModelAvailability } from './groqModelAvailability';
+import type { ProviderLifecycleSnapshot } from './providerLifecycleSnapshot';
 
 /**
  * Generic key status response for any AI provider.
  */
 export interface ProviderKeyStatus {
   configured: boolean;
+  /** True when either a user key or a server-managed key is available. */
+  effectiveConfigured?: boolean;
   /**
      * Last 4 characters of the saved key
      * @nullable
@@ -19,5 +22,6 @@ export interface ProviderKeyStatus {
   last4?: string | null;
   /** @nullable */
   updatedAt?: Date | null;
+  lifecycle: ProviderLifecycleSnapshot;
   modelAvailability?: GroqModelAvailability;
 }

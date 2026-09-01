@@ -24,6 +24,10 @@ import {
   validateGeminiDefaultModels,
   type GeminiDefaultModelValidation,
 } from "./openai-compatible-client.js";
+import {
+  validateDeepSeekDefaultModels,
+  type DeepSeekDefaultModelValidation,
+} from "./deepseek-client.js";
 import { GroqClientError } from "./errors.js";
 import { FREE_MODELS } from "./openrouter/model-catalog.js";
 import {
@@ -383,6 +387,56 @@ export async function validateAiProvidersAtStartup(
         }),
       );
       continue;
+    } else if (providerId === "deepseek") {
+      let modelValidation: DeepSeekDefaultModelValidation;
+      try {
+        modelValidation = await validateDeepSeekDefaultModels(
+          keyValue,
+          loadProvider("deepseek").defaultModels,
+        );
+      } catch (error) {
+        const code = error instanceof GroqClientError ? error.code : "UNKNOWN";
+        const authFailure = code === "AUTH_ERROR";
+        results.push({
+          provider: providerId,
+          valid: !authFailure,
+          modelCheck: "unavailable",
+          reason: authFailure
+            ? "DEEPSEEK_API_KEY was rejected while checking the authenticated model catalog — verify the key."
+            : "DeepSeek model availability could not be checked; the provider remains usable for fallback and will be retried on demand.",
+        });
+        console.warn(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: authFailure ? "invalid" : "degraded",
+            modelCheck: "unavailable",
+          }),
+        );
+        anyValid = !authFailure || anyValid;
+        continue;
+      }
+
+      if (!modelValidation.valid) {
+        results.push({
+          provider: providerId,
+          valid: false,
+          modelCheck: "missing",
+          reason: "DeepSeek model catalog is missing one or more configured default models.",
+        });
+        console.warn(
+          JSON.stringify({
+            scope: "startup-validator",
+            provider: providerId,
+            status: "invalid",
+            modelCheck: "missing",
+            missing: modelValidation.missing,
+          }),
+        );
+        continue;
+      }
+
+      results.push({ provider: providerId, valid: true, modelCheck: "passed" });
     } else {
       results.push({ provider: providerId, valid: true });
     }

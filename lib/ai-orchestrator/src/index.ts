@@ -109,6 +109,29 @@ export type {
   GeminiDefaultModelRole,
   GeminiDefaultModelValidation,
 } from "./openai-compatible-client.js";
+export { validateDeepSeekDefaultModels } from "./deepseek-client.js";
+export type {
+  DeepSeekDefaultModelRole,
+  DeepSeekDefaultModelValidation,
+} from "./deepseek-client.js";
+export {
+  getProviderLifecycleSnapshot,
+  invalidateProviderLifecycle,
+  recordProviderLifecycleOutcome,
+  getProviderLifecycleCacheStatus,
+  _resetProviderLifecycleForTest,
+} from "./provider-lifecycle.js";
+export type {
+  CredentialSource,
+  LifecycleCapability,
+  LifecycleModelRole,
+  LifecycleRoleState,
+  LifecycleCapabilityState,
+  ProviderLifecycleReasonCode,
+  ProviderLifecycleSnapshot,
+  ProviderLifecycleRequirements,
+  ProviderLifecycleOptions,
+} from "./provider-lifecycle.js";
 
 export type { PendingChange } from "./tools/file-tools.js";
 export {

@@ -65,6 +65,8 @@ import type {
   MissionCorrelationReport,
   Event as ApiEvent,
   ExportAiExecutionAudit200,
+  ProviderLifecycleSnapshot,
+  AiProviderMetric,
 } from '@workspace/api-client-react';
 import type {
   BrowserValidationBlockReason,
@@ -435,39 +437,21 @@ function sessionForensicStatusLabel(status: Session['forensicStatus']): string |
     default: return null;
   }
 }
-type GroqModelAvailability = {
-  status: 'available' | 'unavailable' | 'check_unavailable' | 'invalid_credential' | 'not_configured';
-  source: 'personal' | 'server' | 'none';
-  checkedModels: { fast: string; powerful: string };
-  unavailableRoles: Array<'fast' | 'powerful'>;
-  checkedAt: string;
-  reason?: string;
+type ProviderKeyStatus = {
+  configured: boolean;
+  effectiveConfigured?: boolean;
+  last4: string | null;
+  updatedAt: string | null;
+  lifecycle?: ProviderLifecycleSnapshot;
 };
-type ProviderKeyStatus  = { configured: boolean; last4: string | null; updatedAt: string | null };
-type GroqKeyStatus      = ProviderKeyStatus & { modelAvailability?: GroqModelAvailability };
-type DeepSeekKeyStatus  = ProviderKeyStatus;
+type GroqKeyStatus = ProviderKeyStatus;
+type DeepSeekKeyStatus = ProviderKeyStatus;
 type OpenRouterKeyStatus = ProviderKeyStatus;
-type GeminiKeyStatus    = ProviderKeyStatus;
+type GeminiKeyStatus = ProviderKeyStatus;
 type ActiveProvider     = { provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini' | null; configured: boolean };
 
 /** PR-06: runtime health snapshot returned by /api/ai/metrics */
-type ProviderRuntimeMetric = {
-  provider: string;
-  requests: number;
-  failures: number;
-  successRate: number | null;
-  lastSuccessAt: string | null;
-  lastFailureAt: string | null;
-  consecutiveFailures: number;
-  avgLatencyMs: number | null;
-  circuitOpen: boolean;
-  circuitHalfOpen: boolean;
-  cooldownRemainingMs: number | null;
-  configured?: boolean;
-  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'incompatible_model' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'circuit_open' | 'provider_outage' | 'degraded' | 'healthy' | 'unknown';
-  operatorAction?: string | null;
-  correlationId?: string;
-};
+type ProviderRuntimeMetric = AiProviderMetric;
 type MetricsResponse = { metrics: ProviderRuntimeMetric[] };
 type PendingChange = {
   path: string;
@@ -573,9 +557,18 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
     provider_outage: 'Provider unavailable',
     degraded: 'Degraded',
     healthy: 'Healthy',
-    unknown: 'Ready',
+    unknown: 'Not checked',
   };
-  const state = metric.availabilityState ?? (
+  const lifecycleState = metric.lifecycle?.overallStatus === 'unconfigured'
+    ? 'missing_credentials'
+    : metric.lifecycle?.overallStatus === 'unavailable'
+      ? (metric.lifecycle.reasonCodes[0] ?? 'provider_outage')
+      : metric.lifecycle?.overallStatus === 'degraded'
+        ? 'degraded'
+        : metric.lifecycle?.overallStatus === 'ready'
+          ? (metric.availabilityState === 'unknown' ? 'healthy' : metric.availabilityState)
+          : undefined;
+  const state = lifecycleState ?? metric.availabilityState ?? (
     metric.circuitOpen ? 'circuit_open' :
       metric.requests === 0 ? 'unknown' :
         metric.consecutiveFailures > 0 ? 'degraded' : 'healthy'
@@ -594,7 +587,9 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
     );
   }
 
-  const isHealthy = metric.consecutiveFailures === 0 && metric.successRate != null && metric.successRate > 0.8;
+  const isHealthy = state === 'healthy' || (
+    metric.consecutiveFailures === 0 && metric.successRate != null && metric.successRate > 0.8
+  );
   const isDegraded = metric.consecutiveFailures > 0 || (metric.successRate != null && metric.successRate < 0.8);
 
   return (
@@ -618,56 +613,26 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
   );
 }
 
-function GroqModelAvailabilityNotice({
-  availability,
-}: {
-  availability: GroqModelAvailability | undefined;
-}) {
-  if (!availability || availability.status === 'not_configured') return null;
+function ProviderLifecycleNotice({ lifecycle }: { lifecycle?: ProviderLifecycleSnapshot }) {
+  if (!lifecycle || lifecycle.overallStatus === 'unconfigured' || lifecycle.overallStatus === 'ready') return null;
 
-  if (availability.status === 'available') {
-    return (
-      <div className="mt-1.5 flex min-w-0 items-start gap-1.5 text-[10px] text-green-500">
-        <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0" />
-        <span className="min-w-0 break-words">
-          Groq models available · Fast: {availability.checkedModels.fast} · Powerful: {availability.checkedModels.powerful}
-        </span>
-      </div>
-    );
-  }
-
-  const affectedRoles = availability.unavailableRoles
-    .map((role) => `${role === 'fast' ? 'Fast' : 'Powerful'} (${availability.checkedModels[role]})`)
-    .join(' and ');
-
-  if (availability.status === 'unavailable') {
-    return (
-      <div className="mt-1.5 space-y-0.5 text-[10px] text-amber-300">
-        <div className="flex min-w-0 items-start gap-1.5">
-          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-          <span className="min-w-0 break-words">
-            Groq credential is valid, but the configured {affectedRoles || 'model'} is unavailable.
-          </span>
-        </div>
-        <div className="pl-4 break-words text-amber-200/80">
-          Update the affected Groq model ID in the provider configuration, then restart the API.
-        </div>
-      </div>
-    );
-  }
-
+  const isCredentialFailure = lifecycle.credentialStatus === 'credentials_invalid';
   return (
     <div className="mt-1.5 space-y-0.5 text-[10px] text-amber-300">
       <div className="flex min-w-0 items-start gap-1.5">
         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
         <span className="min-w-0 break-words">
-          {availability.status === 'invalid_credential'
-            ? 'Groq credential could not be verified.'
-            : 'Groq model availability could not be confirmed.'}
+          {isCredentialFailure
+            ? 'Credential rejected.'
+            : lifecycle.overallStatus === 'unavailable'
+              ? 'Provider is unavailable for this configuration.'
+              : 'Provider lifecycle is not fully verified.'}
         </span>
       </div>
       <div className="pl-4 break-words text-amber-200/80">
-        {availability.reason ?? 'Retry shortly; replace the Groq key if verification continues to fail.'}
+        {lifecycle.reasonCodes.length
+          ? `Reason: ${lifecycle.reasonCodes[0].replace(/_/g, ' ')}.`
+          : 'Retry the lifecycle check before relying on this provider.'}
       </div>
     </div>
   );
@@ -4897,7 +4862,7 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
         <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
       )}
 
-      <GroqModelAvailabilityNotice availability={status?.modelAvailability} />
+      <ProviderLifecycleNotice lifecycle={status?.lifecycle} />
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (
@@ -5010,6 +4975,7 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
         </p>
       )}
 
+      <ProviderLifecycleNotice lifecycle={status?.lifecycle} />
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (
@@ -5122,6 +5088,7 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
         </p>
       )}
 
+      <ProviderLifecycleNotice lifecycle={status?.lifecycle} />
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (

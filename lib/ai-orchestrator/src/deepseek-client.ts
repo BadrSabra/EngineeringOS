@@ -29,6 +29,57 @@ export const DEEPSEEK_MODEL_POWERFUL = "deepseek-chat";
 
 const DEEPSEEK_BASE_URL    = "https://api.deepseek.com";
 const DEFAULT_TIMEOUT_MS   = 60_000;
+const DEEPSEEK_MODELS_URL = `${DEEPSEEK_BASE_URL}/models`;
+const DEEPSEEK_MODEL_CHECK_TIMEOUT_MS = 5_000;
+
+export type DeepSeekDefaultModelRole = "fast" | "powerful";
+export type DeepSeekDefaultModelValidation = {
+  valid: boolean;
+  missing: DeepSeekDefaultModelRole[];
+  checkedModels: { fast: string; powerful: string };
+};
+
+type DeepSeekModelListResponse = {
+  data?: Array<{ id?: unknown; object?: unknown }>;
+};
+
+export async function validateDeepSeekDefaultModels(
+  apiKey: string,
+  defaults: { fast: string; powerful: string },
+): Promise<DeepSeekDefaultModelValidation> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEEPSEEK_MODEL_CHECK_TIMEOUT_MS);
+  try {
+    const response = await fetch(DEEPSEEK_MODELS_URL, {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new GroqClientError("AUTH_ERROR", "DeepSeek credential rejected");
+      }
+      throw new GroqClientError(
+        response.status >= 500 ? "SERVER_ERROR" : "NON_200",
+        "DeepSeek model catalog unavailable",
+      );
+    }
+    const payload = (await response.json()) as DeepSeekModelListResponse;
+    const ids = new Set(
+      (Array.isArray(payload.data) ? payload.data : [])
+        .map((model) => typeof model.id === "string" ? model.id.trim() : "")
+        .filter(Boolean),
+    );
+    const missing = (["fast", "powerful"] as const).filter((role) => !ids.has(defaults[role]));
+    return { valid: missing.length === 0, missing: [...missing], checkedModels: { ...defaults } };
+  } catch (error) {
+    if (error instanceof GroqClientError) throw error;
+    if (controller.signal.aborted) throw new GroqClientError("TIMEOUT", "DeepSeek model catalog timed out", { cause: error });
+    throw new GroqClientError("NETWORK_ERROR", "DeepSeek model catalog unavailable", { cause: error });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export type DeepSeekCompleteOptions = {
   model?:     string;

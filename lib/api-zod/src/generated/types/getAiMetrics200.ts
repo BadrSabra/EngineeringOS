@@ -5,10 +5,10 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiProviderMetric } from './aiProviderMetric';
 import type { BehavioralModelScorecard } from './behavioralModelScorecard';
-import type { GetAiMetrics200MetricsItem } from './getAiMetrics200MetricsItem';
 
 export type GetAiMetrics200 = {
-  metrics: GetAiMetrics200MetricsItem[];
+  metrics: AiProviderMetric[];
   behavioralScorecards: BehavioralModelScorecard[];
 };

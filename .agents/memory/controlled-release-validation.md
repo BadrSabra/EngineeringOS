@@ -21,3 +21,15 @@ provider credentials or expose provider diagnostics.
 **How to apply:** Keep timeout, healthy, and retired states explicit; deduplicate
 repeated outage observations, resolve them on healthy startup, and retain a
 redacted evidence receipt linked from release teardown.
+
+Ordinary provider routing and direct completion remain deterministic unless
+`AI_LIFECYCLE_LIVE_CHECKS=1` or `RUN_CONTROLLED_RELEASE_VALIDATION=1` is set;
+the lifecycle service still records confirmed runtime outcomes.
+
+**Why:** Fixture suites and normal development must not make network probes, while
+explicit release/live runs must enforce credential, model, catalog, and capability
+gates before accepting a provider.
+
+**How to apply:** Keep live-check flags opt-in at route and completion boundaries;
+preserve provider-neutral lifecycle projections even when an unchecked provider is
+shown as degraded/not verified.

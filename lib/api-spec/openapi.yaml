@@ -2994,7 +2994,7 @@ paths:
                   metrics:
                     type: array
                     items:
-                      type: object
+                      $ref: "#/components/schemas/AiProviderMetric"
                   behavioralScorecards:
                     type: array
                     items:
@@ -4267,19 +4267,216 @@ components:
 
     ProviderKeyStatus:
       type: object
-      required: [configured]
+      required: [configured, lifecycle]
       description: Generic key status response for any AI provider.
       properties:
         configured:
           type: boolean
+        effectiveConfigured:
+          type: boolean
+          description: True when either a user key or a server-managed key is available.
         last4:
           type: ["string", "null"]
           description: Last 4 characters of the saved key
         updatedAt:
           type: ["string", "null"]
           format: date-time
+        lifecycle:
+          $ref: "#/components/schemas/ProviderLifecycleSnapshot"
         modelAvailability:
           $ref: "#/components/schemas/GroqModelAvailability"
+
+    ProviderLifecycleSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - source
+        - revision
+        - generation
+        - checkedAt
+        - expiresAt
+        - lastKnownGoodAt
+        - lastKnownGoodExpiresAt
+        - credentialStatus
+        - modelStatus
+        - capabilityStatus
+        - overallStatus
+        - selectable
+        - roles
+        - capabilities
+        - reasonCodes
+      description: Credential-safe, provider-neutral lifecycle projection. It never contains an API key or raw provider diagnostics.
+      properties:
+        provider:
+          type: string
+          enum: [groq, deepseek, openrouter, gemini]
+        source:
+          type: string
+          enum: [user, server, none]
+        revision:
+          type: integer
+          minimum: 0
+        generation:
+          type: integer
+          minimum: 0
+        checkedAt:
+          type: ["string", "null"]
+          format: date-time
+        expiresAt:
+          type: ["string", "null"]
+          format: date-time
+        lastKnownGoodAt:
+          type: ["string", "null"]
+          format: date-time
+        lastKnownGoodExpiresAt:
+          type: ["string", "null"]
+          format: date-time
+        credentialStatus:
+          type: string
+          enum: [credentials_missing, credentials_invalid, credentials_valid, credentials_unchecked]
+        modelStatus:
+          type: string
+          enum: [model_not_checked, model_healthy, model_partial, model_missing, catalog_temporarily_unavailable]
+        capabilityStatus:
+          type: string
+          enum: [capability_not_checked, capability_healthy, capability_mismatch]
+        overallStatus:
+          type: string
+          enum: [unconfigured, unavailable, ready, degraded]
+        selectable:
+          type: boolean
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderLifecycleRole"
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderLifecycleCapability"
+        reasonCodes:
+          type: array
+          items:
+            type: string
+            enum:
+              - credentials_missing
+              - credentials_invalid
+              - credential_check_failed
+              - model_not_checked
+              - model_healthy
+              - model_missing
+              - model_partial
+              - catalog_temporarily_unavailable
+              - capability_not_checked
+              - capability_mismatch
+              - circuit_open
+              - runtime_model_not_found
+              - runtime_auth_failed
+              - runtime_transient_failure
+
+    ProviderLifecycleRole:
+      type: object
+      additionalProperties: false
+      required: [role, modelId, status, checkedAt]
+      properties:
+        role:
+          type: string
+          enum: [fast, powerful]
+        modelId:
+          type: string
+        status:
+          type: string
+          enum: [healthy, missing, not_checked]
+        checkedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    ProviderLifecycleCapability:
+      type: object
+      additionalProperties: false
+      required: [name, supported, evidence, checkedAt]
+      properties:
+        name:
+          type: string
+          enum: [tools, json, streaming]
+        supported:
+          type: ["boolean", "null"]
+        evidence:
+          type: string
+          enum: [registry, catalog, probe, none]
+        checkedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    AiProviderMetric:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - requests
+        - failures
+        - fallbackSuccesses
+        - invalidModels
+        - p50LatencyMs
+        - p95LatencyMs
+        - avgLatencyMs
+        - successRate
+        - lastSuccessAt
+        - lastFailureAt
+        - consecutiveFailures
+        - configured
+        - availabilityState
+        - operatorAction
+        - correlationId
+        - circuitOpen
+        - circuitHalfOpen
+        - cooldownRemainingMs
+        - lifecycle
+      properties:
+        provider:
+          type: string
+          enum: [groq, deepseek, openrouter, gemini]
+        requests:
+          type: integer
+        failures:
+          type: integer
+        fallbackSuccesses:
+          type: integer
+        invalidModels:
+          type: integer
+        p50LatencyMs:
+          type: ["integer", "null"]
+        p95LatencyMs:
+          type: ["integer", "null"]
+        avgLatencyMs:
+          type: ["integer", "null"]
+        successRate:
+          type: ["number", "null"]
+        lastSuccessAt:
+          type: ["string", "null"]
+          format: date-time
+        lastFailureAt:
+          type: ["string", "null"]
+          format: date-time
+        consecutiveFailures:
+          type: integer
+        configured:
+          type: boolean
+        availabilityState:
+          type: string
+          enum: [missing_credentials, authentication_failed, incompatible_model, no_compatible_free_model, catalog_stale, quota_exhausted, rate_limited, circuit_open, provider_outage, degraded, healthy, unknown]
+        operatorAction:
+          type: ["string", "null"]
+        correlationId:
+          type: string
+        circuitOpen:
+          type: boolean
+        circuitHalfOpen:
+          type: boolean
+        cooldownRemainingMs:
+          type: ["integer", "null"]
+        lifecycle:
+          $ref: "#/components/schemas/ProviderLifecycleSnapshot"
 
     GroqModelAvailability:
       type: object

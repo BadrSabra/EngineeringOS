@@ -26,6 +26,8 @@ import {
   getProviderMetrics,
   getBehavioralScorecards,
   getCircuitState,
+  getProviderLifecycleSnapshot,
+  invalidateProviderLifecycle,
   validateGroqDefaultModels,
   GroqClientError,
 } from "@workspace/ai-orchestrator";
@@ -43,40 +45,28 @@ function isValidProvider(p: string): p is ProviderId {
   return VALID_PROVIDERS.has(p);
 }
 
-type GroqModelAvailability = {
+function publicLifecycle(snapshot: Awaited<ReturnType<typeof getProviderLifecycleSnapshot>>) {
+  const { keyIdentity: _keyIdentity, ...safe } = snapshot;
+  return safe;
+}
+
+type LegacyGroqAvailability = {
   status: "available" | "unavailable" | "check_unavailable" | "invalid_credential" | "not_configured";
   source: "personal" | "server" | "none";
   checkedModels: { fast: string; powerful: string };
   unavailableRoles: Array<"fast" | "powerful">;
   checkedAt: string;
-  reason?: string;
 };
 
-/**
- * Check Groq's configured defaults without returning a credential or raw
- * provider error. A valid key and an available model are separate concerns:
- * Groq can accept the key while retiring one of the configured model IDs.
- */
-async function getGroqModelAvailability(
+async function getLegacyGroqAvailability(
   apiKey: string | undefined,
-  source: GroqModelAvailability["source"],
-): Promise<GroqModelAvailability> {
+  source: LegacyGroqAvailability["source"],
+): Promise<LegacyGroqAvailability> {
   const checkedModels = PROVIDER_REGISTRY.groq.defaultModels;
   const checkedAt = new Date().toISOString();
-
   if (!apiKey) {
-    return {
-      status: source === "none" ? "not_configured" : "check_unavailable",
-      source,
-      checkedModels,
-      unavailableRoles: [],
-      checkedAt,
-      ...(source !== "none"
-        ? { reason: "Groq model availability could not be checked. Save the Groq API key again, then retry." }
-        : {}),
-    };
+    return { status: "not_configured", source: "none", checkedModels, unavailableRoles: [], checkedAt };
   }
-
   try {
     const validation = await validateGroqDefaultModels(apiKey, checkedModels);
     return {
@@ -85,20 +75,16 @@ async function getGroqModelAvailability(
       checkedModels: validation.checkedModels,
       unavailableRoles: validation.missing,
       checkedAt,
-      ...(validation.reason ? { reason: validation.reason } : {}),
     };
   } catch (error) {
-    const isInvalidCredential =
-      error instanceof GroqClientError && error.code === "AUTH_ERROR";
     return {
-      status: isInvalidCredential ? "invalid_credential" : "check_unavailable",
+      status: error instanceof GroqClientError && error.code === "AUTH_ERROR"
+        ? "invalid_credential"
+        : "check_unavailable",
       source,
       checkedModels,
       unavailableRoles: [],
       checkedAt,
-      reason: isInvalidCredential
-        ? "Groq rejected this credential while checking the configured models. Replace the Groq API key."
-        : "Groq model availability could not be confirmed. Retry shortly; if this persists, check Groq status.",
     };
   }
 }
@@ -121,43 +107,51 @@ async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
     .limit(1);
 
   if (!row) {
-    if (provider !== "groq") {
-      return res.json({ configured: false, last4: null, updatedAt: null });
-    }
-    const modelAvailability = await getGroqModelAvailability(
-      process.env.GROQ_API_KEY,
-      process.env.GROQ_API_KEY ? "server" : "none",
-    );
+    const envKey = process.env[`${provider.toUpperCase()}_API_KEY`];
+    const modelAvailability = provider === "groq"
+      ? await getLegacyGroqAvailability(envKey, envKey ? "server" : "none")
+      : undefined;
+    const lifecycle = await getProviderLifecycleSnapshot({
+      provider,
+      apiKey: envKey,
+      source: envKey ? "server" : undefined,
+      check: provider !== "groq" && Boolean(envKey),
+    });
     return res.json({
       configured: false,
+      effectiveConfigured: Boolean(envKey),
       last4: null,
       updatedAt: null,
-      modelAvailability,
+      lifecycle: publicLifecycle(lifecycle),
+      ...(modelAvailability ? { modelAvailability } : {}),
     });
   }
 
-  if (provider !== "groq") {
-    return res.json({ configured: true, last4: row.last4, updatedAt: row.updatedAt });
-  }
-
   let apiKey: string | undefined;
-  let source: GroqModelAvailability["source"] = "personal";
+  let source: "user" | "server" = "user";
   try {
     apiKey = decryptApiKey(row.encryptedApiKey);
   } catch (error) {
     logger.error({ err: error, provider }, "Failed to decrypt stored provider key for readiness check");
-    apiKey = process.env.GROQ_API_KEY;
-    source = apiKey ? "server" : "none";
+    invalidateProviderLifecycle(provider, "user");
+    apiKey = process.env[`${provider.toUpperCase()}_API_KEY`];
+    source = apiKey ? "server" : "user";
   }
-  const modelAvailability = await getGroqModelAvailability(
+  const lifecycle = await getProviderLifecycleSnapshot({
+    provider,
     apiKey,
     source,
-  );
+    check: provider !== "groq" && Boolean(apiKey),
+  });
+  const modelAvailability = provider === "groq"
+    ? await getLegacyGroqAvailability(apiKey, source === "server" ? "server" : "personal")
+    : undefined;
   return res.json({
     configured: true,
     last4: row.last4,
     updatedAt: row.updatedAt,
-    modelAvailability,
+    lifecycle: publicLifecycle(lifecycle),
+    ...(modelAvailability ? { modelAvailability } : {}),
   });
 }
 
@@ -178,7 +172,7 @@ async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
     return res.status(422).json({
       error: `${label} API key is invalid or unauthorized`,
       hint: `Check your key at ${consoleUrl} — it was rejected by the ${label} API.`,
-      detail: validation.reason,
+      reasonCode: validation.reason ?? "credentials_invalid",
     });
   }
 
@@ -208,6 +202,7 @@ async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
       set: { encryptedApiKey, last4, updatedAt: now },
     });
 
+  invalidateProviderLifecycle(provider, "user");
   // Return the same readiness shape as GET so the settings card can show
   // model availability immediately, then refresh it on the next query read.
   return handleGetKey(req, res, provider);
@@ -223,6 +218,7 @@ async function handleDeleteKey(req: Request, res: Response, provider: ProviderId
         eq(aiProviderCredentialsTable.provider, provider),
       ),
     );
+  invalidateProviderLifecycle(provider, "user");
   return res.json({ configured: false });
 }
 
@@ -285,7 +281,10 @@ router.get("/ai/active-provider", async (req, res) => {
 router.get("/ai/metrics", async (req, res) => {
   const metricsMap = new Map(getProviderMetrics().map((m) => [m.provider, m]));
   const configuredRows = await db
-    .select({ provider: aiProviderCredentialsTable.provider })
+    .select({
+      provider: aiProviderCredentialsTable.provider,
+      encryptedApiKey: aiProviderCredentialsTable.encryptedApiKey,
+    })
     .from(aiProviderCredentialsTable)
     .where(eq(aiProviderCredentialsTable.ownerId, req.userId));
   const configured = new Set(configuredRows.map((row) => row.provider));
@@ -310,6 +309,23 @@ router.get("/ai/metrics", async (req, res) => {
     };
     const circuit = getCircuitState(provider);
     const isConfigured = configured.has(provider) || serverConfigured.has(provider);
+    const personalRow = configuredRows.find((row) => row.provider === provider);
+    let lifecycleKey: string | undefined;
+    let lifecycleSource: "user" | "server" | undefined;
+    if (personalRow) {
+      try {
+        lifecycleKey = decryptApiKey(personalRow.encryptedApiKey);
+        lifecycleSource = "user";
+      } catch {
+        lifecycleKey = undefined;
+      }
+    } else {
+      lifecycleKey = process.env[`${provider.toUpperCase()}_API_KEY`];
+      lifecycleSource = lifecycleKey ? "server" : undefined;
+    }
+    const lifecyclePromise = lifecycleKey
+      ? getProviderLifecycleSnapshot({ provider, apiKey: lifecycleKey, source: lifecycleSource, check: false })
+      : Promise.resolve(getProviderLifecycleSnapshot({ provider, check: false }));
     const isCatalogStale =
       provider === "openrouter" &&
       isConfigured &&
@@ -341,11 +357,12 @@ router.get("/ai/metrics", async (req, res) => {
       circuitOpen:         circuit.open,
       circuitHalfOpen:     circuit.halfOpen,
       cooldownRemainingMs: circuit.cooldownRemainingMs,
+      lifecycle: lifecyclePromise.then(publicLifecycle),
     };
   });
 
   return res.json({
-    metrics: enriched,
+    metrics: await Promise.all(enriched),
     catalog: {
       loaded: catalog.loaded,
       usable: catalog.usable,

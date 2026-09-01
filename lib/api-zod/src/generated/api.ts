@@ -5381,10 +5381,45 @@ export const GetProviderKeyStatusParams = zod.object({
   "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']).describe('AI provider identifier')
 })
 
+export const getProviderKeyStatusResponseLifecycleRevisionMin = 0;
+
+export const getProviderKeyStatusResponseLifecycleGenerationMin = 0;
+
+
+
 export const GetProviderKeyStatusResponse = zod.object({
   "configured": zod.boolean(),
+  "effectiveConfigured": zod.boolean().optional().describe('True when either a user key or a server-managed key is available.'),
   "last4": zod.string().nullish().describe('Last 4 characters of the saved key'),
   "updatedAt": zod.coerce.date().nullish(),
+  "lifecycle": zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
+  "source": zod.enum(['user', 'server', 'none']),
+  "revision": zod.number().min(getProviderKeyStatusResponseLifecycleRevisionMin),
+  "generation": zod.number().min(getProviderKeyStatusResponseLifecycleGenerationMin),
+  "checkedAt": zod.coerce.date().nullable(),
+  "expiresAt": zod.coerce.date().nullable(),
+  "lastKnownGoodAt": zod.coerce.date().nullable(),
+  "lastKnownGoodExpiresAt": zod.coerce.date().nullable(),
+  "credentialStatus": zod.enum(['credentials_missing', 'credentials_invalid', 'credentials_valid', 'credentials_unchecked']),
+  "modelStatus": zod.enum(['model_not_checked', 'model_healthy', 'model_partial', 'model_missing', 'catalog_temporarily_unavailable']),
+  "capabilityStatus": zod.enum(['capability_not_checked', 'capability_healthy', 'capability_mismatch']),
+  "overallStatus": zod.enum(['unconfigured', 'unavailable', 'ready', 'degraded']),
+  "selectable": zod.boolean(),
+  "roles": zod.array(zod.object({
+  "role": zod.enum(['fast', 'powerful']),
+  "modelId": zod.string(),
+  "status": zod.enum(['healthy', 'missing', 'not_checked']),
+  "checkedAt": zod.coerce.date().nullable()
+})),
+  "capabilities": zod.array(zod.object({
+  "name": zod.enum(['tools', 'json', 'streaming']),
+  "supported": zod.boolean().nullable(),
+  "evidence": zod.enum(['registry', 'catalog', 'probe', 'none']),
+  "checkedAt": zod.coerce.date().nullable()
+})),
+  "reasonCodes": zod.array(zod.enum(['credentials_missing', 'credentials_invalid', 'credential_check_failed', 'model_not_checked', 'model_healthy', 'model_missing', 'model_partial', 'catalog_temporarily_unavailable', 'capability_not_checked', 'capability_mismatch', 'circuit_open', 'runtime_model_not_found', 'runtime_auth_failed', 'runtime_transient_failure']))
+}).describe('Credential-safe, provider-neutral lifecycle projection. It never contains an API key or raw provider diagnostics.'),
   "modelAvailability": zod.object({
   "status": zod.enum(['available', 'unavailable', 'check_unavailable', 'invalid_credential', 'not_configured']),
   "source": zod.enum(['personal', 'server', 'none']),
@@ -5414,10 +5449,45 @@ export const SaveProviderKeyBody = zod.object({
   "apiKey": zod.string().min(saveProviderKeyBodyApiKeyMin).describe('The Groq API key to save. Must not be logged or returned.')
 })
 
+export const saveProviderKeyResponseLifecycleRevisionMin = 0;
+
+export const saveProviderKeyResponseLifecycleGenerationMin = 0;
+
+
+
 export const SaveProviderKeyResponse = zod.object({
   "configured": zod.boolean(),
+  "effectiveConfigured": zod.boolean().optional().describe('True when either a user key or a server-managed key is available.'),
   "last4": zod.string().nullish().describe('Last 4 characters of the saved key'),
   "updatedAt": zod.coerce.date().nullish(),
+  "lifecycle": zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
+  "source": zod.enum(['user', 'server', 'none']),
+  "revision": zod.number().min(saveProviderKeyResponseLifecycleRevisionMin),
+  "generation": zod.number().min(saveProviderKeyResponseLifecycleGenerationMin),
+  "checkedAt": zod.coerce.date().nullable(),
+  "expiresAt": zod.coerce.date().nullable(),
+  "lastKnownGoodAt": zod.coerce.date().nullable(),
+  "lastKnownGoodExpiresAt": zod.coerce.date().nullable(),
+  "credentialStatus": zod.enum(['credentials_missing', 'credentials_invalid', 'credentials_valid', 'credentials_unchecked']),
+  "modelStatus": zod.enum(['model_not_checked', 'model_healthy', 'model_partial', 'model_missing', 'catalog_temporarily_unavailable']),
+  "capabilityStatus": zod.enum(['capability_not_checked', 'capability_healthy', 'capability_mismatch']),
+  "overallStatus": zod.enum(['unconfigured', 'unavailable', 'ready', 'degraded']),
+  "selectable": zod.boolean(),
+  "roles": zod.array(zod.object({
+  "role": zod.enum(['fast', 'powerful']),
+  "modelId": zod.string(),
+  "status": zod.enum(['healthy', 'missing', 'not_checked']),
+  "checkedAt": zod.coerce.date().nullable()
+})),
+  "capabilities": zod.array(zod.object({
+  "name": zod.enum(['tools', 'json', 'streaming']),
+  "supported": zod.boolean().nullable(),
+  "evidence": zod.enum(['registry', 'catalog', 'probe', 'none']),
+  "checkedAt": zod.coerce.date().nullable()
+})),
+  "reasonCodes": zod.array(zod.enum(['credentials_missing', 'credentials_invalid', 'credential_check_failed', 'model_not_checked', 'model_healthy', 'model_missing', 'model_partial', 'catalog_temporarily_unavailable', 'capability_not_checked', 'capability_mismatch', 'circuit_open', 'runtime_model_not_found', 'runtime_auth_failed', 'runtime_transient_failure']))
+}).describe('Credential-safe, provider-neutral lifecycle projection. It never contains an API key or raw provider diagnostics.'),
   "modelAvailability": zod.object({
   "status": zod.enum(['available', 'unavailable', 'check_unavailable', 'invalid_credential', 'not_configured']),
   "source": zod.enum(['personal', 'server', 'none']),
@@ -5447,9 +5517,61 @@ export const DeleteProviderKeyResponse = zod.object({
 /**
  * @summary Get per-provider request metrics and circuit-breaker state
  */
+export const getAiMetricsResponseMetricsItemLifecycleRevisionMin = 0;
+
+export const getAiMetricsResponseMetricsItemLifecycleGenerationMin = 0;
+
+
+
 export const GetAiMetricsResponse = zod.object({
   "metrics": zod.array(zod.object({
-
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
+  "requests": zod.number(),
+  "failures": zod.number(),
+  "fallbackSuccesses": zod.number(),
+  "invalidModels": zod.number(),
+  "p50LatencyMs": zod.number().nullable(),
+  "p95LatencyMs": zod.number().nullable(),
+  "avgLatencyMs": zod.number().nullable(),
+  "successRate": zod.number().nullable(),
+  "lastSuccessAt": zod.coerce.date().nullable(),
+  "lastFailureAt": zod.coerce.date().nullable(),
+  "consecutiveFailures": zod.number(),
+  "configured": zod.boolean(),
+  "availabilityState": zod.enum(['missing_credentials', 'authentication_failed', 'incompatible_model', 'no_compatible_free_model', 'catalog_stale', 'quota_exhausted', 'rate_limited', 'circuit_open', 'provider_outage', 'degraded', 'healthy', 'unknown']),
+  "operatorAction": zod.string().nullable(),
+  "correlationId": zod.string(),
+  "circuitOpen": zod.boolean(),
+  "circuitHalfOpen": zod.boolean(),
+  "cooldownRemainingMs": zod.number().nullable(),
+  "lifecycle": zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
+  "source": zod.enum(['user', 'server', 'none']),
+  "revision": zod.number().min(getAiMetricsResponseMetricsItemLifecycleRevisionMin),
+  "generation": zod.number().min(getAiMetricsResponseMetricsItemLifecycleGenerationMin),
+  "checkedAt": zod.coerce.date().nullable(),
+  "expiresAt": zod.coerce.date().nullable(),
+  "lastKnownGoodAt": zod.coerce.date().nullable(),
+  "lastKnownGoodExpiresAt": zod.coerce.date().nullable(),
+  "credentialStatus": zod.enum(['credentials_missing', 'credentials_invalid', 'credentials_valid', 'credentials_unchecked']),
+  "modelStatus": zod.enum(['model_not_checked', 'model_healthy', 'model_partial', 'model_missing', 'catalog_temporarily_unavailable']),
+  "capabilityStatus": zod.enum(['capability_not_checked', 'capability_healthy', 'capability_mismatch']),
+  "overallStatus": zod.enum(['unconfigured', 'unavailable', 'ready', 'degraded']),
+  "selectable": zod.boolean(),
+  "roles": zod.array(zod.object({
+  "role": zod.enum(['fast', 'powerful']),
+  "modelId": zod.string(),
+  "status": zod.enum(['healthy', 'missing', 'not_checked']),
+  "checkedAt": zod.coerce.date().nullable()
+})),
+  "capabilities": zod.array(zod.object({
+  "name": zod.enum(['tools', 'json', 'streaming']),
+  "supported": zod.boolean().nullable(),
+  "evidence": zod.enum(['registry', 'catalog', 'probe', 'none']),
+  "checkedAt": zod.coerce.date().nullable()
+})),
+  "reasonCodes": zod.array(zod.enum(['credentials_missing', 'credentials_invalid', 'credential_check_failed', 'model_not_checked', 'model_healthy', 'model_missing', 'model_partial', 'catalog_temporarily_unavailable', 'capability_not_checked', 'capability_mismatch', 'circuit_open', 'runtime_model_not_found', 'runtime_auth_failed', 'runtime_transient_failure']))
+}).describe('Credential-safe, provider-neutral lifecycle projection. It never contains an API key or raw provider diagnostics.')
 })),
   "behavioralScorecards": zod.array(zod.object({
   "model": zod.string(),

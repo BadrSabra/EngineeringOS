@@ -18,6 +18,7 @@ import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
 import { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
 import { resolveExecutionModel } from "./model-selection/model-resolver.js";
 import { refreshDynamicCatalog } from "./openrouter/dynamic-catalog.js";
+import { getProviderLifecycleSnapshot } from "./provider-lifecycle.js";
 
 export type { ProviderId };
 
@@ -140,7 +141,9 @@ export async function validateProviderKey(
     return { valid: true };
   } catch (err) {
     if (err instanceof GroqClientError && err.code === "AUTH_ERROR") {
-      return { valid: false, reason: err.message };
+      // Public callers only receive the stable reason code. Provider status,
+      // response bodies, URLs, and SDK diagnostics stay server-side.
+      return { valid: false, reason: "credentials_invalid" };
     }
     // Transient error — allow the save; the next real request has provider fallback.
     return { valid: true };
@@ -169,6 +172,29 @@ export async function agentComplete(
   const providerId = providerDecision.providerId;
   const provider = loadProvider(providerId);
   const apiKey = requireApiKey(provider, opts.apiKey);
+  const shouldCheckLifecycle =
+    opts.apiKey &&
+    (process.env.AI_LIFECYCLE_LIVE_CHECKS === "1" ||
+      process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1");
+  if (shouldCheckLifecycle) {
+    const lifecycle = await getProviderLifecycleSnapshot({
+      provider: providerId,
+      apiKey,
+      source: "user",
+      check: true,
+      requirements: {
+        requireTools: qualityHints?.requireTools,
+        requireJson: qualityHints?.requireJsonMode,
+      },
+    });
+    if (!lifecycle.selectable) {
+      throw new GroqClientError(
+        "INVALID_CONFIG",
+        `${provider.label} is not ready for this request`,
+        { context: { providerCode: lifecycle.reasonCodes[0] } },
+      );
+    }
+  }
 
   switch (provider.providerId) {
     case "deepseek": {

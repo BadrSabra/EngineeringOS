@@ -834,6 +834,166 @@ export interface SaveGeminiKeyInput {
   apiKey: string;
 }
 
+export type ProviderLifecycleSnapshotProvider = typeof ProviderLifecycleSnapshotProvider[keyof typeof ProviderLifecycleSnapshotProvider];
+
+
+export const ProviderLifecycleSnapshotProvider = {
+  groq: 'groq',
+  deepseek: 'deepseek',
+  openrouter: 'openrouter',
+  gemini: 'gemini',
+} as const;
+
+export type ProviderLifecycleSnapshotSource = typeof ProviderLifecycleSnapshotSource[keyof typeof ProviderLifecycleSnapshotSource];
+
+
+export const ProviderLifecycleSnapshotSource = {
+  user: 'user',
+  server: 'server',
+  none: 'none',
+} as const;
+
+export type ProviderLifecycleSnapshotCredentialStatus = typeof ProviderLifecycleSnapshotCredentialStatus[keyof typeof ProviderLifecycleSnapshotCredentialStatus];
+
+
+export const ProviderLifecycleSnapshotCredentialStatus = {
+  credentials_missing: 'credentials_missing',
+  credentials_invalid: 'credentials_invalid',
+  credentials_valid: 'credentials_valid',
+  credentials_unchecked: 'credentials_unchecked',
+} as const;
+
+export type ProviderLifecycleSnapshotModelStatus = typeof ProviderLifecycleSnapshotModelStatus[keyof typeof ProviderLifecycleSnapshotModelStatus];
+
+
+export const ProviderLifecycleSnapshotModelStatus = {
+  model_not_checked: 'model_not_checked',
+  model_healthy: 'model_healthy',
+  model_partial: 'model_partial',
+  model_missing: 'model_missing',
+  catalog_temporarily_unavailable: 'catalog_temporarily_unavailable',
+} as const;
+
+export type ProviderLifecycleSnapshotCapabilityStatus = typeof ProviderLifecycleSnapshotCapabilityStatus[keyof typeof ProviderLifecycleSnapshotCapabilityStatus];
+
+
+export const ProviderLifecycleSnapshotCapabilityStatus = {
+  capability_not_checked: 'capability_not_checked',
+  capability_healthy: 'capability_healthy',
+  capability_mismatch: 'capability_mismatch',
+} as const;
+
+export type ProviderLifecycleSnapshotOverallStatus = typeof ProviderLifecycleSnapshotOverallStatus[keyof typeof ProviderLifecycleSnapshotOverallStatus];
+
+
+export const ProviderLifecycleSnapshotOverallStatus = {
+  unconfigured: 'unconfigured',
+  unavailable: 'unavailable',
+  ready: 'ready',
+  degraded: 'degraded',
+} as const;
+
+export type ProviderLifecycleRoleRole = typeof ProviderLifecycleRoleRole[keyof typeof ProviderLifecycleRoleRole];
+
+
+export const ProviderLifecycleRoleRole = {
+  fast: 'fast',
+  powerful: 'powerful',
+} as const;
+
+export type ProviderLifecycleRoleStatus = typeof ProviderLifecycleRoleStatus[keyof typeof ProviderLifecycleRoleStatus];
+
+
+export const ProviderLifecycleRoleStatus = {
+  healthy: 'healthy',
+  missing: 'missing',
+  not_checked: 'not_checked',
+} as const;
+
+export interface ProviderLifecycleRole {
+  role: ProviderLifecycleRoleRole;
+  modelId: string;
+  status: ProviderLifecycleRoleStatus;
+  /** @nullable */
+  checkedAt: string | null;
+}
+
+export type ProviderLifecycleCapabilityName = typeof ProviderLifecycleCapabilityName[keyof typeof ProviderLifecycleCapabilityName];
+
+
+export const ProviderLifecycleCapabilityName = {
+  tools: 'tools',
+  json: 'json',
+  streaming: 'streaming',
+} as const;
+
+export type ProviderLifecycleCapabilityEvidence = typeof ProviderLifecycleCapabilityEvidence[keyof typeof ProviderLifecycleCapabilityEvidence];
+
+
+export const ProviderLifecycleCapabilityEvidence = {
+  registry: 'registry',
+  catalog: 'catalog',
+  probe: 'probe',
+  none: 'none',
+} as const;
+
+export interface ProviderLifecycleCapability {
+  name: ProviderLifecycleCapabilityName;
+  /** @nullable */
+  supported: boolean | null;
+  evidence: ProviderLifecycleCapabilityEvidence;
+  /** @nullable */
+  checkedAt: string | null;
+}
+
+export type ProviderLifecycleSnapshotReasonCodesItem = typeof ProviderLifecycleSnapshotReasonCodesItem[keyof typeof ProviderLifecycleSnapshotReasonCodesItem];
+
+
+export const ProviderLifecycleSnapshotReasonCodesItem = {
+  credentials_missing: 'credentials_missing',
+  credentials_invalid: 'credentials_invalid',
+  credential_check_failed: 'credential_check_failed',
+  model_not_checked: 'model_not_checked',
+  model_healthy: 'model_healthy',
+  model_missing: 'model_missing',
+  model_partial: 'model_partial',
+  catalog_temporarily_unavailable: 'catalog_temporarily_unavailable',
+  capability_not_checked: 'capability_not_checked',
+  capability_mismatch: 'capability_mismatch',
+  circuit_open: 'circuit_open',
+  runtime_model_not_found: 'runtime_model_not_found',
+  runtime_auth_failed: 'runtime_auth_failed',
+  runtime_transient_failure: 'runtime_transient_failure',
+} as const;
+
+/**
+ * Credential-safe, provider-neutral lifecycle projection. It never contains an API key or raw provider diagnostics.
+ */
+export interface ProviderLifecycleSnapshot {
+  provider: ProviderLifecycleSnapshotProvider;
+  source: ProviderLifecycleSnapshotSource;
+  /** @minimum 0 */
+  revision: number;
+  /** @minimum 0 */
+  generation: number;
+  /** @nullable */
+  checkedAt: string | null;
+  /** @nullable */
+  expiresAt: string | null;
+  /** @nullable */
+  lastKnownGoodAt: string | null;
+  /** @nullable */
+  lastKnownGoodExpiresAt: string | null;
+  credentialStatus: ProviderLifecycleSnapshotCredentialStatus;
+  modelStatus: ProviderLifecycleSnapshotModelStatus;
+  capabilityStatus: ProviderLifecycleSnapshotCapabilityStatus;
+  overallStatus: ProviderLifecycleSnapshotOverallStatus;
+  selectable: boolean;
+  roles: ProviderLifecycleRole[];
+  capabilities: ProviderLifecycleCapability[];
+  reasonCodes: ProviderLifecycleSnapshotReasonCodesItem[];
+}
+
 export type GroqModelAvailabilityStatus = typeof GroqModelAvailabilityStatus[keyof typeof GroqModelAvailabilityStatus];
 
 
@@ -884,6 +1044,8 @@ export interface GroqModelAvailability {
  */
 export interface ProviderKeyStatus {
   configured: boolean;
+  /** True when either a user key or a server-managed key is available. */
+  effectiveConfigured?: boolean;
   /**
      * Last 4 characters of the saved key
      * @nullable
@@ -891,7 +1053,67 @@ export interface ProviderKeyStatus {
   last4?: string | null;
   /** @nullable */
   updatedAt?: string | null;
+  lifecycle: ProviderLifecycleSnapshot;
   modelAvailability?: GroqModelAvailability;
+}
+
+export type AiProviderMetricProvider = typeof AiProviderMetricProvider[keyof typeof AiProviderMetricProvider];
+
+
+export const AiProviderMetricProvider = {
+  groq: 'groq',
+  deepseek: 'deepseek',
+  openrouter: 'openrouter',
+  gemini: 'gemini',
+} as const;
+
+export type AiProviderMetricAvailabilityState = typeof AiProviderMetricAvailabilityState[keyof typeof AiProviderMetricAvailabilityState];
+
+
+export const AiProviderMetricAvailabilityState = {
+  missing_credentials: 'missing_credentials',
+  authentication_failed: 'authentication_failed',
+  incompatible_model: 'incompatible_model',
+  no_compatible_free_model: 'no_compatible_free_model',
+  catalog_stale: 'catalog_stale',
+  quota_exhausted: 'quota_exhausted',
+  rate_limited: 'rate_limited',
+  circuit_open: 'circuit_open',
+  provider_outage: 'provider_outage',
+  degraded: 'degraded',
+  healthy: 'healthy',
+  unknown: 'unknown',
+} as const;
+
+export interface AiProviderMetric {
+  provider: AiProviderMetricProvider;
+  requests: number;
+  failures: number;
+  fallbackSuccesses: number;
+  invalidModels: number;
+  /** @nullable */
+  p50LatencyMs: number | null;
+  /** @nullable */
+  p95LatencyMs: number | null;
+  /** @nullable */
+  avgLatencyMs: number | null;
+  /** @nullable */
+  successRate: number | null;
+  /** @nullable */
+  lastSuccessAt: string | null;
+  /** @nullable */
+  lastFailureAt: string | null;
+  consecutiveFailures: number;
+  configured: boolean;
+  availabilityState: AiProviderMetricAvailabilityState;
+  /** @nullable */
+  operatorAction: string | null;
+  correlationId: string;
+  circuitOpen: boolean;
+  circuitHalfOpen: boolean;
+  /** @nullable */
+  cooldownRemainingMs: number | null;
+  lifecycle: ProviderLifecycleSnapshot;
 }
 
 /**
@@ -3727,10 +3949,8 @@ export type DeleteProviderKey200 = {
   configured: boolean;
 };
 
-export type GetAiMetrics200MetricsItem = { [key: string]: unknown };
-
 export type GetAiMetrics200 = {
-  metrics: GetAiMetrics200MetricsItem[];
+  metrics: AiProviderMetric[];
   behavioralScorecards: BehavioralModelScorecard[];
 };
 
