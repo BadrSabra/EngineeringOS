@@ -37,6 +37,21 @@ type DeploymentFailureScenario = {
 
 const releaseFailureScenarios: ReleaseFailureScenario[] = [
   {
+    name: "process-recovery receipt protection",
+    command: "run test:process-recovery-receipt",
+    diagnostic:
+      "process-recovery receipt protection failed: passing receipt was replaced",
+    laterCommands: [
+      "run security:reject-private-keys",
+      "run validate:app-origins",
+      "run truth:baseline:check",
+      "run truth:validate",
+      "run benchmark:baseline:check",
+      "--filter @workspace/ai-orchestrator run validate:benchmark-scenarios",
+      "--filter @workspace/api-server run typecheck",
+    ],
+  },
+  {
     name: "dashboard journey contract",
     command: "run test:dashboard-journey-contract",
     diagnostic: "dashboard journey contract fixture failed: expected route was missing",
@@ -475,12 +490,12 @@ exec "${realPnpm}" "$@"
     );
     assert.match(
       trace,
-      /--filter @workspace\/api-server run typecheck/,
-      "the API typecheck must be the first release step",
+      /run test:process-recovery-receipt/,
+      "the provider-free receipt protection check must be the first release step",
     );
     assert.doesNotMatch(
       trace,
-      /run test:dashboard-journey-contract|run test:mission-correlation-report|run test:process-recovery/,
+      /run test:dashboard-journey-contract|run test:mission-correlation-report|run test:process-recovery(?:\n|$)/,
       "later fixture and browser checks must not start after the API typecheck fails",
     );
   } finally {
@@ -588,7 +603,7 @@ test("keeps the local Project workflow and release validation separate", async (
   assert.equal(normalTestCommand, "pnpm -r --if-present run test");
   assert.equal(
     releaseTestCommand,
-    "pnpm run security:reject-private-keys && pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "pnpm run test:process-recovery-receipt && pnpm run security:reject-private-keys && pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
   );
   assert.equal(
     controlledReleaseTestCommand,
