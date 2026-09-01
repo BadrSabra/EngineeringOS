@@ -2088,6 +2088,68 @@ export const AiCodeReviewVerdict = {
   major_rework: 'major_rework',
 } as const;
 
+export type AiReviewScopeContractVersion = typeof AiReviewScopeContractVersion[keyof typeof AiReviewScopeContractVersion];
+
+
+export const AiReviewScopeContractVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiReviewScopeMode = typeof AiReviewScopeMode[keyof typeof AiReviewScopeMode];
+
+
+export const AiReviewScopeMode = {
+  GRAPH_METRICS: 'GRAPH_METRICS',
+  SELECTED_FILES: 'SELECTED_FILES',
+} as const;
+
+export type AiReviewScopeScanCompleteness = typeof AiReviewScopeScanCompleteness[keyof typeof AiReviewScopeScanCompleteness];
+
+
+export const AiReviewScopeScanCompleteness = {
+  COMPLETE: 'COMPLETE',
+  PARTIAL: 'PARTIAL',
+  UNAVAILABLE: 'UNAVAILABLE',
+} as const;
+
+export type AiReviewScopeSelectedFiles = {
+  /** @minimum 0 */
+  received: number;
+  /** @minimum 0 */
+  included: number;
+  /** @minimum 0 */
+  omitted: number;
+  /** @minimum 0 */
+  clippedExcerpts: number;
+};
+
+export type AiReviewScopeContext = {
+  /** @minimum 0 */
+  graphEntitiesIncluded: number;
+  /** @minimum 0 */
+  graphRelationshipsIncluded: number;
+  metricsIncluded: boolean;
+  tasksIncluded: boolean;
+  eventsIncluded: boolean;
+  workflowsIncluded: boolean;
+};
+
+export interface AiReviewScope {
+  contractVersion: AiReviewScopeContractVersion;
+  mode: AiReviewScopeMode;
+  /** Always true; this review is limited to supplied evidence. */
+  bounded: true;
+  selectedFiles: AiReviewScopeSelectedFiles;
+  context: AiReviewScopeContext;
+  scanCompleteness: AiReviewScopeScanCompleteness;
+  /**
+     * @minItems 1
+     * @maxItems 8
+     * @items.minLength 1
+     */
+  limitations: string[];
+}
+
 export interface AiCodeReview {
   summary: string;
   overallScore: number;
@@ -2096,6 +2158,7 @@ export interface AiCodeReview {
   refactoringOpportunities: string[];
   securityConcerns: string[];
   verdict: AiCodeReviewVerdict;
+  reviewScope: AiReviewScope;
   operationId: string;
   projectId: string;
   projectRevision: string;

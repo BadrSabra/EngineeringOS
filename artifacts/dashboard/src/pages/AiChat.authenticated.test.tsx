@@ -3277,12 +3277,34 @@ it('shows Groq model readiness without requiring a personal key when the server 
           refactoringOpportunities: [],
           securityConcerns: [],
           verdict: 'approved',
+          reviewScope: {
+            contractVersion: 1,
+            mode: 'SELECTED_FILES',
+            bounded: true,
+            selectedFiles: { received: 7, included: 5, omitted: 2, clippedExcerpts: 1 },
+            context: {
+              graphEntitiesIncluded: 12,
+              graphRelationshipsIncluded: 8,
+              metricsIncluded: true,
+              tasksIncluded: true,
+              eventsIncluded: true,
+              workflowsIncluded: false,
+            },
+            scanCompleteness: 'PARTIAL',
+            limitations: ['This is a bounded review of the supplied project evidence; approval does not mean every repository file was inspected.'],
+          },
         },
       });
     });
 
     expect(screen.getByText('Code review incomplete')).toBeInTheDocument();
     expect(screen.getByText(/Review completed after retry/)).toBeInTheDocument();
+    expect(screen.getByRole('note', { name: 'Code review scope' })).toBeInTheDocument();
+    expect(screen.getByText('Bounded review scope')).toBeInTheDocument();
+    expect(screen.getByText(/This review is partial/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Scope details' }));
+    expect(screen.getByText(/Selected files received: 7; included: 5; omitted: 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Project score: 92\/100/)).toBeInTheDocument();
   });
 
   it('marks a setup-blocked code review as not retryable', async () => {

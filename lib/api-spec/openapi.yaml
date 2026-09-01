@@ -5585,7 +5585,7 @@ components:
 
     AiCodeReview:
       type: object
-      required: [summary, overallScore, strengths, issues, refactoringOpportunities, securityConcerns, verdict, operationId, projectId, projectRevision, rootAvailable, incomplete, operationalTrace]
+      required: [summary, overallScore, strengths, issues, refactoringOpportunities, securityConcerns, verdict, reviewScope, operationId, projectId, projectRevision, rootAvailable, incomplete, operationalTrace]
       properties:
         summary:
           type: string
@@ -5610,6 +5610,8 @@ components:
         verdict:
           type: string
           enum: [approved, needs_changes, major_rework]
+        reviewScope:
+          $ref: "#/components/schemas/AiReviewScope"
         operationId:
           type: string
         projectId:
@@ -5624,6 +5626,50 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AiStructuredAuditTraceEntry"
+
+    AiReviewScope:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, mode, bounded, selectedFiles, context, scanCompleteness, limitations]
+      properties:
+        contractVersion:
+          type: integer
+          enum: [1]
+        mode:
+          type: string
+          enum: [GRAPH_METRICS, SELECTED_FILES]
+        bounded:
+          type: boolean
+          enum: [true]
+          description: Always true; this review is limited to supplied evidence.
+        selectedFiles:
+          type: object
+          additionalProperties: false
+          required: [received, included, omitted, clippedExcerpts]
+          properties:
+            received: { type: integer, minimum: 0 }
+            included: { type: integer, minimum: 0 }
+            omitted: { type: integer, minimum: 0 }
+            clippedExcerpts: { type: integer, minimum: 0 }
+        context:
+          type: object
+          additionalProperties: false
+          required: [graphEntitiesIncluded, graphRelationshipsIncluded, metricsIncluded, tasksIncluded, eventsIncluded, workflowsIncluded]
+          properties:
+            graphEntitiesIncluded: { type: integer, minimum: 0 }
+            graphRelationshipsIncluded: { type: integer, minimum: 0 }
+            metricsIncluded: { type: boolean }
+            tasksIncluded: { type: boolean }
+            eventsIncluded: { type: boolean }
+            workflowsIncluded: { type: boolean }
+        scanCompleteness:
+          type: string
+          enum: [COMPLETE, PARTIAL, UNAVAILABLE]
+        limitations:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: { type: string, minLength: 1 }
 
     AiStructuredAuditTraceEntry:
       type: object

@@ -5013,6 +5013,23 @@ export const AiReviewCodeBody = zod.object({
   "fileContents": zod.record(zod.string(), zod.string()).optional()
 })
 
+export const aiReviewCodeResponseReviewScopeSelectedFilesReceivedMin = 0;
+
+export const aiReviewCodeResponseReviewScopeSelectedFilesIncludedMin = 0;
+
+export const aiReviewCodeResponseReviewScopeSelectedFilesOmittedMin = 0;
+
+export const aiReviewCodeResponseReviewScopeSelectedFilesClippedExcerptsMin = 0;
+
+export const aiReviewCodeResponseReviewScopeContextGraphEntitiesIncludedMin = 0;
+
+export const aiReviewCodeResponseReviewScopeContextGraphRelationshipsIncludedMin = 0;
+
+
+export const aiReviewCodeResponseReviewScopeLimitationsMax = 8;
+
+
+
 export const AiReviewCodeResponse = zod.object({
   "summary": zod.string(),
   "overallScore": zod.number(),
@@ -5028,6 +5045,27 @@ export const AiReviewCodeResponse = zod.object({
   "refactoringOpportunities": zod.array(zod.string()),
   "securityConcerns": zod.array(zod.string()),
   "verdict": zod.enum(['approved', 'needs_changes', 'major_rework']),
+  "reviewScope": zod.object({
+  "contractVersion": zod.literal(1),
+  "mode": zod.enum(['GRAPH_METRICS', 'SELECTED_FILES']),
+  "bounded": zod.literal(true).describe('Always true; this review is limited to supplied evidence.'),
+  "selectedFiles": zod.object({
+  "received": zod.number().min(aiReviewCodeResponseReviewScopeSelectedFilesReceivedMin),
+  "included": zod.number().min(aiReviewCodeResponseReviewScopeSelectedFilesIncludedMin),
+  "omitted": zod.number().min(aiReviewCodeResponseReviewScopeSelectedFilesOmittedMin),
+  "clippedExcerpts": zod.number().min(aiReviewCodeResponseReviewScopeSelectedFilesClippedExcerptsMin)
+}),
+  "context": zod.object({
+  "graphEntitiesIncluded": zod.number().min(aiReviewCodeResponseReviewScopeContextGraphEntitiesIncludedMin),
+  "graphRelationshipsIncluded": zod.number().min(aiReviewCodeResponseReviewScopeContextGraphRelationshipsIncludedMin),
+  "metricsIncluded": zod.boolean(),
+  "tasksIncluded": zod.boolean(),
+  "eventsIncluded": zod.boolean(),
+  "workflowsIncluded": zod.boolean()
+}),
+  "scanCompleteness": zod.enum(['COMPLETE', 'PARTIAL', 'UNAVAILABLE']),
+  "limitations": zod.array(zod.string().min(1)).min(1).max(aiReviewCodeResponseReviewScopeLimitationsMax)
+}),
   "operationId": zod.string(),
   "projectId": zod.string(),
   "projectRevision": zod.string(),

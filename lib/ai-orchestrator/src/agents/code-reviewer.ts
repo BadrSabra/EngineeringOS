@@ -11,6 +11,7 @@ import { GroqClientError } from "../errors.js";
 import { classifyOpenRouterFailure, type OpenRouterFailureAction } from "../openai-compatible-client.js";
 import type { Message } from "../groq-client.js";
 import { BaseAgent, type AgentRunResult } from "./base-agent.js";
+import { normalizeReviewInputs, type ReviewScope } from "../review-scope.js";
 
 export type { CodeIssue, CodeReviewOutput };
 
@@ -96,9 +97,10 @@ export async function reviewCode(
   projectContext: ProjectContext,
   fileContents?: Record<string, string>,
   opts?: AgentCompleteOpts,
-): Promise<CodeReviewResult> {
+): Promise<CodeReviewResult & { reviewScope: ReviewScope }> {
+  const accounting = normalizeReviewInputs(projectContext, fileContents);
   const result = await new CodeReviewAgent(fileContents).run(projectContext, opts);
-  const selectedPaths = Object.keys(fileContents ?? {}).slice(0, 5);
+  const selectedPaths = accounting.includedFilePaths;
   if (
     !result._parseError &&
     selectedPaths.length > 0 &&
@@ -109,6 +111,7 @@ export async function reviewCode(
     // than letting an empty issues array look like a verified review.
     return {
       ...result,
+      reviewScope: accounting.scope,
       _parseError: {
         code: "SCHEMA_VALIDATION_FAILED",
         message: "The review did not return a finding cited to a selected file.",
@@ -116,7 +119,7 @@ export async function reviewCode(
       },
     };
   }
-  return result;
+  return { ...result, reviewScope: accounting.scope };
 }
 
 const SAFE_MODEL_PATTERN = /^[a-z0-9][a-z0-9._:/-]{0,199}$/i;

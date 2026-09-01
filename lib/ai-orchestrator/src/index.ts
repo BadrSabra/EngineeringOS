@@ -111,6 +111,16 @@ export type {
 } from "./openai-compatible-client.js";
 
 export type { PendingChange } from "./tools/file-tools.js";
+export {
+  ReviewScopeSchema,
+  normalizeReviewInputs,
+  invalidReviewFileKey,
+  reviewFileContentsBytes,
+  REVIEW_MAX_FILES,
+  REVIEW_MAX_EXCERPT_CHARS,
+  REVIEW_MAX_FILE_CONTENTS_BYTES,
+} from "./review-scope.js";
+export type { ReviewScope, NormalizedReviewInputs } from "./review-scope.js";
 export { buildPatchHunks, hashPatchBase, rebasePatchHunks } from "./patch-contract.js";
 export type { FilePatchHunk, PatchRebaseResult } from "./patch-contract.js";
 export {

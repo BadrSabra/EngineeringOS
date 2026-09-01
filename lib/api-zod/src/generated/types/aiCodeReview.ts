@@ -7,6 +7,7 @@
  */
 import type { AiCodeIssue } from './aiCodeIssue';
 import type { AiCodeReviewVerdict } from './aiCodeReviewVerdict';
+import type { AiReviewScope } from './aiReviewScope';
 import type { AiStructuredAuditTraceEntry } from './aiStructuredAuditTraceEntry';
 
 export interface AiCodeReview {
@@ -17,6 +18,7 @@ export interface AiCodeReview {
   refactoringOpportunities: string[];
   securityConcerns: string[];
   verdict: AiCodeReviewVerdict;
+  reviewScope: AiReviewScope;
   operationId: string;
   projectId: string;
   projectRevision: string;

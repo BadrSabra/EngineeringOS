@@ -68,5 +68,14 @@ describe("reviewCode selected-file acceptance", () => {
 
     expect(result._parseError).toBeUndefined();
     expect(result.issues[0]?.file).toBe("src/example.ts");
+    expect(result.reviewScope).toMatchObject({
+      mode: "SELECTED_FILES",
+      selectedFiles: {
+        received: 1,
+        included: 1,
+        omitted: 0,
+        clippedExcerpts: 0,
+      },
+    });
   });
 });

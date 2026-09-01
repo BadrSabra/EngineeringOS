@@ -141,6 +141,8 @@ type ChatMessage = {
   behaviorEvidence?: AiBehaviorEvidence[] | string | null;
   /** AI-008: per-task typed result from the SSE done event. Absent on generic turns and reloaded history. */
   taskResult?: AiTaskResult | null;
+  /** Server-owned structured review result used for the scope disclosure panel. */
+  structuredReview?: AiCodeReview | null;
   operationMode?: OperationMode;
   structuredTask?: 'analyze' | 'review';
   failureKind?: AiStreamErrorEvent['failureKind'];
@@ -4619,6 +4621,9 @@ function MessageBubble({
             browserProfileFreshness={browserProfileFreshness}
           />
         )}
+        {!isUser && msg.structuredReview && (
+          <CodeReviewScopeNotice review={msg.structuredReview} />
+        )}
         {!isUser && msg.missionCorrelationReportError && (
           <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
             <span className="min-w-0 flex-1">The historical mission report is unavailable, but this conversation is preserved.</span>
@@ -5176,7 +5181,7 @@ function formatCodeReview(data: AiCodeReview): string {
   const sev = (s: string) =>
     s === 'critical' ? '🔴' : s === 'high' ? '🟠' : s === 'medium' ? '🟡' : '🔵';
   const lines: string[] = [
-    `## Code Review — ${data.overallScore}/10  ${verdictLabel}\n`,
+    `## Code Review — ${data.overallScore}/100  ${verdictLabel}\n`,
     data.summary,
     '',
   ];
@@ -5201,6 +5206,65 @@ function formatCodeReview(data: AiCodeReview): string {
   }
   lines.push(`**Verdict:** ${data.verdict.replace('_', ' ')}`);
   return lines.join('\n');
+}
+
+function CodeReviewScopeNotice({ review }: { review: AiCodeReview }) {
+  const [expanded, setExpanded] = useState(false);
+  const scope = review.reviewScope;
+  if (!scope) return null;
+  const selected = scope.selectedFiles;
+  const partial =
+    scope.scanCompleteness !== 'COMPLETE'
+    || selected.omitted > 0
+    || selected.clippedExcerpts > 0;
+  const modeLabel = scope.mode === 'SELECTED_FILES'
+    ? 'Selected source files + project evidence'
+    : 'Graph and metrics evidence';
+  return (
+    <div
+      className={`mt-2 w-full rounded-lg border px-3 py-2 ${
+        partial ? 'border-amber-500/40 bg-amber-500/10' : 'border-primary/30 bg-primary/5'
+      }`}
+      role="note"
+      aria-label="Code review scope"
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        <ShieldAlert className={`h-3.5 w-3.5 ${partial ? 'text-amber-300' : 'text-primary'}`} />
+        <span className="text-[11px] font-medium text-foreground">Bounded review scope</span>
+        <Badge variant="outline" className="text-[10px]">{modeLabel}</Badge>
+        <Badge variant="outline" className="ml-auto text-[10px]">
+          Project score: {review.overallScore}/100
+        </Badge>
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-foreground/80">
+        Approval means no issues were found in the reviewed evidence. It does not mean every repository file was inspected.
+      </p>
+      {partial && (
+        <p className="mt-1 text-[11px] font-medium leading-relaxed text-amber-200">
+          This review is partial: some supplied evidence was omitted, clipped, or came from an incomplete scan.
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+        aria-expanded={expanded}
+      >
+        <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        Scope details
+      </button>
+      {expanded && (
+        <div className="mt-1 border-t border-border/40 pt-2 text-[10px] leading-relaxed text-muted-foreground">
+          <div>Selected files received: {selected.received}; included: {selected.included}; omitted: {selected.omitted}; clipped excerpts: {selected.clippedExcerpts}</div>
+          <div>Graph entities: {scope.context.graphEntitiesIncluded}; relationships: {scope.context.graphRelationshipsIncluded}; metrics: {scope.context.metricsIncluded ? 'included' : 'not available'}; scan: {scope.scanCompleteness.toLowerCase()}</div>
+          <div>Output verdict: {review.verdict.replace('_', ' ')}. This is separate from any output-quality acceptance gate.</div>
+          <ul className="mt-1 list-disc pl-4">
+            {scope.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function structuredTaskLabel(task: 'analyze' | 'review'): string {
@@ -7888,6 +7952,9 @@ export default function AiChat() {
               : formatCodeReview(event.result as unknown as AiCodeReview),
             activityEvents,
             structuredTask: task,
+            structuredReview: task === 'review'
+              ? event.result as unknown as AiCodeReview
+              : null,
             createdAt: new Date().toISOString(),
           },
         ]);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReviewScopeSchema } from "../review-scope.js";
 
 export const CodeIssueTypeSchema = z.enum(["bug", "security", "performance", "style", "architecture"]);
 export const SeveritySchema = z.enum(["critical", "high", "medium", "low"]);
@@ -28,7 +29,13 @@ export const CodeReviewResultSchema = z.object({
   refactoringOpportunities: z.array(z.string().min(1)).default([]),
   securityConcerns:         z.array(z.string().min(1)).default([]),
   verdict:                  z.enum(["approved", "needs_changes", "major_rework"]),
+  // Added by the server after model parsing; models must not author scope.
+  reviewScope:              ReviewScopeSchema.optional(),
 });
 
 export type CodeIssue = z.infer<typeof CodeIssueSchema>;
 export type CodeReviewOutput = z.infer<typeof CodeReviewResultSchema>;
+export const CodeReviewPublicResultSchema = CodeReviewResultSchema.extend({
+  reviewScope: ReviewScopeSchema,
+});
+export type CodeReviewPublicOutput = z.infer<typeof CodeReviewPublicResultSchema>;

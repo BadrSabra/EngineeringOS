@@ -334,15 +334,34 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   // Gap-4 fix: reviewCode mock updated to match CodeReviewResultSchema.
   // Removed stale fields: criticalIssues, highIssues, mediumIssues, lowIssues.
   // Added correct fields: refactoringOpportunities, securityConcerns.
-  reviewCode: vi.fn(async () => ({
-    verdict: "approved",
-    overallScore: 85,
-    summary: "Looks good",
-    issues: [],
-    strengths: ["Clean code"],
-    refactoringOpportunities: [],
-    securityConcerns: [],
-  })),
+  reviewCode: vi.fn(async (_context: unknown, fileContents?: Record<string, string>) => {
+    const received = Object.keys(fileContents ?? {}).length;
+    return {
+      verdict: "approved",
+      overallScore: 85,
+      summary: "Looks good",
+      issues: [],
+      strengths: ["Clean code"],
+      refactoringOpportunities: [],
+      securityConcerns: [],
+      reviewScope: {
+      contractVersion: 1,
+        mode: received > 0 ? "SELECTED_FILES" as const : "GRAPH_METRICS" as const,
+        bounded: true,
+        selectedFiles: { received, included: Math.min(received, 5), omitted: Math.max(0, received - 5), clippedExcerpts: 0 },
+        context: {
+          graphEntitiesIncluded: 0,
+          graphRelationshipsIncluded: 0,
+          metricsIncluded: true,
+          tasksIncluded: true,
+          eventsIncluded: true,
+          workflowsIncluded: false,
+        },
+        scanCompleteness: "COMPLETE" as const,
+        limitations: ["This is a bounded review of the supplied project evidence; approval does not mean every repository file was inspected."],
+      },
+    };
+  }),
   // Gap-4 fix: orchestrateWorkflow mock updated to match WorkflowDecisionSchema.
   // action "advance" requires nextPhase (enforced by AdvanceDecisionSchema.strict()).
   // Removed stale fields: confidence, suggestedNextPhase, blockers.
@@ -2506,6 +2525,12 @@ describe("POST /api/ai/projects/:projectId/review", () => {
     expect(res.status).toBe(200);
     expect(res.body.verdict).toBe("approved");
     expect(typeof res.body.overallScore).toBe("number");
+    expect(res.body.reviewScope).toMatchObject({
+      bounded: true,
+      mode: "SELECTED_FILES",
+      selectedFiles: { received: 1, included: 1, omitted: 0, clippedExcerpts: 0 },
+    });
+    expect(JSON.stringify(res.body.reviewScope)).not.toContain("const x = 1");
   });
 
   it("creates an AiCodeReviewCompleted event", async () => {
@@ -2534,6 +2559,22 @@ describe("POST /api/ai/projects/:projectId/review", () => {
       refactoringOpportunities: [],
       securityConcerns: [],
       verdict: "needs_changes",
+      reviewScope: {
+        contractVersion: 1,
+        mode: "GRAPH_METRICS",
+        bounded: true,
+        selectedFiles: { received: 0, included: 0, omitted: 0, clippedExcerpts: 0 },
+        context: {
+          graphEntitiesIncluded: 0,
+          graphRelationshipsIncluded: 0,
+          metricsIncluded: true,
+          tasksIncluded: true,
+          eventsIncluded: true,
+          workflowsIncluded: false,
+        },
+        scanCompleteness: "COMPLETE",
+        limitations: ["This is a bounded review of the supplied project evidence; approval does not mean every repository file was inspected."],
+      },
       _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "missing field", raw: "bad output" },
     });
 
@@ -2562,6 +2603,8 @@ describe("POST /api/ai/projects/:projectId/review", () => {
     expect(res.text).toContain('"stage":"calling-model"');
     expect(res.text).toContain('"type":"task_done"');
     expect(res.text).toContain('"verdict":"approved"');
+    expect(res.text).toContain('"reviewScope"');
+    expect(res.text).toContain('"mode":"SELECTED_FILES"');
   });
 });
 

@@ -6,7 +6,6 @@
  */
 import { Router } from "express";
 import { randomUUID } from "crypto";
-import path from "node:path";
 import { db } from "@workspace/db";
 import {
   aiChatMessagesTable,
@@ -21,6 +20,9 @@ import {
   invalidateContextCache,
   analyzeScan,
   reviewCode,
+  invalidReviewFileKey,
+  reviewFileContentsBytes,
+  REVIEW_MAX_FILE_CONTENTS_BYTES,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
 import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
@@ -442,20 +444,17 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
 
   logger.info({ projectId }, "AI code review requested");
 
-  const MAX_FILE_CONTENTS_BYTES = 50_000;
   if (fileContents) {
-    const invalidKey = Object.keys(fileContents).find(
-      (k) => path.isAbsolute(k) || k.includes(".."),
-    );
+    const invalidKey = invalidReviewFileKey(fileContents);
     if (invalidKey) {
       return res.status(400).json({
         error: `fileContents key "${invalidKey}" must be a relative path without traversal (no ".." segments)`,
       });
     }
-    const totalSize = Object.values(fileContents).reduce((sum, v) => sum + v.length, 0);
-    if (totalSize > MAX_FILE_CONTENTS_BYTES) {
+    const totalSize = reviewFileContentsBytes(fileContents);
+    if (totalSize > REVIEW_MAX_FILE_CONTENTS_BYTES) {
       return res.status(413).json({
-        error: `fileContents total size (${Math.round(totalSize / 1_000)} KB) exceeds the ${MAX_FILE_CONTENTS_BYTES / 1_000} KB limit — send fewer or smaller files`,
+        error: `fileContents total size (${Math.round(totalSize / 1_000)} KB) exceeds the ${REVIEW_MAX_FILE_CONTENTS_BYTES / 1_000} KB limit — send fewer or smaller files`,
       });
     }
   }
@@ -545,7 +544,11 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
       projectId,
       actor: req.userId,
       stateBefore: {},
-      stateAfter: { verdict: result.verdict, overallScore: result.overallScore },
+      stateAfter: {
+        verdict: result.verdict,
+        overallScore: result.overallScore,
+        reviewScope: result.reviewScope,
+      },
     });
     await tx.insert(eventsTable).values({
       id: randomUUID(),
@@ -712,21 +715,17 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     fileContents?: Record<string, string>;
     sessionId?: string;
   };
-  const MAX_FILE_CONTENTS_BYTES = 50_000;
-
   if (fileContents) {
-    const invalidKey = Object.keys(fileContents).find(
-      (key) => path.isAbsolute(key) || key.includes(".."),
-    );
+    const invalidKey = invalidReviewFileKey(fileContents);
     if (invalidKey) {
       return res.status(400).json({
         error: `fileContents key "${invalidKey}" must be a relative path without traversal (no ".." segments)`,
       });
     }
-    const totalSize = Object.values(fileContents).reduce((sum, value) => sum + value.length, 0);
-    if (totalSize > MAX_FILE_CONTENTS_BYTES) {
+    const totalSize = reviewFileContentsBytes(fileContents);
+    if (totalSize > REVIEW_MAX_FILE_CONTENTS_BYTES) {
       return res.status(413).json({
-        error: `fileContents total size (${Math.round(totalSize / 1_000)} KB) exceeds the ${MAX_FILE_CONTENTS_BYTES / 1_000} KB limit — send fewer or smaller files`,
+        error: `fileContents total size (${Math.round(totalSize / 1_000)} KB) exceeds the ${REVIEW_MAX_FILE_CONTENTS_BYTES / 1_000} KB limit — send fewer or smaller files`,
       });
     }
   }
@@ -831,7 +830,11 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         projectId,
         actor: req.userId,
         stateBefore: {},
-        stateAfter: { verdict: result.verdict, overallScore: result.overallScore },
+        stateAfter: {
+          verdict: result.verdict,
+          overallScore: result.overallScore,
+          reviewScope: result.reviewScope,
+        },
       });
       await tx.insert(eventsTable).values({
         id: randomUUID(),
