@@ -7,7 +7,11 @@
     "scripts/validate-dashboard-client-contract.mjs"
   ],
   "dashboardConsumers": {
+    "artifacts/dashboard/src/App.tsx": "trigger",
+    "artifacts/dashboard/src/components/CapabilityGapNotice.tsx": "trigger",
     "artifacts/dashboard/src/components/GitPanel.tsx": "trigger",
+    "artifacts/dashboard/src/components/RecipeProgressPanel.tsx": "trigger",
+    "artifacts/dashboard/src/lib/use-recipe-stream.ts": "trigger",
     "artifacts/dashboard/src/pages/AiChat.tsx": "trigger",
     "artifacts/dashboard/src/pages/Dashboard.tsx": "trigger",
     "artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx": "trigger",
