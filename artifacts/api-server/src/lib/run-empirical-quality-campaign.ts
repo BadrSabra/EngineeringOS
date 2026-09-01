@@ -18,6 +18,14 @@ import type { ProjectContext } from "@workspace/ai-orchestrator";
 import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 
 const execFileAsync = promisify(execFile);
+export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 50_000;
+
+class IncompleteEmpiricalEvidenceError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "IncompleteEmpiricalEvidenceError";
+  }
+}
 
 const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
   openrouter: "OPENROUTER_API_KEY",
@@ -88,6 +96,7 @@ function positiveInteger(value: string | undefined, fallback: number, minimum: n
 }
 
 function classifyProviderError(error: unknown): EmpiricalCaseObservation["errorCode"] {
+  if (error instanceof IncompleteEmpiricalEvidenceError) return "INCOMPLETE_EVIDENCE";
   if (error instanceof GroqClientError) {
     if (error.code === "TIMEOUT") return "TIMEOUT";
     if (PROVIDER_UNAVAILABLE_CODES.has(error.code)) return "PROVIDER_UNAVAILABLE";
@@ -140,23 +149,44 @@ async function readSelectedFiles(
   const resolvedRoot = await fs.realpath(rootPath);
   const contents: Record<string, string> = {};
   for (const relativeFile of testCase.selectedFiles) {
-    const candidate = path.resolve(resolvedRoot, relativeFile);
-    const relativeCandidate = path.relative(resolvedRoot, candidate);
-    if (!relativeCandidate || relativeCandidate.startsWith("..") || path.isAbsolute(relativeCandidate)) {
-      throw new Error("Selected corpus file escaped its disposable repository root.");
-    }
-    const realCandidate = await fs.realpath(candidate);
-    const realRelative = path.relative(resolvedRoot, realCandidate);
-    if (!realRelative || realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
-      throw new Error("Selected corpus file symlink escaped its disposable repository root.");
-    }
-    const handle = await fs.open(realCandidate, "r");
     try {
-      const buffer = Buffer.alloc(50_000);
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-      contents[relativeFile] = buffer.subarray(0, bytesRead).toString("utf8");
-    } finally {
-      await handle.close();
+      const candidate = path.resolve(resolvedRoot, relativeFile);
+      const relativeCandidate = path.relative(resolvedRoot, candidate);
+      if (!relativeCandidate || relativeCandidate.startsWith("..") || path.isAbsolute(relativeCandidate)) {
+        throw new Error("Selected corpus file escaped its disposable repository root.");
+      }
+      const realCandidate = await fs.realpath(candidate);
+      const realRelative = path.relative(resolvedRoot, realCandidate);
+      if (!realRelative || realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+        throw new Error("Selected corpus file symlink escaped its disposable repository root.");
+      }
+      const initialStat = await fs.stat(realCandidate);
+      if (!initialStat.isFile() || initialStat.size > EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES) {
+        throw new Error(`Selected file exceeds the ${EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES}-byte evidence limit.`);
+      }
+      const handle = await fs.open(realCandidate, "r");
+      try {
+        const buffer = Buffer.alloc(initialStat.size);
+        let offset = 0;
+        while (offset < buffer.length) {
+          const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
+          if (bytesRead === 0) throw new Error("Selected file could not be read completely.");
+          offset += bytesRead;
+        }
+        const finalStat = await fs.stat(realCandidate);
+        if (offset !== initialStat.size || finalStat.size !== initialStat.size) {
+          throw new Error("Selected file changed while evidence was being read.");
+        }
+        contents[relativeFile] = buffer.toString("utf8");
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      if (error instanceof IncompleteEmpiricalEvidenceError) throw error;
+      throw new IncompleteEmpiricalEvidenceError(
+        `Selected corpus evidence is incomplete for ${relativeFile}.`,
+        { cause: error },
+      );
     }
   }
   return contents;
@@ -338,7 +368,7 @@ async function main(): Promise<void> {
     throw new Error(`Missing ${empiricalQualityProviderKey(provider)} for empirical quality execution.`);
   }
   const corpusPath = process.env.EMPIRICAL_QUALITY_CORPUS_PATH?.trim() ||
-    path.resolve(process.cwd(), "../../lib/ai-orchestrator/src/benchmark-fixtures/reviewed-empirical-quality-corpus-v1.json");
+    path.resolve(process.cwd(), "../../lib/ai-orchestrator/src/benchmark-fixtures/reviewed-empirical-quality-corpus-v2.json");
   const outputPath = process.env.EMPIRICAL_QUALITY_SCORECARD_PATH?.trim();
   if (!outputPath) throw new Error("EMPIRICAL_QUALITY_SCORECARD_PATH is required for live campaign output.");
 

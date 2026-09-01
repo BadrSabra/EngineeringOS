@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
-import { runApiEmpiricalQualityCampaign } from "./run-empirical-quality-campaign.js";
+import {
+  EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES,
+  runApiEmpiricalQualityCampaign,
+} from "./run-empirical-quality-campaign.js";
 
 const roots: string[] = [];
 
@@ -47,11 +50,16 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
-async function workspaceFor(testCase: typeof corpus.cases[number]) {
+async function workspaceFor(
+  testCase: typeof corpus.cases[number],
+  _timeoutMs?: number,
+  _signal?: AbortSignal,
+  contents = "bounded source fixture\n",
+) {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-empirical-test-"));
   roots.push(rootPath);
   await fs.mkdir(path.dirname(path.join(rootPath, testCase.selectedFiles[0]!)), { recursive: true });
-  await fs.writeFile(path.join(rootPath, testCase.selectedFiles[0]!), "bounded source fixture\n", "utf8");
+  await fs.writeFile(path.join(rootPath, testCase.selectedFiles[0]!), contents, "utf8");
   return {
     rootPath,
     cleanup: async () => fs.rm(rootPath, { recursive: true, force: true }),
@@ -124,5 +132,81 @@ describe("empirical provider campaign adapter", () => {
     expect(scorecard.metrics.errorCount).toBe(0);
     expect(scorecard.cases.every((entry) => entry.errorCode === "PROVIDER_UNAVAILABLE")).toBe(true);
     expect(JSON.stringify(scorecard)).not.toContain("provider response");
+  });
+
+  it("records oversized selected-file evidence as incomplete instead of scoring it", async () => {
+    const reviewed: string[] = [];
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: async (testCase) => workspaceFor(
+        testCase,
+        undefined,
+        undefined,
+        testCase.outcome === "defect"
+          ? "x".repeat(EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES + 1)
+          : "bounded source fixture\n",
+      ),
+      reviewCase: async ({ testCase }) => {
+        reviewed.push(testCase.id);
+        return {
+          summary: "Bounded review",
+          overallScore: 90,
+          strengths: [],
+          issues: [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: "approved",
+        };
+      },
+    });
+
+    expect(scorecard.status).toBe("INCOMPLETE");
+    expect(scorecard.metrics.incompleteCases).toBe(1);
+    expect(scorecard.cases.find((entry) => entry.caseId === "defect-001")).toMatchObject({
+      outcome: "ERROR",
+      errorCode: "INCOMPLETE_EVIDENCE",
+      contractPassed: false,
+    });
+    expect(reviewed).toEqual(["clean-001"]);
+    expect(JSON.stringify(scorecard)).not.toContain("xxxxx");
+  });
+
+  it("records missing selected-file evidence as incomplete", async () => {
+    const reviewed: string[] = [];
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: async (testCase) => {
+        const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-empirical-test-"));
+        roots.push(workspace);
+        if (testCase.outcome === "clean") {
+          await fs.writeFile(path.join(workspace, testCase.selectedFiles[0]!), "bounded source fixture\n", "utf8");
+        }
+        return {
+          rootPath: workspace,
+          cleanup: async () => fs.rm(workspace, { recursive: true, force: true }),
+        };
+      },
+      reviewCase: async ({ testCase }) => {
+        reviewed.push(testCase.id);
+        return {
+          summary: "Bounded review",
+          overallScore: 90,
+          strengths: [],
+          issues: [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: "approved",
+        };
+      },
+    });
+
+    expect(scorecard.status).toBe("INCOMPLETE");
+    expect(scorecard.cases.find((entry) => entry.caseId === "defect-001")?.errorCode)
+      .toBe("INCOMPLETE_EVIDENCE");
+    expect(reviewed).toEqual(["clean-001"]);
   });
 });

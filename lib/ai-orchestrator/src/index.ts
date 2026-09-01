@@ -236,6 +236,10 @@ export type {
   EmpiricalQualityExecutor,
   EmpiricalIssueType,
   EmpiricalSeverity,
+  EmpiricalRepositoryLanguage,
+  EmpiricalReviewPattern,
+  EmpiricalCorpusCaseMetadata,
+  EmpiricalQualityCoverage,
 } from "./benchmark/empirical-quality.js";
 export { buildTaskProfile, inferTaskType } from "./quality/task-profile.js";
 export type { TaskProfile, TaskType, ContextIntensity, MemoryMode, GraphMode, HistoryMode } from "./quality/task-profile.js";

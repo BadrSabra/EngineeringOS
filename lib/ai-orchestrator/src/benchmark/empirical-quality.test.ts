@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import {
   buildEmpiricalQualityScorecard,
   scoreEmpiricalQualityCase,
@@ -44,12 +45,86 @@ const corpus: EmpiricalQualityCorpus = {
 };
 
 describe("empirical AI quality oracle", () => {
+  it("loads the checked-in v2 corpus and verifies its balanced coverage matrix", async () => {
+    const fixture = JSON.parse(await readFile(
+      new URL("../benchmark-fixtures/reviewed-empirical-quality-corpus-v2.json", import.meta.url),
+      "utf8",
+    )) as unknown;
+    const reviewedCorpus = validateEmpiricalQualityCorpus(fixture);
+    expect(reviewedCorpus.version).toBe(2);
+    expect(reviewedCorpus.cases).toHaveLength(12);
+    expect(reviewedCorpus.cases.filter((entry) => entry.outcome === "defect")).toHaveLength(6);
+    expect(reviewedCorpus.cases.filter((entry) => entry.outcome === "clean")).toHaveLength(6);
+    expect(reviewedCorpus.coverage).toMatchObject({
+      minimumCasesPerOutcome: 6,
+      requiredLanguages: ["javascript", "python", "go", "rust", "java", "csharp"],
+      requiredReviewPatterns: ["single-file", "multi-file"],
+      requiredIssueTypes: ["bug", "security", "performance", "style", "architecture"],
+      requiredSeverities: ["critical", "high", "medium", "low"],
+    });
+  });
+
   it("requires defect and clean controls with complete ground truth", () => {
     expect(validateEmpiricalQualityCorpus(corpus)).toEqual(corpus);
     expect(() => validateEmpiricalQualityCorpus({
       ...corpus,
       cases: [corpus.cases[0]],
     })).toThrow(/both defect and clean/);
+  });
+
+  it("keeps the historical v1 format readable while rejecting unsupported corpus metadata", async () => {
+    expect(validateEmpiricalQualityCorpus(corpus).version).toBe(1);
+    expect(() => validateEmpiricalQualityCorpus({
+      ...corpus,
+      version: 3,
+    })).toThrow(/kind or version is unsupported/);
+
+    const fixture = JSON.parse(await readFile(
+      new URL("../benchmark-fixtures/reviewed-empirical-quality-corpus-v2.json", import.meta.url),
+      "utf8",
+    )) as EmpiricalQualityCorpus;
+    expect(() => validateEmpiricalQualityCorpus({
+      ...fixture,
+      cases: fixture.cases.map((entry, index) =>
+        index === 1 ? { ...entry, id: fixture.cases[0]!.id } : entry),
+    })).toThrow(/IDs must be unique/);
+    expect(() => validateEmpiricalQualityCorpus({
+      ...fixture,
+      cases: fixture.cases.map((entry, index) =>
+        index === 0
+          ? { ...entry, metadata: { ...entry.metadata!, language: "elixir" as never } }
+          : entry),
+    })).toThrow(/metadata does not match ground truth|unsupported metadata/);
+    expect(() => validateEmpiricalQualityCorpus({
+      ...fixture,
+      coverage: {
+        ...fixture.coverage!,
+        requiredLanguages: ["javascript", "typescript"],
+      },
+    })).toThrow(/required coverage matrix/);
+  });
+
+  it("rejects findings outside selected files and duplicate finding metadata", () => {
+    expect(() => validateEmpiricalQualityCorpus({
+      ...corpus,
+      cases: [{
+        ...corpus.cases[0]!,
+        findings: [{
+          ...corpus.cases[0]!.findings[0]!,
+          file: "other.js",
+        }],
+      }],
+    })).toThrow(/outside its selected files/);
+    expect(() => validateEmpiricalQualityCorpus({
+      ...corpus,
+      cases: [{
+        ...corpus.cases[0]!,
+        findings: [
+          corpus.cases[0]!.findings[0]!,
+          { ...corpus.cases[0]!.findings[0]! },
+        ],
+      }],
+    })).toThrow(/duplicate finding IDs/);
   });
 
   it("rejects mutable or credential-bearing reviewed repository provenance", () => {

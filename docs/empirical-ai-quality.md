@@ -1,24 +1,35 @@
 # Empirical AI quality campaign
 
-EngineeringOS now has a separate, opt-in empirical quality layer for comparing
+EngineeringOS has a separate, opt-in empirical quality layer for comparing
 provider/model observations with reviewed ground truth. It is measurement
-evidence, not a release authority.
+evidence, not a release authority. The current checked-in revision is
+`public-reviewed-2026-09-v2`; the original v1 manifest remains unchanged and
+reproducible.
 
 ## Corpus contract
 
-The corpus is a versioned JSON manifest with no source bodies:
+The corpus is a versioned JSON manifest with no source bodies. Corpus format v1
+continues to validate for historical reproducibility. Format v2 adds safe
+metadata and a declared minimum coverage matrix:
 
 ```json
 {
   "kind": "empirical-ai-quality-corpus",
-  "version": 1,
-  "corpusRevision": "public-disposable-2026-09",
+  "version": 2,
+  "corpusRevision": "public-reviewed-2026-09-v2",
+  "coverage": {
+    "minimumCasesPerOutcome": 6,
+    "requiredLanguages": ["javascript", "python", "go", "rust", "java", "csharp"],
+    "requiredReviewPatterns": ["single-file", "multi-file"],
+    "requiredIssueTypes": ["bug", "security", "performance", "style", "architecture"],
+    "requiredSeverities": ["critical", "high", "medium", "low"]
+  },
   "cases": [
     {
       "id": "repo-defect-001",
       "repositoryId": "public-repo-a",
       "repositoryUrl": "https://github.com/org/repository.git",
-      "sourceRevision": "40-character-commit-sha",
+      "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
       "selectedFiles": ["src/auth.ts"],
       "outcome": "defect",
       "expectedVerdict": "findings",
@@ -31,7 +42,14 @@ The corpus is a versioned JSON manifest with no source bodies:
           "type": "security",
           "severity": "high"
         }
-      ]
+      ],
+      "metadata": {
+        "language": "javascript",
+        "caseType": "defect",
+        "reviewPattern": "single-file",
+        "issueTypes": ["security"],
+        "severities": ["high"]
+      }
     },
     {
       "id": "repo-clean-001",
@@ -40,7 +58,14 @@ The corpus is a versioned JSON manifest with no source bodies:
       "outcome": "clean",
       "expectedVerdict": "clean",
       "expectedGateDecision": "accept",
-      "findings": []
+      "findings": [],
+      "metadata": {
+        "language": "javascript",
+        "caseType": "clean",
+        "reviewPattern": "multi-file",
+        "issueTypes": [],
+        "severities": []
+      }
     }
   ]
 }
@@ -49,11 +74,32 @@ The corpus is a versioned JSON manifest with no source bodies:
 Corpus validation fails closed unless both defect and clean controls exist,
 each defect has at least one annotation, paths are relative, revisions are
 present, repository URLs are credential-free HTTPS GitHub URLs, selected files
-are bounded, and finding IDs are unique. The checked-in
-`reviewed-empirical-quality-corpus-v1.json` is the initial public reviewed
-corpus. Source snapshots are checked out at the pinned revisions into a fresh
-host disposable workspace for each case; they are never written to the
-scorecard.
+are bounded, and finding IDs are unique. V2 additionally requires:
+
+- defect and clean controls to be balanced;
+- metadata to use only the supported language, case type, review-pattern,
+  issue-type, and severity values;
+- metadata to match the outcome, selected-file shape, and ground-truth
+  findings; and
+- the declared minimum language, review-pattern, issue-type, and severity
+  matrix to be present.
+
+The v2 manifest contains six defect and six clean controls across JavaScript,
+Python, Go, Rust, Java, and C#. Defects use single-file reviews and clean
+controls use multi-file reviews. The six defects collectively cover security,
+performance, architecture, bug, and style findings at critical, high, medium,
+and low severity. These are metadata-only reporting dimensions; they do not
+copy source bodies or provider responses into measurement artifacts.
+
+The checked-in `reviewed-empirical-quality-corpus-v1.json` is the initial public
+reviewed corpus and must not be rewritten when a new revision is published.
+Each future revision should add a new immutable manifest, use public
+credential-free repository URLs and full commit SHAs, keep selected files
+relative and bounded, and have a reviewer confirm every finding against only
+the listed files. Compare revisions by corpus revision and coverage matrix;
+never mix scorecards from different revisions as if they were one sample.
+Source snapshots are checked out at pinned revisions into a fresh host
+disposable workspace for each case; they are never written to the scorecard.
 
 ## Scoring an opt-in campaign
 
@@ -67,6 +113,12 @@ patches, absolute paths, or credentials.
 The API server's live adapter clones each public repository without
 credentials, fetches and detaches the exact manifest revision, reads only the
 manifest's selected files, and removes the workspace after the case finishes.
+Every selected file must be a regular file no larger than 50,000 bytes. The
+adapter reads the complete file and checks that it did not change while being
+read. Missing, changing, oversized, or otherwise incomplete evidence produces
+an `ERROR` case with `INCOMPLETE_EVIDENCE`, keeps the campaign incomplete, and
+never invokes the reviewer for that case; it is not silently scored as a
+complete review.
 It requires both `RUN_EMPIRICAL_QUALITY_CAMPAIGN=1` and
 `EMPIRICAL_QUALITY_DISPOSABLE=1`; case and campaign timeouts are bounded by
 default and can only be shortened through the explicit environment settings.
@@ -81,6 +133,11 @@ EMPIRICAL_QUALITY_MODEL=provider/model \
 EMPIRICAL_QUALITY_SCORECARD_PATH=/tmp/engineeringos-empirical/scorecard.json \
 pnpm --filter @workspace/api-server run validate:empirical-quality
 ```
+
+When no `EMPIRICAL_QUALITY_CORPUS_PATH` is supplied, the opt-in API campaign
+uses `reviewed-empirical-quality-corpus-v2.json`. Supplying a path is useful
+for reproducing the unchanged v1 campaign or comparing a separately reviewed
+revision.
 
 The adapter records provider unavailability, timeout, execution error, review
 contract, citation, normalization, and latency outcomes in the empirical

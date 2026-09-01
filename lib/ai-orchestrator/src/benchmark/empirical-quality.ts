@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 
 export const EMPIRICAL_QUALITY_VERSION = "empirical-quality-v1";
-export const EMPIRICAL_QUALITY_CORPUS_VERSION = 1 as const;
+export const EMPIRICAL_QUALITY_CORPUS_VERSION = 2 as const;
+export const EMPIRICAL_QUALITY_LEGACY_CORPUS_VERSION = 1 as const;
 
 const SAFE_IDENTIFIER = /^[a-z0-9][a-z0-9._:/-]{0,159}$/i;
 const SAFE_RELATIVE_FILE = /^(?!\/)(?!.*(?:^|\/)\.\.)(?:[a-z0-9._-]+\/)*[a-z0-9._-]+$/i;
@@ -9,8 +10,23 @@ const SAFE_GITHUB_REPOSITORY = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z
 const SAFE_GIT_REVISION = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
 export type EmpiricalIssueType = "bug" | "security" | "performance" | "style" | "architecture";
 export type EmpiricalSeverity = "critical" | "high" | "medium" | "low";
+export type EmpiricalRepositoryLanguage =
+  | "javascript"
+  | "typescript"
+  | "python"
+  | "go"
+  | "rust"
+  | "java"
+  | "csharp"
+  | "ruby"
+  | "php";
+export type EmpiricalReviewPattern = "single-file" | "multi-file";
 const ISSUE_TYPES = new Set<EmpiricalIssueType>(["bug", "security", "performance", "style", "architecture"]);
 const SEVERITIES = new Set<EmpiricalSeverity>(["critical", "high", "medium", "low"]);
+const REPOSITORY_LANGUAGES = new Set<EmpiricalRepositoryLanguage>([
+  "javascript", "typescript", "python", "go", "rust", "java", "csharp", "ruby", "php",
+]);
+const REVIEW_PATTERNS = new Set<EmpiricalReviewPattern>(["single-file", "multi-file"]);
 
 export type EmpiricalGroundTruthFinding = {
   id: string;
@@ -19,6 +35,14 @@ export type EmpiricalGroundTruthFinding = {
   lineEnd?: number;
   type: EmpiricalIssueType;
   severity: EmpiricalSeverity;
+};
+
+export type EmpiricalCorpusCaseMetadata = {
+  language: EmpiricalRepositoryLanguage;
+  caseType: "defect" | "clean";
+  reviewPattern: EmpiricalReviewPattern;
+  issueTypes: readonly EmpiricalIssueType[];
+  severities: readonly EmpiricalSeverity[];
 };
 
 export type EmpiricalCorpusCase = {
@@ -31,13 +55,23 @@ export type EmpiricalCorpusCase = {
   expectedVerdict: "findings" | "clean";
   expectedGateDecision: "accept" | "reject";
   findings: readonly EmpiricalGroundTruthFinding[];
+  metadata?: EmpiricalCorpusCaseMetadata;
+};
+
+export type EmpiricalQualityCoverage = {
+  minimumCasesPerOutcome: number;
+  requiredLanguages: readonly EmpiricalRepositoryLanguage[];
+  requiredReviewPatterns: readonly EmpiricalReviewPattern[];
+  requiredIssueTypes: readonly EmpiricalIssueType[];
+  requiredSeverities: readonly EmpiricalSeverity[];
 };
 
 export type EmpiricalQualityCorpus = {
   kind: "empirical-ai-quality-corpus";
-  version: typeof EMPIRICAL_QUALITY_CORPUS_VERSION;
+  version: typeof EMPIRICAL_QUALITY_LEGACY_CORPUS_VERSION | typeof EMPIRICAL_QUALITY_CORPUS_VERSION;
   corpusRevision: string;
   cases: readonly EmpiricalCorpusCase[];
+  coverage?: EmpiricalQualityCoverage;
 };
 
 export type EmpiricalObservedFinding = {
@@ -65,7 +99,7 @@ export type EmpiricalCaseObservation = {
   observedFindings: readonly EmpiricalObservedFinding[];
   normalization?: Partial<EmpiricalNormalizationCounters>;
   latencyMs?: number;
-  errorCode?: "PROVIDER_UNAVAILABLE" | "RATE_LIMITED" | "TIMEOUT" | "EXECUTION_ERROR";
+  errorCode?: "PROVIDER_UNAVAILABLE" | "RATE_LIMITED" | "TIMEOUT" | "EXECUTION_ERROR" | "INCOMPLETE_EVIDENCE";
 };
 
 export type EmpiricalCaseScore = {
@@ -162,10 +196,16 @@ function isIntegerInRange(value: unknown, min: number, max: number): value is nu
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 }
 
+function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {
+  const allowedKeys = new Set(allowed);
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
 function isGroundTruthFinding(value: unknown): value is EmpiricalGroundTruthFinding {
   if (!value || typeof value !== "object") return false;
   const finding = value as Partial<EmpiricalGroundTruthFinding>;
-  return isSafeIdentifier(finding.id)
+  return hasOnlyKeys(value, ["id", "file", "lineStart", "lineEnd", "type", "severity"])
+    && isSafeIdentifier(finding.id)
     && isSafeRelativeFile(finding.file)
     && isIntegerInRange(finding.lineStart, 1, 10_000_000)
     && (finding.lineEnd === undefined || isIntegerInRange(finding.lineEnd, finding.lineStart, 10_000_000))
@@ -175,11 +215,88 @@ function isGroundTruthFinding(value: unknown): value is EmpiricalGroundTruthFind
     && SEVERITIES.has(finding.severity);
 }
 
+function isUniqueEnumArray<T extends string>(
+  value: unknown,
+  values: ReadonlySet<T>,
+): value is readonly T[] {
+  return Array.isArray(value)
+    && value.every((entry) => typeof entry === "string" && values.has(entry as T))
+    && new Set(value).size === value.length;
+}
+
+function sameEnumMembers<T extends string>(left: readonly T[], right: readonly T[]): boolean {
+  return left.length === right.length && left.every((entry) => right.includes(entry));
+}
+
+function validateCoverage(value: unknown, cases: readonly EmpiricalCorpusCase[]): EmpiricalQualityCoverage {
+  if (!value || typeof value !== "object" ||
+      !hasOnlyKeys(value, [
+        "minimumCasesPerOutcome", "requiredLanguages", "requiredReviewPatterns",
+        "requiredIssueTypes", "requiredSeverities",
+      ])) {
+    throw new Error("Empirical corpus coverage metadata is unsupported.");
+  }
+  const coverage = value as Partial<EmpiricalQualityCoverage>;
+  if (!isIntegerInRange(coverage.minimumCasesPerOutcome, 1, 128) ||
+      !isUniqueEnumArray(coverage.requiredLanguages, REPOSITORY_LANGUAGES) ||
+      !isUniqueEnumArray(coverage.requiredReviewPatterns, REVIEW_PATTERNS) ||
+      !isUniqueEnumArray(coverage.requiredIssueTypes, ISSUE_TYPES) ||
+      !isUniqueEnumArray(coverage.requiredSeverities, SEVERITIES) ||
+      coverage.requiredLanguages.length === 0 ||
+      coverage.requiredReviewPatterns.length === 0 ||
+      coverage.requiredIssueTypes.length === 0 ||
+      coverage.requiredSeverities.length === 0) {
+    throw new Error("Empirical corpus coverage metadata is malformed.");
+  }
+
+  const defectCount = cases.filter((entry) => entry.outcome === "defect").length;
+  const cleanCount = cases.length - defectCount;
+  if (defectCount !== cleanCount) {
+    throw new Error("Empirical corpus defect and clean controls must be balanced.");
+  }
+  if (defectCount < coverage.minimumCasesPerOutcome) {
+    throw new Error("Empirical corpus does not meet its minimum balanced outcome coverage.");
+  }
+  const languageCounts = new Map<EmpiricalRepositoryLanguage, number>();
+  const patternCounts = new Map<EmpiricalReviewPattern, number>();
+  const issueTypes = new Set<EmpiricalIssueType>();
+  const severities = new Set<EmpiricalSeverity>();
+  for (const testCase of cases) {
+    const metadata = testCase.metadata!;
+    languageCounts.set(metadata.language, (languageCounts.get(metadata.language) ?? 0) + 1);
+    patternCounts.set(metadata.reviewPattern, (patternCounts.get(metadata.reviewPattern) ?? 0) + 1);
+    metadata.issueTypes.forEach((type) => issueTypes.add(type));
+    metadata.severities.forEach((severity) => severities.add(severity));
+  }
+  if (coverage.requiredLanguages.some((language) => !languageCounts.has(language)) ||
+      coverage.requiredReviewPatterns.some((pattern) => !patternCounts.has(pattern)) ||
+      coverage.requiredIssueTypes.some((type) => !issueTypes.has(type)) ||
+      coverage.requiredSeverities.some((severity) => !severities.has(severity))) {
+    throw new Error("Empirical corpus does not meet its required coverage matrix.");
+  }
+  return {
+    minimumCasesPerOutcome: coverage.minimumCasesPerOutcome,
+    requiredLanguages: [...coverage.requiredLanguages],
+    requiredReviewPatterns: [...coverage.requiredReviewPatterns],
+    requiredIssueTypes: [...coverage.requiredIssueTypes],
+    requiredSeverities: [...coverage.requiredSeverities],
+  };
+}
+
 export function validateEmpiricalQualityCorpus(value: unknown): EmpiricalQualityCorpus {
   if (!value || typeof value !== "object") throw new Error("Empirical corpus must be an object.");
   const corpus = value as Partial<EmpiricalQualityCorpus>;
-  if (corpus.kind !== "empirical-ai-quality-corpus" || corpus.version !== EMPIRICAL_QUALITY_CORPUS_VERSION) {
+  if (!hasOnlyKeys(value, ["kind", "version", "corpusRevision", "cases", "coverage"]) ||
+      corpus.kind !== "empirical-ai-quality-corpus" ||
+      (corpus.version !== EMPIRICAL_QUALITY_LEGACY_CORPUS_VERSION &&
+       corpus.version !== EMPIRICAL_QUALITY_CORPUS_VERSION)) {
     throw new Error("Empirical corpus kind or version is unsupported.");
+  }
+  if (corpus.version === EMPIRICAL_QUALITY_CORPUS_VERSION && corpus.coverage === undefined) {
+    throw new Error("Empirical corpus v2 requires coverage metadata.");
+  }
+  if (corpus.version === EMPIRICAL_QUALITY_LEGACY_CORPUS_VERSION && corpus.coverage !== undefined) {
+    throw new Error("Empirical corpus coverage metadata requires corpus version 2.");
   }
   if (!isSafeIdentifier(corpus.corpusRevision)) {
     throw new Error("Empirical corpus revision is missing or unsafe.");
@@ -192,6 +309,12 @@ export function validateEmpiricalQualityCorpus(value: unknown): EmpiricalQuality
   const cases = corpus.cases.map((entry) => {
     if (!entry || typeof entry !== "object") throw new Error("Empirical corpus case is malformed.");
     const testCase = entry as Partial<EmpiricalCorpusCase>;
+    if (!hasOnlyKeys(testCase, [
+      "id", "repositoryId", "repositoryUrl", "sourceRevision", "selectedFiles",
+      "outcome", "expectedVerdict", "expectedGateDecision", "findings", "metadata",
+    ])) {
+      throw new Error(`Empirical corpus case ${testCase.id ?? "unknown"} has unsupported metadata.`);
+    }
     if (!isSafeIdentifier(testCase.id) || ids.has(testCase.id)) {
       throw new Error("Empirical corpus case IDs must be unique safe identifiers.");
     }
@@ -228,6 +351,39 @@ export function validateEmpiricalQualityCorpus(value: unknown): EmpiricalQuality
     if (testCase.outcome === "clean" && testCase.findings.length > 0) {
       throw new Error(`Empirical clean case ${testCase.id} cannot have ground-truth findings.`);
     }
+    let metadata: EmpiricalCorpusCaseMetadata | undefined;
+    if (testCase.metadata !== undefined) {
+      if (!testCase.metadata || typeof testCase.metadata !== "object" ||
+          !hasOnlyKeys(testCase.metadata, [
+            "language", "caseType", "reviewPattern", "issueTypes", "severities",
+          ])) {
+        throw new Error(`Empirical corpus case ${testCase.id} has unsupported metadata.`);
+      }
+      const candidate = testCase.metadata as Partial<EmpiricalCorpusCaseMetadata>;
+      if (typeof candidate.language !== "string" || !REPOSITORY_LANGUAGES.has(candidate.language) ||
+          candidate.caseType !== testCase.outcome ||
+          typeof candidate.reviewPattern !== "string" || !REVIEW_PATTERNS.has(candidate.reviewPattern) ||
+          candidate.reviewPattern !== (testCase.selectedFiles.length === 1 ? "single-file" : "multi-file") ||
+          !isUniqueEnumArray(candidate.issueTypes, ISSUE_TYPES) ||
+          !isUniqueEnumArray(candidate.severities, SEVERITIES)) {
+        throw new Error(`Empirical corpus case ${testCase.id} has unsupported metadata.`);
+      }
+      const findingTypes = [...new Set(testCase.findings.map((finding) => finding.type))];
+      const findingSeverities = [...new Set(testCase.findings.map((finding) => finding.severity))];
+      if (!sameEnumMembers(candidate.issueTypes, findingTypes) ||
+          !sameEnumMembers(candidate.severities, findingSeverities)) {
+        throw new Error(`Empirical corpus case ${testCase.id} metadata does not match ground truth.`);
+      }
+      metadata = {
+        language: candidate.language,
+        caseType: candidate.caseType,
+        reviewPattern: candidate.reviewPattern,
+        issueTypes: [...candidate.issueTypes],
+        severities: [...candidate.severities],
+      };
+    } else if (corpus.version === EMPIRICAL_QUALITY_CORPUS_VERSION) {
+      throw new Error(`Empirical corpus case ${testCase.id} is missing required metadata.`);
+    }
     const findingIds = new Set<string>();
     for (const finding of testCase.findings) {
       if (findingIds.has(finding.id)) throw new Error(`Empirical case ${testCase.id} has duplicate finding IDs.`);
@@ -247,17 +403,22 @@ export function validateEmpiricalQualityCorpus(value: unknown): EmpiricalQuality
       expectedVerdict: testCase.expectedVerdict,
       expectedGateDecision: testCase.expectedGateDecision,
       findings: testCase.findings.map((finding) => ({ ...finding })),
+      ...(metadata ? { metadata } : {}),
     };
   });
 
   if (!cases.some((entry) => entry.outcome === "defect") || !cases.some((entry) => entry.outcome === "clean")) {
     throw new Error("Empirical corpus must include both defect and clean controls.");
   }
+  const coverage = corpus.version === EMPIRICAL_QUALITY_CORPUS_VERSION
+    ? validateCoverage(corpus.coverage, cases)
+    : undefined;
   return {
     kind: "empirical-ai-quality-corpus",
-    version: EMPIRICAL_QUALITY_CORPUS_VERSION,
+    version: corpus.version,
     corpusRevision: corpus.corpusRevision.trim(),
     cases,
+    ...(coverage ? { coverage } : {}),
   };
 }
 

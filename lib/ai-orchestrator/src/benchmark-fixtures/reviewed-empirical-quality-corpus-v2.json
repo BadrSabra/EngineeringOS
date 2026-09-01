@@ -1,0 +1,369 @@
+{
+  "kind": "empirical-ai-quality-corpus",
+  "version": 2,
+  "corpusRevision": "public-reviewed-2026-09-v2",
+  "coverage": {
+    "minimumCasesPerOutcome": 6,
+    "requiredLanguages": [
+      "javascript",
+      "python",
+      "go",
+      "rust",
+      "java",
+      "csharp"
+    ],
+    "requiredReviewPatterns": [
+      "single-file",
+      "multi-file"
+    ],
+    "requiredIssueTypes": [
+      "bug",
+      "security",
+      "performance",
+      "style",
+      "architecture"
+    ],
+    "requiredSeverities": [
+      "critical",
+      "high",
+      "medium",
+      "low"
+    ]
+  },
+  "cases": [
+    {
+      "id": "nodegoat-session-security-defect-001",
+      "repositoryId": "owasp-nodegoat",
+      "repositoryUrl": "https://github.com/OWASP/NodeGoat.git",
+      "sourceRevision": "c5cb68a7084e4ae7dcc60e6a98768720a81841e8",
+      "selectedFiles": [
+        "app/routes/session.js"
+      ],
+      "outcome": "defect",
+      "expectedVerdict": "findings",
+      "expectedGateDecision": "reject",
+      "findings": [
+        {
+          "id": "nodegoat-session-security-defect-001-finding-001",
+          "file": "app/routes/session.js",
+          "lineStart": 64,
+          "lineEnd": 64,
+          "type": "security",
+          "severity": "high"
+        }
+      ],
+      "metadata": {
+        "language": "javascript",
+        "caseType": "defect",
+        "reviewPattern": "single-file",
+        "issueTypes": [
+          "security"
+        ],
+        "severities": [
+          "high"
+        ]
+      }
+    },
+    {
+      "id": "nodegoat-readme-control-001",
+      "repositoryId": "owasp-nodegoat",
+      "repositoryUrl": "https://github.com/OWASP/NodeGoat.git",
+      "sourceRevision": "c5cb68a7084e4ae7dcc60e6a98768720a81841e8",
+      "selectedFiles": [
+        "README.md",
+        "LICENSE"
+      ],
+      "outcome": "clean",
+      "expectedVerdict": "clean",
+      "expectedGateDecision": "accept",
+      "findings": [],
+      "metadata": {
+        "language": "javascript",
+        "caseType": "clean",
+        "reviewPattern": "multi-file",
+        "issueTypes": [],
+        "severities": []
+      }
+    },
+    {
+      "id": "flask-application-performance-defect-001",
+      "repositoryId": "pallets-flask",
+      "repositoryUrl": "https://github.com/pallets/flask.git",
+      "sourceRevision": "d318b683471101618febed18996405ad26462110",
+      "selectedFiles": [
+        "src/flask/app.py"
+      ],
+      "outcome": "defect",
+      "expectedVerdict": "findings",
+      "expectedGateDecision": "reject",
+      "findings": [
+        {
+          "id": "flask-application-performance-defect-001-finding-001",
+          "file": "src/flask/app.py",
+          "lineStart": 1020,
+          "lineEnd": 1020,
+          "type": "bug",
+          "severity": "medium"
+        }
+      ],
+      "metadata": {
+        "language": "python",
+        "caseType": "defect",
+        "reviewPattern": "single-file",
+        "issueTypes": [
+          "bug"
+        ],
+        "severities": [
+          "medium"
+        ]
+      }
+    },
+    {
+      "id": "flask-readme-control-001",
+      "repositoryId": "pallets-flask",
+      "repositoryUrl": "https://github.com/pallets/flask.git",
+      "sourceRevision": "d318b683471101618febed18996405ad26462110",
+      "selectedFiles": [
+        "README.md",
+        ".gitignore"
+      ],
+      "outcome": "clean",
+      "expectedVerdict": "clean",
+      "expectedGateDecision": "accept",
+      "findings": [],
+      "metadata": {
+        "language": "python",
+        "caseType": "clean",
+        "reviewPattern": "multi-file",
+        "issueTypes": [],
+        "severities": []
+      }
+    },
+    {
+      "id": "gin-core-architecture-defect-001",
+      "repositoryId": "gin-gonic-gin",
+      "repositoryUrl": "https://github.com/gin-gonic/gin.git",
+      "sourceRevision": "dcaa4296d111981ffb31ac3eba90bb63e1eb5ab9",
+      "selectedFiles": [
+        "gin.go"
+      ],
+      "outcome": "defect",
+      "expectedVerdict": "findings",
+      "expectedGateDecision": "reject",
+      "findings": [
+        {
+          "id": "gin-core-architecture-defect-001-finding-001",
+          "file": "gin.go",
+          "lineStart": 222,
+          "lineEnd": 222,
+          "type": "performance",
+          "severity": "medium"
+        },
+        {
+          "id": "gin-core-architecture-defect-001-finding-002",
+          "file": "gin.go",
+          "lineStart": 225,
+          "lineEnd": 225,
+          "type": "security",
+          "severity": "high"
+        }
+      ],
+      "metadata": {
+        "language": "go",
+        "caseType": "defect",
+        "reviewPattern": "single-file",
+        "issueTypes": [
+          "performance",
+          "security"
+        ],
+        "severities": [
+          "medium",
+          "high"
+        ]
+      }
+    },
+    {
+      "id": "gin-readme-control-001",
+      "repositoryId": "gin-gonic-gin",
+      "repositoryUrl": "https://github.com/gin-gonic/gin.git",
+      "sourceRevision": "dcaa4296d111981ffb31ac3eba90bb63e1eb5ab9",
+      "selectedFiles": [
+        "README.md",
+        "LICENSE"
+      ],
+      "outcome": "clean",
+      "expectedVerdict": "clean",
+      "expectedGateDecision": "accept",
+      "findings": [],
+      "metadata": {
+        "language": "go",
+        "caseType": "clean",
+        "reviewPattern": "multi-file",
+        "issueTypes": [],
+        "severities": []
+      }
+    },
+    {
+      "id": "rustc-driver-bug-defect-001",
+      "repositoryId": "rust-lang-rust",
+      "repositoryUrl": "https://github.com/rust-lang/rust.git",
+      "sourceRevision": "a4330234a776684c36428d001721d0320d24dd77",
+      "selectedFiles": [
+        "compiler/rustc/src/main.rs"
+      ],
+      "outcome": "defect",
+      "expectedVerdict": "findings",
+      "expectedGateDecision": "reject",
+      "findings": [
+        {
+          "id": "rustc-driver-bug-defect-001-finding-001",
+          "file": "compiler/rustc/src/main.rs",
+          "lineStart": 36,
+          "lineEnd": 36,
+          "type": "architecture",
+          "severity": "low"
+        }
+      ],
+      "metadata": {
+        "language": "rust",
+        "caseType": "defect",
+        "reviewPattern": "single-file",
+        "issueTypes": [
+          "architecture"
+        ],
+        "severities": [
+          "low"
+        ]
+      }
+    },
+    {
+      "id": "rust-readme-control-001",
+      "repositoryId": "rust-lang-rust",
+      "repositoryUrl": "https://github.com/rust-lang/rust.git",
+      "sourceRevision": "a4330234a776684c36428d001721d0320d24dd77",
+      "selectedFiles": [
+        "README.md",
+        "Cargo.toml"
+      ],
+      "outcome": "clean",
+      "expectedVerdict": "clean",
+      "expectedGateDecision": "accept",
+      "findings": [],
+      "metadata": {
+        "language": "rust",
+        "caseType": "clean",
+        "reviewPattern": "multi-file",
+        "issueTypes": [],
+        "severities": []
+      }
+    },
+    {
+      "id": "webgoat-sql-security-defect-001",
+      "repositoryId": "owasp-webgoat",
+      "repositoryUrl": "https://github.com/OWASP/WebGoat.git",
+      "sourceRevision": "5900119921433ecacbb02acde5ef0f2186d2626f",
+      "selectedFiles": [
+        "webgoat/src/main/java/org/owasp/webgoat/lessons/BlindStringSqlInjection.java"
+      ],
+      "outcome": "defect",
+      "expectedVerdict": "findings",
+      "expectedGateDecision": "reject",
+      "findings": [
+        {
+          "id": "webgoat-sql-security-defect-001-finding-001",
+          "file": "webgoat/src/main/java/org/owasp/webgoat/lessons/BlindStringSqlInjection.java",
+          "lineStart": 87,
+          "lineEnd": 87,
+          "type": "security",
+          "severity": "critical"
+        }
+      ],
+      "metadata": {
+        "language": "java",
+        "caseType": "defect",
+        "reviewPattern": "single-file",
+        "issueTypes": [
+          "security"
+        ],
+        "severities": [
+          "critical"
+        ]
+      }
+    },
+    {
+      "id": "webgoat-readme-control-001",
+      "repositoryId": "owasp-webgoat",
+      "repositoryUrl": "https://github.com/OWASP/WebGoat.git",
+      "sourceRevision": "5900119921433ecacbb02acde5ef0f2186d2626f",
+      "selectedFiles": [
+        "readme.MD",
+        "webgoat/README.txt"
+      ],
+      "outcome": "clean",
+      "expectedVerdict": "clean",
+      "expectedGateDecision": "accept",
+      "findings": [],
+      "metadata": {
+        "language": "java",
+        "caseType": "clean",
+        "reviewPattern": "multi-file",
+        "issueTypes": [],
+        "severities": []
+      }
+    },
+    {
+      "id": "dotnet-sample-style-defect-001",
+      "repositoryId": "dotnet-samples",
+      "repositoryUrl": "https://github.com/dotnet/samples.git",
+      "sourceRevision": "86ff8487361a6f32549d9c9ab8b14dde55c643cf",
+      "selectedFiles": [
+        "core/console-apps/HelloMsBuild/Program.cs"
+      ],
+      "outcome": "defect",
+      "expectedVerdict": "findings",
+      "expectedGateDecision": "reject",
+      "findings": [
+        {
+          "id": "dotnet-sample-style-defect-001-finding-001",
+          "file": "core/console-apps/HelloMsBuild/Program.cs",
+          "lineStart": 7,
+          "lineEnd": 7,
+          "type": "style",
+          "severity": "low"
+        }
+      ],
+      "metadata": {
+        "language": "csharp",
+        "caseType": "defect",
+        "reviewPattern": "single-file",
+        "issueTypes": [
+          "style"
+        ],
+        "severities": [
+          "low"
+        ]
+      }
+    },
+    {
+      "id": "dotnet-readme-control-001",
+      "repositoryId": "dotnet-samples",
+      "repositoryUrl": "https://github.com/dotnet/samples.git",
+      "sourceRevision": "86ff8487361a6f32549d9c9ab8b14dde55c643cf",
+      "selectedFiles": [
+        "README.md",
+        "LICENSE"
+      ],
+      "outcome": "clean",
+      "expectedVerdict": "clean",
+      "expectedGateDecision": "accept",
+      "findings": [],
+      "metadata": {
+        "language": "csharp",
+        "caseType": "clean",
+        "reviewPattern": "multi-file",
+        "issueTypes": [],
+        "severities": []
+      }
+    }
+  ]
+}
