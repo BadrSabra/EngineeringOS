@@ -36,6 +36,7 @@ import {
   defaultApiBenchmarkHistory,
   defaultApiBenchmarkPrompt,
   defaultApiBenchmarkTargetPaths,
+  buildApiCodeAgentBenchmarkPreflightBlockedRun,
   runApiCodeAgentBenchmarkAirlock,
   type ApiCodeAgentBenchmarkProvider,
 } from "./ai-code-agent-benchmark.js";
@@ -485,6 +486,44 @@ try {
     signal: campaignController.signal,
     onProviderHealth: async (health) => {
       providerHealth = health;
+    },
+    onRuntimeOraclePreflight: async (runtimeOraclePreflight) => {
+      const blockedRun = buildApiCodeAgentBenchmarkPreflightBlockedRun({
+        runtimeOraclePreflight,
+        cases: executionCases,
+        initialResults,
+        mode: freeOnly ? "free-only" : "live",
+        campaignMode,
+        recoveryOnly,
+        diagnosticOnly: Boolean(targetProfile || targeted || requestedCaseIds.length > 0 || shard),
+        targeted: Boolean(targetProfile || targeted || requestedCaseIds.length > 0),
+        targetProfile,
+        shard,
+        providerOrder: providers.map((provider) => provider.provider),
+        runId,
+        startedAt: generatedAt,
+        generatedAt,
+        sourceRevision,
+        candidateHash,
+      });
+      await writeJsonAtomically(
+        path.join(outputDir, "code-agent-benchmark-airlock.run.json"),
+        blockedRun,
+      );
+      await fs.writeFile(
+        path.join(outputDir, "code-agent-benchmark-airlock.run.md"),
+        `${codeAgentBenchmarkScorecardToMarkdown(blockedRun.scorecard)}
+
+## Runtime-oracle preflight
+
+Campaign execution was blocked before consuming benchmark cases. The
+server-owned preflight report is retained in the JSON run record.
+
+- Status: ${runtimeOraclePreflight.status}
+- Failure identifiers: ${runtimeOraclePreflight.failureIds.join(", ") || "none"}
+`,
+        "utf8",
+      );
     },
     beforeCase: resetCaseTargets,
     onObservation: async (_observation, observations) => {

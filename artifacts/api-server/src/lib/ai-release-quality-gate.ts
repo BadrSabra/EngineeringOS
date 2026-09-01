@@ -216,8 +216,13 @@ function normalizedRuntimeOraclePreflight(
     .filter((failureId) => typeof failureId === "string" && SAFE_RUNTIME_ORACLE_IDENTIFIER.test(failureId))
     .map((failureId) => failureId.slice(0, 160))
     .slice(0, MAX_RUNTIME_ORACLE_CHECKS);
+  const status = report.status === "failed" ||
+    checks.some((check) => check.status === "failed") ||
+    failureIds.length > 0
+    ? "failed"
+    : "passed";
   return {
-    status: report.status,
+    status,
     checks,
     failureIds: [...new Set(failureIds)],
   };

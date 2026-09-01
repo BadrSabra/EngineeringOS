@@ -132,8 +132,13 @@ function projectRuntimeOraclePreflight(value: unknown): ApiCodeAgentRuntimeOracl
     )
     .map((failureId) => failureId.slice(0, 160))
     .slice(0, 64);
+  const status = value.status === "failed" ||
+    checks.some((check) => check.status === "failed") ||
+    failureIds.length > 0
+    ? "failed"
+    : "passed";
   return {
-    status: value.status,
+    status,
     checks,
     failureIds: [...new Set(failureIds)],
   };
@@ -143,6 +148,15 @@ function runtimeOraclePreflightFromRun(run: BenchmarkAirlockRun): ApiCodeAgentRu
   return projectRuntimeOraclePreflight(
     (run as unknown as { runtimeOraclePreflight?: unknown }).runtimeOraclePreflight,
   );
+}
+
+function selectRuntimeOraclePreflight(
+  reports: readonly (ApiCodeAgentRuntimeOraclePreflight | undefined)[],
+): ApiCodeAgentRuntimeOraclePreflight | undefined {
+  // Never let a passing report from one artifact mask a failed report from
+  // another artifact in the same release sequence.
+  return reports.find((report) => report?.status === "failed") ??
+    reports.find((report) => report !== undefined);
 }
 
 /**
@@ -158,9 +172,11 @@ export function evaluateBenchmarkReleaseGate(args: {
 }): BenchmarkReleaseGateDecision {
   const blockers: string[] = [];
   const { targetedRun, cleanWitnessRun, baseline } = args;
-  const runtimeOraclePreflight = args.runtimeOraclePreflight ??
-    runtimeOraclePreflightFromRun(targetedRun) ??
-    runtimeOraclePreflightFromRun(cleanWitnessRun);
+  const runtimeOraclePreflight = selectRuntimeOraclePreflight([
+    args.runtimeOraclePreflight,
+    runtimeOraclePreflightFromRun(targetedRun),
+    runtimeOraclePreflightFromRun(cleanWitnessRun),
+  ]);
   if (runtimeOraclePreflight?.status === "failed") {
     addBlocker(blockers, "benchmark runtime-oracle preflight failed");
   }

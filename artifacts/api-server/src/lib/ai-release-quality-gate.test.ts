@@ -105,4 +105,26 @@ describe("AI release quality gate", () => {
     expect(decision.blockers).toContain("BENCHMARK_RUNTIME_ORACLE_PREFLIGHT_FAILED");
     expect(JSON.stringify(decision)).not.toContain("provider output");
   });
+
+  it("fails closed when a report claims passed despite failed checks", () => {
+    const decision = evaluateAiReleaseQuality(
+      [result()],
+      {
+        runtimeOraclePreflight: {
+          status: "passed",
+          checks: [{
+            scenarioId: "test-failure-001",
+            command: "pnpm --dir lib/ai-orchestrator exec vitest run src/fixture.test.ts",
+            status: "failed",
+            failureCode: "RUNTIME_ORACLE_FAILED",
+          }],
+          failureIds: ["test-failure-001"],
+        },
+      },
+    );
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.runtimeOraclePreflight?.status).toBe("failed");
+    expect(decision.blockers).toContain("BENCHMARK_RUNTIME_ORACLE_PREFLIGHT_FAILED");
+  });
 });

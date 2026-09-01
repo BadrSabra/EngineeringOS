@@ -349,4 +349,46 @@ describe("benchmark release gate", () => {
     expect(decision.blockers).toContain("benchmark runtime-oracle preflight failed");
     expect(JSON.stringify(decision)).not.toContain("provider output");
   });
+
+  it("does not let a passing artifact mask a failed preflight artifact", () => {
+    const passing = {
+      status: "passed" as const,
+      checks: [{
+        scenarioId: "test-failure-001",
+        command: "pnpm --dir lib/ai-orchestrator exec vitest run src/fixture.test.ts",
+        status: "passed" as const,
+      }],
+      failureIds: [],
+    };
+    const failed = {
+      status: "failed" as const,
+      checks: [{
+        scenarioId: "test-failure-004",
+        command: "pnpm --dir lib/ai-orchestrator exec vitest run src/fixture.test.ts",
+        status: "failed" as const,
+        failureCode: "RUNTIME_ORACLE_FAILED",
+      }],
+      failureIds: ["test-failure-004"],
+    };
+    const decision = evaluateBenchmarkReleaseGate({
+      targetedRun: run({
+        runId: "targeted-run",
+        completedAt: "2026-08-19T01:20:00.000Z",
+        targetCaseCount: 4,
+        diagnosticOnly: true,
+        targeted: true,
+        partial: true,
+        baselineEligibility: "not-eligible",
+        targetProfile: "repair-loop",
+        runtimeOraclePreflight: passing,
+        scorecard: scorecard({ rolloutAllowed: false }),
+      }),
+      cleanWitnessRun: run({ runtimeOraclePreflight: failed }),
+      baseline: baseline(),
+    });
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.runtimeOraclePreflight).toEqual(failed);
+    expect(decision.blockers).toContain("benchmark runtime-oracle preflight failed");
+  });
 });

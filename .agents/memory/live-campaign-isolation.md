@@ -20,3 +20,9 @@ Structured-review live receipts may retain only allowlisted provider/error/model
 **Why:** A live provider response can contain credentials, paths, or untrusted instructions even when the campaign itself is disposable.
 
 **How to apply:** Build receipts at the review-result boundary and make incomplete outcomes carry zero evidence; keep raw diagnostics in transient server logs only.
+
+Provider campaigns blocked by server-owned preflight must persist a bounded run receipt before rethrowing the failure, with no invented case outcomes and an explicitly incomplete campaign status.
+
+**Why:** A fail-closed process exit without a durable receipt makes the reason for a stopped campaign impossible to review or feed into release gating.
+
+**How to apply:** Persist only allowlisted preflight identifiers, commands, and failure codes; keep provider probing and case execution after the preflight boundary.

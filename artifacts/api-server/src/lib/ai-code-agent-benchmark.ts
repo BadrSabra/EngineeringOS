@@ -3,6 +3,9 @@ import {
   probeProviderHealth,
   runCodeAgentBenchmarkAirlock,
   runCodeAgentBenchmark,
+  buildCodeAgentBenchmarkScorecard,
+  getBenchmarkRecoveryCaseIds,
+  buildAutonomousDeliveryAcceptanceSummary,
   ValidationProfileSchema,
   type CodeAgentBenchmarkCase,
   type CodeAgentBenchmarkScorecard,
@@ -89,6 +92,106 @@ export function runtimeOraclePreflightError(
   return new Error(
     `Code Agent benchmark runtime-oracle preflight failed: ${failures.join("; ")}`,
   );
+}
+
+/**
+ * Build the durable, provider-free receipt for a campaign that cannot start
+ * case execution because its server-owned runtime oracles failed. This keeps
+ * the scorecard incomplete (rather than inventing case outcomes) while still
+ * making the preflight evidence available to release readers.
+ */
+export function buildApiCodeAgentBenchmarkPreflightBlockedRun(args: {
+  runtimeOraclePreflight: ApiCodeAgentRuntimeOraclePreflight;
+  cases: readonly CodeAgentBenchmarkCase[];
+  initialResults?: readonly BenchmarkAirlockObservation[];
+  mode?: "live" | "free-only";
+  campaignMode?: import("@workspace/ai-orchestrator").BenchmarkCampaignMode;
+  recoveryOnly?: boolean;
+  diagnosticOnly?: boolean;
+  targeted?: boolean;
+  targetProfile?: CodeAgentBenchmarkTargetProfile;
+  shard?: BenchmarkShardConfig;
+  providerOrder: readonly ProviderId[];
+  runId: string;
+  startedAt?: string;
+  completedAt?: string;
+  generatedAt?: string;
+  sourceRevision?: string;
+  candidateHash?: string;
+}): BenchmarkAirlockRun {
+  const campaignMode = args.campaignMode ?? "clean-witness";
+  const targeted = args.targeted === true || args.targetProfile !== undefined;
+  const diagnosticOnly = args.diagnosticOnly === true ||
+    args.targetProfile !== undefined ||
+    args.shard !== undefined;
+  const cases = [...args.cases];
+  const caseIds = new Set(cases.map((testCase) => testCase.id));
+  const observations = (args.initialResults ?? []).filter((entry) => caseIds.has(entry.caseId));
+  let scorecard = buildCodeAgentBenchmarkScorecard({
+    results: observations.map((entry) => entry.observation),
+    cases,
+    generatedAt: args.generatedAt,
+  });
+  scorecard = {
+    ...scorecard,
+    ...(args.candidateHash ? { candidateHash: args.candidateHash } : {}),
+    ...(args.sourceRevision ? { sourceRevision: args.sourceRevision } : {}),
+    rolloutAllowed: false,
+    rolloutBlockers: [...new Set([
+      ...scorecard.rolloutBlockers,
+      "benchmark runtime-oracle preflight failed",
+    ])],
+  };
+  const startedAt = args.startedAt ?? args.generatedAt ?? new Date().toISOString();
+  const completedAt = args.completedAt ?? new Date().toISOString();
+  const blockers = ["benchmark runtime-oracle preflight failed"];
+
+  return {
+    kind: "code-agent-benchmark-airlock",
+    version: 1,
+    mode: args.mode ?? "live",
+    campaignMode,
+    // A preflight-blocked invocation is never a completed campaign, even when
+    // it is resuming a previously complete observation set.
+    campaignStatus: "incomplete",
+    recoveryCaseIds: getBenchmarkRecoveryCaseIds(
+      observations.map((entry) => entry.observation),
+    ),
+    recoveryOnly: args.recoveryOnly === true,
+    diagnosticOnly,
+    targeted,
+    partial: diagnosticOnly,
+    baselineEligibility: diagnosticOnly ? "not-eligible" : "quality-gates-required",
+    ...(args.targetProfile ? { targetProfile: args.targetProfile } : {}),
+    suiteVersion: scorecard.suiteVersion,
+    ...(args.sourceRevision ? { sourceRevision: args.sourceRevision } : {}),
+    runId: args.runId,
+    startedAt,
+    completedAt,
+    targetCaseCount: cases.length,
+    providerOrder: [...args.providerOrder],
+    // Provider health is intentionally empty: runtime-oracle preflight runs
+    // before provider probing and no provider case has been consumed.
+    providerHealth: [],
+    runtimeOraclePreflight: args.runtimeOraclePreflight,
+    preflight: { status: "blocked", blockers },
+    observations,
+    ...(args.shard
+      ? { shard: { ...args.shard, caseIds: cases.map((testCase) => testCase.id) } }
+      : {}),
+    scorecard,
+    autonomousDeliveryAcceptance: buildAutonomousDeliveryAcceptanceSummary({
+      campaign: {
+        provider: args.mode === "free-only" || args.mode === "live" ? "live" : "deterministic",
+        browser: false,
+        deployment: false,
+        remoteDelivery: false,
+        isolated: true,
+        redacted: true,
+      },
+      receipts: [],
+    }),
+  };
 }
 
 /**
@@ -288,6 +391,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
     observations: readonly BenchmarkAirlockObservation[],
   ) => Promise<void>;
   onProviderHealth?: (health: readonly ProviderHealthProbeResult[]) => Promise<void>;
+  onRuntimeOraclePreflight?: (report: ApiCodeAgentRuntimeOraclePreflight) => Promise<void>;
   beforeCase?: (testCase: CodeAgentBenchmarkCase, rootPath: string) => void | Promise<void>;
 }): Promise<BenchmarkAirlockRun> {
   const fixtureErrors = validateCodeAgentBenchmarkFixtureContracts(
@@ -301,7 +405,10 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
     signal: opts.signal,
   });
   const preflightError = runtimeOraclePreflightError(runtimeOraclePreflight);
-  if (preflightError) throw preflightError;
+  if (preflightError) {
+    await opts.onRuntimeOraclePreflight?.(runtimeOraclePreflight);
+    throw preflightError;
+  }
   const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
   const validationRunner = async (
     profile: string,
