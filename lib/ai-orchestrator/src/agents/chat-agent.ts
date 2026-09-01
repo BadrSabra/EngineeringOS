@@ -5832,6 +5832,8 @@ export async function chat(opts: {
             : root.wasRead
               ? "PARTIAL"
               : "BUDGET_EXHAUSTED",
+          unreadPaths: root.wasRead ? [] : [root.targetPath],
+          truncatedPaths: root.isTruncated ? [root.targetPath] : [],
         })),
       ...(!coverageComplete
         ? {

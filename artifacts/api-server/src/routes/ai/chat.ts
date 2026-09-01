@@ -70,6 +70,7 @@ import {
   toPublicRecipeReceipt,
   createExecutionLedger,
   toPublicExecutionLedgerSnapshot,
+  deriveForensicDiagnostic,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -90,6 +91,7 @@ import type {
   ExecutionLedgerPublicSnapshot,
   ExecutionLedgerSnapshot,
   ExecutionTerminalReason,
+  ForensicDiagnostic,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
@@ -343,6 +345,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   failureKind?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE";
   retryable?: boolean;
   recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
+  forensicDiagnostic?: ForensicDiagnostic;
 } {
   const parsed = value ? parseStoredJson(value) : undefined;
   if (!Array.isArray(parsed)) return {};
@@ -350,6 +353,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
     entry && typeof entry === "object" && (entry as Record<string, unknown>).kind === "terminal_outcome",
   ) as Record<string, unknown> | undefined;
   const failureKind = terminal?.failureKind;
+  const forensicDiagnostic = deriveForensicDiagnostic(parsed);
   return {
     ...(failureKind === "QUALITY_REVIEW"
       || failureKind === "TOOL_FAILURE"
@@ -366,6 +370,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
         ? { recoveryState: terminal.recoveryState }
         : {}
     ),
+    ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
   };
 }
 
@@ -1639,7 +1644,7 @@ function makeSyntheticValidationResult(
 }
 
 type PersistedToolTraceEntry = {
-  kind: AgentStep["kind"] | "audit_scope";
+  kind: AgentStep["kind"] | "audit_scope" | "forensic_diagnostic";
   scopeDescription?: string;
   tool?: string;
   args?: Record<string, string>;
@@ -1693,7 +1698,10 @@ type PersistedToolTraceEntry = {
     readFiles: number;
     unreadFiles: number;
     status: "COMPLETE" | "EMPTY" | "PARTIAL" | "BUDGET_EXHAUSTED";
+      unreadPaths?: string[];
+      truncatedPaths?: string[];
   }>;
+  forensicDiagnostic?: ForensicDiagnostic;
   reason?: string;
   root?: string;
   packetIndex?: number;
@@ -2028,6 +2036,10 @@ function serializeToolTrace(
         }
     }
   });
+  const forensicDiagnostic = deriveForensicDiagnostic(steps);
+  if (forensicDiagnostic) {
+    entries.push({ kind: "forensic_diagnostic", forensicDiagnostic });
+  }
   if (scopeDescription) entries.unshift({ kind: "audit_scope", scopeDescription });
   return redactUserFacingText(JSON.stringify(entries));
 }
@@ -2484,6 +2496,7 @@ router.post("/ai/chat", async (req, res) => {
       trace: traceSteps,
     });
     if (terminalOutcome.outcome !== "SUCCEEDED") {
+      const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
       const safeMessage = redactUserFacingText(
         terminalOutcome.message ?? "The AI request did not complete.",
       ).slice(0, 500);
@@ -2543,8 +2556,10 @@ router.post("/ai/chat", async (req, res) => {
           retryable: terminalOutcome.retryable,
           recoveryState: terminalOutcome.recoveryState,
           executionLedger: executionLedgerSnapshot,
+          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         },
         executionLedger: executionLedgerSnapshot,
+        ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         ...(report ? { report: sanitizeResponseText(report).slice(0, 12_000) } : {}),
       });
     }
@@ -2552,6 +2567,9 @@ router.post("/ai/chat", async (req, res) => {
     if (result._qualityError) {
       const quality = publicQualityFailure(result._qualityError);
       const safeMessage = "The AI result did not meet the quality checks required for completion.";
+      const forensicDiagnostic = turnIntent.requiresEvidence
+        ? deriveForensicDiagnostic(traceSteps)
+        : undefined;
       await persistFailedChatTurn({
         sessionId: sessionIdToUse,
         projectId,
@@ -2581,11 +2599,15 @@ router.post("/ai/chat", async (req, res) => {
         quality,
         errorMessage: safeMessage,
         executionLedger: executionLedgerSnapshot,
+        ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       });
     }
 
     if (result._parseError) {
       if (!result.response) {
+        const forensicDiagnostic = turnIntent.requiresEvidence
+          ? deriveForensicDiagnostic(traceSteps)
+          : undefined;
         return res.status(422).json({
           error: "model_output_invalid",
           code: "model_output_invalid",
@@ -2595,6 +2617,7 @@ router.post("/ai/chat", async (req, res) => {
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
           executionLedger: executionLedgerSnapshot,
+          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
       }
       logger.warn(
@@ -2610,6 +2633,9 @@ router.post("/ai/chat", async (req, res) => {
       );
     } catch (error) {
       if (error instanceof MissionCorrelationReportValidationError) {
+        const forensicDiagnostic = turnIntent.requiresEvidence
+          ? deriveForensicDiagnostic(traceSteps)
+          : undefined;
         return res.status(422).json({
           error: "The forensic report could not be validated and was not completed.",
           code: error.code,
@@ -2618,6 +2644,7 @@ router.post("/ai/chat", async (req, res) => {
           retryable: true,
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
+          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
       }
       throw error;
@@ -2780,14 +2807,20 @@ router.post("/ai/chat", async (req, res) => {
       logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
     });
 
+    const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
     return res.json({
       sessionId: sessionIdToUse,
-      message: { ...assistantMsg, taskResult: parseTaskResult(assistantMsg.taskResult) },
+      message: {
+        ...assistantMsg,
+        taskResult: parseTaskResult(assistantMsg.taskResult),
+        ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+      },
       executionLedger: executionLedgerSnapshot,
       turnIntent: turnIntent.kind,
       outcome: "SUCCEEDED",
       sources: redactUserFacingValue(result.sources),
       toolTrace: assistantMsg.toolTrace,
+      ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       pendingChanges: proposalId
         ? proposalChanges
         : [],
@@ -3851,7 +3884,12 @@ router.post("/ai/chat/stream", async (req, res) => {
       } else if (step.kind === "audit_state") {
         sse({ type: "audit_state", ...step.state });
       } else if (step.kind === "forensic_terminal") {
-        sse({ type: "forensic_terminal", terminalKind: step.terminalKind });
+        const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
+        sse({
+          type: "forensic_terminal",
+          terminalKind: step.terminalKind,
+          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+        });
       } else if (step.kind === "verification") {
         sse({
           type: "verification",
@@ -4249,6 +4287,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           serializeToolTrace(traceSteps, false),
           executionLedgerSnapshot,
         );
+        const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
         const failedMessage = await persistFailedChatTurn({
           sessionId: sessionIdToUse,
           projectId,
@@ -4300,6 +4339,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             executionId: aiExecution.id,
             sessionId: sessionIdToUse,
             executionLedger: executionLedgerSnapshot,
+            ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
           });
         } else {
           // A failed/incomplete report may still be useful to an operator, but
@@ -4329,6 +4369,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               retryable: terminalOutcome.retryable,
               recoveryState: terminalOutcome.recoveryState,
               executionLedger: executionLedgerSnapshot,
+              ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
             },
             sources: redactUserFacingValue(result.sources),
             toolTrace: publicToolTrace,
@@ -4474,6 +4515,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     if (result._qualityError) {
       const quality = publicQualityFailure(result._qualityError);
       const safeMessage = "The AI result did not meet the quality checks required for completion.";
+      const forensicDiagnostic = streamTurnIntent.requiresEvidence
+        ? deriveForensicDiagnostic(traceSteps)
+        : undefined;
       sse({
         type: "error",
         code: quality.code,
@@ -4485,6 +4529,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         quality,
         correlationId: randomUUID(),
         executionLedger: executionLedgerSnapshot,
+        ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       });
       await persistFailedChatTurn({
         sessionId: sessionIdToUse,
@@ -4511,6 +4556,9 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     if (result._parseError) {
       if (!result.response) {
+        const forensicDiagnostic = streamTurnIntent.requiresEvidence
+          ? deriveForensicDiagnostic(traceSteps)
+          : undefined;
         sse({
           type: "error",
           code: "model_output_invalid",
@@ -4521,6 +4569,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
           executionLedger: executionLedgerSnapshot,
+          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
         await persistFailedChatTurn({
           sessionId: sessionIdToUse,
@@ -4611,6 +4660,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     } catch (error) {
       if (error instanceof MissionCorrelationReportValidationError) {
         const safeMessage = "The forensic report could not be validated and was not completed.";
+        const forensicDiagnostic = streamTurnIntent.requiresEvidence
+          ? deriveForensicDiagnostic(traceSteps)
+          : undefined;
         sse({
           type: "error",
           code: error.code,
@@ -4620,6 +4672,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           retryable: true,
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
+          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
         if (aiExecution) {
           await failAiExecution({
@@ -4952,6 +5005,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             executionLedgerSnapshot,
           )
       : assistantMsg.toolTrace;
+    const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
     // The database row is intentionally retained with full diagnostics, but
     // every SSE projection of that row must use the public trace.
     assistantMsg.toolTrace = publicToolTrace;
@@ -4970,6 +5024,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       executionId: aiExecutionId,
       outcome: "SUCCEEDED",
       executionLedger: executionLedgerSnapshot,
+      ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
     };
     sse({
       type: "done",
@@ -5005,6 +5060,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       },
       execution: publicExecutionSummary,
       executionLedger: executionLedgerSnapshot,
+      ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       _meta: rootFallbackUsed
         ? { rootPathFallback: { used: true, original: rootOriginalPath } }
         : undefined,

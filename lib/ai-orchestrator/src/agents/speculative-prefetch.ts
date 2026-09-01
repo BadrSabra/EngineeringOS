@@ -125,6 +125,10 @@ export interface PrefetchResult {
    * Prevents the model from wasting real tool calls re-reading these files.
    */
   cacheEntries: Array<{ key: string; content: string }>;
+  /** Files discovered/requested but not successfully read. */
+  failedFiles?: string[];
+  /** Files whose returned body carried a truncation marker. */
+  truncatedFiles?: string[];
 }
 
 export interface ForensicDiscoveryResult extends PrefetchResult {
@@ -253,7 +257,7 @@ export async function speculativePrefetch(opts: {
 
   const hits = readResults.filter((r): r is { filePath: string; content: string } => r.content !== null);
   if (hits.length === 0) {
-    return { injectedMessages: [], sources: [], cacheEntries: [] };
+    return { injectedMessages: [], sources: [], cacheEntries: [], failedFiles: mentionedFiles };
   }
 
   // Build synthetic tool exchange: one assistant message with all tool_calls,
@@ -303,7 +307,13 @@ export async function speculativePrefetch(opts: {
     }),
   );
 
-  return { injectedMessages, sources, cacheEntries };
+  return {
+    injectedMessages,
+    sources,
+    cacheEntries,
+    failedFiles: readResults.filter((r) => r.content === null).map((r) => r.filePath),
+    truncatedFiles: hits.filter((r) => /\[(?:prefetch|read) output truncated\b/i.test(r.content)).map((r) => r.filePath),
+  };
 }
 
 // ── Plan-driven prefetch ──────────────────────────────────────────────────────
@@ -349,7 +359,7 @@ export async function prefetchFileList(opts: {
     .slice(0, Math.max(0, maxFiles));
 
   if (candidates.length === 0) {
-    return { injectedMessages: [], sources: [], cacheEntries: [] };
+    return { injectedMessages: [], sources: [], cacheEntries: [], failedFiles: [] };
   }
 
   const readResults = await Promise.all(
@@ -373,7 +383,7 @@ export async function prefetchFileList(opts: {
     (r): r is { filePath: string; content: string } => r.content !== null,
   );
   if (hits.length === 0) {
-    return { injectedMessages: [], sources: [], cacheEntries: [] };
+    return { injectedMessages: [], sources: [], cacheEntries: [], failedFiles: candidates };
   }
 
   // Per-request nonce prevents duplicate tool_call IDs across turns in the
@@ -413,7 +423,13 @@ export async function prefetchFileList(opts: {
     }),
   );
 
-  return { injectedMessages, sources, cacheEntries };
+  return {
+    injectedMessages,
+    sources,
+    cacheEntries,
+    failedFiles: readResults.filter((r) => r.content === null).map((r) => r.filePath),
+    truncatedFiles: hits.filter((r) => /\[(?:prefetch|read) output truncated\b/i.test(r.content)).map((r) => r.filePath),
+  };
 }
 
 async function discoverSourceFiles(
@@ -522,6 +538,7 @@ export async function prefetchForensicRoots(opts: {
         readFiles: 0,
         unreadFiles: 0,
         status: "BUDGET_EXHAUSTED",
+        unreadPaths: [],
       });
       continue;
     }
@@ -565,6 +582,11 @@ export async function prefetchForensicRoots(opts: {
               ? "BUDGET_EXHAUSTED"
               : "PARTIAL"
             : "COMPLETE",
+          unreadPaths: [
+            ...(result.failedFiles ?? []),
+            ...candidates.slice(remaining),
+          ].slice(0, MAX_FORENSIC_DISCOVERY_FILES),
+          truncatedPaths: (result.truncatedFiles ?? []).slice(0, MAX_FORENSIC_DISCOVERY_FILES),
       });
       if (rootBudgetExhausted) budgetExhausted = true;
     } else {
@@ -574,6 +596,7 @@ export async function prefetchForensicRoots(opts: {
         readFiles: 0,
         unreadFiles: 0,
         status: rootBudgetExhausted ? "BUDGET_EXHAUSTED" : "EMPTY",
+        unreadPaths: [],
       });
       if (rootBudgetExhausted) budgetExhausted = true;
     }

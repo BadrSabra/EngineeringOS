@@ -31,7 +31,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import type { BrowserValidationBlockReason, PublicValidationResult, ValidationResult } from '@workspace/ai-orchestrator';
-import type { ExecutionLedgerPublicSnapshot } from '@workspace/ai-orchestrator';
+import type { ExecutionLedgerPublicSnapshot, ForensicDiagnostic } from '@workspace/ai-orchestrator';
 
 // ── Event shapes ──────────────────────────────────────────────────────────────
 
@@ -116,6 +116,7 @@ export type AiStreamDoneEvent = {
     failureKind?: 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE' | null;
     retryable?: boolean;
     recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
+    forensicDiagnostic?: ForensicDiagnostic;
   };
   /** Exact source line spans for each accepted behavior-evidence excerpt. */
   behaviorEvidence?: AiBehaviorEvidence[];
@@ -167,6 +168,7 @@ export type AiStreamDoneEvent = {
          writeAccess: 'NOT_AUTHORIZED' | 'APPROVED_FOR_BUILD';
        };
   _meta?: { rootPathFallback?: { used: boolean; original?: string } };
+  forensicDiagnostic?: ForensicDiagnostic;
 };
 
 export type AiStreamSessionStartedEvent = {
@@ -253,6 +255,7 @@ export type AiStreamErrorEvent = {
   failureKind?: 'PROVIDER_FORMAT' | 'QUALITY_REVIEW' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT'
     | 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE';
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
+  forensicDiagnostic?: ForensicDiagnostic;
   /** Allowlisted request-budget snapshot retained for failed terminal turns. */
   executionLedger?: ExecutionLedgerPublicSnapshot;
   correlationId?: string;
@@ -474,6 +477,7 @@ export type AiStreamForensicStatusEvent = {
   isFixtureLocal?: boolean;
   /** EI-036: Repair Scope Gate reason when repair is blocked (e.g. REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION). */
   repairBlockReason?: string;
+  forensicDiagnostic?: ForensicDiagnostic;
 };
 
 /** FEG-017: why a forensic investigation's terminal failed (success terminals omit it). */
@@ -484,6 +488,7 @@ export type AiStreamForensicTerminalEvent = {
     | 'INVESTIGATION_BUDGET_EXHAUSTED'
     | 'NO_EVIDENCE_FOUND'
     | 'EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED';
+  forensicDiagnostic?: ForensicDiagnostic;
 };
 
 export type AiSemanticTraceSourceSpan = {

@@ -17,6 +17,7 @@ import type { AiRepairResult } from './aiRepairResult';
 import type { AiWorkspaceReviewResult } from './aiWorkspaceReviewResult';
 import type { BehaviorEvidence } from './behaviorEvidence';
 import type { ExecutionLedgerSnapshot } from './executionLedgerSnapshot';
+import type { ForensicDiagnostic } from './forensicDiagnostic';
 import type { MissionCorrelationReport } from './missionCorrelationReport';
 
 export interface AiChatMessage {
@@ -41,6 +42,8 @@ export interface AiChatMessage {
   retryable?: boolean;
   /** Bounded recovery/incomplete state for terminal outcomes */
   recoveryState?: AiChatMessageRecoveryState;
+  /** Server-owned, bounded forensic verdict shared by live and historical responses. */
+  forensicDiagnostic?: ForensicDiagnostic | null;
   /**
      * Parsed accepted behavior-evidence references, each with an optional exact source line span
      * @maxItems 8

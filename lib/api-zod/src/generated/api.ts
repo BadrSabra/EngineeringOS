@@ -3147,6 +3147,22 @@ export const AiChatBody = zod.object({
 
 
 
+export const aiChatResponseMessageForensicDiagnosticExplanationMax = 500;
+
+export const aiChatResponseMessageForensicDiagnosticNextActionMax = 300;
+
+export const aiChatResponseMessageForensicDiagnosticUnreadFilesItemMax = 180;
+
+export const aiChatResponseMessageForensicDiagnosticUnreadFilesMax = 12;
+
+export const aiChatResponseMessageForensicDiagnosticUnreadFileCountMin = 0;
+
+export const aiChatResponseMessageForensicDiagnosticTruncatedFilesItemMax = 180;
+
+export const aiChatResponseMessageForensicDiagnosticTruncatedFilesMax = 12;
+
+export const aiChatResponseMessageForensicDiagnosticTruncatedFileCountMin = 0;
+
 
 
 export const aiChatResponseMessageBehaviorEvidenceMax = 8;
@@ -3249,6 +3265,18 @@ export const AiChatResponse = zod.object({
   "failureKind": zod.enum(['QUALITY_REVIEW', 'TOOL_FAILURE', 'CANCELLATION', 'RECOVERY_FAILURE', 'INCOMPLETE']).nullish().describe('Bounded terminal classification; present only for non-success assistant turns'),
   "retryable": zod.boolean().optional().describe('Whether the same bounded operation may be retried'),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
+  "forensicDiagnostic": zod.object({
+  "version": zod.literal(1),
+  "verdict": zod.enum(['FINDING_PROVEN', 'NO_VERIFIED_FINDING', 'ANALYSIS_INCOMPLETE']),
+  "reasonCode": zod.enum(['COMPLETE_NO_FINDING', 'COMPLETE_FINDING', 'TIMEOUT', 'SCOPE_BLOCKED_READ', 'BUDGET_EXHAUSTED', 'TOOL_FAILURE', 'RECOVERY_BLOCKED', 'CLAIM_UNCLOSED', 'NO_EVIDENCE_REACHED', 'CANCELLED']),
+  "explanation": zod.string().min(1).max(aiChatResponseMessageForensicDiagnosticExplanationMax),
+  "nextActionCode": zod.enum(['NONE', 'RETRY_AUDIT', 'REVIEW_SCOPE', 'RETRY_AFTER_TIMEOUT', 'RETRY_WITH_NARROWER_SCOPE']),
+  "nextAction": zod.string().min(1).max(aiChatResponseMessageForensicDiagnosticNextActionMax),
+  "unreadFiles": zod.array(zod.string().min(1).max(aiChatResponseMessageForensicDiagnosticUnreadFilesItemMax)).max(aiChatResponseMessageForensicDiagnosticUnreadFilesMax),
+  "unreadFileCount": zod.number().min(aiChatResponseMessageForensicDiagnosticUnreadFileCountMin),
+  "truncatedFiles": zod.array(zod.string().min(1).max(aiChatResponseMessageForensicDiagnosticTruncatedFilesItemMax)).max(aiChatResponseMessageForensicDiagnosticTruncatedFilesMax),
+  "truncatedFileCount": zod.number().min(aiChatResponseMessageForensicDiagnosticTruncatedFileCountMin)
+}).nullish().describe('Server-owned, bounded forensic verdict shared by live and historical responses.'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
   "excerpt": zod.string().optional(),
@@ -4226,7 +4254,8 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *       "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "...",
  *       "outcome": "SUCCEEDED" | "FAILED" | "INTERRUPTED",
  *       "failureKind": "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
- *       "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE" }, "sources": [...],
+ *       "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE",
+ *       "forensicDiagnostic": { "$ref": "#/components/schemas/ForensicDiagnostic" } | null }, "sources": [...],
  *     "pendingChanges": [{ "path": "...", "absolutePath": "...", "newContent": "...",
  *      "originalContent": "..." | null, "reason": "...", "validationProfile": "..." }],
  *       "proposalId": "..." | undefined, "proposalUnavailable": "..." | undefined,
@@ -4253,12 +4282,18 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *       `productionReachability: "NOT_PROVEN"` and `repairReadiness: "BLOCKED"`.
  *       Repair execution is blocked when isFixtureLocal is true — caller and
  *       input-path evidence from non-fixture production source is required.
+ *        Forensic audit completions include the same bounded
+ *        forensicDiagnostic projection in the done message and persisted
+ *        history. ANALYSIS_INCOMPLETE includes one allowlisted reason,
+ *        bounded unread/truncated scope, and exactly one next action;
+ *        NO_VERIFIED_FINDING is emitted only after complete reconciled coverage.
  *
  *    { "type": "error", "code": "...", "message": "...", "executionId"?: "...",
  *       "sessionId"?: "...", "outcome"?: "FAILED" | "INTERRUPTED",
  *       "failureKind"?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
  *       "quality"?: { "code": "QUALITY_REVIEW_LOW", "score": 0.42, "threshold": 0.78, "reasons": ["bounded reason"] },
  *       "retryable"?: true | false, "recoveryState"?: "NONE" | "REQUIRED" | "INCOMPLETE",
+ *       "forensicDiagnostic"?: { "$ref": "#/components/schemas/ForensicDiagnostic" },
  *       "hint"?: "..." }
  *     — Terminal error; the stream will close after this event.
  *
@@ -4998,6 +5033,22 @@ export const ListAiChatMessagesParams = zod.object({
 
 
 
+export const listAiChatMessagesResponseForensicDiagnosticExplanationMax = 500;
+
+export const listAiChatMessagesResponseForensicDiagnosticNextActionMax = 300;
+
+export const listAiChatMessagesResponseForensicDiagnosticUnreadFilesItemMax = 180;
+
+export const listAiChatMessagesResponseForensicDiagnosticUnreadFilesMax = 12;
+
+export const listAiChatMessagesResponseForensicDiagnosticUnreadFileCountMin = 0;
+
+export const listAiChatMessagesResponseForensicDiagnosticTruncatedFilesItemMax = 180;
+
+export const listAiChatMessagesResponseForensicDiagnosticTruncatedFilesMax = 12;
+
+export const listAiChatMessagesResponseForensicDiagnosticTruncatedFileCountMin = 0;
+
 
 
 export const listAiChatMessagesResponseBehaviorEvidenceMax = 8;
@@ -5054,6 +5105,18 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "failureKind": zod.enum(['QUALITY_REVIEW', 'TOOL_FAILURE', 'CANCELLATION', 'RECOVERY_FAILURE', 'INCOMPLETE']).nullish().describe('Bounded terminal classification; present only for non-success assistant turns'),
   "retryable": zod.boolean().optional().describe('Whether the same bounded operation may be retried'),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
+  "forensicDiagnostic": zod.object({
+  "version": zod.literal(1),
+  "verdict": zod.enum(['FINDING_PROVEN', 'NO_VERIFIED_FINDING', 'ANALYSIS_INCOMPLETE']),
+  "reasonCode": zod.enum(['COMPLETE_NO_FINDING', 'COMPLETE_FINDING', 'TIMEOUT', 'SCOPE_BLOCKED_READ', 'BUDGET_EXHAUSTED', 'TOOL_FAILURE', 'RECOVERY_BLOCKED', 'CLAIM_UNCLOSED', 'NO_EVIDENCE_REACHED', 'CANCELLED']),
+  "explanation": zod.string().min(1).max(listAiChatMessagesResponseForensicDiagnosticExplanationMax),
+  "nextActionCode": zod.enum(['NONE', 'RETRY_AUDIT', 'REVIEW_SCOPE', 'RETRY_AFTER_TIMEOUT', 'RETRY_WITH_NARROWER_SCOPE']),
+  "nextAction": zod.string().min(1).max(listAiChatMessagesResponseForensicDiagnosticNextActionMax),
+  "unreadFiles": zod.array(zod.string().min(1).max(listAiChatMessagesResponseForensicDiagnosticUnreadFilesItemMax)).max(listAiChatMessagesResponseForensicDiagnosticUnreadFilesMax),
+  "unreadFileCount": zod.number().min(listAiChatMessagesResponseForensicDiagnosticUnreadFileCountMin),
+  "truncatedFiles": zod.array(zod.string().min(1).max(listAiChatMessagesResponseForensicDiagnosticTruncatedFilesItemMax)).max(listAiChatMessagesResponseForensicDiagnosticTruncatedFilesMax),
+  "truncatedFileCount": zod.number().min(listAiChatMessagesResponseForensicDiagnosticTruncatedFileCountMin)
+}).nullish().describe('Server-owned, bounded forensic verdict shared by live and historical responses.'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
   "excerpt": zod.string().optional(),

@@ -11,6 +11,17 @@ export {
 } from "./openai-compatible-client.js";
 export type { AgentStep, AgentDiagnosticCode, SourceRetrievalTelemetry, ReadStatus } from "./tool-execution-engine.js";
 export {
+  FORENSIC_DIAGNOSTIC_VERSION,
+  FORENSIC_DIAGNOSTIC_MAX_FILES,
+  deriveForensicDiagnostic,
+} from "./forensic-diagnostics.js";
+export type {
+  ForensicDiagnostic,
+  ForensicDiagnosticVerdict,
+  ForensicDiagnosticReason,
+  ForensicDiagnosticNextAction,
+} from "./forensic-diagnostics.js";
+export {
   buildProjectFileManifest,
   buildProjectFileSources,
   formatProjectFileManifest,

@@ -339,6 +339,7 @@ beforeEach(() => {
     errorCode: undefined,
     errorMessage: undefined,
     executionLedger: undefined,
+    forensicDiagnostic: undefined,
   };
   mocks.operationEvents = [];
   for (const mutation of Object.values(mocks.mutations)) {
@@ -999,6 +1000,92 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(clean).toHaveTextContent('No finding');
     expect(cancelled).not.toHaveTextContent('No finding');
     expect(clean).not.toHaveTextContent('Incomplete');
+  });
+
+  it('renders the server diagnostic over stale no-finding telemetry and keeps the action singular', async () => {
+    mocks.serverProposal = { proposalId: 'diagnostic-incomplete', changes: [] };
+    mocks.proposalMessages[0].operationMode = 'FORENSIC_AUDIT';
+    mocks.proposalMessages[0].content = 'The audit could not be completed.';
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+      {
+        kind: 'forensic_status',
+        sourceCoverage: 'PARTIAL',
+        behavioralAssessment: 'INCOMPLETE',
+        findingStatus: 'NO_FINDING',
+        repairReadiness: 'BLOCKED',
+        implementationFiles: 1,
+        contextFiles: 0,
+        generatedFiles: 0,
+      },
+      {
+        kind: 'forensic_diagnostic',
+        forensicDiagnostic: {
+          version: 'v1',
+          verdict: 'ANALYSIS_INCOMPLETE',
+          reasonCode: 'SCOPE_BLOCKED_READ',
+          explanation: 'The requested scope could not be read completely, so no verified conclusion is available.',
+          unreadFileCount: 2,
+          unreadFiles: ['src/missing.ts'],
+          truncatedFileCount: 0,
+          truncatedFiles: [],
+          nextActionCode: 'REVIEW_SCOPE',
+          nextAction: 'Review the unread scope and start a new audit when those files are available.',
+        },
+      },
+    ]);
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect((await screen.findAllByText('ANALYSIS_INCOMPLETE')).length).toBeGreaterThan(0);
+    expect(screen.getByText('SCOPE BLOCKED READ')).toBeInTheDocument();
+    expect(screen.getByText(/Unread scope: 2/)).toBeInTheDocument();
+    expect(screen.getByText('src/missing.ts')).toBeInTheDocument();
+    expect(screen.getByText(/Review the unread scope and start a new audit/)).toBeInTheDocument();
+    expect(screen.queryByText('NO FINDING')).not.toBeInTheDocument();
+    expect(screen.queryByText(/provider-diagnostic|\/home\/runner|secret-fixture-value|raw tool output/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a complete no-finding diagnostic without a repair action', async () => {
+    mocks.serverProposal = { proposalId: 'diagnostic-clean', changes: [] };
+    mocks.proposalMessages[0].operationMode = 'FORENSIC_AUDIT';
+    mocks.proposalMessages[0].content = 'No verified defect was found.';
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+      {
+        kind: 'forensic_status',
+        sourceCoverage: 'COMPLETE',
+        behavioralAssessment: 'COMPLETE',
+        findingStatus: 'NO_FINDING',
+        repairReadiness: 'NOT_PROVEN',
+        implementationFiles: 1,
+        contextFiles: 0,
+        generatedFiles: 0,
+      },
+      {
+        kind: 'forensic_diagnostic',
+        forensicDiagnostic: {
+          version: 'v1',
+          verdict: 'NO_VERIFIED_FINDING',
+          reasonCode: 'COMPLETE_NO_FINDING',
+          explanation: 'No defect was verified after complete coverage of the requested scope.',
+          unreadFileCount: 0,
+          unreadFiles: [],
+          truncatedFileCount: 0,
+          truncatedFiles: [],
+          nextActionCode: 'NONE',
+          nextAction: '',
+        },
+      },
+    ]);
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect((await screen.findAllByText('NO_VERIFIED_FINDING')).length).toBeGreaterThan(0);
+    expect(screen.getByText('COMPLETE NO FINDING')).toBeInTheDocument();
+    expect(screen.getByText(/No defect was verified after complete coverage/)).toBeInTheDocument();
+    expect(screen.queryByText('ANALYSIS_INCOMPLETE')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Review the unread scope|Start a new audit|Retry/i)).not.toBeInTheDocument();
   });
 
   it('applies a server-owned proposal with its project and proposal identity', async () => {

@@ -1623,6 +1623,82 @@ export interface MissionCorrelationReport {
   agreement: MissionCorrelationReportAgreement;
 }
 
+export type ForensicDiagnosticVersion = typeof ForensicDiagnosticVersion[keyof typeof ForensicDiagnosticVersion];
+
+
+export const ForensicDiagnosticVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type ForensicDiagnosticVerdict = typeof ForensicDiagnosticVerdict[keyof typeof ForensicDiagnosticVerdict];
+
+
+export const ForensicDiagnosticVerdict = {
+  FINDING_PROVEN: 'FINDING_PROVEN',
+  NO_VERIFIED_FINDING: 'NO_VERIFIED_FINDING',
+  ANALYSIS_INCOMPLETE: 'ANALYSIS_INCOMPLETE',
+} as const;
+
+export type ForensicDiagnosticReasonCode = typeof ForensicDiagnosticReasonCode[keyof typeof ForensicDiagnosticReasonCode];
+
+
+export const ForensicDiagnosticReasonCode = {
+  COMPLETE_NO_FINDING: 'COMPLETE_NO_FINDING',
+  COMPLETE_FINDING: 'COMPLETE_FINDING',
+  TIMEOUT: 'TIMEOUT',
+  SCOPE_BLOCKED_READ: 'SCOPE_BLOCKED_READ',
+  BUDGET_EXHAUSTED: 'BUDGET_EXHAUSTED',
+  TOOL_FAILURE: 'TOOL_FAILURE',
+  RECOVERY_BLOCKED: 'RECOVERY_BLOCKED',
+  CLAIM_UNCLOSED: 'CLAIM_UNCLOSED',
+  NO_EVIDENCE_REACHED: 'NO_EVIDENCE_REACHED',
+  CANCELLED: 'CANCELLED',
+} as const;
+
+export type ForensicDiagnosticNextActionCode = typeof ForensicDiagnosticNextActionCode[keyof typeof ForensicDiagnosticNextActionCode];
+
+
+export const ForensicDiagnosticNextActionCode = {
+  NONE: 'NONE',
+  RETRY_AUDIT: 'RETRY_AUDIT',
+  REVIEW_SCOPE: 'REVIEW_SCOPE',
+  RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+  RETRY_WITH_NARROWER_SCOPE: 'RETRY_WITH_NARROWER_SCOPE',
+} as const;
+
+export interface ForensicDiagnostic {
+  version: ForensicDiagnosticVersion;
+  verdict: ForensicDiagnosticVerdict;
+  reasonCode: ForensicDiagnosticReasonCode;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  explanation: string;
+  nextActionCode: ForensicDiagnosticNextActionCode;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  nextAction: string;
+  /**
+     * @maxItems 12
+     * @items.minLength 1
+     * @items.maxLength 180
+     */
+  unreadFiles: string[];
+  /** @minimum 0 */
+  unreadFileCount: number;
+  /**
+     * @maxItems 12
+     * @items.minLength 1
+     * @items.maxLength 180
+     */
+  truncatedFiles: string[];
+  /** @minimum 0 */
+  truncatedFileCount: number;
+}
+
 export type AiChatMessageRole = typeof AiChatMessageRole[keyof typeof AiChatMessageRole];
 
 
@@ -1876,6 +1952,8 @@ export interface AiChatMessage {
   retryable?: boolean;
   /** Bounded recovery/incomplete state for terminal outcomes */
   recoveryState?: AiChatMessageRecoveryState;
+  /** Server-owned, bounded forensic verdict shared by live and historical responses. */
+  forensicDiagnostic?: ForensicDiagnostic | null;
   /**
      * Parsed accepted behavior-evidence references, each with an optional exact source line span
      * @maxItems 8

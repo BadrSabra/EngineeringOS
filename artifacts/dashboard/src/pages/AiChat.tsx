@@ -72,6 +72,7 @@ import type {
   BrowserValidationBlockReason,
   ExecutionLedgerPublicSnapshot,
   PublicValidationResult,
+  ForensicDiagnostic,
 } from '@workspace/ai-orchestrator';
 // Keep the shared structured error type for translating SSE failures into
 // the same user-facing error format as regular API requests.
@@ -150,6 +151,7 @@ type ChatMessage = {
   failureKind?: AiStreamErrorEvent['failureKind'];
   retryable?: boolean;
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
+  forensicDiagnostic?: ForensicDiagnostic | null;
   createdAt: string;
 };
 
@@ -891,6 +893,8 @@ type ToolTraceEntry = {
     readFiles: number;
     unreadFiles: number;
     status: 'COMPLETE' | 'EMPTY' | 'PARTIAL' | 'BUDGET_EXHAUSTED';
+    unreadPaths?: string[];
+    truncatedPaths?: string[];
   }>;
   /** FEG-017: why a forensic investigation's terminal failed (PROVEN/NO_FINDING omit it). */
   terminalKind?:
@@ -900,6 +904,7 @@ type ToolTraceEntry = {
     | 'EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED'
     | 'NO_RESPONSE_RECOVERY_BLOCKED';
   reason?: string;
+  forensicDiagnostic?: ForensicDiagnostic;
   root?: string;
   packetIndex?: number;
   packetCount?: number;
@@ -1333,10 +1338,13 @@ type ForensicEvidenceSummary = {
       readFiles: number;
       unreadFiles: number;
       status: 'COMPLETE' | 'EMPTY' | 'PARTIAL' | 'BUDGET_EXHAUSTED';
+      unreadPaths?: string[];
+      truncatedPaths?: string[];
     }>;
     /** True when the proven Finding is supported only by fixture/test/spec evidence. */
     isFixtureLocal?: boolean;
   } | null;
+  forensicDiagnostic?: ForensicDiagnostic | null;
   auditScopeDescription?: string;
   forensicPackets: Array<{
     root: string;
@@ -1383,7 +1391,11 @@ type ForensicEvidenceSummary = {
   persistedEvidenceFiles?: string[];
 };
 
-function parseForensicEvidence(trace: ToolTraceEntry[], executionSummary: AiStreamExecutionSummary | null): ForensicEvidenceSummary {
+function parseForensicEvidence(
+  trace: ToolTraceEntry[],
+  executionSummary: AiStreamExecutionSummary | null,
+  messageDiagnostic?: ForensicDiagnostic | null,
+): ForensicEvidenceSummary {
   const reads = new Map<string, ForensicReadEvidence>();
   const requested = new Map<string, number>();
   const returned = new Map<string, number>();
@@ -1526,6 +1538,11 @@ function parseForensicEvidence(trace: ToolTraceEntry[], executionSummary: AiStre
                 : undefined,
           }
         : null,
+    forensicDiagnostic:
+      messageDiagnostic
+      ?? statusEntry?.forensicDiagnostic
+      ?? [...trace].reverse().find((entry) => entry.kind === 'forensic_diagnostic')?.forensicDiagnostic
+      ?? null,
     auditScopeDescription: scopeEntry?.scopeDescription,
     forensicPackets,
     // EI-012: surface the latest run-ledger telemetry reconciliation for the run.
@@ -1898,7 +1915,16 @@ function ForensicEvidenceCard({
       : evidence.diagnosticCodes.some((code) => code.includes('FORENSIC_NO_FINDING'))
         ? 'NO FINDING'
         : 'NOT PROVEN';
-  const verdict = finalVerdict ?? historicalVerdict;
+  const diagnostic = evidence.forensicDiagnostic;
+  const fallbackVerdict = finalVerdict ?? historicalVerdict;
+  const diagnosticVerdict = diagnostic?.verdict === 'NO_VERIFIED_FINDING'
+    ? 'NO_VERIFIED_FINDING'
+    : diagnostic?.verdict === 'ANALYSIS_INCOMPLETE'
+      ? 'ANALYSIS_INCOMPLETE'
+      : diagnostic?.verdict === 'FINDING_PROVEN'
+        ? 'FINDING_PROVEN'
+        : fallbackVerdict;
+  const verdict = diagnostic ? diagnosticVerdict : fallbackVerdict;
 
   // Normalize fixture-local from either the boolean or the enum field so that
   // auditScope-only traces (written by the incoming-main branch) are treated
@@ -1946,6 +1972,45 @@ function ForensicEvidenceCard({
         </span>
         <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </button>
+      {diagnostic && (
+        <div
+          className={`border-t px-3 py-2.5 ${
+            diagnostic.verdict === 'NO_VERIFIED_FINDING'
+              ? 'border-emerald-500/25 bg-emerald-500/10'
+              : diagnostic.verdict === 'ANALYSIS_INCOMPLETE'
+                ? 'border-amber-500/25 bg-amber-500/10'
+                : 'border-green-500/25 bg-green-500/10'
+          }`}
+          role="status"
+          aria-label={`Forensic verdict ${diagnosticVerdict}`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold tracking-wide text-foreground">{diagnosticVerdict}</span>
+            <span className="rounded border border-border/50 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
+              {diagnostic.reasonCode.replace(/_/g, ' ')}
+            </span>
+          </div>
+          <p className="mt-1 leading-relaxed text-foreground/90">{diagnostic.explanation}</p>
+          {diagnostic.verdict === 'ANALYSIS_INCOMPLETE' && (
+            <>
+              {(diagnostic.unreadFileCount > 0 || diagnostic.truncatedFileCount > 0) && (
+                <div className="mt-1.5 text-muted-foreground">
+                  Unread scope: {diagnostic.unreadFileCount}
+                  {diagnostic.truncatedFileCount > 0 ? ` · truncated: ${diagnostic.truncatedFileCount}` : ''}
+                  {(diagnostic.unreadFiles.length > 0 || diagnostic.truncatedFiles.length > 0) && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {[...diagnostic.unreadFiles, ...diagnostic.truncatedFiles]
+                        .filter((file, index, files) => files.indexOf(file) === index)
+                        .map((file) => <code key={file} className="rounded bg-background/40 px-1 py-0.5">{file}</code>)}
+                    </div>
+                  )}
+                </div>
+              )}
+              <p className="mt-1.5 font-medium text-amber-100">{diagnostic.nextAction}</p>
+            </>
+          )}
+        </div>
+      )}
 
       {expanded && (
         <div className={`border-t px-3 py-3 space-y-3 ${isFixtureLocal ? 'border-violet-500/20' : 'border-amber-500/20'}`}>
@@ -2279,21 +2344,31 @@ function ForensicEvidenceCard({
                     {evidence.forensicStatus.requestedFiles.length > 0 ? 'requested files' : 'requested roots'}
                   </div>
                   <div className="space-y-1">
-                    {evidence.forensicStatus.rootCoverage.map((coverage, index) => (
-                      <div key={coverage.root} className="flex items-center gap-2 text-[10px]">
-                        <code className="min-w-0 flex-1 break-all text-foreground/80">{coverage.root}</code>
-                        <span className={
-                          coverage.status === 'COMPLETE' || coverage.status === 'EMPTY'
-                            ? 'text-green-300'
-                            : 'text-amber-300'
-                        }>
-                          {coverage.status}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {coverage.readFiles}/{coverage.discoveredFiles} read
-                        </span>
-                      </div>
-                    ))}
+                      {evidence.forensicStatus.rootCoverage.map((coverage) => (
+                        <div key={coverage.root}>
+                          <div className="flex items-center gap-2 text-[10px]">
+                            <code className="min-w-0 flex-1 break-all text-foreground/80">{coverage.root}</code>
+                            <span className={
+                              coverage.status === 'COMPLETE' || coverage.status === 'EMPTY'
+                                ? 'text-green-300'
+                                : 'text-amber-300'
+                            }>
+                              {coverage.status}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {coverage.readFiles}/{coverage.discoveredFiles} read
+                            </span>
+                          </div>
+                          {(coverage.unreadPaths?.length || coverage.truncatedPaths?.length) ? (
+                            <div className="ml-2 flex flex-wrap gap-1 text-[9px] text-amber-200">
+                              {[...(coverage.unreadPaths ?? []), ...(coverage.truncatedPaths ?? [])]
+                                .filter((file, fileIndex, files) => files.indexOf(file) === fileIndex)
+                                .slice(0, 12)
+                                .map((file) => <code key={file} className="rounded bg-amber-500/10 px-1 py-0.5">{file}</code>)}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}
@@ -4340,6 +4415,10 @@ function MessageBubble({
   const sources = parseSources(msg.sources);
   const toolTrace = parseToolTrace(msg.toolTrace);
   const activityTrace = toolTrace.filter((entry) => entry.kind !== 'execution_ledger');
+  const forensicDiagnostic = !isUser
+    ? msg.forensicDiagnostic
+      ?? [...toolTrace].reverse().find((entry) => entry.kind === 'forensic_diagnostic')?.forensicDiagnostic
+    : undefined;
   const activityEvents = msg.activityEvents ?? activityEventsFromToolTrace(activityTrace);
   const executionSummary = !isUser ? parseExecutionSummary(toolTrace) : null;
   const executionLedger = !isUser ? (msg.executionLedger ?? parseExecutionLedger(toolTrace)) : null;
@@ -4400,13 +4479,15 @@ function MessageBubble({
   const isEvidenceOnlyFallback = isForensicFallback && isEvidenceOnlyFallbackMessage(displayContent);
   const incompleteBeforeEvidence = !isUser && isIncompleteBeforeEvidenceSummary(executionSummary);
   const isNoFindingFallback = !isUser && Boolean(
-    finalVerdict === 'NO FINDING' ||
+    forensicDiagnostic?.verdict !== 'ANALYSIS_INCOMPLETE' && (
+      finalVerdict === 'NO FINDING' ||
     (
       !finalVerdict &&
       executionSummary?.diagnosticCodes.some((code) => code.includes('FORENSIC_NO_FINDING')) &&
       !executionSummary.diagnosticCodes.some((code) =>
         code.includes('FORENSIC_DETERMINISTIC_FINDING') ||
         code.includes('STRUCTURED_RECOVERY_ACCEPTED'),
+      )
       )
     ),
   );
@@ -4421,6 +4502,7 @@ function MessageBubble({
     inferredOperationMode === 'FORENSIC_AUDIT'
     || isForensicFallback
     || finalVerdict !== null
+    || Boolean(forensicDiagnostic)
     || Boolean(msg.taskResult && ['FINDING_RESULT', 'FORENSIC_REPORT_RESULT', 'WORKSPACE_REVIEW_RESULT', 'BEHAVIOR_ANSWER_RESULT', 'REPAIR_RESULT'].includes(msg.taskResult.kind))
   );
   const isEngineeringExecution = !isUser && !isForensicRun && (
@@ -4429,8 +4511,8 @@ function MessageBubble({
     || toolTrace.some((entry) => entry.kind === 'validation' || entry.kind === 'repair_state')
   );
   const forensicEvidence = !isUser &&
-    (isForensicFallback || finalVerdict !== null || isForensicRejection(executionSummary, finalVerdict))
-    ? parseForensicEvidence(toolTrace, executionSummary)
+    (isForensicFallback || finalVerdict !== null || Boolean(forensicDiagnostic) || isForensicRejection(executionSummary, finalVerdict))
+    ? parseForensicEvidence(toolTrace, executionSummary, forensicDiagnostic)
     : null;
   const reportGeneratedAt = !isUser
     ? readMissionCorrelationReportGeneratedAt(msg.missionCorrelationReport)

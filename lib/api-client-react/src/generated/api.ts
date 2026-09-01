@@ -5769,7 +5769,8 @@ export const getAiChatStreamUrl = () => {
  *       "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "...",
  *       "outcome": "SUCCEEDED" | "FAILED" | "INTERRUPTED",
  *       "failureKind": "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
- *       "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE" }, "sources": [...],
+ *       "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE",
+ *       "forensicDiagnostic": { "$ref": "#/components/schemas/ForensicDiagnostic" } | null }, "sources": [...],
  *     "pendingChanges": [{ "path": "...", "absolutePath": "...", "newContent": "...",
  *      "originalContent": "..." | null, "reason": "...", "validationProfile": "..." }],
  *       "proposalId": "..." | undefined, "proposalUnavailable": "..." | undefined,
@@ -5796,12 +5797,18 @@ export const getAiChatStreamUrl = () => {
  *       `productionReachability: "NOT_PROVEN"` and `repairReadiness: "BLOCKED"`.
  *       Repair execution is blocked when isFixtureLocal is true — caller and
  *       input-path evidence from non-fixture production source is required.
+ *        Forensic audit completions include the same bounded
+ *        forensicDiagnostic projection in the done message and persisted
+ *        history. ANALYSIS_INCOMPLETE includes one allowlisted reason,
+ *        bounded unread/truncated scope, and exactly one next action;
+ *        NO_VERIFIED_FINDING is emitted only after complete reconciled coverage.
  *
  *    { "type": "error", "code": "...", "message": "...", "executionId"?: "...",
  *       "sessionId"?: "...", "outcome"?: "FAILED" | "INTERRUPTED",
  *       "failureKind"?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
  *       "quality"?: { "code": "QUALITY_REVIEW_LOW", "score": 0.42, "threshold": 0.78, "reasons": ["bounded reason"] },
  *       "retryable"?: true | false, "recoveryState"?: "NONE" | "REQUIRED" | "INCOMPLETE",
+ *       "forensicDiagnostic"?: { "$ref": "#/components/schemas/ForensicDiagnostic" },
  *       "hint"?: "..." }
  *     — Terminal error; the stream will close after this event.
  *
