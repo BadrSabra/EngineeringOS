@@ -315,4 +315,38 @@ describe("benchmark release gate", () => {
       "clean witness compared against a different approved baseline",
     );
   });
+
+  it("retains a bounded runtime-oracle preflight report and blocks failures", () => {
+    const runtimeOraclePreflight = {
+      status: "failed" as const,
+      checks: [{
+        scenarioId: "test-failure-001",
+        command: "pnpm --dir lib/ai-orchestrator exec vitest run src/fixture.test.ts",
+        status: "failed" as const,
+        failureCode: "RUNTIME_ORACLE_FAILED",
+      }],
+      failureIds: ["test-failure-001"],
+    };
+    const decision = evaluateBenchmarkReleaseGate({
+      targetedRun: run({
+        runId: "targeted-run",
+        completedAt: "2026-08-19T01:20:00.000Z",
+        targetCaseCount: 4,
+        diagnosticOnly: true,
+        targeted: true,
+        partial: true,
+        baselineEligibility: "not-eligible",
+        targetProfile: "repair-loop",
+        scorecard: scorecard({ rolloutAllowed: false }),
+      }),
+      cleanWitnessRun: run(),
+      baseline: baseline(),
+      runtimeOraclePreflight,
+    });
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.runtimeOraclePreflight).toEqual(runtimeOraclePreflight);
+    expect(decision.blockers).toContain("benchmark runtime-oracle preflight failed");
+    expect(JSON.stringify(decision)).not.toContain("provider output");
+  });
 });

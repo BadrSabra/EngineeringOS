@@ -29,6 +29,24 @@ import {
 import { evaluateCodeAgentBenchmarkContract } from "@workspace/ai-orchestrator";
 import { hashDeliveryWorkspace } from "./delivery-workspace.js";
 
+const RUNTIME_ORACLE_REPORT_LIMIT = 64;
+const RUNTIME_ORACLE_IDENTIFIER_LIMIT = 160;
+const RUNTIME_ORACLE_COMMAND_LIMIT = 240;
+const SAFE_RUNTIME_ORACLE_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
+
+export type ApiCodeAgentRuntimeOracleCheck = {
+  scenarioId: string;
+  command: string;
+  status: "passed" | "failed";
+  failureCode?: string;
+};
+
+export type ApiCodeAgentRuntimeOraclePreflight = {
+  status: "passed" | "failed";
+  checks: ApiCodeAgentRuntimeOracleCheck[];
+  failureIds: string[];
+};
+
 export type ApiCodeAgentBenchmarkOptions = {
   rootPath: string;
   projectContext: ProjectContext;
@@ -54,7 +72,23 @@ function runtimeOracleCommandLabel(command: {
   command: string;
   args: readonly string[];
 }): string {
-  return [command.command, ...command.args].join(" ");
+  return [command.command, ...command.args].join(" ").slice(0, RUNTIME_ORACLE_COMMAND_LIMIT);
+}
+
+function runtimeOracleFailureCode(code: string | undefined): string {
+  return code && SAFE_RUNTIME_ORACLE_CODE.test(code) ? code : "RUNTIME_ORACLE_FAILED";
+}
+
+export function runtimeOraclePreflightError(
+  report: ApiCodeAgentRuntimeOraclePreflight,
+): Error | undefined {
+  if (report.status !== "failed") return undefined;
+  const failures = report.checks
+    .filter((check) => check.status === "failed")
+    .map((check) => `${check.scenarioId} [${check.command}]: ${check.failureCode ?? "RUNTIME_ORACLE_FAILED"}`);
+  return new Error(
+    `Code Agent benchmark runtime-oracle preflight failed: ${failures.join("; ")}`,
+  );
 }
 
 /**
@@ -67,16 +101,22 @@ export async function validateApiCodeAgentBenchmarkRuntimeOracles(opts: {
   rootPath: string;
   cases?: readonly CodeAgentBenchmarkCase[];
   signal?: AbortSignal;
-}): Promise<void> {
-  const errors: string[] = [];
+}): Promise<ApiCodeAgentRuntimeOraclePreflight> {
+  const checks: ApiCodeAgentRuntimeOracleCheck[] = [];
 
   for (const testCase of opts.cases ?? getCodeAgentBenchmarkCases()) {
     const fixture = getCodeAgentBenchmarkFixture(testCase);
     if (!fixture.runtimeOracle) continue;
 
     const commandLabel = runtimeOracleCommandLabel(fixture.runtimeOracle);
+    const scenarioId = testCase.id.slice(0, RUNTIME_ORACLE_IDENTIFIER_LIMIT);
     if (!fixture.focusedPendingChanges || fixture.focusedPendingChanges.length === 0) {
-      errors.push(`${testCase.id} [${commandLabel}]: focused candidate is missing`);
+      checks.push({
+        scenarioId,
+        command: commandLabel,
+        status: "failed",
+        failureCode: "RUNTIME_ORACLE_CANDIDATE_MISSING",
+      });
       continue;
     }
 
@@ -88,18 +128,26 @@ export async function validateApiCodeAgentBenchmarkRuntimeOracles(opts: {
       fixture.prepare,
     );
     if (result.status !== "passed") {
-      const detail = [result.code, result.detail].filter(Boolean).join(": ");
-      errors.push(
-        `${testCase.id} [${commandLabel}]: ${detail || "runtime oracle failed"}`,
-      );
+      checks.push({
+        scenarioId,
+        command: commandLabel,
+        status: "failed",
+        failureCode: runtimeOracleFailureCode(result.code),
+      });
+      continue;
     }
+    checks.push({ scenarioId, command: commandLabel, status: "passed" });
   }
 
-  if (errors.length > 0) {
-    throw new Error(
-      `Code Agent benchmark runtime-oracle preflight failed: ${errors.join("; ")}`,
-    );
-  }
+  const failureIds = checks
+    .filter((check) => check.status === "failed")
+    .map((check) => check.scenarioId)
+    .slice(0, RUNTIME_ORACLE_REPORT_LIMIT);
+  return {
+    status: failureIds.length > 0 ? "failed" : "passed",
+    checks: checks.slice(0, RUNTIME_ORACLE_REPORT_LIMIT),
+    failureIds,
+  };
 }
 
 /**
@@ -118,10 +166,12 @@ export async function runApiCodeAgentBenchmark(
   if (fixtureErrors.length > 0) {
     throw new Error(`Invalid Code Agent benchmark fixture contract: ${fixtureErrors.join("; ")}`);
   }
-  await validateApiCodeAgentBenchmarkRuntimeOracles({
+  const runtimeOraclePreflight = await validateApiCodeAgentBenchmarkRuntimeOracles({
     rootPath: opts.rootPath,
     signal: opts.signal,
   });
+  const preflightError = runtimeOraclePreflightError(runtimeOraclePreflight);
+  if (preflightError) throw preflightError;
   const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
   const validationRunner = async (
     profile: string,
@@ -246,10 +296,12 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
   if (fixtureErrors.length > 0) {
     throw new Error(`Invalid Code Agent benchmark fixture contract: ${fixtureErrors.join("; ")}`);
   }
-  await validateApiCodeAgentBenchmarkRuntimeOracles({
+  const runtimeOraclePreflight = await validateApiCodeAgentBenchmarkRuntimeOracles({
     rootPath: opts.rootPath,
     signal: opts.signal,
   });
+  const preflightError = runtimeOraclePreflightError(runtimeOraclePreflight);
+  if (preflightError) throw preflightError;
   const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
   const validationRunner = async (
     profile: string,
@@ -333,7 +385,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
     };
   }));
 
-  return runCodeAgentBenchmarkAirlock({
+  const run = await runCodeAgentBenchmarkAirlock({
     providers: airlockProviders,
     mode: opts.mode,
     campaignMode: opts.campaignMode,
@@ -352,6 +404,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
     onHealth: opts.onProviderHealth,
     signal: opts.signal,
   });
+  return { ...run, runtimeOraclePreflight };
 }
 
 async function evaluateBenchmarkCaseOracle(

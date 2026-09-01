@@ -65,6 +65,16 @@ export type BenchmarkAirlockRun = {
   targetCaseCount: number;
   providerOrder: ProviderId[];
   providerHealth: ProviderHealthProbeResult[];
+  runtimeOraclePreflight?: {
+    status: "passed" | "failed";
+    checks: Array<{
+      scenarioId: string;
+      command: string;
+      status: "passed" | "failed";
+      failureCode?: string;
+    }>;
+    failureIds: string[];
+  };
   preflight?: {
     status: "ready" | "blocked";
     blockers: string[];

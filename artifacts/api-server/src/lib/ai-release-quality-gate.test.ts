@@ -67,4 +67,42 @@ describe("AI release quality gate", () => {
     expect(decision.status).toBe("passed");
     expect(decision.summary.skippedCases).toBe(1);
   });
+
+  it("retains bounded runtime-oracle status and failure identifiers", () => {
+    const decision = evaluateAiReleaseQuality(
+      [result({
+        id: "benchmark-runtime-oracle-preflight",
+        kind: "benchmark",
+        command: "server-registered benchmark runtime-oracle commands",
+        status: "failed",
+        failureCode: "BENCHMARK_RUNTIME_ORACLE_PREFLIGHT_FAILED",
+      })],
+      {
+        runtimeOraclePreflight: {
+          status: "failed",
+          checks: [{
+            scenarioId: "test-failure-001",
+            command: "pnpm --dir lib/ai-orchestrator exec vitest run src/fixture.test.ts",
+            status: "failed",
+            failureCode: "RUNTIME_ORACLE_FAILED",
+          }],
+          failureIds: ["test-failure-001"],
+        },
+      },
+    );
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.runtimeOraclePreflight).toEqual({
+      status: "failed",
+      checks: [{
+        scenarioId: "test-failure-001",
+        command: "pnpm --dir lib/ai-orchestrator exec vitest run src/fixture.test.ts",
+        status: "failed",
+        failureCode: "RUNTIME_ORACLE_FAILED",
+      }],
+      failureIds: ["test-failure-001"],
+    });
+    expect(decision.blockers).toContain("BENCHMARK_RUNTIME_ORACLE_PREFLIGHT_FAILED");
+    expect(JSON.stringify(decision)).not.toContain("provider output");
+  });
 });

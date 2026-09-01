@@ -7,6 +7,7 @@ import {
   type BenchmarkAirlockRun,
   type CodeAgentBenchmarkBaseline,
 } from "@workspace/ai-orchestrator";
+import type { ApiCodeAgentRuntimeOraclePreflight } from "./ai-code-agent-benchmark.js";
 
 export const BENCHMARK_RELEASE_GATE_VERSION = 1;
 export const APPROVED_BENCHMARK_SOURCE_REVISION = "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a";
@@ -20,6 +21,7 @@ export type BenchmarkReleaseGateDecision = {
   baselineId: string;
   suiteVersion: typeof CODE_AGENT_BENCHMARK_VERSION;
   sourceRevision: string;
+  runtimeOraclePreflight?: ApiCodeAgentRuntimeOraclePreflight;
   blockers: string[];
   sequence: [
     "change",
@@ -99,6 +101,50 @@ function isBefore(left: string, right: string): boolean {
   return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime <= rightTime;
 }
 
+function projectRuntimeOraclePreflight(value: unknown): ApiCodeAgentRuntimeOraclePreflight | undefined {
+  if (!isRecord(value) ||
+      (value.status !== "passed" && value.status !== "failed") ||
+      !Array.isArray(value.checks) ||
+      !Array.isArray(value.failureIds)) return undefined;
+  const checks = value.checks.slice(0, 64).flatMap((raw) => {
+    if (!isRecord(raw) ||
+        typeof raw.scenarioId !== "string" ||
+        !/^[a-z0-9][a-z0-9._:/-]{0,159}$/i.test(raw.scenarioId) ||
+        typeof raw.command !== "string" ||
+        !/^pnpm(?: [^\r\n]{0,238})?$/.test(raw.command) ||
+        (raw.status !== "passed" && raw.status !== "failed")) return [];
+    const failureCode = raw.status === "failed" &&
+      typeof raw.failureCode === "string" &&
+      /^[A-Z][A-Z0-9_]{0,79}$/.test(raw.failureCode)
+      ? raw.failureCode
+      : undefined;
+    return [{
+      scenarioId: raw.scenarioId.slice(0, 160),
+      command: raw.command.slice(0, 240),
+      status: raw.status as "passed" | "failed",
+      ...(failureCode ? { failureCode } : {}),
+    }];
+  });
+  const failureIds = value.failureIds
+    .filter((failureId): failureId is string =>
+      typeof failureId === "string" &&
+      /^[a-z0-9][a-z0-9._:/-]{0,159}$/i.test(failureId),
+    )
+    .map((failureId) => failureId.slice(0, 160))
+    .slice(0, 64);
+  return {
+    status: value.status,
+    checks,
+    failureIds: [...new Set(failureIds)],
+  };
+}
+
+function runtimeOraclePreflightFromRun(run: BenchmarkAirlockRun): ApiCodeAgentRuntimeOraclePreflight | undefined {
+  return projectRuntimeOraclePreflight(
+    (run as unknown as { runtimeOraclePreflight?: unknown }).runtimeOraclePreflight,
+  );
+}
+
 /**
  * Release sequencing is deliberately separate from the benchmark runner.
  * The runner measures a campaign; this gate proves that the campaign artifacts
@@ -108,9 +154,16 @@ export function evaluateBenchmarkReleaseGate(args: {
   targetedRun: BenchmarkAirlockRun;
   cleanWitnessRun: BenchmarkAirlockRun;
   baseline: CodeAgentBenchmarkBaseline;
+  runtimeOraclePreflight?: ApiCodeAgentRuntimeOraclePreflight;
 }): BenchmarkReleaseGateDecision {
   const blockers: string[] = [];
   const { targetedRun, cleanWitnessRun, baseline } = args;
+  const runtimeOraclePreflight = args.runtimeOraclePreflight ??
+    runtimeOraclePreflightFromRun(targetedRun) ??
+    runtimeOraclePreflightFromRun(cleanWitnessRun);
+  if (runtimeOraclePreflight?.status === "failed") {
+    addBlocker(blockers, "benchmark runtime-oracle preflight failed");
+  }
   const revisions = [
     ["targeted benchmark", targetedRun.sourceRevision],
     ["clean-witness benchmark", cleanWitnessRun.sourceRevision],
@@ -215,6 +268,7 @@ export function evaluateBenchmarkReleaseGate(args: {
     baselineId: baseline.baselineId,
     suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
     sourceRevision: revisions[0][1] ?? "",
+    ...(runtimeOraclePreflight ? { runtimeOraclePreflight } : {}),
     blockers,
     sequence: [
       "change",

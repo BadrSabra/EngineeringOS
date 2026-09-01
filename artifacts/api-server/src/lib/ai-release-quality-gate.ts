@@ -2,6 +2,10 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import {
+  validateApiCodeAgentBenchmarkRuntimeOracles,
+  type ApiCodeAgentRuntimeOraclePreflight,
+} from "./ai-code-agent-benchmark.js";
 // The shared release runner is intentionally JavaScript because it is also
 // executed directly by the shell-based browser harness.
 // @ts-expect-error The JavaScript helper has no generated declaration file.
@@ -49,6 +53,7 @@ export type AiReleaseQualityDecision = {
   };
   blockers: string[];
   checks: AiReleaseCheckResult[];
+  runtimeOraclePreflight?: ApiCodeAgentRuntimeOraclePreflight;
 };
 
 const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
@@ -129,6 +134,13 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
     coverage: ["deterministic 34-case contract baseline", "provider-free benchmark authority"],
   },
   {
+    id: "benchmark-runtime-oracle-preflight",
+    kind: "benchmark",
+    command: "server-registered benchmark runtime-oracle commands",
+    blocking: true,
+    coverage: ["focused runtime-oracle scenarios", "server-owned candidate behavior"],
+  },
+  {
     id: "dashboard-preview-contract",
     kind: "preview",
     command: "pnpm run validate:dashboard-journey",
@@ -166,6 +178,9 @@ function failureCode(check: AiReleaseCheckDefinition, exitCode: number | null, s
 }
 
 const SAFE_FAILURE_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
+const SAFE_RUNTIME_ORACLE_IDENTIFIER = /^[a-z0-9][a-z0-9._:/-]{0,159}$/i;
+const SAFE_RUNTIME_ORACLE_COMMAND = /^pnpm(?: [^\r\n]{0,238})?$/;
+const MAX_RUNTIME_ORACLE_CHECKS = 64;
 
 function normalizedFailureCode(result: AiReleaseCheckResult): string | undefined {
   if (result.status !== "failed") return undefined;
@@ -175,10 +190,44 @@ function normalizedFailureCode(result: AiReleaseCheckResult): string | undefined
   return `${result.id.toUpperCase().replaceAll("-", "_")}_FAILED`;
 }
 
+function normalizedRuntimeOraclePreflight(
+  report: ApiCodeAgentRuntimeOraclePreflight | undefined,
+): ApiCodeAgentRuntimeOraclePreflight | undefined {
+  if (!report || (report.status !== "passed" && report.status !== "failed")) return undefined;
+  const checks = report.checks
+    .slice(0, MAX_RUNTIME_ORACLE_CHECKS)
+    .flatMap((check) => {
+      if (!SAFE_RUNTIME_ORACLE_IDENTIFIER.test(check.scenarioId) ||
+          !SAFE_RUNTIME_ORACLE_COMMAND.test(check.command) ||
+          (check.status !== "passed" && check.status !== "failed")) return [];
+      const failureCode = check.status === "failed" &&
+        check.failureCode &&
+        SAFE_FAILURE_CODE.test(check.failureCode)
+        ? check.failureCode
+        : undefined;
+      return [{
+        scenarioId: check.scenarioId.slice(0, 160),
+        command: check.command.slice(0, 240),
+        status: check.status,
+        ...(failureCode ? { failureCode } : {}),
+      }];
+    });
+  const failureIds = report.failureIds
+    .filter((failureId) => typeof failureId === "string" && SAFE_RUNTIME_ORACLE_IDENTIFIER.test(failureId))
+    .map((failureId) => failureId.slice(0, 160))
+    .slice(0, MAX_RUNTIME_ORACLE_CHECKS);
+  return {
+    status: report.status,
+    checks,
+    failureIds: [...new Set(failureIds)],
+  };
+}
+
 export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[], options: {
   enableLiveProvider?: boolean;
   enablePreview?: boolean;
   generatedAt?: string;
+  runtimeOraclePreflight?: ApiCodeAgentRuntimeOraclePreflight;
 } = {}): AiReleaseQualityDecision {
   // Normalize at the report boundary as well as at command execution. This
   // keeps callers from accidentally persisting provider output, prompts, or
@@ -193,6 +242,10 @@ export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[
   const blockers = normalizedResults
     .filter((result) => result.status === "failed" && result.blocking)
     .map((result) => result.failureCode ?? `${result.id.toUpperCase().replaceAll("-", "_")}_FAILED`);
+  const runtimeOraclePreflight = normalizedRuntimeOraclePreflight(options.runtimeOraclePreflight);
+  if (runtimeOraclePreflight?.status === "failed") {
+    blockers.push("BENCHMARK_RUNTIME_ORACLE_PREFLIGHT_FAILED");
+  }
   const failed = normalizedResults.filter((result) => result.status === "failed");
   return {
     kind: "ai-release-quality-decision",
@@ -211,6 +264,7 @@ export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[
     },
     blockers: [...new Set(blockers)],
     checks: normalizedResults,
+    ...(runtimeOraclePreflight ? { runtimeOraclePreflight } : {}),
   };
 }
 
@@ -260,14 +314,35 @@ export async function runAiReleaseQualityGate(options: {
   const enableLiveProvider = options.enableLiveProvider === true;
   const checks = getAiReleaseChecks({ enablePreview, enableLiveProvider });
   const results: AiReleaseCheckResult[] = [];
+  let runtimeOraclePreflight: ApiCodeAgentRuntimeOraclePreflight | undefined;
   for (const check of checks) {
     if (!check.enabled) {
       results.push({ ...check, status: "skipped", durationMs: 0 });
       continue;
     }
+    if (check.id === "benchmark-runtime-oracle-preflight") {
+      const started = Date.now();
+      runtimeOraclePreflight = await validateApiCodeAgentBenchmarkRuntimeOracles({
+        rootPath: options.cwd ?? path.resolve(process.cwd(), "../.."),
+      });
+      results.push({
+        ...check,
+        status: runtimeOraclePreflight.status === "passed" ? "passed" : "failed",
+        ...(runtimeOraclePreflight.status === "failed"
+          ? { failureCode: "BENCHMARK_RUNTIME_ORACLE_PREFLIGHT_FAILED" }
+          : {}),
+        durationMs: Date.now() - started,
+      });
+      continue;
+    }
     results.push(await runCommand(check, options.cwd ?? path.resolve(process.cwd(), "../..")));
   }
-  return evaluateAiReleaseQuality(results, { enableLiveProvider, enablePreview, generatedAt: options.generatedAt });
+  return evaluateAiReleaseQuality(results, {
+    enableLiveProvider,
+    enablePreview,
+    generatedAt: options.generatedAt,
+    runtimeOraclePreflight,
+  });
 }
 
 export async function writeAiReleaseQualityDecision(filePath: string, decision: AiReleaseQualityDecision): Promise<void> {
