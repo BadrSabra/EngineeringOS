@@ -116,7 +116,7 @@ describe("AI repair validation registry", () => {
 
   it("runs a fixture runtime oracle against pending content without mutating live files", async () => {
     const rootPath = path.resolve(process.cwd(), "../..");
-    const relativePath = "lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts";
+    const relativePath = "lib/ai-orchestrator/src/benchmark-fixtures/runtime-oracle-passing.test.ts";
     const originalContent = [
       'import { describe, expect, it } from "vitest";',
       "",
@@ -139,7 +139,14 @@ describe("AI repair validation registry", () => {
         }],
         {
           command: "pnpm",
-          args: ["--dir", "lib/ai-orchestrator", "exec", "vitest", "run", "src/benchmark-scenarios/runtime-oracle.test.ts"],
+          args: [
+            "--dir",
+            "lib/ai-orchestrator",
+            "exec",
+            "vitest",
+            "run",
+            "src/benchmark-fixtures/runtime-oracle-passing.test.ts",
+          ],
         },
       );
 
@@ -152,7 +159,7 @@ describe("AI repair validation registry", () => {
 
   it("fails closed when the runtime oracle rejects pending behavior", async () => {
     const rootPath = path.resolve(process.cwd(), "../..");
-    const relativePath = "lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle-fail.test.ts";
+    const relativePath = "lib/ai-orchestrator/src/benchmark-fixtures/runtime-oracle-failing.test.ts";
     await fs.mkdir(path.dirname(path.join(rootPath, relativePath)), { recursive: true });
     await fs.writeFile(
       path.join(rootPath, relativePath),
@@ -175,7 +182,14 @@ describe("AI repair validation registry", () => {
         [],
         {
           command: "pnpm",
-          args: ["--dir", "lib/ai-orchestrator", "exec", "vitest", "run", "src/benchmark-scenarios/runtime-oracle-fail.test.ts"],
+          args: [
+            "--dir",
+            "lib/ai-orchestrator",
+            "exec",
+            "vitest",
+            "run",
+            "src/benchmark-fixtures/runtime-oracle-failing.test.ts",
+          ],
         },
       );
 
