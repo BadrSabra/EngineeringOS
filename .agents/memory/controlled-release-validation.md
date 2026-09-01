@@ -33,3 +33,16 @@ gates before accepting a provider.
 **How to apply:** Keep live-check flags opt-in at route and completion boundaries;
 preserve provider-neutral lifecycle projections even when an unchecked provider is
 shown as degraded/not verified.
+
+The release quality gate must remove the controlled marker from provider-free
+contract-test children and add it only to preview or explicitly live-provider
+checks. Concurrency fixtures that assert submission order must establish a
+request-owned readiness barrier before launching the second request.
+
+**Why:** A blanket controlled marker makes mocked route suites perform real
+credential/catalog checks, while unconstrained concurrent test startup can invert
+durable turn timestamps and create intermittent release failures.
+
+**How to apply:** Classify release checks by execution boundary when building
+child environments; use bounded fixture barriers when the assertion depends on
+which concurrent turn was submitted first.

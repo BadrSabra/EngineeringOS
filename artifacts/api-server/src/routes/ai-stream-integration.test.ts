@@ -2377,6 +2377,10 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
     });
 
     // Complete the second request first to exercise finish-order inversion.
+    let releaseFirstTurnStarted!: () => void;
+    const firstTurnStarted = new Promise<void>((resolve) => {
+      releaseFirstTurnStarted = resolve;
+    });
     vi.mocked(chatWithFallback).mockReset().mockImplementation(async (...args) => {
       await new Promise((resolve) => setTimeout(resolve, 40));
       args[3]?.(firstResponse);
@@ -2401,7 +2405,16 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
       }
       const response = isFirst ? firstResponse : secondResponse;
       const label = isFirst ? "first-turn" : "second-turn";
-      await new Promise((resolve) => setTimeout(resolve, isFirst ? 40 : 5));
+      if (isFirst) {
+        // Establish submission order before dispatching the second request.
+        // The route assigns its durable turn timestamp before invoking this
+        // provider boundary, so Promise.all alone is not a sufficient barrier.
+        releaseFirstTurnStarted();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      } else {
+        await firstTurnStarted;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
       args[3]?.(response);
       return {
         result: resultFor(response, label),
@@ -2409,15 +2422,20 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
       } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
+    const firstStreamPromise = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: firstPrompt })
+      .then((response) => response);
+    await firstTurnStarted;
+    const secondStreamPromise = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: secondPrompt })
+      .then((response) => response);
     const [firstStream, secondStream] = await Promise.all([
-      request(app)
-        .post("/api/ai/chat/stream")
-        .set("Content-Type", "application/json")
-        .send({ projectId, sessionId, message: firstPrompt }),
-      request(app)
-        .post("/api/ai/chat/stream")
-        .set("Content-Type", "application/json")
-        .send({ projectId, sessionId, message: secondPrompt }),
+      firstStreamPromise,
+      secondStreamPromise,
     ]);
     expect(firstStream.status).toBe(200);
     expect(secondStream.status).toBe(200);

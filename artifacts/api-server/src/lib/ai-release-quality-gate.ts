@@ -220,9 +220,19 @@ async function runCommand(check: AiReleaseCheckDefinition, cwd: string): Promise
     // Output is deliberately drained but never included in the report. This
     // keeps prompts, model output, source snippets, and credentials out of
     // persisted release artifacts.
+    const childEnv = { ...process.env };
+    // Provider-free contract suites intentionally mock transport and lifecycle
+    // boundaries. Do not turn those tests into live credential/catalog checks
+    // merely because the enclosing release run is controlled. Preview and
+    // explicitly live-provider checks still receive the controlled marker.
+    if (check.kind === "preview" || check.id === "live-provider-quality") {
+      childEnv.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    } else {
+      delete childEnv.RUN_CONTROLLED_RELEASE_VALIDATION;
+    }
     const child = spawn("sh", ["-c", check.command], {
       cwd,
-      env: { ...process.env, RUN_CONTROLLED_RELEASE_VALIDATION: "1" },
+      env: childEnv,
       stdio: ["ignore", "ignore", "ignore"],
     });
     child.once("error", () => resolve({
