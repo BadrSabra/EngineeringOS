@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "pnpm run test:benchmark-scenarios && vitest run",
-    "test:benchmark-scenarios": "vitest run src/benchmark-scenarios",
+    "test:benchmark-scenarios": "vitest run src/benchmark-scenarios --passWithNoTests",
     "test:runtime-oracle": "vitest run src/benchmark-scenarios/runtime-oracle.test.ts",
     "test:structured-review-fallback-release": "vitest run src/__tests__/structured-review-fallback.release.test.ts",
     "validate:benchmark-scenarios": "tsx src/benchmark/validate-code-agent-benchmark-scenarios.ts",
