@@ -3935,6 +3935,26 @@ export const GetAiEmpiricalQualityScorecardResponse = zod.object({
  */
 export const getAiMissionControlResponseBenchmarkReleaseGateBlockersMax = 16;
 
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemScenarioIdMax = 160;
+
+
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemScenarioIdRegExp = new RegExp('^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$');
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemCommandMax = 240;
+
+
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemCommandRegExp = new RegExp('^pnpm(?: [^\\r\\n]{0,238})?$');
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemFailureCodeMax = 80;
+
+
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemFailureCodeRegExp = new RegExp('^[A-Z][A-Z0-9_]{0,79}$');
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksMax = 64;
+
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightFailureIdsItemMax = 160;
+
+
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightFailureIdsItemRegExp = new RegExp('^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$');
+export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightFailureIdsMax = 64;
+
 export const getAiMissionControlResponseBenchmarkEmpiricalCampaignBlockersMax = 16;
 
 export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsPrecisionMin = 0;
@@ -4038,7 +4058,17 @@ export const GetAiMissionControlResponse = zod.object({
   "blockingFailures": zod.number(),
   "informationalFailures": zod.number()
 }),
-  "blockers": zod.array(zod.string()).max(getAiMissionControlResponseBenchmarkReleaseGateBlockersMax)
+  "blockers": zod.array(zod.string()).max(getAiMissionControlResponseBenchmarkReleaseGateBlockersMax),
+  "runtimeOraclePreflight": zod.object({
+  "status": zod.enum(['passed', 'failed']),
+  "checks": zod.array(zod.object({
+  "scenarioId": zod.string().max(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemScenarioIdMax).regex(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemScenarioIdRegExp),
+  "command": zod.string().max(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemCommandMax).regex(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemCommandRegExp),
+  "status": zod.enum(['passed', 'failed']),
+  "failureCode": zod.string().max(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemFailureCodeMax).regex(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemFailureCodeRegExp).optional()
+})).max(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksMax),
+  "failureIds": zod.array(zod.string().max(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightFailureIdsItemMax).regex(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightFailureIdsItemRegExp)).max(getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightFailureIdsMax)
+}).optional().describe('Bounded server-owned runtime-oracle results. Commands and identifiers are allowlisted metadata only; provider output and diagnostics are excluded.\n')
 }).optional(),
   "empiricalCampaign": zod.object({
   "kind": zod.enum(['empirical-ai-quality-scorecard']),

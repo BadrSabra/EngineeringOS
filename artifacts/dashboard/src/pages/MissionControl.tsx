@@ -223,6 +223,14 @@ function ReleaseGateCard({ value }: { value: unknown }) {
     ? gate.blockers.filter((item): item is string => typeof item === 'string')
     : [];
   const status = textValue(gate?.status)?.toLowerCase();
+  const runtimeOracle = asRecord(gate?.runtimeOraclePreflight);
+  const runtimeChecks = Array.isArray(runtimeOracle?.checks)
+    ? runtimeOracle.checks.map(asRecord).filter((check): check is JsonRecord => Boolean(check))
+    : [];
+  const runtimeFailureIds = Array.isArray(runtimeOracle?.failureIds)
+    ? runtimeOracle.failureIds.filter((item): item is string => typeof item === 'string')
+    : [];
+  const runtimeStatus = textValue(runtimeOracle?.status)?.toLowerCase();
   return (
     <section className={`rounded-xl border bg-card ${status === 'passed' ? 'border-emerald-500/25' : 'border-amber-500/30'}`} aria-label="Deterministic release gate">
       <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3.5">
@@ -261,6 +269,71 @@ function ReleaseGateCard({ value }: { value: unknown }) {
                 {blockers.slice(0, 3).join(' · ')}
               </div>
             )}
+            <div className="mt-4 rounded-lg border border-border/60 bg-background/20 p-3" aria-label="Runtime oracle preflight">
+              <div className="flex flex-wrap items-center gap-2">
+                <div>
+                  <h3 className="text-xs font-semibold">Runtime-oracle preflight</h3>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">Server-registered commands against the focused candidate.</p>
+                </div>
+                <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${
+                  runtimeStatus === 'passed'
+                    ? 'border-emerald-500/30 text-emerald-200'
+                    : runtimeStatus === 'failed'
+                      ? 'border-red-500/30 text-red-200'
+                      : 'border-border/60 text-muted-foreground'
+                }`}>
+                  {runtimeStatus ?? 'not recorded'}
+                </span>
+              </div>
+              {!runtimeOracle ? (
+                <p className="mt-3 text-[11px] text-muted-foreground">No runtime-oracle preflight report was returned.</p>
+              ) : (
+                <>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-md border border-border/45 px-2.5 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Registered scenarios</div>
+                      <div className="mt-1 font-mono text-sm font-semibold">{runtimeChecks.length}</div>
+                    </div>
+                    <div className="rounded-md border border-border/45 px-2.5 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Failure identifiers</div>
+                      <div className="mt-1 font-mono text-sm font-semibold">{runtimeFailureIds.length}</div>
+                    </div>
+                  </div>
+                  {runtimeChecks.length > 0 && (
+                    <div className="mt-3 space-y-1.5">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Registered checks</div>
+                      {runtimeChecks.map((check, index) => {
+                        const checkStatus = textValue(check.status)?.toLowerCase();
+                        return (
+                          <div key={`${textValue(check.scenarioId) ?? 'scenario'}-${index}`} className="rounded-md border border-border/45 px-2.5 py-2 text-[11px]">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="font-mono text-foreground">{textValue(check.scenarioId) ?? 'Unknown scenario'}</span>
+                              <span className={`ml-auto rounded-full border px-1.5 py-0.5 text-[10px] uppercase ${
+                                checkStatus === 'passed' ? 'border-emerald-500/30 text-emerald-200' : 'border-red-500/30 text-red-200'
+                              }`}>
+                                {checkStatus ?? 'unknown'}
+                              </span>
+                            </div>
+                            <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
+                              {textValue(check.command) ?? 'Command not recorded'}
+                            </div>
+                            {textValue(check.failureCode) && (
+                              <div className="mt-1 text-[10px] text-red-200">Failure code: {textValue(check.failureCode)}</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {runtimeFailureIds.length > 0 && (
+                    <div className="mt-3 rounded-md border border-red-500/25 bg-red-500/5 px-2.5 py-2 text-[11px] text-red-200">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide">Failure identifiers</div>
+                      <div className="mt-1 break-words font-mono">{runtimeFailureIds.join(' · ')}</div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </>
         )}
       </div>

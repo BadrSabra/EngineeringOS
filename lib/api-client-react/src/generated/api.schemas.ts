@@ -535,6 +535,56 @@ export type AiReleaseQualityGateSummary = {
   informationalFailures: number;
 };
 
+export type AiRuntimeOraclePreflightStatus = typeof AiRuntimeOraclePreflightStatus[keyof typeof AiRuntimeOraclePreflightStatus];
+
+
+export const AiRuntimeOraclePreflightStatus = {
+  passed: 'passed',
+  failed: 'failed',
+} as const;
+
+export type AiRuntimeOracleCheckStatus = typeof AiRuntimeOracleCheckStatus[keyof typeof AiRuntimeOracleCheckStatus];
+
+
+export const AiRuntimeOracleCheckStatus = {
+  passed: 'passed',
+  failed: 'failed',
+} as const;
+
+export interface AiRuntimeOracleCheck {
+  /**
+     * @maxLength 160
+     * @pattern ^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$
+     */
+  scenarioId: string;
+  /**
+     * @maxLength 240
+     * @pattern ^pnpm(?: [^\r\n]{0,238})?$
+     */
+  command: string;
+  status: AiRuntimeOracleCheckStatus;
+  /**
+     * @maxLength 80
+     * @pattern ^[A-Z][A-Z0-9_]{0,79}$
+     */
+  failureCode?: string;
+}
+
+/**
+ * Bounded server-owned runtime-oracle results. Commands and identifiers are allowlisted metadata only; provider output and diagnostics are excluded.
+ */
+export interface AiRuntimeOraclePreflight {
+  status: AiRuntimeOraclePreflightStatus;
+  /** @maxItems 64 */
+  checks: AiRuntimeOracleCheck[];
+  /**
+     * @maxItems 64
+     * @items.maxLength 160
+     * @items.pattern ^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$
+     */
+  failureIds: string[];
+}
+
 export interface AiReleaseQualityGate {
   kind: AiReleaseQualityGateKind;
   version: AiReleaseQualityGateVersion;
@@ -545,6 +595,7 @@ export interface AiReleaseQualityGate {
   summary: AiReleaseQualityGateSummary;
   /** @maxItems 16 */
   blockers: string[];
+  runtimeOraclePreflight?: AiRuntimeOraclePreflight;
 }
 
 export type AiAutonomousDeliveryAcceptanceKind = typeof AiAutonomousDeliveryAcceptanceKind[keyof typeof AiAutonomousDeliveryAcceptanceKind];

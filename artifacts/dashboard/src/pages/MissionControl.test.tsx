@@ -41,7 +41,16 @@ const missionControlFixture = vi.hoisted(() => ({
         blockingFailures: 0,
         informationalFailures: 0,
       },
-      blockers: [],
+       blockers: [],
+       runtimeOraclePreflight: {
+         status: 'passed',
+         checks: [{
+           scenarioId: 'single-file-002',
+           command: 'pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/single-file-002.test.ts',
+           status: 'passed',
+         }],
+         failureIds: [],
+       },
     },
     empiricalCampaign: {
       kind: 'empirical-ai-quality-scorecard',
@@ -195,6 +204,9 @@ describe('Mission Control', () => {
     expect(screen.getByText('Validation')).toBeInTheDocument();
     expect(screen.getByText('Recorder evidence')).toBeInTheDocument();
     expect(screen.getByText('Deterministic release gate')).toBeInTheDocument();
+    expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('single-file-002');
+    expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/single-file-002.test.ts');
+    expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('passed');
     expect(screen.getByText('Empirical provider review')).toBeInTheDocument();
     expect(screen.getByText('Opt-in measurement only — never a release control.')).toBeInTheDocument();
     expect(screen.getByText('Corpus public-disposable-v1')).toBeInTheDocument();
@@ -203,6 +215,38 @@ describe('Mission Control', () => {
       'href',
       '/flight-deck?executionId=execution-1',
     );
+  });
+
+  it('shows bounded runtime-oracle failure identifiers without provider output', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      benchmark: {
+        ...missionControlFixture.benchmark,
+        releaseGate: {
+          ...missionControlFixture.benchmark.releaseGate,
+          status: 'blocked',
+          runtimeOraclePreflight: {
+            status: 'failed',
+            checks: [{
+              scenarioId: 'test-failure-001',
+              command: 'pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/test-failure-001.test.ts',
+              status: 'failed',
+              failureCode: 'RUNTIME_ORACLE_FAILED',
+            }],
+            failureIds: ['test-failure-001'],
+          },
+        },
+      },
+    };
+    renderPage();
+
+    const runtimeOracle = await screen.findByLabelText('Runtime oracle preflight');
+    expect(screen.getByLabelText('Deterministic release gate')).toHaveTextContent('blocked');
+    expect(runtimeOracle).toHaveTextContent('failed');
+    expect(runtimeOracle).toHaveTextContent('test-failure-001');
+    expect(runtimeOracle).toHaveTextContent('RUNTIME_ORACLE_FAILED');
+    expect(runtimeOracle).toHaveTextContent('Failure identifiers');
+    expect(runtimeOracle).not.toHaveTextContent('provider output');
   });
 
   it('keeps historical provider recovery details visible after the query is reloaded', async () => {

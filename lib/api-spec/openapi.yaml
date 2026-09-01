@@ -3781,6 +3781,53 @@ components:
           type: array
           maxItems: 16
           items: { type: string }
+        runtimeOraclePreflight:
+          $ref: "#/components/schemas/AiRuntimeOraclePreflight"
+
+    AiRuntimeOraclePreflight:
+      type: object
+      additionalProperties: false
+      description: >
+        Bounded server-owned runtime-oracle results. Commands and identifiers
+        are allowlisted metadata only; provider output and diagnostics are excluded.
+      required: [status, checks, failureIds]
+      properties:
+        status:
+          type: string
+          enum: [passed, failed]
+        checks:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/AiRuntimeOracleCheck"
+        failureIds:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 160
+            pattern: "^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$"
+
+    AiRuntimeOracleCheck:
+      type: object
+      additionalProperties: false
+      required: [scenarioId, command, status]
+      properties:
+        scenarioId:
+          type: string
+          maxLength: 160
+          pattern: "^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$"
+        command:
+          type: string
+          maxLength: 240
+          pattern: "^pnpm(?: [^\\r\\n]{0,238})?$"
+        status:
+          type: string
+          enum: [passed, failed]
+        failureCode:
+          type: string
+          maxLength: 80
+          pattern: "^[A-Z][A-Z0-9_]{0,79}$"
 
     AiAutonomousDeliveryAcceptance:
       type: object

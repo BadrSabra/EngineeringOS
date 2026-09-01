@@ -11,6 +11,7 @@ import type { AiReleaseQualityGatePreviewChecks } from './aiReleaseQualityGatePr
 import type { AiReleaseQualityGateStatus } from './aiReleaseQualityGateStatus';
 import type { AiReleaseQualityGateSummary } from './aiReleaseQualityGateSummary';
 import type { AiReleaseQualityGateVersion } from './aiReleaseQualityGateVersion';
+import type { AiRuntimeOraclePreflight } from './aiRuntimeOraclePreflight';
 
 export interface AiReleaseQualityGate {
   kind: AiReleaseQualityGateKind;
@@ -22,4 +23,5 @@ export interface AiReleaseQualityGate {
   summary: AiReleaseQualityGateSummary;
   /** @maxItems 16 */
   blockers: string[];
+  runtimeOraclePreflight?: AiRuntimeOraclePreflight;
 }

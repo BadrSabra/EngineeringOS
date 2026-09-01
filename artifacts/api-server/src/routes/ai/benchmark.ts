@@ -6,6 +6,7 @@ import { db, aiExecutionsTable } from "@workspace/db";
 import { deriveFlightDeckState } from "@workspace/ai-orchestrator";
 import type { AutonomousDeliveryAcceptanceSummary } from "@workspace/ai-orchestrator";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
+import type { ApiCodeAgentRuntimeOraclePreflight } from "../../lib/ai-code-agent-benchmark.js";
 
 const router = Router();
 
@@ -92,6 +93,7 @@ type BoundedReleaseGate = {
     informationalFailures: number;
   };
   blockers: string[];
+  runtimeOraclePreflight?: ApiCodeAgentRuntimeOraclePreflight;
 };
 
 function projectAcceptanceSummary(value: unknown): AutonomousDeliveryAcceptanceSummary | undefined {
@@ -463,6 +465,46 @@ const SAFE_EMPIRICAL_ERROR_CODES = new Set([
 ]);
 const SAFE_EMPIRICAL_OUTCOMES = new Set(["COMPLETE", "PROVIDER_UNAVAILABLE", "TIMEOUT", "ERROR"]);
 const SAFE_PUBLIC_IDENTIFIER = /^[a-z0-9][a-z0-9._:/-]{0,199}$/i;
+const SAFE_RUNTIME_ORACLE_COMMAND = /^pnpm(?: [^\r\n]{0,238})?$/;
+const SAFE_RUNTIME_ORACLE_FAILURE_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
+
+function projectRuntimeOraclePreflight(value: unknown): ApiCodeAgentRuntimeOraclePreflight | undefined {
+  if (!isRecord(value) ||
+      (value.status !== "passed" && value.status !== "failed") ||
+      !Array.isArray(value.checks) ||
+      !Array.isArray(value.failureIds)) {
+    return undefined;
+  }
+  const checks = value.checks.slice(0, 64).flatMap((raw): ApiCodeAgentRuntimeOraclePreflight["checks"] => {
+    if (!isRecord(raw) ||
+        !safePublicIdentifier(raw.scenarioId, 160) ||
+        typeof raw.command !== "string" ||
+        !SAFE_RUNTIME_ORACLE_COMMAND.test(raw.command) ||
+        (raw.status !== "passed" && raw.status !== "failed")) {
+      return [];
+    }
+    const failureCode = raw.status === "failed" &&
+      typeof raw.failureCode === "string" &&
+      SAFE_RUNTIME_ORACLE_FAILURE_CODE.test(raw.failureCode)
+      ? raw.failureCode
+      : undefined;
+    return [{
+      scenarioId: safePublicIdentifier(raw.scenarioId, 160)!,
+      command: raw.command.slice(0, 240),
+      status: raw.status,
+      ...(failureCode ? { failureCode } : {}),
+    }];
+  });
+  const failureIds = value.failureIds
+    .filter((failureId): failureId is string => safePublicIdentifier(failureId, 160) !== undefined)
+    .map((failureId) => safePublicIdentifier(failureId, 160)!)
+    .slice(0, 64);
+  return {
+    status: value.status,
+    checks,
+    failureIds: [...new Set(failureIds)],
+  };
+}
 
 function safePublicIdentifier(value: unknown, maxLength: number): string | undefined {
   return typeof value === "string" && SAFE_PUBLIC_IDENTIFIER.test(value.trim())
@@ -633,6 +675,7 @@ function projectReleaseGate(value: unknown): BoundedReleaseGate | undefined {
   if (!summaryKeys.every((key) => typeof summary[key] === "number" && Number.isInteger(summary[key]) && summary[key] >= 0)) {
     return undefined;
   }
+  const runtimeOraclePreflight = projectRuntimeOraclePreflight(value.runtimeOraclePreflight);
   return {
     kind: "ai-release-quality-decision",
     version: 1,
@@ -645,6 +688,7 @@ function projectReleaseGate(value: unknown): BoundedReleaseGate | undefined {
       ? value.blockers.filter((blocker): blocker is string =>
         typeof blocker === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(blocker)).slice(0, 16)
       : [],
+    ...(runtimeOraclePreflight ? { runtimeOraclePreflight } : {}),
   };
 }
 

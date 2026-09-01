@@ -262,6 +262,23 @@ describe.sequential("GET /api/ai/mission-control", () => {
         informationalFailures: 0,
       },
       blockers: [],
+      runtimeOraclePreflight: {
+        status: "failed",
+        checks: [{
+          scenarioId: "test-failure-001",
+          command: "pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/test-failure-001.test.ts",
+          status: "failed",
+          failureCode: "RUNTIME_ORACLE_FAILED",
+          providerOutput: "must not be exposed",
+        }, {
+          scenarioId: "../private",
+          command: "node secret-script",
+          status: "failed",
+          failureCode: "raw provider output",
+        }],
+        failureIds: ["test-failure-001", "raw provider output", "../private"],
+      },
+      providerOutput: "must not be exposed",
     });
 
     const response = await request(app).get("/api/ai/mission-control");
@@ -271,5 +288,17 @@ describe.sequential("GET /api/ai/mission-control", () => {
     expect(response.body.benchmark.releaseGate.status).toBe("passed");
     expect(response.body.benchmark.releaseGate.blockers).toEqual([]);
     expect(response.body.benchmark.empiricalCampaign.measurementOnly).toBe(true);
+    expect(response.body.benchmark.releaseGate.runtimeOraclePreflight).toEqual({
+      status: "failed",
+      checks: [{
+        scenarioId: "test-failure-001",
+        command: "pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/test-failure-001.test.ts",
+        status: "failed",
+        failureCode: "RUNTIME_ORACLE_FAILED",
+      }],
+      failureIds: ["test-failure-001"],
+    });
+    expect(JSON.stringify(response.body)).not.toContain("must not be exposed");
+    expect(JSON.stringify(response.body)).not.toContain("raw provider output");
   });
 });
