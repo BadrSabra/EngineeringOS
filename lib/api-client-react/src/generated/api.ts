@@ -31,6 +31,7 @@ import type {
   AiChatRequest,
   AiChatSession,
   AiCodeReview,
+  AiEmpiricalQualityScorecard,
   AiExecutionRecoveryRequest,
   AiFileContent,
   AiMissionControl,
@@ -5322,6 +5323,83 @@ export function useGetAiBenchmarkScorecard<TData = Awaited<ReturnType<typeof get
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAiBenchmarkScorecardQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAiEmpiricalQualityScorecardUrl = () => {
+
+
+
+
+  return `/api/ai/benchmark/empirical-scorecard`
+}
+
+/**
+ * @summary Get the bounded empirical AI quality scorecard
+ */
+export const getAiEmpiricalQualityScorecard = async ( options?: RequestInit): Promise<AiEmpiricalQualityScorecard> => {
+
+  return customFetch<AiEmpiricalQualityScorecard>(getGetAiEmpiricalQualityScorecardUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiEmpiricalQualityScorecardQueryKey = () => {
+    return [
+    `/api/ai/benchmark/empirical-scorecard`
+    ] as const;
+    }
+
+
+export const getGetAiEmpiricalQualityScorecardQueryOptions = <TData = Awaited<ReturnType<typeof getAiEmpiricalQualityScorecard>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiEmpiricalQualityScorecard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiEmpiricalQualityScorecardQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiEmpiricalQualityScorecard>>> = ({ signal }) => getAiEmpiricalQualityScorecard({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiEmpiricalQualityScorecard>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiEmpiricalQualityScorecardQueryResult = NonNullable<Awaited<ReturnType<typeof getAiEmpiricalQualityScorecard>>>
+export type GetAiEmpiricalQualityScorecardQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Get the bounded empirical AI quality scorecard
+ */
+
+export function useGetAiEmpiricalQualityScorecard<TData = Awaited<ReturnType<typeof getAiEmpiricalQualityScorecard>>, TError = ErrorType<ApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiEmpiricalQualityScorecard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiEmpiricalQualityScorecardQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -27,6 +27,47 @@ const missionControlFixture = vi.hoisted(() => ({
         correctCompletionRate: 1,
       },
     },
+    releaseGate: {
+      kind: 'ai-release-quality-decision',
+      version: 1,
+      status: 'passed',
+      liveProviderChecks: 'disabled',
+      previewChecks: 'disabled',
+      summary: {
+        totalCases: 11,
+        passedCases: 11,
+        failedCases: 0,
+        skippedCases: 0,
+        blockingFailures: 0,
+        informationalFailures: 0,
+      },
+      blockers: [],
+    },
+    empiricalCampaign: {
+      kind: 'empirical-ai-quality-scorecard',
+      version: 1,
+      corpusRevision: 'public-disposable-v1',
+      provider: 'openrouter',
+      model: 'test-model',
+      measurementOnly: true,
+      status: 'COMPLETE',
+      empiricalQualityStatus: 'PROVEN',
+      blockers: [],
+      metrics: {
+        totalCases: 2,
+        completedCases: 2,
+        incompleteCases: 0,
+        providerUnavailableCount: 0,
+        precision: 1,
+        recall: 1,
+        f1: 1,
+        citationCoverage: 1,
+        falseAcceptanceRate: 0,
+        falseRejectionRate: 0,
+        latencyMs: { p50: 100, p95: 200, p99: 200 },
+      },
+      cases: [],
+    },
   },
   executions: [{
     id: 'execution-1',
@@ -153,6 +194,10 @@ describe('Mission Control', () => {
     expect(screen.getByText('Validation failures: 1')).toBeInTheDocument();
     expect(screen.getByText('Validation')).toBeInTheDocument();
     expect(screen.getByText('Recorder evidence')).toBeInTheDocument();
+    expect(screen.getByText('Deterministic release gate')).toBeInTheDocument();
+    expect(screen.getByText('Empirical provider review')).toBeInTheDocument();
+    expect(screen.getByText('Opt-in measurement only — never a release control.')).toBeInTheDocument();
+    expect(screen.getByText('Corpus public-disposable-v1')).toBeInTheDocument();
     expect(screen.getByText('Validation and behavior proof accepted.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open Flight Deck/i })).toHaveAttribute(
       'href',

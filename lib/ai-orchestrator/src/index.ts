@@ -203,6 +203,28 @@ export type {
   LiveResponseQualityMetrics,
   LiveResponseQualityExecutor,
 } from "./benchmark/live-response-quality.js";
+export {
+  EMPIRICAL_QUALITY_VERSION,
+  EMPIRICAL_QUALITY_CORPUS_VERSION,
+  validateEmpiricalQualityCorpus,
+  scoreEmpiricalQualityCase,
+  buildEmpiricalQualityScorecard,
+  runEmpiricalQualityCampaign,
+} from "./benchmark/empirical-quality.js";
+export type {
+  EmpiricalGroundTruthFinding,
+  EmpiricalCorpusCase,
+  EmpiricalQualityCorpus,
+  EmpiricalObservedFinding,
+  EmpiricalNormalizationCounters,
+  EmpiricalCaseObservation,
+  EmpiricalCaseScore,
+  EmpiricalQualityMetrics,
+  EmpiricalQualityScorecard,
+  EmpiricalQualityExecutor,
+  EmpiricalIssueType,
+  EmpiricalSeverity,
+} from "./benchmark/empirical-quality.js";
 export { buildTaskProfile, inferTaskType } from "./quality/task-profile.js";
 export type { TaskProfile, TaskType, ContextIntensity, MemoryMode, GraphMode, HistoryMode } from "./quality/task-profile.js";
 export { decideRetry } from "./quality/retry-controller.js";

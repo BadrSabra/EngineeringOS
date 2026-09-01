@@ -61,6 +61,39 @@ type BoundedFreeTierEnvelope = {
   providerRecoverySummaries?: BoundedProviderRecoverySummary[];
 };
 
+type BoundedEmpiricalQualityScorecard = {
+  kind: "empirical-ai-quality-scorecard";
+  version: 1;
+  generatedAt?: string;
+  corpusRevision?: string;
+  provider?: string;
+  model?: string | null;
+  measurementOnly: true;
+  status: "COMPLETE" | "INCOMPLETE" | "UNAVAILABLE";
+  empiricalQualityStatus: "PROVEN" | "MEASURED" | "INCOMPLETE" | "UNAVAILABLE";
+  blockers: string[];
+  metrics: Record<string, unknown>;
+  cases: Array<Record<string, unknown>>;
+};
+
+type BoundedReleaseGate = {
+  kind: "ai-release-quality-decision";
+  version: 1;
+  generatedAt?: string;
+  status: "passed" | "blocked";
+  liveProviderChecks: "disabled" | "enabled";
+  previewChecks: "disabled" | "enabled";
+  summary: {
+    totalCases: number;
+    passedCases: number;
+    failedCases: number;
+    skippedCases: number;
+    blockingFailures: number;
+    informationalFailures: number;
+  };
+  blockers: string[];
+};
+
 function projectAcceptanceSummary(value: unknown): AutonomousDeliveryAcceptanceSummary | undefined {
   if (!isRecord(value) || value.kind !== "autonomous-delivery-acceptance" ||
       value.version !== 1 || !isRecord(value.campaign) ||
@@ -395,6 +428,20 @@ function freeTierEnvelopePath(): string {
   );
 }
 
+function empiricalScorecardPath(): string {
+  return path.resolve(
+    process.env.EMPIRICAL_QUALITY_SCORECARD_PATH ??
+      path.join(process.cwd(), "../../lib/ai-orchestrator/benchmark-results/empirical-quality-scorecard.json"),
+  );
+}
+
+function releaseQualityDecisionPath(): string {
+  return path.resolve(
+    process.env.AI_RELEASE_QUALITY_REPORT_PATH ??
+      path.join(process.cwd(), "../../lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+  );
+}
+
 const SAFE_FAILURE_CATEGORIES = new Set([
   "authentication", "quota", "rate-limit", "catalog", "empty-response",
   "network", "server", "request", "capability", "unknown",
@@ -402,6 +449,26 @@ const SAFE_FAILURE_CATEGORIES = new Set([
 const SAFE_RECOVERY_ACTIONS = new Set([
   "retry", "choose-alternative", "wait", "narrow-request", "stop-safely",
 ]);
+const SAFE_EMPIRICAL_BLOCKERS = new Set([
+  "corpus cases incomplete",
+  "provider unavailable",
+  "campaign timeout",
+  "campaign execution error",
+  "contract acceptance failure",
+  "false acceptance detected",
+  "false rejection detected",
+]);
+const SAFE_EMPIRICAL_ERROR_CODES = new Set([
+  "PROVIDER_UNAVAILABLE", "RATE_LIMITED", "TIMEOUT", "EXECUTION_ERROR",
+]);
+const SAFE_EMPIRICAL_OUTCOMES = new Set(["COMPLETE", "PROVIDER_UNAVAILABLE", "TIMEOUT", "ERROR"]);
+const SAFE_PUBLIC_IDENTIFIER = /^[a-z0-9][a-z0-9._:/-]{0,199}$/i;
+
+function safePublicIdentifier(value: unknown, maxLength: number): string | undefined {
+  return typeof value === "string" && SAFE_PUBLIC_IDENTIFIER.test(value.trim())
+    ? value.trim().slice(0, maxLength)
+    : undefined;
+}
 
 function projectBoundedFreeTierEnvelope(value: unknown): BoundedFreeTierEnvelope | undefined {
   if (!isRecord(value) || value.kind !== "free-tier-quality-envelope" || typeof value.version !== "number") {
@@ -443,6 +510,144 @@ function projectBoundedFreeTierEnvelope(value: unknown): BoundedFreeTierEnvelope
   };
 }
 
+function boundedMetric(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+    ? value
+    : null;
+}
+
+function projectBoundedEmpiricalScorecard(value: unknown): BoundedEmpiricalQualityScorecard | undefined {
+  if (!isRecord(value) ||
+      value.kind !== "empirical-ai-quality-scorecard" ||
+      value.version !== 1 ||
+      value.measurementOnly !== true ||
+      !["COMPLETE", "INCOMPLETE", "UNAVAILABLE"].includes(String(value.status)) ||
+      !["PROVEN", "MEASURED", "INCOMPLETE", "UNAVAILABLE"].includes(String(value.empiricalQualityStatus)) ||
+      !isRecord(value.metrics) ||
+      !Array.isArray(value.cases)) {
+    return undefined;
+  }
+  const metrics = value.metrics as Record<string, unknown>;
+  const metricNames = [
+    "totalCases", "completedCases", "incompleteCases", "providerUnavailableCount",
+    "timeoutCount", "errorCount", "truePositiveCount", "falsePositiveCount",
+    "falseNegativeCount", "precision", "recall", "f1", "falsePositiveRate",
+    "falseNegativeRate", "citationCoverage", "unsupportedCitationRate",
+    "contractAcceptanceRate", "semanticVerdictConsistencyRate", "qualityGateAcceptanceRate",
+    "falseAcceptanceRate", "falseRejectionRate", "highScoreLowCoverageCount",
+    "throughputPerSecond",
+  ];
+  const projectedMetrics: Record<string, unknown> = {};
+  for (const name of metricNames) {
+    const raw = metrics[name];
+    if (name === "throughputPerSecond") {
+      if (raw === null || (typeof raw === "number" && Number.isFinite(raw) && raw >= 0 && raw <= 10_000)) {
+        projectedMetrics[name] = raw ?? null;
+      }
+    } else if (name.endsWith("Rate") || ["precision", "recall", "f1", "citationCoverage",
+      "unsupportedCitationRate", "contractAcceptanceRate", "semanticVerdictConsistencyRate",
+      "qualityGateAcceptanceRate", "falseAcceptanceRate", "falseRejectionRate",
+      "falsePositiveRate", "falseNegativeRate"].includes(name)) {
+      const bounded = boundedMetric(raw);
+      if (bounded !== null) projectedMetrics[name] = bounded;
+    } else if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 100_000) {
+      projectedMetrics[name] = raw;
+    }
+  }
+  const latencyMetrics = isRecord(metrics.latencyMs) ? metrics.latencyMs : undefined;
+  const latency = latencyMetrics
+    ? Object.fromEntries(["p50", "p95", "p99"].flatMap((key) => {
+        const valueForKey = latencyMetrics[key];
+        return valueForKey === null ||
+          (typeof valueForKey === "number" && Number.isFinite(valueForKey) && valueForKey >= 0 && valueForKey <= 86_400_000)
+          ? [[key, valueForKey ?? null]]
+          : [[key, null]];
+      }))
+    : undefined;
+  if (latency && Object.keys(latency).length > 0) projectedMetrics.latencyMs = latency;
+  const normalizationMetrics = isRecord(metrics.normalizationCounters) ? metrics.normalizationCounters : undefined;
+  if (normalizationMetrics) {
+    const normalization = Object.fromEntries(["changedFindingType", "changedSeverity", "droppedCitation"].flatMap((key) => {
+      const valueForKey = normalizationMetrics[key];
+      return typeof valueForKey === "number" && Number.isInteger(valueForKey) && valueForKey >= 0 && valueForKey <= 100_000
+        ? [[key, valueForKey]]
+        : [];
+    }));
+    if (Object.keys(normalization).length > 0) projectedMetrics.normalizationCounters = normalization;
+  }
+  const cases = (value.cases as unknown[])
+    .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+    .filter((entry) => safePublicIdentifier(entry.caseId, 160) !== undefined &&
+      typeof entry.outcome === "string" && SAFE_EMPIRICAL_OUTCOMES.has(entry.outcome))
+    .slice(0, 128)
+    .map((entry) => ({
+      caseId: safePublicIdentifier(entry.caseId, 160)!,
+      outcome: entry.outcome,
+      ...(typeof entry.truePositives === "number" ? { truePositives: entry.truePositives } : {}),
+      ...(typeof entry.falsePositives === "number" ? { falsePositives: entry.falsePositives } : {}),
+      ...(typeof entry.falseNegatives === "number" ? { falseNegatives: entry.falseNegatives } : {}),
+      ...(typeof entry.citationCoveredFindings === "number" ? { citationCoveredFindings: entry.citationCoveredFindings } : {}),
+      ...(typeof entry.unsupportedCitations === "number" ? { unsupportedCitations: entry.unsupportedCitations } : {}),
+      ...(typeof entry.contractPassed === "boolean" ? { contractPassed: entry.contractPassed } : {}),
+      ...(typeof entry.semanticVerdictConsistent === "boolean" ? { semanticVerdictConsistent: entry.semanticVerdictConsistent } : {}),
+      ...(typeof entry.qualityGateAccepted === "boolean" ? { qualityGateAccepted: entry.qualityGateAccepted } : {}),
+      ...(typeof entry.falseAcceptance === "boolean" ? { falseAcceptance: entry.falseAcceptance } : {}),
+      ...(typeof entry.falseRejection === "boolean" ? { falseRejection: entry.falseRejection } : {}),
+      ...(typeof entry.latencyMs === "number" ? { latencyMs: entry.latencyMs } : {}),
+       ...(typeof entry.errorCode === "string" && SAFE_EMPIRICAL_ERROR_CODES.has(entry.errorCode)
+         ? { errorCode: entry.errorCode } : {}),
+    }));
+  const safeBlockers = Array.isArray(value.blockers)
+    ? value.blockers.filter((blocker): blocker is string =>
+      typeof blocker === "string" && SAFE_EMPIRICAL_BLOCKERS.has(blocker)).slice(0, 16)
+    : [];
+  return {
+    kind: "empirical-ai-quality-scorecard",
+    version: 1,
+    ...(typeof value.generatedAt === "string" ? { generatedAt: value.generatedAt } : {}),
+     ...(safePublicIdentifier(value.corpusRevision, 160) ? { corpusRevision: safePublicIdentifier(value.corpusRevision, 160) } : {}),
+     ...(safePublicIdentifier(value.provider, 80) ? { provider: safePublicIdentifier(value.provider, 80) } : {}),
+     ...(value.model === null ? { model: null } :
+       safePublicIdentifier(value.model, 200) ? { model: safePublicIdentifier(value.model, 200) } : {}),
+    measurementOnly: true,
+    status: value.status as BoundedEmpiricalQualityScorecard["status"],
+    empiricalQualityStatus: value.empiricalQualityStatus as BoundedEmpiricalQualityScorecard["empiricalQualityStatus"],
+     blockers: safeBlockers,
+    metrics: projectedMetrics,
+    cases,
+  };
+}
+
+function projectReleaseGate(value: unknown): BoundedReleaseGate | undefined {
+  if (!isRecord(value) ||
+      value.kind !== "ai-release-quality-decision" ||
+      value.version !== 1 ||
+      (value.status !== "passed" && value.status !== "blocked") ||
+      (value.liveProviderChecks !== "disabled" && value.liveProviderChecks !== "enabled") ||
+      (value.previewChecks !== "disabled" && value.previewChecks !== "enabled") ||
+      !isRecord(value.summary)) {
+    return undefined;
+  }
+  const summary = value.summary;
+  const summaryKeys = ["totalCases", "passedCases", "failedCases", "skippedCases", "blockingFailures", "informationalFailures"];
+  if (!summaryKeys.every((key) => typeof summary[key] === "number" && Number.isInteger(summary[key]) && summary[key] >= 0)) {
+    return undefined;
+  }
+  return {
+    kind: "ai-release-quality-decision",
+    version: 1,
+    ...(typeof value.generatedAt === "string" ? { generatedAt: value.generatedAt } : {}),
+    status: value.status,
+    liveProviderChecks: value.liveProviderChecks,
+    previewChecks: value.previewChecks,
+    summary: Object.fromEntries(summaryKeys.map((key) => [key, summary[key]])) as BoundedReleaseGate["summary"],
+    blockers: Array.isArray(value.blockers)
+      ? value.blockers.filter((blocker): blocker is string =>
+        typeof blocker === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(blocker)).slice(0, 16)
+      : [],
+  };
+}
+
 /**
  * Returns only bounded benchmark metadata. The live runner deliberately does
  * not persist model responses or source bodies, and this route does not expose
@@ -467,6 +672,23 @@ router.get("/ai/benchmark/scorecard", async (_req, res) => {
   }
 });
 
+router.get("/ai/benchmark/empirical-scorecard", async (_req, res) => {
+  try {
+    const raw = await fs.readFile(empiricalScorecardPath(), "utf8");
+    const projected = projectBoundedEmpiricalScorecard(JSON.parse(raw) as unknown);
+    if (!projected) return res.status(502).json({ error: "Empirical quality scorecard is malformed." });
+    return res.json(projected);
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error
+      ? (error as { code?: string }).code
+      : undefined;
+    if (code === "ENOENT") {
+      return res.status(404).json({ error: "No empirical quality scorecard is available." });
+    }
+    return res.status(500).json({ error: "Empirical quality scorecard could not be read." });
+  }
+});
+
 /**
  * Mission Control combines bounded benchmark evidence with the user's durable
  * execution ledger. It intentionally exposes event metadata only: no model
@@ -474,11 +696,13 @@ router.get("/ai/benchmark/scorecard", async (_req, res) => {
  */
 router.get("/ai/mission-control", async (req, res) => {
   try {
-    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, executions] = await Promise.all([
+    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, rawEmpiricalScorecard, rawReleaseGate, executions] = await Promise.all([
       readOptionalJson(scorecardPath()),
       readOptionalJson(baselinePath()),
       readOptionalJson(freeTierEnvelopePath()),
       readOptionalJson(path.join(path.dirname(scorecardPath()), "code-agent-benchmark-airlock.run.json")),
+      readOptionalJson(empiricalScorecardPath()),
+      readOptionalJson(releaseQualityDecisionPath()),
       db
         .select()
         .from(aiExecutionsTable)
@@ -519,11 +743,13 @@ router.get("/ai/mission-control", async (req, res) => {
     const autonomousDeliveryAcceptance = projectAcceptanceSummary(
       isRecord(rawAcceptance) ? rawAcceptance.autonomousDeliveryAcceptance : undefined,
     );
+    const empiricalCampaign = projectBoundedEmpiricalScorecard(rawEmpiricalScorecard);
+    const releaseGate = projectReleaseGate(rawReleaseGate);
 
     return res.json({
       updatedAt: new Date().toISOString(),
-      benchmark: scorecard || baseline || freeTierEnvelope
-        ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance }
+      benchmark: scorecard || baseline || freeTierEnvelope || autonomousDeliveryAcceptance || empiricalCampaign || releaseGate
+        ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance, empiricalCampaign, releaseGate }
         : null,
       executions: await Promise.all(executions.map(async (execution) => (
         projectExecution(execution, await loadOperationEvidence(execution))

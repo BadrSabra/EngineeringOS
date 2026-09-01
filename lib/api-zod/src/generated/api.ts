@@ -3788,8 +3788,167 @@ export const GetAiBenchmarkScorecardResponse = zod.object({
 
 
 /**
+ * @summary Get the bounded empirical AI quality scorecard
+ */
+export const getAiEmpiricalQualityScorecardResponseBlockersMax = 16;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsPrecisionMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsPrecisionMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsRecallMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsRecallMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsF1Min = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsF1Max = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsFalsePositiveRateMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsFalsePositiveRateMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsFalseNegativeRateMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsFalseNegativeRateMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsCitationCoverageMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsCitationCoverageMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsUnsupportedCitationRateMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsUnsupportedCitationRateMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsContractAcceptanceRateMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsContractAcceptanceRateMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsSemanticVerdictConsistencyRateMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsSemanticVerdictConsistencyRateMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsQualityGateAcceptanceRateMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsQualityGateAcceptanceRateMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsFalseAcceptanceRateMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsFalseAcceptanceRateMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMin = 0;
+export const getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMax = 1;
+
+export const getAiEmpiricalQualityScorecardResponseCasesMax = 128;
+
+
+
+export const GetAiEmpiricalQualityScorecardResponse = zod.object({
+  "kind": zod.enum(['empirical-ai-quality-scorecard']),
+  "version": zod.literal(1),
+  "generatedAt": zod.coerce.date().optional(),
+  "corpusRevision": zod.string().optional(),
+  "provider": zod.string().optional(),
+  "model": zod.string().nullish(),
+  "measurementOnly": zod.literal(true),
+  "status": zod.enum(['COMPLETE', 'INCOMPLETE', 'UNAVAILABLE']),
+  "empiricalQualityStatus": zod.enum(['PROVEN', 'MEASURED', 'INCOMPLETE', 'UNAVAILABLE']),
+  "blockers": zod.array(zod.string()).max(getAiEmpiricalQualityScorecardResponseBlockersMax),
+  "metrics": zod.object({
+  "totalCases": zod.number(),
+  "completedCases": zod.number(),
+  "incompleteCases": zod.number(),
+  "providerUnavailableCount": zod.number(),
+  "timeoutCount": zod.number(),
+  "errorCount": zod.number(),
+  "truePositiveCount": zod.number(),
+  "falsePositiveCount": zod.number(),
+  "falseNegativeCount": zod.number(),
+  "precision": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsPrecisionMin).max(getAiEmpiricalQualityScorecardResponseMetricsPrecisionMax),
+  "recall": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsRecallMin).max(getAiEmpiricalQualityScorecardResponseMetricsRecallMax),
+  "f1": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsF1Min).max(getAiEmpiricalQualityScorecardResponseMetricsF1Max),
+  "falsePositiveRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsFalsePositiveRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsFalsePositiveRateMax),
+  "falseNegativeRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsFalseNegativeRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsFalseNegativeRateMax),
+  "citationCoverage": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsCitationCoverageMin).max(getAiEmpiricalQualityScorecardResponseMetricsCitationCoverageMax),
+  "unsupportedCitationRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsUnsupportedCitationRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsUnsupportedCitationRateMax),
+  "contractAcceptanceRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsContractAcceptanceRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsContractAcceptanceRateMax),
+  "semanticVerdictConsistencyRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsSemanticVerdictConsistencyRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsSemanticVerdictConsistencyRateMax),
+  "qualityGateAcceptanceRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsQualityGateAcceptanceRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsQualityGateAcceptanceRateMax),
+  "falseAcceptanceRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsFalseAcceptanceRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsFalseAcceptanceRateMax),
+  "falseRejectionRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMax),
+  "normalizationCounters": zod.object({
+  "changedFindingType": zod.number(),
+  "changedSeverity": zod.number(),
+  "droppedCitation": zod.number()
+}),
+  "highScoreLowCoverageCount": zod.number(),
+  "latencyMs": zod.object({
+  "p50": zod.number().nullable(),
+  "p95": zod.number().nullable(),
+  "p99": zod.number().nullable()
+}),
+  "throughputPerSecond": zod.number().nullable()
+}),
+  "cases": zod.array(zod.object({
+  "caseId": zod.string(),
+  "outcome": zod.enum(['COMPLETE', 'PROVIDER_UNAVAILABLE', 'TIMEOUT', 'ERROR']),
+  "truePositives": zod.number(),
+  "falsePositives": zod.number(),
+  "falseNegatives": zod.number(),
+  "citationCoveredFindings": zod.number(),
+  "unsupportedCitations": zod.number(),
+  "contractPassed": zod.boolean(),
+  "semanticVerdictConsistent": zod.boolean(),
+  "qualityGateAccepted": zod.boolean(),
+  "falseAcceptance": zod.boolean(),
+  "falseRejection": zod.boolean(),
+  "normalization": zod.object({
+  "changedFindingType": zod.number(),
+  "changedSeverity": zod.number(),
+  "droppedCitation": zod.number()
+}),
+  "latencyMs": zod.number().optional(),
+  "errorCode": zod.string().optional()
+})).max(getAiEmpiricalQualityScorecardResponseCasesMax)
+}).describe('Redacted measurement-only empirical AI quality evidence. It compares provider\/model observations with a versioned ground-truth corpus and never changes deterministic release acceptance.\n')
+
+
+/**
  * @summary Get the bounded AI execution ledger and benchmark posture
  */
+export const getAiMissionControlResponseBenchmarkReleaseGateBlockersMax = 16;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignBlockersMax = 16;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsPrecisionMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsPrecisionMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsRecallMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsRecallMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsF1Min = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsF1Max = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalsePositiveRateMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalsePositiveRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseNegativeRateMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseNegativeRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsCitationCoverageMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsCitationCoverageMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsUnsupportedCitationRateMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsUnsupportedCitationRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsContractAcceptanceRateMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsContractAcceptanceRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsSemanticVerdictConsistencyRateMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsSemanticVerdictConsistencyRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsQualityGateAcceptanceRateMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsQualityGateAcceptanceRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseAcceptanceRateMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseAcceptanceRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRejectionRateMin = 0;
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRejectionRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesMax = 128;
+
+
+
 export const GetAiMissionControlResponse = zod.object({
   "updatedAt": zod.coerce.date(),
   "benchmark": zod.object({
@@ -3835,7 +3994,92 @@ export const GetAiMissionControlResponse = zod.object({
   "scopeEscapeRate": zod.number().optional(),
   "correctCompletionRate": zod.number().optional()
 }).optional()
-}).optional()
+}).optional(),
+  "releaseGate": zod.object({
+  "kind": zod.enum(['ai-release-quality-decision']),
+  "version": zod.literal(1),
+  "generatedAt": zod.coerce.date().optional(),
+  "status": zod.enum(['passed', 'blocked']),
+  "liveProviderChecks": zod.enum(['disabled', 'enabled']),
+  "previewChecks": zod.enum(['disabled', 'enabled']),
+  "summary": zod.object({
+  "totalCases": zod.number(),
+  "passedCases": zod.number(),
+  "failedCases": zod.number(),
+  "skippedCases": zod.number(),
+  "blockingFailures": zod.number(),
+  "informationalFailures": zod.number()
+}),
+  "blockers": zod.array(zod.string()).max(getAiMissionControlResponseBenchmarkReleaseGateBlockersMax)
+}).optional(),
+  "empiricalCampaign": zod.object({
+  "kind": zod.enum(['empirical-ai-quality-scorecard']),
+  "version": zod.literal(1),
+  "generatedAt": zod.coerce.date().optional(),
+  "corpusRevision": zod.string().optional(),
+  "provider": zod.string().optional(),
+  "model": zod.string().nullish(),
+  "measurementOnly": zod.literal(true),
+  "status": zod.enum(['COMPLETE', 'INCOMPLETE', 'UNAVAILABLE']),
+  "empiricalQualityStatus": zod.enum(['PROVEN', 'MEASURED', 'INCOMPLETE', 'UNAVAILABLE']),
+  "blockers": zod.array(zod.string()).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignBlockersMax),
+  "metrics": zod.object({
+  "totalCases": zod.number(),
+  "completedCases": zod.number(),
+  "incompleteCases": zod.number(),
+  "providerUnavailableCount": zod.number(),
+  "timeoutCount": zod.number(),
+  "errorCount": zod.number(),
+  "truePositiveCount": zod.number(),
+  "falsePositiveCount": zod.number(),
+  "falseNegativeCount": zod.number(),
+  "precision": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsPrecisionMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsPrecisionMax),
+  "recall": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsRecallMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsRecallMax),
+  "f1": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsF1Min).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsF1Max),
+  "falsePositiveRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalsePositiveRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalsePositiveRateMax),
+  "falseNegativeRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseNegativeRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseNegativeRateMax),
+  "citationCoverage": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsCitationCoverageMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsCitationCoverageMax),
+  "unsupportedCitationRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsUnsupportedCitationRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsUnsupportedCitationRateMax),
+  "contractAcceptanceRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsContractAcceptanceRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsContractAcceptanceRateMax),
+  "semanticVerdictConsistencyRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsSemanticVerdictConsistencyRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsSemanticVerdictConsistencyRateMax),
+  "qualityGateAcceptanceRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsQualityGateAcceptanceRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsQualityGateAcceptanceRateMax),
+  "falseAcceptanceRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseAcceptanceRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseAcceptanceRateMax),
+  "falseRejectionRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRejectionRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRejectionRateMax),
+  "normalizationCounters": zod.object({
+  "changedFindingType": zod.number(),
+  "changedSeverity": zod.number(),
+  "droppedCitation": zod.number()
+}),
+  "highScoreLowCoverageCount": zod.number(),
+  "latencyMs": zod.object({
+  "p50": zod.number().nullable(),
+  "p95": zod.number().nullable(),
+  "p99": zod.number().nullable()
+}),
+  "throughputPerSecond": zod.number().nullable()
+}),
+  "cases": zod.array(zod.object({
+  "caseId": zod.string(),
+  "outcome": zod.enum(['COMPLETE', 'PROVIDER_UNAVAILABLE', 'TIMEOUT', 'ERROR']),
+  "truePositives": zod.number(),
+  "falsePositives": zod.number(),
+  "falseNegatives": zod.number(),
+  "citationCoveredFindings": zod.number(),
+  "unsupportedCitations": zod.number(),
+  "contractPassed": zod.boolean(),
+  "semanticVerdictConsistent": zod.boolean(),
+  "qualityGateAccepted": zod.boolean(),
+  "falseAcceptance": zod.boolean(),
+  "falseRejection": zod.boolean(),
+  "normalization": zod.object({
+  "changedFindingType": zod.number(),
+  "changedSeverity": zod.number(),
+  "droppedCitation": zod.number()
+}),
+  "latencyMs": zod.number().optional(),
+  "errorCode": zod.string().optional()
+})).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesMax)
+}).optional().describe('Redacted measurement-only empirical AI quality evidence. It compares provider\/model observations with a versioned ground-truth corpus and never changes deterministic release acceptance.\n')
 }).nullish(),
   "executions": zod.array(zod.object({
   "id": zod.string(),

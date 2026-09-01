@@ -314,6 +314,239 @@ export interface AiBenchmarkScorecard {
   baselineComparison?: AiBenchmarkBaselineComparison;
 }
 
+export type AiEmpiricalQualityScorecardKind = typeof AiEmpiricalQualityScorecardKind[keyof typeof AiEmpiricalQualityScorecardKind];
+
+
+export const AiEmpiricalQualityScorecardKind = {
+  'empirical-ai-quality-scorecard': 'empirical-ai-quality-scorecard',
+} as const;
+
+export type AiEmpiricalQualityScorecardVersion = typeof AiEmpiricalQualityScorecardVersion[keyof typeof AiEmpiricalQualityScorecardVersion];
+
+
+export const AiEmpiricalQualityScorecardVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiEmpiricalQualityScorecardStatus = typeof AiEmpiricalQualityScorecardStatus[keyof typeof AiEmpiricalQualityScorecardStatus];
+
+
+export const AiEmpiricalQualityScorecardStatus = {
+  COMPLETE: 'COMPLETE',
+  INCOMPLETE: 'INCOMPLETE',
+  UNAVAILABLE: 'UNAVAILABLE',
+} as const;
+
+export type AiEmpiricalQualityScorecardEmpiricalQualityStatus = typeof AiEmpiricalQualityScorecardEmpiricalQualityStatus[keyof typeof AiEmpiricalQualityScorecardEmpiricalQualityStatus];
+
+
+export const AiEmpiricalQualityScorecardEmpiricalQualityStatus = {
+  PROVEN: 'PROVEN',
+  MEASURED: 'MEASURED',
+  INCOMPLETE: 'INCOMPLETE',
+  UNAVAILABLE: 'UNAVAILABLE',
+} as const;
+
+export interface AiEmpiricalQualityNormalizationCounters {
+  changedFindingType: number;
+  changedSeverity: number;
+  droppedCitation: number;
+}
+
+export type AiEmpiricalQualityMetricsLatencyMs = {
+  /** @nullable */
+  p50: number | null;
+  /** @nullable */
+  p95: number | null;
+  /** @nullable */
+  p99: number | null;
+};
+
+export interface AiEmpiricalQualityMetrics {
+  totalCases: number;
+  completedCases: number;
+  incompleteCases: number;
+  providerUnavailableCount: number;
+  timeoutCount: number;
+  errorCount: number;
+  truePositiveCount: number;
+  falsePositiveCount: number;
+  falseNegativeCount: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  precision: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  recall: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  f1: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  falsePositiveRate: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  falseNegativeRate: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  citationCoverage: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  unsupportedCitationRate: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  contractAcceptanceRate: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  semanticVerdictConsistencyRate: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  qualityGateAcceptanceRate: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  falseAcceptanceRate: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  falseRejectionRate: number;
+  normalizationCounters: AiEmpiricalQualityNormalizationCounters;
+  highScoreLowCoverageCount: number;
+  latencyMs: AiEmpiricalQualityMetricsLatencyMs;
+  /** @nullable */
+  throughputPerSecond: number | null;
+}
+
+export type AiEmpiricalQualityCaseOutcome = typeof AiEmpiricalQualityCaseOutcome[keyof typeof AiEmpiricalQualityCaseOutcome];
+
+
+export const AiEmpiricalQualityCaseOutcome = {
+  COMPLETE: 'COMPLETE',
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
+  TIMEOUT: 'TIMEOUT',
+  ERROR: 'ERROR',
+} as const;
+
+export interface AiEmpiricalQualityCase {
+  caseId: string;
+  outcome: AiEmpiricalQualityCaseOutcome;
+  truePositives: number;
+  falsePositives: number;
+  falseNegatives: number;
+  citationCoveredFindings: number;
+  unsupportedCitations: number;
+  contractPassed: boolean;
+  semanticVerdictConsistent: boolean;
+  qualityGateAccepted: boolean;
+  falseAcceptance: boolean;
+  falseRejection: boolean;
+  normalization: AiEmpiricalQualityNormalizationCounters;
+  latencyMs?: number;
+  errorCode?: string;
+}
+
+/**
+ * Redacted measurement-only empirical AI quality evidence. It compares provider/model observations with a versioned ground-truth corpus and never changes deterministic release acceptance.
+ */
+export interface AiEmpiricalQualityScorecard {
+  kind: AiEmpiricalQualityScorecardKind;
+  version: AiEmpiricalQualityScorecardVersion;
+  generatedAt?: string;
+  corpusRevision?: string;
+  provider?: string;
+  /** @nullable */
+  model?: string | null;
+  measurementOnly: true;
+  status: AiEmpiricalQualityScorecardStatus;
+  empiricalQualityStatus: AiEmpiricalQualityScorecardEmpiricalQualityStatus;
+  /** @maxItems 16 */
+  blockers: string[];
+  metrics: AiEmpiricalQualityMetrics;
+  /** @maxItems 128 */
+  cases: AiEmpiricalQualityCase[];
+}
+
+export type AiReleaseQualityGateKind = typeof AiReleaseQualityGateKind[keyof typeof AiReleaseQualityGateKind];
+
+
+export const AiReleaseQualityGateKind = {
+  'ai-release-quality-decision': 'ai-release-quality-decision',
+} as const;
+
+export type AiReleaseQualityGateVersion = typeof AiReleaseQualityGateVersion[keyof typeof AiReleaseQualityGateVersion];
+
+
+export const AiReleaseQualityGateVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiReleaseQualityGateStatus = typeof AiReleaseQualityGateStatus[keyof typeof AiReleaseQualityGateStatus];
+
+
+export const AiReleaseQualityGateStatus = {
+  passed: 'passed',
+  blocked: 'blocked',
+} as const;
+
+export type AiReleaseQualityGateLiveProviderChecks = typeof AiReleaseQualityGateLiveProviderChecks[keyof typeof AiReleaseQualityGateLiveProviderChecks];
+
+
+export const AiReleaseQualityGateLiveProviderChecks = {
+  disabled: 'disabled',
+  enabled: 'enabled',
+} as const;
+
+export type AiReleaseQualityGatePreviewChecks = typeof AiReleaseQualityGatePreviewChecks[keyof typeof AiReleaseQualityGatePreviewChecks];
+
+
+export const AiReleaseQualityGatePreviewChecks = {
+  disabled: 'disabled',
+  enabled: 'enabled',
+} as const;
+
+export type AiReleaseQualityGateSummary = {
+  totalCases: number;
+  passedCases: number;
+  failedCases: number;
+  skippedCases: number;
+  blockingFailures: number;
+  informationalFailures: number;
+};
+
+export interface AiReleaseQualityGate {
+  kind: AiReleaseQualityGateKind;
+  version: AiReleaseQualityGateVersion;
+  generatedAt?: string;
+  status: AiReleaseQualityGateStatus;
+  liveProviderChecks: AiReleaseQualityGateLiveProviderChecks;
+  previewChecks: AiReleaseQualityGatePreviewChecks;
+  summary: AiReleaseQualityGateSummary;
+  /** @maxItems 16 */
+  blockers: string[];
+}
+
 export type AiAutonomousDeliveryAcceptanceKind = typeof AiAutonomousDeliveryAcceptanceKind[keyof typeof AiAutonomousDeliveryAcceptanceKind];
 
 
@@ -536,6 +769,8 @@ export interface AiMissionControlExecution {
 export type AiMissionControlBenchmark = {
   scorecard?: AiBenchmarkScorecard;
   baseline?: AiBenchmarkBaselineSnapshot;
+  releaseGate?: AiReleaseQualityGate;
+  empiricalCampaign?: AiEmpiricalQualityScorecard;
 } | null;
 
 export interface AiMissionControl {

@@ -7,6 +7,8 @@
  */
 import type { AiBenchmarkBaselineSnapshot } from './aiBenchmarkBaselineSnapshot';
 import type { AiBenchmarkScorecard } from './aiBenchmarkScorecard';
+import type { AiEmpiricalQualityScorecard } from './aiEmpiricalQualityScorecard';
+import type { AiReleaseQualityGate } from './aiReleaseQualityGate';
 
 /**
  * @nullable
@@ -14,4 +16,6 @@ import type { AiBenchmarkScorecard } from './aiBenchmarkScorecard';
 export type AiMissionControlBenchmark = {
   scorecard?: AiBenchmarkScorecard;
   baseline?: AiBenchmarkBaselineSnapshot;
+  releaseGate?: AiReleaseQualityGate;
+  empiricalCampaign?: AiEmpiricalQualityScorecard;
 } | null;

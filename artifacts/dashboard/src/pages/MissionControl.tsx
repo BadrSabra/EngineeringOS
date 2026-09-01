@@ -211,6 +211,129 @@ function ProviderAvailabilityCard({ execution }: { execution: MissionExecution |
   );
 }
 
+function percentageMetric(metrics: JsonRecord | null, key: string): string {
+  const value = numberValue(metrics?.[key]);
+  return value === undefined ? 'Not recorded' : `${(value * 100).toFixed(1)}%`;
+}
+
+function ReleaseGateCard({ value }: { value: unknown }) {
+  const gate = asRecord(value);
+  const summary = asRecord(gate?.summary);
+  const blockers = Array.isArray(gate?.blockers)
+    ? gate.blockers.filter((item): item is string => typeof item === 'string')
+    : [];
+  const status = textValue(gate?.status)?.toLowerCase();
+  return (
+    <section className={`rounded-xl border bg-card ${status === 'passed' ? 'border-emerald-500/25' : 'border-amber-500/30'}`} aria-label="Deterministic release gate">
+      <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3.5">
+        {status === 'passed'
+          ? <CheckCircle2 className="h-4 w-4 text-emerald-200" />
+          : <AlertTriangle className="h-4 w-4 text-amber-200" />}
+        <div>
+          <h2 className="font-semibold">Deterministic release gate</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Contract acceptance remains the shipping authority.</p>
+        </div>
+        <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${status === 'passed' ? 'border-emerald-500/30 text-emerald-200' : 'border-amber-500/30 text-amber-200'}`}>
+          {status ? status : 'not recorded'}
+        </span>
+      </div>
+      <div className="p-4">
+        {!gate ? (
+          <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-4 text-center text-xs text-muted-foreground">
+            No deterministic release report was returned.
+          </p>
+        ) : (
+          <>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {[
+                ['Checks', summary?.totalCases],
+                ['Passed', summary?.passedCases],
+                ['Blocking failures', summary?.blockingFailures],
+              ].map(([label, metric]) => (
+                <div key={String(label)} className="rounded-md border border-border/45 bg-background/20 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{String(label)}</div>
+                  <div className="mt-1 font-mono text-sm font-semibold text-foreground">{formatValue(metric)}</div>
+                </div>
+              ))}
+            </div>
+            {blockers.length > 0 && (
+              <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-100">
+                {blockers.slice(0, 3).join(' · ')}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function EmpiricalQualityCard({ value }: { value: unknown }) {
+  const campaign = asRecord(value);
+  const metrics = asRecord(campaign?.metrics);
+  const status = textValue(campaign?.empiricalQualityStatus)?.toUpperCase();
+  const provider = textValue(campaign?.provider) ?? 'Provider not recorded';
+  const model = textValue(campaign?.model) ?? 'Model not recorded';
+  const blockers = Array.isArray(campaign?.blockers)
+    ? campaign.blockers.filter((item): item is string => typeof item === 'string')
+    : [];
+  const latency = asRecord(metrics?.latencyMs);
+  return (
+    <section className="rounded-xl border border-primary/25 bg-card" aria-label="Empirical provider review">
+      <div className="flex items-center gap-2 border-b border-primary/20 px-4 py-3.5">
+        <Activity className="h-4 w-4 text-primary" />
+        <div>
+          <h2 className="font-semibold">Empirical provider review</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Opt-in measurement only — never a release control.</p>
+        </div>
+        <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${status === 'PROVEN' ? 'border-emerald-500/30 text-emerald-200' : 'border-primary/30 text-primary'}`}>
+          {status ?? 'not run'}
+        </span>
+      </div>
+      <div className="p-4">
+        {!campaign ? (
+          <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-4 text-center text-xs text-muted-foreground">
+            No opt-in empirical campaign has been recorded.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+              <span>{provider} · {model}</span>
+              {textValue(campaign.corpusRevision) && <span>Corpus {textValue(campaign.corpusRevision)}</span>}
+              {formatDate(campaign.generatedAt) && <span>Last observed {formatDate(campaign.generatedAt)}</span>}
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {[
+                ['Precision', percentageMetric(metrics, 'precision')],
+                ['Recall', percentageMetric(metrics, 'recall')],
+                ['F1', percentageMetric(metrics, 'f1')],
+                ['Citation coverage', percentageMetric(metrics, 'citationCoverage')],
+                ['False accept', percentageMetric(metrics, 'falseAcceptanceRate')],
+                ['False reject', percentageMetric(metrics, 'falseRejectionRate')],
+              ].map(([label, metric]) => (
+                <div key={String(label)} className="rounded-md border border-border/45 bg-background/20 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{String(label)}</div>
+                  <div className="mt-1 font-mono text-sm font-semibold text-foreground">{String(metric)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+              <span>Completed {formatValue(metrics?.completedCases)} / {formatValue(metrics?.totalCases)}</span>
+              <span>Unavailable {formatValue(metrics?.providerUnavailableCount)}</span>
+              <span>p95 {formatValue(latency?.p95)} ms</span>
+            </div>
+            {blockers.length > 0 && (
+              <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-100">
+                Measurement incomplete: {blockers.slice(0, 3).join(' · ')}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ComparisonRunColumn({
   label,
   execution,
@@ -720,6 +843,8 @@ export default function MissionControl() {
   const acceptanceOperations = Array.isArray(acceptanceSummary?.operations)
     ? acceptanceSummary.operations
     : [];
+  const releaseGate = asRecord(asRecord(typedData?.benchmark)?.releaseGate);
+  const empiricalCampaign = asRecord(asRecord(typedData?.benchmark)?.empiricalCampaign);
   const selectedEvidenceRows = evidenceRows(selectedExecution?.evidence);
   const selectedEvents = Array.isArray(selectedExecution?.recentEvents) ? selectedExecution.recentEvents : [];
   const selectedImportedExecution = importedHistory?.executions.find((execution) => execution.id === comparisonImportedId)
@@ -1151,6 +1276,9 @@ export default function MissionControl() {
               )}
             </div>
           </section>
+
+           <ReleaseGateCard value={releaseGate} />
+           <EmpiricalQualityCard value={empiricalCampaign} />
 
           <section className="rounded-xl border border-emerald-500/25 bg-card" aria-label="Autonomous delivery acceptance report">
             <div className="flex items-center gap-2 border-b border-emerald-500/20 px-4 py-3.5">
