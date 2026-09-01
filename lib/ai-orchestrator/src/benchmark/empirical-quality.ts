@@ -5,6 +5,8 @@ export const EMPIRICAL_QUALITY_CORPUS_VERSION = 1 as const;
 
 const SAFE_IDENTIFIER = /^[a-z0-9][a-z0-9._:/-]{0,159}$/i;
 const SAFE_RELATIVE_FILE = /^(?!\/)(?!.*(?:^|\/)\.\.)(?:[a-z0-9._-]+\/)*[a-z0-9._-]+$/i;
+const SAFE_GITHUB_REPOSITORY = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/;
+const SAFE_GIT_REVISION = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
 export type EmpiricalIssueType = "bug" | "security" | "performance" | "style" | "architecture";
 export type EmpiricalSeverity = "critical" | "high" | "medium" | "low";
 const ISSUE_TYPES = new Set<EmpiricalIssueType>(["bug", "security", "performance", "style", "architecture"]);
@@ -22,7 +24,9 @@ export type EmpiricalGroundTruthFinding = {
 export type EmpiricalCorpusCase = {
   id: string;
   repositoryId: string;
+  repositoryUrl: string;
   sourceRevision: string;
+  selectedFiles: readonly string[];
   outcome: "defect" | "clean";
   expectedVerdict: "findings" | "clean";
   expectedGateDecision: "accept" | "reject";
@@ -144,6 +148,16 @@ function isSafeRelativeFile(value: unknown): value is string {
   return typeof value === "string" && SAFE_RELATIVE_FILE.test(value.trim());
 }
 
+function isSafeRepositoryUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !SAFE_GITHUB_REPOSITORY.test(value.trim())) return false;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.username === "" && parsed.password === "" && parsed.search === "" && parsed.hash === "";
+  } catch {
+    return false;
+  }
+}
+
 function isIntegerInRange(value: unknown, min: number, max: number): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 }
@@ -184,6 +198,17 @@ export function validateEmpiricalQualityCorpus(value: unknown): EmpiricalQuality
     if (!isSafeIdentifier(testCase.repositoryId) || !isSafeIdentifier(testCase.sourceRevision)) {
       throw new Error(`Empirical corpus case ${testCase.id} has unsafe repository provenance.`);
     }
+    if (!isSafeRepositoryUrl(testCase.repositoryUrl)) {
+      throw new Error(`Empirical corpus case ${testCase.id} must identify a public HTTPS GitHub repository.`);
+    }
+    if (!SAFE_GIT_REVISION.test(testCase.sourceRevision!.trim())) {
+      throw new Error(`Empirical corpus case ${testCase.id} must pin an immutable Git revision.`);
+    }
+    if (!Array.isArray(testCase.selectedFiles) || testCase.selectedFiles.length === 0 ||
+        testCase.selectedFiles.length > 5 ||
+        !testCase.selectedFiles.every(isSafeRelativeFile)) {
+      throw new Error(`Empirical corpus case ${testCase.id} has invalid selected files.`);
+    }
     if (testCase.outcome !== "defect" && testCase.outcome !== "clean") {
       throw new Error(`Empirical corpus case ${testCase.id} has an invalid outcome.`);
     }
@@ -206,13 +231,18 @@ export function validateEmpiricalQualityCorpus(value: unknown): EmpiricalQuality
     const findingIds = new Set<string>();
     for (const finding of testCase.findings) {
       if (findingIds.has(finding.id)) throw new Error(`Empirical case ${testCase.id} has duplicate finding IDs.`);
+      if (!testCase.selectedFiles!.includes(finding.file)) {
+        throw new Error(`Empirical case ${testCase.id} has a finding outside its selected files.`);
+      }
       findingIds.add(finding.id);
     }
     ids.add(testCase.id);
     return {
       id: testCase.id,
       repositoryId: testCase.repositoryId!,
+      repositoryUrl: testCase.repositoryUrl!.trim(),
       sourceRevision: testCase.sourceRevision!,
+      selectedFiles: testCase.selectedFiles!.map((file) => file.trim()),
       outcome: testCase.outcome,
       expectedVerdict: testCase.expectedVerdict,
       expectedGateDecision: testCase.expectedGateDecision,
@@ -423,22 +453,52 @@ export async function runEmpiricalQualityCampaign(args: {
   provider: string;
   model?: string | null;
   caseTimeoutMs?: number;
+  campaignTimeoutMs?: number;
   generatedAt?: string;
 }): Promise<EmpiricalQualityScorecard> {
   const results: EmpiricalCaseScore[] = [];
+  const caseTimeoutMs = args.caseTimeoutMs ?? 90_000;
+  const campaignDeadline = args.campaignTimeoutMs === undefined
+    ? undefined
+    : Date.now() + args.campaignTimeoutMs;
   for (const testCase of args.corpus.cases) {
     const controller = new AbortController();
     const startedAt = Date.now();
-    const timeout = setTimeout(() => controller.abort(), args.caseTimeoutMs ?? 90_000);
+    const remainingCampaignMs = campaignDeadline === undefined
+      ? caseTimeoutMs
+      : Math.min(caseTimeoutMs, campaignDeadline - startedAt);
+    if (remainingCampaignMs <= 0) {
+      results.push(scoreEmpiricalQualityCase(testCase, {
+        caseId: testCase.id,
+        outcome: "TIMEOUT",
+        contractPassed: false,
+        qualityGateAccepted: false,
+        semanticVerdict: "unknown",
+        observedFindings: [],
+        errorCode: "TIMEOUT",
+        latencyMs: 0,
+      }));
+      continue;
+    }
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
-      const observation = await args.executeCase(testCase, controller.signal);
+      const observation = await Promise.race([
+        args.executeCase(testCase, controller.signal),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            controller.abort();
+            reject(new Error("EMPIRICAL_CAMPAIGN_TIMEOUT"));
+          }, remainingCampaignMs);
+        }),
+      ]);
       results.push(scoreEmpiricalQualityCase(testCase, {
         ...observation,
         caseId: testCase.id,
         latencyMs: observation.latencyMs ?? Date.now() - startedAt,
       }));
     } catch (error) {
-      const timedOut = controller.signal.aborted;
+      const timedOut = controller.signal.aborted ||
+        (error instanceof Error && error.message === "EMPIRICAL_CAMPAIGN_TIMEOUT");
       results.push(scoreEmpiricalQualityCase(testCase, {
         caseId: testCase.id,
         outcome: timedOut ? "TIMEOUT" : "ERROR",
@@ -451,7 +511,7 @@ export async function runEmpiricalQualityCampaign(args: {
       }));
       void error;
     } finally {
-      clearTimeout(timeout);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
     }
   }
   return buildEmpiricalQualityScorecard({

@@ -22,6 +22,16 @@ export type { CodeIssue, CodeReviewOutput };
  */
 export type CodeReviewResult = AgentRunResult<CodeReviewOutput>;
 
+export type CodeReviewOptions = {
+  /**
+   * Selected-file reviews normally require a cited issue so an empty model
+   * response cannot masquerade as a verified file-gap review. Empirical clean
+   * controls intentionally opt out of that requirement while retaining the
+   * same provider, schema, and bounded source-read path.
+   */
+  requireSelectedFileFinding?: boolean;
+};
+
 export const CODE_REVIEW_CAMPAIGN_SCENARIOS = [
   "reasoning-only",
   "agent-harness",
@@ -97,6 +107,7 @@ export async function reviewCode(
   projectContext: ProjectContext,
   fileContents?: Record<string, string>,
   opts?: AgentCompleteOpts,
+  reviewOptions: CodeReviewOptions = {},
 ): Promise<CodeReviewResult & { reviewScope: ReviewScope }> {
   const accounting = normalizeReviewInputs(projectContext, fileContents);
   const result = await new CodeReviewAgent(fileContents).run(projectContext, opts);
@@ -105,6 +116,7 @@ export async function reviewCode(
     !result._parseError &&
     !result._qualityError &&
     selectedPaths.length > 0 &&
+    reviewOptions.requireSelectedFileFinding !== false &&
     !result.issues.some((issue) => typeof issue.file === "string" && selectedPaths.includes(issue.file))
   ) {
     // A syntactically valid approval without a cited selected-file finding is

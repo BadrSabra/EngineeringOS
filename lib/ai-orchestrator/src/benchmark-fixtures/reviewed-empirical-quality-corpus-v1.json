@@ -1,0 +1,42 @@
+{
+  "kind": "empirical-ai-quality-corpus",
+  "version": 1,
+  "corpusRevision": "public-reviewed-2026-09-v1",
+  "cases": [
+    {
+      "id": "nodegoat-auth-defect-001",
+      "repositoryId": "owasp-nodegoat",
+      "repositoryUrl": "https://github.com/OWASP/NodeGoat.git",
+      "sourceRevision": "c5cb68a7084e4ae7dcc60e6a98768720a81841e8",
+      "selectedFiles": [
+        "app/routes/session.js"
+      ],
+      "outcome": "defect",
+      "expectedVerdict": "findings",
+      "expectedGateDecision": "reject",
+      "findings": [
+        {
+          "id": "nodegoat-auth-defect-001-finding-001",
+          "file": "app/routes/session.js",
+          "lineStart": 58,
+          "lineEnd": 58,
+          "type": "security",
+          "severity": "high"
+        }
+      ]
+    },
+    {
+      "id": "hello-world-clean-001",
+      "repositoryId": "octocat-hello-world",
+      "repositoryUrl": "https://github.com/octocat/Hello-World.git",
+      "sourceRevision": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+      "selectedFiles": [
+        "README"
+      ],
+      "outcome": "clean",
+      "expectedVerdict": "clean",
+      "expectedGateDecision": "accept",
+      "findings": []
+    }
+  ]
+}

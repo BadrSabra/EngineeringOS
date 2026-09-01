@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEmpiricalQualityScorecard,
   scoreEmpiricalQualityCase,
+  runEmpiricalQualityCampaign,
   validateEmpiricalQualityCorpus,
   type EmpiricalQualityCorpus,
 } from "./empirical-quality.js";
@@ -14,13 +15,15 @@ const corpus: EmpiricalQualityCorpus = {
     {
       id: "defect-001",
       repositoryId: "public-repo-a",
-      sourceRevision: "sha256-aaa",
+      repositoryUrl: "https://github.com/OWASP/NodeGoat.git",
+      sourceRevision: "c5cb68a7084e4ae7dcc60e6a98768720a81841e8",
+      selectedFiles: ["app/routes/session.js"],
       outcome: "defect",
       expectedVerdict: "findings",
-      expectedGateDecision: "accept",
+      expectedGateDecision: "reject",
       findings: [{
         id: "finding-001",
-        file: "src/auth.ts",
+          file: "app/routes/session.js",
         lineStart: 42,
         type: "security",
         severity: "high",
@@ -29,7 +32,9 @@ const corpus: EmpiricalQualityCorpus = {
     {
       id: "clean-001",
       repositoryId: "public-repo-b",
-      sourceRevision: "sha256-bbb",
+      repositoryUrl: "https://github.com/octocat/Hello-World.git",
+      sourceRevision: "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+      selectedFiles: ["README"],
       outcome: "clean",
       expectedVerdict: "clean",
       expectedGateDecision: "accept",
@@ -47,15 +52,46 @@ describe("empirical AI quality oracle", () => {
     })).toThrow(/both defect and clean/);
   });
 
+  it("rejects mutable or credential-bearing reviewed repository provenance", () => {
+    expect(() => validateEmpiricalQualityCorpus({
+      ...corpus,
+      cases: [{
+        ...corpus.cases[0]!,
+        repositoryUrl: "https://user:secret@github.com/example/repository.git",
+      }],
+    })).toThrow(/public HTTPS GitHub repository/);
+    expect(() => validateEmpiricalQualityCorpus({
+      ...corpus,
+      cases: [{ ...corpus.cases[0]!, sourceRevision: "main" }],
+    })).toThrow(/immutable Git revision/);
+    expect(() => validateEmpiricalQualityCorpus({
+      ...corpus,
+      cases: [{ ...corpus.cases[0]!, selectedFiles: ["../secrets.txt"] }],
+    })).toThrow(/invalid selected files/);
+  });
+
+  it("bounds a case that ignores abort and records a timeout", async () => {
+    const scorecard = await runEmpiricalQualityCampaign({
+      corpus: { ...corpus, cases: [corpus.cases[0]!] },
+      provider: "openrouter",
+      caseTimeoutMs: 10,
+      executeCase: async () => new Promise<never>(() => undefined),
+    });
+
+    expect(scorecard.status).toBe("UNAVAILABLE");
+    expect(scorecard.cases[0]?.outcome).toBe("TIMEOUT");
+    expect(scorecard.cases[0]?.errorCode).toBe("TIMEOUT");
+  });
+
   it("calculates discovery, citation, verdict, and gate metrics without raw text", () => {
     const results = corpus.cases.map((testCase) => scoreEmpiricalQualityCase(testCase, {
       caseId: testCase.id,
       outcome: "COMPLETE",
       contractPassed: true,
-      qualityGateAccepted: true,
+       qualityGateAccepted: testCase.outcome === "clean",
       semanticVerdict: testCase.outcome === "defect" ? "findings" : "clean",
       observedFindings: testCase.outcome === "defect" ? [{
-        file: "src/auth.ts",
+         file: "app/routes/session.js",
         lineStart: 42,
         type: "security",
         severity: "high",

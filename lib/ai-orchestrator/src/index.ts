@@ -42,6 +42,7 @@ export type { AgentCompleteOpts, ProviderId } from "./agent-complete.js";
 export {
   CODE_REVIEW_CAMPAIGN_SCENARIOS,
   buildCodeReviewCampaignReceipt,
+  type CodeReviewOptions,
   type CodeReviewCampaignReceipt,
   type CodeReviewCampaignScenario,
 } from "./agents/code-reviewer.js";

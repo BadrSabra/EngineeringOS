@@ -17,7 +17,9 @@ The corpus is a versioned JSON manifest with no source bodies:
     {
       "id": "repo-defect-001",
       "repositoryId": "public-repo-a",
-      "sourceRevision": "sha256-...",
+      "repositoryUrl": "https://github.com/org/repository.git",
+      "sourceRevision": "40-character-commit-sha",
+      "selectedFiles": ["src/auth.ts"],
       "outcome": "defect",
       "expectedVerdict": "findings",
       "expectedGateDecision": "accept",
@@ -46,8 +48,11 @@ The corpus is a versioned JSON manifest with no source bodies:
 
 Corpus validation fails closed unless both defect and clean controls exist,
 each defect has at least one annotation, paths are relative, revisions are
-present, and finding IDs are unique. Source snapshots are supplied to the
-campaign executor from disposable workspaces; they are never written to the
+present, repository URLs are credential-free HTTPS GitHub URLs, selected files
+are bounded, and finding IDs are unique. The checked-in
+`reviewed-empirical-quality-corpus-v1.json` is the initial public reviewed
+corpus. Source snapshots are checked out at the pinned revisions into a fresh
+host disposable workspace for each case; they are never written to the
 scorecard.
 
 ## Scoring an opt-in campaign
@@ -58,6 +63,29 @@ executor returns only bounded observations: terminal outcome, contract result,
 semantic verdict, finding metadata, citation support flags, normalization
 counters, and latency. It must not return prompts, responses, source bodies,
 patches, absolute paths, or credentials.
+
+The API server's live adapter clones each public repository without
+credentials, fetches and detaches the exact manifest revision, reads only the
+manifest's selected files, and removes the workspace after the case finishes.
+It requires both `RUN_EMPIRICAL_QUALITY_CAMPAIGN=1` and
+`EMPIRICAL_QUALITY_DISPOSABLE=1`; case and campaign timeouts are bounded by
+default and can only be shortened through the explicit environment settings.
+
+Run the real provider adapter only with a disposable output path:
+
+```sh
+RUN_EMPIRICAL_QUALITY_CAMPAIGN=1 \
+EMPIRICAL_QUALITY_DISPOSABLE=1 \
+EMPIRICAL_QUALITY_PROVIDER=openrouter \
+EMPIRICAL_QUALITY_MODEL=provider/model \
+EMPIRICAL_QUALITY_SCORECARD_PATH=/tmp/engineeringos-empirical/scorecard.json \
+pnpm --filter @workspace/api-server run validate:empirical-quality
+```
+
+The adapter records provider unavailability, timeout, execution error, review
+contract, citation, normalization, and latency outcomes in the empirical
+scorecard. A failed or incomplete run is review evidence only and never
+updates the deterministic release gate or rollout posture.
 
 For adapters that already collected bounded observations, the provider-free
 report writer is:
