@@ -381,6 +381,8 @@ describe('Mission Control', () => {
     expect(csv).toContain('"flight-deck-v2"');
     expect(csv).toContain('""correctCompletionRate"":1');
     expect(csv).toContain('"baseline-clean-witness"');
+    expect(csv).toContain('"Runtime Oracle Status","Runtime Oracle Checks","Runtime Oracle Failure IDs"');
+    expect(csv).toContain('""scenarioId"":""single-file-002""');
     expect(click).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mission-control');
 
@@ -423,9 +425,77 @@ describe('Mission Control', () => {
     expect(exported.executions).toHaveLength(1);
     expect(exported.executions[0]).toMatchObject({ id: 'included', evidence: nestedEvidence });
     expect(exported.benchmark).toEqual(missionControlFixture.benchmark);
+    expect(exported.benchmark.releaseGate.runtimeOraclePreflight).toEqual(
+      missionControlFixture.benchmark.releaseGate.runtimeOraclePreflight,
+    );
     expect(blob.type).toBe('application/json;charset=utf-8');
     expect(click).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mission-control-json');
+
+    click.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('exports failed runtime-oracle status and bounded check metadata without provider output', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      benchmark: {
+        ...missionControlFixture.benchmark,
+        releaseGate: {
+          ...missionControlFixture.benchmark.releaseGate,
+          status: 'blocked',
+          runtimeOraclePreflight: {
+            status: 'failed',
+            checks: [{
+              scenarioId: 'test-failure-001',
+              command: 'pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/test-failure-001.test.ts',
+              status: 'failed',
+              failureCode: 'RUNTIME_ORACLE_FAILED',
+              providerOutput: 'must not be exported',
+            }],
+            failureIds: ['test-failure-001', 'provider output'],
+            providerOutput: 'must not be exported',
+          },
+        },
+      },
+    };
+    const createObjectURL = vi.fn(() => 'blob:mission-control-failed-oracle');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Export filtered history' }));
+
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const csv = await blob.text();
+    expect(csv).toContain('"Runtime Oracle Status","Runtime Oracle Checks","Runtime Oracle Failure IDs"');
+    expect(csv).toContain('"failed"');
+    expect(csv).toContain('""scenarioId"":""test-failure-001""');
+    expect(csv).toContain('""failureCode"":""RUNTIME_ORACLE_FAILED""');
+    expect(csv).not.toContain('must not be exported');
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mission-control-failed-oracle');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Export format' }), {
+      target: { value: 'json' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Export filtered history' }));
+    const jsonBlob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
+    const exported = JSON.parse(await jsonBlob.text()) as {
+      benchmark: { releaseGate?: { runtimeOraclePreflight?: unknown } };
+    };
+    expect(exported.benchmark.releaseGate?.runtimeOraclePreflight).toEqual({
+      status: 'failed',
+      checks: [{
+        scenarioId: 'test-failure-001',
+        command: 'pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/test-failure-001.test.ts',
+        status: 'failed',
+        failureCode: 'RUNTIME_ORACLE_FAILED',
+      }],
+      failureIds: ['test-failure-001'],
+    });
+    expect(await jsonBlob.text()).not.toContain('must not be exported');
 
     click.mockRestore();
     vi.unstubAllGlobals();
@@ -655,11 +725,12 @@ describe('Mission Control', () => {
     expect(blob.type).toBe('text/csv;charset=utf-8');
     const rows = parseCsv(await blob.text());
     expect(rows).toHaveLength(3);
-    expect(rows.every((row) => row.length === 16)).toBe(true);
+    expect(rows.every((row) => row.length === 19)).toBe(true);
     expect(rows[0]).toEqual([
       'Side', 'Execution ID', 'Objective', 'State', 'Provider', 'Model',
       'Attempts', 'Validation Failures', 'Event Count', 'Failure Category',
       'Recovery Action', 'Evidence Status', 'Evidence', 'Recovery', 'Timestamps', 'Event Timeline',
+      'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
     ]);
     expect(rows[1]).toEqual([
       'live', 'live-selected', 'Repair the "auth", scope\ncheck', 'BLOCKED', 'openrouter', 'openai/gpt-4.1-mini',
@@ -668,6 +739,9 @@ describe('Mission Control', () => {
       JSON.stringify(currentMissionControl.executions[0].recovery),
       JSON.stringify(currentMissionControl.executions[0].timestamps),
       JSON.stringify(currentMissionControl.executions[0].recentEvents),
+      'passed',
+      JSON.stringify(currentMissionControl.benchmark.releaseGate.runtimeOraclePreflight.checks),
+      '[]',
     ]);
     expect(rows[2]).toEqual([
       'imported', 'archived-selected', 'Archived recovery, "verified"\nfrom import', 'COMPLETED', 'Not recorded', 'Not recorded',
@@ -676,6 +750,9 @@ describe('Mission Control', () => {
       JSON.stringify(imported.executions[0].recoverySummary),
       JSON.stringify(imported.executions[0].timestamps),
       JSON.stringify(imported.executions[0].recentEvents),
+      'Not recorded',
+      'Not recorded',
+      'Not recorded',
     ]);
 
     expect(click).toHaveBeenCalled();

@@ -593,6 +593,124 @@ function csvCell(value: unknown): string {
 
 type HistoryExportFormat = 'csv' | 'json';
 
+const SAFE_PUBLIC_IDENTIFIER = /^[a-z0-9][a-z0-9._:/-]{0,199}$/i;
+const SAFE_RUNTIME_ORACLE_COMMAND = /^pnpm(?: [^\r\n]{0,238})?$/;
+const SAFE_RUNTIME_ORACLE_FAILURE_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
+
+function safeRuntimeOracleIdentifier(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const identifier = value.trim();
+  return identifier.length <= 160 && SAFE_PUBLIC_IDENTIFIER.test(identifier)
+    ? identifier
+    : undefined;
+}
+
+function runtimeOracleExport(value: unknown): JsonRecord | undefined {
+  const report = asRecord(value);
+  if (!report ||
+      (report.status !== 'passed' && report.status !== 'failed') ||
+      !Array.isArray(report.checks) ||
+      !Array.isArray(report.failureIds)) {
+    return undefined;
+  }
+
+  const checks = report.checks.slice(0, 64).flatMap((value): JsonRecord[] => {
+    const check = asRecord(value);
+    const scenarioId = safeRuntimeOracleIdentifier(check?.scenarioId);
+    if (!check ||
+        !scenarioId ||
+        typeof check.command !== 'string' ||
+        !SAFE_RUNTIME_ORACLE_COMMAND.test(check.command) ||
+        (check.status !== 'passed' && check.status !== 'failed')) {
+      return [];
+    }
+    const failureCode = check.status === 'failed' &&
+      typeof check.failureCode === 'string' &&
+      SAFE_RUNTIME_ORACLE_FAILURE_CODE.test(check.failureCode)
+      ? check.failureCode
+      : undefined;
+    return [{
+      scenarioId,
+      command: check.command.slice(0, 240),
+      status: check.status,
+      ...(failureCode ? { failureCode } : {}),
+    }];
+  });
+  const failureIds = report.failureIds
+    .map(safeRuntimeOracleIdentifier)
+    .filter((value): value is string => Boolean(value))
+    .slice(0, 64);
+
+  return {
+    status: report.status,
+    checks,
+    failureIds: [...new Set(failureIds)],
+  };
+}
+
+function releaseGateExport(value: unknown): JsonRecord | undefined {
+  const gate = asRecord(value);
+  const summary = asRecord(gate?.summary);
+  if (!gate ||
+      gate.kind !== 'ai-release-quality-decision' ||
+      gate.version !== 1 ||
+      (gate.status !== 'passed' && gate.status !== 'blocked') ||
+      (gate.liveProviderChecks !== 'disabled' && gate.liveProviderChecks !== 'enabled') ||
+      (gate.previewChecks !== 'disabled' && gate.previewChecks !== 'enabled') ||
+      !summary) {
+    return undefined;
+  }
+  const summaryKeys = [
+    'totalCases',
+    'passedCases',
+    'failedCases',
+    'skippedCases',
+    'blockingFailures',
+    'informationalFailures',
+  ];
+  if (!summaryKeys.every((key) => typeof summary[key] === 'number' &&
+    Number.isInteger(summary[key]) &&
+    (summary[key] as number) >= 0)) {
+    return undefined;
+  }
+
+  const runtimeOracle = runtimeOracleExport(gate.runtimeOraclePreflight);
+  const blockers = Array.isArray(gate.blockers)
+    ? gate.blockers
+      .filter((blocker): blocker is string =>
+        typeof blocker === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(blocker))
+      .slice(0, 16)
+    : [];
+  return {
+    kind: 'ai-release-quality-decision',
+    version: 1,
+    ...(typeof gate.generatedAt === 'string' ? { generatedAt: gate.generatedAt } : {}),
+    status: gate.status,
+    liveProviderChecks: gate.liveProviderChecks,
+    previewChecks: gate.previewChecks,
+    summary: Object.fromEntries(summaryKeys.map((key) => [key, summary[key]])),
+    blockers,
+    ...(runtimeOracle ? { runtimeOraclePreflight: runtimeOracle } : {}),
+  };
+}
+
+function benchmarkExport(value: unknown): unknown {
+  const benchmark = asRecord(value);
+  if (!benchmark) return value;
+  const { releaseGate, ...rest } = benchmark;
+  const projectedReleaseGate = releaseGateExport(releaseGate);
+  return {
+    ...rest,
+    ...(projectedReleaseGate ? { releaseGate: projectedReleaseGate } : {}),
+  };
+}
+
+function benchmarkRuntimeOracle(value: unknown): JsonRecord | undefined {
+  const benchmark = asRecord(value);
+  const releaseGate = asRecord(benchmark?.releaseGate);
+  return runtimeOracleExport(releaseGate?.runtimeOraclePreflight);
+}
+
 function downloadFilteredHistory(
   executions: MissionExecution[],
   benchmark: unknown,
@@ -601,7 +719,7 @@ function downloadFilteredHistory(
   if (executions.length === 0) return;
   const date = new Date().toISOString().slice(0, 10);
   if (format === 'json') {
-    const json = JSON.stringify({ executions, benchmark }, null, 2);
+    const json = JSON.stringify({ executions, benchmark: benchmarkExport(benchmark) }, null, 2);
     const blob = new Blob([`${json}\n`], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -627,10 +745,15 @@ function downloadFilteredHistory(
   const benchmarkBaselineId = textValue(baseline?.baselineId, benchmarkRecord?.baselineId) ?? 'Not recorded';
   const benchmarkScorecard = serialize(scorecard?.metrics);
   const benchmarkBaseline = serialize(baseline?.metrics);
+  const runtimeOracle = benchmarkRuntimeOracle(benchmark);
+  const runtimeOracleStatus = runtimeOracle?.status ?? 'Not recorded';
+  const runtimeOracleChecks = serialize(runtimeOracle?.checks);
+  const runtimeOracleFailureIds = serialize(runtimeOracle?.failureIds);
   const headers = [
     'Execution ID', 'Objective', 'State', 'Provider', 'Model',
     'Failure Category', 'Recovery Action', 'Evidence Status', 'Attempts',
     'Benchmark Suite Version', 'Benchmark Baseline ID', 'Benchmark Scorecard', 'Benchmark Baseline Metrics',
+    'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
   ];
   const rows = executions.map((execution) => [
     execution.id,
@@ -648,6 +771,9 @@ function downloadFilteredHistory(
     benchmarkBaselineId,
     benchmarkScorecard,
     benchmarkBaseline,
+    runtimeOracleStatus,
+    runtimeOracleChecks,
+    runtimeOracleFailureIds,
   ]);
   const csv = [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
   const blob = new Blob([`${csv}\r\n`], { type: 'text/csv;charset=utf-8' });
@@ -659,7 +785,11 @@ function downloadFilteredHistory(
   URL.revokeObjectURL(url);
 }
 
-function comparisonExportRow(label: 'live' | 'imported', execution: MissionExecution): JsonRecord {
+function comparisonExportRow(
+  label: 'live' | 'imported',
+  execution: MissionExecution,
+  benchmark: unknown,
+): JsonRecord {
   const events = Array.isArray(execution.recentEvents) ? execution.recentEvents : [];
   return {
     side: label,
@@ -680,17 +810,20 @@ function comparisonExportRow(label: 'live' | 'imported', execution: MissionExecu
     recovery: execution.recovery ?? execution.recoverySummary ?? null,
     timestamps: execution.timestamps ?? null,
     timeline: events,
+    runtimeOraclePreflight: benchmarkRuntimeOracle(benchmark) ?? null,
   };
 }
 
 function downloadComparisonPair(
   liveExecution: MissionExecution | undefined,
   importedExecution: MissionExecution | undefined,
+  liveBenchmark: unknown,
+  importedBenchmark: unknown,
   format: HistoryExportFormat,
 ): void {
   if (!liveExecution || !importedExecution) return;
-  const live = comparisonExportRow('live', liveExecution);
-  const imported = comparisonExportRow('imported', importedExecution);
+  const live = comparisonExportRow('live', liveExecution, liveBenchmark);
+  const imported = comparisonExportRow('imported', importedExecution, importedBenchmark);
   const date = new Date().toISOString().slice(0, 10);
   if (format === 'json') {
     const json = JSON.stringify({
@@ -704,6 +837,10 @@ function downloadComparisonPair(
         states: { live: live.state, imported: imported.state },
         eventCounts: { live: live.eventCount, imported: imported.eventCount },
         timelines: { live: live.timeline, imported: imported.timeline },
+        runtimeOraclePreflight: {
+          live: live.runtimeOraclePreflight,
+          imported: imported.runtimeOraclePreflight,
+        },
       },
     }, null, 2);
     const blob = new Blob([`${json}\n`], { type: 'application/json;charset=utf-8' });
@@ -720,12 +857,16 @@ function downloadComparisonPair(
     'Side', 'Execution ID', 'Objective', 'State', 'Provider', 'Model',
     'Attempts', 'Validation Failures', 'Event Count', 'Failure Category',
     'Recovery Action', 'Evidence Status', 'Evidence', 'Recovery', 'Timestamps', 'Event Timeline',
+    'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
   ];
   const rows = [live, imported].map((row) => [
     row.side, row.id, row.objective, row.state, row.provider, row.model,
     row.attempts, row.validationFailures, row.eventCount, row.failureCategory,
     row.recoveryAction, row.evidenceStatus, row.evidence, row.recovery,
     row.timestamps, row.timeline,
+    asRecord(row.runtimeOraclePreflight)?.status ?? 'Not recorded',
+    asRecord(row.runtimeOraclePreflight)?.checks ?? null,
+    asRecord(row.runtimeOraclePreflight)?.failureIds ?? null,
   ]);
   const serialize = (value: unknown) => {
     if (value === null || value === undefined) return 'Not recorded';
@@ -737,7 +878,9 @@ function downloadComparisonPair(
   };
   const csv = [
     headers.map(csvCell).join(','),
-    ...rows.map((row) => row.map((value, index) => csvCell(index >= 12 ? serialize(value) : value)).join(',')),
+    ...rows.map((row) => row.map((value, index) => csvCell(
+      [12, 13, 14, 15, 17, 18].includes(index) ? serialize(value) : value,
+    )).join(',')),
   ].join('\r\n');
   const blob = new Blob([`${csv}\r\n`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -1437,7 +1580,13 @@ export default function MissionControl() {
               <div className="flex flex-wrap gap-2 self-start">
                 <button
                   type="button"
-                  onClick={() => downloadComparisonPair(comparisonLiveExecution, selectedImportedExecution, historyExportFormat)}
+                  onClick={() => downloadComparisonPair(
+                    comparisonLiveExecution,
+                    selectedImportedExecution,
+                    typedData?.benchmark,
+                    importedHistory?.benchmark,
+                    historyExportFormat,
+                  )}
                   disabled={!comparisonLiveExecution || !selectedImportedExecution}
                   aria-label="Export selected live and imported run pair"
                   title={`Download the selected pair as ${historyExportFormat.toUpperCase()}`}
