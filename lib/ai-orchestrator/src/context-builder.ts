@@ -13,7 +13,7 @@
  * All budget enforcement is delegated to the Admission Engine.
  */
 import type { AgentContext } from "./schemas/context.schema.js";
-import { buildContextCacheKey, getCachedContext, setCachedContext, hashExecutionPlan } from "./context-cache-manager.js";
+import { buildContextCacheKey, getCachedContext, setCachedContext, hashExecutionPlan, type ContextCacheRuntime } from "./context-cache-manager.js";
 import { loadProjectContext, type BuildProjectContextOptions, type ContextLoadSection } from "./context-loader.js";
 import { buildProjectContextFromLoadedContext } from "./context-serializer.js";
 import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
@@ -23,8 +23,11 @@ import {
   type ContextPlan,
   type SliceId,
   type AdmissionDecision,
+  type ContextObject,
 } from "./context-runtime/context-object.js";
 import { runAdmission } from "./context-runtime/context-admission.js";
+import { applyLifetime, DEFAULT_LIFETIME_POLICY, type LifetimePolicy, type SliceLifetimeState } from "./context-runtime/context-lifetime.js";
+import { trimContextToFit, warnIfContextTooLarge } from "./context-compressor.js";
 
 export { invalidateContextCache, invalidateContextSlice, hashExecutionPlan, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
 export type { BuildProjectContextOptions, ContextLoadSection } from "./context-loader.js";
@@ -40,6 +43,10 @@ export type ProjectContext = AgentContext;
 export type BuildContextOptions = BuildProjectContextOptions & {
   /** Execution plan controlling context depth and token budgets. Defaults to normal intensity. */
   plan?: Readonly<ExecutionPlan>;
+  /** Optional per-slice age policy; defaults to the runtime policy. */
+  lifetimePolicy?: LifetimePolicy;
+  /** Deterministic size override for callers and validation. */
+  maxChars?: number;
 };
 
 // ─── Slice configuration ──────────────────────────────────────────────────────
@@ -80,7 +87,14 @@ const REFERENCE_LIMIT = 400; // chars kept for REFERENCE decisions
 const LABEL_DEFERRED  = "[section deferred — not included in this context budget]";
 const LABEL_DROPPED   = "[section excluded — not relevant for this task type]";
 
-function applyDecision(content: string, decision: AdmissionDecision): string {
+function applyDecision(
+  content: string,
+  decision: AdmissionDecision,
+  healthStatus?: string,
+): string {
+  // Never turn a failed or skipped query into an ordinary budget label. The
+  // model must retain the distinction between unavailable data and no data.
+  const preserveHealth = healthStatus === "load_failed" || healthStatus === "not_requested";
   switch (decision) {
     case "ADMIT":
       return content;
@@ -89,10 +103,105 @@ function applyDecision(content: string, decision: AdmissionDecision): string {
         ? content
         : `${content.slice(0, REFERENCE_LIMIT)}…[brief — see full context for details]`;
     case "DEFER":
-      return LABEL_DEFERRED;
+      return preserveHealth ? `${content}\n${LABEL_DEFERRED}` : LABEL_DEFERRED;
     case "DROP":
-      return LABEL_DROPPED;
+      return preserveHealth ? `${content}\n${LABEL_DROPPED}` : LABEL_DROPPED;
   }
+}
+
+const HEALTH_TO_SLICE: Record<string, SliceId> = {
+  tasks: "recentTasks",
+  metrics: "latestMetrics",
+  graphEntities: "graphSummary",
+  graphRelationships: "graphSummary",
+  events: "recentEvents",
+  workflows: "workflows",
+};
+
+function assembleContext(
+  base: ProjectContext,
+  contextObject: ContextObject,
+  lifetimeStates: readonly SliceLifetimeState[],
+): ProjectContext {
+  const sliceMap = new Map(contextObject.plan.slices.map((s) => [s.id, s]));
+  const health = base.contextHealth
+    ? Object.fromEntries(
+        Object.entries(base.contextHealth).map(([section, value]) => {
+          const slice = sliceMap.get(HEALTH_TO_SLICE[section] ?? "project");
+          const state = lifetimeStates.find((candidate) => candidate.sliceId === slice?.id);
+          return [
+            section,
+            {
+              ...value,
+              ...(slice ? { admissionDecision: slice.admissionDecision } : {}),
+              ...(state ? { lifetimeStage: state.stage } : {}),
+              ...(state?.stage === "stale" && value.status === "loaded"
+                ? { freshness: "stale" as const }
+                : {}),
+            },
+          ];
+        }),
+      ) as ProjectContext["contextHealth"]
+    : undefined;
+
+  const result: ProjectContext = {
+    ...base,
+    project: applyDecision(sliceMap.get("project")!.content, sliceMap.get("project")!.admissionDecision),
+    recentTasks: applyDecision(
+      sliceMap.get("recentTasks")!.content,
+      sliceMap.get("recentTasks")!.admissionDecision,
+      health?.tasks?.status,
+    ),
+    latestMetrics: applyDecision(
+      sliceMap.get("latestMetrics")!.content,
+      sliceMap.get("latestMetrics")!.admissionDecision,
+      health?.metrics?.status,
+    ),
+    graphSummary: applyDecision(
+      sliceMap.get("graphSummary")!.content,
+      sliceMap.get("graphSummary")!.admissionDecision,
+      health?.graphEntities?.status === "load_failed" || health?.graphRelationships?.status === "load_failed"
+        ? "load_failed"
+        : health?.graphEntities?.status === "not_requested" && health?.graphRelationships?.status === "not_requested"
+          ? "not_requested"
+          : undefined,
+    ),
+    recentEvents: applyDecision(
+      sliceMap.get("recentEvents")!.content,
+      sliceMap.get("recentEvents")!.admissionDecision,
+      health?.events?.status,
+    ),
+    workflows: applyDecision(
+      sliceMap.get("workflows")!.content,
+      sliceMap.get("workflows")!.admissionDecision,
+      health?.workflows?.status,
+    ),
+    ...(health ? { contextHealth: health } : {}),
+  };
+  return result;
+}
+
+function emitLifetimeTrace(
+  projectId: string,
+  states: readonly SliceLifetimeState[],
+  source: "fresh" | "cache",
+): void {
+  console.info(
+    JSON.stringify({
+      scope: "context-builder",
+      action: "lifetime_trace",
+      projectId,
+      source,
+      states: states.slice(0, 12).map((state) => ({
+        slice: state.sliceId,
+        stage: state.stage,
+        originalDecision: state.originalDecision,
+        effectiveDecision: state.effectiveDecision,
+        ageMs: Math.round(state.ageMs),
+      })),
+      demoted: states.filter((state) => state.effectiveDecision !== state.originalDecision).length,
+    }),
+  );
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -114,7 +223,20 @@ export async function buildProjectContext(
   const now = Date.now();
   const cacheMode = effectivePlan.cacheMode;
   const cached = getCachedContext(cacheKey, cacheMode);
-  if (cached && cached.expiresAt > now) return cached.data;
+  if (cached && cached.expiresAt > now) {
+    if (cached.runtime) {
+      const lifetime = applyLifetime(
+        cached.runtime.contextObject,
+        options.lifetimePolicy ?? DEFAULT_LIFETIME_POLICY,
+        now,
+      );
+      emitLifetimeTrace(projectId, lifetime.states, "cache");
+      const cachedResult = assembleContext(cached.runtime.baseContext, lifetime.contextObject, lifetime.states);
+      warnIfContextTooLarge(projectId, cachedResult);
+      return trimContextToFit(projectId, cachedResult, options.maxChars);
+    }
+    return cached.data;
+  }
 
   // Load raw DB rows and serialize to prompt strings.
   const loaded = await loadProjectContext(projectId, { ...options, sections });
@@ -133,6 +255,8 @@ export async function buildProjectContext(
     return buildSlice(id, content, {
       source:          meta?.source ?? `db:${id}`,
       freshness:       meta?.freshness ?? (content.startsWith("[") ? "missing" : "fresh"),
+      healthStatus:    meta?.status ?? "loaded",
+      ...(meta?.failureCode ? { failureCode: meta.failureCode } : {}),
       loadedAt:        meta?.loadedAt ?? now,
       dependencyHints,
     });
@@ -146,10 +270,14 @@ export async function buildProjectContext(
     graphBudgetTokens: effectivePlan.graphBudget,
   };
 
-  // Run admission: every slice receives an explicit ADMIT/REFERENCE/DEFER/DROP.
-  const contextObject = runAdmission(contextPlan, effectivePlan);
-  const sliceMap = new Map(contextObject.plan.slices.map((s) => [s.id, s]));
-
+  // Run admission, then apply age policy before assembling the final prompt.
+  const admittedObject = runAdmission(contextPlan, effectivePlan);
+  const lifetime = applyLifetime(
+    admittedObject,
+    options.lifetimePolicy ?? DEFAULT_LIFETIME_POLICY,
+    now,
+  );
+  const contextObject = lifetime.contextObject;
   // Trace context admission decisions for diagnostics.
   console.info(
     JSON.stringify({
@@ -180,20 +308,41 @@ export async function buildProjectContext(
       })),
     }),
   );
+  emitLifetimeTrace(projectId, lifetime.states, "fresh");
 
   // Assemble the final ProjectContext from admission decisions.
-  const result: ProjectContext = {
-    project:        applyDecision(sliceMap.get("project")!.content,       sliceMap.get("project")!.admissionDecision),
-    recentTasks:    applyDecision(sliceMap.get("recentTasks")!.content,   sliceMap.get("recentTasks")!.admissionDecision),
-    latestMetrics:  applyDecision(sliceMap.get("latestMetrics")!.content, sliceMap.get("latestMetrics")!.admissionDecision),
-    graphSummary:   applyDecision(sliceMap.get("graphSummary")!.content,  sliceMap.get("graphSummary")!.admissionDecision),
-    recentEvents:   applyDecision(sliceMap.get("recentEvents")!.content,  sliceMap.get("recentEvents")!.admissionDecision),
-    workflows:      applyDecision(sliceMap.get("workflows")!.content,     sliceMap.get("workflows")!.admissionDecision),
-    metricsVerified: loaded.scanVerified,
-    contextManifest: loaded.contextManifest,
-    ...(raw.sessionMemories !== undefined && { sessionMemories: raw.sessionMemories }),
-  };
+  const result = assembleContext(
+    {
+      ...raw,
+      metricsVerified: loaded.scanVerified,
+      contextManifest: loaded.contextManifest,
+    },
+    contextObject,
+    lifetime.states,
+  );
+  warnIfContextTooLarge(projectId, result);
+  const boundedResult = trimContextToFit(projectId, result, options.maxChars);
 
-  setCachedContext(cacheKey, result, cacheMode);
-  return result;
+  const hasLoadFailure = Object.values(raw.contextHealth ?? {}).some(
+    (health) => health.status === "load_failed",
+  );
+  if (!hasLoadFailure) {
+    const runtime: ContextCacheRuntime = {
+      contextObject: admittedObject,
+      baseContext: {
+        ...raw,
+        metricsVerified: loaded.scanVerified,
+        contextManifest: loaded.contextManifest,
+      },
+    };
+    setCachedContext(cacheKey, boundedResult, cacheMode, runtime);
+  } else {
+    console.info(JSON.stringify({
+      scope: "context-builder",
+      action: "cache_skip",
+      projectId,
+      reason: "load_failed",
+    }));
+  }
+  return boundedResult;
 }

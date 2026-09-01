@@ -86,3 +86,4 @@
 - [Dashboard effect fixtures](dashboard-test-effect-fixtures.md) — Strict Mode replay needs fresh network responses and cleanup-safe in-flight markers.
 - [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
+- [Context slice health](context-slice-health.md) — keep empty, skipped, loaded, and failed reads distinct from freshness and admission state.

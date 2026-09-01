@@ -69,6 +69,8 @@ export type GraphRelationshipRow = Pick<
 export type SliceMetadata = {
   /** Origin label, e.g. "db:tasks", "db:graph_entities". */
   source: string;
+  /** Distinguishes an empty result from a failed or skipped load. */
+  status: "not_requested" | "empty" | "loaded" | "load_failed";
   /** Whether the section yielded actual data or came back empty. */
   freshness: "fresh" | "stale" | "missing";
   /** Unix ms timestamp when this section was loaded. */
@@ -77,6 +79,20 @@ export type SliceMetadata = {
   rowCount: number;
   /** Related sections that must also be loaded to render this section fully. */
   dependencyHints: ContextLoadSection[];
+  /** Safe, bounded category for a failed load; raw DB errors never cross the boundary. */
+  failureCode?: ContextLoadFailureCode;
+};
+
+export type ContextLoadFailureCode =
+  | "QUERY_FAILED"
+  | "QUERY_TIMEOUT"
+  | "QUERY_UNAVAILABLE"
+  | "QUERY_CANCELLED";
+
+type SafeLoadResult<T> = {
+  value: T;
+  status: "loaded" | "empty" | "load_failed";
+  failureCode?: ContextLoadFailureCode;
 };
 
 // ─── Section gating ───────────────────────────────────────────────────────────
@@ -142,21 +158,44 @@ async function safeLoad<T>(
   fallback: T,
   label: string,
   projectId: string,
-): Promise<T> {
+): Promise<SafeLoadResult<T>> {
   try {
-    return await load();
+    const value = await load();
+    const empty =
+      Array.isArray(value) ? value.length === 0 : value === undefined || value === null;
+    return { value, status: empty ? "empty" : "loaded" };
   } catch (err) {
+    const failureCode = classifyLoadFailure(err);
     console.warn(
       JSON.stringify({
         scope: "context-loader",
         code: "QUERY_DEGRADED",
         query: label,
         projectId,
-        error: String(err),
+        failureCode,
       }),
     );
-    return fallback;
+    return { value: fallback, status: "load_failed", failureCode };
   }
+}
+
+function classifyLoadFailure(error: unknown): ContextLoadFailureCode {
+  const candidate = error as { code?: unknown; name?: unknown };
+  const code = String(candidate?.code ?? "").toUpperCase();
+  const name = String(candidate?.name ?? "").toLowerCase();
+  if (code === "57014" || code.includes("TIMEOUT") || name.includes("timeout")) {
+    return "QUERY_TIMEOUT";
+  }
+  if (
+    code === "ECONNRESET" ||
+    code === "ECONNREFUSED" ||
+    code === "57P01" ||
+    name.includes("unavailable")
+  ) {
+    return "QUERY_UNAVAILABLE";
+  }
+  if (name.includes("abort") || code === "57012") return "QUERY_CANCELLED";
+  return "QUERY_FAILED";
 }
 
 // ─── Domain loaders ───────────────────────────────────────────────────────────
@@ -317,12 +356,12 @@ export async function loadProjectContext(
 
       const [
         project,
-        rawTasks,
-        latestMetric,
-        { entities, relationships },
-        recentEvents,
-        rawWorkflows,
-        latestScanJob,
+        tasksResult,
+        metricsResult,
+        graphResult,
+        eventsResult,
+        workflowsResult,
+        scanResult,
       ] = await Promise.all([
         loadProject(q, projectId), // throws on missing project
         wants("tasks")
@@ -332,7 +371,10 @@ export async function loadProjectContext(
               "tasks",
               projectId,
             )
-          : Promise.resolve([] as TaskRow[]),
+          : Promise.resolve<SafeLoadResult<TaskRow[]>>({
+              value: [],
+              status: "empty",
+            }),
         wants("metrics")
           ? safeLoad(
               () => loadMetrics(q, projectId),
@@ -340,19 +382,30 @@ export async function loadProjectContext(
               "metrics",
               projectId,
             )
-          : Promise.resolve(undefined as MetricRow | undefined),
-        safeLoad(
-          () =>
-            loadGraph(
-              q,
+          : Promise.resolve<SafeLoadResult<MetricRow | undefined>>({
+              value: undefined,
+              status: "empty",
+            }),
+        (wants("graphEntities") || wants("graphRelationships"))
+          ? safeLoad(
+              () =>
+                loadGraph(
+                  q,
+                  projectId,
+                  wants("graphEntities"),
+                  wants("graphRelationships"),
+                ),
+              { entities: [] as GraphEntityRow[], relationships: [] as GraphRelationshipRow[] },
+              "graph",
               projectId,
-              wants("graphEntities"),
-              wants("graphRelationships"),
-            ),
-          { entities: [] as GraphEntityRow[], relationships: [] as GraphRelationshipRow[] },
-          "graph",
-          projectId,
-        ),
+            )
+          : Promise.resolve<SafeLoadResult<{
+              entities: GraphEntityRow[];
+              relationships: GraphRelationshipRow[];
+            }>>({
+              value: { entities: [], relationships: [] },
+              status: "empty",
+            }),
         wants("events")
           ? safeLoad(
               () => loadEvents(q, projectId),
@@ -360,7 +413,10 @@ export async function loadProjectContext(
               "events",
               projectId,
             )
-          : Promise.resolve([] as EventRow[]),
+          : Promise.resolve<SafeLoadResult<EventRow[]>>({
+              value: [],
+              status: "empty",
+            }),
         wants("workflows")
           ? safeLoad(
               () => loadWorkflow(q, projectId),
@@ -368,7 +424,10 @@ export async function loadProjectContext(
               "workflows",
               projectId,
             )
-          : Promise.resolve([] as WorkflowRow[]),
+          : Promise.resolve<SafeLoadResult<WorkflowRow[]>>({
+              value: [],
+              status: "empty",
+            }),
         safeLoad(
           () => loadScanJobs(q, projectId),
           undefined,
@@ -377,50 +436,84 @@ export async function loadProjectContext(
         ),
       ]);
 
-      const scanResult = latestScanJob?.result;
+      const rawTasks = tasksResult.value;
+      const latestMetric = metricsResult.value;
+      const { entities, relationships } = graphResult.value;
+      const recentEvents = eventsResult.value;
+      const rawWorkflows = workflowsResult.value;
+
+      const latestScanJob = scanResult.value;
+      const scanResultRow = latestScanJob?.result;
       const scanVerified =
         latestScanJob?.status === "completed" &&
-        scanResult?.scanCompleteness !== "PARTIAL";
+        scanResultRow?.scanCompleteness !== "PARTIAL";
       const legacyRevision =
         latestScanJob?.finishedAt?.toISOString() ??
         (project.updatedAt instanceof Date ? project.updatedAt.toISOString() : String(Date.now()));
       const contextManifest = {
         projectId,
         projectRevision:
-          typeof scanResult?.projectRevision === "string"
-            ? scanResult.projectRevision
+            typeof scanResultRow?.projectRevision === "string"
+              ? scanResultRow.projectRevision
             : latestScanJob?.status === "completed"
               ? `legacy-scan:${legacyRevision}`
               : `unscanned:${legacyRevision}`,
         scanCompleteness:
           latestScanJob?.status !== "completed"
             ? "UNAVAILABLE" as const
-            : scanResult?.scanCompleteness === "PARTIAL"
+            : scanResultRow?.scanCompleteness === "PARTIAL"
               ? "PARTIAL" as const
-              : scanResult?.scanCompleteness === "COMPLETE"
+              : scanResultRow?.scanCompleteness === "COMPLETE"
                 ? "COMPLETE" as const
                 : "UNAVAILABLE" as const,
         sourceProvenance:
-          typeof scanResult?.sourceProvenance === "string"
-            ? scanResult.sourceProvenance
+          typeof scanResultRow?.sourceProvenance === "string"
+            ? scanResultRow.sourceProvenance
             : latestScanJob?.status === "completed" ? "filesystem-scan:legacy" : "project-record",
-        ...(typeof scanResult?.scanCorrelationId === "string" && { scanCorrelationId: scanResult.scanCorrelationId }),
-        ...(typeof scanResult?.scannerVersion === "string" && { scannerVersion: scanResult.scannerVersion }),
-        ...(scanResult?.repositoryManifest
-          ? { repositoryManifest: scanResult.repositoryManifest as RepositoryRevisionManifest }
+        ...(typeof scanResultRow?.scanCorrelationId === "string" && { scanCorrelationId: scanResultRow.scanCorrelationId }),
+        ...(typeof scanResultRow?.scannerVersion === "string" && { scannerVersion: scanResultRow.scannerVersion }),
+        ...(scanResultRow?.repositoryManifest
+          ? { repositoryManifest: scanResultRow.repositoryManifest as RepositoryRevisionManifest }
           : {}),
         capturedAt: new Date().toISOString(),
       };
 
       const loadedAt = Date.now();
       const _meta = new Map<ContextLoadSection | "project", SliceMetadata>();
-      _meta.set("project", { source: "db:projects", freshness: "fresh", loadedAt, rowCount: 1, dependencyHints: [] });
-      if (wants("tasks"))              _meta.set("tasks",              { source: "db:tasks",               freshness: rawTasks.length > 0 ? "fresh" : "missing",         loadedAt, rowCount: rawTasks.length,            dependencyHints: [] });
-      if (wants("metrics"))            _meta.set("metrics",            { source: "db:metrics",             freshness: latestMetric != null ? "fresh" : "missing",        loadedAt, rowCount: latestMetric != null ? 1 : 0, dependencyHints: [] });
-      if (wants("graphEntities"))      _meta.set("graphEntities",      { source: "db:graph_entities",      freshness: entities.length > 0 ? "fresh" : "missing",         loadedAt, rowCount: entities.length,           dependencyHints: ["graphRelationships"] });
-      if (wants("graphRelationships")) _meta.set("graphRelationships", { source: "db:graph_relationships", freshness: relationships.length > 0 ? "fresh" : "missing",    loadedAt, rowCount: relationships.length,       dependencyHints: ["graphEntities"] });
-      if (wants("events"))             _meta.set("events",             { source: "db:events",              freshness: recentEvents.length > 0 ? "fresh" : "missing",     loadedAt, rowCount: recentEvents.length,        dependencyHints: [] });
-      if (wants("workflows"))          _meta.set("workflows",          { source: "db:workflows",           freshness: rawWorkflows.length > 0 ? "fresh" : "missing",     loadedAt, rowCount: rawWorkflows.length,        dependencyHints: [] });
+      _meta.set("project", { source: "db:projects", status: "loaded", freshness: "fresh", loadedAt, rowCount: 1, dependencyHints: [] });
+
+      const setMeta = (
+        section: ContextLoadSection,
+        source: string,
+        result: SafeLoadResult<unknown>,
+        rowCount: number,
+        dependencyHints: ContextLoadSection[] = [],
+      ) => {
+        const requested = wants(section);
+        _meta.set(section, {
+          source,
+          status: requested ? result.status : "not_requested",
+          freshness: requested && result.status === "loaded" ? "fresh" : "missing",
+          loadedAt,
+          rowCount: requested ? rowCount : 0,
+          dependencyHints,
+          ...(requested && result.failureCode ? { failureCode: result.failureCode } : {}),
+        });
+      };
+
+      setMeta("tasks", "db:tasks", tasksResult, rawTasks.length);
+      setMeta("metrics", "db:metrics", metricsResult, latestMetric != null ? 1 : 0);
+      const graphResultFor = (rowCount: number): SafeLoadResult<unknown> => ({
+        value: rowCount,
+        status: graphResult.status === "load_failed"
+          ? "load_failed"
+          : rowCount > 0 ? "loaded" : "empty",
+        ...(graphResult.failureCode ? { failureCode: graphResult.failureCode } : {}),
+      });
+      setMeta("graphEntities", "db:graph_entities", graphResultFor(entities.length), entities.length, ["graphRelationships"]);
+      setMeta("graphRelationships", "db:graph_relationships", graphResultFor(relationships.length), relationships.length, ["graphEntities"]);
+      setMeta("events", "db:events", eventsResult, recentEvents.length);
+      setMeta("workflows", "db:workflows", workflowsResult, rawWorkflows.length);
       const sliceMetadata: ReadonlyMap<ContextLoadSection | "project", SliceMetadata> = _meta;
 
       return {

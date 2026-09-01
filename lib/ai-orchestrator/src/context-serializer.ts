@@ -2,10 +2,55 @@ import type { AgentContext as ProjectContext } from "./schemas/context.schema.js
 import type {
   LoadedProjectContext,
   GraphEntityRow,
+  ContextLoadSection,
 } from "./context-loader.js";
+import type { ContextHealth, ContextSliceHealth } from "./schemas/context.schema.js";
 
 function buildMissingSummary(section: string): string {
   return `${section} not loaded — request it through buildProjectContext({ sections: [...] })`;
+}
+
+function buildSliceSummary(
+  loaded: LoadedProjectContext,
+  section: ContextLoadSection,
+  label: string,
+  emptyMessage: string,
+): string | undefined {
+  const metadata = loaded.sliceMetadata.get(section);
+  if (!metadata || metadata.status === "not_requested") {
+    return buildMissingSummary(label);
+  }
+  if (metadata.status === "load_failed") {
+    return `${label} unavailable — context load failed (${metadata.failureCode ?? "QUERY_FAILED"}); do not infer that this project has no ${label.toLowerCase()}.`;
+  }
+  if (metadata.status === "empty") return emptyMessage;
+  return undefined;
+}
+
+function buildContextHealth(loaded: LoadedProjectContext): ContextHealth {
+  const sections = [
+    "tasks",
+    "metrics",
+    "graphEntities",
+    "graphRelationships",
+    "events",
+    "workflows",
+  ] as const;
+  const health = Object.fromEntries(
+    sections.map((section) => {
+      const metadata = loaded.sliceMetadata.get(section);
+      const value: ContextSliceHealth = {
+        status: metadata?.status ?? "not_requested",
+        source: metadata?.source ?? `db:${section}`,
+        rowCount: metadata?.rowCount ?? 0,
+        loadedAt: metadata?.loadedAt ?? 0,
+        freshness: metadata?.freshness ?? "missing",
+        ...(metadata?.failureCode ? { failureCode: metadata.failureCode } : {}),
+      };
+      return [section, value];
+    }),
+  ) as ContextHealth;
+  return health;
 }
 
 // Priority rank map: lower number = higher urgency (P0 is most urgent).
@@ -58,7 +103,14 @@ function buildProjectSummary(loaded: LoadedProjectContext): string {
 }
 
 function buildTaskSummary(loaded: LoadedProjectContext): string {
-  const { rawTasks, wants } = loaded;
+  const { rawTasks } = loaded;
+  const stateSummary = buildSliceSummary(
+    loaded,
+    "tasks",
+    "Tasks",
+    "No tasks yet — the tasks query returned no rows; this is not evidence that no tasks exist.",
+  );
+  if (stateSummary) return stateSummary;
   const sortedTasks = [...rawTasks]
     .sort((a, b) => {
       const pa = PRIORITY_RANK[a.priority] ?? 99;
@@ -79,21 +131,20 @@ function buildTaskSummary(loaded: LoadedProjectContext): string {
     return `- ${head}${suffix}${body}`;
   });
 
-  return wants("tasks")
-    ? taskLines.length > 0
-      ? taskLines.join("\n")
-      : "No tasks yet"
-    : buildMissingSummary("Tasks");
+  return taskLines.length > 0 ? taskLines.join("\n") : "No tasks yet";
 }
 
 function buildMetricsSummary(loaded: LoadedProjectContext): string {
-  const { latestMetric, scanVerified, wants } = loaded;
-  if (!wants("metrics")) {
-    return buildMissingSummary("Metrics");
-  }
-
+  const { latestMetric, scanVerified } = loaded;
+  const stateSummary = buildSliceSummary(
+    loaded,
+    "metrics",
+    "Metrics",
+    "No metrics available yet — the metrics query returned no rows; this is not evidence that the project has no metrics.",
+  );
+  if (stateSummary) return stateSummary;
   if (!latestMetric) {
-    return "No metrics available yet — a scan has not been run for this project.";
+    return "No metrics available yet — the metrics query returned no rows; this is not evidence that the project has no metrics.";
   }
 
   const fmt = (v: number | null | undefined) =>
@@ -136,9 +187,26 @@ function buildMetricsSummary(loaded: LoadedProjectContext): string {
 }
 
 function buildGraphSummary(loaded: LoadedProjectContext): string {
-  const { entities, relationships, wants } = loaded;
-  if (!wants("graphEntities") && !wants("graphRelationships")) {
+  const { entities, relationships } = loaded;
+  const entityState = buildSliceSummary(
+    loaded,
+    "graphEntities",
+    "Graph entities",
+    "Graph entities empty — the query returned no rows; this is not evidence that the project has no entities.",
+  );
+  const relationshipState = buildSliceSummary(
+    loaded,
+    "graphRelationships",
+    "Graph relationships",
+    "Graph relationships empty — the query returned no rows; this is not evidence that the project has no relationships.",
+  );
+  const entityRequested = loaded.sliceMetadata.get("graphEntities")?.status !== "not_requested";
+  const relationshipRequested = loaded.sliceMetadata.get("graphRelationships")?.status !== "not_requested";
+  if (!entityRequested && !relationshipRequested) {
     return buildMissingSummary("Knowledge graph");
+  }
+  if (entities.length === 0 && relationships.length === 0) {
+    return [entityState, relationshipState].filter(Boolean).join("\n");
   }
 
   const entityGroups: Record<string, GraphEntityRow[]> = {};
@@ -221,13 +289,23 @@ function buildGraphSummary(loaded: LoadedProjectContext): string {
     provenanceHeader = `Provenance: ${provParts}\nConfidence: ${confParts}\n`;
   }
 
-  return entities.length > 0
+  const notices = [entityState, relationshipState]
+    .filter((notice): notice is string => typeof notice === "string")
+    .join("\n");
+  return `${notices ? `${notices}\n` : ""}${entities.length > 0
     ? `${provenanceHeader}${entities.length} entities total:\n${entityLines.join("\n")}${relSummary}`
-    : "Knowledge graph empty — run a scan first";
+    : relationshipState ?? "Knowledge graph empty — the graph query returned no rows."}`;
 }
 
 function buildEventSummary(loaded: LoadedProjectContext): string {
-  const { recentEvents, wants } = loaded;
+  const { recentEvents } = loaded;
+  const stateSummary = buildSliceSummary(
+    loaded,
+    "events",
+    "Recent events",
+    "No recent events — the events query returned no rows; this is not evidence that no events exist.",
+  );
+  if (stateSummary) return stateSummary;
   const eventLines = recentEvents.map((e) => {
     const ts = e.timestamp.toISOString().slice(0, 16).replace("T", " ");
     const refs: string[] = [];
@@ -238,15 +316,18 @@ function buildEventSummary(loaded: LoadedProjectContext): string {
     return `- [${e.severity.toUpperCase()}] ${ts} ${e.type}: ${e.message}${refStr}`;
   });
 
-  return wants("events")
-    ? eventLines.length > 0
-      ? eventLines.join("\n")
-      : "No recent events"
-    : buildMissingSummary("Recent events");
+  return eventLines.length > 0 ? eventLines.join("\n") : "No recent events";
 }
 
 function buildWorkflowSummary(loaded: LoadedProjectContext): string {
-  const { rawWorkflows, wants } = loaded;
+  const { rawWorkflows } = loaded;
+  const stateSummary = buildSliceSummary(
+    loaded,
+    "workflows",
+    "Workflows",
+    "No workflows defined yet — the workflows query returned no rows; this is not evidence that no workflows exist.",
+  );
+  if (stateSummary) return stateSummary;
   const workflowLines = rawWorkflows.map((w) => {
     const phases = Array.isArray(w.phases) ? w.phases : [];
     const phaseNames = phases.map((p) => p.name).join(" → ");
@@ -258,11 +339,7 @@ function buildWorkflowSummary(loaded: LoadedProjectContext): string {
     return `- [${w.status.toUpperCase()}] ${w.name}${current}${executions}${lastRun}${phaseNames ? ` | phases: ${phaseNames}` : ""}`;
   });
 
-  return wants("workflows")
-    ? workflowLines.length > 0
-      ? workflowLines.join("\n")
-      : "No workflows defined yet"
-    : buildMissingSummary("Workflows");
+  return workflowLines.length > 0 ? workflowLines.join("\n") : "No workflows defined yet";
 }
 
 export function buildProjectContextFromLoadedContext(
@@ -276,5 +353,6 @@ export function buildProjectContextFromLoadedContext(
     graphSummary: buildGraphSummary(loaded),
     recentEvents: buildEventSummary(loaded),
     metricsVerified: loaded.scanVerified,
+    contextHealth: buildContextHealth(loaded),
   };
 }

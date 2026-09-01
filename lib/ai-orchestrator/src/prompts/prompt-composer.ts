@@ -88,8 +88,26 @@ export function promptContextOverview(
     for (const section of PROFILE_SECTIONS[profile]) sections.add(section);
   }
   const includeSessionMemory = options.includeSessionMemory ?? true;
+  const contextHealth = context.contextHealth
+    ? Object.entries(context.contextHealth)
+        .map(([section, health]) => {
+          const details = [
+            `status=${health.status}`,
+            `freshness=${health.freshness}`,
+            health.lifetimeStage ? `lifetime=${health.lifetimeStage}` : "",
+            health.admissionDecision ? `decision=${health.admissionDecision}` : "",
+            health.failureCode ? `failure=${health.failureCode}` : "",
+          ].filter(Boolean).join(" ");
+          return `- ${section}: ${details}`;
+        })
+        .join("\n")
+    : undefined;
 
   return composePrompt(
+    ...(contextHealth ? [promptSection(
+      "Context Health",
+      `${contextHealth}\nUnavailable or not-requested sections are not evidence that the project lacks those records.`,
+    )] : []),
     ...(sections.has("project") ? [promptEvidenceSection("Project", context.project, "source")] : []),
     ...(sections.has("latestMetrics") ? [promptEvidenceSection("Quality Metrics", context.latestMetrics, "provider_diagnostic")] : []),
     ...(sections.has("graphSummary") ? [promptEvidenceSection("Knowledge Graph", context.graphSummary, "source")] : []),

@@ -26,6 +26,11 @@ export type SliceId =
  * DROP      — excluded entirely; not relevant or too stale for this task type.
  */
 export type AdmissionDecision = "ADMIT" | "REFERENCE" | "DEFER" | "DROP";
+export type ContextSliceHealthStatus =
+  | "not_requested"
+  | "empty"
+  | "loaded"
+  | "load_failed";
 
 export type ContextSlice = {
   id: SliceId;
@@ -37,6 +42,10 @@ export type ContextSlice = {
   estimatedTokens: number;
   /** Freshness assessment from the loader. */
   freshness: "fresh" | "stale" | "missing";
+  /** Load outcome retained alongside the serialized content. */
+  healthStatus: ContextSliceHealthStatus;
+  /** Safe bounded failure category, present only when healthStatus is load_failed. */
+  failureCode?: string;
   /** Unix ms timestamp when this slice was loaded from the DB. */
   loadedAt: number;
   /** Other slices whose full rendering depends on this slice being admitted. */
@@ -80,6 +89,8 @@ export function buildSlice(
   opts: {
     source: string;
     freshness?: ContextSlice["freshness"];
+    healthStatus?: ContextSlice["healthStatus"];
+    failureCode?: string;
     loadedAt?: number;
     dependencyHints?: SliceId[];
   },
@@ -90,6 +101,8 @@ export function buildSlice(
     content,
     estimatedTokens: estimateTokens(content),
     freshness: opts.freshness ?? "fresh",
+    healthStatus: opts.healthStatus ?? "loaded",
+    ...(opts.failureCode ? { failureCode: opts.failureCode } : {}),
     loadedAt: opts.loadedAt ?? Date.now(),
     dependencyHints: opts.dependencyHints ?? [],
     admissionDecision: "ADMIT",

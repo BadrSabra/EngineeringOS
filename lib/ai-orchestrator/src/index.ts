@@ -394,7 +394,7 @@ export type { ProjectContext, BuildContextOptions } from "./context-builder.js";
 export type { SliceId, AdmissionDecision, ContextSlice, ContextPlan, ContextObject } from "./context-runtime/context-object.js";
 export { buildSlice, estimateTokens } from "./context-runtime/context-object.js";
 export { runAdmission } from "./context-runtime/context-admission.js";
-export type { SliceMetadata } from "./context-loader.js";
+export type { SliceMetadata, ContextLoadFailureCode } from "./context-loader.js";
 
 export { buildContextCacheKey, getCachedContext, setCachedContext } from "./context-cache-manager.js";
 export type { NotifyPool, NotifyPoolClient } from "./context-cache-manager.js";
@@ -505,7 +505,24 @@ export type { SliceFingerprint, ContextSnapshot, SliceChangeKind, SliceDelta, Co
 export { loadProjectContext } from "./context-loader.js";
 export type { BuildProjectContextOptions, ContextLoadSection, LoadedProjectContext } from "./context-loader.js";
 export { buildProjectContextFromLoadedContext } from "./context-serializer.js";
-export { CONTEXT_WARN_CHARS, estimateContextSize, warnIfContextTooLarge } from "./context-compressor.js";
+export {
+  CONTEXT_WARN_CHARS,
+  estimateContextSize,
+  warnIfContextTooLarge,
+  trimContextToFit,
+  compactGraphSummary,
+  compactWorkflowSummary,
+} from "./context-compressor.js";
+export {
+  ContextHealthSchema,
+  ContextSliceHealthSchema,
+  ContextSliceHealthStatusSchema,
+} from "./schemas/context.schema.js";
+export type {
+  ContextHealth,
+  ContextSliceHealth,
+  ContextSliceHealthStatus,
+} from "./schemas/context.schema.js";
 
 export {
   AgentContextSchema,

@@ -13,7 +13,12 @@
  *   if (delta.changedSlices.length > 0) { ... }
  */
 
-import type { SliceId, ContextObject, AdmissionDecision } from "./context-object.js";
+import type {
+  SliceId,
+  ContextObject,
+  AdmissionDecision,
+  ContextSliceHealthStatus,
+} from "./context-object.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +31,8 @@ export type SliceFingerprint = {
   contentTail:       string;
   estimatedTokens:   number;
   admissionDecision: AdmissionDecision;
+  healthStatus:       ContextSliceHealthStatus;
+  failureCode?:       string;
   freshness:         "fresh" | "stale" | "missing";
   loadedAt:          number;
 };
@@ -43,6 +50,7 @@ export type SliceChangeKind =
   | "removed"    // present in prev, absent in next
   | "content"    // content changed (length or head/tail differ)
   | "decision"   // only admissionDecision changed
+  | "health"     // load outcome or failure category changed
   | "freshness"  // only freshness changed
   | "unchanged";
 
@@ -74,6 +82,8 @@ function fingerprint(
   content: string,
   tokens: number,
   decision: AdmissionDecision,
+  healthStatus: ContextSliceHealthStatus,
+  failureCode: string | undefined,
   freshness: "fresh" | "stale" | "missing",
   loadedAt: number,
 ): SliceFingerprint {
@@ -84,6 +94,8 @@ function fingerprint(
     contentTail:       content.length > HEAD_TAIL_LEN ? content.slice(-HEAD_TAIL_LEN) : "",
     estimatedTokens:   tokens,
     admissionDecision: decision,
+    healthStatus,
+    ...(failureCode ? { failureCode } : {}),
     freshness,
     loadedAt,
   };
@@ -100,6 +112,7 @@ function contentEqual(a: SliceFingerprint, b: SliceFingerprint): boolean {
 function classifyChange(prev: SliceFingerprint, next: SliceFingerprint): SliceChangeKind {
   if (!contentEqual(prev, next))                    return "content";
   if (prev.admissionDecision !== next.admissionDecision) return "decision";
+  if (prev.healthStatus !== next.healthStatus || prev.failureCode !== next.failureCode) return "health";
   if (prev.freshness         !== next.freshness)    return "freshness";
   return "unchanged";
 }
@@ -127,6 +140,8 @@ export function takeSnapshot(contextObject: ContextObject): ContextSnapshot {
         slice.content,
         slice.estimatedTokens,
         slice.admissionDecision,
+        slice.healthStatus,
+        slice.failureCode,
         slice.freshness,
         slice.loadedAt,
       ),

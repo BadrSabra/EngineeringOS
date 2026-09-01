@@ -2,9 +2,23 @@ import type { AgentContext as ProjectContext } from "./schemas/context.schema.js
 import type { ExecutionPlan } from "./model-selection/execution-plan.js";
 import type { CacheMode } from "./model-selection/execution-plan.js";
 import type { SliceId } from "./context-runtime/context-object.js";
+import type { ContextObject } from "./context-runtime/context-object.js";
 
 const CONTEXT_CACHE_TTL_MS = 30_000;
-const contextCache = new Map<string, { data: ProjectContext; expiresAt: number }>();
+export type ContextCacheRuntime = {
+  /** Unassembled slices retained so age policy can run on cache hits. */
+  contextObject: ContextObject;
+  /** Context strings before admission decisions are applied. */
+  baseContext: ProjectContext;
+};
+
+export type CachedContext = {
+  data: ProjectContext;
+  expiresAt: number;
+  runtime?: ContextCacheRuntime;
+};
+
+const contextCache = new Map<string, CachedContext>();
 
 let _invalidationNotifier: ((projectId: string) => void) | null = null;
 
@@ -88,7 +102,7 @@ export function invalidateContextSlice(projectId: string, sliceId: SliceId): voi
 export function getCachedContext(
   cacheKey: string,
   cacheMode: CacheMode = "normal",
-): { data: ProjectContext; expiresAt: number } | undefined {
+): CachedContext | undefined {
   if (cacheMode === "bypass") return undefined;
   return contextCache.get(cacheKey);
 }
@@ -97,12 +111,13 @@ export function setCachedContext(
   cacheKey: string,
   data: ProjectContext,
   cacheMode: CacheMode = "normal",
+  runtime?: ContextCacheRuntime,
 ): void {
   if (cacheMode === "bypass") return;
   const ttl = cacheMode === "aggressive"
     ? CONTEXT_CACHE_TTL_MS * 4
     : CONTEXT_CACHE_TTL_MS;
-  contextCache.set(cacheKey, { data, expiresAt: Date.now() + ttl });
+  contextCache.set(cacheKey, { data, expiresAt: Date.now() + ttl, runtime });
 }
 
 export function setInvalidationNotifier(fn: (projectId: string) => void): void {

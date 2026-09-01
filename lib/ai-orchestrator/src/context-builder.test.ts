@@ -14,17 +14,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // Module-level `const` are NOT initialised yet at that point (temporal dead
 // zone). vi.hoisted() runs its callback before hoisting and returns values that
 // ARE safe to reference inside a vi.mock factory.
-const { _tableData, _tableHits, _mockDb } = vi.hoisted(() => {
+const { _tableData, _tableErrors, _tableHits, _mockDb } = vi.hoisted(() => {
   const _tableData = new Map<object, unknown[]>();
+  const _tableErrors = new Map<object, unknown>();
   const _tableHits = new Map<object, number>();
 
-  function makeChain(rows: unknown[]): Record<string, unknown> {
+  function makeChain(table: object, rows: unknown[]): Record<string, unknown> {
     const c: Record<string, unknown> = {};
     // .where() and .orderBy() return the same chain (chainable, args ignored).
     c.where   = () => c;
     c.orderBy = () => c;
     // .limit() is the terminal call — resolves the Promise with the row array.
-    c.limit   = () => Promise.resolve(rows);
+    c.limit   = () => _tableErrors.has(table)
+      ? Promise.reject(_tableErrors.get(table))
+      : Promise.resolve(rows);
     return c;
   }
 
@@ -45,7 +48,7 @@ const { _tableData, _tableHits, _mockDb } = vi.hoisted(() => {
     select: () => ({
       from: (table: object) => {
         _tableHits.set(table, (_tableHits.get(table) ?? 0) + 1);
-        return makeChain(_tableData.get(table) ?? []);
+        return makeChain(table, _tableData.get(table) ?? []);
       },
     }),
     // PR-04: buildProjectContext now wraps all queries in db.transaction().
@@ -57,7 +60,7 @@ const { _tableData, _tableHits, _mockDb } = vi.hoisted(() => {
     ) => callback(_mockDb),
   };
 
-  return { _tableData, _tableHits, _mockDb };
+  return { _tableData, _tableErrors, _tableHits, _mockDb };
 });
 
 // ── Drizzle helper mock ───────────────────────────────────────────────────────
@@ -174,6 +177,7 @@ describe("buildProjectContext → AgentContextSchema", () => {
     invalidateContextCache(PROJECT_ID);
     // Reset DB data to a minimal valid state for each test.
     _tableData.clear();
+    _tableErrors.clear();
     _tableHits.clear();
     _tableData.set(projectsTable as object, [makeProject()]);
     _tableData.set(tasksTable as object, []);
@@ -272,6 +276,48 @@ describe("buildProjectContext → AgentContextSchema", () => {
     expect(() => AgentContextSchema.parse(ctx)).not.toThrow();
   });
 
+  it("distinguishes an empty query from a failed query", async () => {
+    _tableData.set(tasksTable as object, []);
+    _tableErrors.set(metricsTable as object, new Error("connection reset"));
+    invalidateContextCache(PROJECT_ID);
+
+    const ctx = await buildProjectContext(PROJECT_ID);
+
+    expect(ctx.recentTasks).toMatch(/No tasks yet/);
+    expect(ctx.recentTasks).not.toMatch(/unavailable/i);
+    expect(ctx.latestMetrics).toMatch(/unavailable/i);
+    expect(ctx.latestMetrics).toContain("QUERY_FAILED");
+    expect(ctx.latestMetrics).not.toContain("No metrics available yet");
+    expect(ctx.contextHealth?.tasks.status).toBe("empty");
+    expect(ctx.contextHealth?.metrics.status).toBe("load_failed");
+    expect(ctx.contextHealth?.metrics.failureCode).toBe("QUERY_FAILED");
+    expect(() => AgentContextSchema.parse(ctx)).not.toThrow();
+  });
+
+  it("does not cache a failed slice so a later retry can recover", async () => {
+    _tableErrors.set(tasksTable as object, new Error("temporary query failure"));
+    invalidateContextCache(PROJECT_ID);
+    const failed = await buildProjectContext(PROJECT_ID);
+    expect(failed.recentTasks).toMatch(/unavailable/i);
+
+    _tableErrors.delete(tasksTable as object);
+    _tableData.set(tasksTable as object, [{
+      id: "task-recovered",
+      projectId: PROJECT_ID,
+      title: "Recovered task",
+      status: "pending",
+      priority: "p1",
+      phase: null,
+      relatedFiles: [],
+      description: "The retry succeeded",
+      updatedAt: new Date("2026-07-18"),
+      createdAt: new Date("2026-07-01"),
+    }]);
+    const recovered = await buildProjectContext(PROJECT_ID);
+    expect(recovered.recentTasks).toContain("Recovered task");
+    expect(recovered.contextHealth?.tasks.status).toBe("loaded");
+  });
+
   it("includes scan-reliability label in the project field", async () => {
     const ctx = await buildProjectContext(PROJECT_ID);
     // With a completed scan job the builder marks the context as "completed".
@@ -328,6 +374,10 @@ describe("buildProjectContext → AgentContextSchema", () => {
     expect(ctx.recentEvents).toMatch(/not loaded/i);
     expect(ctx.workflows).toMatch(/not loaded/i);
     expect(ctx.graphSummary).toMatch(/not loaded/i);
+    expect(ctx.contextHealth?.tasks.status).toBe("not_requested");
+    expect(ctx.contextHealth?.metrics.status).toBe("loaded");
+    expect(ctx.contextHealth?.graphEntities.status).toBe("not_requested");
+    expect(ctx.contextHealth?.graphRelationships.status).toBe("not_requested");
 
     expect(_tableHits.get(projectsTable as object)).toBe(1);
     expect(_tableHits.get(metricsTable as object)).toBe(1);
@@ -350,6 +400,44 @@ describe("buildProjectContext → AgentContextSchema", () => {
     const second = await buildProjectContext(PROJECT_ID);
     expect(second.project).toBe(first.project);
     expect(second.project).not.toContain("MutatedProject");
+  });
+
+  it("re-evaluates lifetime policy on an unexpired cached context", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
+      _tableData.set(eventsTable as object, [{
+        id: "event-001",
+        projectId: PROJECT_ID,
+        type: "scan.completed",
+        severity: "info",
+        message: "Initial scan",
+        timestamp: new Date("2026-08-01"),
+        taskId: null,
+        workflowId: null,
+        correlationId: null,
+      }]);
+      invalidateContextCache(PROJECT_ID);
+      const plan = {
+        ...resolveExecutionDecision("chat-agent", {
+          contextIntensityOverride: "normal",
+        }),
+        cacheMode: "aggressive" as const,
+      };
+      const sections = ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"] as const;
+      await buildProjectContext(PROJECT_ID, { plan, sections: [...sections] });
+      const hitsAfterFirst = _tableHits.get(eventsTable as object) ?? 0;
+
+      vi.advanceTimersByTime(20_000);
+      const aged = await buildProjectContext(PROJECT_ID, { plan, sections: [...sections] });
+
+      expect(_tableHits.get(eventsTable as object)).toBe(hitsAfterFirst);
+      expect(aged.contextHealth?.events.lifetimeStage).toBe("stale");
+      expect(aged.contextHealth?.events.admissionDecision).toBe("REFERENCE");
+    } finally {
+      vi.useRealTimers();
+      invalidateContextCache(PROJECT_ID);
+    }
   });
 
   it("invalidateContextCache causes the next call to fetch fresh data from DB", async () => {
