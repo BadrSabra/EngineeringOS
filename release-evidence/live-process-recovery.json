@@ -1,0 +1,50 @@
+{
+  "kind": "live-api-process-recovery",
+  "version": 1,
+  "redacted": true,
+  "revision": "1268da51ddd3",
+  "build": {
+    "artifact": "artifacts/api-server/dist/index.mjs",
+    "sha256": "03104ed2181755e239d612812f393da99b481bf4ad3de86c0c5dcc20ec6a64e1"
+  },
+  "provider": {
+    "id": "gemini",
+    "model": "gemini-3-flash-preview",
+    "supportsTools": true,
+    "credential": "environment-only",
+    "fixtureProviderCredentialsForwarded": false
+  },
+  "command": {
+    "name": "test:process-recovery",
+    "runRealApiProcessRecovery": true,
+    "liveRecoveryProviderExplicit": true,
+    "timeoutMs": 180000
+  },
+  "result": {
+    "outcome": "passed",
+    "exitCode": 0,
+    "testFilesPassed": 1,
+    "testsPassed": 1,
+    "testsSkipped": 50,
+    "durationMs": 12900
+  },
+  "milestones": {
+    "initialHealth": "passed",
+    "checkpointPersistedBeforeStop": "passed",
+    "checkpointSequence": "non-zero",
+    "firstProcessStopped": "passed",
+    "restartHealthyWithinBound": "passed",
+    "sameExecutionResumedWithOriginalResumeIdentity": "passed",
+    "forensicResponse": "successful",
+    "expectedSourcePath": "src/process-recovery.ts",
+    "writeOperations": "none",
+    "sourceBytesUnchanged": true
+  },
+  "teardown": {
+    "disposableProjectRetired": true,
+    "generatedRootRetired": true,
+    "apiDescendantsSurviving": false,
+    "recoveryListenerOccupied": false,
+    "secretsRetained": false
+  }
+}

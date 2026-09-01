@@ -732,7 +732,7 @@ describe("Durable AI execution crash/reconnect", () => {
             message: "forensic audit of src/process-recovery.ts",
             modelMessage: "forensic audit of src/process-recovery.ts",
             validationTargetPaths: [],
-            proofRequired: true,
+            proofRequired: false,
           },
           idempotencyKey: randomUUID(),
           projectId,
