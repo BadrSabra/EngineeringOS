@@ -2,7 +2,7 @@
  * PR-012 — Regression tests for the OpenAI-compatible client.
  *
  * Covers:
- *   • Gemini strips tools but preserves response_format for structured output
+ *   • Gemini preserves response_format and translates tools to native function calling
  *   • 400 invalid model id → MODEL_NOT_FOUND + fallback (existing)
  *   • 404 → MODEL_NOT_FOUND + fallback (PR-003)
  *   • 410 → MODEL_UNAVAILABLE + fallback (PR-003)
