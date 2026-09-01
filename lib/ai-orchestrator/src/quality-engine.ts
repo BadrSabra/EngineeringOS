@@ -195,6 +195,10 @@ function isPlaceholderText(value: string): boolean {
   return PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
+function isFillerText(value: string): boolean {
+  return /^(?:n\/?a|none|nothing|no issues found|looks good|good|ok|fine|all good)$/i.test(value.trim());
+}
+
 function countMeaningfulStrings(record: Record<string, unknown>): { total: number; meaningful: number; placeholder: number } {
   let total = 0;
   let meaningful = 0;
@@ -282,16 +286,69 @@ export function assessStructuredOutput(profile: QualityProfile, output: unknown)
     case "code_review": {
       const issues = record.issues;
       const strengths = record.strengths;
-      if (Array.isArray(issues) && Array.isArray(strengths)) {
-        score += 0.06;
-        if (issues.length > 0 || strengths.length > 0) score += 0.08;
-      } else {
+      const refactoringOpportunities = record.refactoringOpportunities;
+      const securityConcerns = record.securityConcerns;
+      const verdict = record.verdict;
+      const overallScore = record.overallScore;
+      const arraysArePresent = [issues, strengths, refactoringOpportunities, securityConcerns]
+        .every(Array.isArray);
+      const summary = record.summary;
+      const semanticReasons: string[] = [];
+
+      // Code review quality is evidence-shaped, not array-density-shaped.
+      // Empty arrays are valid for a clean review; non-empty filler must not
+      // manufacture quality.
+      score = 0.30;
+      if (typeof summary === "string" && !isPlaceholderText(summary) && summary.trim().length >= 12) score += 0.20;
+      else reasons.push("code review summary is missing, too short, or placeholder text");
+      if (!arraysArePresent) {
         reasons.push("code review arrays are missing");
+      } else {
+        score += 0.16;
+      }
+      if (typeof verdict === "string" && ["approved", "needs_changes", "major_rework"].includes(verdict)) score += 0.10;
+      else reasons.push("verdict is missing or invalid");
+      if (typeof overallScore === "number" && Number.isFinite(overallScore) && overallScore >= 0 && overallScore <= 100) score += 0.10;
+      else reasons.push("overall score is missing or invalid");
+
+      const issueList = Array.isArray(issues) ? issues : [];
+      const hasSevereIssue = issueList.some((issue) =>
+        issue && typeof issue === "object" && ["critical", "high"].includes((issue as Record<string, unknown>).severity as string),
+      );
+      const hasFillerIssue = issueList.some((issue) => {
+        if (!issue || typeof issue !== "object") return true;
+        const candidate = issue as Record<string, unknown>;
+        return ["title", "description", "suggestion"].some((key) =>
+          typeof candidate[key] !== "string"
+          || isPlaceholderText(candidate[key] as string)
+          || isFillerText(candidate[key] as string),
+        );
+      });
+      if (hasFillerIssue) {
+        semanticReasons.push("one or more findings contain filler or placeholder text");
+      } else if (issueList.length > 0) {
+        score += 0.10;
+      } else if (verdict === "approved" && typeof overallScore === "number" && overallScore >= 80) {
+        // A concise clean review is valid evidence when the complete contract
+        // is present; it must not be forced to invent strengths or issues.
+        score += 0.12;
+      } else {
+        semanticReasons.push("a review without findings must be an approved high-scoring review");
       }
 
-      const verdict = record.verdict;
-      if (typeof verdict === "string" && verdict.length > 0) score += 0.06;
-      else reasons.push("verdict is missing");
+      if (verdict === "approved" && (hasSevereIssue || (typeof overallScore === "number" && overallScore < 80))) {
+        semanticReasons.push("approved verdict conflicts with score or issue severity");
+      }
+      if (verdict === "major_rework" && !hasSevereIssue && typeof overallScore === "number" && overallScore >= 60) {
+        semanticReasons.push("major_rework verdict lacks a severe issue or low score");
+      }
+      if (verdict === "needs_changes" && typeof overallScore === "number" && overallScore >= 90) {
+        semanticReasons.push("needs_changes verdict conflicts with a very high score");
+      }
+      if (semanticReasons.length > 0) {
+        reasons.push(...semanticReasons);
+        score = Math.min(score, threshold - 0.01);
+      }
       break;
     }
 

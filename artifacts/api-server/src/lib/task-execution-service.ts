@@ -368,6 +368,68 @@ export async function executeTaskLifecycle(params: {
       };
     }
 
+    if (result._qualityError) {
+      stage = "quality";
+      stages.push("quality");
+      const quality = result._qualityError;
+      const qualityReceipt = failureReceipt({
+        executionId,
+        correlationId,
+        revision: params.workspaceRevision,
+        provider: effectiveProvider,
+        attempt: before.retryCount,
+        durationMs: Date.now() - startedAt,
+        stages,
+        code: quality.code,
+      });
+      await failAiExecution({ executionId, workerId, error: quality.code });
+      await db.update(tasksTable).set({
+        status: before.status,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        agentResponse: JSON.stringify(qualityReceipt),
+        updatedAt: new Date(),
+      }).where(and(
+        eq(tasksTable.id, before.id),
+        eq(tasksTable.workerId, workerId),
+        eq(tasksTable.status, "running"),
+      ));
+      await log("error", "AI task output failed the quality gate", {
+        stage: "quality",
+        code: quality.code,
+        score: quality.score,
+        threshold: quality.threshold,
+        reasons: quality.reasons,
+      });
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: params.trigger === "automatic" ? "TaskAutoExecutionFailed" : "TaskExecutionFailed",
+        projectId: before.projectId,
+        taskId: before.id,
+        severity: "error",
+        message: `AI execution of "${before.title}" failed quality checks`,
+        correlationId,
+        payload: {
+          executionId,
+          operationId: executionId,
+          revision: params.workspaceRevision ?? null,
+          attempt: before.retryCount,
+          stage: "quality",
+          code: quality.code,
+          score: quality.score,
+          threshold: quality.threshold,
+          retryable: true,
+        },
+      }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task quality failure event write failed"));
+      return {
+        ok: false,
+        status: "failed",
+        executionId,
+        errorCode: "quality_review_low",
+      };
+    }
+
     // An AI report is not proof that a remediation was applied. Rule-backed
     // tasks remain in verification until the explicit verification path passes.
     const finalStatus =

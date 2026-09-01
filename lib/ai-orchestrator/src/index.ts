@@ -341,6 +341,7 @@ export type {
 
 export { extractJson, parseAgentResponse } from "./parsing.js";
 export type { AgentParseResult } from "./parsing.js";
+export type { QualityErrorCode, QualityFailure } from "./errors.js";
 
 export {
   buildProjectContext,

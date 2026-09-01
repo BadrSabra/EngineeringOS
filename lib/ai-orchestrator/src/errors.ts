@@ -43,6 +43,20 @@
 
 export type AgentErrorCode = "EMPTY_MODEL_RESPONSE" | "MALFORMED_JSON" | "SCHEMA_VALIDATION_FAILED";
 
+/** Safe marker for a parsed structured result that failed the quality gate. */
+export type QualityErrorCode = "QUALITY_REVIEW_LOW";
+
+/**
+ * Only bounded assessment data crosses the agent boundary. Provider output,
+ * parser text, prompts, and source content never belong in this marker.
+ */
+export type QualityFailure = {
+  code: QualityErrorCode;
+  score: number;
+  threshold: number;
+  reasons: string[];
+};
+
 export type GroqErrorCode =
   // transport
   | "TIMEOUT"

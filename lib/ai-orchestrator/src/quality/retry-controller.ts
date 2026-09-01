@@ -7,7 +7,7 @@ export type RetryDecision = {
   reason: string;
   action:
     | "retry_json"
-    | "collect_missing_context"
+    | "correct_quality"
     | "send_validation_failure"
     | "change_model"
     | "shrink_context"
@@ -58,7 +58,7 @@ export function decideRetry(options: {
       shouldRetry: true,
       useRelaxedHints: true,
       reason: describeAssessment(options.assessment),
-      action: "collect_missing_context",
+       action: "correct_quality",
     };
   } else if (isRetryableTransportError(options.transportError)) {
     decision = {

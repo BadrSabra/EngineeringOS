@@ -38,6 +38,7 @@ import type {
   AiOrchestrationDecision,
   AiPendingProposal,
   AiPlanDecisionRequest,
+  AiQualityReviewError,
   AiRebaseChangesRequest,
   AiRebaseChangesResult,
   AiReviewRequest,
@@ -5689,7 +5690,7 @@ export const getAiChatStreamUrl = () => {
  *    { "type": "done", "sessionId": "...", "message": { "id": "...", "role": "assistant",
  *       "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "...",
  *       "outcome": "SUCCEEDED" | "FAILED" | "INTERRUPTED",
- *       "failureKind": "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
+ *       "failureKind": "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
  *       "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE" }, "sources": [...],
  *     "pendingChanges": [{ "path": "...", "absolutePath": "...", "newContent": "...",
  *      "originalContent": "..." | null, "reason": "...", "validationProfile": "..." }],
@@ -5720,7 +5721,8 @@ export const getAiChatStreamUrl = () => {
  *
  *    { "type": "error", "code": "...", "message": "...", "executionId"?: "...",
  *       "sessionId"?: "...", "outcome"?: "FAILED" | "INTERRUPTED",
- *       "failureKind"?: "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
+ *       "failureKind"?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
+ *       "quality"?: { "code": "QUALITY_REVIEW_LOW", "score": 0.42, "threshold": 0.78, "reasons": ["bounded reason"] },
  *       "retryable"?: true | false, "recoveryState"?: "NONE" | "REQUIRED" | "INCOMPLETE",
  *       "hint"?: "..." }
  *     — Terminal error; the stream will close after this event.
@@ -6704,7 +6706,7 @@ export const aiAnalyzeProject = async (projectId: string, options?: RequestInit)
 
 
 
-export const getAiAnalyzeProjectMutationOptions = <TError = ErrorType<unknown>,
+export const getAiAnalyzeProjectMutationOptions = <TError = ErrorType<AiQualityReviewError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiAnalyzeProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof aiAnalyzeProject>>, TError,{projectId: string}, TContext> => {
 
@@ -6733,12 +6735,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type AiAnalyzeProjectMutationResult = NonNullable<Awaited<ReturnType<typeof aiAnalyzeProject>>>
 
-    export type AiAnalyzeProjectMutationError = ErrorType<unknown>
+    export type AiAnalyzeProjectMutationError = ErrorType<AiQualityReviewError>
 
     /**
  * @summary Run AI scan analysis on a project
  */
-export const useAiAnalyzeProject = <TError = ErrorType<unknown>,
+export const useAiAnalyzeProject = <TError = ErrorType<AiQualityReviewError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiAnalyzeProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof aiAnalyzeProject>>,
@@ -6776,7 +6778,7 @@ export const aiReviewCode = async (projectId: string,
 
 
 
-export const getAiReviewCodeMutationOptions = <TError = ErrorType<unknown>,
+export const getAiReviewCodeMutationOptions = <TError = ErrorType<AiQualityReviewError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiReviewCode>>, TError,{projectId: string;data?: BodyType<AiReviewRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof aiReviewCode>>, TError,{projectId: string;data?: BodyType<AiReviewRequest>}, TContext> => {
 
@@ -6805,12 +6807,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type AiReviewCodeMutationResult = NonNullable<Awaited<ReturnType<typeof aiReviewCode>>>
     export type AiReviewCodeMutationBody = BodyType<AiReviewRequest> | undefined
-    export type AiReviewCodeMutationError = ErrorType<unknown>
+    export type AiReviewCodeMutationError = ErrorType<AiQualityReviewError>
 
     /**
  * @summary Run AI code review on a project
  */
-export const useAiReviewCode = <TError = ErrorType<unknown>,
+export const useAiReviewCode = <TError = ErrorType<AiQualityReviewError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiReviewCode>>, TError,{projectId: string;data?: BodyType<AiReviewRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof aiReviewCode>>,

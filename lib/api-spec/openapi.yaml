@@ -2010,7 +2010,7 @@ paths:
            { "type": "done", "sessionId": "...", "message": { "id": "...", "role": "assistant",
               "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "...",
               "outcome": "SUCCEEDED" | "FAILED" | "INTERRUPTED",
-              "failureKind": "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
+              "failureKind": "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
               "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE" }, "sources": [...],
             "pendingChanges": [{ "path": "...", "absolutePath": "...", "newContent": "...",
              "originalContent": "..." | null, "reason": "...", "validationProfile": "..." }],
@@ -2041,7 +2041,8 @@ paths:
 
            { "type": "error", "code": "...", "message": "...", "executionId"?: "...",
               "sessionId"?: "...", "outcome"?: "FAILED" | "INTERRUPTED",
-              "failureKind"?: "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
+              "failureKind"?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
+              "quality"?: { "code": "QUALITY_REVIEW_LOW", "score": 0.42, "threshold": 0.78, "reasons": ["bounded reason"] },
               "retryable"?: true | false, "recoveryState"?: "NONE" | "REQUIRED" | "INCOMPLETE",
               "hint"?: "..." }
             — Terminal error; the stream will close after this event.
@@ -2547,6 +2548,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiScanAnalysis"
+        "422":
+          description: The structured analysis was parsed but failed the quality gate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiQualityReviewError"
 
   /api/ai/projects/{projectId}/review:
     post:
@@ -2571,6 +2578,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiCodeReview"
+        "422":
+          description: The structured review was parsed but failed the quality gate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiQualityReviewError"
 
   /api/ai/projects/{projectId}/analyze/stream:
     post:
@@ -4905,7 +4918,7 @@ components:
         failureKind:
           type: string
           nullable: true
-          enum: [TOOL_FAILURE, CANCELLATION, RECOVERY_FAILURE, INCOMPLETE]
+          enum: [QUALITY_REVIEW, TOOL_FAILURE, CANCELLATION, RECOVERY_FAILURE, INCOMPLETE]
           description: Bounded terminal classification; present only for non-success assistant turns
         retryable:
           type: boolean
@@ -5814,6 +5827,51 @@ components:
         projectId:
           type: string
         projectRevision:
+          type: string
+        rootAvailable:
+          type: boolean
+        incomplete:
+          type: boolean
+        operationalTrace:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiStructuredAuditTraceEntry"
+
+    AiQualityAssessment:
+      type: object
+      required: [code, score, threshold, reasons]
+      properties:
+        code:
+          type: string
+          enum: [QUALITY_REVIEW_LOW]
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+        threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        reasons:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            maxLength: 240
+
+    AiQualityReviewError:
+      type: object
+      required: [error, code, quality, hint, rootAvailable, incomplete, operationalTrace]
+      properties:
+        error:
+          type: string
+          enum: [quality_review_low]
+        code:
+          type: string
+          enum: [QUALITY_REVIEW_LOW]
+        quality:
+          $ref: "#/components/schemas/AiQualityAssessment"
+        hint:
           type: string
         rootAvailable:
           type: boolean

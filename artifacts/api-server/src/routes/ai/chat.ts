@@ -92,6 +92,7 @@ import type {
   ExecutionTerminalReason,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
+import type { QualityFailure } from "@workspace/ai-orchestrator";
 import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
 import {
   RepairPlanMetadataSchema,
@@ -323,8 +324,23 @@ function parseJsonRecord(value: string | null | undefined): Record<string, unkno
     : {};
 }
 
+function publicQualityFailure(value: QualityFailure): QualityFailure {
+  const score = Number.isFinite(value.score) ? Math.max(0, Math.min(1, value.score)) : 0;
+  const threshold = Number.isFinite(value.threshold) ? Math.max(0, Math.min(1, value.threshold)) : 1;
+  return {
+    code: "QUALITY_REVIEW_LOW",
+    score: Number(score.toFixed(4)),
+    threshold: Number(threshold.toFixed(4)),
+    reasons: (Array.isArray(value.reasons) ? value.reasons : [])
+      .filter((reason): reason is string => typeof reason === "string")
+      .map((reason) => reason.replace(/\s+/g, " ").trim().slice(0, 240))
+      .filter(Boolean)
+      .slice(0, 8),
+  };
+}
+
 function terminalMetadataFromTrace(value: string | null | undefined): {
-  failureKind?: "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE";
+  failureKind?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE";
   retryable?: boolean;
   recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
 } {
@@ -335,7 +351,8 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   ) as Record<string, unknown> | undefined;
   const failureKind = terminal?.failureKind;
   return {
-    ...(failureKind === "TOOL_FAILURE"
+    ...(failureKind === "QUALITY_REVIEW"
+      || failureKind === "TOOL_FAILURE"
       || failureKind === "CANCELLATION"
       || failureKind === "RECOVERY_FAILURE"
       || failureKind === "INCOMPLETE"
@@ -2532,6 +2549,41 @@ router.post("/ai/chat", async (req, res) => {
       });
     }
 
+    if (result._qualityError) {
+      const quality = publicQualityFailure(result._qualityError);
+      const safeMessage = "The AI result did not meet the quality checks required for completion.";
+      await persistFailedChatTurn({
+        sessionId: sessionIdToUse,
+        projectId,
+        message,
+        turnIntent: turnIntent.kind,
+        executionId: undefined,
+        outcome: "FAILED",
+        errorCode: quality.code,
+        errorMessage: safeMessage,
+        createdAt: now,
+        assistantAt: msgNow,
+        toolTrace: traceSteps,
+        executionLedgerSnapshot,
+        terminalOutcome: {
+          failureKind: "QUALITY_REVIEW",
+          retryable: true,
+          recoveryState: "REQUIRED",
+        },
+      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "quality failure persistence failed"));
+      return res.status(422).json({
+        error: "quality_review_low",
+        code: quality.code,
+        outcome: "FAILED",
+        failureKind: "QUALITY_REVIEW",
+        retryable: true,
+        recoveryState: "REQUIRED",
+        quality,
+        errorMessage: safeMessage,
+        executionLedger: executionLedgerSnapshot,
+      });
+    }
+
     if (result._parseError) {
       if (!result.response) {
         return res.status(422).json({
@@ -4415,6 +4467,44 @@ router.post("/ai/chat/stream", async (req, res) => {
         toolTrace: traceSteps,
         executionLedgerSnapshot,
       }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+      res.end();
+      return;
+    }
+
+    if (result._qualityError) {
+      const quality = publicQualityFailure(result._qualityError);
+      const safeMessage = "The AI result did not meet the quality checks required for completion.";
+      sse({
+        type: "error",
+        code: quality.code,
+        message: safeMessage,
+        outcome: "FAILED",
+        failureKind: "QUALITY_REVIEW",
+        retryable: true,
+        recoveryState: "REQUIRED",
+        quality,
+        correlationId: randomUUID(),
+        executionLedger: executionLedgerSnapshot,
+      });
+      await persistFailedChatTurn({
+        sessionId: sessionIdToUse,
+        projectId,
+        message,
+        turnIntent: streamTurnIntent.kind,
+        executionId: aiExecution?.id,
+        outcome: "FAILED",
+        errorCode: quality.code,
+        errorMessage: safeMessage,
+        createdAt: now,
+        assistantAt: msgNow,
+        toolTrace: traceSteps,
+        executionLedgerSnapshot,
+        terminalOutcome: {
+          failureKind: "QUALITY_REVIEW",
+          retryable: true,
+          recoveryState: "REQUIRED",
+        },
+      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: quality failure persistence failed"));
       res.end();
       return;
     }

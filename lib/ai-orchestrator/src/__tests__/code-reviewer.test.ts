@@ -28,7 +28,7 @@ const baseReview = {
 } as const;
 
 describe("reviewCode selected-file acceptance", () => {
-  it("marks a valid-looking empty finding list incomplete", async () => {
+  it("marks a valid-looking empty finding list as a quality rejection", async () => {
     agentComplete.mockResolvedValue({
       content: JSON.stringify({ ...baseReview, issues: [] }),
     });
@@ -39,10 +39,10 @@ describe("reviewCode selected-file acceptance", () => {
       { provider: "openrouter", apiKey: "test-key", qualityProfile: "code_review" },
     );
 
-    expect(result._parseError).toMatchObject({
-      code: "SCHEMA_VALIDATION_FAILED",
+    expect(result._qualityError).toMatchObject({
+      code: "QUALITY_REVIEW_LOW",
     });
-    expect(result._parseError?.message).toContain("selected file");
+    expect(result._qualityError?.reasons.join(" ")).toContain("without findings");
   });
 
   it("accepts a finding that cites one of the selected files", async () => {
@@ -77,5 +77,54 @@ describe("reviewCode selected-file acceptance", () => {
         clippedExcerpts: 0,
       },
     });
+  });
+
+  it("accepts a concise clean review when its complete contract is coherent", async () => {
+    agentComplete.mockResolvedValue({
+      content: JSON.stringify({
+        summary: "No actionable defects were found in the reviewed project evidence.",
+        overallScore: 92,
+        strengths: [],
+        issues: [],
+        refactoringOpportunities: [],
+        securityConcerns: [],
+        verdict: "approved",
+      }),
+    });
+
+    const result = await reviewCode(context, undefined, {
+      provider: "openrouter",
+      apiKey: "test-key",
+      qualityProfile: "code_review",
+    });
+
+    expect(result._parseError).toBeUndefined();
+    expect(result._qualityError).toBeUndefined();
+    expect(result.verdict).toBe("approved");
+  });
+
+  it("does not normalize unknown issue enums into a passing review", async () => {
+    agentComplete.mockResolvedValue({
+      content: JSON.stringify({
+        ...baseReview,
+        issues: [{
+          type: "warning",
+          severity: "info",
+          file: "src/example.ts",
+          title: "Unsupported issue",
+          description: "The provider used unsupported enums.",
+          suggestion: "Return one of the declared enum values.",
+        }],
+      }),
+    });
+
+    const result = await reviewCode(context, undefined, {
+      provider: "openrouter",
+      apiKey: "test-key",
+      qualityProfile: "code_review",
+    });
+
+    expect(result._parseError?.code).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(result._qualityError).toBeUndefined();
   });
 });

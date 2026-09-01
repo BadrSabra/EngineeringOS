@@ -9,7 +9,7 @@
  *   4. parse JSON into the declared schema
  *   5. attach a parse-failure marker when validation degrades
  */
-import { GroqClientError, type AgentErrorCode } from "../errors.js";
+import { GroqClientError, type AgentErrorCode, type QualityFailure } from "../errors.js";
 import { agentComplete, type AgentCompleteOpts } from "../agent-complete.js";
 import { parseAgentResponse } from "../parsing.js";
 import { assessStructuredOutput, type QualityProfile } from "../quality-engine.js";
@@ -20,7 +20,40 @@ import type { ZodType, ZodTypeDef } from "zod";
 
 export type AgentRunResult<T> = T & {
   _parseError?: { code: AgentErrorCode; message: string; raw: string };
+  _qualityError?: QualityFailure;
 };
+
+function safeQualityFailure(assessment: NonNullable<ReturnType<typeof assessStructuredOutput>>): QualityFailure {
+  return {
+    code: "QUALITY_REVIEW_LOW",
+    score: Math.max(0, Math.min(1, Number(assessment.score.toFixed(4)))),
+    threshold: Math.max(0, Math.min(1, Number(assessment.threshold.toFixed(4)))),
+    reasons: assessment.reasons
+      .filter((reason) => typeof reason === "string")
+      .map((reason) => reason.replace(/\s+/g, " ").trim().slice(0, 240))
+      .filter(Boolean)
+      .slice(0, 8),
+  };
+}
+
+function qualityCorrectionMessage(
+  assessment: NonNullable<ReturnType<typeof assessStructuredOutput>>,
+): Message {
+  const reasons = assessment.reasons
+    .filter((reason) => typeof reason === "string")
+    .map((reason) => reason.replace(/\s+/g, " ").trim().slice(0, 240))
+    .filter(Boolean)
+    .slice(0, 4);
+  return {
+    role: "user",
+    content: [
+      "[STRUCTURED OUTPUT QUALITY RETRY]",
+      `The previous structured result scored ${assessment.score.toFixed(2)}; the minimum is ${assessment.threshold.toFixed(2)}.`,
+      "Return the same schema again. Correct only the verified quality problems and do not add filler, provider diagnostics, prompts, or source text.",
+      ...reasons.map((reason) => `- ${reason}`),
+    ].join("\n"),
+  };
+}
 
 export abstract class BaseAgent<TInput, TOutput> {
   protected abstract readonly scope: string;
@@ -98,7 +131,10 @@ export abstract class BaseAgent<TInput, TOutput> {
       );
 
       opts?.onProgress?.("Retrying — improving output quality…");
-      const retryResponse = await this.complete(messages, {
+      const retryResponse = await this.complete([
+        ...messages,
+        ...(assessment ? [qualityCorrectionMessage(assessment)] : []),
+      ], {
         ...this.buildCompleteOpts(input),
         ...(opts ?? {}),
         qualityProfile,
@@ -128,6 +164,10 @@ export abstract class BaseAgent<TInput, TOutput> {
           reasons: assessment.reasons,
         }),
       );
+      return {
+        ...parsed.data,
+        _qualityError: safeQualityFailure(assessment),
+      } as AgentRunResult<TOutput>;
     }
 
     // parsed.data is TOutput, which satisfies AgentRunResult<TOutput> (= T & { _parseError? })

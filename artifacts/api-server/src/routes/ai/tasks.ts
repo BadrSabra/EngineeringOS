@@ -143,6 +143,13 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
         hint: "The AI model returned an unexpected response — try executing the task again.",
       });
     }
+    if (lifecycle.errorCode === "quality_review_low") {
+      return res.status(422).json({
+        error: "quality_review_low",
+        code: "QUALITY_REVIEW_LOW",
+        hint: "The AI task result did not meet the quality checks required for completion — try executing the task again.",
+      });
+    }
     if (handleOrchestratorError(lifecycle.error, res, {
       projectId: task.projectId,
       operation: "task-execution",

@@ -240,11 +240,17 @@ export type AiStreamErrorEvent = {
   code: string;
   message: string;
   retryable?: boolean;
+  quality?: {
+    code: 'QUALITY_REVIEW_LOW';
+    score: number;
+    threshold: number;
+    reasons: string[];
+  };
   executionId?: string;
   sessionId?: string;
   turnIntent?: string;
   outcome?: 'FAILED' | 'INTERRUPTED';
-  failureKind?: 'PROVIDER_FORMAT' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT'
+  failureKind?: 'PROVIDER_FORMAT' | 'QUALITY_REVIEW' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT'
     | 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE';
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
   /** Allowlisted request-budget snapshot retained for failed terminal turns. */
@@ -253,6 +259,7 @@ export type AiStreamErrorEvent = {
 };
 
 const PUBLIC_FAILURE_KINDS = new Set([
+  'QUALITY_REVIEW',
   'TOOL_FAILURE',
   'CANCELLATION',
   'RECOVERY_FAILURE',
@@ -270,6 +277,22 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
   const safeFailureKind = PUBLIC_FAILURE_KINDS.has(event.failureKind ?? '')
     ? event.failureKind
     : undefined;
+  const safeQuality = event.quality
+    ? {
+        code: 'QUALITY_REVIEW_LOW' as const,
+        score: Number.isFinite(event.quality.score)
+          ? Math.max(0, Math.min(1, Number(event.quality.score.toFixed(4))))
+          : 0,
+        threshold: Number.isFinite(event.quality.threshold)
+          ? Math.max(0, Math.min(1, Number(event.quality.threshold.toFixed(4))))
+          : 1,
+        reasons: (Array.isArray(event.quality.reasons) ? event.quality.reasons : [])
+          .filter((reason): reason is string => typeof reason === 'string')
+          .map((reason) => reason.replace(/\s+/g, ' ').trim().slice(0, 240))
+          .filter(Boolean)
+          .slice(0, 8),
+      }
+    : undefined;
   const safeEvent = { ...event } as AiStreamErrorEvent & Record<string, unknown>;
   delete safeEvent.raw;
   delete safeEvent.providerContext;
@@ -278,11 +301,13 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
   delete safeEvent.availabilityState;
   delete safeEvent.operatorAction;
   delete safeEvent.failureKind;
+  delete safeEvent.quality;
   return {
     ...safeEvent,
     code: safeCode,
     message: safeMessage,
     ...(safeFailureKind ? { failureKind: safeFailureKind } : {}),
+    ...(safeQuality ? { quality: safeQuality } : {}),
   };
 }
 

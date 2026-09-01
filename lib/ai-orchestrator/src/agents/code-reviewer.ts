@@ -103,6 +103,7 @@ export async function reviewCode(
   const selectedPaths = accounting.includedFilePaths;
   if (
     !result._parseError &&
+    !result._qualityError &&
     selectedPaths.length > 0 &&
     !result.issues.some((issue) => typeof issue.file === "string" && selectedPaths.includes(issue.file))
   ) {

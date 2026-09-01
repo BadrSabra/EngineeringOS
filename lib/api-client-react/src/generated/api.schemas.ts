@@ -1413,6 +1413,7 @@ export type AiChatMessageFailureKind = typeof AiChatMessageFailureKind[keyof typ
 
 
 export const AiChatMessageFailureKind = {
+  QUALITY_REVIEW: 'QUALITY_REVIEW',
   TOOL_FAILURE: 'TOOL_FAILURE',
   CANCELLATION: 'CANCELLATION',
   RECOVERY_FAILURE: 'RECOVERY_FAILURE',
@@ -2384,6 +2385,56 @@ export interface AiCodeReview {
   operationId: string;
   projectId: string;
   projectRevision: string;
+  rootAvailable: boolean;
+  incomplete: boolean;
+  operationalTrace: AiStructuredAuditTraceEntry[];
+}
+
+export type AiQualityAssessmentCode = typeof AiQualityAssessmentCode[keyof typeof AiQualityAssessmentCode];
+
+
+export const AiQualityAssessmentCode = {
+  QUALITY_REVIEW_LOW: 'QUALITY_REVIEW_LOW',
+} as const;
+
+export interface AiQualityAssessment {
+  code: AiQualityAssessmentCode;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  score: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  threshold: number;
+  /**
+     * @maxItems 8
+     * @items.maxLength 240
+     */
+  reasons: string[];
+}
+
+export type AiQualityReviewErrorError = typeof AiQualityReviewErrorError[keyof typeof AiQualityReviewErrorError];
+
+
+export const AiQualityReviewErrorError = {
+  quality_review_low: 'quality_review_low',
+} as const;
+
+export type AiQualityReviewErrorCode = typeof AiQualityReviewErrorCode[keyof typeof AiQualityReviewErrorCode];
+
+
+export const AiQualityReviewErrorCode = {
+  QUALITY_REVIEW_LOW: 'QUALITY_REVIEW_LOW',
+} as const;
+
+export interface AiQualityReviewError {
+  error: AiQualityReviewErrorError;
+  code: AiQualityReviewErrorCode;
+  quality: AiQualityAssessment;
+  hint: string;
   rootAvailable: boolean;
   incomplete: boolean;
   operationalTrace: AiStructuredAuditTraceEntry[];

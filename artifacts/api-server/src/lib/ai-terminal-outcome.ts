@@ -1,6 +1,7 @@
 import type { AgentStep } from "@workspace/ai-orchestrator";
 
 export type AiTerminalFailureKind =
+  | "QUALITY_REVIEW"
   | "TOOL_FAILURE"
   | "CANCELLATION"
   | "RECOVERY_FAILURE"

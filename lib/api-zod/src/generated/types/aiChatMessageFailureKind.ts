@@ -13,6 +13,7 @@ export type AiChatMessageFailureKind = typeof AiChatMessageFailureKind[keyof typ
 
 
 export const AiChatMessageFailureKind = {
+  QUALITY_REVIEW: 'QUALITY_REVIEW',
   TOOL_FAILURE: 'TOOL_FAILURE',
   CANCELLATION: 'CANCELLATION',
   RECOVERY_FAILURE: 'RECOVERY_FAILURE',

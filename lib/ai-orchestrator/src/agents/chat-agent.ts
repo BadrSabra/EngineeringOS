@@ -49,7 +49,7 @@ import { resolveExecutionDecision } from "../model-selection/decision-engine.js"
 import { resolveExecutionProvider } from "../model-selection/provider-strategy.js";
 import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import { resolveFallbackChain } from "../openrouter/model-resolver.js";
-import { GroqClientError, type AgentErrorCode } from "../errors.js";
+import { GroqClientError, type AgentErrorCode, type QualityFailure } from "../errors.js";
 import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
@@ -2543,6 +2543,7 @@ export function extractRawForensicReport(raw: string): string | null {
  */
 export type ChatResult = ChatOutput & {
   _parseError?: { code: AgentErrorCode; message: string; raw: string };
+  _qualityError?: QualityFailure;
   repairPlan?: RepairPlanMetadata[];
 };
 

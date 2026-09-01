@@ -4353,8 +4353,10 @@ function MessageBubble({
   const structuredFailure = !isUser && failedTurn && msg.structuredTask
     ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
     : null;
-  const failureKindLabel = msg.failureKind === 'PROVIDER_FORMAT'
-    ? 'Provider format issue'
+  const failureKindLabel = msg.failureKind === 'QUALITY_REVIEW'
+    ? 'Quality review rejected'
+    : msg.failureKind === 'PROVIDER_FORMAT'
+      ? 'Provider format issue'
     : msg.failureKind === 'RATE_LIMIT'
       ? 'Rate limit'
       : msg.failureKind === 'CONFIGURATION'

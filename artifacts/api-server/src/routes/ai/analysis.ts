@@ -57,15 +57,35 @@ type StructuredTaskEvent =
     | { type: "stage"; stage: string }
      | { type: "task_progress"; task: StructuredTask; message: string }
     | { type: "task_done"; task: StructuredTask; result: Record<string, unknown> }
-   | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string })
+     | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string })
     & Partial<StructuredAuditMetadata>;
 
 type StructuredFailureKind =
   | "PROVIDER_FORMAT"
+  | "QUALITY_REVIEW"
   | "RATE_LIMIT"
   | "CONFIGURATION"
   | "PROVIDER_FAILURE"
   | "TRANSPORT";
+
+function publicQualityFailure(value: {
+  score: number;
+  threshold: number;
+  reasons: unknown;
+}): { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] } {
+  const score = Number.isFinite(value.score) ? Math.max(0, Math.min(1, value.score)) : 0;
+  const threshold = Number.isFinite(value.threshold) ? Math.max(0, Math.min(1, value.threshold)) : 1;
+  return {
+    code: "QUALITY_REVIEW_LOW",
+    score: Number(score.toFixed(4)),
+    threshold: Number(threshold.toFixed(4)),
+    reasons: (Array.isArray(value.reasons) ? value.reasons : [])
+      .filter((reason): reason is string => typeof reason === "string")
+      .map((reason) => reason.replace(/\s+/g, " ").trim().slice(0, 240))
+      .filter(Boolean)
+      .slice(0, 8),
+  };
+}
 
 function structuredFailureDetails(err: unknown): {
   code: string;
@@ -77,6 +97,7 @@ function structuredFailureDetails(err: unknown): {
   const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
   const failureKind =
     code === "model_output_invalid" || code === "INVALID_MODEL_OUTPUT" || code === "EMPTY_RESPONSE" ? "PROVIDER_FORMAT" :
+    code === "QUALITY_REVIEW_LOW" || code === "quality_review_low" ? "QUALITY_REVIEW" :
     code === "RATE_LIMITED" ? "RATE_LIMIT" :
     code === "INVALID_CONFIG" || code === "AUTH_ERROR" || code === "MODEL_NOT_FOUND" || code === "PLAN_RESTRICTED" ? "CONFIGURATION" :
     code === "TIMEOUT" || code === "NETWORK_ERROR" || code === "NON_200" || code === "SERVER_ERROR" ? "PROVIDER_FAILURE" :
@@ -84,6 +105,7 @@ function structuredFailureDetails(err: unknown): {
   const message =
     failureKind === "RATE_LIMIT" ? "The AI provider is rate-limited. Please wait before retrying." :
     failureKind === "CONFIGURATION" ? "The AI provider configuration needs attention before this can run." :
+    failureKind === "QUALITY_REVIEW" ? "The AI result did not meet the quality checks required for completion." :
     failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
     "The AI provider could not complete this run.";
   return { code, failureKind, message, retryable: failureKind !== "CONFIGURATION" };
@@ -405,6 +427,22 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
       parseCode: result._parseError.code,
     });
   }
+  if (result._qualityError) {
+    const quality = publicQualityFailure(result._qualityError);
+    metadata.incomplete = true;
+    recordTrace(metadata, "analyze", "incomplete");
+    logger.warn(
+      { projectId, quality, provider: effectiveProvider },
+      "scan-analyst: quality gate rejected result",
+    );
+    return res.status(422).json({
+      ...auditEnvelope(metadata),
+      error: "quality_review_low",
+      code: "QUALITY_REVIEW_LOW",
+      quality,
+      hint: "The AI result did not meet the quality checks required for completion — try again.",
+    });
+  }
 
   invalidateContextCache(projectId);
 
@@ -532,6 +570,22 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
       parseCode: result._parseError.code,
     });
   }
+  if (result._qualityError) {
+    const quality = publicQualityFailure(result._qualityError);
+    metadata.incomplete = true;
+    recordTrace(metadata, "review", "incomplete");
+    logger.warn(
+      { projectId, quality, provider: effectiveProvider },
+      "code-reviewer: quality gate rejected result",
+    );
+    return res.status(422).json({
+      ...auditEnvelope(metadata),
+      error: "quality_review_low",
+      code: "QUALITY_REVIEW_LOW",
+      quality,
+      hint: "The AI review did not meet the quality checks required for completion — try again.",
+    });
+  }
 
   invalidateContextCache(projectId);
 
@@ -651,6 +705,34 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         hint: "The response could not be verified as a structured result. You can retry this task.",
         retryable: true,
         failureKind: "PROVIDER_FORMAT",
+        outcome: "FAILED",
+        sessionId,
+      });
+      close();
+      return;
+    }
+    if (result._qualityError) {
+      const quality = publicQualityFailure(result._qualityError);
+      metadata.incomplete = true;
+      recordTrace(metadata, "calling-model", "incomplete");
+      const sessionId = await persistStructuredFailure({
+        projectId,
+        userId: req.userId,
+        task: "analyze",
+        sessionId: requestedSessionId,
+        failureKind: "QUALITY_REVIEW",
+        retryable: true,
+        errorCode: "QUALITY_REVIEW_LOW",
+        errorMessage: "The AI result did not meet the quality checks required for completion.",
+      });
+      emit({
+        type: "error",
+        code: "QUALITY_REVIEW_LOW",
+        message: "The AI result did not meet the quality checks required for completion.",
+        hint: "Retry the task to request a newly assessed structured result.",
+        retryable: true,
+        quality,
+        failureKind: "QUALITY_REVIEW",
         outcome: "FAILED",
         sessionId,
       });
@@ -811,6 +893,34 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         hint: "The response could not be verified as a structured result. You can retry this task.",
         retryable: true,
         failureKind: "PROVIDER_FORMAT",
+        outcome: "FAILED",
+        sessionId,
+      });
+      close();
+      return;
+    }
+    if (result._qualityError) {
+      const quality = publicQualityFailure(result._qualityError);
+      metadata.incomplete = true;
+      recordTrace(metadata, "calling-model", "incomplete");
+      const sessionId = await persistStructuredFailure({
+        projectId,
+        userId: req.userId,
+        task: "review",
+        sessionId: requestedSessionId,
+        failureKind: "QUALITY_REVIEW",
+        retryable: true,
+        errorCode: "QUALITY_REVIEW_LOW",
+        errorMessage: "The AI review did not meet the quality checks required for completion.",
+      });
+      emit({
+        type: "error",
+        code: "QUALITY_REVIEW_LOW",
+        message: "The AI review did not meet the quality checks required for completion.",
+        hint: "Retry the review to request a newly assessed structured result.",
+        retryable: true,
+        quality,
+        failureKind: "QUALITY_REVIEW",
         outcome: "FAILED",
         sessionId,
       });

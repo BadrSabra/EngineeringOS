@@ -2589,6 +2589,64 @@ describe("POST /api/ai/projects/:projectId/review", () => {
     expect(typeof res.body.hint).toBe("string");
   });
 
+  it("returns a safe 422 for low-quality reviews without persisting completion", async () => {
+    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockReviewCode).mockResolvedValueOnce({
+      summary: "Provider-generated filler that must not ship",
+      overallScore: 91,
+      strengths: [],
+      issues: [],
+      refactoringOpportunities: [],
+      securityConcerns: [],
+      verdict: "approved",
+      reviewScope: {
+        contractVersion: 1,
+        mode: "GRAPH_METRICS",
+        bounded: true,
+        selectedFiles: { received: 0, included: 0, omitted: 0, clippedExcerpts: 0 },
+        context: {
+          graphEntitiesIncluded: 0,
+          graphRelationshipsIncluded: 0,
+          metricsIncluded: true,
+          tasksIncluded: true,
+          eventsIncluded: true,
+          workflowsIncluded: false,
+        },
+        scanCompleteness: "COMPLETE",
+        limitations: ["Bounded review."],
+      },
+      _qualityError: {
+        code: "QUALITY_REVIEW_LOW",
+        score: 0.42,
+        threshold: 0.78,
+        reasons: ["placeholder finding", "verdict is not supported by evidence"],
+      },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const res = await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({
+      error: "quality_review_low",
+      code: "QUALITY_REVIEW_LOW",
+      quality: {
+        code: "QUALITY_REVIEW_LOW",
+        score: 0.42,
+        threshold: 0.78,
+      },
+    });
+    const serialized = JSON.stringify(res.body);
+    expect(serialized).not.toContain("Provider-generated filler");
+    expect(serialized).toContain("placeholder finding");
+
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId));
+    expect(events.some((event) => event.type === "AiCodeReviewCompleted")).toBe(false);
+    const audits = await db.select().from(auditLogsTable).where(eq(auditLogsTable.entityId, projectId));
+    expect(audits.some((audit) => audit.action === "ai_reviewed")).toBe(false);
+  });
+
   it("streams the structured review lifecycle and result", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -2605,6 +2663,54 @@ describe("POST /api/ai/projects/:projectId/review", () => {
     expect(res.text).toContain('"verdict":"approved"');
     expect(res.text).toContain('"reviewScope"');
     expect(res.text).toContain('"mode":"SELECTED_FILES"');
+  });
+
+  it("streams a quality failure without emitting task_done", async () => {
+    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockReviewCode).mockResolvedValueOnce({
+      summary: "unsafe provider text",
+      overallScore: 88,
+      strengths: [],
+      issues: [],
+      refactoringOpportunities: [],
+      securityConcerns: [],
+      verdict: "approved",
+      reviewScope: {
+        contractVersion: 1,
+        mode: "GRAPH_METRICS",
+        bounded: true,
+        selectedFiles: { received: 0, included: 0, omitted: 0, clippedExcerpts: 0 },
+        context: {
+          graphEntitiesIncluded: 0,
+          graphRelationshipsIncluded: 0,
+          metricsIncluded: true,
+          tasksIncluded: true,
+          eventsIncluded: true,
+          workflowsIncluded: false,
+        },
+        scanCompleteness: "COMPLETE",
+        limitations: ["Bounded review."],
+      },
+      _qualityError: {
+        code: "QUALITY_REVIEW_LOW",
+        score: 0.31,
+        threshold: 0.78,
+        reasons: ["filler content"],
+      },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const res = await request(app)
+      .post(`/api/ai/projects/${projectId}/review/stream`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('"type":"error"');
+    expect(res.text).toContain('"code":"QUALITY_REVIEW_LOW"');
+    expect(res.text).toContain('"failureKind":"QUALITY_REVIEW"');
+    expect(res.text).not.toContain('"type":"task_done"');
+    expect(res.text).not.toContain("unsafe provider text");
   });
 });
 
@@ -4275,6 +4381,50 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(persistedUserFacing).not.toContain("required field missing");
     expect(persistedUserFacing).not.toContain("req-task-789");
     expect(persistedUserFacing).not.toContain("/srv/app/");
+  });
+
+  it("returns 422 for a quality rejection, rolls back the claim, and skips completion audit", async () => {
+    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockExecuteTask).mockResolvedValueOnce({
+      summary: "provider filler",
+      result: "provider filler",
+      confidence: "high",
+      steps: ["invented step"],
+      needsHumanReview: false,
+      _qualityError: {
+        code: "QUALITY_REVIEW_LOW",
+        score: 0.2,
+        threshold: 0.75,
+        reasons: ["unsupported assertion"],
+      },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "pending");
+
+    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+    expect(res.status).toBe(422);
+    expect(res.body).toEqual({
+      error: "quality_review_low",
+      code: "QUALITY_REVIEW_LOW",
+      hint: expect.any(String),
+    });
+
+    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(task?.status).toBe("pending");
+    expect(task?.workerId).toBeNull();
+    const receipt = JSON.parse(task?.agentResponse ?? "{}");
+    expect(receipt.terminalStatus).toBe("FAILED");
+    expect(receipt.terminalReason).toBe("QUALITY_REVIEW_LOW");
+    expect(JSON.stringify(receipt)).not.toContain("provider filler");
+    expect(JSON.stringify(receipt)).not.toContain("unsupported assertion");
+
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.taskId, taskId));
+    expect(events.some((event) => event.type === "TaskCompleted" || event.type === "TaskVerifying")).toBe(false);
+    expect(events.some((event) => event.type === "TaskExecutionFailed")).toBe(true);
+    const audits = await db.select().from(auditLogsTable).where(eq(auditLogsTable.entityId, taskId));
+    expect(audits.some((audit) => audit.action === "ai_executed")).toBe(false);
   });
 
   it("returns 500 and restores task status when buildProjectContext fails", async () => {

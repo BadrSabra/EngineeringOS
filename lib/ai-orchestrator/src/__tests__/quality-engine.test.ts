@@ -76,4 +76,40 @@ describe("code_review quality profile", () => {
     expect(plan.relaxedHints.requireJsonMode).toBe(true);
     expect(plan.relaxedHints.requireReasoning).toBeUndefined();
   });
+
+  it("rejects filler findings even when the provider populates every array", () => {
+    const assessment = assessStructuredOutput("code_review", {
+      summary: "The review found several things worth considering in this codebase.",
+      overallScore: 74,
+      strengths: ["The project has a clear structure."],
+      issues: [{
+        type: "style",
+        severity: "low",
+        title: "No issues found",
+        description: "This may need improvement.",
+        suggestion: "Consider making changes as appropriate.",
+      }],
+      refactoringOpportunities: ["Refactor where useful."],
+      securityConcerns: ["Review security as needed."],
+      verdict: "needs_changes",
+    });
+
+    expect(assessment.decision).not.toBe("accept");
+    expect(assessment.reasons).toContain("one or more findings contain filler or placeholder text");
+  });
+
+  it("rejects contradictory verdicts rather than rewarding array density", () => {
+    const assessment = assessStructuredOutput("code_review", {
+      summary: "No actionable defects were found in the reviewed evidence.",
+      overallScore: 96,
+      strengths: ["The implementation is consistent."],
+      issues: [],
+      refactoringOpportunities: [],
+      securityConcerns: [],
+      verdict: "needs_changes",
+    });
+
+    expect(assessment.decision).not.toBe("accept");
+    expect(assessment.reasons).toContain("needs_changes verdict conflicts with a very high score");
+  });
 });
