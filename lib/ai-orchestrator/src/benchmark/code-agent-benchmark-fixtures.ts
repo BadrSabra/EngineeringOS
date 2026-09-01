@@ -580,9 +580,16 @@ export function getCodeAgentBenchmarkFixture(
     fixture.focusedPendingChanges = [{
       path: targetPath,
       newContent: [
+        'import { describe, expect, it } from "vitest";',
+        "",
         "function safeTrim(value: string | null): string {",
         '  return value?.trim() ?? "";',
         "}",
+        "",
+        'describe("single-file-002", () => {',
+        '  it("guards null", () => expect(safeTrim(null)).toBe(""));',
+        '  it("trims text", () => expect(safeTrim("  ok ")).toBe("ok"));',
+        "});",
         "",
       ].join("\n"),
     }];
@@ -635,7 +642,18 @@ export function getCodeAgentBenchmarkFixture(
     };
     fixture.focusedPendingChanges = [{
       path: targetPath,
-      newContent: "function parsePage(input: string): number { return Math.max(0, Number(input) - 1); }\n",
+      newContent: [
+        'import { describe, expect, it } from "vitest";',
+        "",
+        "function parsePage(input: string): number {",
+        "  return Math.max(0, Number(input) - 1);",
+        "}",
+        "",
+        'describe("single-file-003", () => {',
+        '  it("clamps the first page", () => expect(parsePage("0")).toBe(0));',
+        "});",
+        "",
+      ].join("\n"),
     }];
   }
 

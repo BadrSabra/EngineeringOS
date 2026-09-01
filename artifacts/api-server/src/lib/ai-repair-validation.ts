@@ -142,8 +142,9 @@ function validationTerminalState(status: ValidationStatus): ValidationResult["te
 export async function createValidationWorkspace(
   rootPath: string,
   pendingChanges: readonly PendingValidationChange[],
+  prepare?: (workspaceRootPath: string) => Promise<void>,
 ): Promise<{ rootPath: string; cleanup: () => Promise<void> }> {
-  if (pendingChanges.length === 0) {
+  if (pendingChanges.length === 0 && !prepare) {
     return { rootPath, cleanup: async () => {} };
   }
 
@@ -184,6 +185,8 @@ export async function createValidationWorkspace(
         await fs.symlink(packagePath, path.join(overlayEntry, workspacePackage.name));
       }
     }
+
+    await prepare?.(workspaceRoot);
 
     for (const change of pendingChanges) {
       const relative = change.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
@@ -509,10 +512,11 @@ export async function runRepairRuntimeOracle(
   pendingChanges: readonly PendingValidationChange[],
   command: RuntimeOracleCommand,
   signal?: AbortSignal,
+  prepare?: (workspaceRootPath: string) => Promise<void>,
 ): Promise<{ status: "passed" | "failed"; code?: string; detail?: string }> {
   let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
   try {
-    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges, prepare);
     const execution = await runBoundedCommand({
       command: command.command,
       args: [...command.args],

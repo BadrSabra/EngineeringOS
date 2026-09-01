@@ -50,6 +50,58 @@ export type ApiCodeAgentBenchmarkOptions = {
   sourceRevision?: string;
 };
 
+function runtimeOracleCommandLabel(command: {
+  command: string;
+  args: readonly string[];
+}): string {
+  return [command.command, ...command.args].join(" ");
+}
+
+/**
+ * Execute every maintained runtime oracle against its server-owned focused
+ * candidate before a provider-backed benchmark starts. The fixture setup and
+ * candidate are materialized inside the runtime runner's disposable copy, so
+ * this check cannot mutate the campaign source or use provider output.
+ */
+export async function validateApiCodeAgentBenchmarkRuntimeOracles(opts: {
+  rootPath: string;
+  cases?: readonly CodeAgentBenchmarkCase[];
+  signal?: AbortSignal;
+}): Promise<void> {
+  const errors: string[] = [];
+
+  for (const testCase of opts.cases ?? getCodeAgentBenchmarkCases()) {
+    const fixture = getCodeAgentBenchmarkFixture(testCase);
+    if (!fixture.runtimeOracle) continue;
+
+    const commandLabel = runtimeOracleCommandLabel(fixture.runtimeOracle);
+    if (!fixture.focusedPendingChanges || fixture.focusedPendingChanges.length === 0) {
+      errors.push(`${testCase.id} [${commandLabel}]: focused candidate is missing`);
+      continue;
+    }
+
+    const result = await runRepairRuntimeOracle(
+      opts.rootPath,
+      fixture.focusedPendingChanges,
+      fixture.runtimeOracle,
+      opts.signal,
+      fixture.prepare,
+    );
+    if (result.status !== "passed") {
+      const detail = [result.code, result.detail].filter(Boolean).join(": ");
+      errors.push(
+        `${testCase.id} [${commandLabel}]: ${detail || "runtime oracle failed"}`,
+      );
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(
+      `Code Agent benchmark runtime-oracle preflight failed: ${errors.join("; ")}`,
+    );
+  }
+}
+
 /**
  * Run the Code Agent matrix with the API server's real overlay validation.
  *
@@ -66,6 +118,10 @@ export async function runApiCodeAgentBenchmark(
   if (fixtureErrors.length > 0) {
     throw new Error(`Invalid Code Agent benchmark fixture contract: ${fixtureErrors.join("; ")}`);
   }
+  await validateApiCodeAgentBenchmarkRuntimeOracles({
+    rootPath: opts.rootPath,
+    signal: opts.signal,
+  });
   const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
   const validationRunner = async (
     profile: string,
@@ -190,6 +246,10 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
   if (fixtureErrors.length > 0) {
     throw new Error(`Invalid Code Agent benchmark fixture contract: ${fixtureErrors.join("; ")}`);
   }
+  await validateApiCodeAgentBenchmarkRuntimeOracles({
+    rootPath: opts.rootPath,
+    signal: opts.signal,
+  });
   const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
   const validationRunner = async (
     profile: string,
