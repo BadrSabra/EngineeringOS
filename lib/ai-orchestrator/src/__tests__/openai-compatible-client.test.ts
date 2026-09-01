@@ -38,58 +38,82 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// ── Gemini tool stripping ──────────────────────────────────────────────────────
+// ── Gemini transport behavior ──────────────────────────────────────────────────
 
 describe("geminiCompleteRaw", () => {
-  beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url: string | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-        (globalThis as unknown as { __capturedGeminiBody?: Record<string, unknown> }).__capturedGeminiBody = body;
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            choices: [{ message: { content: '{"response":"ok","sources":[]}' } }],
-            model: "gemini-2.0-flash",
-            usage: { prompt_tokens: 1, completion_tokens: 1 },
-          }),
-          text: async () => "",
-        } as Response;
-      }),
-    );
-  });
+  it("preserves response_format for no-tool Gemini requests", async () => {
+    let captured: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"response":"ok","sources":[]}' } }],
+          model: "gemini-2.0-flash",
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        text: async () => "",
+      } as Response;
+    }));
 
-  afterEach(() => {
-    delete (globalThis as unknown as { __capturedGeminiBody?: Record<string, unknown> }).__capturedGeminiBody;
-  });
-
-  it("strips tools but preserves response_format for Gemini requests", async () => {
     const result = await geminiCompleteRaw(baseMessages as any, {
       apiKey: "test-key",
       maxTokens: 1,
       model: "gemini-2.0-flash",
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "read_file",
-            description: "Read a file",
-            parameters: { type: "object", properties: {}, required: [] },
-          },
-        },
-      ],
       responseFormat: { type: "json_object" },
     });
 
     expect(result.content).toBe('{"response":"ok","sources":[]}');
+    expect(captured).toHaveProperty("response_format", { type: "json_object" });
+    expect(captured).not.toHaveProperty("tools");
+  });
 
-    const body = (globalThis as unknown as { __capturedGeminiBody?: Record<string, unknown> }).__capturedGeminiBody;
-    expect(body).toBeDefined();
-    expect(body).not.toHaveProperty("tools");
-    expect(body).not.toHaveProperty("tool_choice");
-    expect(body).toHaveProperty("response_format", { type: "json_object" });
+  it("translates tools to Gemini native function calling", async () => {
+    let capturedUrl = "";
+    let captured: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL, init?: RequestInit) => {
+      capturedUrl = String(url);
+      captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{
+            content: {
+              role: "model",
+              parts: [{ functionCall: { name: "read_file", args: { path: "src/auth.ts" } } }],
+            },
+            finishReason: "STOP",
+          }],
+          usageMetadata: { promptTokenCount: 4, candidatesTokenCount: 3 },
+        }),
+        text: async () => "",
+      } as Response;
+    }));
+
+    const result = await geminiCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      model: "gemini-3-flash-preview",
+      tools: [{
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+        },
+      }],
+      toolChoice: "auto",
+    });
+
+    expect(capturedUrl).toContain("/v1beta/models/gemini-3-flash-preview:generateContent");
+    expect(captured).toHaveProperty("tools.0.functionDeclarations.0.name", "read_file");
+    expect(captured).toHaveProperty("toolConfig.functionCallingConfig.mode", "AUTO");
+    expect(captured).not.toHaveProperty("response_format");
+    expect(result.toolCalls?.[0]).toMatchObject({
+      type: "function",
+      function: { name: "read_file", arguments: '{"path":"src/auth.ts"}' },
+    });
   });
 
   it("redacts credential-like transport failures while retaining NETWORK_ERROR", async () => {

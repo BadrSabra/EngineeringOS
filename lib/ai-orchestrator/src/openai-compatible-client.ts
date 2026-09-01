@@ -1632,6 +1632,7 @@ function toGeminiContents(messages: RawMessage[]): {
       continue;
     }
 
+    if (message.role !== "tool") continue;
     const name = toolNamesById.get(message.tool_call_id);
     if (!name) {
       throw new GroqClientError(
