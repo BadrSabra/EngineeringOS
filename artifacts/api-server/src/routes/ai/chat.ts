@@ -3005,7 +3005,9 @@ router.post("/ai/chat", async (req, res) => {
       }
     }
 
-    const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
+    const forensicDiagnostic = turnIntent.requiresEvidence
+      ? deriveForensicDiagnostic(traceSteps)
+      : undefined;
     return res.json({
       sessionId: sessionIdToUse,
       message: {
@@ -4182,7 +4184,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       } else if (step.kind === "audit_state") {
         sse({ type: "audit_state", ...step.state });
       } else if (step.kind === "forensic_terminal") {
-        const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
+        const forensicDiagnostic = streamTurnIntent.requiresEvidence
+          ? deriveForensicDiagnostic(traceSteps)
+          : undefined;
         sse({
           type: "forensic_terminal",
           terminalKind: step.terminalKind,
@@ -5321,7 +5325,9 @@ router.post("/ai/chat/stream", async (req, res) => {
             executionLedgerSnapshot,
           )
       : assistantMsg.toolTrace;
-    const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
+    const forensicDiagnostic = streamTurnIntent.requiresEvidence
+      ? deriveForensicDiagnostic(traceSteps)
+      : undefined;
     // The database row is intentionally retained with full diagnostics, but
     // every SSE projection of that row must use the public trace.
     assistantMsg.toolTrace = publicToolTrace;

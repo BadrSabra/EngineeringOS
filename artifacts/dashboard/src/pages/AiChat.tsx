@@ -2626,15 +2626,18 @@ function ForensicEvidenceCard({
 function ExecutionSummaryBanner({
   summary,
   operatorTraceId,
+  visible = true,
 }: {
   summary: DashboardExecutionSummary | null;
   operatorTraceId?: string;
+  visible?: boolean;
 }) {
   const hasSynthesisTelemetry =
     summary?.synthesisAttempts !== undefined ||
     summary?.synthesisTimeoutMs !== undefined ||
     summary?.synthesisTimedOut !== undefined;
   if (
+    !visible ||
     !summary ||
     (summary.stopReason === 'response' && summary.diagnosticCodes.length === 0 && !hasSynthesisTelemetry)
   ) {
@@ -2667,7 +2670,11 @@ function ExecutionSummaryBanner({
       ) : null}
       {summary.stopReason !== 'response'
         ? `stopped: ${summary.stopReason.replace(/_/g, ' ')} · ${summary.iterations}/${summary.maxIterations} iterations · ${summary.toolCalls} tool calls`
-        : 'the response required forensic recovery'}{' '}
+        : summary.recoveryStarted
+          ? 'the response required bounded forensic recovery'
+          : summary.synthesisStarted
+            ? 'the response completed after synthesis'
+            : 'the response completed'}{' '}
       {summary.synthesisStarted ? '· synthesis attempted ' : ''}
       {hasSynthesisTelemetry && (
         <div className="mt-2 rounded border border-border/40 bg-background/20 px-2.5 py-2 text-[10px] text-muted-foreground">
@@ -4707,7 +4714,11 @@ function MessageBubble({
             />
           : incompleteBeforeEvidence
             ? null
-           : <ExecutionSummaryBanner summary={executionSummary} operatorTraceId={`operator-trace-${msg.id}`} />}
+            : <ExecutionSummaryBanner
+                summary={executionSummary}
+                operatorTraceId={`operator-trace-${msg.id}`}
+                visible={isForensicRun || isEngineeringExecution}
+              />}
         {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
         {!isUser && <ExecutionLedgerCard snapshot={executionLedger} />}
         {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (

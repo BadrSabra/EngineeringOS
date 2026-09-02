@@ -3,6 +3,26 @@ import { classifyRequest } from "../prompts/profile-classifier.js";
 import { isWriteCapableTurn, resolveTurnIntent } from "../turn-intent.js";
 
 describe("resolveTurnIntent", () => {
+  it("treats an explicit validation capability request as a project query, not a forensic audit", () => {
+    const intent = resolveTurnIntent(
+      "pecheck تشغيل اختبارات المعرفة عبر validation.run.knowledge-engine-tests",
+    );
+
+    expect(intent.kind).toBe("PROJECT_QUERY");
+    expect(intent.executionTaskType).toBe("tool_chat");
+    expect(intent.requiresTools).toBe(true);
+    expect(intent.requiresEvidence).toBe(false);
+  });
+
+  it("keeps a bare Arabic greeting as isolated chat", () => {
+    const intent = resolveTurnIntent("مرحبا");
+
+    expect(intent.kind).toBe("CHAT");
+    expect(intent.executionTaskType).toBe("chat");
+    expect(intent.requiresTools).toBe(false);
+    expect(intent.requiresEvidence).toBe(false);
+  });
+
   it.each([
     "ما هذا المشروع؟",
     "ممكن تساعدني أفهم المشروع؟",

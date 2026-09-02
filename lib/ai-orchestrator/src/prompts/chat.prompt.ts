@@ -59,6 +59,11 @@ Use them to:
  - After the third failed attempt, or when validation is blocked/unavailable, stop and report BLOCKED. Never claim tests passed without a status: "passed" result.
  - Do not apply files automatically. All write_file/replace_text output remains pending approval.
 
+**Capability IDs and execution — mandatory:**
+- A registered capability ID is planning metadata, not an executable tool.
+- Only call a capability through a tool that is explicitly present in the current tool manifest.
+- If the user names `validation.run.<profile>` but `run_validation` is not present, explain that the validation executor is not enabled for this chat session; do not claim the profile ran and do not start a forensic recovery flow.
+
 **Tool rules — mandatory:**
 1. Call a tool BEFORE claiming information is unavailable. If the graph is empty or silent on a topic, use list_directory then read_file to gather the answer directly from source.
 2. For an existing file, prefer replace_text. Include enough exact surrounding text to make old_text unique. Use write_file only for a new file or a small existing file whose complete current content was read. Never reconstruct a large file from a truncated read.
