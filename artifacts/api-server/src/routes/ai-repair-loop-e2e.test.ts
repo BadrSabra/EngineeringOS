@@ -142,6 +142,8 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
     })),
     enrichContextWithMemories: vi.fn(async () => undefined),
     writeSessionMemories: vi.fn(async () => undefined),
+    getProviderLifecycleSnapshot: vi.fn(async () => ({ selectable: true })),
+    isCircuitOpen: vi.fn(() => false),
   };
 });
 
