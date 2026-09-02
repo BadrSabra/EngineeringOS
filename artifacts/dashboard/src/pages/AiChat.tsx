@@ -55,6 +55,7 @@ import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
 import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-probe';
 import type {
   AiStreamErrorEvent,
+  AiAcceptanceDisposition,
   AiExecutionNodeSnapshot,
   AiScanAnalysis,
   AiCodeReview,
@@ -151,6 +152,7 @@ type ChatMessage = {
   failureKind?: AiStreamErrorEvent['failureKind'];
   retryable?: boolean;
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
+  acceptanceDisposition?: AiAcceptanceDisposition | null;
   forensicDiagnostic?: ForensicDiagnostic | null;
   createdAt: string;
 };
@@ -4824,6 +4826,7 @@ function MessageBubble({
                       </div>
                     )}
                   </div>
+                  <AcceptanceDispositionNotice disposition={msg.acceptanceDisposition} />
                 </>
               )}
             </>
@@ -6822,6 +6825,7 @@ type AgentExecutionProofStatus = {
     | 'COMPLETED';
   evidenceVerdict?: 'PROVEN' | 'PARTIAL' | 'UNAVAILABLE' | 'BLOCKED' | 'NOT_RECORDED';
   evidenceReason?: string | null;
+  acceptanceDisposition?: AiAcceptanceDisposition | null;
   objective?: Record<string, unknown> | null;
   proofRequired?: boolean;
   recovery?: {
@@ -7084,6 +7088,28 @@ function proofStatusClasses(status: string | undefined): string {
   if (status === 'completed' || status === 'ready-to-push') return 'border-green-500/40 bg-green-500/10 text-green-200';
   if (status === 'ready-to-apply' || status === 'ready-to-commit') return 'border-sky-500/40 bg-sky-500/10 text-sky-200';
   return 'border-primary/40 bg-primary/10 text-primary';
+}
+
+function AcceptanceDispositionNotice({
+  disposition,
+}: {
+  disposition?: AiAcceptanceDisposition | null;
+}) {
+  if (!disposition) return null;
+  return (
+    <div
+      className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-100"
+      aria-label="Acceptance disposition"
+    >
+      <div className="font-medium">Acceptance incomplete</div>
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">
+        {disposition.reasonCodes.join(', ')}
+      </div>
+      <div className="mt-1 text-[11px]">
+        Start a new scoped run before relying on the result.
+      </div>
+    </div>
+  );
 }
 
 export function auditExportFilename(
@@ -7422,6 +7448,7 @@ function AgentExecutionProofPanel({
           {execution?.evidenceReason && (
             <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{execution.evidenceReason}</p>
           )}
+          <AcceptanceDispositionNotice disposition={execution?.acceptanceDisposition} />
         </div>
       </div>
 
@@ -9679,6 +9706,7 @@ export default function AiChat() {
                 failureKind: err.failureKind,
                 retryable: err.retryable,
                 recoveryState: err.recoveryState,
+                acceptanceDisposition: err.acceptanceDisposition,
                 executionLedger: err.executionLedger,
                 createdAt: new Date().toISOString(),
               },

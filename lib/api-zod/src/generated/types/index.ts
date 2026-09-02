@@ -8,6 +8,12 @@
 
 export * from './activeProviderStatus';
 export * from './activeProviderStatusProvider';
+export * from './aiAcceptanceDisposition';
+export * from './aiAcceptanceDispositionFailureKind';
+export * from './aiAcceptanceDispositionOperatorAction';
+export * from './aiAcceptanceDispositionOutcome';
+export * from './aiAcceptanceDispositionReasonCodesItem';
+export * from './aiAcceptanceDispositionRecoveryState';
 export * from './aiApplyChangesRequest';
 export * from './aiApplyChangesRequestChangesItem';
 export * from './aiApplyChangesRequestChangesItemRisk';

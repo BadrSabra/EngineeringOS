@@ -1848,6 +1848,54 @@ export interface ExecutionLedgerSnapshot {
   terminalReason?: ExecutionLedgerSnapshotTerminalReason;
 }
 
+export type AiAcceptanceDispositionReasonCodesItem = typeof AiAcceptanceDispositionReasonCodesItem[keyof typeof AiAcceptanceDispositionReasonCodesItem];
+
+
+export const AiAcceptanceDispositionReasonCodesItem = {
+  EXECUTION_ACCEPTANCE_INCOMPLETE: 'EXECUTION_ACCEPTANCE_INCOMPLETE',
+} as const;
+
+export type AiAcceptanceDispositionOutcome = typeof AiAcceptanceDispositionOutcome[keyof typeof AiAcceptanceDispositionOutcome];
+
+
+export const AiAcceptanceDispositionOutcome = {
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+export type AiAcceptanceDispositionFailureKind = typeof AiAcceptanceDispositionFailureKind[keyof typeof AiAcceptanceDispositionFailureKind];
+
+
+export const AiAcceptanceDispositionFailureKind = {
+  INCOMPLETE: 'INCOMPLETE',
+} as const;
+
+export type AiAcceptanceDispositionRecoveryState = typeof AiAcceptanceDispositionRecoveryState[keyof typeof AiAcceptanceDispositionRecoveryState];
+
+
+export const AiAcceptanceDispositionRecoveryState = {
+  INCOMPLETE: 'INCOMPLETE',
+} as const;
+
+export type AiAcceptanceDispositionOperatorAction = typeof AiAcceptanceDispositionOperatorAction[keyof typeof AiAcceptanceDispositionOperatorAction];
+
+
+export const AiAcceptanceDispositionOperatorAction = {
+  START_NEW_RUN: 'START_NEW_RUN',
+} as const;
+
+export interface AiAcceptanceDisposition {
+  /**
+     * @minItems 1
+     * @maxItems 4
+     */
+  reasonCodes: AiAcceptanceDispositionReasonCodesItem[];
+  outcome: AiAcceptanceDispositionOutcome;
+  failureKind: AiAcceptanceDispositionFailureKind;
+  recoveryState: AiAcceptanceDispositionRecoveryState;
+  operatorAction: AiAcceptanceDispositionOperatorAction;
+}
+
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];
 
 
@@ -2003,6 +2051,7 @@ export interface AiChatMessage {
   retryable?: boolean;
   /** Bounded recovery/incomplete state for terminal outcomes */
   recoveryState?: AiChatMessageRecoveryState;
+  acceptanceDisposition?: AiAcceptanceDisposition | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
   /**
@@ -4231,6 +4280,7 @@ export type ListAiExecutionHistory200Item = {
   evidenceVerdict: ListAiExecutionHistory200ItemEvidenceVerdict;
   evidenceReason?: string | null;
   terminalReason?: string | null;
+  acceptanceDisposition?: AiAcceptanceDisposition | null;
   proofRequired: boolean;
   disposition: ListAiExecutionHistory200ItemDisposition;
   recommendedAction: ListAiExecutionHistory200ItemRecommendedAction;

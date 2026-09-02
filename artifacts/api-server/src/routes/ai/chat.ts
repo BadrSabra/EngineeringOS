@@ -147,6 +147,8 @@ import {
 } from "../../lib/ai-execution-state.js";
 import {
   classifyAiTerminalOutcome,
+  publicAcceptanceDisposition,
+  type AiAcceptanceDisposition,
   type AiTerminalOutcome,
 } from "../../lib/ai-terminal-outcome.js";
 import { inspectAiChange } from "../../lib/ai-change-guard.js";
@@ -349,6 +351,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   retryable?: boolean;
   recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
   forensicDiagnostic?: ForensicDiagnostic;
+  acceptanceDisposition?: AiAcceptanceDisposition;
 } {
   const parsed = value ? parseStoredJson(value) : undefined;
   if (!Array.isArray(parsed)) return {};
@@ -357,6 +360,13 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   ) as Record<string, unknown> | undefined;
   const failureKind = terminal?.failureKind;
   const forensicDiagnostic = deriveForensicDiagnostic(parsed);
+  const acceptanceDisposition = publicAcceptanceDisposition({
+    value: terminal?.acceptanceDisposition,
+    code: terminal?.code,
+    outcome: terminal?.outcome,
+    failureKind,
+    recoveryState: terminal?.recoveryState,
+  });
   return {
     ...(failureKind === "QUALITY_REVIEW"
       || failureKind === "TOOL_FAILURE"
@@ -374,6 +384,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
         : {}
     ),
     ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+    ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
   };
 }
 
@@ -1127,7 +1138,7 @@ async function persistFailedChatTurn(params: {
   assistantAt: Date;
   toolTrace?: AgentStep[];
   executionLedgerSnapshot?: ExecutionLedgerPublicSnapshot;
-}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot }> {
+}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; acceptanceDisposition?: AiAcceptanceDisposition }> {
   return db.transaction(async (tx) => {
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -1229,6 +1240,7 @@ async function persistFailedChatTurn(params: {
         errorCode: existing.errorCode,
         errorMessage: existing.errorMessage,
         toolTrace: existing.toolTrace,
+        ...terminalMetadataFromTrace(existing.toolTrace),
         createdAt: existing.createdAt,
         ...(readExecutionLedgerTrace(existing.toolTrace)
           ? { executionLedger: readExecutionLedgerTrace(existing.toolTrace) }
@@ -1253,13 +1265,22 @@ async function persistFailedChatTurn(params: {
     const terminalTrace = params.terminalOutcome && persistedTrace
       ? (() => {
           const parsed = parseStoredJson(persistedTrace);
+          const acceptanceDisposition = publicAcceptanceDisposition({
+            code: params.errorCode,
+            outcome: params.outcome,
+            failureKind: params.terminalOutcome?.failureKind,
+            recoveryState: params.terminalOutcome?.recoveryState,
+          });
           return JSON.stringify([
             ...(Array.isArray(parsed) ? parsed : []),
             {
               kind: "terminal_outcome",
+              code: params.errorCode,
+              outcome: params.outcome,
               failureKind: params.terminalOutcome.failureKind,
               retryable: params.terminalOutcome.retryable,
               recoveryState: params.terminalOutcome.recoveryState,
+              ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
             },
           ]);
         })()
@@ -1307,6 +1328,19 @@ async function persistFailedChatTurn(params: {
       errorMessage: assistantErrorMessage,
       toolTrace: terminalTrace,
       createdAt: params.assistantAt,
+      ...(publicAcceptanceDisposition({
+        code: params.errorCode,
+        outcome: params.outcome,
+        failureKind: params.terminalOutcome?.failureKind,
+        recoveryState: params.terminalOutcome?.recoveryState,
+      }) ? {
+        acceptanceDisposition: publicAcceptanceDisposition({
+          code: params.errorCode,
+          outcome: params.outcome,
+          failureKind: params.terminalOutcome?.failureKind,
+          recoveryState: params.terminalOutcome?.recoveryState,
+        }),
+      } : {}),
       ...(params.executionLedgerSnapshot ? { executionLedger: params.executionLedgerSnapshot } : {}),
     };
   });
@@ -2768,6 +2802,12 @@ router.post("/ai/chat", async (req, res) => {
           executionLedgerSnapshot,
         ),
         createdAt: msgNow,
+        acceptanceDisposition: publicAcceptanceDisposition({
+          code: terminalOutcome.code,
+          outcome: terminalOutcome.outcome,
+          failureKind: terminalOutcome.failureKind,
+          recoveryState: terminalOutcome.recoveryState,
+        }),
       };
       // The HTTP request completed, but the assistant turn did not. Keep the
       // response transport-compatible with normal chat while making the
@@ -2787,6 +2827,12 @@ router.post("/ai/chat", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           retryable: terminalOutcome.retryable,
           recoveryState: terminalOutcome.recoveryState,
+          acceptanceDisposition: publicAcceptanceDisposition({
+            code: terminalOutcome.code,
+            outcome: terminalOutcome.outcome,
+            failureKind: terminalOutcome.failureKind,
+            recoveryState: terminalOutcome.recoveryState,
+          }),
           executionLedger: executionLedgerSnapshot,
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         },
@@ -5350,6 +5396,12 @@ router.post("/ai/chat/stream", async (req, res) => {
       });
       if (!completed) {
         const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
+        const acceptanceDisposition = publicAcceptanceDisposition({
+          code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+          outcome: "FAILED",
+          failureKind: "INCOMPLETE",
+          recoveryState: "INCOMPLETE",
+        })!;
         await db
           .update(aiChatMessagesTable)
           .set({
@@ -5362,9 +5414,12 @@ router.post("/ai/chat/stream", async (req, res) => {
                 : []),
               {
                 kind: "terminal_outcome",
+                code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+                outcome: "FAILED",
                 failureKind: "INCOMPLETE",
                 retryable: true,
                 recoveryState: "INCOMPLETE",
+                acceptanceDisposition,
               },
             ]),
           })
@@ -5376,6 +5431,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           cancelled: false,
           nodeStates: executionNodeStates,
           operation: undefined,
+          acceptanceDisposition,
         });
         executionTerminal = true;
         sse({
@@ -5386,6 +5442,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           failureKind: "INCOMPLETE",
           retryable: true,
           recoveryState: "INCOMPLETE",
+          acceptanceDisposition,
           executionId: aiExecution.id,
           sessionId: sessionIdToUse,
           executionLedger: executionLedgerSnapshot,
@@ -5566,10 +5623,21 @@ router.get("/ai/executions/history", async (req, res) => {
       ? checkpoint as Record<string, unknown>
       : {};
     const hasPendingProposal = Boolean(execution.proposalId);
+    const proofRequired = checkpointRecord.proofRequired === true
+      || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId);
     const evidenceVerdict = derivePersistedEvidenceVerdict({
       executionStatus: execution.status,
       checkpoint: checkpointRecord,
       hasPendingProposal,
+    });
+    const acceptanceDisposition = publicAcceptanceDisposition({
+      value: checkpointRecord.acceptanceDisposition,
+      code: execution.error === "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision."
+        ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+        : undefined,
+      status: execution.status,
+      proofRequired,
+      evidenceVerdict,
     });
     const resumable = execution.status === "paused" || execution.status === "failed";
     const disposition = evidenceVerdict === "PROVEN"
@@ -5588,16 +5656,18 @@ router.get("/ai/executions/history", async (req, res) => {
         500,
       ),
       evidenceVerdict,
-      evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+      evidenceReason: acceptanceDisposition
+        ? "Required acceptance evidence was not proven for this run."
+        : typeof checkpointRecord.evidenceReason === "string"
         ? safeText(checkpointRecord.evidenceReason, "", 500)
         : null,
+      ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
       terminalReason: execution.status === "cancelled"
         ? "Audit was cancelled before completion."
         : execution.status === "failed"
           ? "Execution stopped before a complete result was recorded."
           : "Execution is paused at a durable checkpoint.",
-      proofRequired: checkpointRecord.proofRequired === true
-        || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId),
+      proofRequired,
       disposition,
       recommendedAction: disposition === "RETAIN_FOR_REVIEW"
         ? "REVIEW_RETAINED_PROOF"
@@ -5656,6 +5726,15 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     checkpoint: checkpointRecord,
     hasPendingProposal,
   });
+  const acceptanceDisposition = publicAcceptanceDisposition({
+    value: checkpointRecord.acceptanceDisposition,
+    code: execution.error === "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision."
+      ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+      : undefined,
+    status: execution.status,
+    proofRequired,
+    evidenceVerdict,
+  });
   const operationRecord = checkpointRecord.operation && typeof checkpointRecord.operation === "object"
     ? checkpointRecord.operation as Record<string, unknown>
     : undefined;
@@ -5689,10 +5768,15 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     }),
     proofRequired,
     evidenceVerdict,
-    evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+    evidenceReason: acceptanceDisposition
+      ? "Required acceptance evidence was not proven for this run."
+      : typeof checkpointRecord.evidenceReason === "string"
       ? checkpointRecord.evidenceReason
       : undefined,
-    terminalReason: execution.error
+    ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
+    terminalReason: acceptanceDisposition
+      ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+      : execution.error
       ?? (typeof checkpointRecord.detail === "string" ? checkpointRecord.detail : null),
          checkpoint: sanitizeExecutionCheckpointForClient(checkpoint),
     checkpointVersion: execution.checkpointVersion,

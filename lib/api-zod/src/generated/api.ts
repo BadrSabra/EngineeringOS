@@ -3147,6 +3147,8 @@ export const AiChatBody = zod.object({
 
 
 
+export const aiChatResponseMessageAcceptanceDispositionReasonCodesMax = 4;
+
 export const aiChatResponseMessageForensicDiagnosticExplanationMax = 500;
 
 export const aiChatResponseMessageForensicDiagnosticNextActionMax = 300;
@@ -3265,6 +3267,13 @@ export const AiChatResponse = zod.object({
   "failureKind": zod.enum(['QUALITY_REVIEW', 'TOOL_FAILURE', 'CANCELLATION', 'RECOVERY_FAILURE', 'INCOMPLETE']).nullish().describe('Bounded terminal classification; present only for non-success assistant turns'),
   "retryable": zod.boolean().optional().describe('Whether the same bounded operation may be retried'),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
+  "acceptanceDisposition": zod.object({
+  "reasonCodes": zod.array(zod.enum(['EXECUTION_ACCEPTANCE_INCOMPLETE'])).min(1).max(aiChatResponseMessageAcceptanceDispositionReasonCodesMax),
+  "outcome": zod.enum(['FAILED', 'INTERRUPTED']),
+  "failureKind": zod.enum(['INCOMPLETE']),
+  "recoveryState": zod.enum(['INCOMPLETE']),
+  "operatorAction": zod.enum(['START_NEW_RUN'])
+}).nullish(),
   "forensicDiagnostic": zod.object({
   "version": zod.literal(1),
   "verdict": zod.enum(['FINDING_PROVEN', 'NO_VERIFIED_FINDING', 'ANALYSIS_INCOMPLETE']),
@@ -3575,6 +3584,10 @@ export const ListAiExecutionHistoryQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(listAiExecutionHistoryQueryLimitMax).default(listAiExecutionHistoryQueryLimitDefault)
 })
 
+export const listAiExecutionHistoryResponseAcceptanceDispositionReasonCodesMax = 4;
+
+
+
 export const ListAiExecutionHistoryResponseItem = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -3584,6 +3597,13 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "evidenceVerdict": zod.enum(['PROVEN', 'PARTIAL', 'UNAVAILABLE', 'BLOCKED', 'NOT_RECORDED']),
   "evidenceReason": zod.string().nullish(),
   "terminalReason": zod.string().nullish(),
+  "acceptanceDisposition": zod.object({
+  "reasonCodes": zod.array(zod.enum(['EXECUTION_ACCEPTANCE_INCOMPLETE'])).min(1).max(listAiExecutionHistoryResponseAcceptanceDispositionReasonCodesMax),
+  "outcome": zod.enum(['FAILED', 'INTERRUPTED']),
+  "failureKind": zod.enum(['INCOMPLETE']),
+  "recoveryState": zod.enum(['INCOMPLETE']),
+  "operatorAction": zod.enum(['START_NEW_RUN'])
+}).nullish(),
   "proofRequired": zod.boolean(),
   "disposition": zod.enum(['RETAIN_FOR_REVIEW', 'NEW_RUN_RECOMMENDED']),
   "recommendedAction": zod.enum(['REVIEW_RETAINED_PROOF', 'START_NEW_RUN', 'RESUME_CHECKPOINT']),
@@ -5063,6 +5083,8 @@ export const ListAiChatMessagesParams = zod.object({
 
 
 
+export const listAiChatMessagesResponseAcceptanceDispositionReasonCodesMax = 4;
+
 export const listAiChatMessagesResponseForensicDiagnosticExplanationMax = 500;
 
 export const listAiChatMessagesResponseForensicDiagnosticNextActionMax = 300;
@@ -5135,6 +5157,13 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "failureKind": zod.enum(['QUALITY_REVIEW', 'TOOL_FAILURE', 'CANCELLATION', 'RECOVERY_FAILURE', 'INCOMPLETE']).nullish().describe('Bounded terminal classification; present only for non-success assistant turns'),
   "retryable": zod.boolean().optional().describe('Whether the same bounded operation may be retried'),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
+  "acceptanceDisposition": zod.object({
+  "reasonCodes": zod.array(zod.enum(['EXECUTION_ACCEPTANCE_INCOMPLETE'])).min(1).max(listAiChatMessagesResponseAcceptanceDispositionReasonCodesMax),
+  "outcome": zod.enum(['FAILED', 'INTERRUPTED']),
+  "failureKind": zod.enum(['INCOMPLETE']),
+  "recoveryState": zod.enum(['INCOMPLETE']),
+  "operatorAction": zod.enum(['START_NEW_RUN'])
+}).nullish(),
   "forensicDiagnostic": zod.object({
   "version": zod.literal(1),
   "verdict": zod.enum(['FINDING_PROVEN', 'NO_VERIFIED_FINDING', 'ANALYSIS_INCOMPLETE']),

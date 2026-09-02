@@ -1007,7 +1007,45 @@ describe("Durable AI completion identity", () => {
         outcome: "FAILED",
         failureKind: "INCOMPLETE",
         recoveryState: "INCOMPLETE",
+        acceptanceDisposition: {
+          reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
+          outcome: "FAILED",
+          failureKind: "INCOMPLETE",
+          recoveryState: "INCOMPLETE",
+          operatorAction: "START_NEW_RUN",
+        },
       });
+      const streamDisposition = events.find((event) => event.type === "error")?.acceptanceDisposition;
+      const history = await request(app)
+        .get(`/api/ai/executions/history?projectId=${encodeURIComponent(projectId)}`)
+        .expect(200);
+      const historyExecution = history.body.find((item: { id: string }) => item.id === fixture.created.execution.id);
+      expect(historyExecution).toMatchObject({
+        status: "failed",
+        acceptanceDisposition: streamDisposition,
+      });
+      expect(historyExecution.evidenceVerdict).not.toBe("PROVEN");
+      const detail = await request(app)
+        .get(`/api/ai/executions/${fixture.created.execution.id}`)
+        .expect(200);
+      expect(detail.body).toMatchObject({
+        status: "failed",
+        acceptanceDisposition: streamDisposition,
+      });
+      expect(detail.body.evidenceVerdict).not.toBe("PROVEN");
+      const hydratedMessages = await request(app)
+        .get(`/api/ai/chat/${sessionId}/messages`)
+        .expect(200);
+      const assistant = hydratedMessages.body.find((item: { role: string }) => item.role === "assistant");
+      expect(assistant).toMatchObject({
+        outcome: "FAILED",
+        acceptanceDisposition: streamDisposition,
+      });
+      expect(JSON.stringify({
+        history: history.body,
+        detail: detail.body,
+        messages: hydratedMessages.body,
+      })).not.toMatch(/validator-internal|\/tmp\/|\/workspace\/|provider diagnostics|secret/i);
       const [execution] = await db
         .select({
           status: aiExecutionsTable.status,

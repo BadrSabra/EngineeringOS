@@ -1629,6 +1629,9 @@ paths:
                     evidenceVerdict: { type: string, enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED] }
                     evidenceReason: { type: string, nullable: true }
                     terminalReason: { type: string, nullable: true }
+                    acceptanceDisposition:
+                      nullable: true
+                      $ref: "#/components/schemas/AiAcceptanceDisposition"
                     proofRequired: { type: boolean }
                     disposition: { type: string, enum: [RETAIN_FOR_REVIEW, NEW_RUN_RECOMMENDED] }
                     recommendedAction: { type: string, enum: [REVIEW_RETAINED_PROOF, START_NEW_RUN, RESUME_CHECKPOINT] }
@@ -5195,6 +5198,9 @@ components:
           type: string
           enum: [NONE, REQUIRED, INCOMPLETE]
           description: Bounded recovery/incomplete state for terminal outcomes
+        acceptanceDisposition:
+          nullable: true
+          $ref: "#/components/schemas/AiAcceptanceDisposition"
         forensicDiagnostic:
           nullable: true
           description: Server-owned, bounded forensic verdict shared by live and historical responses.
@@ -5231,6 +5237,31 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    AiAcceptanceDisposition:
+      type: object
+      additionalProperties: false
+      required: [reasonCodes, outcome, failureKind, recoveryState, operatorAction]
+      properties:
+        reasonCodes:
+          type: array
+          minItems: 1
+          maxItems: 4
+          items:
+            type: string
+            enum: [EXECUTION_ACCEPTANCE_INCOMPLETE]
+        outcome:
+          type: string
+          enum: [FAILED, INTERRUPTED]
+        failureKind:
+          type: string
+          enum: [INCOMPLETE]
+        recoveryState:
+          type: string
+          enum: [INCOMPLETE]
+        operatorAction:
+          type: string
+          enum: [START_NEW_RUN]
 
     ExecutionLedgerSnapshot:
       type: object

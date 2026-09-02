@@ -9,6 +9,7 @@ import type {
   ValidationEvidence,
 } from "@workspace/ai-orchestrator";
 import { formatUntrustedContent } from "@workspace/ai-orchestrator";
+import type { AiAcceptanceDisposition } from "./ai-terminal-outcome.js";
 
 export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
 export const AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT = 12_000;
@@ -595,6 +596,7 @@ export type AiExecutionCheckpoint = {
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   proofRequired?: boolean;
+  acceptanceDisposition?: AiAcceptanceDisposition;
   detail?: string;
   operation?: AutonomousOperationContract;
   recipeBinding?: RecipeOperationBinding;
@@ -1242,6 +1244,7 @@ function mergeTerminalCheckpoint(
     recentSteps?: Array<Record<string, unknown>>;
     streamedPreview?: string;
     operation?: AutonomousOperationContract;
+    acceptanceDisposition?: AiAcceptanceDisposition;
   },
 ): AiExecutionCheckpoint {
   const previous = parseAiExecutionCheckpoint(execution.checkpoint);
@@ -1277,6 +1280,9 @@ function mergeTerminalCheckpoint(
       : {}),
     ...(params.nodeStates && params.nodeStates.length > 0
       ? { nodeStates: params.nodeStates }
+      : {}),
+    ...(params.acceptanceDisposition
+      ? { acceptanceDisposition: params.acceptanceDisposition }
       : {}),
     detail: params.error.slice(0, 500),
     updatedAt: now,
@@ -1643,6 +1649,7 @@ export async function failAiExecution(params: {
   streamedPreview?: string;
   operation?: AutonomousOperationContract;
   recipeBinding?: RecipeOperationBinding;
+  acceptanceDisposition?: AiAcceptanceDisposition;
 }): Promise<boolean> {
   const status = params.cancelled ? "cancelled" : "failed";
   const [current] = await db

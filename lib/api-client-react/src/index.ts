@@ -30,6 +30,7 @@ export type {
   AiExecutionNodeStatus,
   AiBehaviorEvidence,
   AiStreamErrorEvent,
+  AiAcceptanceDisposition,
   AiStreamResetEvent,
   AiStreamToolCallEvent,
   AiStreamToolResultEvent,

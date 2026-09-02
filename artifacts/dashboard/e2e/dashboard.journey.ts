@@ -1387,6 +1387,55 @@ function installIncompleteForensicFixture(): ArabicAiFixture {
   };
 }
 
+function installAcceptanceIncompleteFixture(): ArabicAiFixture {
+  const base = installIncompleteForensicFixture();
+  const acceptanceDisposition = {
+    reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
+    outcome: "FAILED",
+    failureKind: "INCOMPLETE",
+    recoveryState: "INCOMPLETE",
+    operatorAction: "START_NEW_RUN",
+  } as const;
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  return {
+    ...base,
+    question: "Retry the proof-required run with mismatched evidence.",
+    message: {
+      ...base.message,
+      content: "",
+      outcome: "FAILED",
+      errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      errorMessage: "The acceptance evidence was not proven for this run.",
+      failureKind: "INCOMPLETE",
+      retryable: true,
+      recoveryState: "INCOMPLETE",
+      acceptanceDisposition,
+    },
+    streamBody: [
+      sse({ type: "session_started", sessionId: base.sessionId }),
+      sse({
+        type: "execution_started",
+        executionId: base.executionId,
+        status: "running",
+        resumable: true,
+      }),
+      sse({
+        type: "error",
+        executionId: base.executionId,
+        sessionId: base.sessionId,
+        code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        message: "The acceptance evidence was not proven for this run.",
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+        retryable: true,
+        recoveryState: "INCOMPLETE",
+        acceptanceDisposition,
+      }),
+    ].join(""),
+  };
+}
+
 function installCancelledForensicFixture(): ArabicAiFixture {
   const sessionId = "e2e-cancelled-forensic-session";
   const executionId = "e2e-cancelled-forensic-execution";
@@ -4145,6 +4194,30 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const afterReload = await page.locator("body").innerText();
     expect(afterReload).not.toContain("FINDING PROVEN");
     expect(afterReload).not.toContain("NO_VERIFIED_FINDING");
+  });
+
+  test("keeps the acceptance disposition identical after chat reload", async ({
+    page,
+  }) => {
+    const fixture = installAcceptanceIncompleteFixture();
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    const notice = page.getByRole("region", { name: "Acceptance disposition" });
+    await expect(notice).toContainText("EXECUTION_ACCEPTANCE_INCOMPLETE");
+    await expect(notice).toContainText("Start a new scoped run");
+    const beforeReload = await notice.innerText();
+    expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
+
+    await page.reload();
+    const reloadedNotice = page.getByRole("region", { name: "Acceptance disposition" });
+    await expect(reloadedNotice).toHaveText(beforeReload);
+    expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
   });
 
   test("reopens a cancelled forensic report from session history after reload", async ({

@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiAcceptanceDisposition } from './aiAcceptanceDisposition';
 import type { AiBehaviorAnswerResult } from './aiBehaviorAnswerResult';
 import type { AiChatMessageFailureKind } from './aiChatMessageFailureKind';
 import type { AiChatMessageOutcome } from './aiChatMessageOutcome';
@@ -42,6 +43,7 @@ export interface AiChatMessage {
   retryable?: boolean;
   /** Bounded recovery/incomplete state for terminal outcomes */
   recoveryState?: AiChatMessageRecoveryState;
+  acceptanceDisposition?: AiAcceptanceDisposition | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
   /**
