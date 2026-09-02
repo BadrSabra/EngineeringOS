@@ -58,6 +58,8 @@ import {
 import {
   claimAiExecution,
   checkpointAiExecution,
+  completeAiExecution,
+  createAutonomousOperationContract,
   createAiExecution,
   failAiExecution,
   parseAiExecutionCheckpoint,
@@ -395,6 +397,159 @@ async function insertApprovedPlan(
   return { sessionId, messageId };
 }
 
+async function insertChatSession(projectId: string, title: string): Promise<string> {
+  const sessionId = randomUUID();
+  const now = new Date();
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return sessionId;
+}
+
+async function createReconnectedProofFixture(params: {
+  projectId: string;
+  sessionId: string;
+  operationId: string;
+  checkpointOperationId?: string;
+  includeNodeState?: boolean;
+  reclaimAfterReconciliation?: boolean;
+}) {
+  const [project] = await db
+    .select({ updatedAt: projectsTable.updatedAt })
+    .from(projectsTable)
+    .where(eq(projectsTable.id, params.projectId))
+    .limit(1);
+  const workspaceRevision = project!.updatedAt.toISOString();
+  const candidateIdentity = "candidate-proof-fixture";
+  const evidenceRef = "validation-proof-fixture";
+  const node = {
+    id: "proof-node",
+    title: "Validate the proof fixture",
+    kind: "mutate" as const,
+    dependencies: [],
+    status: "passed" as const,
+    attempts: 1,
+    validationAttempts: 1,
+    allowedFiles: ["src/proof-fixture.ts"],
+    validationProfile: "workspace-typecheck" as const,
+    evidenceRefs: [evidenceRef],
+  };
+  const operation = createAutonomousOperationContract({
+    operationId: params.operationId,
+    objective: "Validate durable completion identity",
+    revisionManifest: workspaceRevision,
+    candidateIdentity,
+    targetPaths: ["src/proof-fixture.ts"],
+    expectedBehavior: "The durable proof fixture completes only with matching evidence.",
+    nodes: [node],
+  });
+  const requestEnvelope = {
+    projectId: params.projectId,
+    sessionId: params.sessionId,
+    operationId: params.operationId,
+    message: "Execute the durable proof fixture.",
+    modelMessage: "Execute the durable proof fixture.",
+    workspaceRevision,
+    validationTargetPaths: ["src/proof-fixture.ts"],
+    proofRequired: true,
+  };
+  const created = await createAiExecution({
+    userId: "test-user",
+    request: requestEnvelope,
+    idempotencyKey: randomUUID(),
+    projectId: params.projectId,
+    sessionId: params.sessionId,
+  });
+  const initialWorkerId = randomUUID();
+  expect((await claimAiExecution({
+    executionId: created.execution.id,
+    userId: "test-user",
+    workerId: initialWorkerId,
+  }))?.status).toBe("running");
+  const checkpoint = {
+    stage: "finalizing" as const,
+    sequence: 1,
+    ...(params.includeNodeState === false ? {} : {
+      nodeStates: [{
+        id: node.id,
+        title: node.title,
+        status: node.status,
+        allowedFiles: node.allowedFiles,
+        dependencies: node.dependencies,
+        validationProfile: node.validationProfile,
+        attempts: node.attempts,
+        validationAttempts: node.validationAttempts,
+        evidenceRefs: node.evidenceRefs,
+      }],
+      completedNodes: [node.id],
+      currentNode: node.id,
+    }),
+    operation: params.checkpointOperationId
+      ? { ...operation, operationId: params.checkpointOperationId }
+      : operation,
+    proofRequired: true,
+    evidenceVerdict: "PARTIAL" as const,
+    evidenceRefs: [evidenceRef],
+    detail: "Durable proof fixture checkpoint.",
+    updatedAt: new Date().toISOString(),
+  };
+  expect(await checkpointAiExecution({
+    executionId: created.execution.id,
+    workerId: initialWorkerId,
+    checkpoint,
+  })).toBe(true);
+
+  await db.update(aiExecutionsTable)
+    .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+    .where(eq(aiExecutionsTable.id, created.execution.id));
+  expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
+
+  const workerId = params.reclaimAfterReconciliation === false ? undefined : randomUUID();
+  if (workerId) {
+    expect((await claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId,
+      resumeToken: created.resumeToken,
+    }))?.status).toBe("running");
+  }
+
+  const [reloaded] = await db
+    .select({
+      request: aiExecutionsTable.request,
+      checkpoint: aiExecutionsTable.checkpoint,
+      operationId: aiExecutionsTable.operationId,
+    })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, created.execution.id))
+    .limit(1);
+  const reloadedRequest = JSON.parse(reloaded!.request) as typeof requestEnvelope;
+  const reloadedCheckpoint = parseAiExecutionCheckpoint(reloaded!.checkpoint);
+  expect(reloadedCheckpoint?.operation?.operationId).toBe(params.checkpointOperationId ?? params.operationId);
+  expect(reloadedRequest.workspaceRevision).toBe(workspaceRevision);
+  expect(reloaded.operationId).toBe(params.operationId);
+
+  return {
+    created,
+    workerId,
+    request: reloadedRequest,
+    checkpoint: reloadedCheckpoint!,
+    operation,
+    nodeStates: checkpoint.nodeStates,
+    evidence: {
+      evidenceId: "evidence-proof-fixture",
+      artifactRef: evidenceRef,
+      operationId: params.operationId,
+      projectRevision: workspaceRevision,
+      candidateHash: candidateIdentity,
+    },
+  };
+}
+
 const projectIds: string[] = [];
 const rootPaths: string[] = [];
 const discoverySessionIds: string[] = [];
@@ -687,6 +842,424 @@ describe("AI execution resume-capability recovery", () => {
     expect(terminal.status).toBe(409);
     expect(terminal.body).toMatchObject({ code: "EXECUTION_NOT_RESUMABLE", status: "completed" });
     expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
+  });
+});
+
+describe("Durable AI completion identity", () => {
+  it("reloads a proof contract after reconciliation and rejects every identity drift", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Durable proof identity");
+    const cases = [
+      { name: "matching identity", expected: true },
+      { name: "operation identity", operationId: "operation-stale", expected: false },
+      { name: "checkpoint operation identity", checkpointOperationId: "checkpoint-stale", expected: false },
+      {
+        name: "execution evidence operation",
+        evidence: { operationId: "evidence-operation-stale" },
+        expected: false,
+      },
+      {
+        name: "execution evidence revision",
+        evidence: { projectRevision: "revision-stale" },
+        expected: false,
+      },
+      {
+        name: "candidate identity",
+        candidateIdentity: "candidate-stale",
+        expected: false,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const operationId = `proof-operation-${randomUUID()}`;
+      const evidenceDrift = "evidence" in testCase ? testCase.evidence : {};
+      const operationIdArgument = "operationId" in testCase ? testCase.operationId : operationId;
+      const checkpointOperationId = "checkpointOperationId" in testCase
+        ? testCase.checkpointOperationId
+        : undefined;
+      const fixture = await createReconnectedProofFixture({
+        projectId,
+        sessionId,
+        operationId,
+        ...(checkpointOperationId
+          ? { checkpointOperationId }
+          : {}),
+      });
+      const candidateIdentityArgument = "candidateIdentity" in testCase
+        ? testCase.candidateIdentity
+        : fixture.operation.candidateIdentity;
+      const finalMessageId = randomUUID();
+      const completed = await completeAiExecution({
+        executionId: fixture.created.execution.id,
+        workerId: fixture.workerId!,
+        finalMessageId,
+        operation: fixture.operation,
+        nodeStates: fixture.nodeStates,
+        evidenceVerdict: "PROVEN",
+        evidenceRefs: [fixture.evidence.artifactRef],
+        evidence: [{
+          ...fixture.evidence,
+          ...evidenceDrift,
+        }],
+        proofRequired: true,
+        operationId: operationIdArgument,
+        candidateIdentity: candidateIdentityArgument,
+      });
+      expect(completed, testCase.name).toBe(testCase.expected);
+
+      const [stored] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+          checkpoint: aiExecutionsTable.checkpoint,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+        .limit(1);
+      const storedCheckpoint = parseAiExecutionCheckpoint(stored!.checkpoint);
+      if (testCase.expected) {
+        expect(stored).toMatchObject({
+          status: "completed",
+          finalMessageId,
+        });
+        expect(storedCheckpoint).toMatchObject({
+          stage: "completed",
+          evidenceVerdict: "PROVEN",
+          operation: { operationId },
+        });
+      } else {
+        expect(stored).toMatchObject({
+          status: "running",
+          finalMessageId: null,
+        });
+        expect(storedCheckpoint?.stage).not.toBe("completed");
+        expect(storedCheckpoint?.evidenceVerdict).not.toBe("PROVEN");
+      }
+    }
+  });
+
+  it.each([
+    ["evidence operation", { operationId: "evidence-operation-stale" }],
+    ["evidence revision", { projectRevision: "revision-stale" }],
+    ["candidate", { candidateHash: "candidate-stale" }],
+  ] as const)(
+    "returns a safe incomplete result when resumed %s proof is stale",
+    async (_label, evidenceDrift) => {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const sessionId = await insertChatSession(projectId, "Stale proof resume");
+      const operationId = `resume-proof-operation-${randomUUID()}`;
+      const fixture = await createReconnectedProofFixture({
+        projectId,
+        sessionId,
+        operationId,
+        includeNodeState: false,
+        reclaimAfterReconciliation: false,
+      });
+      vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+        args[6]?.({
+          kind: "validation",
+          status: "passed",
+          result: {
+            profile: "workspace-typecheck",
+            status: "passed",
+            scenario: "Bounded proof fixture validation",
+            exitCode: 0,
+            command: "fixture-validation",
+            stdout: "passed",
+            stderr: "",
+            failedTests: [],
+            changedFiles: [],
+            evidence: {
+              ...fixture.evidence,
+              ...evidenceDrift,
+              observedAt: "2026-09-02T00:00:00.000Z",
+            },
+            detail: "The deterministic proof fixture passed.",
+          },
+        } as never);
+        args[3]?.("Resumed proof fixture.");
+        return {
+          result: {
+            response: "The resumed proof fixture completed.",
+            sources: ["src/proof-fixture.ts"],
+            pendingChanges: [],
+          },
+          effectiveProvider: "groq",
+        } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+      });
+
+      const resumed = await request(app)
+        .post("/api/ai/chat/stream")
+        .send({
+          projectId,
+          sessionId,
+          message: fixture.request.message,
+          executionId: fixture.created.execution.id,
+          resumeToken: fixture.created.resumeToken,
+        });
+      expect(resumed.status).toBe(200);
+      const events = parseSseEvents(resumed.text);
+      expect(events.filter((event) => event.type === "done")).toHaveLength(0);
+      expect(events.find((event) => event.type === "error")).toMatchObject({
+        code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+        recoveryState: "INCOMPLETE",
+      });
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          checkpoint: aiExecutionsTable.checkpoint,
+          error: aiExecutionsTable.error,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+        .limit(1);
+      expect(execution).toMatchObject({
+        status: "failed",
+        error: "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.",
+      });
+      expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({ stage: "failed" });
+      expect(parseAiExecutionCheckpoint(execution!.checkpoint)?.evidenceVerdict).not.toBe("PROVEN");
+
+      const messages = await db
+        .select({
+          role: aiChatMessagesTable.role,
+          outcome: aiChatMessagesTable.outcome,
+          errorCode: aiChatMessagesTable.errorCode,
+          errorMessage: aiChatMessagesTable.errorMessage,
+        })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
+      expect(messages.filter((message) => message.role === "user")).toHaveLength(0);
+      expect(messages.filter((message) => message.role === "assistant")).toMatchObject([{
+        outcome: "FAILED",
+        errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        errorMessage: "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.",
+      }]);
+    },
+  );
+
+  it("resumes matching proof with one execution and persists autonomous proof", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Matching proof resume");
+    const operationId = `resume-proof-operation-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+      includeNodeState: false,
+      reclaimAfterReconciliation: false,
+    });
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      args[6]?.({
+        kind: "validation",
+        status: "passed",
+        result: {
+          profile: "workspace-typecheck",
+          status: "passed",
+          scenario: "Bounded proof fixture validation",
+          exitCode: 0,
+          command: "fixture-validation",
+          stdout: "passed",
+          stderr: "",
+          failedTests: [],
+          changedFiles: [],
+          evidence: {
+            ...fixture.evidence,
+            observedAt: "2026-09-02T00:00:00.000Z",
+          },
+          detail: "The deterministic proof fixture passed.",
+        },
+      } as never);
+      args[3]?.("Resumed proof fixture.");
+      return {
+        result: {
+          response: "The resumed proof fixture completed.",
+          sources: ["src/proof-fixture.ts"],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq",
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: fixture.request.message,
+        executionId: fixture.created.execution.id,
+        resumeToken: fixture.created.resumeToken,
+      });
+    expect(resumed.status).toBe(200);
+    const events = parseSseEvents(resumed.text);
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({
+      operationId,
+      sessionId,
+      message: {
+        executionId: fixture.created.execution.id,
+      },
+    });
+    expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+        operationId: aiExecutionsTable.operationId,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    expect(execution).toMatchObject({
+      id: fixture.created.execution.id,
+      status: "completed",
+      operationId,
+      finalMessageId: (done?.message as { id?: string }).id,
+    });
+    expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
+      stage: "completed",
+      evidenceVerdict: "PROVEN",
+      operation: {
+        operationId,
+        revisionManifest: fixture.request.workspaceRevision,
+        candidateIdentity: fixture.operation.candidateIdentity,
+      },
+    });
+
+    const messages = await db
+      .select({ role: aiChatMessagesTable.role, executionId: aiChatMessagesTable.executionId })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(0);
+    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+  });
+
+  it("keeps a valid resumed proposal review-ready instead of marking it proven", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Pending proof proposal");
+    const operationId = `resume-proposal-operation-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+      includeNodeState: false,
+      reclaimAfterReconciliation: false,
+    });
+    const proposedChange = {
+      path: "src/proof-fixture.ts",
+      absolutePath: "/tmp/proof-fixture/src/proof-fixture.ts",
+      newContent: "export const proofFixture = true;\n",
+      originalContent: null,
+      reason: "Keep the proof proposal available for review.",
+      validationProfile: "workspace-typecheck" as const,
+    };
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      args[6]?.({
+        kind: "validation",
+        status: "passed",
+        repairState: "READY_FOR_REVIEW",
+        result: {
+          profile: "workspace-typecheck",
+          status: "passed",
+          scenario: "Bounded proposal validation",
+          exitCode: 0,
+          command: "fixture-validation",
+          stdout: "passed",
+          stderr: "",
+          failedTests: [],
+          changedFiles: [],
+          evidence: {
+            ...fixture.evidence,
+            observedAt: "2026-09-02T00:00:00.000Z",
+          },
+          detail: "The deterministic proposal validation passed.",
+        },
+      } as never);
+      args[3]?.("Prepared the proof proposal for review.");
+      return {
+        result: {
+          response: "The proof proposal is ready for review.",
+          sources: ["src/proof-fixture.ts"],
+          pendingChanges: [proposedChange],
+        },
+        effectiveProvider: "groq",
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: fixture.request.message,
+        executionId: fixture.created.execution.id,
+        resumeToken: fixture.created.resumeToken,
+      });
+    expect(resumed.status).toBe(200);
+    const events = parseSseEvents(resumed.text);
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({
+      operationId,
+      proposalId: expect.any(String),
+      message: {
+        executionId: fixture.created.execution.id,
+      },
+    });
+    expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+
+    const proposalId = done?.proposalId as string;
+    const [execution] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        proposalId: aiExecutionsTable.proposalId,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    expect(execution).toMatchObject({
+      status: "completed",
+      proposalId,
+    });
+    expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
+      stage: "completed",
+      evidenceVerdict: "PARTIAL",
+      operation: { operationId },
+    });
+    expect(parseAiExecutionCheckpoint(execution!.checkpoint)?.evidenceVerdict).not.toBe("PROVEN");
+
+    const [proposal] = await db
+      .select({
+        id: aiChangeProposalsTable.id,
+        status: aiChangeProposalsTable.status,
+        projectId: aiChangeProposalsTable.projectId,
+        sessionId: aiChangeProposalsTable.sessionId,
+      })
+      .from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId))
+      .limit(1);
+    expect(proposal).toMatchObject({
+      id: proposalId,
+      status: "pending",
+      projectId,
+      sessionId,
+    });
+
+    const messages = await db
+      .select({ role: aiChatMessagesTable.role })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(0);
+    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1);
   });
 });
 
