@@ -79,6 +79,12 @@ export type ProviderHealthProbeOptions = {
   apiKey?: string;
   model?: string;
   timeoutMs?: number;
+  /**
+   * Cap provider-owned fallback candidates for this probe. OpenRouter keeps
+   * its historical bounded fallback by default; callers that own candidate
+   * iteration (such as the live smoke) set this to 1.
+   */
+  maxFallbackModels?: number;
   signal?: AbortSignal;
   /** Test seam; production uses the registered provider strategy. */
   strategy?: ProviderStrategy;
@@ -261,7 +267,14 @@ export async function probeProviderHealth(
     tools: [PROBE_TOOL],
     signal: options.signal,
     ...(options.provider === "openrouter"
-      ? { quality: "fast" as const, capability: "tool_calling" as const, maxFallbackModels: 4 }
+      ? {
+          quality: "fast" as const,
+          capability: "tool_calling" as const,
+          maxFallbackModels:
+            Number.isInteger(options.maxFallbackModels) && options.maxFallbackModels! > 0
+              ? options.maxFallbackModels
+              : 4,
+        }
       : {}),
   };
 
