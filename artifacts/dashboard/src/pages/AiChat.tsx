@@ -856,13 +856,16 @@ function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'err
 }
 
 function safePartialProviderResponse(
-  message: Pick<ChatMessage, 'errorCode' | 'errorMessage' | 'content'>,
+  message: Pick<ChatMessage, 'outcome' | 'errorCode' | 'errorMessage' | 'content'>,
   displayContent: string,
   internalTechnicalDump: boolean,
 ): string | null {
   const content = displayContent.trim();
+  const retainedResponseCode =
+    message.errorCode === 'EXECUTION_PROVIDER_FAILURE' ||
+    (message.outcome === 'INTERRUPTED' && message.errorCode === 'EXECUTION_CANCELLED');
   if (
-    message.errorCode !== 'EXECUTION_PROVIDER_FAILURE' ||
+    !retainedResponseCode ||
     !content ||
     internalTechnicalDump ||
     content === message.errorMessage?.trim()
@@ -4627,10 +4630,23 @@ function MessageBubble({
   const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
   const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
   const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+  const isGenericInterruptedTurn = !isUser &&
+    msg.outcome === 'INTERRUPTED' &&
+    (msg.operationMode === 'CHAT' ||
+      (!msg.operationMode &&
+        !msg.taskResult &&
+        !msg.forensicDiagnostic &&
+        !toolTrace.some((entry) =>
+          entry.kind === 'forensic_status' ||
+          entry.kind === 'forensic_diagnostic' ||
+          entry.kind === 'forensic_recovery_start',
+        )));
   const structuredFailure = !isUser && failedTurn && msg.structuredTask
     ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
     : null;
-  const failureKindLabel = msg.failureKind === 'QUALITY_REVIEW'
+  const failureKindLabel = isGenericInterruptedTurn
+    ? 'Connection interrupted'
+    : msg.failureKind === 'QUALITY_REVIEW'
     ? 'Quality review rejected'
     : msg.failureKind === 'PROVIDER_FORMAT'
       ? 'Provider format issue'

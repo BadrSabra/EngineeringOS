@@ -313,6 +313,7 @@ async function installApiFixtures(
     arabicAi?: ArabicAiFixture;
     alternateAi?: ArabicAiFixture;
     disconnectAi?: ArabicAiFixture;
+    interruptedAi?: ArabicAiFixture;
     resumeFailure?: {
       fixture: ArabicAiFixture;
       execution: Record<string, unknown>;
@@ -380,9 +381,16 @@ async function installApiFixtures(
     const arabicAi = overrides?.arabicAi;
     const alternateAi = overrides?.alternateAi;
     const disconnectAi = overrides?.disconnectAi;
-    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
-      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
-    );
+    const interruptedAi = overrides?.interruptedAi;
+    const recoveryAi =
+      overrides?.resumeFailure?.fixture ?? overrides?.interruptedResume?.fixture;
+    const aiFixtures = [
+      arabicAi,
+      alternateAi,
+      disconnectAi,
+      interruptedAi,
+      recoveryAi,
+    ].filter((fixture): fixture is ArabicAiFixture => Boolean(fixture));
     const hasConfiguredAiFixture =
       aiFixtures.length > 0 ||
       Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
@@ -496,7 +504,7 @@ async function installApiFixtures(
             content: messageFixture.question,
             createdAt: "2026-01-01T00:01:00.000Z",
           },
-          messageFixture.message,
+          ...(messageFixture === recoveryAi ? [] : [messageFixture.message]),
         ]),
       );
     if (
@@ -1610,6 +1618,76 @@ function installDisconnectedAiFixture(): ArabicAiFixture {
   };
 }
 
+function installInterruptedAiFixture(): ArabicAiFixture {
+  const sessionId = "e2e-interrupted-ai-session";
+  const executionId = "e2e-interrupted-ai-execution";
+  const question =
+    "What remains visible when the request is cancelled after starting an answer?";
+  const answer =
+    "The request confirmed the initial scope before cancellation.";
+  const diagnosticCode = "EXECUTION_CANCELLED";
+  const toolTrace = [
+    {
+      kind: "done",
+      stopReason: "cancelled",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: 0,
+      prefetchToolCalls: 0,
+      loopToolCalls: 0,
+      synthesisStarted: false,
+      diagnosticCodes: [diagnosticCode],
+      diagnosticDetails: [
+        "Cancellation stopped the response after visible text was retained.",
+      ],
+    },
+  ];
+  const message = {
+    id: "e2e-interrupted-ai-message",
+    sessionId,
+    role: "assistant",
+    content: answer,
+    toolTrace: JSON.stringify(toolTrace),
+    outcome: "INTERRUPTED",
+    failureKind: "CANCELLATION",
+    errorCode: diagnosticCode,
+    errorMessage: "Execution was cancelled before completion.",
+    executionId,
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      status: "running",
+      resumable: false,
+    }),
+    sse({ type: "stage", stage: "calling-model" }),
+    sse({ type: "delta", delta: answer }),
+    sse({ type: "stream_reset" }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId,
+      message,
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    question,
+    answer,
+    source: "provider",
+    sessionId,
+    executionId,
+    streamBody,
+    message,
+  };
+}
+
 function installResumedAnalysisFailureFixture() {
   const sessionId = "e2e-resumed-analysis-failure-session";
   const executionId = "e2e-resumed-analysis-failure-execution";
@@ -1923,10 +2001,18 @@ async function navigateBrowserHistory(
 }
 
 async function programmaticSignIn(page: Page) {
-  await page.goto(DASHBOARD_PATH);
-  await expect(
-    page.getByRole("link", { name: "Sign In", exact: true }),
-  ).toBeVisible();
+  const signInLink = page.getByRole("link", { name: "Sign In", exact: true });
+  let signInLoaded = false;
+  for (let attempt = 0; attempt < 3 && !signInLoaded; attempt += 1) {
+    await page.goto(DASHBOARD_PATH);
+    try {
+      await expect(signInLink).toBeVisible({ timeout: 5_000 });
+      signInLoaded = true;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await page.waitForTimeout(250);
+    }
+  }
 
   const helper =
     globalThis.signInClerkUser ??
@@ -4083,7 +4169,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ]) {
       await expect(page.locator("body")).toContainText(heading);
     }
-    await expect(page.getByText(/Safe terminal reason: CANCELLED/)).toBeVisible();
+    await expect(page.getByText(/Safe terminal reason: CANCELLED/).last()).toBeVisible();
     await expect(page.getByText("Cancelled before completion")).toBeVisible();
     await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
 
@@ -4121,7 +4207,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ]) {
       await expect(page.locator("body")).toContainText(heading);
     }
-    await expect(page.getByText(/Safe terminal reason: CANCELLED/)).toBeVisible();
+    await expect(page.getByText(/Safe terminal reason: CANCELLED/).last()).toBeVisible();
     await expect(page.getByText("Cancelled before completion")).toBeVisible();
     await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
 
@@ -4205,7 +4291,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ]) {
       await expect(page.locator("body")).toContainText(heading);
     }
-    await expect(page.getByText(/Safe terminal reason: CANCELLED/)).toBeVisible();
+    await expect(page.getByText(/Safe terminal reason: CANCELLED/).last()).toBeVisible();
     await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
     await expect(
       page.getByRole("button", { name: `Review audit ${fixture.question}` }),
@@ -4671,6 +4757,41 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
   });
 
+  test("preserves one partial answer after an interrupted terminal result", async ({
+    page,
+  }) => {
+    const fixture = installInterruptedAiFixture();
+    await installApiFixtures(page, { interruptedAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    const assertInterruptedReplay = async () => {
+      await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+      await expect(page.getByText("Execution interrupted", { exact: true }).last()).toBeVisible();
+      await expect(page.getByText("Connection interrupted", { exact: true }).last()).toBeVisible();
+      await expect(page.getByText("INCOMPLETE:", { exact: false }).last()).toBeVisible();
+      await expect(page.getByText("stopped: cancelled", { exact: false }).last()).toBeVisible();
+      await expect(page.getByText("EXECUTION_CANCELLED", { exact: false }).last()).toBeVisible();
+      await expect(page.getByLabel("Agent execution proof")).toHaveCount(0);
+      const visibleText = await page.locator("body").innerText();
+      expect(visibleText).not.toMatch(
+        /raw provider exception|stack trace|\/home\/runner|secret|apiKey=|123e4567-e89b-12d3-a456-426614174000/i,
+      );
+    };
+
+    await assertInterruptedReplay();
+
+    await page.reload();
+    await page
+      .getByRole("button", { name: fixture.question, exact: true })
+      .click();
+    await assertInterruptedReplay();
+  });
+
   test("resumes a failed analysis and keeps the execution incomplete", async ({
     page,
   }) => {
@@ -4789,6 +4910,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
                 controller.enqueue(
                   encoder.encode(buffered.slice(0, frameEnd + 2)),
                 );
+                // Let the browser deliver the durable identity frame before
+                // simulating the transport failure. Without this yield,
+                // Chromium can reject the stream before the client observes
+                // execution_started.
+                await new Promise((resolve) => setTimeout(resolve, 0));
                 controller.error(new TypeError("network connection reset"));
                 return;
               }
@@ -4872,7 +4998,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       )
       .toBe(recovery.recoveredToken);
 
-    await page.getByRole("button", { name: "Resume", exact: true }).click();
+    await executionProof
+      .getByRole("button", { name: "Resume", exact: true })
+      .click();
     await expect(
       page.getByText(recovery.fixture.answer, { exact: true }),
     ).toBeVisible();
@@ -5287,7 +5415,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         await expect(input).toBeVisible();
         await expect(save).toBeVisible();
         await input.scrollIntoViewIfNeeded();
-        await save.scrollIntoViewIfNeeded();
+        await save.evaluate((element) =>
+          element.scrollIntoView({ block: "center", inline: "nearest" }),
+        );
         await expectWithinViewport(
           input,
           viewport,

@@ -485,6 +485,86 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByText(/stack trace|\/home\/runner|secret|apiKey=/i)).not.toBeInTheDocument();
   });
 
+  it('replays a persisted interrupted chat response safely after reload', async () => {
+    const partialAnswer = 'The response confirmed the requested scope before cancellation.';
+    const unsafeError = [
+      'Raw provider exception: model secret-model-name failed at /home/runner/workspace/artifacts/api-server/src/chat.ts',
+      'apiKey=sk-live-provider-secret',
+      'executionId=123e4567-e89b-12d3-a456-426614174000',
+    ].join(' ');
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: partialAnswer,
+      outcome: 'INTERRUPTED',
+      failureKind: 'CANCELLATION',
+      errorCode: 'EXECUTION_CANCELLED',
+      errorMessage: unsafeError,
+      toolTrace: JSON.stringify([{
+        kind: 'done',
+        stopReason: 'cancelled',
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 0,
+        diagnosticCodes: ['EXECUTION_CANCELLED'],
+        diagnosticDetails: [unsafeError],
+      }]),
+    };
+
+    const assertInterruptedReplay = () => {
+      expect(screen.getByText(partialAnswer, { exact: true })).toBeInTheDocument();
+      expect(screen.getByText('Execution interrupted')).toBeInTheDocument();
+      expect(screen.getAllByText('Connection interrupted', { exact: true }).length).toBeGreaterThan(0);
+      expect(screen.getByText('INCOMPLETE:', { exact: false })).toBeInTheDocument();
+      expect(screen.getByText(/stopped: cancelled/i)).toBeInTheDocument();
+      const visibleText = document.body.textContent ?? '';
+      expect(visibleText).not.toMatch(
+        /Raw provider exception|secret-model-name|\/home\/runner|sk-live-provider-secret|123e4567-e89b-12d3-a456-426614174000|Persisted execution proof/i,
+      );
+      expect(screen.queryByText(/Execution was cancelled before completion\./i)).not.toBeInTheDocument();
+    };
+
+    const firstRender = renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    assertInterruptedReplay();
+
+    firstRender.unmount();
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    assertInterruptedReplay();
+  });
+
+  it('does not render an interrupted internal technical dump as a partial answer', async () => {
+    const internalDump = [
+      'AiStreamDecisionTraceEvent decision_trace',
+      'validator: internal recoveryattempt: 1 finalstate: cancelled',
+    ].join(' ');
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: internalDump,
+      outcome: 'INTERRUPTED',
+      failureKind: 'CANCELLATION',
+      errorCode: 'EXECUTION_CANCELLED',
+      errorMessage: 'Execution was cancelled before completion.',
+      toolTrace: JSON.stringify([{
+        kind: 'done',
+        stopReason: 'cancelled',
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 0,
+        diagnosticCodes: ['EXECUTION_CANCELLED'],
+      }]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(screen.queryByText(internalDump, { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText(/The AI provider could not complete this request/i)).toBeInTheDocument();
+    expect(screen.getByText('Execution interrupted')).toBeInTheDocument();
+  });
+
   it('keeps a clean successful chat response free of an execution diagnostic banner', async () => {
     mocks.serverProposal = { changes: [] };
     mocks.proposalMessages[0] = {
