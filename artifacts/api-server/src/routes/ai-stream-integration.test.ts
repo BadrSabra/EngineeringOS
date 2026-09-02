@@ -4467,6 +4467,63 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("persists and reuses the resumable contract for a failed JSON analysis", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const seenInputs: Array<Record<string, unknown>> = [];
+    const unavailable = async (...args: Parameters<typeof chatWithFallback>) => {
+      seenInputs.push(args[1] as Record<string, unknown>);
+      return {
+        result: {
+          response: "The analysis did not reach source evidence.",
+          sources: [],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    };
+    vi.mocked(chatWithFallback)
+      .mockImplementationOnce(unavailable)
+      .mockImplementationOnce(unavailable);
+
+    const first = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية" });
+    expect(first.status).toBe(200);
+    const sessionId = first.body.sessionId as string;
+    expect(sessionId).toBeTruthy();
+
+    const [session] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId));
+    expect(JSON.parse(session?.activeTaskState ?? "{}")).toMatchObject({
+      taskType: "FULL_FORENSIC_AUDIT",
+      scope: {
+        projectId,
+        revision: expect.any(String),
+      },
+    });
+
+    const continued = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "أكمل" });
+    expect(continued.status).toBe(200);
+    expect(seenInputs[1]?.["activeTaskState"]).toMatchObject({
+      taskType: "FULL_FORENSIC_AUDIT",
+      scope: { projectId },
+    });
+    expect(seenInputs[1]?.["turnIntent"]).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      requiresTools: true,
+      requiresEvidence: true,
+      resumed: true,
+    });
+  });
+
   it("keeps a resumed required-analysis failure terminal when the analysis remains unavailable", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

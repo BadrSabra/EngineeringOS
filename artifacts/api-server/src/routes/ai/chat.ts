@@ -2143,6 +2143,13 @@ function resolveSessionTaskState(
   return state?.scope.projectId === projectId ? state : null;
 }
 
+function hasStaleTaskStateRevision(
+  state: ReturnType<typeof parseActiveTaskState>,
+  revision: string,
+): boolean {
+  return Boolean(state?.scope.revision && state.scope.revision !== revision);
+}
+
 async function recoverSessionTaskStateFromExecution(params: {
   sessionId: string | undefined;
   projectId: string;
@@ -2161,7 +2168,7 @@ async function recoverSessionTaskStateFromExecution(params: {
     .where(and(
       eq(aiExecutionsTable.sessionId, params.sessionId),
       eq(aiExecutionsTable.projectId, params.projectId),
-      inArray(aiExecutionsTable.status, ["failed", "cancelled"]),
+      inArray(aiExecutionsTable.status, ["failed", "paused", "cancelled"]),
     ))
     .orderBy(desc(aiExecutionsTable.updatedAt))
     .limit(16);
@@ -2448,6 +2455,16 @@ router.post("/ai/chat", async (req, res) => {
     readFiles: [],
     executionPlan: null,
   });
+  if (classificationResolution.resumed && hasStaleTaskStateRevision(
+    resumableStateForTurn,
+    project.updatedAt.toISOString(),
+  )) {
+    return res.status(409).json({
+      error: "The resumable analysis belongs to an older project revision; start a new scoped analysis.",
+      code: "RESUME_REVISION_STALE",
+      outcome: "ANALYSIS_INCOMPLETE",
+    });
+  }
   if (existingSession) {
     await db.update(aiChatSessionsTable)
       .set({
@@ -3442,7 +3459,9 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     const executionRequest: AiExecutionRequestEnvelope = {
       projectId,
-      operationId: streamResumableStateForTurn?.operationId ?? randomUUID(),
+      ...(streamResumableStateForTurn?.operationId
+        ? { operationId: streamResumableStateForTurn.operationId }
+        : {}),
       sessionId: sessionIdToUse,
       message,
       modelMessage,
@@ -3548,6 +3567,27 @@ router.post("/ai/chat/stream", async (req, res) => {
           type: "error",
           code: "EXECUTION_RESUME_TOKEN_REQUIRED",
           message: "A resume token is required to continue this execution.",
+          executionId: aiExecution.id,
+        });
+        res.end();
+        return;
+      }
+      if (
+        (!effectiveExecutionId
+          && hasStaleTaskStateRevision(
+            streamResumableStateForTurn,
+            analysisCorrelation.projectRevision,
+          ))
+        || (effectiveExecutionId
+          && hasStaleTaskStateRevision(
+            streamResumableStateForTurn,
+            storedRequest?.workspaceRevision ?? analysisCorrelation.projectRevision,
+          ))
+      ) {
+        sse({
+          type: "error",
+          code: "RESUME_REVISION_STALE",
+          message: "The saved analysis belongs to an older project revision. Start a new scoped analysis.",
           executionId: aiExecution.id,
         });
         res.end();
