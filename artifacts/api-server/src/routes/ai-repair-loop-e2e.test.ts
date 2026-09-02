@@ -12,7 +12,6 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import app from "../app.js";
 import {
   aiChatMessagesTable,
   aiChatSessionsTable,
@@ -178,6 +177,8 @@ vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
     }),
   };
 });
+
+import app from "../app.js";
 
 type SseEvent = Record<string, unknown>;
 
