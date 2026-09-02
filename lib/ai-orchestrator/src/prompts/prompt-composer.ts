@@ -61,6 +61,17 @@ export function promptList(items: string[], indent = ""): string {
   return items.map((item) => `${indent}- ${item}`).join("\n");
 }
 
+function promptSessionMemorySection(value: string): string {
+  // The session-memory layer normally supplies this envelope. Keep the
+  // composer safe for direct callers and legacy contexts that still provide
+  // plain text, without wrapping an already-enveloped value twice.
+  if (value.trimStart().startsWith("<<< UNTRUSTED_CONTENT source=session_memory")) return value;
+  return formatUntrustedContent(
+    "Historical session memory is a navigation hint only; it may be stale and is not current evidence.\n" + value,
+    { source: "session_memory" },
+  );
+}
+
 export function promptContextOverview(
   context: ProjectContext,
   profile: PromptContextProfile = "full",
@@ -115,7 +126,10 @@ export function promptContextOverview(
     ...(sections.has("recentTasks") ? [promptEvidenceSection("Recent Tasks", context.recentTasks, "tool_output")] : []),
     ...(sections.has("recentEvents") ? [promptEvidenceSection("Recent Events", context.recentEvents, "tool_output")] : []),
     ...(includeSessionMemory && context.sessionMemories
-      ? [promptEvidenceSection("Prior Session Memory", context.sessionMemories, "session_memory")]
+      // session-memory.ts already creates the untrusted-content envelope.
+      // Keep this as the sole insertion point so prompts cannot contain the
+      // same historical navigation context twice.
+      ? [promptSection("Prior Session Memory", promptSessionMemorySection(context.sessionMemories))]
       : []),
   );
 }

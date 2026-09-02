@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum, index, real } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, index, real, jsonb, uniqueIndex, integer } from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 import { tasksTable } from "./tasks.js";
 
@@ -99,8 +99,8 @@ export const aiMemoryTypeEnum = pgEnum("ai_memory_type", [
  * Populated at the end of every successful chat exchange; injected into the
  * system prompt at the start of the next session for the same project.
  *
- * Relevance decays 10% per day on each sweep cycle; rows are pruned when
- * relevance drops below 0.1 or when expires_at passes (default 30 days).
+ * Relevance decays 10% once per completed 24-hour period; rows are pruned
+ * when relevance drops below 0.1 or when expires_at passes (default 30 days).
  */
 export const aiSessionMemoriesTable = pgTable("ai_session_memories", {
   id: text("id").primaryKey(),
@@ -114,11 +114,15 @@ export const aiSessionMemoriesTable = pgTable("ai_session_memories", {
   content: text("content").notNull(),
   /** Absolute or project-relative path for file_summary / entity_fact rows. */
   sourcePath: text("source_path"),
+  /** Stable project-scoped key used to refresh a memory instead of duplicating it. */
+  dedupeKey: text("dedupe_key"),
   /** 0.0 – 1.0: decays over time; rows below 0.1 are pruned on sweep. */
   relevance: real("relevance").notNull().default(1.0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   /** Hard expiry — null means never expires. Default: createdAt + 30 days. */
   expiresAt: timestamp("expires_at"),
+  /** Last completed 24-hour decay boundary; prevents a six-hour sweep from over-decaying. */
+  lastDecayAt: timestamp("last_decay_at"),
 }, (t) => [
   // Covers: WHERE project_id = ? ORDER BY relevance DESC (context fetch)
   index("idx_ai_session_memories_project_rel").on(t.projectId, t.relevance),
@@ -126,7 +130,35 @@ export const aiSessionMemoriesTable = pgTable("ai_session_memories", {
   index("idx_ai_session_memories_session_id").on(t.sessionId),
   // Covers: WHERE expires_at < NOW() (daily sweep)
   index("idx_ai_session_memories_expires_at").on(t.expiresAt),
+  uniqueIndex("uq_ai_session_memories_dedupe_key").on(t.dedupeKey),
 ]);
 
 export type InsertAiSessionMemory = typeof aiSessionMemoriesTable.$inferInsert;
 export type AiSessionMemory = typeof aiSessionMemoriesTable.$inferSelect;
+
+/**
+ * Durable queue for memory writes produced by a successful chat turn.
+ * The payload is intentionally plain data: it can be retried after a process
+ * restart without replaying the model or trusting a later conversation state.
+ */
+export const aiSessionMemoryOutboxTable = pgTable("ai_session_memory_outbox", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projectsTable.id, { onDelete: "cascade" }),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => aiChatSessionsTable.id, { onDelete: "cascade" }),
+  turnId: text("turn_id").notNull(),
+  toolSources: jsonb("tool_sources").$type<string[]>().notNull().default([]),
+  responseText: text("response_text").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("uq_ai_session_memory_outbox_session_turn").on(t.sessionId, t.turnId),
+  index("idx_ai_session_memory_outbox_next_attempt_at").on(t.nextAttemptAt),
+]);
+
+export type InsertAiSessionMemoryOutbox = typeof aiSessionMemoryOutboxTable.$inferInsert;
+export type AiSessionMemoryOutbox = typeof aiSessionMemoryOutboxTable.$inferSelect;

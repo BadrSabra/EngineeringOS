@@ -410,12 +410,6 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     taskChecklist.length > 0
       ? promptSection("Task completion contract", buildTaskCompletionContract(taskChecklist))
       : null,
-    // Session memory: files and summaries from prior sessions — injected only
-    // when the project has recorded session memories.  Do not re-read cached
-    // files unless you need updated content; use the paths as starting hints.
-    !suppressSessionMemory && context.sessionMemories
-      ? promptSection("Prior session memory (from previous chats)", context.sessionMemories)
-      : null,
     capabilityCatalog
       ? promptSection("Registered capabilities for planning", capabilityCatalog)
       : null,

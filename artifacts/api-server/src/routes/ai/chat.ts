@@ -2856,14 +2856,17 @@ router.post("/ai/chat", async (req, res) => {
     // Evidence-bound and forensic plans are stateless in both directions:
     // do not persist their source-derived response as future navigation memory.
     if (contextExecutionPlan.taskProfile.memoryMode !== "none") {
-      writeSessionMemories(
-        sessionIdToUse,
-        projectId,
-        redactUserFacingValue(result.sources),
-        sanitizeResponseText(result.response),
-      ).catch((err) => {
+      try {
+        await writeSessionMemories(
+          sessionIdToUse,
+          projectId,
+          redactUserFacingValue(result.sources),
+          sanitizeResponseText(result.response),
+          assistantMsg.id,
+        );
+      } catch (err) {
         logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
-      });
+      }
     }
 
     const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
@@ -5066,14 +5069,17 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     // Evidence-bound and forensic plans are stateless in both directions.
     if (streamExecutionPlan.taskProfile.memoryMode !== "none") {
-      writeSessionMemories(
-        sessionIdToUse,
-        projectId,
-        redactUserFacingValue(result.sources),
-        sanitizeResponseText(result.response),
-      ).catch((err) => {
+      try {
+        await writeSessionMemories(
+          sessionIdToUse,
+          projectId,
+          redactUserFacingValue(result.sources),
+          sanitizeResponseText(result.response),
+          assistantMsg.id,
+        );
+      } catch (err) {
         logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
-      });
+      }
     }
 
     // PR-010: surface latency and model info in done event.

@@ -228,9 +228,9 @@ httpServer = app.listen(port, (err) => {
   // was committed just before the original process disappeared.
   durableJobDispatcher = startDurableJobDispatcher();
 
-  // Start the session-memory sweep — prunes expired/decayed memory rows and
-  // applies daily relevance decay.  Runs every 6 hours; fires once immediately
-  // at startup to clear any backlog from a restart.
+  // Start the session-memory maintenance worker — it recovers durable memory
+  // writes and prunes/decays rows. Retention runs every 6 hours, while the
+  // outbox is polled more frequently for prompt delivery recovery.
   memorySweep = startMemorySweep();
 
   // Audit rows that failed after a successful business mutation are retried

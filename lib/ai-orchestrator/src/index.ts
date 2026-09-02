@@ -849,11 +849,12 @@ export {
   fetchSessionMemories,
   writeSessionMemories,
   enrichContextWithMemories,
+  drainSessionMemoryOutbox,
   formatMemoriesForPrompt,
   sweepExpiredMemories,
   startMemorySweep,
 } from "./session-memory.js";
-export type { MemoryRow } from "./session-memory.js";
+export type { MemoryRow, MemoryPolicy } from "./session-memory.js";
 
 export { analyzeScan } from "./agents/scan-analyst.js";
 export type { ScanAnalysisResult } from "./agents/scan-analyst.js";
