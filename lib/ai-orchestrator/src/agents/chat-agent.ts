@@ -2636,6 +2636,15 @@ const REPORT_REGENERATION_PATTERNS = [
   /^(?:أعد|اعد)\s+(?:المحاولة|توليد|إنتاج|إنشاء|صياغة)\s*(?:التقرير|الخطة|التدقيق|المراجعة|التحقيق)?$/u,
 ];
 
+/**
+ * Audit commands are analysis requests, even when they begin with an
+ * imperative such as "run", "execute", or "نفّذ". They must be allowed to
+ * create a new chat session; only a later command that applies a previously
+ * approved repair plan requires the original session.
+ */
+const AUDIT_ANALYSIS_AFTER_ACTION_RE =
+  /^(?:نفذ|نفذها|طبق|طبقها|قم(?:\s+ب)?|ابدأ|ابدا|إبدأ|run|execute|start|proceed)(?:\s+(?:the|a|an))?(?:\s+(?:code|project|full|complete))?\s*(?:audit|forensic|review|analysis|analyze|analyse|inspect|investigate|verify|scan|تدقيق|جنائي|تحقيق|مراجعة|تحليل|فحص|استكشاف|تحقق|مسح)/iu;
+
 export function isReportRegenerationRequest(message: string): boolean {
   return REPORT_REGENERATION_PATTERNS.some((pattern) =>
     pattern.test(normalizeIntentText(message)),
@@ -2652,6 +2661,7 @@ export function isImmediateExecutionRequest(message: string): boolean {
   const normalized = normalizeIntentText(message);
 
   if (isReportRegenerationRequest(normalized)) return false;
+  if (AUDIT_ANALYSIS_AFTER_ACTION_RE.test(normalized)) return false;
   return /^(?:نفذ|نفذها|نفذها\s+الان|نفذ\s+الاصلاحات|نفذ\s+التعديلات|طبق|طبقها|طبق\s+الاصلاحات|اصلح|اصلحها|أصلحها|اكتب|أنشئ|انشئ|أضف|اضف|عدّل|عدل|شغّل|شغل|قم|ابدأ|ابدا|إبدأ|start|proceed|go\s+ahead|do\s+it|implement|apply|fix|patch|edit|modify|run|execute)(?:\s|$)/i.test(normalized);
 }
 

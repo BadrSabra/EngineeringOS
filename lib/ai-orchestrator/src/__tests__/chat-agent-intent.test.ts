@@ -99,6 +99,16 @@ describe("isImmediateExecutionRequest", () => {
   });
 
   it.each([
+    "نفّذ تدقيقًا جنائيًا للمشروع",
+    "قم بتحليل المشروع بعد المسح",
+    "ابدأ مراجعة الكود",
+    "run a forensic audit of the project",
+    "execute a code review",
+  ])("allows an imperative audit to create a new session: %s", (message) => {
+    expect(isImmediateExecutionRequest(message)).toBe(false);
+  });
+
+  it.each([
     "أعد توليد التقرير",
     "أعد المحاولة",
     "Regenerate the report",
