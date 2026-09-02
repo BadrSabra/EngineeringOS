@@ -17,6 +17,7 @@
     "test:live-empty-model-response": "node ./scripts/run-live-empty-model-response.mjs",
     "validate:live-provider-review": "node ./scripts/run-live-provider-review-campaign.mjs",
     "validate:empirical-quality": "node ./scripts/run-empirical-quality-campaign.mjs",
+    "validate:empirical-quality-corpus": "node ./scripts/run-empirical-quality-corpus.mjs",
     "smoke:openrouter-free": "tsx ./scripts/run-live-openrouter-free-smoke.mjs",
     "benchmark:live": "tsx src/lib/run-code-agent-benchmark.ts",
     "benchmark:airlock": "tsx src/lib/run-code-agent-benchmark-airlock.ts",

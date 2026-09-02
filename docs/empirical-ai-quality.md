@@ -101,6 +101,45 @@ never mix scorecards from different revisions as if they were one sample.
 Source snapshots are checked out at pinned revisions into a fresh host
 disposable workspace for each case; they are never written to the scorecard.
 
+## Corpus provenance preflight
+
+Before spending disposable provider time, maintainers can opt in to a
+provider-free GitHub metadata check:
+
+```sh
+RUN_EMPIRICAL_QUALITY_CORPUS_PREFLIGHT=1 \
+pnpm --filter @workspace/api-server run validate:empirical-quality-corpus
+```
+
+The command defaults to the checked-in
+`lib/ai-orchestrator/src/benchmark-fixtures/reviewed-empirical-quality-corpus-v2.json`.
+Set `EMPIRICAL_QUALITY_CORPUS_PATH=/path/to/reviewed-corpus.json` to verify a
+different, explicitly selected v1 or v2 manifest. The path is used only to
+load the manifest; it is never printed in the report. The preflight is
+separate from `RUN_EMPIRICAL_QUALITY_CAMPAIGN` and never needs an AI provider
+key.
+
+For every case, the preflight requests only GitHub commit and tree metadata. It
+checks that the pinned commit belongs to the declared repository and that each
+selected path is an exact regular blob at that revision. Missing revisions or
+paths, repository mismatches, directories, symlinks, submodules, malformed
+metadata, and rate limits are never reported as verified. No source blobs,
+prompts, provider responses, credentials, or checkout workspaces are read or
+persisted.
+
+The command prints a bounded JSON summary containing the corpus revision and
+case/repository/revision/path statuses. Exit status `0` means every case and
+selected path was verified, `2` means a malformed corpus or known provenance
+failure, and `3` means metadata could not be established because of a
+transport, rate-limit, or tool failure. Retry status `3` after the network or
+GitHub rate limit is available; do not treat it as a verified corpus.
+
+Run this preflight first, then run the existing disposable campaign with its
+separate provider and disposable flags. The preflight does not write
+scorecards and is not consumed by release gates, rollout decisions, baseline
+approval, dashboard decisions, ordinary tests, or ordinary CI. Compare v1 and
+v2 campaigns by their immutable `corpusRevision`; do not mix their scorecards.
+
 ## Scoring an opt-in campaign
 
 Provider adapters should call
