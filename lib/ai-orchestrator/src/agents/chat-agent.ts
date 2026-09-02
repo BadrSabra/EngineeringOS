@@ -3018,6 +3018,7 @@ function buildProviderTools(
   rootPath: string | undefined,
   executionMode?: "forensic" | "repair_plan",
   singleFileForensicMode = false,
+  capabilityProbeMode = false,
   orderedForensicRoots: string[] = [],
   allowValidationTools = false,
   allowAnalysisTools = false,
@@ -3042,7 +3043,9 @@ function buildProviderTools(
   }
   const tools = getAllowedToolDefinitions(policy);
   const scopedTools =
-    singleFileForensicMode
+    capabilityProbeMode
+      ? tools.filter((tool) => RECOVERY_READ_TOOL_NAMES.has(tool.function.name))
+      : singleFileForensicMode
       ? tools.filter((tool) => tool.function.name === "read_file")
       : orderedForensicRoots.length > 0
       ? tools.filter((tool) => ["read_file", "list_directory"].includes(tool.function.name))
@@ -3059,7 +3062,19 @@ function buildProviderTools(
         )
       : tools;
 
-  if (singleFileForensicMode) {
+  if (capabilityProbeMode) {
+    console.info(
+      JSON.stringify({
+        scope: "chat-agent",
+        code: "CAPABILITY_PROBE_TOOL_SCOPE",
+        allowedTools: scopedTools.map((tool) => tool.function.name),
+        blockedTools: tools
+          .filter((tool) => !scopedTools.includes(tool))
+          .map((tool) => tool.function.name),
+        readOnly: true,
+      }),
+    );
+  } else if (singleFileForensicMode) {
     console.info(
       JSON.stringify({
         scope: "chat-agent",
@@ -4556,6 +4571,7 @@ export async function chat(opts: {
             ? "forensic"
             : undefined,
         singleFileForensicMode,
+        capabilityProbeRequest,
         orderedForensicRoots,
         allowValidationTools,
         allowAnalysisTools,
@@ -5705,7 +5721,11 @@ export async function chat(opts: {
     // model looping on READ_PATH_POLICY_BLOCKED. Apply the isolated manifest
     // only when it contains at least one concrete file.
     allowedToolNames:
-      singleFileForensicMode && singleFilePaths.length > 0 ? ["read_file"] : undefined,
+      capabilityProbeRequest
+        ? RECOVERY_READ_TOOL_NAMES
+        : singleFileForensicMode && singleFilePaths.length > 0
+          ? ["read_file"]
+          : undefined,
     allowedReadPaths:
       singleFileForensicMode && singleFilePaths.length > 0 ? singleFilePaths : undefined,
     objectiveScopePolicy: objective?.scopePolicy,
