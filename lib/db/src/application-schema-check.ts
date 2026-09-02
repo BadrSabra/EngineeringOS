@@ -36,6 +36,7 @@ type ColumnContract = {
 
 type IndexContract = {
   name: string;
+  tableName: string;
   columns: readonly string[];
 };
 
@@ -216,26 +217,231 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         nullable: true,
       },
     ] satisfies readonly ColumnContract[],
+    ai_session_memories: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "project_id",
+        dataType: "text",
+        udtName: "text",
+        nullable: false,
+      },
+      {
+        name: "session_id",
+        dataType: "text",
+        udtName: "text",
+        nullable: false,
+      },
+      {
+        name: "memory_type",
+        dataType: "USER-DEFINED",
+        udtName: "ai_memory_type",
+        nullable: false,
+      },
+      { name: "content", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "source_path",
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      },
+      {
+        name: "dedupe_key",
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      },
+      {
+        name: "semantic_kind",
+        dataType: "USER-DEFINED",
+        udtName: "ai_semantic_memory_kind",
+        nullable: true,
+      },
+      { name: "scope", dataType: "text", udtName: "text", nullable: true },
+      { name: "turn_id", dataType: "text", udtName: "text", nullable: true },
+      {
+        name: "provenance",
+        dataType: "USER-DEFINED",
+        udtName: "ai_semantic_memory_provenance",
+        nullable: true,
+      },
+      {
+        name: "source_reference",
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      },
+      {
+        name: "source_revision",
+        dataType: "text",
+        udtName: "text",
+        nullable: true,
+      },
+      { name: "confidence", dataType: "real", udtName: "float4", nullable: true },
+      {
+        name: "confirmation_status",
+        dataType: "USER-DEFINED",
+        udtName: "ai_semantic_memory_confirmation",
+        nullable: true,
+      },
+      {
+        name: "freshness_status",
+        dataType: "USER-DEFINED",
+        udtName: "ai_semantic_memory_freshness",
+        nullable: true,
+      },
+      {
+        name: "relevance",
+        dataType: "real",
+        udtName: "float4",
+        nullable: false,
+        defaultExpression: /^1(?:\.0+)?(?:::[a-z ]+)?$/,
+      },
+      {
+        name: "created_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+      {
+        name: "expires_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: true,
+      },
+      {
+        name: "last_decay_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: true,
+      },
+    ] satisfies readonly ColumnContract[],
+    ai_session_memory_outbox: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "project_id",
+        dataType: "text",
+        udtName: "text",
+        nullable: false,
+      },
+      {
+        name: "session_id",
+        dataType: "text",
+        udtName: "text",
+        nullable: false,
+      },
+      { name: "turn_id", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "tool_sources",
+        dataType: "jsonb",
+        udtName: "jsonb",
+        nullable: false,
+        defaultExpression: /'\[\]'::jsonb/,
+      },
+      {
+        name: "response_text",
+        dataType: "text",
+        udtName: "text",
+        nullable: false,
+      },
+      {
+        name: "semantic_records",
+        dataType: "jsonb",
+        udtName: "jsonb",
+        nullable: false,
+        defaultExpression: /'\[\]'::jsonb/,
+      },
+      {
+        name: "attempts",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /(?:^|[^0-9])0(?:[^0-9]|$)/,
+      },
+      {
+        name: "next_attempt_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+      },
+      {
+        name: "created_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+    ] satisfies readonly ColumnContract[],
   },
   indexes: [
-    { name: "idx_tasks_project_id", columns: ["project_id"] },
+    { name: "idx_tasks_project_id", tableName: "tasks", columns: ["project_id"] },
     {
       name: "idx_tasks_project_id_created_at",
+      tableName: "tasks",
       columns: ["project_id", "created_at"],
     },
-    { name: "idx_tasks_status", columns: ["status"] },
-    { name: "idx_tasks_priority", columns: ["priority"] },
-    { name: "idx_tasks_correlation_id", columns: ["correlation_id"] },
+    { name: "idx_tasks_status", tableName: "tasks", columns: ["status"] },
+    { name: "idx_tasks_priority", tableName: "tasks", columns: ["priority"] },
+    {
+      name: "idx_tasks_correlation_id",
+      tableName: "tasks",
+      columns: ["correlation_id"],
+    },
     {
       name: "idx_tasks_status_lease_until",
+      tableName: "tasks",
       columns: ["status", "lease_until"],
     },
-    { name: "idx_task_logs_task_id", columns: ["task_id"] },
+    {
+      name: "idx_task_logs_task_id",
+      tableName: "task_logs",
+      columns: ["task_id"],
+    },
     {
       name: "idx_task_logs_task_id_timestamp",
+      tableName: "task_logs",
       columns: ["task_id", "timestamp"],
     },
-    { name: "idx_task_logs_correlation_id", columns: ["correlation_id"] },
+    {
+      name: "idx_task_logs_correlation_id",
+      tableName: "task_logs",
+      columns: ["correlation_id"],
+    },
+    {
+      name: "idx_ai_session_memories_project_rel",
+      tableName: "ai_session_memories",
+      columns: ["project_id", "relevance"],
+    },
+    {
+      name: "idx_ai_session_memories_session_id",
+      tableName: "ai_session_memories",
+      columns: ["session_id"],
+    },
+    {
+      name: "idx_ai_session_memories_project_scope",
+      tableName: "ai_session_memories",
+      columns: ["project_id", "scope"],
+    },
+    {
+      name: "idx_ai_session_memories_expires_at",
+      tableName: "ai_session_memories",
+      columns: ["expires_at"],
+    },
+    {
+      name: "uq_ai_session_memories_dedupe_key",
+      tableName: "ai_session_memories",
+      columns: ["dedupe_key"],
+    },
+    {
+      name: "uq_ai_session_memory_outbox_session_turn",
+      tableName: "ai_session_memory_outbox",
+      columns: ["session_id", "turn_id"],
+    },
+    {
+      name: "idx_ai_session_memory_outbox_next_attempt_at",
+      tableName: "ai_session_memory_outbox",
+      columns: ["next_attempt_at"],
+    },
   ] satisfies readonly IndexContract[],
   foreignKeys: [
     {
@@ -266,6 +472,34 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       foreignColumnName: "id",
       deleteRule: "CASCADE",
     },
+    {
+      tableName: "ai_session_memories",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_session_memories",
+      columnName: "session_id",
+      foreignTableName: "ai_chat_sessions",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_session_memory_outbox",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_session_memory_outbox",
+      columnName: "session_id",
+      foreignTableName: "ai_chat_sessions",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
   ] satisfies readonly ForeignKeyContract[],
   enums: {
     task_status: [
@@ -279,6 +513,30 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     ],
     task_priority: ["p0", "p1", "p2", "p3"],
     log_level: ["debug", "info", "warn", "error"],
+    ai_memory_type: [
+      "file_summary",
+      "entity_fact",
+      "session_summary",
+      "key_finding",
+    ],
+    ai_semantic_memory_kind: [
+      "decision",
+      "constraint",
+      "unresolved_question",
+      "key_finding",
+    ],
+    ai_semantic_memory_provenance: [
+      "explicit_user_decision",
+      "explicit_user_statement",
+      "accepted_plan",
+      "validated_finding",
+    ],
+    ai_semantic_memory_confirmation: [
+      "unconfirmed",
+      "user_confirmed",
+      "server_validated",
+    ],
+    ai_semantic_memory_freshness: ["current_at_write", "stale", "unknown"],
   },
 } as const;
 
@@ -303,6 +561,7 @@ type ForeignKeyRow = {
 const REQUIRED_TABLES = Object.keys(APPLICATION_SCHEMA_CONTRACT.tables);
 const REQUIRED_ENUMS = Object.keys(APPLICATION_SCHEMA_CONTRACT.enums);
 const DELIVERY_COMMAND = "pnpm --filter @workspace/db run schema:apply";
+const REQUIRED_TABLE_SQL = REQUIRED_TABLES.map((name) => `'${name}'`).join(", ");
 
 function normalized(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -378,6 +637,7 @@ export function findApplicationSchemaIssues(
   for (const [tableName, requiredColumns] of Object.entries(
     APPLICATION_SCHEMA_CONTRACT.tables,
   )) {
+    if (!tables.has(tableName)) continue;
     for (const expected of requiredColumns) {
       const key = `${tableName}.${expected.name}`;
       const actual = columns.get(key);
@@ -470,7 +730,7 @@ export function findApplicationSchemaIssues(
       issues.push(
         issue(
           "missing_index",
-          expected.name.startsWith("idx_task_logs") ? "task_logs" : "tasks",
+          expected.tableName,
           expected.name,
           `index on (${expected.columns.join(", ")})`,
         ),
@@ -526,13 +786,13 @@ export async function readApplicationSchemaSnapshot(
     SELECT table_name, table_type
     FROM information_schema.tables
     WHERE table_schema = 'public'
-      AND table_name IN ('tasks', 'task_logs')
+      AND table_name IN (${REQUIRED_TABLE_SQL})
   `);
   const columns = await client.query<ColumnRow>(`
     SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default
     FROM information_schema.columns
     WHERE table_schema = 'public'
-      AND table_name IN ('tasks', 'task_logs')
+      AND table_name IN (${REQUIRED_TABLE_SQL})
   `);
   const enums = await client.query<EnumRow>(
     `
@@ -551,7 +811,7 @@ export async function readApplicationSchemaSnapshot(
     SELECT tablename, indexname, indexdef
     FROM pg_indexes
     WHERE schemaname = 'public'
-      AND tablename IN ('tasks', 'task_logs')
+      AND tablename IN (${REQUIRED_TABLE_SQL})
   `);
   const primaryKeys = await client.query<{
     table_name: string;
@@ -565,7 +825,7 @@ export async function readApplicationSchemaSnapshot(
      AND tc.table_name = kcu.table_name
     WHERE tc.constraint_type = 'PRIMARY KEY'
       AND tc.table_schema = 'public'
-      AND tc.table_name IN ('tasks', 'task_logs')
+      AND tc.table_name IN (${REQUIRED_TABLE_SQL})
   `);
   const foreignKeys = await client.query<ForeignKeyRow>(`
     SELECT tc.table_name, kcu.column_name,
@@ -585,7 +845,7 @@ export async function readApplicationSchemaSnapshot(
      AND tc.constraint_schema = rc.constraint_schema
     WHERE tc.constraint_type = 'FOREIGN KEY'
       AND tc.table_schema = 'public'
-      AND tc.table_name IN ('tasks', 'task_logs')
+      AND tc.table_name IN (${REQUIRED_TABLE_SQL})
   `);
 
   return {

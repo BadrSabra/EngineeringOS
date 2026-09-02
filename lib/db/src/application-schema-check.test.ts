@@ -33,6 +33,30 @@ const remediationPlan = {
 } as const;
 
 function completeSnapshot() {
+  const defaultFor = (tableName: string, columnName: string) => {
+    if (columnName === "status") return "'pending'::task_status";
+    if (columnName === "priority") return "'p2'::task_priority";
+    if (columnName === "level") return "'info'::log_level";
+    if (
+      (tableName === "tasks" &&
+        (columnName === "related_files" || columnName === "depends_on")) ||
+      (tableName === "ai_session_memory_outbox" &&
+        (columnName === "tool_sources" || columnName === "semantic_records"))
+    ) {
+      return "'[]'::jsonb";
+    }
+    if (columnName === "retry_count" || columnName === "attempts") return "0";
+    if (columnName === "max_retries") return "3";
+    if (columnName === "relevance") return "1.0";
+    if (
+      columnName === "created_at" ||
+      columnName === "updated_at" ||
+      columnName === "timestamp"
+    ) {
+      return "now()";
+    }
+    return null;
+  };
   const columns = Object.entries(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
     ([tableName, definitions]) =>
       definitions.map((definition) => ({
@@ -41,41 +65,19 @@ function completeSnapshot() {
         data_type: definition.dataType,
         udt_name: definition.udtName,
         is_nullable: definition.nullable ? ("YES" as const) : ("NO" as const),
-        column_default:
-          definition.name === "status"
-            ? "'pending'::task_status"
-            : definition.name === "priority"
-              ? "'p2'::task_priority"
-              : definition.name === "level"
-                ? "'info'::log_level"
-                : definition.name === "related_files" ||
-                    definition.name === "depends_on"
-                  ? "'[]'::jsonb"
-                  : definition.name === "retry_count"
-                    ? "0"
-                    : definition.name === "max_retries"
-                      ? "3"
-                      : definition.name === "created_at" ||
-                          definition.name === "updated_at" ||
-                          definition.name === "timestamp"
-                        ? "now()"
-                        : null,
+        column_default: defaultFor(tableName, definition.name),
       })),
   );
   const indexes = APPLICATION_SCHEMA_CONTRACT.indexes.map((definition) => ({
-    tablename: definition.name.startsWith("idx_task_logs")
-      ? "task_logs"
-      : "tasks",
+    tablename: definition.tableName,
     indexname: definition.name,
-    indexdef: `CREATE INDEX ${definition.name} ON public.${
-      definition.name.startsWith("idx_task_logs") ? "task_logs" : "tasks"
-    } USING btree (${definition.columns.join(", ")})`,
+    indexdef: `CREATE INDEX ${definition.name} ON public.${definition.tableName} USING btree (${definition.columns.join(", ")})`,
   }));
   return {
-    tables: [
-      { table_name: "tasks", table_type: "BASE TABLE" },
-      { table_name: "task_logs", table_type: "BASE TABLE" },
-    ],
+    tables: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).map((table_name) => ({
+      table_name,
+      table_type: "BASE TABLE",
+    })),
     columns,
     enums: Object.entries(APPLICATION_SCHEMA_CONTRACT.enums).map(
       ([enum_name, enum_labels]) => ({
@@ -84,10 +86,9 @@ function completeSnapshot() {
       }),
     ),
     indexes,
-    primaryKeys: [
-      { table_name: "tasks", column_name: "id" },
-      { table_name: "task_logs", column_name: "id" },
-    ],
+    primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).map(
+      (table_name) => ({ table_name, column_name: "id" }),
+    ),
     foreignKeys: APPLICATION_SCHEMA_CONTRACT.foreignKeys.map((key) => ({
       table_name: key.tableName,
       column_name: key.columnName,
@@ -149,7 +150,7 @@ function clientFor(
 }
 
 describe("application schema contract", () => {
-  it("accepts the complete task/task-log contract", async () => {
+  it("accepts the complete application contract", async () => {
     const snapshot = completeSnapshot();
     assert.deepEqual(findApplicationSchemaIssues(snapshot), []);
     await assert.doesNotReject(
@@ -319,6 +320,105 @@ describe("application schema contract", () => {
     );
   });
 
+  it("reports a missing session-memory outbox table without cascading column noise", () => {
+    const snapshot = completeSnapshot();
+    const issues = findApplicationSchemaIssues({
+      ...snapshot,
+      tables: snapshot.tables.filter(
+        (table) => table.table_name !== "ai_session_memory_outbox",
+      ),
+    });
+    assert.deepEqual(
+      issues.filter((item) => item.tableName === "public").map((item) => item.kind),
+      ["missing_table"],
+    );
+    assert.equal(issues[0]?.objectName, "ai_session_memory_outbox");
+  });
+
+  it("reports missing modern memory columns", () => {
+    const snapshot = completeSnapshot();
+    const issues = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "ai_session_memories" &&
+            ["provenance", "scope", "turn_id"].includes(column.column_name)
+          ),
+      ),
+    });
+    assert.deepEqual(
+      issues
+        .filter((item) => item.kind === "missing_column")
+        .map((item) => `${item.tableName}.${item.objectName}`),
+      [
+        "ai_session_memories.scope",
+        "ai_session_memories.turn_id",
+        "ai_session_memories.provenance",
+      ],
+    );
+  });
+
+  it("reports incompatible memory and outbox defaults or types", () => {
+    const snapshot = completeSnapshot();
+    const issues = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.map((column) => {
+        if (
+          column.table_name === "ai_session_memories" &&
+          column.column_name === "relevance"
+        ) {
+          return { ...column, data_type: "double precision", udt_name: "float8" };
+        }
+        if (
+          column.table_name === "ai_session_memory_outbox" &&
+          column.column_name === "attempts"
+        ) {
+          return { ...column, column_default: "1" };
+        }
+        return column;
+      }),
+    });
+    assert.deepEqual(
+      issues
+        .filter((item) => item.kind === "incompatible_column")
+        .map((item) => `${item.tableName}.${item.objectName}`),
+      ["ai_session_memories.relevance", "ai_session_memory_outbox.attempts"],
+    );
+  });
+
+  it("reports missing memory indexes and foreign keys by their real tables", () => {
+    const snapshot = completeSnapshot();
+    const issues = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.filter(
+        (index) =>
+          index.indexname !== "idx_ai_session_memories_project_scope" &&
+          index.indexname !== "idx_ai_session_memory_outbox_next_attempt_at",
+      ),
+      foreignKeys: snapshot.foreignKeys.filter(
+        (key) =>
+          !(
+            key.table_name === "ai_session_memory_outbox" &&
+            key.column_name === "session_id"
+          ),
+      ),
+    });
+    assert.deepEqual(
+      issues
+        .filter(
+          (item) =>
+            item.kind === "missing_index" || item.kind === "missing_foreign_key",
+        )
+        .map((item) => `${item.kind}:${item.tableName}.${item.objectName}`),
+      [
+        "missing_index:ai_session_memories.idx_ai_session_memories_project_scope",
+        "missing_index:ai_session_memory_outbox.idx_ai_session_memory_outbox_next_attempt_at",
+        "missing_foreign_key:ai_session_memory_outbox.session_id",
+      ],
+    );
+  });
+
   it("detects a missing primary key instead of treating an id column as sufficient", () => {
     const snapshot = completeSnapshot();
     const issues = findApplicationSchemaIssues({
@@ -358,5 +458,30 @@ describe("application schema contract", () => {
     assert.deepEqual(afterDelivery, rows);
     assert.equal(afterDelivery[0]?.remediation_plan, null);
     assert.deepEqual(afterDelivery[1]?.remediation_plan, remediationPlan);
+  });
+
+  it("keeps compatible legacy memory rows representable after delivery", () => {
+    const legacyMemory = {
+      memoryType: "key_finding",
+      content: "legacy",
+      sourcePath: null,
+      dedupeKey: null,
+      semanticKind: null,
+      scope: null,
+      turnId: null,
+      provenance: null,
+      sourceReference: null,
+      sourceRevision: null,
+      confidence: null,
+      confirmationStatus: null,
+      freshnessStatus: null,
+    };
+    const nullableColumns = APPLICATION_SCHEMA_CONTRACT.tables.ai_session_memories
+      .filter((column) => column.nullable)
+      .map((column) => column.name);
+    assert.ok(nullableColumns.includes("provenance"));
+    assert.ok(nullableColumns.includes("turn_id"));
+    assert.equal(legacyMemory.provenance, null);
+    assert.equal(legacyMemory.turnId, null);
   });
 });
