@@ -88,7 +88,7 @@ import {
   type CapabilityCatalogRequest,
 } from "../capability-catalog.js";
 import { CapabilityRegistry } from "../capability-contract.js";
-import type { AnalysisToolRunner } from "../tools/analysis-tools.js";
+import type { AnalysisCorrelation, AnalysisToolRunner } from "../tools/analysis-tools.js";
 import type { StrategyCallOptions } from "../provider-strategy.js";
 import { createExecutionLedger, type ExecutionLedger } from "../execution-ledger.js";
 import {
@@ -3626,6 +3626,8 @@ export async function chat(opts: {
   /** Server-owned, read-only project analysis dispatcher. */
   allowAnalysisTools?: boolean;
   analysisToolRunner?: AnalysisToolRunner;
+   /** Server-owned correlation envelope required before analysis evidence is accepted. */
+   analysisCorrelation?: AnalysisCorrelation;
   /** Optional server-owned proof after validation and before review readiness. */
   executionProofRunner?: ExecutionProofRunner;
   /** Server-owned files covered by the approved implementation plan. */
@@ -3703,6 +3705,7 @@ export async function chat(opts: {
     commandContext,
     allowAnalysisTools = false,
     analysisToolRunner,
+     analysisCorrelation,
     executionProofRunner,
     validationTargetPaths = [],
     executionPlanOverride,
@@ -5751,6 +5754,7 @@ export async function chat(opts: {
     commandRunner,
     commandContext,
     analysisToolRunner,
+     analysisCorrelation,
     validationTargetPaths,
     signal,
     // Dependency-First traversal (FEG-005/006): once the explicit primary

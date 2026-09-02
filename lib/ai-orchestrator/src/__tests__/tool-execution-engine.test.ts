@@ -15,6 +15,7 @@ import type { ProviderStrategy } from "../provider-strategy.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage, RawGroqResponse } from "../groq-client.js";
 import type { AgentStep } from "../tool-execution-engine.js";
+import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
 import { GroqClientError } from "../errors.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 import {
@@ -287,6 +288,46 @@ describe("executeSingleTool", () => {
       diagnosticCode: "TOOL_UNAVAILABLE",
       safeMessage: "Analysis tool \"query_knowledge_graph\" was unavailable; the operation did not complete.",
     });
+  });
+
+  it("passes the request correlation to the analysis runner", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const analysisToolRunner = vi.fn(async (
+      _name: string,
+      _args: Record<string, string>,
+      _signal: AbortSignal | undefined,
+      suppliedCorrelation: AnalysisCorrelation | undefined,
+    ) => ({
+      status: "complete" as const,
+      output: '{"status":"complete","entities":[]}',
+      source: "analysis:graph-search",
+      correlation: suppliedCorrelation,
+    }));
+    const correlation = {
+      operationId: "operation-a",
+      projectId: "project-a",
+      projectRevision: "revision-1",
+      rootAvailable: true,
+      evidenceProvenance: "persisted-graph-search",
+    };
+
+    const result = await executeSingleTool({
+      name: "query_knowledge_graph",
+      args: { operation: "search" },
+      rootPath: "/project",
+      pendingChanges: [],
+      analysisToolRunner,
+      analysisCorrelation: correlation,
+    });
+
+    expect(result).toMatchObject({ kind: "ok", source: "analysis:query_knowledge_graph" });
+    expect(analysisToolRunner).toHaveBeenCalledWith(
+      "query_knowledge_graph",
+      { operation: "search" },
+      undefined,
+      correlation,
+      undefined,
+    );
   });
 
   it("does not return ok when an analysis runner fails", async () => {
