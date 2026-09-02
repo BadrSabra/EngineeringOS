@@ -4078,6 +4078,25 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     projectIds.push(projectId);
     const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const report = [
+      "## 1) Executive Verdict",
+      "ANALYSIS_INCOMPLETE — recovery did not produce a complete verified report.",
+      "",
+      "## 2) Evidence Map",
+      "One source read was retained before recovery stopped.",
+      "",
+      "## 3) Findings",
+      "No verified finding was established.",
+      "",
+      "## 4) Repair Plan",
+      "No repair phases are authorized for this incomplete audit.",
+      "",
+      "## 5) Validation Checklist",
+      "No executable validation scenario is authorized for this incomplete audit.",
+      "",
+      "## 6) Final Judgment",
+      "ANALYSIS_INCOMPLETE — recovery is blocked and the audit must be retried.",
+    ].join("\n");
 
     vi.mocked(mockClassifyRequest).mockReturnValueOnce({
       category: "deep_analysis",
@@ -4112,7 +4131,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         _onStreamReset,
         onStep,
       ) => {
-        onDelta?.("Evidence-backed report");
+        onDelta?.(report);
         onStep?.({
           kind: "tool_result",
           tool: "read_file",
@@ -4122,6 +4141,26 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           prefetched: false,
         });
         onStep?.({
+          kind: "forensic_status",
+          auditScope: "PRODUCTION",
+          productionReachability: "NOT_PROVEN",
+          sourceCoverage: "PARTIAL",
+          behavioralAssessment: "INCOMPLETE",
+          findingStatus: "NOT_PROVEN",
+          repairReadiness: "BLOCKED",
+          implementationFiles: 1,
+          contextFiles: 0,
+          generatedFiles: 0,
+          requestedFiles: ["src/current.ts"],
+          effectiveRoot: "PROJECT_ROOT",
+          completeReads: false,
+          readStatuses: [{ path: "src/current.ts", status: "READ_COMPLETE" }],
+        });
+        onStep?.({
+          kind: "forensic_terminal",
+          terminalKind: "NO_RESPONSE_RECOVERY_BLOCKED",
+        });
+        onStep?.({
           kind: "recovery_model_call",
           model: "recovery-provider-model",
           provider: "recovery-provider",
@@ -4129,7 +4168,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         });
         onStep?.({
           kind: "diagnostic",
-          code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+          code: "FORENSIC_CONTRACT_RECOVERY_FAILED",
           details: [
             "provider recovery-provider returned an unusable response",
             "recovery attempt 2 failed with provider timeout",
@@ -4144,11 +4183,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           loopToolCalls: 1,
           stopReason: "response",
           synthesisStarted: true,
-          diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_REJECTED"],
+          diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_FAILED"],
         });
         return {
           result: {
-            response: "Evidence-backed report",
+            response: report,
             sources: ["src/current.ts"],
             pendingChanges: [],
           },
@@ -4164,7 +4203,15 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const events = parseSseEvents(res.text);
     const diagnostic = events.find((event) => event["type"] === "execution_diagnostic");
     const done = events.find((event) => event["type"] === "done");
-    const message = done?.["message"] as { content?: string; toolTrace?: string | null } | undefined;
+    const message = done?.["message"] as {
+      content?: string;
+      toolTrace?: string | null;
+      outcome?: string;
+      errorCode?: string;
+      failureKind?: string;
+      recoveryState?: string;
+      forensicDiagnostic?: { verdict?: string; reasonCode?: string };
+    } | undefined;
     const execution = done?.["execution"] as Record<string, unknown> | undefined;
     const persisted = await db
       .select({ role: aiChatMessagesTable.role, toolTrace: aiChatMessagesTable.toolTrace })
@@ -4173,13 +4220,33 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const assistant = persisted.find((row) => row.role === "assistant");
 
     expect(res.status).toBe(200);
-    expect(message?.content).toBe("Evidence-backed report");
+    expect(message?.content).toBe(report);
+    for (const heading of [
+      "## 1) Executive Verdict",
+      "## 2) Evidence Map",
+      "## 3) Findings",
+      "## 4) Repair Plan",
+      "## 5) Validation Checklist",
+      "## 6) Final Judgment",
+    ]) {
+      expect(message?.content).toContain(heading);
+    }
     expect(diagnostic).toEqual({
       type: "execution_diagnostic",
-      code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+      code: "FORENSIC_CONTRACT_RECOVERY_FAILED",
     });
     expect(diagnostic).not.toHaveProperty("details");
     expect(execution?.["diagnosticDetails"]).toBeUndefined();
+    expect(message).toMatchObject({
+      outcome: "FAILED",
+      errorCode: "FORENSIC_RECOVERY_FAILED",
+      failureKind: "RECOVERY_FAILURE",
+      recoveryState: "REQUIRED",
+      forensicDiagnostic: {
+        verdict: "ANALYSIS_INCOMPLETE",
+        reasonCode: "RECOVERY_BLOCKED",
+      },
+    });
 
     const trace = assistant?.toolTrace ? JSON.parse(assistant.toolTrace) as Array<Record<string, unknown>> : [];
     expect(trace).toEqual(expect.arrayContaining([
@@ -4188,9 +4255,38 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       }),
       expect.objectContaining({
         kind: "diagnostic",
-        code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+        code: "FORENSIC_CONTRACT_RECOVERY_FAILED",
       }),
     ]));
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${done?.["sessionId"] as string}/messages`);
+    expect(history.status).toBe(200);
+    const historyMessages = history.body as Array<Record<string, unknown>>;
+    expect(historyMessages).toHaveLength(2);
+    expect(historyMessages.map((row) => row.role)).toEqual(["user", "assistant"]);
+    const historyAssistant = historyMessages.find((row) => row.role === "assistant");
+    expect(historyAssistant).toMatchObject({
+      content: report,
+      outcome: "FAILED",
+      errorCode: "FORENSIC_RECOVERY_FAILED",
+      failureKind: "RECOVERY_FAILURE",
+      recoveryState: "REQUIRED",
+      forensicDiagnostic: {
+        verdict: "ANALYSIS_INCOMPLETE",
+        reasonCode: "RECOVERY_BLOCKED",
+      },
+    });
+    expect(JSON.stringify(historyAssistant)).toContain("src/current.ts");
+    expect(JSON.stringify(historyAssistant)).not.toContain("NO_VERIFIED_FINDING");
+    expect(JSON.stringify(historyAssistant)).not.toContain("FINDING_PROVEN");
+    expect(JSON.stringify(historyAssistant)).not.toContain("COMPLETED");
+    expect(JSON.stringify(historyAssistant)).not.toContain("recovery-provider");
+    expect(JSON.stringify(historyAssistant)).not.toContain("recovery-provider-model");
+    expect(JSON.stringify(historyAssistant)).not.toContain(projectId);
+    expect(historyAssistant?.content).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
+    expect(historyAssistant?.errorMessage).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
+    expect(JSON.stringify(historyAssistant)).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
   });
 
   it("keeps a streamed forensic cancellation incomplete after recovery retains partial evidence", async () => {
@@ -4258,6 +4354,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           outputLength: 256,
           prefetched: false,
         });
+        onStep?.({
+          kind: "forensic_status",
+          auditScope: "PRODUCTION",
+          productionReachability: "NOT_PROVEN",
+          sourceCoverage: "PARTIAL",
+          behavioralAssessment: "INCOMPLETE",
+          findingStatus: "NOT_PROVEN",
+          repairReadiness: "BLOCKED",
+          implementationFiles: 1,
+          contextFiles: 0,
+          generatedFiles: 0,
+          requestedFiles: ["src/partially-read.ts"],
+          effectiveRoot: "PROJECT_ROOT",
+          completeReads: false,
+          readStatuses: [{ path: "src/partially-read.ts", status: "READ_COMPLETE" }],
+        });
         onStep?.({ kind: "forensic_recovery_start", attempt: 1 });
         onStep?.({
           kind: "recovery_model_call",
@@ -4283,13 +4395,17 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           ],
         });
         onStep?.({
+          kind: "forensic_terminal",
+          terminalKind: "NO_RESPONSE_RECOVERY_BLOCKED",
+        });
+        onStep?.({
           kind: "done",
           iterations: 3,
           maxIterations: 24,
           toolCalls: 1,
           prefetchToolCalls: 0,
           loopToolCalls: 1,
-          stopReason: "response",
+          stopReason: "cancelled",
           synthesisStarted: true,
            synthesisAttempts: 1,
            synthesisMaxAttempts: 2,
@@ -4311,7 +4427,15 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .send({ projectId, message: "forensic audit" });
     const events = parseSseEvents(res.text);
     const done = events.find((event) => event["type"] === "done");
-    const message = done?.["message"] as { content?: string; toolTrace?: string | null } | undefined;
+    const message = done?.["message"] as {
+      content?: string;
+      toolTrace?: string | null;
+      outcome?: string;
+      errorCode?: string;
+      failureKind?: string;
+      recoveryState?: string;
+      forensicDiagnostic?: { verdict?: string; reasonCode?: string };
+    } | undefined;
     const publicToolTrace = message?.toolTrace ?? "";
 
     expect(res.status).toBe(200);
@@ -4329,6 +4453,16 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     }
     expect(message?.content).toContain("ANALYSIS_INCOMPLETE");
     expect(message?.content).not.toContain("NO_VERIFIED_FINDING");
+    expect(message).toMatchObject({
+      outcome: "INTERRUPTED",
+      errorCode: "EXECUTION_CANCELLED",
+      failureKind: "CANCELLATION",
+      recoveryState: "INCOMPLETE",
+      forensicDiagnostic: {
+        verdict: "ANALYSIS_INCOMPLETE",
+        reasonCode: "CANCELLED",
+      },
+    });
     expect(res.text).not.toContain("AbortError");
     expect(res.text).not.toContain("recovery-provider diagnostic");
     expect(res.text).not.toContain("secret-fixture-value");
@@ -4344,6 +4478,36 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(assistant?.toolTrace).not.toContain("secret-fixture-value");
     expect(assistant?.toolTrace).toContain('"synthesisAttempts":1');
     expect(assistant?.toolTrace).toContain('"synthesisTimedOut":false');
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${done?.["sessionId"] as string}/messages`);
+    expect(history.status).toBe(200);
+    const historyMessages = history.body as Array<Record<string, unknown>>;
+    expect(historyMessages).toHaveLength(2);
+    expect(historyMessages.map((row) => row.role)).toEqual(["user", "assistant"]);
+    const historyAssistant = historyMessages.find((row) => row.role === "assistant");
+    expect(historyAssistant).toMatchObject({
+      content: report,
+      outcome: "INTERRUPTED",
+      errorCode: "EXECUTION_CANCELLED",
+      failureKind: "CANCELLATION",
+      recoveryState: "INCOMPLETE",
+      forensicDiagnostic: {
+        verdict: "ANALYSIS_INCOMPLETE",
+        reasonCode: "CANCELLED",
+      },
+    });
+    expect(JSON.stringify(historyAssistant)).toContain("src/partially-read.ts");
+    expect(JSON.stringify(historyAssistant)).not.toContain("NO_VERIFIED_FINDING");
+    expect(JSON.stringify(historyAssistant)).not.toContain("FINDING_PROVEN");
+    expect(JSON.stringify(historyAssistant)).not.toContain("COMPLETED");
+    expect(JSON.stringify(historyAssistant)).not.toContain("recovery-provider");
+    expect(JSON.stringify(historyAssistant)).not.toContain("recovery-provider-model");
+    expect(JSON.stringify(historyAssistant)).not.toContain(projectId);
+    expect(historyAssistant?.content).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
+    expect(historyAssistant?.errorMessage).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
+    expect(JSON.stringify(historyAssistant)).not.toContain("secret-fixture-value");
+    expect(JSON.stringify(historyAssistant)).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
   });
 
   it("persists required analysis failures and never replays them as completed", async () => {
