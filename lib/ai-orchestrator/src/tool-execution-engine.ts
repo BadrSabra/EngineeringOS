@@ -740,6 +740,13 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           safeMessage: string;
         }
       | undefined;
+    const validationEvidenceContext = opts.analysisCorrelation?.operationId
+      || opts.analysisCorrelation?.projectRevision
+      ? {
+          operationId: opts.analysisCorrelation.operationId,
+          projectRevision: opts.analysisCorrelation.projectRevision,
+        }
+      : undefined;
     const output = await (isGitTool
       ? await executeGitTool(name, effectiveArgs, rootPath)
       : isFileTool
@@ -752,6 +759,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             opts.validationRunner,
             opts.signal,
             pendingChanges,
+            validationEvidenceContext,
           )
         : name === "run_command"
           ? await executeCommandTool(

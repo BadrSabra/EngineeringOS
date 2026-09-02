@@ -7,6 +7,7 @@ import {
   type ValidationFailure as SharedValidationFailure,
   type ValidationResult,
   type ValidationStatus,
+  type ValidationEvidence,
 } from "@workspace/ai-orchestrator";
 import {
   verifyBrowserPreview,
@@ -267,7 +268,15 @@ function emptyValidationDraft(
   };
 }
 
-function attachValidationEvidence(result: ValidationDraft): ValidationResult {
+type ValidationEvidenceContext = Pick<
+  ValidationEvidence,
+  "operationId" | "projectRevision" | "candidateHash"
+>;
+
+function attachValidationEvidence(
+  result: ValidationDraft,
+  context: ValidationEvidenceContext = {},
+): ValidationResult {
   const evidenceId = randomUUID();
   return {
     ...result,
@@ -275,6 +284,9 @@ function attachValidationEvidence(result: ValidationDraft): ValidationResult {
       evidenceId,
       observedAt: new Date().toISOString(),
       artifactRef: `validation-result:${evidenceId}`,
+      ...(context.operationId ? { operationId: context.operationId } : {}),
+      ...(context.projectRevision ? { projectRevision: context.projectRevision } : {}),
+      ...(context.candidateHash ? { candidateHash: context.candidateHash } : {}),
     },
   };
 }
@@ -484,6 +496,7 @@ export async function runRepairValidation(
   relativePaths: string[],
   signal?: AbortSignal,
   pendingChanges: readonly PendingValidationChange[] = [],
+  evidenceContext: ValidationEvidenceContext = {},
 ): Promise<ValidationResult> {
   const startedAt = Date.now();
   const result = await runWithValidationDeadline(rootPath, profile, relativePaths, signal, pendingChanges);
@@ -499,7 +512,7 @@ export async function runRepairValidation(
     remainingMs: Math.max(0, config.validationOverallTimeoutMs - elapsedMs),
     terminalState,
     nextAction: result.nextAction ?? validationNextAction(result.status, terminalState),
-  });
+  }, evidenceContext);
 }
 
 /**
@@ -588,6 +601,8 @@ export async function runRepairPreviewValidation(input: {
       profileName: input.profileName ?? "browser-preview",
       permittedOrigin: input.contract?.permittedOrigin,
       revision: result.revision,
+      operationId: input.operationId,
+      projectRevision: result.revision,
       screenshotAvailable: result.screenshotAvailable === true || Boolean(result.screenshotPath),
       consoleErrorCount: result.consoleErrors.length,
     },

@@ -3510,7 +3510,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       });
     }
 
-    const executionRequest: AiExecutionRequestEnvelope = {
+    let executionRequest: AiExecutionRequestEnvelope = {
       projectId,
       ...(streamResumableStateForTurn?.operationId
         ? { operationId: streamResumableStateForTurn.operationId }
@@ -3523,10 +3523,14 @@ router.post("/ai/chat/stream", async (req, res) => {
       ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
       ...(objective ? { objective } : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+      // Session task linkage is context, not an autonomous execution request.
+      // Only an explicit delivery/task execution, Build handoff, declared
+      // objective, scoped implementation plan, or direct execution command
+      // enters the proof-required contract.
       proofRequired: Boolean(
-        effectiveLinkedTaskId
+        objective
         || effectiveBuildPlanMessageId
-        || objective
+        || (effectiveLinkedTaskId && streamTurnIntent.kind === "DELIVERY")
         || (implementationPlanScope && implementationPlanScope.size > 0)
         || isImmediateExecutionRequest(message),
       ),
@@ -3548,7 +3552,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           }
         : {}),
     };
-    const proofRequired = executionRequest.proofRequired === true;
+    let proofRequired = executionRequest.proofRequired === true;
     executionWorkerId = randomUUID();
     let executionResumeToken: string | undefined;
     aiExecution = effectiveExecutionId
@@ -3570,6 +3574,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           `${executionRequest.message}\n\nBUILD HANDOFF`,
         ),
       );
+      const optionalBindingMatches = (
+        storedValue: unknown,
+        requestedValue: unknown,
+        requested: boolean,
+      ): boolean => !requested || JSON.stringify(storedValue ?? null) === JSON.stringify(requestedValue ?? null);
       const bindingMatches = storedRequest &&
         storedRequest.projectId === executionRequest.projectId &&
         storedRequest.sessionId === executionRequest.sessionId &&
@@ -3578,14 +3587,22 @@ router.post("/ai/chat/stream", async (req, res) => {
           storedRequest.modelMessage === executionRequest.modelMessage
           || legacyBuildModelBinding
         ) &&
-        (storedRequest.linkedTaskId ?? undefined) === (executionRequest.linkedTaskId ?? undefined) &&
-        (storedRequest.buildPlanMessageId ?? undefined) === (executionRequest.buildPlanMessageId ?? undefined) &&
-        JSON.stringify(storedRequest.validationTargetPaths) === JSON.stringify(executionRequest.validationTargetPaths) &&
-        JSON.stringify(storedRequest.objective ?? null) === JSON.stringify(executionRequest.objective ?? null) &&
-        (
-          storedRequest.proofRequired === undefined
-          || Boolean(storedRequest.proofRequired) === Boolean(executionRequest.proofRequired)
-        );
+        optionalBindingMatches(
+          storedRequest.linkedTaskId,
+          executionRequest.linkedTaskId,
+          linkedTaskId !== undefined,
+        ) &&
+        optionalBindingMatches(
+          storedRequest.buildPlanMessageId,
+          executionRequest.buildPlanMessageId,
+          effectiveBuildPlanMessageId !== undefined,
+        ) &&
+        optionalBindingMatches(
+          storedRequest.validationTargetPaths,
+          executionRequest.validationTargetPaths,
+          implementationPlanScope !== undefined && implementationPlanScope.size > 0,
+        ) &&
+        optionalBindingMatches(storedRequest.objective, executionRequest.objective, objective !== undefined);
       if (!bindingMatches) {
         sse({
           type: "error",
@@ -3651,6 +3668,22 @@ router.post("/ai/chat/stream", async (req, res) => {
       if (storedRequest?.workspaceRevision) {
         analysisCorrelation.projectRevision = storedRequest.workspaceRevision;
       }
+      // A resume is governed by the immutable request that created the
+      // execution. The retry message cannot downgrade or upgrade its proof
+      // contract by omitting Build/objective metadata.
+      // Older executions predate the explicit proofRequired field. Recover
+      // their proof contract only from stored execution metadata; never from
+      // the retry message or from a session's ambient task linkage.
+      proofRequired = storedRequest?.proofRequired ?? Boolean(
+        storedRequest?.buildPlanMessageId
+        || storedRequest?.objective
+        || storedRequest.validationTargetPaths.length > 0
+        || isImmediateExecutionRequest(storedRequest.message),
+      );
+      executionRequest = {
+        ...storedRequest,
+        modelMessage: storedRequest.modelMessage,
+      };
       modelMessage = storedRequest.modelMessage;
       resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
       const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
@@ -3770,8 +3803,8 @@ router.post("/ai/chat/stream", async (req, res) => {
     const checkpointOperation = resumeCheckpoint?.operation;
     autonomousOperation = checkpointOperation ?? createAutonomousOperationContract({
       operationId: aiExecution.operationId ?? aiExecution.id,
-      objective: typeof executionRequest.objective === "string"
-        ? executionRequest.objective
+      objective: executionRequest.objective
+        ? JSON.stringify(executionRequest.objective)
         : executionRequest.message,
       revisionManifest: executionRequest.workspaceRevision,
       targetPaths: executionRequest.validationTargetPaths,
@@ -4432,6 +4465,11 @@ router.post("/ai/chat/stream", async (req, res) => {
             targetPaths: string[],
             signal?: AbortSignal,
             pendingChanges?: readonly PendingValidationChange[],
+            evidenceContext?: {
+              operationId?: string;
+              projectRevision?: string;
+              candidateHash?: string;
+            },
           ) => {
             const parsedProfile = ValidationProfileSchema.safeParse(profile);
             if (!parsedProfile.success) {
@@ -4446,6 +4484,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               targetPaths,
               signal,
               pendingChanges ?? [],
+              evidenceContext,
             );
           }
         : undefined;
@@ -5214,7 +5253,16 @@ router.post("/ai/chat/stream", async (req, res) => {
       .find((step) => step.kind === "validation");
     if (finalValidation?.kind === "validation") {
       if (finalValidation.status === "passed") {
+        const evidenceBoundToExecution =
+          finalValidation.result.evidence.operationId === (aiExecution.operationId ?? aiExecution.id)
+          && finalValidation.result.evidence.projectRevision === analysisCorrelation.projectRevision
+          && (
+            autonomousOperation?.candidateIdentity === null
+            || autonomousOperation?.candidateIdentity === undefined
+            || finalValidation.result.evidence.candidateHash === autonomousOperation.candidateIdentity
+          );
         executionEvidenceVerdict = isProvenValidation(finalValidation.result)
+          && evidenceBoundToExecution
           && !proposalId
           ? "PROVEN"
           : "PARTIAL";
@@ -5291,8 +5339,13 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
         proofRequired,
+        operationId: aiExecution.operationId ?? aiExecution.id,
+        candidateIdentity: autonomousOperation?.candidateIdentity,
         evidenceRefs: finalValidation?.kind === "validation"
           ? [finalValidation.result.evidence.artifactRef]
+          : [],
+        evidence: finalValidation?.kind === "validation"
+          ? [finalValidation.result.evidence]
           : [],
       });
       if (!completed) {
