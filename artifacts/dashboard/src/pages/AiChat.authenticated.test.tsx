@@ -446,6 +446,61 @@ describe('AiChat authenticated generated mutations', () => {
     assertSafeRecovery();
   });
 
+  it('shows a retained partial provider response and incomplete execution diagnostic for generic chat', async () => {
+    const partialAnswer = 'The provider began reviewing the request before disconnecting.';
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: partialAnswer,
+      outcome: 'FAILED',
+      errorCode: 'EXECUTION_PROVIDER_FAILURE',
+      errorMessage: 'The provider disconnected before completion.',
+      toolTrace: JSON.stringify([{
+        kind: 'done',
+        stopReason: 'provider_timeout',
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 0,
+        diagnosticCodes: ['EXECUTION_PROVIDER_FAILURE'],
+        diagnosticDetails: ['The provider disconnected after visible response text.'],
+      }]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText(partialAnswer, { exact: true })).toBeInTheDocument();
+    expect(screen.getByText('INCOMPLETE:', { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByText(/provider failure/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/stopped: provider timeout/i)).toBeInTheDocument();
+    expect(screen.getByText('The provider disconnected after visible response text.')).toBeInTheDocument();
+    expect(screen.queryByText(/stack trace|\/home\/runner|secret|apiKey=/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps a clean successful chat response free of an execution diagnostic banner', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: 'The provider completed the request successfully.',
+      outcome: 'SUCCEEDED',
+      toolTrace: JSON.stringify([{
+        kind: 'done',
+        stopReason: 'response',
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 0,
+        diagnosticCodes: [],
+      }]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText('The provider completed the request successfully.')).toBeInTheDocument();
+    expect(screen.queryByText(/INCOMPLETE:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Execution diagnostic:/)).not.toBeInTheDocument();
+  });
+
   it('restores a paused execution after refresh and resumes the same execution', async () => {
     mocks.activeExecutionStatus = { status: 'paused' };
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');

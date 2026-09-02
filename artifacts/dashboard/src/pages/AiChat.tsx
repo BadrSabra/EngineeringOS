@@ -4636,6 +4636,10 @@ function MessageBubble({
   const partialProviderResponse = failedTurn && !structuredFailure
     ? safePartialProviderResponse(msg, displayContent, internalTechnicalDump)
     : null;
+  // A generic chat turn can still retain a bounded provider response and its
+  // terminal execution summary. Show that diagnostic without inferring a
+  // forensic or delivery operation mode from the failure.
+  const failedChatHasExecutionSummary = failedTurn && executionSummary !== null;
 
   return (
     <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
@@ -4825,7 +4829,7 @@ function MessageBubble({
             : <ExecutionSummaryBanner
                 summary={executionSummary}
                 operatorTraceId={`operator-trace-${msg.id}`}
-                visible={isForensicRun || isEngineeringExecution}
+                visible={isForensicRun || isEngineeringExecution || failedChatHasExecutionSummary}
               />}
         {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
         {!isUser && <ExecutionLedgerCard snapshot={executionLedger} />}
