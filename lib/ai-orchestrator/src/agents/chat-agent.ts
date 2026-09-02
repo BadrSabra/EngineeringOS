@@ -5722,7 +5722,7 @@ export async function chat(opts: {
     // only when it contains at least one concrete file.
     allowedToolNames:
       capabilityProbeRequest
-        ? RECOVERY_READ_TOOL_NAMES
+        ? Array.from(RECOVERY_READ_TOOL_NAMES)
         : singleFileForensicMode && singleFilePaths.length > 0
           ? ["read_file"]
           : undefined,
