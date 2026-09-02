@@ -92,6 +92,32 @@ export const aiMemoryTypeEnum = pgEnum("ai_memory_type", [
   "key_finding",
 ]);
 
+export const aiSemanticMemoryKindEnum = pgEnum("ai_semantic_memory_kind", [
+  "decision",
+  "constraint",
+  "unresolved_question",
+  "key_finding",
+]);
+
+export const aiSemanticMemoryProvenanceEnum = pgEnum("ai_semantic_memory_provenance", [
+  "explicit_user_decision",
+  "explicit_user_statement",
+  "accepted_plan",
+  "validated_finding",
+]);
+
+export const aiSemanticMemoryConfirmationEnum = pgEnum("ai_semantic_memory_confirmation", [
+  "unconfirmed",
+  "user_confirmed",
+  "server_validated",
+]);
+
+export const aiSemanticMemoryFreshnessEnum = pgEnum("ai_semantic_memory_freshness", [
+  "current_at_write",
+  "stale",
+  "unknown",
+]);
+
 /**
  * Cross-session memory: stores summaries of files accessed and key findings
  * from each chat session so subsequent sessions can skip re-discovery.
@@ -116,6 +142,22 @@ export const aiSessionMemoriesTable = pgTable("ai_session_memories", {
   sourcePath: text("source_path"),
   /** Stable project-scoped key used to refresh a memory instead of duplicating it. */
   dedupeKey: text("dedupe_key"),
+  /** Nullable semantic discriminator; null preserves legacy navigation rows. */
+  semanticKind: aiSemanticMemoryKindEnum("semantic_kind"),
+  /** Project or task scope used to rank semantic memories. */
+  scope: text("scope"),
+  /** Originating turn; null for legacy rows. */
+  turnId: text("turn_id"),
+  /** Explicit provenance category; null for legacy rows. */
+  provenance: aiSemanticMemoryProvenanceEnum("provenance"),
+  /** Source path, receipt, or other bounded reference for semantic rows. */
+  sourceReference: text("source_reference"),
+  /** Revision observed when the semantic record was accepted. */
+  sourceRevision: text("source_revision"),
+  /** 0.0 – 1.0 confidence assigned by the server-owned extractor. */
+  confidence: real("confidence"),
+  confirmationStatus: aiSemanticMemoryConfirmationEnum("confirmation_status"),
+  freshnessStatus: aiSemanticMemoryFreshnessEnum("freshness_status"),
   /** 0.0 – 1.0: decays over time; rows below 0.1 are pruned on sweep. */
   relevance: real("relevance").notNull().default(1.0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -128,6 +170,8 @@ export const aiSessionMemoriesTable = pgTable("ai_session_memories", {
   index("idx_ai_session_memories_project_rel").on(t.projectId, t.relevance),
   // Covers: WHERE session_id = ? (write-back by session)
   index("idx_ai_session_memories_session_id").on(t.sessionId),
+  // Covers task/project semantic retrieval before deterministic ranking.
+  index("idx_ai_session_memories_project_scope").on(t.projectId, t.scope),
   // Covers: WHERE expires_at < NOW() (daily sweep)
   index("idx_ai_session_memories_expires_at").on(t.expiresAt),
   uniqueIndex("uq_ai_session_memories_dedupe_key").on(t.dedupeKey),
@@ -152,6 +196,8 @@ export const aiSessionMemoryOutboxTable = pgTable("ai_session_memory_outbox", {
   turnId: text("turn_id").notNull(),
   toolSources: jsonb("tool_sources").$type<string[]>().notNull().default([]),
   responseText: text("response_text").notNull(),
+  /** Validated semantic records extracted before the durable write is queued. */
+  semanticRecords: jsonb("semantic_records").$type<unknown[]>().notNull().default([]),
   attempts: integer("attempts").notNull().default(0),
   nextAttemptAt: timestamp("next_attempt_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),

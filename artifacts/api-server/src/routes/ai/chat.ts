@@ -2428,7 +2428,10 @@ router.post("/ai/chat", async (req, res) => {
       : baseProjectContext;
     // Enrich context with cross-session memories (outside cache; always fresh).
     // Failure is non-fatal — agent proceeds without memory context.
-    await enrichContextWithMemories(projectContext, projectId, contextExecutionPlan).catch((err) => {
+    await enrichContextWithMemories(projectContext, projectId, contextExecutionPlan, {
+      taskScope: contextExecutionPlan.taskProfile.scope,
+      projectRevision: project.updatedAt.toISOString(),
+    }).catch((err) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
     });
     // AI-TASK-007: Structured chat context trace.
@@ -2863,6 +2866,15 @@ router.post("/ai/chat", async (req, res) => {
           redactUserFacingValue(result.sources),
           sanitizeResponseText(result.response),
           assistantMsg.id,
+          {
+            outcome: "SUCCEEDED",
+            turnIntent: turnIntent.kind,
+            memoryMode: contextExecutionPlan.taskProfile.memoryMode,
+            userMessage: message,
+            taskScope: contextExecutionPlan.taskProfile.scope,
+            projectRevision: project.updatedAt.toISOString(),
+            taskResult: result.taskResult,
+          },
         );
       } catch (err) {
         logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
@@ -3684,7 +3696,10 @@ router.post("/ai/chat/stream", async (req, res) => {
       ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
     // Enrich with cross-session memories (outside cache; always fresh).
-    await enrichContextWithMemories(projectContext, projectId, streamExecutionPlan).catch((err) => {
+    await enrichContextWithMemories(projectContext, projectId, streamExecutionPlan, {
+      taskScope: streamExecutionPlan.taskProfile.scope,
+      projectRevision: project.updatedAt.toISOString(),
+    }).catch((err) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
     });
 
@@ -5076,6 +5091,15 @@ router.post("/ai/chat/stream", async (req, res) => {
           redactUserFacingValue(result.sources),
           sanitizeResponseText(result.response),
           assistantMsg.id,
+          {
+            outcome: "SUCCEEDED",
+            turnIntent: streamTurnIntent.kind,
+            memoryMode: streamExecutionPlan.taskProfile.memoryMode,
+            userMessage: message,
+            taskScope: streamExecutionPlan.taskProfile.scope,
+            projectRevision: project.updatedAt.toISOString(),
+            taskResult: result.taskResult,
+          },
         );
       } catch (err) {
         logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");

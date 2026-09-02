@@ -851,10 +851,22 @@ export {
   enrichContextWithMemories,
   drainSessionMemoryOutbox,
   formatMemoriesForPrompt,
+  extractSemanticMemories,
   sweepExpiredMemories,
   startMemorySweep,
 } from "./session-memory.js";
-export type { MemoryRow, MemoryPolicy } from "./session-memory.js";
+export {
+  SemanticMemoryKindSchema,
+  SemanticMemoryRecordSchema,
+} from "./session-memory.js";
+export type {
+  MemoryRow,
+  MemoryPolicy,
+  MemoryRetrievalOptions,
+  SemanticMemoryKind,
+  SemanticMemoryRecord,
+  SemanticMemoryExtractionInput,
+} from "./session-memory.js";
 
 export { analyzeScan } from "./agents/scan-analyst.js";
 export type { ScanAnalysisResult } from "./agents/scan-analyst.js";
