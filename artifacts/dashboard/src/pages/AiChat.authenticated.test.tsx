@@ -1016,6 +1016,25 @@ it('shows Groq model readiness without requiring a personal key when the server 
         implementationFiles: 1,
         contextFiles: 0,
         generatedFiles: 0,
+        effectiveRoot: 'PROJECT_ROOT',
+        projectRevision: 'rev-safe-123',
+        completeReads: false,
+        appliedBudget: {
+          maxIterations: 12,
+          maxToolCalls: 24,
+          synthesisMaxAttempts: 2,
+          synthesisTimeoutMs: 1500,
+        },
+        readStatuses: [
+          { path: 'src/a.ts', status: 'READ_COMPLETE' },
+          { path: 'src/missing.ts', status: 'READ_FAILED' },
+        ],
+        synthesisLifecycle: {
+          started: false,
+          attempted: false,
+          timedOut: false,
+          skipped: true,
+        },
       },
       {
         kind: 'forensic_diagnostic',
@@ -1042,6 +1061,16 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getByText(/Unread scope: 2/)).toBeInTheDocument();
     expect(screen.getByText('src/missing.ts')).toBeInTheDocument();
     expect(screen.getByText(/Review the unread scope and start a new audit/)).toBeInTheDocument();
+    const forensicEvidenceToggle = screen.getByRole('button', { name: /Forensic evidence/ });
+    if (forensicEvidenceToggle.getAttribute('aria-expanded') !== 'true') {
+      fireEvent.click(forensicEvidenceToggle);
+    }
+    expect(screen.getByText('PROJECT_ROOT')).toBeInTheDocument();
+    expect(screen.getByText('rev-safe-123')).toBeInTheDocument();
+    expect(screen.getByText('off')).toBeInTheDocument();
+    expect(screen.getByText('12 iterations / 24 tool calls')).toBeInTheDocument();
+    expect(screen.getByText('skipped')).toBeInTheDocument();
+    expect(screen.getByText(/file reads:/)).toHaveTextContent('1 complete · 0 truncated · 1 failed');
     expect(screen.queryByText('NO FINDING')).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-diagnostic|\/home\/runner|secret-fixture-value|raw tool output/i)).not.toBeInTheDocument();
   });

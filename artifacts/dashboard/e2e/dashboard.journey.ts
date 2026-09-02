@@ -1210,6 +1210,158 @@ function installToolFailureFixture(): ArabicAiFixture {
   };
 }
 
+function installIncompleteForensicFixture(): ArabicAiFixture {
+  const sessionId = "e2e-incomplete-forensic-session";
+  const executionId = "e2e-incomplete-forensic-execution";
+  const source = "src/incomplete-audit.ts";
+  const question = "Audit the incomplete source scope and report only verified evidence.";
+  const answer = [
+    "## 1) Executive Verdict",
+    "ANALYSIS_INCOMPLETE — NOT PROVEN.",
+    "",
+    "## 2) Evidence Map",
+    `The requested source scope could not be read completely: ${source}.`,
+    "",
+    "## 3) Findings",
+    "No Finding is proven from the retained evidence.",
+    "",
+    "## 4) Repair Plan",
+    "No repair phases are authorized for this incomplete audit.",
+    "",
+    "## 5) Validation Checklist",
+    "Retry the bounded read before drawing a conclusion.",
+    "",
+    "## 6) Final Judgment",
+    "ANALYSIS_INCOMPLETE — NOT PROVEN. Safe terminal reason: SOURCE_COVERAGE_INCOMPLETE. Next safe action: Retry the bounded read.",
+  ].join("\n");
+  const toolTrace = [
+    {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+    },
+    {
+      kind: "tool_result",
+      tool: "read_file",
+      source,
+      resultKind: "failed",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      resultSummary: "The required source read did not complete.",
+    },
+    {
+      kind: "forensic_status",
+      auditScope: "PRODUCTION",
+      sourceCoverage: "PARTIAL",
+      behavioralAssessment: "INCOMPLETE",
+      findingStatus: "NOT_PROVEN",
+      repairReadiness: "BLOCKED",
+      productionReachability: "NOT_PROVEN",
+      implementationFiles: 1,
+      contextFiles: 0,
+      generatedFiles: 0,
+      effectiveRoot: "PROJECT_ROOT",
+      projectRevision: "e2e-forensic-revision-1",
+      completeReads: false,
+      appliedBudget: {
+        maxIterations: 8,
+        maxToolCalls: 12,
+        synthesisMaxAttempts: 2,
+        synthesisTimeoutMs: 1500,
+      },
+      readStatuses: [{ path: source, status: "READ_FAILED" }],
+      synthesisLifecycle: {
+        started: false,
+        attempted: false,
+        timedOut: false,
+        skipped: true,
+      },
+    },
+    {
+      kind: "forensic_terminal",
+      terminalKind: "NO_EVIDENCE_FOUND",
+    },
+    {
+      kind: "forensic_diagnostic",
+      forensicDiagnostic: {
+        version: "v1",
+        verdict: "ANALYSIS_INCOMPLETE",
+        reasonCode: "SOURCE_COVERAGE_INCOMPLETE",
+        explanation: "The requested source scope could not be read completely.",
+        unreadFileCount: 1,
+        unreadFiles: [source],
+        truncatedFileCount: 0,
+        truncatedFiles: [],
+        nextActionCode: "RETRY_READ",
+        nextAction: "Retry the bounded read before drawing a conclusion.",
+      },
+    },
+    {
+      kind: "done",
+      stopReason: "tool_failure",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: 1,
+      prefetchToolCalls: 0,
+      loopToolCalls: 1,
+      synthesisStarted: false,
+      diagnosticCodes: ["TOOL_EXECUTION_FAILED", "FORENSIC_REPORT_FALLBACK_EMITTED"],
+    },
+  ];
+  const message = {
+    id: "e2e-incomplete-forensic-message",
+    sessionId,
+    role: "assistant",
+    content: answer,
+    operationMode: "FORENSIC_AUDIT",
+    sources: [source],
+    toolTrace: JSON.stringify(toolTrace),
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      status: "running",
+      resumable: true,
+    }),
+    sse({ type: "tool_call", tool: "read_file", args: { path: source }, cached: false }),
+    sse({
+      type: "tool_result",
+      tool: "read_file",
+      source,
+      resultKind: "failed",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      resultSummary: "The required source read did not complete.",
+    }),
+    sse({ type: "forensic_status", ...toolTrace[2] }),
+    sse({ type: "forensic_terminal", terminalKind: "NO_EVIDENCE_FOUND" }),
+    sse({ type: "delta", delta: answer }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId,
+      message,
+      sources: [source],
+      toolTrace: JSON.stringify(toolTrace),
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    question,
+    answer,
+    source,
+    sessionId,
+    executionId,
+    streamBody,
+    message,
+  };
+}
+
 function installDisconnectedAiFixture(): ArabicAiFixture {
   const sessionId = "e2e-disconnected-ai-session";
   const executionId = "e2e-disconnected-ai-execution";
@@ -3683,6 +3835,52 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(visibleText).not.toContain("COMPLETED");
     expect(visibleText).not.toContain("Persisted execution proof");
     expect(visibleText).toContain("NOT PROVEN");
+  });
+
+  test("keeps the incomplete six-section forensic report and telemetry after reload", async ({
+    page,
+  }) => {
+    const fixture = installIncompleteForensicFixture();
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    await expect(page.getByRole("heading", { name: "1) Executive Verdict" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "6) Final Judgment" })).toBeVisible();
+    await expect(page.getByText(/Safe terminal reason: SOURCE_COVERAGE_INCOMPLETE/)).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+    const evidenceToggle = page.getByRole("button", { name: /Forensic evidence/ });
+    if (await evidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await evidenceToggle.click();
+    }
+    await expect(page.getByText("PROJECT_ROOT", { exact: true })).toBeVisible();
+    await expect(page.getByText("e2e-forensic-revision-1", { exact: true })).toBeVisible();
+    await expect(page.getByText("skipped", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Retry the bounded read before drawing a conclusion/).last()).toBeVisible();
+
+    const beforeReload = await page.locator("body").innerText();
+    expect(beforeReload).not.toContain("FINDING PROVEN");
+    expect(beforeReload).not.toContain("NO_VERIFIED_FINDING");
+
+    await page.reload();
+    await page.getByRole("button", { name: fixture.question, exact: true }).click();
+    await expect(page.getByRole("heading", { name: "1) Executive Verdict" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "6) Final Judgment" })).toBeVisible();
+    await expect(page.getByText(/Safe terminal reason: SOURCE_COVERAGE_INCOMPLETE/)).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+    const reloadedEvidenceToggle = page.getByRole("button", { name: /Forensic evidence/ });
+    if (await reloadedEvidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await reloadedEvidenceToggle.click();
+    }
+    await expect(page.getByText("PROJECT_ROOT", { exact: true })).toBeVisible();
+    await expect(page.getByText("e2e-forensic-revision-1", { exact: true })).toBeVisible();
+    const afterReload = await page.locator("body").innerText();
+    expect(afterReload).not.toContain("FINDING PROVEN");
+    expect(afterReload).not.toContain("NO_VERIFIED_FINDING");
   });
 
   test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({

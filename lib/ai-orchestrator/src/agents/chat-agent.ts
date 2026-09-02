@@ -2185,6 +2185,23 @@ export function emitForensicStatus(
    * production-reachable.
    */
   evidenceSources?: string[],
+  telemetry?: {
+    effectiveRoot?: "PROJECT_ROOT" | "ROOT_UNAVAILABLE";
+    projectRevision?: string;
+    completeReads?: boolean;
+    appliedBudget?: {
+      maxIterations: number;
+      maxToolCalls: number;
+      synthesisMaxAttempts?: number;
+      synthesisTimeoutMs?: number;
+    };
+    synthesisLifecycle?: {
+      started: boolean;
+      attempted: boolean;
+      timedOut: boolean;
+      skipped: boolean;
+    };
+  },
 ): void {
   const files = [...fileContents.keys()];
   const inferredIncompleteFiles = new Set(
@@ -2287,6 +2304,17 @@ export function emitForensicStatus(
   // that is not yet defined; until that contract exists, always emit NOT_PROVEN
   // so the UI never presents an unsupported production claim.
   const productionReachability: "PROVEN" | "NOT_PROVEN" = "NOT_PROVEN";
+  const readStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">();
+  for (const file of fileContents.keys()) {
+    readStatuses.set(
+      file,
+      incomplete.has(file) ? "READ_TRUNCATED" : "READ_COMPLETE",
+    );
+  }
+  for (const root of sourceCoverage?.roots ?? []) {
+    for (const file of root.unreadPaths ?? []) readStatuses.set(file, "READ_FAILED");
+    for (const file of root.truncatedPaths ?? []) readStatuses.set(file, "READ_TRUNCATED");
+  }
 
   // Fail closed on incomplete reads: an explicit sourceCoverage.complete=false,
   // or any file whose content carries a truncation marker (inferred incomplete),
@@ -2370,6 +2398,18 @@ export function emitForensicStatus(
           ? { reason }
           : {}
     ),
+    ...(telemetry
+      ? {
+          ...(telemetry.effectiveRoot ? { effectiveRoot: telemetry.effectiveRoot } : {}),
+          ...(telemetry.projectRevision ? { projectRevision: telemetry.projectRevision.slice(0, 240) } : {}),
+          ...(telemetry.completeReads !== undefined ? { completeReads: telemetry.completeReads } : {}),
+          ...(telemetry.appliedBudget ? { appliedBudget: telemetry.appliedBudget } : {}),
+          ...(telemetry.synthesisLifecycle ? { synthesisLifecycle: telemetry.synthesisLifecycle } : {}),
+          readStatuses: [...readStatuses.entries()]
+            .slice(0, 48)
+            .map(([path, status]) => ({ path, status })),
+        }
+      : {}),
   });
   onStep?.({
     kind: "audit_state",
@@ -3550,6 +3590,53 @@ export function buildBehaviorEvidenceIncompleteResponse(
     "### Next step",
     "Retry or narrow the question to one function or path; confirmed reads do not need to be repeated.",
   ].join("\n");
+}
+
+/**
+ * Every forensic terminal must have the same six-section shape, including a
+ * terminal reached before synthesis. This builder deliberately accepts only
+ * retained server-owned evidence and a short allowlisted reason; provider
+ * output is never used to explain an incomplete run.
+ */
+export function buildIncompleteForensicReport(
+  evidence: ForensicEvidence,
+  options: {
+    language?: "ar" | "en";
+    reason?: string;
+    nextAction?: string;
+    cancelled?: boolean;
+    incompleteEnvelope?: ForensicRecoveryEnvelope;
+  } = {},
+): string {
+  const language = options.language ?? evidence.responseLanguage ?? "en";
+  const reason = options.reason ?? (
+    evidence.sourceCoverage?.complete === false
+      ? "SOURCE_COVERAGE_INCOMPLETE"
+      : evidence.fileContents.size > 0
+        ? "FORENSIC_SYNTHESIS_INCOMPLETE"
+        : "NO_EVIDENCE_REACHED"
+  );
+  const nextAction = options.nextAction ?? (
+    evidence.sourceCoverage?.complete === false
+      ? "Retry with the same bounded scope so unread or truncated files can be completed."
+      : "Retry or narrow the question to a specific file or function."
+  );
+  const report = buildStructuredForensicReport(
+    options.incompleteEnvelope ?? EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+    evidence,
+    {
+      emptyVerdict: "ANALYSIS_INCOMPLETE",
+      language,
+      cancelled: options.cancelled,
+      incompleteReason: reason,
+      incompleteNextAction: nextAction,
+      incompleteEnvelope: options.incompleteEnvelope,
+    },
+  );
+  // The fallback is user-facing. Keep internal tool names out of its retained
+  // evidence narrative while leaving the shared report builder unchanged for
+  // compatibility with its lower-level evidence-contract tests.
+  return report.replace(/\bread_file(?:_range)?\b/g, "source read");
 }
 
 // hint: Structural and logic conflict. Both design and behavior differ.
@@ -5809,29 +5896,6 @@ export async function chat(opts: {
     forensicFileContents.set(filePath, stripReadFileWrapper(content));
   }
 
-  // A provider fallback can be text-only after the primary provider completed
-  // a read. Do not let that provider turn retained evidence into a generic
-  // no-access answer or imply that it proved a fresh behavioral conclusion.
-  if (retainedEvidence && retainedEvidence.size > 0 && !modelHasTools && turnIntent.requiresEvidence) {
-    const retainedResponse = buildBehaviorEvidenceIncompleteResponse(
-      message,
-      forensicFileContents,
-      responseLanguage,
-    );
-    onDelta?.(retainedResponse);
-    return {
-      response: retainedResponse,
-      sources: [...forensicFileContents.keys()],
-      pendingChanges: getExecutionPendingChanges(),
-      resolvedModel:
-        loopResult.kind === "response" || loopResult.kind === "partial"
-          ? loopResult.result.model
-            ? { id: loopResult.result.model, provider: providerId, free: providerId === "openrouter" }
-            : undefined
-          : undefined,
-    };
-  }
-
   // ── Explicit file-scope forensic coverage ──────────────────────────────────
   // For file-scoped mode, ordered-root coverage is not relevant; instead we
   // compute a file-scoped ForensicSourceCoverage that is COMPLETE only when
@@ -5880,6 +5944,50 @@ export async function chat(opts: {
               : `Scoped forensic target was not read: ${failedRoot?.targetPath ?? "unknown"}`,
           }
         : {}),
+    };
+  }
+
+  // A provider fallback can be text-only after the primary provider completed
+  // a read. Preserve the retained evidence, but use the same six-section
+  // report and typed result as every other incomplete forensic terminal.
+  if (retainedEvidence && retainedEvidence.size > 0 && !modelHasTools && turnIntent.requiresEvidence) {
+    const retainedEvidenceReport = collectForensicEvidence(
+      messages,
+      toolSources,
+      forensicFileContents,
+      includeTestSources,
+      forensicScope,
+      forensicSourceCoverage,
+      requireCompleteReadEvidence,
+      queryPlan?.compoundParts,
+      undefined,
+      responseLanguage,
+    );
+    const retainedResponse = buildIncompleteForensicReport(retainedEvidenceReport, {
+      language: responseLanguage,
+      reason: "PROVIDER_SYNTHESIS_UNAVAILABLE",
+      nextAction: "Retry or narrow the question to a specific file or function; retained reads will be reused.",
+    });
+    const retainedTaskResult = buildTaskResult({
+      forensicTaskType,
+      finalResponse: retainedResponse,
+      mergedSources: [...forensicFileContents.keys()],
+      semanticBehaviorAnswer: undefined,
+      structuredRepairPlan: undefined,
+      acceptedBehaviorEvidence: [],
+    });
+    onDelta?.(retainedResponse);
+    return {
+      response: retainedResponse,
+      sources: [...forensicFileContents.keys()],
+      pendingChanges: getExecutionPendingChanges(),
+      resolvedModel:
+        loopResult.kind === "response" || loopResult.kind === "partial"
+          ? loopResult.result.model
+            ? { id: loopResult.result.model, provider: providerId, free: providerId === "openrouter" }
+            : undefined
+          : undefined,
+      ...(retainedTaskResult ? { taskResult: retainedTaskResult } : {}),
     };
   }
 
@@ -6908,6 +7016,7 @@ export async function chat(opts: {
   // the parsed candidate separate from ChatResponse so the server can render
   // the six-section report deterministically after the evidence gates pass.
   let initialForensicEnvelope: ForensicRecoveryEnvelope | null = null;
+  let retainedIncompleteForensicEnvelope: ForensicRecoveryEnvelope | undefined;
 
   // A provider can satisfy the forensic section contract while ignoring the
   // JSON envelope. Preserve that complete Markdown report before attempting a
@@ -7530,6 +7639,7 @@ export async function chat(opts: {
              forensicEvidence.sourceCoverage?.complete === false
                ? { ...mergedEnvelope, repairPlan: [] }
                : mergedEnvelope;
+           retainedIncompleteForensicEnvelope = reportEnvelope;
           const acceptedEvidence: ForensicEvidence =
             forensicEvidence.sourceCoverage?.complete === false
               ? { ...forensicEvidence, sourceCoverage: undefined }
@@ -8764,6 +8874,38 @@ export async function chat(opts: {
       // Finding's evidence files, not the full read set.  This prevents an
       // incidental production-file read from masking a fixture-only verdict.
       cleanModelSources.length > 0 ? cleanModelSources : undefined,
+      {
+        effectiveRoot: rootPath ? "PROJECT_ROOT" : "ROOT_UNAVAILABLE",
+        projectRevision: analysisCorrelation?.projectRevision,
+        completeReads: structuredOutputMode,
+        appliedBudget: {
+          maxIterations: budget.maxIterations,
+          maxToolCalls: Math.max(0, budget.maxToolCalls - prefetchFileContents.size),
+          synthesisMaxAttempts: "sourceRetrieval" in loopResult
+            ? loopResult.sourceRetrieval?.synthesisMaxAttempts
+            : undefined,
+          synthesisTimeoutMs: "sourceRetrieval" in loopResult
+            ? loopResult.sourceRetrieval?.synthesisTimeoutMs
+            : undefined,
+        },
+        synthesisLifecycle: {
+          started: "sourceRetrieval" in loopResult
+            ? Boolean(
+                loopResult.sourceRetrieval?.synthesisAttempts
+                || loopResult.sourceRetrieval?.synthesisTimedOut,
+              )
+            : false,
+          attempted: "sourceRetrieval" in loopResult
+            ? (loopResult.sourceRetrieval?.synthesisAttempts ?? 0) > 0
+            : false,
+          timedOut: "sourceRetrieval" in loopResult
+            ? loopResult.sourceRetrieval?.synthesisTimedOut === true
+            : false,
+          skipped: "sourceRetrieval" in loopResult
+            ? (loopResult.sourceRetrieval?.synthesisAttempts ?? 0) === 0
+            : true,
+        },
+      },
     );
   }
   const scopedToolSources = scopeForensicSources(toolSources, forensicScope);
@@ -9484,25 +9626,6 @@ export async function chat(opts: {
               ? "NOT PROVEN — EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED: source evidence was retained, but the answer did not close every required claim with a grounded source excerpt. An evidence inventory alone is not a final answer."
               : "NOT PROVEN — the verdict could not be accepted: the answer lacked a verifiable excerpt from a completed source read."
         : scopedCandidateResponse;
-  // Forensic synthesis is deliberately buffered through the complete
-  // acceptance/recovery pipeline. Once the final response has been selected,
-  // emit that already-gated text in chunks so streaming callers retain the
-  // same UX without ever seeing an unvalidated candidate.
-  if (forensicOutputMode && onDelta) {
-    for (const chunk of finalResponse.split(/(\s+)/)) {
-      if (chunk) onDelta(chunk);
-    }
-  }
-  if (isForensicOrEvidenceRun) {
-    relayForensicTerminal({
-      onStep,
-      loopResult,
-      fileContents: forensicFileContents,
-      claimsUnclosedButEvidenceAvailable,
-      report: finalResponse,
-      objectiveBlocked: Boolean(objectiveBlocksVerdict),
-    });
-  }
   if (behaviorAnswerRejected) {
     console.warn(
       JSON.stringify({
@@ -9755,6 +9878,84 @@ export async function chat(opts: {
       `Verdict: ${finalAnswerValidation.verdict}. ` +
       `${finalAnswerValidation.violations.slice(0, 2).join(" | ")}`
     : finalResponse;
+  const terminalLoopKind = (loopResult as { kind: string; reason?: string }).kind;
+  const terminalLoopReason = (loopResult as { kind: string; reason?: string }).reason;
+  const knownIncompleteForensicBoundary =
+    forensicSourceCoverage?.complete === false
+    || cancelledForensicAudit()
+    || anyRequiredClaimUnclosed
+    || terminalLoopKind === "failed"
+    || terminalLoopKind === "incomplete"
+    || terminalLoopKind === "exhausted"
+    || (terminalLoopKind === "partial" && terminalLoopReason !== "response");
+  const terminalResponse =
+    forensicOutputMode &&
+    (
+      knownIncompleteForensicBoundary
+      || !extractRawForensicReport(gateFinalResponse)
+      || /\bANALYSIS_INCOMPLETE\b/i.test(gateFinalResponse)
+    )
+      ? buildIncompleteForensicReport(
+          collectForensicEvidence(
+            messages,
+            toolSources,
+            forensicFileContents,
+            includeTestSources,
+            forensicScope,
+            forensicSourceCoverage,
+            requireCompleteReadEvidence,
+            queryPlan?.compoundParts,
+            undefined,
+            responseLanguage,
+          ),
+          {
+            language: responseLanguage,
+            reason: forensicSourceCoverage?.complete === false
+              ? "SOURCE_COVERAGE_INCOMPLETE"
+              : cancelledForensicAudit()
+                ? "CANCELLED"
+                : terminalLoopKind === "failed"
+                  ? "TOOL_FAILURE"
+                  : terminalLoopKind === "incomplete" ||
+                      terminalLoopKind === "exhausted" ||
+                      terminalLoopKind === "partial"
+                    ? "FORENSIC_BUDGET_OR_SYNTHESIS_INCOMPLETE"
+                    : anyRequiredClaimUnclosed
+                      ? "CLAIM_UNCLOSED"
+                      : reachabilityGateBlocked
+              ? "FORENSIC_VERDICT_GATE_BLOCKED"
+              : "FORENSIC_REPORT_INCOMPLETE",
+            nextAction: "Retry or narrow the question to a specific file or function; retain the source evidence before making a verdict.",
+            cancelled: cancelledForensicAudit(),
+            incompleteEnvelope: retainedIncompleteForensicEnvelope,
+          },
+        )
+      : gateFinalResponse;
+  if (terminalResponse !== gateFinalResponse) {
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "FORENSIC_REPORT_FALLBACK_EMITTED",
+      details: ["server-owned six-section report replaced an unsafe terminal response"],
+    });
+  }
+  // Emit only after every forensic gate has run. This prevents a streamed
+  // candidate from being mistaken for the final report when a later gate
+  // blocks the verdict.
+  if (forensicOutputMode && onDelta) {
+    for (const chunk of terminalResponse.split(/(\s+)/)) {
+      if (chunk) onDelta(chunk);
+    }
+  }
+  if (isForensicOrEvidenceRun) {
+    relayForensicTerminal({
+      onStep,
+      loopResult,
+      fileContents: forensicFileContents,
+      claimsUnclosedButEvidenceAvailable,
+      report: terminalResponse,
+      objectiveBlocked: Boolean(objectiveBlocksVerdict),
+    });
+  }
   // AI-OBJ-012: compute the objective verdict kind for the decision trace.
   const objectiveVerdict: ObjectiveVerdictKind = classifyObjectiveVerdict({
     primaryClaimClosed: !anyRequiredClaimUnclosed && !behaviorAnswerRejected && !telemetryBlocksVerdict,
@@ -9867,7 +10068,7 @@ export async function chat(opts: {
     explicitBehaviorQueryRequested
       ? buildSemanticBehaviorAnswer(
           message,
-          gateFinalResponse,
+           terminalResponse,
           behaviorEvidenceValidation.evidence,
           acceptedBehaviorEvidence.length > 0 ? scopedToolSources : [],
           {
@@ -9882,7 +10083,7 @@ export async function chat(opts: {
   // AI-008: per-task typed result — discriminated on `kind` by forensicTaskType.
   const taskResult = buildTaskResult({
     forensicTaskType,
-    finalResponse: gateFinalResponse,
+    finalResponse: terminalResponse,
     mergedSources,
     semanticBehaviorAnswer,
     structuredRepairPlan,
@@ -9891,7 +10092,7 @@ export async function chat(opts: {
 
   const output = {
     ...parsed.data,
-    response: gateFinalResponse,
+    response: terminalResponse,
     sources: mergedSources,
     pendingChanges: getExecutionPendingChanges(),
     resolvedModel: resolvedModelInfo,
@@ -9936,7 +10137,7 @@ export async function chat(opts: {
       // path. When the objective/final-answer gates blocked, the gated text is
       // authoritative and must stay authoritative even if the output object
       // fails ChatOutputSchema for an unrelated reason (e.g. a dropped change).
-      response: gateFinalResponse,
+      response: terminalResponse,
       sources: mergedSources,
       pendingChanges: validChanges,
       _parseError: parseError,

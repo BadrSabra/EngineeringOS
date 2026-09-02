@@ -896,6 +896,25 @@ type ToolTraceEntry = {
     unreadPaths?: string[];
     truncatedPaths?: string[];
   }>;
+  effectiveRoot?: 'PROJECT_ROOT' | 'ROOT_UNAVAILABLE';
+  projectRevision?: string;
+  completeReads?: boolean;
+  appliedBudget?: {
+    maxIterations: number;
+    maxToolCalls: number;
+    synthesisMaxAttempts?: number;
+    synthesisTimeoutMs?: number;
+  };
+  readStatuses?: Array<{
+    path: string;
+    status: 'READ_COMPLETE' | 'READ_TRUNCATED' | 'READ_FAILED';
+  }>;
+  synthesisLifecycle?: {
+    started: boolean;
+    attempted: boolean;
+    timedOut: boolean;
+    skipped: boolean;
+  };
   /** FEG-017: why a forensic investigation's terminal failed (PROVEN/NO_FINDING omit it). */
   terminalKind?:
     | 'INVESTIGATION_NOT_STARTED'
@@ -1341,6 +1360,25 @@ type ForensicEvidenceSummary = {
       unreadPaths?: string[];
       truncatedPaths?: string[];
     }>;
+    effectiveRoot?: 'PROJECT_ROOT' | 'ROOT_UNAVAILABLE';
+    projectRevision?: string;
+    completeReads?: boolean;
+    appliedBudget?: {
+      maxIterations: number;
+      maxToolCalls: number;
+      synthesisMaxAttempts?: number;
+      synthesisTimeoutMs?: number;
+    };
+    readStatuses?: Array<{
+      path: string;
+      status: 'READ_COMPLETE' | 'READ_TRUNCATED' | 'READ_FAILED';
+    }>;
+    synthesisLifecycle?: {
+      started: boolean;
+      attempted: boolean;
+      timedOut: boolean;
+      skipped: boolean;
+    };
     /** True when the proven Finding is supported only by fixture/test/spec evidence. */
     isFixtureLocal?: boolean;
   } | null;
@@ -1531,6 +1569,12 @@ function parseForensicEvidence(
              requestedFiles: statusEntry.requestedFiles ?? [],
             reason: statusEntry.reason,
             rootCoverage: statusEntry.rootCoverage ?? [],
+            effectiveRoot: statusEntry.effectiveRoot,
+            projectRevision: statusEntry.projectRevision,
+            completeReads: statusEntry.completeReads,
+            appliedBudget: statusEntry.appliedBudget,
+            readStatuses: statusEntry.readStatuses,
+            synthesisLifecycle: statusEntry.synthesisLifecycle,
             // Normalize from both fields so auditScope-only traces are handled correctly.
             isFixtureLocal:
               (statusEntry.auditScope === 'FIXTURE_LOCAL' || statusEntry.isFixtureLocal === true)
@@ -2322,6 +2366,58 @@ function ForensicEvidenceCard({
                 <div className="mt-2 border-t border-violet-500/20 pt-2 text-[10px] leading-relaxed text-violet-200">
                   Evidence scope: fixture/test paths only. Production reachability requires caller and
                   input-path evidence from non-fixture source files.
+                </div>
+              )}
+              {(evidence.forensicStatus.effectiveRoot
+                || evidence.forensicStatus.projectRevision
+                || evidence.forensicStatus.completeReads !== undefined
+                || evidence.forensicStatus.appliedBudget
+                || evidence.forensicStatus.synthesisLifecycle
+                || (evidence.forensicStatus.readStatuses?.length ?? 0) > 0) && (
+                <div className="mt-2 rounded border border-border/40 bg-background/20 px-2 py-1.5 text-[10px] leading-relaxed">
+                  <div className="font-medium text-foreground">Audit collection telemetry</div>
+                  <div className="mt-1 grid grid-cols-1 gap-x-3 gap-y-0.5 text-muted-foreground sm:grid-cols-2">
+                    {evidence.forensicStatus.effectiveRoot && (
+                      <span>source root: <strong className="text-foreground">{evidence.forensicStatus.effectiveRoot}</strong></span>
+                    )}
+                    {evidence.forensicStatus.projectRevision && (
+                      <span>revision: <code className="text-foreground">{evidence.forensicStatus.projectRevision}</code></span>
+                    )}
+                    {evidence.forensicStatus.completeReads !== undefined && (
+                      <span>complete-read mode: <strong className="text-foreground">{evidence.forensicStatus.completeReads ? 'on' : 'off'}</strong></span>
+                    )}
+                    {evidence.forensicStatus.appliedBudget && (
+                      <span>
+                        budget: <strong className="text-foreground">
+                          {evidence.forensicStatus.appliedBudget.maxIterations} iterations / {evidence.forensicStatus.appliedBudget.maxToolCalls} tool calls
+                        </strong>
+                      </span>
+                    )}
+                    {evidence.forensicStatus.synthesisLifecycle && (
+                      <span>
+                        synthesis: <strong className="text-foreground">
+                          {evidence.forensicStatus.synthesisLifecycle.skipped
+                            ? 'skipped'
+                            : evidence.forensicStatus.synthesisLifecycle.timedOut
+                              ? 'timed out'
+                              : evidence.forensicStatus.synthesisLifecycle.attempted
+                                ? 'attempted'
+                                : 'started'}
+                        </strong>
+                      </span>
+                    )}
+                    {evidence.forensicStatus.readStatuses && evidence.forensicStatus.readStatuses.length > 0 && (
+                      <span>
+                        file reads: <strong className="text-foreground">
+                          {evidence.forensicStatus.readStatuses.filter((read) => read.status === 'READ_COMPLETE').length} complete
+                        </strong>
+                        {' · '}
+                        {evidence.forensicStatus.readStatuses.filter((read) => read.status === 'READ_TRUNCATED').length} truncated
+                        {' · '}
+                        {evidence.forensicStatus.readStatuses.filter((read) => read.status === 'READ_FAILED').length} failed
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
               {!evidence.forensicStatus.isFixtureLocal && evidence.forensicStatus.reason && (
@@ -4008,8 +4104,9 @@ const REPAIR_BLOCK_REASON_TEXT: Record<string, string> = {
 
 /**
  * AI-008: render the per-task typed result as a structured panel instead of a
- * single prose wall. Dispatches on `taskResult.kind`. Returns null when no
- * typed result is present (generic chat turns fall back to plain prose).
+ * single prose wall. Dispatches on `taskResult.kind`. Generic chat turns
+ * continue to fall back to plain prose; forensic reports remain visible as
+ * the primary result even when their verdict is incomplete.
  */
 type PlanDecision = 'approve' | 'reject';
 
@@ -4120,7 +4217,18 @@ function TaskResultPanel({
     }
     case 'FORENSIC_REPORT_RESULT':
     case 'WORKSPACE_REVIEW_RESULT': {
-      if (!result.report) return null;
+       if (!result.report) {
+         return (
+           <div
+             className="mt-1 w-full rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200"
+             role="status"
+             aria-label="Forensic report incomplete"
+           >
+             ANALYSIS_INCOMPLETE — the forensic report contained no user-facing report body.
+             Start a new bounded audit; no forensic verdict was proven.
+           </div>
+         );
+       }
       const evidence = Array.isArray(result.evidence)
         ? result.evidence.filter((e): e is AiBehaviorEvidence => Boolean(e && typeof e.source === 'string'))
         : [];
@@ -6924,6 +7032,7 @@ function AgentExecutionProofPanel({
   onRetryPreview,
   onClosePreview,
   controlPending,
+  forensicVerdict,
 }: {
   execution?: AgentExecutionProofStatus | null;
   executionId?: string;
@@ -6962,6 +7071,7 @@ function AgentExecutionProofPanel({
   onRetryPreview?: () => void;
   onClosePreview?: () => void;
   controlPending?: boolean;
+  forensicVerdict?: FinalForensicVerdict | null;
 }) {
   const persistedStatus = execution?.status;
   const flightState = execution?.flightState;
@@ -7022,6 +7132,8 @@ function AgentExecutionProofPanel({
   const proofBlocked = execution?.proofRequired === true
     && execution.evidenceVerdict !== 'PROVEN'
     && status === 'completed';
+  const forensicIncomplete = forensicVerdict === 'INCOMPLETE'
+    || (execution?.proofRequired === true && execution.evidenceVerdict !== 'PROVEN');
   const objectiveLabel = execution?.objective && typeof execution.objective === 'object'
     ? String(
         execution.objective.objective
@@ -7069,7 +7181,7 @@ function AgentExecutionProofPanel({
     >
       <div className="flex flex-wrap items-start gap-2 border-b border-border/40 px-3 py-2.5">
         <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-background/40">
-          {status === 'failed' || proofBlocked
+           {status === 'failed' || proofBlocked || forensicIncomplete
             ? <ShieldAlert className="h-3.5 w-3.5 text-red-300" />
             : status === 'completed' || status.startsWith('ready-')
               ? <CheckCircle2 className="h-3.5 w-3.5 text-green-300" />
@@ -7086,6 +7198,19 @@ function AgentExecutionProofPanel({
              {execution?.evidenceVerdict && (
                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${flightDeckEvidenceClasses(execution.evidenceVerdict)}`}>
                  Evidence: {execution.evidenceVerdict.replace('_', ' ')}
+               </span>
+             )}
+             {forensicVerdict && (
+               <span
+                 className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+                   forensicVerdict === 'INCOMPLETE'
+                     ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                     : forensicVerdict === 'FINDING PROVEN'
+                       ? 'border-green-500/40 bg-green-500/10 text-green-200'
+                       : 'border-border/60 bg-background/30 text-muted-foreground'
+                 }`}
+               >
+                 Forensic: {forensicVerdict === 'INCOMPLETE' ? 'ANALYSIS INCOMPLETE' : forensicVerdict}
                </span>
              )}
             {scopeLabel && (
@@ -9544,6 +9669,22 @@ export default function AiChat() {
   const messages = localMessages;
   const isEmpty = messages.length === 0;
   const isAgentBusy = isSending || isTaskSending;
+  const latestForensicMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === 'assistant' && (
+      Boolean(message.taskResult)
+      || Boolean(message.forensicDiagnostic)
+      || /\bANALYSIS_INCOMPLETE\b|\bFINDING PROVEN\b|\bNO FINDING\b|\bNOT PROVEN\b/i.test(message.content)
+    ));
+  const latestForensicTrace = latestForensicMessage
+    ? parseToolTrace(latestForensicMessage.toolTrace)
+    : [];
+  const latestForensicStatus = [...latestForensicTrace]
+    .reverse()
+    .find((entry) => entry.kind === 'forensic_status')?.findingStatus;
+  const latestForensicVerdict = latestForensicMessage
+    ? getFinalForensicVerdict(latestForensicMessage.content, latestForensicStatus)
+    : null;
   const showExecutionProof = Boolean(
     activeExecution ||
     pendingChanges.length > 0 ||
@@ -9995,6 +10136,7 @@ export default function AiChat() {
                    previewPending={auditPreviewPending}
                    auditPreview={auditPreview}
                    auditPreviewError={auditPreviewError}
+                    forensicVerdict={latestForensicVerdict}
                    onClosePreview={() => {
                      setAuditPreview(null);
                      setAuditPreviewError(null);

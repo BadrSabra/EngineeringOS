@@ -1387,6 +1387,7 @@ export type AgentDiagnosticCode =
   | "FORENSIC_DETERMINISTIC_FINDING"
   | "FORENSIC_DETERMINISTIC_NO_FINDING"
   | "FORENSIC_NO_FINDING"
+  | "FORENSIC_REPORT_FALLBACK_EMITTED"
   | "EXECUTION_RESPONSE_FORMAT_INVALID"
   | "EXECUTION_JSON_CORRECTION_FAILED"
   | "EXECUTION_JSON_CORRECTION_RETRY_FAILED"
@@ -1550,6 +1551,26 @@ export type AgentStep =
       requestedFiles?: string[];
       rootCoverage?: ForensicRootCoverage[];
       reason?: string;
+      /** Bounded server-owned telemetry for forensic terminal reconciliation. */
+      effectiveRoot?: "PROJECT_ROOT" | "ROOT_UNAVAILABLE";
+      projectRevision?: string;
+      completeReads?: boolean;
+      appliedBudget?: {
+        maxIterations: number;
+        maxToolCalls: number;
+        synthesisMaxAttempts?: number;
+        synthesisTimeoutMs?: number;
+      };
+      readStatuses?: Array<{
+        path: string;
+        status: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED";
+      }>;
+      synthesisLifecycle?: {
+        started: boolean;
+        attempted: boolean;
+        timedOut: boolean;
+        skipped: boolean;
+      };
       /**
        * True when the proven Finding is supported only by evidence from
        * fixture/test/spec paths — not from production source files.

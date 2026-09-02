@@ -499,6 +499,13 @@ export function buildStructuredForensicReport(
     language?: "ar" | "en";
     allowPartialScopeFinding?: boolean;
     cancelled?: boolean;
+    /** Safe server-owned explanation for an incomplete terminal. */
+    incompleteReason?: string;
+    /** Safe operator action; never populated from provider prose. */
+    incompleteNextAction?: string;
+    /** Retained packet candidates may be shown, but remain unproven while
+     * the global forensic report is incomplete. */
+    incompleteEnvelope?: ForensicRecoveryEnvelope;
   } = {},
 ): string {
   const responseLanguage = options.language ?? evidence.responseLanguage ?? "en";
@@ -523,6 +530,7 @@ export function buildStructuredForensicReport(
     ? "BLOCKED — لا ينطبق سيناريو تحقق سلوكي لأن أي Finding لم يُقبل."
     : "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.";
   const analysisIncomplete =
+    options.emptyVerdict === "ANALYSIS_INCOMPLETE" ||
     evidence.fileContents.size === 0 ||
     evidence.sourceCoverage?.complete === false ||
     (evidence.incompleteFiles?.size ?? 0) > 0 ||
@@ -540,6 +548,7 @@ export function buildStructuredForensicReport(
       ? "ANALYSIS_INCOMPLETE"
       : requestedEmptyClassification ??
         (analysisIncomplete ? "ANALYSIS_INCOMPLETE" : "NO_VERIFIED_FINDING");
+  const reportIsIncomplete = analysisIncomplete || emptyClassification === "ANALYSIS_INCOMPLETE";
   const noFindingBehaviorChecks = isArabic
     ? [
         "- graph-empty: تحقق من أن الرسم البياني الفارغ لا ينتج Finding.",
@@ -670,10 +679,53 @@ export function buildStructuredForensicReport(
     : "";
   const completedEmptyLabelSuffix =
     emptyClassification === "NO_VERIFIED_FINDING" ? " (NO FINDING)" : "";
+  const incompleteReason = options.incompleteReason?.trim().slice(0, 240);
+  const incompleteNextAction = options.incompleteNextAction?.trim().slice(0, 240);
+  const incompleteReadStatusLines =
+    emptyClassification === "ANALYSIS_INCOMPLETE" && reportEvidence.sourceCoverage?.roots
+      ? reportEvidence.sourceCoverage.roots
+          .slice(0, 12)
+          .flatMap((root) => {
+            const status = `${root.status} (${root.readFiles}/${root.discoveredFiles})`;
+            const rootLine = isArabic
+              ? `- حالة القراءة: \`${root.root}\` — ${status}`
+              : `- Read status: \`${root.root}\` — ${status}`;
+            const affectedFiles = [
+              ...(root.unreadPaths ?? []).map((file) => ({ file, status: "UNREAD" })),
+              ...(root.truncatedPaths ?? []).map((file) => ({ file, status: "TRUNCATED" })),
+            ].slice(0, 24);
+            return [
+              rootLine,
+              ...affectedFiles.map(({ file, status: fileStatus }) =>
+                isArabic
+                  ? `  - ملف متأثر: \`${safePath(file)}\` — ${fileStatus}`
+                  : `  - Affected file: \`${safePath(file)}\` — ${fileStatus}`,
+              ),
+            ];
+          })
+      : [];
+  const incompleteReasonText = incompleteReason
+    ? isArabic
+      ? ` السبب الآمن للتوقف: ${oneLine(incompleteReason)}.`
+      : ` Safe terminal reason: ${oneLine(incompleteReason)}.`
+    : "";
+  const incompleteNextActionText = incompleteNextAction
+    ? isArabic
+      ? ` الإجراء الآمن التالي: ${oneLine(incompleteNextAction)}.`
+      : ` Next safe action: ${oneLine(incompleteNextAction)}.`
+    : "";
 
   return [
     "## 1) Executive Verdict",
-    findings.length > 0
+    reportIsIncomplete
+      ? findings.length > 0
+        ? isArabic
+          ? "ANALYSIS_INCOMPLETE — NOT PROVEN — لم يتم إغلاق بوابات الأدلة المطلوبة؛ يظل أي Finding محتفظ به غير مثبت."
+          : "ANALYSIS_INCOMPLETE — NOT PROVEN — required evidence gates did not close; any retained Finding remains unproven."
+        : isArabic
+          ? `${emptyClassification} — لم يتم إثبات Finding موثوق من قراءات الشيفرة المصدرية المكتملة.`
+          : `${emptyClassification} — no verified Finding was established from the completed source reads.`
+      : findings.length > 0
       ? completeRepairPlan
         ? isArabic
           ? "FINDING PROVEN — اجتاز الـFinding وخطة الإصلاح المرتبطة وقائمة التحقق الخاصة بالسلوك البوابات الحتمية."
@@ -687,9 +739,10 @@ export function buildStructuredForensicReport(
     "",
     "## 2) Evidence Map",
     ...buildForensicEvidenceMap(reportEvidence, {
-      findingAccepted: findings.length > 0,
-      findingEvidence: findings.map((finding) => finding.evidence),
+      findingAccepted: findings.length > 0 && !reportIsIncomplete,
+      findingEvidence: reportIsIncomplete ? [] : findings.map((finding) => finding.evidence),
     }),
+    ...incompleteReadStatusLines,
     "",
     "## 3) Findings",
     findingText,
@@ -701,7 +754,27 @@ export function buildStructuredForensicReport(
     validationText,
     "",
     "## 6) Final Judgment",
-    findings.length > 0
+    reportIsIncomplete
+      ? findings.length > 0
+        ? [
+            isArabic
+              ? `${emptyClassification} — لم يتم إغلاق بوابات الأدلة المطلوبة؛ يظل أي Finding محتفظ به غير مثبت.${incompleteReasonText}${incompleteNextActionText}`
+              : `${emptyClassification} — required evidence gates did not close; any retained Finding remains NOT PROVEN.${incompleteReasonText}${incompleteNextActionText}`,
+            isArabic
+              ? "هذا استنتاج محدود بالأدلة، وليس إثباتًا لصحة التنفيذ."
+              : "This is an evidence-limited conclusion, not proof that the implementation is correct.",
+            isArabic ? "لا توجد خطة إصلاح قابلة للتنفيذ." : "No Repair Plan is executable.",
+          ].join(" ")
+        : [
+            isArabic
+              ? `${emptyClassification} — لم يتم إثبات عيب موثوق من قراءات الشيفرة المصدرية المكتملة.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? ` الادعاء بالعيب NOT PROVEN لأن تغطية الأدلة غير مكتملة.${incompleteReasonText}${incompleteNextActionText}` : ""}`
+              : `${emptyClassification} — no verified defect was established from the completed source reads.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? ` No executable excerpt was accepted to close a required claim. The defect claim remains NOT PROVEN because evidence coverage is incomplete.${incompleteReasonText}${incompleteNextActionText}` : ""}`,
+            isArabic
+              ? "هذا استنتاج محدود بالأدلة، وليس إثباتًا لصحة التنفيذ."
+              : "This is an evidence-limited conclusion, not proof that the implementation is correct.",
+            isArabic ? "لا توجد خطة إصلاح قابلة للتنفيذ." : "No Repair Plan is executable.",
+          ].join(" ")
+      : findings.length > 0
       ? completeRepairPlan
         ? isArabic
           ? `FINDING PROVEN — يحتوي التقرير على Finding مرتبط بالدليل وخطة إصلاح مكتملة. حالة الإصلاح: ${repairStatus}.`
@@ -711,8 +784,8 @@ export function buildStructuredForensicReport(
           : "NOT PROVEN — every accepted Finding requires a linked Repair Plan with concrete files, an actionable change, a registered validation profile, and a behavior-specific checklist. No Repair Plan is executable."
       : [
           isArabic
-            ? `${emptyClassification} — لم يتم إثبات عيب موثوق من قراءات الشيفرة المصدرية المكتملة.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? " الادعاء بالعيب NOT PROVEN لأن تغطية الأدلة غير مكتملة." : ""}`
-            : `${emptyClassification} — no verified defect was established from the completed source reads.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? " The defect claim remains NOT PROVEN because evidence coverage is incomplete." : ""}`,
+            ? `${emptyClassification} — لم يتم إثبات عيب موثوق من قراءات الشيفرة المصدرية المكتملة.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? ` الادعاء بالعيب NOT PROVEN لأن تغطية الأدلة غير مكتملة.${incompleteReasonText}${incompleteNextActionText}` : ""}`
+            : `${emptyClassification} — no verified defect was established from the completed source reads.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? ` No executable excerpt was accepted to close a required claim. The defect claim remains NOT PROVEN because evidence coverage is incomplete.${incompleteReasonText}${incompleteNextActionText}` : ""}`,
           isArabic
             ? "هذا استنتاج محدود بالأدلة، وليس إثباتًا لصحة التنفيذ."
             : "This is an evidence-limited conclusion, not proof that the implementation is correct.",

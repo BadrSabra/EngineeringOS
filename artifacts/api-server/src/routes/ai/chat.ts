@@ -832,6 +832,16 @@ function safePlanFiles(files: readonly string[] | undefined, rootPath: string | 
     .slice(0, 12);
 }
 
+function safeForensicTracePath(value: string): string | undefined {
+  const raw = value.trim().replaceAll("\\", "/");
+  if (!raw || path.isAbsolute(raw)) return undefined;
+  const normalized = path.posix.normalize(raw).replace(/^(\.\/)+/, "");
+  if (!normalized || normalized === "." || normalized === ".." || normalized.startsWith("../")) {
+    return undefined;
+  }
+  return normalized.slice(0, 500);
+}
+
 function getImplementationPlanScope(
   plan: ApprovedImplementationPlan,
   rootPath: string,
@@ -1714,9 +1724,28 @@ type PersistedToolTraceEntry = {
     readFiles: number;
     unreadFiles: number;
     status: "COMPLETE" | "EMPTY" | "PARTIAL" | "BUDGET_EXHAUSTED";
-      unreadPaths?: string[];
-      truncatedPaths?: string[];
+    unreadPaths?: string[];
+    truncatedPaths?: string[];
   }>;
+  effectiveRoot?: "PROJECT_ROOT" | "ROOT_UNAVAILABLE";
+  projectRevision?: string;
+  completeReads?: boolean;
+  appliedBudget?: {
+    maxIterations: number;
+    maxToolCalls: number;
+    synthesisMaxAttempts?: number;
+    synthesisTimeoutMs?: number;
+  };
+  readStatuses?: Array<{
+    path: string;
+    status: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED";
+  }>;
+  synthesisLifecycle?: {
+    started: boolean;
+    attempted: boolean;
+    timedOut: boolean;
+    skipped: boolean;
+  };
   forensicDiagnostic?: ForensicDiagnostic;
   reason?: string;
   root?: string;
@@ -1897,6 +1926,20 @@ function serializeToolTrace(
           "rootCoverage" in step && Array.isArray(step.rootCoverage)
             ? step.rootCoverage as NonNullable<PersistedToolTraceEntry["rootCoverage"]>
             : undefined;
+        const readStatuses =
+          "readStatuses" in step && Array.isArray(step.readStatuses)
+            ? step.readStatuses
+                .map((read) => {
+                  const safePath = typeof read.path === "string"
+                    ? safeForensicTracePath(read.path)
+                    : undefined;
+                  return safePath ? { path: safePath, status: read.status } : undefined;
+                })
+                .filter((read): read is NonNullable<PersistedToolTraceEntry["readStatuses"]>[number] =>
+                  read !== undefined,
+                )
+                .slice(0, 48)
+            : undefined;
         return {
           kind: step.kind,
           auditScope: step.auditScope,
@@ -1908,10 +1951,18 @@ function serializeToolTrace(
           implementationFiles: step.implementationFiles,
           contextFiles: step.contextFiles,
           generatedFiles: step.generatedFiles,
-           ...(step.requestedFiles ? { requestedFiles: step.requestedFiles } : {}),
+          ...(step.requestedFiles ? { requestedFiles: step.requestedFiles } : {}),
           ...(rootCoverage ? { rootCoverage } : {}),
           ...(step.reason ? { reason: step.reason } : {}),
           ...(step.isFixtureLocal ? { isFixtureLocal: true } : {}),
+          ...("effectiveRoot" in step && step.effectiveRoot ? { effectiveRoot: step.effectiveRoot } : {}),
+          ...("projectRevision" in step && step.projectRevision
+            ? { projectRevision: redactUserFacingText(step.projectRevision).slice(0, 240) }
+            : {}),
+          ...("completeReads" in step && step.completeReads !== undefined ? { completeReads: step.completeReads } : {}),
+          ...("appliedBudget" in step && step.appliedBudget ? { appliedBudget: step.appliedBudget } : {}),
+          ...(readStatuses ? { readStatuses } : {}),
+          ...("synthesisLifecycle" in step && step.synthesisLifecycle ? { synthesisLifecycle: step.synthesisLifecycle } : {}),
         };
         }
       case "audit_state":
@@ -4172,6 +4223,13 @@ router.post("/ai/chat/stream", async (req, res) => {
       } else if (step.kind === "synthesis_start") {
         sse({ type: "synthesis_start", iter: step.iter, max: step.maxIterations });
       } else if (step.kind === "forensic_status") {
+        const readStatuses = step.readStatuses
+          ?.map((read) => {
+            const safePath = safeForensicTracePath(read.path);
+            return safePath ? { path: safePath, status: read.status } : undefined;
+          })
+          .filter((read): read is NonNullable<typeof read> => read !== undefined)
+          .slice(0, 48);
         sse({
           type: "forensic_status",
           auditScope: step.auditScope,
@@ -4180,6 +4238,14 @@ router.post("/ai/chat/stream", async (req, res) => {
             : {}),
           ...(step.requestedFiles ? { requestedFiles: step.requestedFiles } : {}),
           isFixtureLocal: step.isFixtureLocal === true ? true : undefined,
+          ...(step.effectiveRoot ? { effectiveRoot: step.effectiveRoot } : {}),
+          ...(step.projectRevision
+            ? { projectRevision: redactUserFacingText(step.projectRevision).slice(0, 240) }
+            : {}),
+          ...(step.completeReads !== undefined ? { completeReads: step.completeReads } : {}),
+          ...(step.appliedBudget ? { appliedBudget: step.appliedBudget } : {}),
+          ...(readStatuses ? { readStatuses } : {}),
+          ...(step.synthesisLifecycle ? { synthesisLifecycle: step.synthesisLifecycle } : {}),
         });
       } else if (step.kind === "audit_state") {
         sse({ type: "audit_state", ...step.state });
