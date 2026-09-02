@@ -25,7 +25,7 @@ async function writeEnvelope(value: unknown): Promise<void> {
 }
 
 async function writeFile(filePath: string, value: unknown): Promise<void> {
-  await fs.mkdir(outputDir, { recursive: true });
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(value)}\n`, "utf8");
 }
 
@@ -232,6 +232,61 @@ describe.sequential("GET /api/ai/mission-control", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.benchmark?.freeTierEnvelope).toBeUndefined();
+  });
+
+  it("returns bounded preflight history separately from the current release artifact", async () => {
+    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+    const historyDir = path.join(outputDir, "history", "preflight");
+    for (let index = 1; index <= 9; index += 1) {
+      await writeFile(
+        path.join(
+          historyDir,
+          `code-agent-benchmark-airlock-preflight-2026090112000${String(index).padStart(1, "0")}-run-${index}.json`,
+        ),
+        {
+          kind: "code-agent-benchmark-airlock",
+          version: 1,
+          runId: `run-${index}`,
+          startedAt: `2026-09-01T12:00:0${index}.000Z`,
+          completedAt: `2026-09-01T12:00:1${index}.000Z`,
+          suiteVersion: "flight-deck-v2",
+          campaignMode: "clean-witness",
+          campaignStatus: "incomplete",
+          targetCaseCount: 34,
+          diagnosticOnly: false,
+          targeted: false,
+          sourceRevision: "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a",
+          preflight: {
+            status: "blocked",
+            blockers: ["benchmark runtime-oracle preflight failed"],
+          },
+          runtimeOraclePreflight: {
+            status: "failed",
+            checks: [{
+              scenarioId: "test-failure-001",
+              command: "pnpm test",
+              status: "failed",
+              failureCode: "RUNTIME_ORACLE_FAILED",
+              providerOutput: "must not be exposed",
+            }],
+            failureIds: ["test-failure-001"],
+          },
+          observations: [{
+            diagnosis: "source content must not be exposed",
+          }],
+        },
+      );
+    }
+
+    const response = await request(app).get("/api/ai/mission-control");
+
+    expect(response.status).toBe(200);
+    expect(response.body.benchmark.preflightHistory).toHaveLength(8);
+    expect(response.body.benchmark.preflightHistory[0].runId).toBe("run-9");
+    expect(response.body.benchmark.preflightHistory.at(-1).runId).toBe("run-2");
+    expect(response.body.benchmark.preflightHistory[0].kind).toBe("code-agent-benchmark-airlock");
+    expect(JSON.stringify(response.body.benchmark.preflightHistory)).not.toContain("must not be exposed");
+    expect(JSON.stringify(response.body.benchmark.preflightHistory)).not.toContain("source content");
   });
 
   it("shows empirical measurement and release posture independently", async () => {

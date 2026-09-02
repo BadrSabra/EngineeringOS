@@ -136,11 +136,23 @@ const outputDir = path.resolve(
         shardLabel ?? "",
       ),
 );
+const campaignHistoryDir = path.resolve(
+  process.env.BENCHMARK_CAMPAIGN_HISTORY_DIR?.trim() ??
+    path.join(outputDir, "history", "preflight"),
+);
+const PREFLIGHT_HISTORY_LIMIT = 8;
+const PREFLIGHT_HISTORY_PREFIX = "code-agent-benchmark-airlock-preflight-";
 if (campaignModeSelection === "live") {
   const relativeOutput = path.relative(sourceRoot, outputDir);
   if (relativeOutput === "" || (!relativeOutput.startsWith("..") && !path.isAbsolute(relativeOutput))) {
     throw new Error(
       "Live benchmark output must be outside the source workspace; use a disposable campaign directory such as /tmp/engineeringos-live-campaign.",
+    );
+  }
+  const relativeHistory = path.relative(sourceRoot, campaignHistoryDir);
+  if (relativeHistory === "" || (!relativeHistory.startsWith("..") && !path.isAbsolute(relativeHistory))) {
+    throw new Error(
+      "Live benchmark history must be outside the source workspace; use a disposable campaign history directory.",
     );
   }
 }
@@ -166,9 +178,89 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.tmp-${process.pid}`;
   await fs.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   await fs.rename(temporaryPath, filePath);
+}
+
+function safeHistorySegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 96) || "run";
+}
+
+function historyTimestamp(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 17).padEnd(17, "0");
+}
+
+function redactedPreflightHistoryRun(run: BenchmarkAirlockRun): BenchmarkAirlockRun {
+  // A resumed campaign can carry prior observations. They are valid for the
+  // active run, but a retained preflight receipt only needs bounded status and
+  // metadata and must never become a second source of model or source content.
+  return {
+    ...run,
+    providerHealth: [],
+    observations: [],
+    scorecard: {
+      ...run.scorecard,
+      cases: [],
+      missingCaseIds: run.scorecard.missingCaseIds.slice(0, 128),
+    },
+    autonomousDeliveryAcceptance: undefined,
+    parityReport: undefined,
+  };
+}
+
+async function retainPreflightHistory(
+  run: BenchmarkAirlockRun,
+  runtimeOraclePreflight: NonNullable<BenchmarkAirlockRun["runtimeOraclePreflight"]>,
+): Promise<void> {
+  await fs.mkdir(campaignHistoryDir, { recursive: true });
+  const baseName = `${PREFLIGHT_HISTORY_PREFIX}${historyTimestamp(run.startedAt)}-${safeHistorySegment(run.runId)}`;
+  let historyBase = baseName;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await fs.access(path.join(campaignHistoryDir, `${historyBase}.json`));
+      historyBase = `${baseName}-${String(attempt + 1).padStart(3, "0")}`;
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error
+        ? (error as { code?: string }).code
+        : undefined;
+      if (code === "ENOENT") break;
+      throw error;
+    }
+  }
+  const historyRunPath = path.join(campaignHistoryDir, `${historyBase}.json`);
+  const redactedRun = redactedPreflightHistoryRun(run);
+  const markdown = `${codeAgentBenchmarkScorecardToMarkdown(redactedRun.scorecard)}
+
+## Runtime-oracle preflight
+
+Campaign execution was blocked before consuming benchmark cases. The
+server-owned preflight report is retained in the JSON run record.
+
+- Status: ${runtimeOraclePreflight.status}
+- Failure identifiers: ${runtimeOraclePreflight.failureIds.join(", ") || "none"}
+`;
+  await writeJsonAtomically(historyRunPath, redactedRun);
+  await fs.writeFile(path.join(campaignHistoryDir, `${historyBase}.md`), markdown, "utf8");
+
+  const entries = await fs.readdir(campaignHistoryDir, { withFileTypes: true });
+  const historyJsonFiles = entries
+    .filter((entry) =>
+      entry.isFile() &&
+      entry.name.startsWith(PREFLIGHT_HISTORY_PREFIX) &&
+      entry.name.endsWith(".json"),
+    )
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+  for (const fileName of historyJsonFiles.slice(PREFLIGHT_HISTORY_LIMIT)) {
+    const stem = fileName.slice(0, -".json".length);
+    await Promise.all([
+      fs.rm(path.join(campaignHistoryDir, fileName), { force: true }),
+      fs.rm(path.join(campaignHistoryDir, `${stem}.md`), { force: true }),
+    ]);
+  }
 }
 
 async function createIsolatedBenchmarkRoot(): Promise<{ rootPath: string; cleanup: () => Promise<void> }> {
@@ -506,13 +598,7 @@ try {
         sourceRevision,
         candidateHash,
       });
-      await writeJsonAtomically(
-        path.join(outputDir, "code-agent-benchmark-airlock.run.json"),
-        blockedRun,
-      );
-      await fs.writeFile(
-        path.join(outputDir, "code-agent-benchmark-airlock.run.md"),
-        `${codeAgentBenchmarkScorecardToMarkdown(blockedRun.scorecard)}
+      const preflightMarkdown = `${codeAgentBenchmarkScorecardToMarkdown(blockedRun.scorecard)}
 
 ## Runtime-oracle preflight
 
@@ -521,7 +607,15 @@ server-owned preflight report is retained in the JSON run record.
 
 - Status: ${runtimeOraclePreflight.status}
 - Failure identifiers: ${runtimeOraclePreflight.failureIds.join(", ") || "none"}
-`,
+`;
+      await retainPreflightHistory(blockedRun, runtimeOraclePreflight);
+      await writeJsonAtomically(
+        path.join(outputDir, "code-agent-benchmark-airlock.run.json"),
+        blockedRun,
+      );
+      await fs.writeFile(
+        path.join(outputDir, "code-agent-benchmark-airlock.run.md"),
+        preflightMarkdown,
         "utf8",
       );
     },

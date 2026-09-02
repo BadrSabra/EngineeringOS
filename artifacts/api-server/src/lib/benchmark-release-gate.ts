@@ -315,6 +315,14 @@ async function readJson<T>(filePath: string): Promise<T> {
   return value as T;
 }
 
+async function readCurrentRunArtifact(filePath: string, label: string): Promise<BenchmarkAirlockRun> {
+  const fileName = path.basename(filePath);
+  if (fileName !== "code-agent-benchmark-airlock.run.json" && fileName !== "targeted.run.json") {
+    throw new Error(`${label} must point to the current run artifact, not a retained campaign history file.`);
+  }
+  return readJson<BenchmarkAirlockRun>(filePath);
+}
+
 async function writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
   const temporaryPath = `${filePath}.tmp-${process.pid}`;
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -342,8 +350,8 @@ const outputPath = path.resolve(
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const decision = evaluateBenchmarkReleaseGate({
-      targetedRun: await readJson<BenchmarkAirlockRun>(targetedPath),
-      cleanWitnessRun: await readJson<BenchmarkAirlockRun>(cleanWitnessPath),
+      targetedRun: await readCurrentRunArtifact(targetedPath, "Targeted benchmark"),
+      cleanWitnessRun: await readCurrentRunArtifact(cleanWitnessPath, "Clean-witness benchmark"),
       baseline: await readJson<CodeAgentBenchmarkBaseline>(baselinePath),
     });
     await writeJsonAtomically(outputPath, decision);

@@ -96,6 +96,24 @@ type BoundedReleaseGate = {
   runtimeOraclePreflight?: ApiCodeAgentRuntimeOraclePreflight;
 };
 
+type BoundedPreflightHistoryReceipt = {
+  kind: "code-agent-benchmark-airlock";
+  version: 1;
+  runId: string;
+  startedAt?: string;
+  completedAt?: string;
+  suiteVersion?: string;
+  campaignMode?: "coverage" | "clean-witness";
+  campaignStatus: "incomplete";
+  targetCaseCount: number;
+  diagnosticOnly: boolean;
+  targeted: boolean;
+  targetProfile?: string;
+  sourceRevision?: string;
+  preflight: { status: "blocked"; blockers: string[] };
+  runtimeOraclePreflight: ApiCodeAgentRuntimeOraclePreflight;
+};
+
 function projectAcceptanceSummary(value: unknown): AutonomousDeliveryAcceptanceSummary | undefined {
   if (!isRecord(value) || value.kind !== "autonomous-delivery-acceptance" ||
       value.version !== 1 || !isRecord(value.campaign) ||
@@ -142,6 +160,18 @@ function scorecardPath(): string {
     process.env.BENCHMARK_OUTPUT_DIR ??
       path.join(process.cwd(), "../../lib/ai-orchestrator/benchmark-results"),
     "code-agent-benchmark-live.json",
+  );
+}
+
+function preflightHistoryPath(): string {
+  return path.resolve(
+    process.env.BENCHMARK_CAMPAIGN_HISTORY_DIR ??
+      path.join(
+        process.env.BENCHMARK_OUTPUT_DIR ??
+          path.join(process.cwd(), "../../lib/ai-orchestrator/benchmark-results"),
+        "history",
+        "preflight",
+      ),
   );
 }
 
@@ -506,6 +536,88 @@ function projectRuntimeOraclePreflight(value: unknown): ApiCodeAgentRuntimeOracl
   };
 }
 
+function projectPreflightHistoryReceipt(value: unknown): BoundedPreflightHistoryReceipt | undefined {
+  if (!isRecord(value) ||
+      value.kind !== "code-agent-benchmark-airlock" ||
+      value.version !== 1 ||
+      value.campaignStatus !== "incomplete" ||
+      !isRecord(value.preflight) ||
+      value.preflight.status !== "blocked" ||
+      typeof value.runId !== "string" ||
+      typeof value.targetCaseCount !== "number" ||
+      !Number.isInteger(value.targetCaseCount) ||
+      value.targetCaseCount < 0 ||
+      value.targetCaseCount > 128 ||
+      typeof value.diagnosticOnly !== "boolean" ||
+      typeof value.targeted !== "boolean" ||
+      !Array.isArray(value.preflight.blockers)) return undefined;
+  const runtimeOraclePreflight = projectRuntimeOraclePreflight(value.runtimeOraclePreflight);
+  if (!runtimeOraclePreflight || runtimeOraclePreflight.status !== "failed") return undefined;
+  const blockers = value.preflight.blockers
+    .filter((blocker): blocker is string =>
+      blocker === "benchmark runtime-oracle preflight failed",
+    )
+    .slice(0, 4);
+  if (blockers.length === 0) return undefined;
+  const campaignMode = value.campaignMode === "coverage" || value.campaignMode === "clean-witness"
+    ? value.campaignMode
+    : undefined;
+  const targetProfile = safePublicIdentifier(value.targetProfile, 160);
+  const sourceRevision = typeof value.sourceRevision === "string" &&
+    /^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(value.sourceRevision)
+    ? value.sourceRevision
+    : undefined;
+  return {
+    kind: "code-agent-benchmark-airlock",
+    version: 1,
+    runId: safePublicIdentifier(value.runId, 200) ?? "unknown",
+    ...(typeof value.startedAt === "string" ? { startedAt: value.startedAt } : {}),
+    ...(typeof value.completedAt === "string" ? { completedAt: value.completedAt } : {}),
+    ...(typeof value.suiteVersion === "string" ? { suiteVersion: value.suiteVersion.slice(0, 160) } : {}),
+    ...(campaignMode ? { campaignMode } : {}),
+    campaignStatus: "incomplete",
+    targetCaseCount: value.targetCaseCount,
+    diagnosticOnly: value.diagnosticOnly,
+    targeted: value.targeted,
+    ...(targetProfile ? { targetProfile } : {}),
+    ...(sourceRevision ? { sourceRevision } : {}),
+    preflight: { status: "blocked", blockers },
+    runtimeOraclePreflight,
+  };
+}
+
+async function readPreflightHistory(): Promise<BoundedPreflightHistoryReceipt[]> {
+  try {
+    const entries = await fs.readdir(preflightHistoryPath(), { withFileTypes: true });
+    const files = entries
+      .filter((entry) =>
+        entry.isFile() &&
+        entry.name.startsWith("code-agent-benchmark-airlock-preflight-") &&
+        entry.name.endsWith(".json"),
+      )
+      .map((entry) => entry.name)
+      .sort()
+      .reverse()
+      .slice(0, 8);
+    const receipts = await Promise.all(files.map(async (fileName) => {
+      try {
+        return projectPreflightHistoryReceipt(JSON.parse(
+          await fs.readFile(path.join(preflightHistoryPath(), fileName), "utf8"),
+        ) as unknown);
+      } catch {
+        return undefined;
+      }
+    }));
+    return receipts.filter((receipt): receipt is BoundedPreflightHistoryReceipt => receipt !== undefined);
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error
+      ? (error as { code?: string }).code
+      : undefined;
+    if (code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 function safePublicIdentifier(value: unknown, maxLength: number): string | undefined {
   return typeof value === "string" && SAFE_PUBLIC_IDENTIFIER.test(value.trim())
     ? value.trim().slice(0, maxLength)
@@ -740,13 +852,14 @@ router.get("/ai/benchmark/empirical-scorecard", async (_req, res) => {
  */
 router.get("/ai/mission-control", async (req, res) => {
   try {
-    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, rawEmpiricalScorecard, rawReleaseGate, executions] = await Promise.all([
+    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, rawEmpiricalScorecard, rawReleaseGate, preflightHistory, executions] = await Promise.all([
       readOptionalJson(scorecardPath()),
       readOptionalJson(baselinePath()),
       readOptionalJson(freeTierEnvelopePath()),
       readOptionalJson(path.join(path.dirname(scorecardPath()), "code-agent-benchmark-airlock.run.json")),
       readOptionalJson(empiricalScorecardPath()),
       readOptionalJson(releaseQualityDecisionPath()),
+      readPreflightHistory(),
       db
         .select()
         .from(aiExecutionsTable)
@@ -792,8 +905,8 @@ router.get("/ai/mission-control", async (req, res) => {
 
     return res.json({
       updatedAt: new Date().toISOString(),
-      benchmark: scorecard || baseline || freeTierEnvelope || autonomousDeliveryAcceptance || empiricalCampaign || releaseGate
-        ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance, empiricalCampaign, releaseGate }
+      benchmark: scorecard || baseline || freeTierEnvelope || autonomousDeliveryAcceptance || empiricalCampaign || releaseGate || preflightHistory.length > 0
+        ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance, empiricalCampaign, releaseGate, preflightHistory }
         : null,
       executions: await Promise.all(executions.map(async (execution) => (
         projectExecution(execution, await loadOperationEvidence(execution))
