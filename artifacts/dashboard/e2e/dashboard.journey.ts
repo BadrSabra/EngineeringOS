@@ -349,6 +349,10 @@ async function installApiFixtures(
       messageOutcome?: string;
       failFirstPreview?: boolean;
     };
+    historicalAudits?: {
+      audits: Array<Record<string, unknown>>;
+      executions?: Record<string, Record<string, unknown>>;
+    };
     liveTask?: {
       id: string;
       title: string;
@@ -404,6 +408,12 @@ async function installApiFixtures(
           })),
         ),
       );
+    }
+    if (
+      overrides?.historicalAudits &&
+      path === "/api/ai/executions/history"
+    ) {
+      return route.fulfill(jsonResponse(overrides.historicalAudits.audits));
     }
     if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
       let requestBody: Record<string, unknown> = {};
@@ -939,6 +949,13 @@ async function installApiFixtures(
           executionId: overrides.interruptedResume.fixture.executionId,
           resumeToken: overrides.interruptedResume.recoveredToken,
         }),
+      );
+    }
+    if (overrides?.historicalAudits?.executions?.[path.split("/").pop() ?? ""]) {
+      return route.fulfill(
+        jsonResponse(
+          overrides.historicalAudits.executions[path.split("/").pop() ?? ""],
+        ),
       );
     }
     if (path === `/api/ai/executions/${EXECUTION_ID}`)
@@ -4027,7 +4044,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(beforeReload).not.toContain("NO_VERIFIED_FINDING");
 
     await page.reload();
-    await page.getByRole("button", { name: fixture.question, exact: true }).click();
+    // The project-scoped last-session selection restores this conversation
+    // without requiring another session-drawer click.
     await expect(page.getByRole("heading", { name: "1) Executive Verdict" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "6) Final Judgment" })).toBeVisible();
     await expect(page.getByText(/Safe terminal reason: SOURCE_COVERAGE_INCOMPLETE/)).toBeVisible();
@@ -4090,8 +4108,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(beforeReload).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
 
     await page.reload();
-    // This is intentionally an explicit session re-selection; automatic
-    // last-session reopening belongs to the separate recovery journey.
+    // The cancelled audit remains the explicit re-selection coverage below;
+    // this reload verifies the normal selected-session path.
     await page.getByRole("button", { name: fixture.question, exact: true }).click();
     for (const heading of [
       "## 1) Executive Verdict",
@@ -4123,6 +4141,112 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(afterReload).not.toContain(fixture.sessionId);
     expect(afterReload).not.toContain(fixture.executionId);
     expect(afterReload).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
+  });
+
+  test("restores a selected historical audit with its linked session after reload", async ({
+    page,
+  }) => {
+    const fixture = installCancelledForensicFixture();
+    const historyItem = {
+      id: fixture.executionId,
+      projectId: "e2e-project",
+      sessionId: fixture.sessionId,
+      status: "cancelled",
+      objective: fixture.question,
+      evidenceVerdict: "PARTIAL",
+      evidenceReason: "The audit was cancelled during bounded recovery.",
+      terminalReason: "CANCELLED",
+      proofRequired: true,
+      disposition: "RETAIN_FOR_REVIEW",
+      recommendedAction: "REVIEW_RETAINED_PROOF",
+      resumable: false,
+      checkpointVersion: 1,
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:02:00.000Z",
+      completedAt: null,
+    };
+    const execution = {
+      id: fixture.executionId,
+      projectId: "e2e-project",
+      sessionId: fixture.sessionId,
+      status: "cancelled",
+      message: fixture.question,
+      checkpointVersion: 1,
+    };
+    await installApiFixtures(page, {
+      arabicAi: fixture,
+      historicalAudits: {
+        audits: [historyItem],
+        executions: { [fixture.executionId]: execution },
+      },
+    });
+    await page.addInitScript(
+      ({ value }) => localStorage.setItem("eos_ai_selection_e2e-project", value),
+      {
+        value: JSON.stringify({
+          version: 1,
+          projectId: "e2e-project",
+          kind: "historical-audit",
+          executionId: fixture.executionId,
+          sessionId: fixture.sessionId,
+        }),
+      },
+    );
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    for (const heading of [
+      "## 1) Executive Verdict",
+      "## 2) Evidence Map",
+      "## 3) Findings",
+      "## 4) Repair Plan",
+      "## 5) Validation Checklist",
+      "## 6) Final Judgment",
+    ]) {
+      await expect(page.locator("body")).toContainText(heading);
+    }
+    await expect(page.getByText(/Safe terminal reason: CANCELLED/)).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: `Review audit ${fixture.question}` }),
+    ).toHaveClass(/bg-primary\/10/);
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain("FINDING PROVEN");
+    expect(visibleText).not.toContain("NO_VERIFIED_FINDING");
+    expect(visibleText).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
+  });
+
+  test("clears a project-mismatched last selection instead of showing stale audit content", async ({
+    page,
+  }) => {
+    const fixture = installIncompleteForensicFixture();
+    await installApiFixtures(page, { arabicAi: fixture });
+    await page.addInitScript(
+      ({ value }) => localStorage.setItem("eos_ai_selection_e2e-project", value),
+      {
+        value: JSON.stringify({
+          version: 1,
+          projectId: "another-project",
+          kind: "session",
+          sessionId: fixture.sessionId,
+          report: fixture.answer,
+        }),
+      },
+    );
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    await expect(
+      page.getByRole("button", { name: fixture.question, exact: true }),
+    ).not.toHaveClass(/bg-primary\/10/);
+    await expect(page.getByRole("heading", { name: "1) Executive Verdict" }))
+      .not.toBeVisible();
+    expect(
+      await page.evaluate(() => localStorage.getItem("eos_ai_selection_e2e-project")),
+    ).toBeNull();
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain("ANALYSIS_INCOMPLETE");
+    expect(visibleText).not.toContain("FINDING PROVEN");
   });
 
   test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({

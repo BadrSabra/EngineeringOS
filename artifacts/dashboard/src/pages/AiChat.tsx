@@ -430,6 +430,89 @@ type Session = {
   forensicStatus?: 'INCOMPLETE' | 'NO_FINDING' | 'FINDING_PROVEN' | 'NOT_PROVEN';
 };
 
+export const AI_CHAT_SELECTION_STORAGE_PREFIX = 'eos_ai_selection_';
+
+type AiChatSelection =
+  | {
+      version: 1;
+      projectId: string;
+      kind: 'session';
+      sessionId: string;
+    }
+  | {
+      version: 1;
+      projectId: string;
+      kind: 'historical-audit';
+      executionId: string;
+      sessionId?: string;
+    };
+
+function aiChatSelectionStorageKey(projectId: string): string {
+  return `${AI_CHAT_SELECTION_STORAGE_PREFIX}${projectId}`;
+}
+
+function isOpaqueSelectionId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 512;
+}
+
+export function parseAiChatSelection(raw: string | null, projectId: string): AiChatSelection | null {
+  if (!raw || !isOpaqueSelectionId(projectId)) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      parsed.version !== 1
+      || parsed.projectId !== projectId
+      || (parsed.kind !== 'session' && parsed.kind !== 'historical-audit')
+    ) {
+      return null;
+    }
+    if (parsed.kind === 'session' && isOpaqueSelectionId(parsed.sessionId)) {
+      return {
+        version: 1,
+        projectId,
+        kind: 'session',
+        sessionId: parsed.sessionId,
+      };
+    }
+    if (
+      parsed.kind === 'historical-audit'
+      && isOpaqueSelectionId(parsed.executionId)
+      && (parsed.sessionId === undefined || isOpaqueSelectionId(parsed.sessionId))
+    ) {
+      return {
+        version: 1,
+        projectId,
+        kind: 'historical-audit',
+        executionId: parsed.executionId,
+        ...(parsed.sessionId !== undefined ? { sessionId: parsed.sessionId } : {}),
+      };
+    }
+  } catch {
+    // Malformed browser state is treated as an unavailable selection.
+  }
+  return null;
+}
+
+function persistAiChatSelection(selection: AiChatSelection): void {
+  try {
+    localStorage.setItem(
+      aiChatSelectionStorageKey(selection.projectId),
+      JSON.stringify(selection),
+    );
+  } catch {
+    // Browser storage can be unavailable in privacy-restricted contexts.
+  }
+}
+
+function clearAiChatSelection(projectId: string | undefined): void {
+  if (!projectId) return;
+  try {
+    localStorage.removeItem(aiChatSelectionStorageKey(projectId));
+  } catch {
+    // Browser storage can be unavailable in privacy-restricted contexts.
+  }
+}
+
 function sessionForensicStatusLabel(status: Session['forensicStatus']): string | null {
   switch (status) {
     case 'INCOMPLETE': return 'Incomplete';
@@ -7650,6 +7733,7 @@ export default function AiChat() {
   const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
   const [historicalExecutionId, setHistoricalExecutionId] = useState<string | null>(null);
+  const hydratedSelectionProjectRef = useRef<string | null>(null);
   const [executionControlPending, setExecutionControlPending] = useState(false);
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
   const [resumeRecoveryAttempt, setResumeRecoveryAttempt] = useState(0);
@@ -8154,6 +8238,12 @@ export default function AiChat() {
         const failureEvents = agentActivityEventsRef.current;
         const failure = safeStructuredFailure(err, task);
         if (err.sessionId) {
+          persistAiChatSelection({
+            version: 1,
+            projectId: selectedProjectId,
+            kind: 'session',
+            sessionId: err.sessionId,
+          });
           setSessionId(err.sessionId);
           qc.setQueryData<Session[]>(
             ['ai-sessions', selectedProjectId],
@@ -8353,6 +8443,118 @@ export default function AiChat() {
       },
     },
   );
+
+  // Browser selection state is only trusted after both project-owned lists
+  // have loaded. The durable execution pointer is intentionally independent:
+  // when it recovered a different session, leave that resumable execution
+  // visible rather than allowing a stale selection to replace it.
+  useEffect(() => {
+    if (
+      !selectedProjectId
+      || !sessionsFetched
+      || sessionsError
+      || hydratedSelectionProjectRef.current === selectedProjectId
+    ) {
+      return;
+    }
+
+    let rawSelection: string | null = null;
+    try {
+      rawSelection = localStorage.getItem(aiChatSelectionStorageKey(selectedProjectId));
+    } catch {
+      return;
+    }
+    const selection = parseAiChatSelection(rawSelection, selectedProjectId);
+    if (!selection) {
+      hydratedSelectionProjectRef.current = selectedProjectId;
+      if (rawSelection !== null) clearAiChatSelection(selectedProjectId);
+      return;
+    }
+    if (selection.kind === 'historical-audit' && historicalAuditsLoading) return;
+    hydratedSelectionProjectRef.current = selectedProjectId;
+
+    const recoveredExecution = Boolean(
+      storedExecution
+      && storedExecution.projectId === selectedProjectId,
+    );
+
+    const resetVisibleSelection = (preserveRecoveredExecution: boolean) => {
+      setLocalMessages([]);
+      setPendingChanges([]);
+      setProposalId(undefined);
+      setProposalRequiresApproval(false);
+      setProposalRevision(undefined);
+      setVerificationResults({});
+      setHistoricalExecutionId(null);
+      setAuditPreview(null);
+      setAuditPreviewError(null);
+      if (!preserveRecoveredExecution) {
+        clearExecutionScopedState();
+        setSessionId(undefined);
+      }
+    };
+
+    if (selection.kind === 'session') {
+      if (recoveredExecution && storedExecution?.sessionId !== selection.sessionId) {
+        return;
+      }
+      if (!sessions.some((session) => session.id === selection.sessionId)) {
+        clearAiChatSelection(selectedProjectId);
+        resetVisibleSelection(recoveredExecution);
+        return;
+      }
+      resetVisibleSelection(recoveredExecution);
+      setSessionId(selection.sessionId);
+      return;
+    }
+
+    const audit = historicalAudits.find((candidate) => candidate.id === selection.executionId);
+    const linkedSessionId = audit && isOpaqueSelectionId(audit.sessionId)
+      ? audit.sessionId
+      : undefined;
+    if (
+      recoveredExecution
+      && (
+        storedExecution?.sessionId !== linkedSessionId
+        || storedExecution?.id !== selection.executionId
+      )
+    ) {
+      return;
+    }
+    const hasUsableAuditSession = Boolean(
+      audit
+      && audit.projectId === selectedProjectId
+      && linkedSessionId
+      && (!selection.sessionId || linkedSessionId === selection.sessionId)
+      && sessions.some((session) => session.id === linkedSessionId),
+    );
+    if (!hasUsableAuditSession || !audit || !linkedSessionId) {
+      clearAiChatSelection(selectedProjectId);
+      resetVisibleSelection(recoveredExecution);
+      return;
+    }
+
+    resetVisibleSelection(recoveredExecution);
+    setHistoricalExecutionId(audit.id);
+    setSessionId(linkedSessionId);
+    setActiveExecution({
+      id: audit.id,
+      projectId: audit.projectId,
+      sessionId: linkedSessionId,
+      message: audit.objective,
+    });
+  }, [
+    activeExecution?.id,
+    activeExecution?.projectId,
+    activeExecution?.sessionId,
+    historicalAudits,
+    historicalAuditsLoading,
+    selectedProjectId,
+    sessions,
+    sessionsError,
+    sessionsFetched,
+    storedExecution?.id,
+  ]);
 
   const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
     sessionId ?? '',
@@ -9061,6 +9263,12 @@ export default function AiChat() {
         onSessionStarted: (event) => {
           if (!ownsStream({ sessionId: event.sessionId })) return;
           streamOwnerRef.current!.sessionId = event.sessionId;
+          persistAiChatSelection({
+            version: 1,
+            projectId: requestProjectId,
+            kind: 'session',
+            sessionId: event.sessionId,
+          });
           setSessionId(event.sessionId);
           qc.setQueryData<Session[]>(
             ['ai-sessions', requestProjectId],
@@ -9336,6 +9544,12 @@ export default function AiChat() {
         },
         onDone: (data) => {
           if (!ownsStream({ sessionId: data.sessionId })) return;
+          persistAiChatSelection({
+            version: 1,
+            projectId: requestProjectId,
+            kind: 'session',
+            sessionId: data.sessionId,
+          });
            const activityEvents = agentActivityEventsRef.current;
           setAgentStage(null);
           setStreamingContent('');
@@ -9615,11 +9829,15 @@ export default function AiChat() {
   function resetConversationView(options: { forgetCurrentExecution: boolean }) {
     streamGenerationRef.current += 1;
     cancelStream();
-    if (options.forgetCurrentExecution && executionPointerKey) {
-      localStorage.removeItem(executionPointerKey);
+    if (options.forgetCurrentExecution) {
+      if (executionPointerKey) localStorage.removeItem(executionPointerKey);
+      clearAiChatSelection(selectedProjectId);
     }
     clearExecutionScopedState();
     setSessionId(undefined);
+    setHistoricalExecutionId(null);
+    setAuditPreview(null);
+    setAuditPreviewError(null);
     setInput('');
     setLocalMessages([]);
     setPendingChanges([]);
@@ -9832,9 +10050,28 @@ export default function AiChat() {
                 key={s.id}
                 aria-label={s.title}
                 onClick={() => {
+                  if (s.id === sessionId && !historicalExecutionId) {
+                    persistAiChatSelection({
+                      version: 1,
+                      projectId: selectedProjectId,
+                      kind: 'session',
+                      sessionId: s.id,
+                    });
+                    if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
+                    return;
+                  }
                   streamGenerationRef.current += 1;
                   cancelStream();
                   clearExecutionScopedState();
+                  persistAiChatSelection({
+                    version: 1,
+                    projectId: selectedProjectId,
+                    kind: 'session',
+                    sessionId: s.id,
+                  });
+                  setHistoricalExecutionId(null);
+                  setAuditPreview(null);
+                  setAuditPreviewError(null);
                   setSessionId(s.id);
                   setLocalMessages([]);
                   setPendingChanges([]);
@@ -9898,7 +10135,20 @@ export default function AiChat() {
                           streamGenerationRef.current += 1;
                           cancelStream();
                           cancelTaskStream();
+                          persistAiChatSelection({
+                            version: 1,
+                            projectId: selectedProjectId,
+                            kind: 'historical-audit',
+                            executionId: audit.id,
+                            ...(audit.sessionId ? { sessionId: audit.sessionId } : {}),
+                          });
                           setHistoricalExecutionId(audit.id);
+                          setLocalMessages([]);
+                          setPendingChanges([]);
+                          setProposalId(undefined);
+                          setProposalRequiresApproval(false);
+                          setProposalRevision(undefined);
+                          setVerificationResults({});
                           setAuditPreview(null);
                           setAuditPreviewError(null);
                           setActiveExecution({

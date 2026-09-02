@@ -1,7 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import AiChat, { auditExportFilename, BenchmarkMissionControlPanel } from './AiChat';
+import AiChat, {
+  AI_CHAT_SELECTION_STORAGE_PREFIX,
+  auditExportFilename,
+  BenchmarkMissionControlPanel,
+} from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
 
 /** Minimal structural mirror of the AI-008 taskResult union for rendering tests. */
@@ -64,6 +68,8 @@ const mocks = vi.hoisted(() => {
     operationEvents: [] as Array<Record<string, unknown>>,
     projects: [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }],
     sessions: [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }],
+    sessionsFetched: true,
+    sessionsError: false,
     historicalAudits: [] as Array<Record<string, unknown>>,
     proposalMessages: [{
       id: 'message-1',
@@ -223,8 +229,8 @@ vi.mock('@workspace/api-client-react', () => {
     })),
     useListAiChatSessions: vi.fn(() => ({
       data: mocks.sessions,
-      isFetched: true,
-      isError: false,
+      isFetched: mocks.sessionsFetched,
+      isError: mocks.sessionsError,
       error: null,
     })),
     useListAiChatMessages: vi.fn((sessionId: string) => ({
@@ -322,6 +328,8 @@ beforeEach(() => {
   mocks.groqStatus = undefined;
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
+  mocks.sessionsFetched = true;
+  mocks.sessionsError = false;
   mocks.proposalMessages[0] = {
     ...mocks.proposalMessages[0],
     id: 'message-1',
@@ -820,6 +828,175 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('Inspect the new session root', {
       selector: 'div.chat-message-bubble',
     })).toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBe(
+      JSON.stringify({
+        version: 1,
+        projectId: 'project-1',
+        kind: 'session',
+        sessionId: 'session-new',
+      }),
+    );
+  });
+
+  it('restores the last selected session after reload without copying conversation data', async () => {
+    mocks.serverProposal = { changes: [] };
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByText('Existing response')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Existing session' })).toHaveClass('bg-primary/10');
+    const selection = localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`) ?? '';
+    expect(selection).not.toContain('Existing response');
+    expect(selection).not.toContain('resumeToken');
+    expect(selection).not.toContain('/home/');
+  });
+
+  it('clears malformed or unavailable selections without exposing stale messages', async () => {
+    mocks.serverProposal = { changes: [] };
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 99,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-removed',
+      report: 'stale forensic report',
+    }));
+
+    renderAiChat();
+
+    const sessionButton = await screen.findByRole('button', { name: 'Existing session' });
+    expect(sessionButton).not.toHaveClass('bg-primary/10');
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
+    expect(screen.queryByText('stale forensic report')).not.toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBeNull();
+  });
+
+  it('restores a historical audit only when its project-owned linked session is listed', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.activeExecutionStatus = { status: 'cancelled' };
+    mocks.historicalAudits = [{
+      id: 'historical-execution-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      status: 'cancelled',
+      objective: 'Review the retained audit',
+      evidenceVerdict: 'ANALYSIS_INCOMPLETE',
+      disposition: 'RETAIN_FOR_REVIEW',
+      recommendedAction: 'REVIEW',
+      proofRequired: true,
+      resumable: false,
+      checkpointVersion: 1,
+      createdAt: '2026-08-13T00:00:00.000Z',
+      updatedAt: '2026-08-13T00:00:00.000Z',
+    }];
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'historical-audit',
+      executionId: 'historical-execution-1',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByText('Existing response')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Review audit Review the retained audit/ }))
+      .toHaveClass('bg-primary/10');
+    expect(screen.getByText(/Execution historical-/)).toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBe(
+      JSON.stringify({
+        version: 1,
+        projectId: 'project-1',
+        kind: 'historical-audit',
+        executionId: 'historical-execution-1',
+        sessionId: 'session-1',
+      }),
+    );
+  });
+
+  it('keeps selections isolated by project and preserves an independent execution pointer', async () => {
+    mocks.projects = [
+      { id: 'project-1', name: 'demo-service', language: 'TypeScript' },
+      { id: 'project-2', name: 'worker-service', language: 'TypeScript' },
+    ];
+    mocks.sessions = [
+      { id: 'session-1', title: 'Project one session', updatedAt: '2026-08-13T00:00:00.000Z' },
+      { id: 'session-2', title: 'Project two session', updatedAt: '2026-08-14T00:00:00.000Z' },
+    ];
+    mocks.serverProposal = { changes: [] };
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-1',
+    }));
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-2`, JSON.stringify({
+      version: 1,
+      projectId: 'project-2',
+      kind: 'session',
+      sessionId: 'session-2',
+    }));
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-project-one',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      resumeToken: 'opaque-resume-token',
+      message: 'Resume project one',
+    }));
+    mocks.activeExecutionStatus = { status: 'paused' };
+
+    renderAiChat();
+    expect(await screen.findByText(/Execution execution-/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Project one session' })).toHaveClass('bg-primary/10');
+
+    const projectSelector = screen.getByRole('combobox');
+    fireEvent.change(projectSelector, { target: { value: 'project-2' } });
+    expect(await screen.findByRole('button', { name: 'Project two session' }))
+      .toHaveClass('bg-primary/10');
+    expect(screen.queryByText(/Resume project one/)).not.toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toContain('session-1');
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-2`)).toContain('session-2');
+    expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).toContain('opaque-resume-token');
+  });
+
+  it('does not hydrate a selection while the project session list is unavailable', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.sessionsError = true;
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByRole('button', { name: 'Existing session' }))
+      .not.toHaveClass('bg-primary/10');
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).not.toBeNull();
+  });
+
+  it('clears the selection when starting a new session', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+    await screen.findByRole('button', { name: 'Existing session' });
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBeNull();
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
   });
 
   it('preserves each project execution pointer when switching away and back', async () => {
