@@ -1100,6 +1100,7 @@ async function persistFailedChatTurn(params: {
   projectId: string;
   message: string;
   turnIntent: string;
+  activeTaskState?: string | null;
   linkedTaskId?: string;
   createSessionIfMissing?: boolean;
   executionId?: string;
@@ -1129,6 +1130,7 @@ async function persistFailedChatTurn(params: {
           id: params.sessionId,
           projectId: params.projectId,
           linkedTaskId: params.linkedTaskId ?? null,
+          activeTaskState: params.activeTaskState ?? null,
           title: params.message.trim().slice(0, 60) || "AI chat",
           createdAt: params.createdAt,
           updatedAt: params.createdAt,
@@ -1222,6 +1224,17 @@ async function persistFailedChatTurn(params: {
           ? { executionLedger: readExecutionLedgerTrace(existing.toolTrace) }
           : {}),
       };
+    }
+    if (params.activeTaskState !== undefined) {
+      await tx.update(aiChatSessionsTable)
+        .set({
+          activeTaskState: params.activeTaskState,
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${params.assistantAt})`,
+        })
+        .where(and(
+          eq(aiChatSessionsTable.id, params.sessionId),
+          sessionTaskStateIsAtOrBefore(params.assistantAt),
+        ));
     }
     const trace = params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null;
     const persistedTrace = params.executionLedgerSnapshot
@@ -2130,6 +2143,50 @@ function resolveSessionTaskState(
   return state?.scope.projectId === projectId ? state : null;
 }
 
+async function recoverSessionTaskStateFromExecution(params: {
+  sessionId: string | undefined;
+  projectId: string;
+  rootPath: string | undefined;
+}): Promise<ReturnType<typeof parseActiveTaskState>> {
+  if (!params.sessionId) return null;
+  const executions = await db
+    .select({
+      id: aiExecutionsTable.id,
+      operationId: aiExecutionsTable.operationId,
+      request: aiExecutionsTable.request,
+      status: aiExecutionsTable.status,
+      updatedAt: aiExecutionsTable.updatedAt,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.sessionId, params.sessionId),
+      eq(aiExecutionsTable.projectId, params.projectId),
+      inArray(aiExecutionsTable.status, ["failed", "cancelled"]),
+    ))
+    .orderBy(desc(aiExecutionsTable.updatedAt))
+    .limit(16);
+
+  for (const execution of executions) {
+    const request = parseExecutionRequest(execution.request);
+    if (!request?.proofRequired || request.sessionId !== params.sessionId || !request.workspaceRevision) {
+      continue;
+    }
+    const classification = classifyRequest(request.message);
+    if (!isResumableTaskType(classification.taskType)) continue;
+    const state = buildActiveTaskState({
+      classification,
+      projectId: params.projectId,
+      rootPath: params.rootPath,
+      linkedTaskId: request.linkedTaskId,
+      revision: request.workspaceRevision,
+      operationId: request.operationId ?? execution.operationId ?? undefined,
+      executionId: execution.id,
+    });
+    if (state) return state;
+  }
+  return null;
+}
+
 function collectReadEvidencePaths(steps: AgentStep[]): string[] {
   return steps
     .filter(
@@ -2151,20 +2208,34 @@ function nextSessionTaskState(args: {
   projectId: string;
   rootPath: string | undefined;
   linkedTaskId: string | undefined;
+  revision?: string;
+  operationId?: string;
+  executionId?: string;
   now: Date;
   readFiles: string[];
   executionPlan: ActiveTaskExecutionPlan | null;
 }): string | null {
   if (args.persisted && (args.resumed || args.executionPlan)) {
     const touched = touchActiveTaskState(args.persisted, args.now);
-    const existingPlan = touched.executionPlan;
+    const revised = args.revision && !touched.scope.revision
+      ? {
+          ...touched,
+          scope: { ...touched.scope, revision: args.revision.slice(0, 240) },
+        }
+      : touched;
+    const identityBound = {
+      ...revised,
+      ...(args.operationId ? { operationId: args.operationId.slice(0, 160) } : {}),
+      ...(args.executionId ? { executionId: args.executionId.slice(0, 160) } : {}),
+    };
+    const existingPlan = identityBound.executionPlan;
     const progressedPlan = existingPlan
       ? advanceImplementationPlan(existingPlan, args.readFiles)
       : null;
     return serializeActiveTaskState(
       {
-        ...mergeActiveTaskEvidence(touched, args.readFiles, args.now),
-        executionPlan: args.executionPlan ?? progressedPlan ?? touched.executionPlan,
+        ...mergeActiveTaskEvidence(identityBound, args.readFiles, args.now),
+        executionPlan: args.executionPlan ?? progressedPlan ?? identityBound.executionPlan,
       },
     );
   }
@@ -2182,6 +2253,9 @@ function nextSessionTaskState(args: {
       projectId: args.projectId,
       rootPath: args.rootPath,
       linkedTaskId: args.linkedTaskId,
+      revision: args.revision,
+      operationId: args.operationId,
+      executionId: args.executionId,
       now: args.now,
     });
     return serializeActiveTaskState(state
@@ -2337,9 +2411,16 @@ router.post("/ai/chat", async (req, res) => {
   // state cannot turn neutral conversation into an evidence-gated audit.
   const isolatedConversationTurn =
     rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+  const recoveredActiveTaskState = !persistedActiveTaskState && isTaskContinuationRequest(message)
+    ? await recoverSessionTaskStateFromExecution({
+        sessionId: existingSession?.id,
+        projectId,
+        rootPath: validRootPath,
+      })
+    : null;
   const resumableStateForTurn = isolatedConversationTurn
     ? null
-    : persistedActiveTaskState;
+    : persistedActiveTaskState ?? recoveredActiveTaskState;
   const classificationResolution = resumeActiveTaskClassification(
     message,
     rawTurnClassification,
@@ -2355,6 +2436,29 @@ router.post("/ai/chat", async (req, res) => {
     resumed: classificationResolution.resumed,
     implementationPlanResume,
   });
+  const resumableTaskStateAtStart = nextSessionTaskState({
+    persisted: resumableStateForTurn,
+    classification: chatClassification,
+    resumed: classificationResolution.resumed,
+    projectId,
+    rootPath: validRootPath,
+    linkedTaskId: effectiveLinkedTaskId,
+    revision: project.updatedAt.toISOString(),
+    now: msgNow,
+    readFiles: [],
+    executionPlan: null,
+  });
+  if (existingSession) {
+    await db.update(aiChatSessionsTable)
+      .set({
+        activeTaskState: resumableTaskStateAtStart,
+        updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+      })
+      .where(and(
+        eq(aiChatSessionsTable.id, existingSession.id),
+        sessionTaskStateIsAtOrBefore(msgNow),
+      ));
+  }
   const modelHasTools = turnIntent.requiresTools;
   const contextExecutionPlan = resolveChatExecutionPlan(turnIntent, modelHasTools, message);
   let analysisCorrelation: {
@@ -2567,6 +2671,7 @@ router.post("/ai/chat", async (req, res) => {
         projectId,
         message,
         turnIntent: turnIntent.kind,
+        activeTaskState: resumableTaskStateAtStart,
         linkedTaskId: effectiveLinkedTaskId,
         createSessionIfMissing: true,
         outcome: terminalOutcome.outcome,
@@ -2634,6 +2739,7 @@ router.post("/ai/chat", async (req, res) => {
         projectId,
         message,
         turnIntent: turnIntent.kind,
+        activeTaskState: resumableTaskStateAtStart,
         executionId: undefined,
         outcome: "FAILED",
         errorCode: quality.code,
@@ -2750,6 +2856,7 @@ router.post("/ai/chat", async (req, res) => {
       projectId,
       rootPath: validRootPath,
       linkedTaskId: effectiveLinkedTaskId,
+      revision: analysisCorrelation.projectRevision,
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan,
@@ -3156,9 +3263,16 @@ router.post("/ai/chat/stream", async (req, res) => {
     existingSession?.activeTaskState,
     projectId,
   );
+  const recoveredActiveTaskState = !persistedActiveTaskState && isTaskContinuationRequest(message)
+    ? await recoverSessionTaskStateFromExecution({
+        sessionId: existingSession?.id,
+        projectId,
+        rootPath: validRootPath,
+      })
+    : null;
   const streamResumableStateForTurn = isolatedConversationTurn
     ? null
-    : persistedActiveTaskState;
+    : persistedActiveTaskState ?? recoveredActiveTaskState;
   const streamClassificationResolution = resumeActiveTaskClassification(
     message,
     rawTurnClassification,
@@ -3328,6 +3442,7 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     const executionRequest: AiExecutionRequestEnvelope = {
       projectId,
+      operationId: streamResumableStateForTurn?.operationId ?? randomUUID(),
       sessionId: sessionIdToUse,
       message,
       modelMessage,
@@ -3343,6 +3458,23 @@ router.post("/ai/chat/stream", async (req, res) => {
         || (implementationPlanScope && implementationPlanScope.size > 0)
         || isImmediateExecutionRequest(message),
       ),
+      ...(isResumableTaskType(streamClassification.taskType)
+        ? {
+            resumeContract: {
+              taskType: streamClassification.taskType,
+              outputContract: streamTurnIntent.outputContract,
+              contextProfile: streamClassification.contextProfile,
+              sessionId: sessionIdToUse,
+              projectRevision: analysisCorrelation.projectRevision,
+              requiresEvidence: streamTurnIntent.requiresEvidence,
+              scope: {
+                projectId,
+                rootPath: validRootPath ?? null,
+                linkedTaskId: effectiveLinkedTaskId ?? null,
+              },
+            },
+          }
+        : {}),
     };
     const proofRequired = executionRequest.proofRequired === true;
     executionWorkerId = randomUUID();
@@ -3481,6 +3613,30 @@ router.post("/ai/chat/stream", async (req, res) => {
       aiExecution = claimed;
       analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
     }
+
+    const resumableTaskStateAtStart = nextSessionTaskState({
+      persisted: streamResumableStateForTurn,
+      classification: streamClassification,
+      resumed: streamClassificationResolution.resumed || Boolean(aiExecution && effectiveExecutionId),
+      projectId,
+      rootPath: validRootPath,
+      linkedTaskId: effectiveLinkedTaskId,
+      revision: analysisCorrelation.projectRevision,
+      operationId: aiExecution.operationId ?? executionRequest.operationId,
+      executionId: aiExecution.id,
+      now: msgNow,
+      readFiles: [],
+      executionPlan: null,
+    });
+    await db.update(aiChatSessionsTable)
+      .set({
+        activeTaskState: resumableTaskStateAtStart,
+        updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+      })
+      .where(and(
+        eq(aiChatSessionsTable.id, sessionIdToUse),
+        sessionTaskStateIsAtOrBefore(msgNow),
+      ));
 
     let checkpointSequence = aiExecution.checkpointVersion;
     const streamCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
@@ -4749,6 +4905,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       projectId,
       rootPath: validRootPath,
       linkedTaskId: effectiveLinkedTaskId,
+      revision: analysisCorrelation.projectRevision,
+      operationId: aiExecution.operationId ?? executionRequest.operationId,
+      executionId: aiExecution.id,
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan,

@@ -4351,7 +4351,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     projectIds.push(projectId);
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
 
-    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+    const unavailable = async (...args: Parameters<typeof chatWithFallback>) => {
       const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
       onStep?.({
         kind: "tool_result",
@@ -4379,7 +4379,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         },
         effectiveProvider: "groq" as const,
       };
-    });
+    };
+    vi.mocked(chatWithFallback)
+      .mockImplementationOnce(unavailable)
+      .mockImplementationOnce(unavailable);
 
     const res = await request(app)
       .post("/api/ai/chat/stream")
@@ -4420,6 +4423,48 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(executions.at(-1)?.status).toBe("failed");
     expect(executions.at(-1)?.error).toContain("did not complete");
     expect(parseAiExecutionCheckpoint(executions.at(-1)?.checkpoint ?? "")?.stage).toBe("failed");
+
+    const [persistedSession] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, String(sessionId)));
+    expect(JSON.parse(persistedSession?.activeTaskState ?? "{}")).toMatchObject({
+      taskType: "FULL_FORENSIC_AUDIT",
+      outputContract: "FORENSIC_REPORT",
+      scope: {
+        projectId,
+        revision: expect.any(String),
+      },
+    });
+
+    const continued = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "أكمل" });
+    const continuedEvents = parseSseEvents(continued.text);
+    expect(continued.status).toBe(200);
+    expect(continuedEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "error", code: "TOOL_UNAVAILABLE" }),
+    ]));
+    const continuedInput = vi.mocked(chatWithFallback).mock.calls.at(-1)?.[1] as {
+      activeTaskState?: { taskType?: string; scope?: { projectId?: string } } | null;
+      turnIntent?: {
+        kind?: string;
+        requiresTools?: boolean;
+        requiresEvidence?: boolean;
+        resumed?: boolean;
+      };
+    };
+    expect(continuedInput.activeTaskState).toMatchObject({
+      taskType: "FULL_FORENSIC_AUDIT",
+      scope: { projectId },
+    });
+    expect(continuedInput.turnIntent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      requiresTools: true,
+      requiresEvidence: true,
+      resumed: true,
+    });
   });
 
   it("keeps a resumed required-analysis failure terminal when the analysis remains unavailable", async () => {

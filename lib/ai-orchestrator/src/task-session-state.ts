@@ -144,10 +144,18 @@ export const ActiveTaskStateSchema = z.object({
   taskType: z.enum(ACTIVE_TASK_TYPES),
   outputContract: z.enum(ACTIVE_OUTPUT_CONTRACTS),
   contextProfile: z.enum(["chat-lite", "chat-normal", "chat-deep"]),
+  /** Durable identities are optional only for legacy session rows. */
+  operationId: z.string().min(1).max(160).optional(),
+  executionId: z.string().min(1).max(160).optional(),
   scope: z.object({
     projectId: z.string().min(1),
     rootPath: z.string().min(1).nullable(),
     linkedTaskId: z.string().min(1).nullable(),
+    /**
+     * The workspace revision that established this resumable contract.
+     * Optional for legacy session rows; new state always records it.
+     */
+    revision: z.string().min(1).max(240).optional(),
   }).strict(),
   evidence: z.object({
     readFiles: z.array(z.string().min(1)).max(48).default([]),
@@ -514,6 +522,9 @@ export function buildActiveTaskState(args: {
   projectId: string;
   rootPath: string | undefined;
   linkedTaskId: string | undefined;
+  revision?: string;
+  operationId?: string;
+  executionId?: string;
   now?: Date;
 }): ActiveTaskState | null {
   if (!isResumableTaskType(args.classification.taskType)) return null;
@@ -524,10 +535,13 @@ export function buildActiveTaskState(args: {
     taskType: args.classification.taskType,
     outputContract: route.outputContract,
     contextProfile: args.classification.contextProfile,
+    ...(args.operationId ? { operationId: args.operationId.slice(0, 160) } : {}),
+    ...(args.executionId ? { executionId: args.executionId.slice(0, 160) } : {}),
     scope: {
       projectId: args.projectId,
       rootPath: args.rootPath ?? null,
       linkedTaskId: args.linkedTaskId ?? null,
+      ...(args.revision ? { revision: args.revision.slice(0, 240) } : {}),
     },
     evidence: {
       readFiles: [],

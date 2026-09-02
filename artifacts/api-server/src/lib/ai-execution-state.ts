@@ -463,6 +463,20 @@ export type AiExecutionRequestEnvelope = {
   projectId: string;
   /** Stable server-owned identity shared by all phases of one operation. */
   operationId?: string;
+  /** Immutable resumable contract metadata, when this is a task execution. */
+  resumeContract?: {
+    taskType: string;
+    outputContract: string;
+    contextProfile: string;
+    sessionId: string;
+    projectRevision: string;
+    requiresEvidence: boolean;
+    scope: {
+      projectId: string;
+      rootPath: string | null;
+      linkedTaskId: string | null;
+    };
+  };
   sessionId?: string;
   message: string;
   modelMessage: string;
