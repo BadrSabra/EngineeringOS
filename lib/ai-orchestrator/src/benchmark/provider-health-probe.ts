@@ -90,13 +90,78 @@ export type ProviderHealthProbeOptions = {
   strategy?: ProviderStrategy;
 };
 
+const SAFE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
+  "AUTH_ERROR",
+  "QUOTA",
+  "RATE_LIMITED",
+  "MODEL_NOT_FOUND",
+  "MODEL_UNAVAILABLE",
+  "PLAN_RESTRICTED",
+  "EMPTY_RESPONSE",
+  "NETWORK_ERROR",
+  "TIMEOUT",
+  "SERVER_ERROR",
+  "NON_200",
+  "INVALID_CONFIG",
+  "TOOL_CALL_UNSUPPORTED",
+  "MALFORMED_TOOL_ARGUMENTS",
+  "UNEXPECTED_TOOL_CALL",
+]);
+
+function safeProviderModel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const candidate = redactProviderErrorText(value).trim().slice(0, 200);
+  // Model IDs are useful benchmark metadata, but a provider response is not
+  // allowed to turn this field into an arbitrary diagnostic channel.
+  return /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(candidate) ? candidate : null;
+}
+
+function safeFailureCode(code: ProviderHealthFailureCode | undefined): ProviderHealthFailureCode | undefined {
+  return code && SAFE_FAILURE_CODES.has(code) ? code : "NETWORK_ERROR";
+}
+
+function safeFailureReason(code: ProviderHealthFailureCode | undefined): string {
+  return `Provider health check failed (${safeFailureCode(code) ?? "UNKNOWN"}).`;
+}
+
+/**
+ * Project a health result before it crosses a persistence, callback, or
+ * reporting boundary. Provider-owned reason text is useful in server logs but
+ * is not safe benchmark evidence.
+ */
+export function projectSafeProviderHealth(
+  result: ProviderHealthProbeResult,
+): ProviderHealthProbeResult {
+  const failureCode = safeFailureCode(result.failureCode);
+  const model = safeProviderModel(result.model);
+  const report = result.report
+    ? {
+        ...result.report,
+        model: safeProviderModel(result.report.model),
+        attemptedModels: result.report.attemptedModels
+          .map((attemptedModel) => safeProviderModel(attemptedModel))
+          .filter((attemptedModel): attemptedModel is string => attemptedModel !== null)
+          .slice(0, 8),
+      }
+    : undefined;
+  return {
+    ...result,
+    model,
+    ...(failureCode ? { failureCode } : {}),
+    ...(result.status === "unavailable"
+      ? { failureReason: safeFailureReason(failureCode) }
+      : { failureReason: undefined }),
+    ...(report ? { report } : {}),
+  };
+}
+
 function unavailableResult(
   options: ProviderHealthProbeOptions,
   startedAt: number,
   fields: Pick<ProviderHealthProbeResult, "model" | "failureCode" | "failureReason">,
 ): ProviderHealthProbeResult {
-  const model = fields.model ?? options.model ?? null;
-  const attemptedModels = model ? [redactProviderErrorText(model).slice(0, 200)] : [];
+  const model = safeProviderModel(fields.model ?? options.model);
+  const attemptedModels = model ? [model] : [];
   const failureCategory = failureCategoryFor(fields.failureCode);
   const recoveryAction = recoveryActionFor(fields.failureCode);
   return {
@@ -106,13 +171,14 @@ function unavailableResult(
     toolCalling: false,
     structuredArguments: false,
     latencyMs: Math.max(0, Date.now() - startedAt),
-    ...fields,
+    ...(fields.failureCode ? { failureCode: safeFailureCode(fields.failureCode) } : {}),
+    failureReason: safeFailureReason(fields.failureCode),
     model,
     report: {
       kind: "provider-health-report",
       version: 1,
       provider: options.provider,
-      model: model ? redactProviderErrorText(model).slice(0, 200) : null,
+      model,
       status: "unavailable",
       evidenceStatus: "incomplete",
       failureCategory,
@@ -214,7 +280,7 @@ function parseProbeArguments(
 
   return {
     provider: options.provider,
-    model: response.model ?? options.model ?? null,
+    model: safeProviderModel(response.model ?? options.model),
     status: "usable",
     providerUnavailable: false,
     toolCalling: true,
@@ -224,15 +290,15 @@ function parseProbeArguments(
       kind: "provider-health-report",
       version: 1,
       provider: options.provider,
-      model: response.model ?? options.model
-        ? redactProviderErrorText(response.model ?? options.model!).slice(0, 200)
-        : null,
+      model: safeProviderModel(response.model ?? options.model),
       status: "usable",
       evidenceStatus: "complete",
       failureCategory: null,
       recoveryAction: null,
       attemptCount: 1,
-      attemptedModels: response.model ?? options.model ? [redactProviderErrorText(response.model ?? options.model!).slice(0, 200)] : [],
+      attemptedModels: safeProviderModel(response.model ?? options.model)
+        ? [safeProviderModel(response.model ?? options.model)!]
+        : [],
     },
   };
 }
@@ -295,13 +361,14 @@ export async function probeProviderHealth(
     if (attemptedModels?.length) {
       const safeModels = attemptedModels
         .slice(0, 8)
-        .map((model) => redactProviderErrorText(model).slice(0, 200));
+        .map((model) => safeProviderModel(model))
+        .filter((model): model is string => model !== null);
       if (result.report) {
         result.report.attemptedModels = safeModels;
         result.report.attemptCount = safeModels.length;
       }
     }
-    return result;
+    return projectSafeProviderHealth(result);
   }
 }
 
