@@ -7703,11 +7703,10 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         continue;
       }
       try {
-        // Create parent dirs then realpath them to detect symlink escape — path.resolve()
-        // is purely lexical and does not follow symlinks.
+        // Resolve existing parent components without mutating the live root.
+        // path.resolve() is purely lexical and does not follow symlinks.
         const parentDir = path.dirname(resolved);
-        await fs.mkdir(parentDir, { recursive: true });
-        const realParent = await fs.realpath(parentDir);
+        const realParent = await resolveApplyParent(parentDir, resolvedRoot);
         const realResolved = path.join(realParent, path.basename(resolved));
         if (realResolved !== resolvedRoot && !realResolved.startsWith(resolvedRoot + path.sep)) {
           results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
@@ -7950,6 +7949,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       try {
         for (const change of writableChanges) {
           attemptedChanges.push(change);
+          // Directory creation is part of the guarded promotion, not
+          // preflight, so an empty parent cannot look like live-root drift.
+          await fs.mkdir(path.dirname(change.realPath), { recursive: true });
           await atomicallyPromoteFile(change.realPath, change.newContent, applyCorrelationId);
           const persisted = await fs.readFile(change.realPath, "utf-8");
           if (persisted !== change.newContent) {
