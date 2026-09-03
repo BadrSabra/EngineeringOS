@@ -7768,6 +7768,7 @@ export default function AiChat() {
   const [planBuildPending, setPlanBuildPending] = useState<string | null>(null);
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   const [proposalId, setProposalId] = useState<string | undefined>(undefined);
+  const [proposalUnavailable, setProposalUnavailable] = useState<string | null>(null);
   const [operationId, setOperationId] = useState<string | undefined>(undefined);
   const [operationMode, setOperationMode] = useState<OperationMode | undefined>(undefined);
   const [proposalRequiresApproval, setProposalRequiresApproval] = useState(false);
@@ -8589,6 +8590,7 @@ export default function AiChat() {
       setLocalMessages([]);
       setPendingChanges([]);
       setProposalId(undefined);
+      setProposalUnavailable(null);
       setProposalRequiresApproval(false);
       setProposalRevision(undefined);
       setVerificationResults({});
@@ -8921,6 +8923,7 @@ export default function AiChat() {
     setLocalMessages([]);
     setPendingChanges([]);
     setProposalId(undefined);
+    setProposalUnavailable(null);
     setProposalRequiresApproval(false);
     setProposalRevision(undefined);
     setVerificationResults({});
@@ -9291,6 +9294,7 @@ export default function AiChat() {
       return;
     }
     if (isSending) return;
+    setProposalUnavailable(null);
     const generation = ++streamGenerationRef.current;
     const requestProjectId = selectedProjectId;
     const requestSessionId = sessionId;
@@ -9730,6 +9734,7 @@ export default function AiChat() {
           });
           setPendingChanges(data.pendingChanges ?? []);
           setProposalId(data.proposalId ?? undefined);
+          setProposalUnavailable(data.proposalUnavailable ?? null);
           if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
             liveProposalRef.current = data.proposalId;
           }
@@ -10671,6 +10676,18 @@ export default function AiChat() {
                   approvalRequired={proposalRequiresApproval}
                   lifecycle={deliveryLifecycle}
                 />
+              )}
+              {pendingChanges.length === 0 && proposalUnavailable && (
+                <div
+                  className="mx-auto mb-4 flex w-full max-w-3xl items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200"
+                  role="alert"
+                >
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
+                  <div className="min-w-0">
+                    <p className="font-medium text-amber-100">Changes need more verification before review</p>
+                    <p className="mt-1 break-words text-amber-200/80">{proposalUnavailable}</p>
+                  </div>
+                </div>
               )}
               {pendingChanges.length === 0 && validationEvidence.length > 0 && (
                 <div className="mx-auto mb-4 w-full max-w-3xl overflow-hidden rounded-xl border border-border/60 bg-card/30">
