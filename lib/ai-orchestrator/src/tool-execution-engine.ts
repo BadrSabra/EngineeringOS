@@ -3910,14 +3910,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       if (
-        compoundProposalActive &&
-        (tc.function.name === "read_file" || tc.function.name === "read_file_range")
+        (compoundProposalActive || pendingChanges.length > 0) &&
+        tc.function.name !== "write_file" &&
+        tc.function.name !== "replace_text"
       ) {
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
           content:
-            "The evidence phase is complete. Source reads are unavailable now; " +
+            "The evidence phase is complete and the pending proposal phase is active. " +
+            "Gathering tools are unavailable now; " +
             "create the requested pending proposal with replace_text or write_file. " +
             "Changes are not applied to disk.",
         });

@@ -296,6 +296,16 @@ describe("chat agent — recovered Repair Plan execution", () => {
                   reason: "اقتراح تغيير معلّق بعد قراءة المصدر",
                 }),
               },
+            }, {
+              id: "compound-search-after-replace-1",
+              type: "function",
+              function: {
+                name: "search_code",
+                arguments: JSON.stringify({
+                  query: "enabled",
+                  path: "artifacts/dashboard/src",
+                }),
+              },
             }],
           },
         }],
