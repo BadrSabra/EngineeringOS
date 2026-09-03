@@ -260,8 +260,8 @@ export async function runCodeAgentBenchmarkAirlock(args: {
         .map((provider) => {
           const health = projectSafeProviderHealth(provider.health);
           return health.failureCode
-          ? `${provider.provider}: ${health.failureCode}`
-          : `${provider.provider}: provider unavailable`)
+            ? `${provider.provider}: ${health.failureCode}`
+            : `${provider.provider}: provider unavailable`;
         })
         .filter((blocker, index, all) => all.indexOf(blocker) === index),
     ];

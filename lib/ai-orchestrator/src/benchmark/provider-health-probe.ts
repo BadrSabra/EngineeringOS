@@ -110,7 +110,12 @@ const SAFE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
 
 function safeProviderModel(value: string | null | undefined): string | null {
   if (!value) return null;
-  const candidate = redactProviderErrorText(value).trim().slice(0, 200);
+  const candidate = redactProviderErrorText(value)
+    .trim()
+    .replace(/[^A-Za-z0-9._:/-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 200);
   // Model IDs are useful benchmark metadata, but a provider response is not
   // allowed to turn this field into an arbitrary diagnostic channel.
   return /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(candidate) ? candidate : null;
@@ -120,8 +125,21 @@ function safeFailureCode(code: ProviderHealthFailureCode | undefined): ProviderH
   return code && SAFE_FAILURE_CODES.has(code) ? code : "NETWORK_ERROR";
 }
 
-function safeFailureReason(code: ProviderHealthFailureCode | undefined): string {
-  return `Provider health check failed (${safeFailureCode(code) ?? "UNKNOWN"}).`;
+function safeFailureReason(
+  code: ProviderHealthFailureCode | undefined,
+  reason?: string,
+): string {
+  const safeCode = safeFailureCode(code);
+  const knownReason = new Set([
+    "The provider returned no tool call for a required probe.",
+    "The provider returned an unexpected tool call for the probe.",
+    "The provider returned tool arguments without the required probe marker.",
+    "The provider returned malformed JSON tool arguments.",
+    "Provider probe failed before a capability response.",
+  ]);
+  if (reason && knownReason.has(reason)) return reason;
+  if (safeCode && reason === `Provider probe failed with ${safeCode}.`) return reason;
+  return `Provider health check failed (${safeCode ?? "UNKNOWN"}).`;
 }
 
 /**
@@ -149,7 +167,7 @@ export function projectSafeProviderHealth(
     model,
     ...(failureCode ? { failureCode } : {}),
     ...(result.status === "unavailable"
-      ? { failureReason: safeFailureReason(failureCode) }
+      ? { failureReason: safeFailureReason(failureCode, result.failureReason) }
       : { failureReason: undefined }),
     ...(report ? { report } : {}),
   };
@@ -172,7 +190,7 @@ function unavailableResult(
     structuredArguments: false,
     latencyMs: Math.max(0, Date.now() - startedAt),
     ...(fields.failureCode ? { failureCode: safeFailureCode(fields.failureCode) } : {}),
-    failureReason: safeFailureReason(fields.failureCode),
+    failureReason: safeFailureReason(fields.failureCode, fields.failureReason),
     model,
     report: {
       kind: "provider-health-report",
