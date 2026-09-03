@@ -303,7 +303,14 @@ describe("chat agent — recovered Repair Plan execution", () => {
         usage: {},
       })
       .mockResolvedValueOnce({
-        choices: [{ message: { content: "تم إنشاء التغيير المقترح للمراجعة." } }],
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              response: "تم إنشاء التغيير المقترح للمراجعة.",
+              sources: [relativePath],
+            }),
+          },
+        }],
         model: "compound-model",
         usage: {},
       });
@@ -331,7 +338,9 @@ describe("chat agent — recovered Repair Plan execution", () => {
       expect(result.pendingChanges).toHaveLength(1);
       expect(result.pendingChanges[0]?.path).toBe(relativePath);
       expect(result.pendingChanges[0]?.newContent).toContain("enabled = false");
-      expect(steps).toEqual(["replace_text"]);
+      // The first entry is the server-owned speculative read; the model then
+      // advances directly to the pending proposal.
+      expect(steps).toEqual(["read_file", "replace_text"]);
       expect(await fs.readFile(absolutePath, "utf8")).toBe(originalContent);
 
       const firstRequest = create.mock.calls[0]?.[0] as {
