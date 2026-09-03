@@ -102,11 +102,8 @@ const ENGLISH_EXECUTION_ACTION_RE =
 const ARABIC_EXECUTION_ACTION_RE =
   /^\s*(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:(?:هل\s+يمكنك|ممكن)\s+)?(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:أن\s+)?(?:أصلح|صحح|عدّل|غير|غيّر|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|تصلح|تصحح|تعدّل|تعدل|تغير|تكتب|تطبّق|تطبق|تنفّذ|تنفذ|تبني|تنشئ|تضيف|تحذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)(?:\s|$)/iu;
 
-const COMPOUND_SEQUENCE_RE =
-  /(?:\b(?:then|and|after|once|before|followed\s+by)\b|ثم|وبعد(?:ها)?|بعد(?:ها| ذلك)?)/iu;
-
-const COMPOUND_MUTATION_RE =
-  /(?:\b(?:fix|patch|implement|modify|edit|apply|write|refactor|delete|remove|create|add)\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)/iu;
+const COMPOUND_REQUEST_RE =
+  /(?:\b(?:then|and|after|once|before|followed\s+by)\b|ثم|وبعد(?:ها)?|بعد(?:ها| ذلك)?)[\s\S]{0,120}(?:\b(?:fix|patch|implement|modify|edit|apply|write|refactor|delete|remove|create|add)\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)/iu;
 
 const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
@@ -130,7 +127,7 @@ function isExecutionActionRequest(message: string): boolean {
 export function isCompoundExecutionRequest(message: string): boolean {
   const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
   if (isExecutionActionRequest(normalized)) return false;
-  return COMPOUND_SEQUENCE_RE.test(normalized) && COMPOUND_MUTATION_RE.test(normalized);
+  return COMPOUND_REQUEST_RE.test(normalized);
 }
 
 export function resolveTurnIntent(
