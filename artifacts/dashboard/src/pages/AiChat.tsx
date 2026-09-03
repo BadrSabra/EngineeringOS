@@ -8864,6 +8864,19 @@ export default function AiChat() {
 
   useEffect(() => {
     if (!serverProposal) return;
+    // A live stream can finish with a persisted proposal just before the
+    // session-scoped query observes it. Do not let its initial empty response
+    // erase the proposal that the stream has already handed to the user.
+    // Once the user rejects/applies it, the local proposal state is cleared
+    // and the next server response is authoritative again.
+    if (
+      serverProposal.changes.length === 0
+      && pendingChanges.length > 0
+      && proposalId
+      && serverProposal.proposalId === null
+    ) {
+      return;
+    }
     setProposalId(serverProposal.proposalId ?? undefined);
     setOperationId(serverProposal.operationId ?? undefined);
     setOperationMode(serverProposal.proposalId ? 'DELIVERY' : undefined);
@@ -8881,7 +8894,7 @@ export default function AiChat() {
       localStorage.removeItem(verificationKey);
       setVerificationResults({});
     }
-  }, [serverProposal]);
+  }, [pendingChanges.length, proposalId, serverProposal]);
 
   // A session belongs to exactly one project. If the selected project's
   // session list has been fetched and no longer contains the active session,
@@ -9724,6 +9737,12 @@ export default function AiChat() {
                : undefined,
            );
           streamOwnerRef.current = null;
+           if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
+             // Refresh the durable proposal after the live result so a
+             // just-created session converges to the server-owned approval
+             // record instead of retaining a stale empty query result.
+             void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', data.sessionId] });
+           }
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
         },
         onError: (err) => {
