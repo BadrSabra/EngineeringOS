@@ -57,6 +57,8 @@ export type TurnIntent = {
    * authorization still comes from the server-owned operation contract.
    */
   compoundExecution: boolean;
+  /** True only when the compound request asks for a later project mutation. */
+  compoundWrite: boolean;
   /** Ordered phases requested by the user, not a permission grant. */
   phases: readonly TurnIntentPhase[];
   /** User-readable description of the boundary approved for this audit. */
@@ -130,6 +132,13 @@ export function isCompoundExecutionRequest(message: string): boolean {
   return COMPOUND_REQUEST_RE.test(normalized);
 }
 
+export function isCompoundWriteRequest(message: string): boolean {
+  const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
+  if (isExecutionActionRequest(normalized)) return false;
+  return COMPOUND_REQUEST_RE.test(normalized) &&
+    !/(?:\b(?:run|execute)\s+(?:the\s+)?tests?\b|run_validation\b|validate\b|اختبر|شغّل|شغل|تحقق)\s*$/iu.test(normalized);
+}
+
 export function resolveTurnIntent(
   message: string,
   options: {
@@ -144,6 +153,7 @@ export function resolveTurnIntent(
   const buildHandoff = options.buildHandoff === true;
   const implementationPlanResume = options.implementationPlanResume === true;
   const compoundExecution = isCompoundExecutionRequest(message);
+  const compoundWrite = isCompoundWriteRequest(message);
   const planDelivery =
     !buildHandoff && !implementationPlanResume && classification.implementationPlanMode;
   const implementationDelivery =
@@ -259,7 +269,9 @@ export function resolveTurnIntent(
         : "CHAT";
   const phases: TurnIntentPhase[] =
     compoundExecution
-      ? ["evidence", "proposal"]
+      ? compoundWrite
+        ? ["evidence", "proposal"]
+        : ["evidence", "validation"]
       : implementationDelivery
         ? ["execution"]
         : explicitEvidenceIntent && !scopeClarificationRequired
@@ -288,6 +300,7 @@ export function resolveTurnIntent(
     implementationPlanResume,
     scopeClarificationRequired,
     compoundExecution,
+    compoundWrite,
     phases,
     ...(explicitEvidenceIntent && !scopeClarificationRequired
       ? { auditScopeDescription: describeAuditScope(classification, message) }
