@@ -1386,6 +1386,40 @@ type ApplyJournalStage =
   | "PROMOTED"
   | "RECOVERY_REQUIRED";
 
+/**
+ * Resolve an apply target's parent without creating directories in the live
+ * project. Existing path components are realpathed one at a time so symlink
+ * escapes (including broken links) remain fail-closed; missing suffixes are
+ * appended only after the last verified component.
+ */
+async function resolveApplyParent(
+  parentDir: string,
+  resolvedRoot: string,
+): Promise<string> {
+  const relative = path.relative(resolvedRoot, parentDir);
+  const segments = relative ? relative.split(path.sep).filter(Boolean) : [];
+  let lexical = resolvedRoot;
+  let real = await fs.realpath(resolvedRoot);
+
+  for (let index = 0; index < segments.length; index += 1) {
+    lexical = path.join(lexical, segments[index]!);
+    let stat;
+    try {
+      stat = await fs.lstat(lexical);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return path.join(real, ...segments.slice(index));
+    }
+    if (!stat.isDirectory()) {
+      throw new Error("Apply target parent is not a directory");
+    }
+    // realpath rejects broken symlinks and resolves valid symlinks before the
+    // final containment check below.
+    real = await fs.realpath(lexical);
+  }
+  return real;
+}
+
 async function restoreApplySnapshots(
   changes: readonly ApplySnapshot[],
 ): Promise<ApplyRollbackFailure[]> {
