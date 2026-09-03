@@ -2146,6 +2146,7 @@ describe("Durable AI execution crash/reconnect", () => {
       });
     expect(resumed.status).toBe(200);
     const resumedEvents = parseSseEvents(resumed.text);
+    console.log("resume-drift-events", resumedEvents);
     const resumedDone = resumedEvents.find((event) => event["type"] === "done");
     expect(resumedDone).toMatchObject({
       operationId: created.execution.operationId ?? created.execution.id,
