@@ -7561,10 +7561,29 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     // directly. The previous attempt may have promoted some files before the
     // process stopped, so recovery validation is the only safe way to
     // establish a new apply boundary. A normal proposal, an explicitly
-    // revalidated proposal, or a known no-promotion blocked result may
-    // proceed; an isolated/conflicted/abandoned delivery must be recovered
-    // first.
-    if (["isolated", "conflicted", "abandoned"].includes(proposal.lifecycle)) {
+    // revalidated proposal, or a known no-promotion result may proceed.
+    //
+    // A conflicted proposal is retryable only when its durable journal proves
+    // that the previous attempt was blocked before promotion or rolled back
+    // cleanly. Missing/unknown journal state is fail-closed.
+    let recoveryRequiresValidation =
+      proposal.lifecycle === "isolated" || proposal.lifecycle === "abandoned";
+    if (proposal.lifecycle === "conflicted") {
+      const [latestApplyJournal] = proposal.operationId
+        ? await db
+          .select({ stage: aiApplyJournalTable.stage })
+          .from(aiApplyJournalTable)
+          .where(and(
+            eq(aiApplyJournalTable.operationId, proposal.operationId),
+            eq(aiApplyJournalTable.proposalId, proposal.id),
+          ))
+          .orderBy(desc(aiApplyJournalTable.sequence))
+          .limit(1)
+        : [];
+      recoveryRequiresValidation = !latestApplyJournal
+        || !["BLOCKED", "ROLLED_BACK"].includes(latestApplyJournal.stage);
+    }
+    if (recoveryRequiresValidation) {
       return res.status(409).json({
         error: "This delivery must complete recovery validation before it can be applied again.",
         code: "DELIVERY_RECOVERY_REQUIRED",
