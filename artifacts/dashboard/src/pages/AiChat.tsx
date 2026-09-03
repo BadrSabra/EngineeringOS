@@ -799,7 +799,7 @@ function ProviderReadinessNotice({
     );
   }
 
-  if (isProviderSendBlocked(metric)) {
+  if (metric && isProviderSendBlocked(metric)) {
     const cooldown = metric.cooldownRemainingMs != null
       ? ` Retry in ${Math.ceil(metric.cooldownRemainingMs / 1000)}s.`
       : '';
