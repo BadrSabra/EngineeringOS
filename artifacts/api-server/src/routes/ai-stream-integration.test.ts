@@ -2180,6 +2180,15 @@ describe("Durable AI execution crash/reconnect", () => {
     const resumedEvents = parseSseEvents(resumed.text);
     const resumedDone = resumedEvents.find((event) => event["type"] === "done");
     console.log("resume-events", JSON.stringify(resumedEvents));
+    const [resumeExecution] = await db
+      .select({ request: aiExecutionsTable.request, checkpoint: aiExecutionsTable.checkpoint })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id))
+      .limit(1);
+    console.log("resume-checkpoint", JSON.stringify({
+      request: JSON.parse(resumeExecution!.request),
+      checkpoint: parseAiExecutionCheckpoint(resumeExecution!.checkpoint),
+    }));
     expect(resumedDone).toMatchObject({
       operationId: created.execution.operationId ?? created.execution.id,
       proposalId: expect.any(String),
