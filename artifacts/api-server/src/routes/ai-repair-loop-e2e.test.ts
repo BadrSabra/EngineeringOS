@@ -453,6 +453,12 @@ describe("verified repair loop through the real SSE route and chat engine", () =
 
     expect(response.status).toBe(200);
     const events = parseSseEvents(response.text);
+    console.log("COMPOUND_INSPECT_DEBUG", JSON.stringify({
+      toolCalls: events.filter((event) => event.type === "tool_call"),
+      toolResults: events.filter((event) => event.type === "tool_result"),
+      done: events.find((event) => event.type === "done"),
+      calls: harness.calls.map((call) => call.toolNames),
+    }));
     const toolCalls = events
       .filter((event) => event.type === "tool_call" && event.prefetched !== true)
       .map((event) => event.tool);
