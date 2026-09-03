@@ -2779,10 +2779,6 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     let fallbackReason: string | undefined;
     const t0 = Date.now();
 
-    // Sanitize before every model call: remove tool-result messages whose IDs
-    // no longer have a parent assistant turn (can happen when the provider
-    // silently truncates the context window and drops the assistant turn).
-    const safeMessages = stripOrphanedToolMessages(messages);
     // A repair-plan handoff must start with a real tool call, but subsequent
     // turns must be allowed to synthesize a final answer after the tool result.
     const callToolChoice = iter === 0 ? opts.toolChoice : undefined;
@@ -2817,6 +2813,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           "or write_file only when the requested file is new. Do not read, search, validate, or apply changes.",
       });
     }
+    // Sanitize after adding the server-owned phase instruction so the current
+    // provider call receives that instruction as well as the retained evidence.
+    const safeMessages = stripOrphanedToolMessages(messages);
     const availableIterationTools = synthesisOnly ? [] : compoundProposalTools();
     const iterationTools = availableIterationTools?.filter(
       (tool) =>
