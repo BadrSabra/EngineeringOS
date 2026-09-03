@@ -2323,7 +2323,7 @@ describe("Implementation Plan Build handoff", () => {
     const apply = await request(app)
       .post("/api/ai/chat/apply-changes")
       .send({ projectId, proposalId, operationId, changes: [proposedChange] });
-    console.log("non-build-apply", apply.status, apply.body);
+    console.log("non-build-apply", apply.status, JSON.stringify(apply.body));
     expect(apply.status).toBe(200);
     const operationEvents = await db
       .select({ type: eventsTable.type, correlationId: eventsTable.correlationId })
