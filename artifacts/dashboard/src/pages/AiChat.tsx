@@ -614,6 +614,20 @@ type BehavioralVerification = {
 // Alias retained only to avoid renaming the one remaining internal reference.
 const AiApiError = ApiError;
 
+const BLOCKING_PROVIDER_STATES = new Set([
+  'authentication_failed',
+  'incompatible_model',
+  'no_compatible_free_model',
+  'quota_exhausted',
+  'rate_limited',
+  'circuit_open',
+  'provider_outage',
+]);
+
+function isProviderSendBlocked(metric: ProviderRuntimeMetric | undefined): boolean {
+  return Boolean(metric?.circuitOpen || (metric?.availabilityState && BLOCKING_PROVIDER_STATES.has(metric.availabilityState)));
+}
+
 /**
  * PR-06: Compact runtime status badge for a provider card.
  * Shows circuit state, consecutive failures, last success, and avg latency.
@@ -785,14 +799,20 @@ function ProviderReadinessNotice({
     );
   }
 
-  if (metric?.circuitOpen) {
+  if (isProviderSendBlocked(metric)) {
     const cooldown = metric.cooldownRemainingMs != null
       ? ` Retry in ${Math.ceil(metric.cooldownRemainingMs / 1000)}s.`
       : '';
+    const stateLabel =
+      metric.availabilityState === 'rate_limited' || metric.availabilityState === 'quota_exhausted'
+        ? 'temporarily rate-limited'
+        : metric.availabilityState === 'authentication_failed'
+          ? 'not authorized'
+          : 'temporarily unavailable';
     return (
       <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="status">
         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+        <span>{activeProvider.provider} is {stateLabel}.{cooldown} Retry after the provider recovers or configure another provider.</span>
       </div>
     );
   }
@@ -8397,6 +8417,8 @@ export default function AiChat() {
     query: {
       queryKey: ['active-provider'],
       staleTime: 30_000,
+      refetchInterval: 10_000,
+      refetchOnWindowFocus: true,
     },
   });
 
@@ -8412,6 +8434,10 @@ export default function AiChat() {
   const metricsMap = new Map(
     (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
   );
+  const activeProviderMetric = activeProvider?.provider
+    ? metricsMap.get(activeProvider.provider)
+    : undefined;
+  const activeProviderSendBlocked = isProviderSendBlocked(activeProviderMetric);
 
   // G-06 fix: pending changes are stored with a timestamp so stale entries
   // (from a crashed/closed tab after the server wrote the files but before
@@ -9236,6 +9262,14 @@ export default function AiChat() {
     }
     if (!activeProvider.configured || !activeProvider.provider) {
       toast({ title: 'AI provider unavailable', description: 'Save an API key in the provider cards before sending a message.', variant: 'destructive' });
+      return;
+    }
+    if (activeProviderSendBlocked) {
+      toast({
+        title: 'AI provider temporarily unavailable',
+        description: 'Wait for the provider to recover or configure another provider before retrying.',
+        variant: 'destructive',
+      });
       return;
     }
     if (isSending) return;
@@ -10692,7 +10726,7 @@ export default function AiChat() {
           <div className="mx-auto w-full min-w-0 max-w-3xl">
             <ProviderReadinessNotice
               activeProvider={activeProvider}
-              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
+              metric={activeProviderMetric}
             />
             <div className="flex items-end gap-2">
             <Textarea
@@ -10703,12 +10737,12 @@ export default function AiChat() {
               placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
               className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border text-sm"
               rows={1}
-              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || applyMutation.isPending || isAgentBusy}
+              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || applyMutation.isPending || isAgentBusy}
             />
             <Button
               size="icon"
               onClick={handleSend}
-               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || isAgentBusy || applyMutation.isPending}
+               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
               className="h-11 w-11 shrink-0"
               title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
             >
