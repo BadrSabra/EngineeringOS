@@ -6849,7 +6849,25 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   if (!project) return;
 
   if (proposal.lifecycle === "validated") {
-    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+    const workspaceAvailable = Boolean(
+      proposal.operationId
+      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+    );
+    if (!workspaceAvailable) {
+      return res.status(409).json({
+        error: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+        code: "DELIVERY_NOT_RECOVERABLE",
+        lifecycle: proposal.lifecycle,
+        recoveryState: "missing_workspace",
+        nextAction: "Start a new delivery from the current project rather than retrying this recovery.",
+      });
+    }
+    return res.json({
+      proposalId: proposal.id,
+      operationId: proposal.operationId,
+      lifecycle: proposal.lifecycle,
+      idempotent: true,
+    });
   }
   if (!["isolated", "abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
     || proposal.status !== "pending"

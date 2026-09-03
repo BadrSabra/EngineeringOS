@@ -3136,6 +3136,27 @@ describe("delivery recovery routes", () => {
       .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
   });
 
+  it("does not report validated recovery when its workspace is gone", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "isolated", { withWorkspace: false });
+    await db.update(aiChangeProposalsTable)
+      .set({ lifecycle: "validated" })
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+
+    const res = await request(app)
+      .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      error: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+      code: "DELIVERY_NOT_RECOVERABLE",
+      lifecycle: "validated",
+      recoveryState: "missing_workspace",
+      nextAction: "Start a new delivery from the current project rather than retrying this recovery.",
+    });
+  });
+
   it("explains missing and already-discarded recovery states without exposing paths", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
