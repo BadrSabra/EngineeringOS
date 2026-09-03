@@ -853,6 +853,18 @@ function safeForensicTracePath(value: string): string | undefined {
   return normalized.slice(0, 500);
 }
 
+function compoundValidationTargetPaths(message: string): string[] {
+  const paths = [...message.matchAll(
+    /(?:^|[\s`"'(])((?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html))\b/giu,
+  )]
+    .map((match) => safeForensicTracePath(match[1] ?? ""))
+    .filter((file): file is string => Boolean(file));
+  // A validation-only compound turn may not name a file. "." is the
+  // server-owned whole-workspace scope accepted by workspace-typecheck; it
+  // does not grant the model any file-write capability.
+  return [...new Set(paths.length > 0 ? paths : ["."])].slice(0, 12);
+}
+
 function getImplementationPlanScope(
   plan: ApprovedImplementationPlan,
   rootPath: string,
