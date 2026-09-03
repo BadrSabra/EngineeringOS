@@ -1621,6 +1621,20 @@ function bindPendingChangesToImplementationPlan(
   });
 }
 
+function bindPendingChangesToCompoundWrite(
+  changes: ServerPendingChange[],
+  sourceReadObserved: boolean,
+): ServerPendingChange[] {
+  if (!sourceReadObserved) return changes;
+  return changes.map((change) => ({
+    ...change,
+    // Compound inspect → fix intentionally has no approved repair plan or
+    // validation phase. Keep the proposal reviewable without treating the
+    // change as already applied; the apply endpoint remains approval-gated.
+    validationProfile: change.validationProfile ?? "workspace-typecheck",
+  }));
+}
+
 export function canCreateProposal(
   changes: ServerPendingChange[],
   repairPlan: RepairPlanMetadata[] | undefined,
@@ -2995,11 +3009,19 @@ router.post("/ai/chat", async (req, res) => {
     // Atomic: session creation (when needed) + user message + assistant message
     // + session timestamp update in one transaction — prevents a half-saved
     // conversation if one insert fails.
-    const proposalChanges = bindPendingChangesToRepairPlan(
-      (result.pendingChanges ?? []) as ServerPendingChange[],
-      result.repairPlan,
+    const compoundSourceReadObserved = turnIntent.compoundWrite && traceSteps.some(
+      (step) =>
+        step.kind === "tool_result" &&
+        (step.tool === "read_file" || step.tool === "read_file_range"),
     );
-    const proposalId = canCreateProposal(
+    const proposalChanges = bindPendingChangesToCompoundWrite(
+      bindPendingChangesToRepairPlan(
+        (result.pendingChanges ?? []) as ServerPendingChange[],
+        result.repairPlan,
+      ),
+      !turnIntent.compoundWrite || compoundSourceReadObserved,
+    );
+    const proposalId = (!turnIntent.compoundWrite || compoundSourceReadObserved) && canCreateProposal(
       proposalChanges,
       result.repairPlan,
       hasPassedLatestValidation(traceSteps),
@@ -5160,14 +5182,22 @@ router.post("/ai/chat/stream", async (req, res) => {
     // Atomic: session creation (when needed) + user message + assistant message
     // + session timestamp update in one transaction — prevents a half-saved
     // conversation if one insert fails.
+    const compoundSourceReadObserved = streamTurnIntent.compoundWrite && traceSteps.some(
+      (step) =>
+        step.kind === "tool_result" &&
+        (step.tool === "read_file" || step.tool === "read_file_range"),
+    );
     const proposalChanges = bindPendingChangesToImplementationPlan(
-      bindPendingChangesToRepairPlan(
-        (result.pendingChanges ?? []) as ServerPendingChange[],
-        result.repairPlan,
+      bindPendingChangesToCompoundWrite(
+        bindPendingChangesToRepairPlan(
+          (result.pendingChanges ?? []) as ServerPendingChange[],
+          result.repairPlan,
+        ),
+        !streamTurnIntent.compoundWrite || compoundSourceReadObserved,
       ),
       Boolean(approvedImplementationPlan),
     );
-    const proposalId = canCreateProposal(
+    const proposalId = (!streamTurnIntent.compoundWrite || compoundSourceReadObserved) && canCreateProposal(
       proposalChanges,
       result.repairPlan,
       hasPassedLatestValidation(traceSteps),
