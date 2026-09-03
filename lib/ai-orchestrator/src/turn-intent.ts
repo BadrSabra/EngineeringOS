@@ -116,6 +116,16 @@ const COMPOUND_REQUEST_RE =
 const COMPOUND_WRITE_REQUEST_RE =
   /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
 
+/**
+ * Arabic users commonly qualify the transition instead of placing the
+ * mutation verb immediately after "then", for example:
+ * "بعد اكتمال قراءة المصدر، انتقل إلى مسار الإصلاح وأنشئ تغييرًا معلّقًا".
+ * Keep this bridge deliberately narrow so explanatory text such as
+ * "ثم اشرح كيف أصلح..." remains read-only.
+ */
+const ARABIC_QUALIFIED_COMPOUND_REQUEST_RE =
+  /(?:بعد\s+(?:اكتمال|الانتهاء\s+من)\s+[^.!?\n،]{1,100}[،,]\s*(?:انتقل|ننتقل)\s+إلى\s+(?:مسار\s+)?[^.!?\n]{0,100}?(?:ثم\s+)?|بعد\s+(?:اكتمال|الانتهاء\s+من)\s+[^.!?\n،]{1,100}[،,]\s*)(?:و)?(?:أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
+
 const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
 
@@ -138,13 +148,13 @@ function isExecutionActionRequest(message: string): boolean {
 export function isCompoundExecutionRequest(message: string): boolean {
   const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
   if (isExecutionActionRequest(normalized)) return false;
-  return COMPOUND_REQUEST_RE.test(normalized);
+  return COMPOUND_REQUEST_RE.test(normalized) || ARABIC_QUALIFIED_COMPOUND_REQUEST_RE.test(normalized);
 }
 
 export function isCompoundWriteRequest(message: string): boolean {
   const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
   if (isExecutionActionRequest(normalized)) return false;
-  return COMPOUND_WRITE_REQUEST_RE.test(normalized);
+  return COMPOUND_WRITE_REQUEST_RE.test(normalized) || ARABIC_QUALIFIED_COMPOUND_REQUEST_RE.test(normalized);
 }
 
 export function resolveTurnIntent(

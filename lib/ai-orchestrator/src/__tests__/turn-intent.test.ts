@@ -296,6 +296,7 @@ describe("resolveTurnIntent", () => {
     "inspect src/foo.ts and fix the bug",
     "audit src/foo.ts then apply the approved repair plan",
     "تحقق من src/foo.ts ثم أصلح المشكلة",
+    "افحص أولًا الملف artifacts/dashboard/src/App.tsx، وبعد اكتمال قراءة المصدر، انتقل إلى مسار inspect → fix وأنشئ تغييرًا معلّقًا للمراجعة فقط",
   ])("keeps compound inspect-and-change requests write-capable: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(true);
     expect(resolveTurnIntent(message)).toMatchObject({
