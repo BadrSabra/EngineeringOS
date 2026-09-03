@@ -8872,11 +8872,13 @@ export default function AiChat() {
     // and the next server response is authoritative again.
     if (
       serverProposal.changes.length === 0
-      && pendingChanges.length > 0
-      && proposalId
       && serverProposal.proposalId === null
+      && liveProposalRef.current
     ) {
       return;
+    }
+    if (serverProposal.changes.length > 0) {
+      liveProposalRef.current = null;
     }
     setProposalId(serverProposal.proposalId ?? undefined);
     setOperationId(serverProposal.operationId ?? undefined);
@@ -8895,7 +8897,7 @@ export default function AiChat() {
       localStorage.removeItem(verificationKey);
       setVerificationResults({});
     }
-  }, [pendingChanges.length, proposalId, serverProposal]);
+  }, [serverProposal]);
 
   // A session belongs to exactly one project. If the selected project's
   // session list has been fetched and no longer contains the active session,
@@ -9726,6 +9728,9 @@ export default function AiChat() {
           });
           setPendingChanges(data.pendingChanges ?? []);
           setProposalId(data.proposalId ?? undefined);
+          if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
+            liveProposalRef.current = data.proposalId;
+          }
            const nextOperationMode = inferOperationMode({
              operationMode: data.operationMode,
              taskResult: data.taskResult as AiTaskResult | undefined,
