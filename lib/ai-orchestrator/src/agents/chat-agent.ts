@@ -3914,12 +3914,18 @@ export async function chat(opts: {
   const {
     contextProfile,
     allowPrefetch,
-    singleFileForensicMode,
+    singleFileForensicMode: classifiedSingleFileForensicMode,
     orderedForensicRoots,
     includeTestSources: classifiedIncludeTestSources,
     fixtureAuditMode,
     firstEvidence,
   } = classification;
+  // A single-file forensic shape is a read-only isolation contract only when
+  // the request stays forensic. In a compound request the named file is still
+  // the first evidence target, but the later proposal phase must not inherit
+  // the forensic-only read_file manifest.
+  const singleFileForensicMode =
+    classifiedSingleFileForensicMode && !turnIntent.compoundExecution;
   const forensicTaskType = turnIntent.forensicTaskType;
   const capabilityCatalogPrompt = capabilityRegistry
     ? formatCapabilityCatalogPrompt(buildCapabilityCatalog(capabilityRegistry, {
