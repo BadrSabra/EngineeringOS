@@ -2091,6 +2091,11 @@ describe("Durable AI execution crash/reconnect", () => {
         label: "Validation profile: api-ai-tests",
       }],
     };
+    const [project] = await db.select({ updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const projectRevision = project!.updatedAt.toISOString();
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
       args[6]?.({
         kind: "validation",
@@ -2110,6 +2115,8 @@ describe("Durable AI execution crash/reconnect", () => {
             evidenceId: "resumed-change-validation",
             observedAt: "2026-09-02T00:00:00.000Z",
             artifactRef: "resumed-change-validation",
+            operationId: created.execution.operationId ?? created.execution.id,
+            projectRevision,
           },
           detail: "The resumed change validation passed.",
         },
@@ -2207,6 +2214,11 @@ describe("Implementation Plan Build handoff", () => {
       reason: "Verify non-Build operation identity",
       validationProfile: "workspace-typecheck" as const,
     };
+    const [project] = await db.select({ updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const projectRevision = project!.updatedAt.toISOString();
     vi.mocked(chatWithFallback).mockImplementationOnce(async (
       _userId,
       _input,
@@ -2232,6 +2244,8 @@ describe("Implementation Plan Build handoff", () => {
             evidenceId: "non-build-validation",
             observedAt: new Date().toISOString(),
             artifactRef: "non-build-validation",
+            operationId: sessionId,
+            projectRevision,
           },
           detail: "Non-Build correlation validation passed.",
         },
