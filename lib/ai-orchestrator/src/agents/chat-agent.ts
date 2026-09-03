@@ -3076,6 +3076,7 @@ function buildProviderTools(
   orderedForensicRoots: string[] = [],
   allowValidationTools = false,
   allowAnalysisTools = false,
+  compoundExecution = false,
 ) {
   const policy = resolveToolPolicy({
     provider,
@@ -3101,6 +3102,24 @@ function buildProviderTools(
       ? tools.filter((tool) => RECOVERY_READ_TOOL_NAMES.has(tool.function.name))
       : singleFileForensicMode
       ? tools.filter((tool) => tool.function.name === "read_file")
+      : compoundExecution
+      ? tools.filter((tool) =>
+          [
+            "read_file",
+            "read_file_range",
+            "list_directory",
+            "search_code",
+            "git_status",
+            "git_diff",
+            "git_log",
+            "refresh_project_scan",
+            "query_knowledge_graph",
+            "discover_project_apis",
+            "write_file",
+            "replace_text",
+            ...(allowValidationTools ? ["run_validation"] : []),
+          ].includes(tool.function.name),
+        )
       : orderedForensicRoots.length > 0
       ? tools.filter((tool) => ["read_file", "list_directory"].includes(tool.function.name))
       : executionMode === "forensic"
@@ -3149,6 +3168,19 @@ function buildProviderTools(
           .filter((tool) => !scopedTools.includes(tool))
           .map((tool) => tool.function.name),
         orderedRoots: orderedForensicRoots,
+      }),
+    );
+  } else if (compoundExecution) {
+    console.info(
+      JSON.stringify({
+        scope: "chat-agent",
+        code: "COMPOUND_TOOL_SCOPE",
+        allowedTools: scopedTools.map((tool) => tool.function.name),
+        blockedTools: tools
+          .filter((tool) => !scopedTools.includes(tool))
+          .map((tool) => tool.function.name),
+        phases: ["evidence", "proposal"],
+        validationAuthorized: allowValidationTools,
       }),
     );
   } else if (executionMode === "repair_plan") {
@@ -4686,6 +4718,7 @@ export async function chat(opts: {
         orderedForensicRoots,
         allowValidationTools,
         allowAnalysisTools,
+        turnIntent.compoundExecution,
       )
     : undefined;
 
