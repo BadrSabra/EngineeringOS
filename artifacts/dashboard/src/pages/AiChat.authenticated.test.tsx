@@ -1168,15 +1168,19 @@ describe('AiChat authenticated generated mutations', () => {
       data: { apiKey: 'sk_test_key_123' },
     });
 
-    mocks.mutationOptions.saveDeepSeek?.onSuccess?.({
-      configured: true,
-      last4: '0123',
-      updatedAt: null,
+    act(() => {
+      mocks.mutationOptions.saveDeepSeek?.onSuccess?.({
+        configured: true,
+        last4: '0123',
+        updatedAt: null,
+      });
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'DeepSeek key saved' }));
 
-    mocks.mutationOptions.saveDeepSeek?.onError?.(new Error('provider rejected key'));
+    act(() => {
+      mocks.mutationOptions.saveDeepSeek?.onError?.(new Error('provider rejected key'));
+    });
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Failed to save key',
       description: 'provider rejected key',
@@ -1455,15 +1459,17 @@ it('shows Groq model readiness without requiring a personal key when the server 
       },
     });
 
-    mocks.mutationOptions.applyChanges?.onSuccess?.({
-      results: [{
-        path: 'src/app.ts',
-        ok: true,
-        writeStatus: 'written',
-        persistenceVerified: true,
-        behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
-      }],
-      proposalId: 'proposal-1',
+    act(() => {
+      mocks.mutationOptions.applyChanges?.onSuccess?.({
+        results: [{
+          path: 'src/app.ts',
+          ok: true,
+          writeStatus: 'written',
+          persistenceVerified: true,
+          behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
+        }],
+        proposalId: 'proposal-1',
+      });
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['git-status', 'project-1'] });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Commit verified changes' })).toBeInTheDocument());
@@ -1472,12 +1478,16 @@ it('shows Groq model readiness without requiring a personal key when the server 
       projectId: 'project-1',
       data: { message: 'Apply verified AI changes', proposalId: 'proposal-1' },
     });
-    mocks.mutationOptions.commit?.onSuccess?.({ ok: true, output: 'created commit' });
+    act(() => {
+      mocks.mutationOptions.commit?.onSuccess?.({ ok: true, output: 'created commit' });
+    });
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Commit verified changes' })).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Push committed changes' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Push committed changes' }));
     expect(mocks.mutations.push.mutate).toHaveBeenCalledWith({ projectId: 'project-1' });
-    mocks.mutationOptions.push?.onSuccess?.({ ok: true, branch: 'main', output: 'pushed' });
+    act(() => {
+      mocks.mutationOptions.push?.onSuccess?.({ ok: true, branch: 'main', output: 'pushed' });
+    });
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Push committed changes' })).not.toBeInTheDocument());
   });
 
@@ -1541,15 +1551,17 @@ it('shows Groq model readiness without requiring a personal key when the server 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
-    mocks.mutationOptions.applyChanges?.onSuccess?.({
-      correlationId: 'operation-proof',
-      results: [{
-        path: 'src/app.ts',
-        ok: true,
-        writeStatus: 'written',
-        persistenceVerified: true,
-        behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
-      }],
+    act(() => {
+      mocks.mutationOptions.applyChanges?.onSuccess?.({
+        correlationId: 'operation-proof',
+        results: [{
+          path: 'src/app.ts',
+          ok: true,
+          writeStatus: 'written',
+          persistenceVerified: true,
+          behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
+        }],
+      });
     });
 
     expect(await screen.findByText('Delivery proof')).toBeInTheDocument();
@@ -1584,19 +1596,21 @@ it('shows Groq model readiness without requiring a personal key when the server 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
-    mocks.mutationOptions.applyChanges?.onSuccess?.({
-      correlationId: 'operation-rebase-1',
-      results: [{
-        path: 'src/app.ts',
-        ok: false,
-        code: 'STALE_BASE',
-        error: 'The file changed after the proposal was created.',
-        conflict: {
-          kind: 'base_hash_mismatch',
-          expectedHash: 'a'.repeat(64),
-          actualHash: 'b'.repeat(64),
-        },
-      }],
+    act(() => {
+      mocks.mutationOptions.applyChanges?.onSuccess?.({
+        correlationId: 'operation-rebase-1',
+        results: [{
+          path: 'src/app.ts',
+          ok: false,
+          code: 'STALE_BASE',
+          error: 'The file changed after the proposal was created.',
+          conflict: {
+            kind: 'base_hash_mismatch',
+            expectedHash: 'a'.repeat(64),
+            actualHash: 'b'.repeat(64),
+          },
+        }],
+      });
     });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Rebase patch' }));
@@ -1620,12 +1634,14 @@ it('shows Groq model readiness without requiring a personal key when the server 
       approvalRequired: true,
       revision: 1,
     };
-    mocks.mutationOptions.rebaseChanges?.onSuccess?.({
-      proposalId: 'proposal-rebase-1',
-      changes: [rebasedChange],
-      rebasedFiles: ['src/app.ts'],
-      approvalRequired: true,
-      revision: 1,
+    act(() => {
+      mocks.mutationOptions.rebaseChanges?.onSuccess?.({
+        proposalId: 'proposal-rebase-1',
+        changes: [rebasedChange],
+        rebasedFiles: ['src/app.ts'],
+        approvalRequired: true,
+        revision: 1,
+      });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Approve & apply 1 change' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Approve & apply 1 change' }));
@@ -1633,10 +1649,12 @@ it('shows Groq model readiness without requiring a personal key when the server 
       proposalId: 'proposal-rebase-1',
       data: { projectId: 'project-1', revision: 1 },
     });
-    mocks.mutationOptions.approveRebased?.onSuccess?.({
-      proposalId: 'proposal-rebase-1',
-      approvalRequired: false,
-      revision: 1,
+    act(() => {
+      mocks.mutationOptions.approveRebased?.onSuccess?.({
+        proposalId: 'proposal-rebase-1',
+        approvalRequired: false,
+        revision: 1,
+      });
     });
     expect(mocks.mutations.applyChanges.mutate).toHaveBeenLastCalledWith({
       data: expect.objectContaining({
