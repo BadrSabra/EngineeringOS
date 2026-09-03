@@ -1508,8 +1508,19 @@ function authorizeChangeSubset(
   }>,
   stored: ServerPendingChange[],
 ): string | null {
-  const storedByPath = new Map(stored.map((c) => [c.path, c]));
+  const storedByPath = new Map<string, ServerPendingChange>();
+  for (const change of stored) {
+    if (storedByPath.has(change.path)) {
+      return `Stored proposal contains duplicate path "${change.path}"`;
+    }
+    storedByPath.set(change.path, change);
+  }
+  const submittedPaths = new Set<string>();
   for (const change of submitted) {
+    if (submittedPaths.has(change.path)) {
+      return `Submitted changes contain duplicate path "${change.path}"`;
+    }
+    submittedPaths.add(change.path);
     const storedChange = storedByPath.get(change.path);
     if (!storedChange) {
       return `Path "${change.path}" is not in the stored proposal`;

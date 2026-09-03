@@ -1033,6 +1033,28 @@ describe("POST /api/ai/chat", () => {
     expect(res.body.code).toBe("PROPOSAL_MISMATCH");
   });
 
+  it("rejects duplicate paths in an otherwise authorized apply payload", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const changes = [{
+      path: "src/duplicate.ts",
+      absolutePath: `/tmp/${randomUUID()}/src/duplicate.ts`,
+      newContent: "export const once = true;",
+      originalContent: null,
+      reason: "Duplicate path test",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(projectId, changes);
+
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ projectId, proposalId, changes: [changes[0], changes[0]] });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+    expect(res.body.error).toContain("duplicate path");
+  });
+
   it("does not consume a proposal when behavioral verification blocks the write", async () => {
     const projectId = randomUUID();
     const now = new Date();
