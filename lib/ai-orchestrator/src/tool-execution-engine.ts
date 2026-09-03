@@ -3083,7 +3083,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           // valuable and must reach chat-agent's bounded no-tools recovery;
           // returning exhausted here would discard them and produce a
           // contract failure for an empty response.
-          if (synthesisStarted || (executionMode === "forensic" && fileContents.size > 0)) {
+          if (
+            synthesisStarted ||
+            (executionMode === "forensic" && fileContents.size > 0) ||
+            (compoundWriteMode && fileContents.size > 0)
+          ) {
             classifyZeroReadTerminal("empty_response", iter + 1);
             try {
               onStep?.({

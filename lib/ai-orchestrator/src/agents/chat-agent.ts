@@ -6069,6 +6069,8 @@ export async function chat(opts: {
         ? "PROVIDER_TIMEOUT"
         : loopResult.kind === "partial" && loopResult.reason === "soft_limit"
           ? "SOFT_LIMIT"
+          : loopResult.kind === "partial" && loopResult.reason === "empty_response"
+            ? "PROVIDER_TIMEOUT"
           : malformedTaskResponse && !malformedTaskResponse.ok && malformedTaskResponse.code === "MALFORMED_JSON"
             ? "MALFORMED_JSON"
             : null;
