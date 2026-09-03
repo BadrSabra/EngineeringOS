@@ -7560,9 +7560,11 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     // A proposal left in an intermediate recovery state must not be replayed
     // directly. The previous attempt may have promoted some files before the
     // process stopped, so recovery validation is the only safe way to
-    // establish a new apply boundary. A normal proposal, or one explicitly
-    // revalidated through the recovery route, may proceed.
-    if (proposal.lifecycle !== "proposed" && proposal.lifecycle !== "validated") {
+    // establish a new apply boundary. A normal proposal, an explicitly
+    // revalidated proposal, or a known no-promotion blocked result may
+    // proceed; an isolated/conflicted/abandoned delivery must be recovered
+    // first.
+    if (["isolated", "conflicted", "abandoned"].includes(proposal.lifecycle)) {
       return res.status(409).json({
         error: "This delivery must complete recovery validation before it can be applied again.",
         code: "DELIVERY_RECOVERY_REQUIRED",
