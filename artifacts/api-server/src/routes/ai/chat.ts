@@ -2626,6 +2626,45 @@ router.post("/ai/chat", async (req, res) => {
   const executionLedger = createExecutionLedger({
     mode: executionLedgerMode(turnIntent),
   });
+  const validationOnlyCompoundTurn =
+    turnIntent.compoundExecution && !turnIntent.compoundWrite;
+  const validationOnlyTargetPaths = validationOnlyCompoundTurn
+    ? compoundValidationTargetPaths(message)
+    : [];
+  // Validation-only compound requests may run one server-owned profile without
+  // an approved implementation plan, while the compound tool manifest keeps
+  // write_file and replace_text hidden.
+  const validationRunner = validationOnlyCompoundTurn && validRootPath
+    ? async (
+        profile: string,
+        targetPaths: string[],
+        signal?: AbortSignal,
+        _pendingChanges?: readonly PendingValidationChange[],
+        evidenceContext?: {
+          operationId?: string;
+          projectRevision?: string;
+        },
+      ) => {
+        const parsedProfile = ValidationProfileSchema.safeParse(profile);
+        if (!parsedProfile.success || parsedProfile.data !== "workspace-typecheck") {
+          return {
+            status: "unavailable" as const,
+            detail: "Validation-only compound requests allow only the registered workspace typecheck profile.",
+          };
+        }
+        return runRepairValidation(
+          validRootPath,
+          parsedProfile.data,
+          targetPaths,
+          signal,
+          [],
+          {
+            operationId: evidenceContext?.operationId ?? analysisCorrelation.operationId,
+            projectRevision: evidenceContext?.projectRevision ?? analysisCorrelation.projectRevision,
+          },
+        );
+      }
+    : undefined;
   let executionLedgerSnapshot: ExecutionLedgerPublicSnapshot | undefined;
 
   const applyProbe = isWriteCapableTurn(turnIntent)
