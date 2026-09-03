@@ -416,6 +416,136 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     });
   }, 60_000);
 
+  it("routes inspect-then-fix through evidence first and keeps the proposed edit pending", async () => {
+    const workspaceRoot = path.resolve(process.cwd(), "../..");
+    const rootPath = await fs.mkdtemp("/tmp/compound-inspect-fix-root-");
+    await fs.rm(rootPath, { recursive: true, force: true });
+    await fs.symlink(workspaceRoot, rootPath, "dir");
+    rootAliases.push(rootPath);
+
+    const targetPath = "artifacts/dashboard/src/App.tsx";
+    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
+    const originalContent = await fs.readFile(absoluteTargetPath, "utf8");
+    const pendingContent = `${originalContent}\n// compound inspect-then-fix fixture\n`;
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+
+    harness.responses.push(
+      harness.toolResponse("read-1", "read_file", { path: targetPath }),
+      harness.toolResponse("write-1", "write_file", {
+        path: targetPath,
+        content: pendingContent,
+        reason: "Prepare the bounded compound repair for review.",
+      }),
+      harness.finalResponse(JSON.stringify({
+        response: "The file was inspected and a pending repair was prepared for review.",
+        sources: [targetPath],
+      })),
+    );
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        message: `inspect ${targetPath} then fix the bug`,
+      });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text);
+    const toolCalls = events
+      .filter((event) => event.type === "tool_call")
+      .map((event) => event.tool);
+    const toolResults = events
+      .filter((event) => event.type === "tool_result")
+      .map((event) => event.tool);
+    const intent = events.find((event) => event.type === "intent");
+    const done = events.find((event) => event.type === "done");
+    const error = events.find((event) => event.type === "error");
+
+    expect(intent).toMatchObject({
+      intent: "DELIVERY",
+      operationMode: "DELIVERY",
+      requiresEvidence: false,
+    });
+    expect(toolCalls.slice(0, 2)).toEqual(["read_file", "write_file"]);
+    expect(toolResults.slice(0, 2)).toEqual(["read_file", "write_file"]);
+    expect(harness.calls[0]?.toolNames).toContain("write_file");
+    expect(done).toBeDefined();
+    expect(done).toMatchObject({
+      pendingChanges: [expect.objectContaining({
+        path: targetPath,
+        newContent: pendingContent,
+      })],
+    });
+    expect(error).toBeUndefined();
+    expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
+  }, 60_000);
+
+  it("routes verify-then-run-tests through validation without exposing write tools", async () => {
+    const workspaceRoot = path.resolve(process.cwd(), "../..");
+    const rootPath = await fs.mkdtemp("/tmp/compound-verify-tests-root-");
+    await fs.rm(rootPath, { recursive: true, force: true });
+    await fs.symlink(workspaceRoot, rootPath, "dir");
+    rootAliases.push(rootPath);
+
+    const targetPath = "artifacts/dashboard/src/App.tsx";
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    harness.responses.push(
+      harness.toolResponse("read-1", "read_file", { path: targetPath }),
+      harness.toolResponse("validate-1", "run_validation", { profile: "workspace-typecheck" }),
+      harness.finalResponse(JSON.stringify({
+        response: "The file was verified and the tests completed.",
+        sources: [targetPath],
+      })),
+    );
+    harness.validationResults.push({
+      status: "passed",
+      profile: "workspace-typecheck",
+      scenario: "Run the workspace TypeScript typecheck.",
+      command: "pnpm run typecheck",
+      exitCode: 0,
+      stdout: "typecheck passed",
+      stderr: "",
+      failedTests: [],
+      affectedFiles: [],
+      detail: "The validation-only compound request passed.",
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        message: `verify ${targetPath} then run the tests`,
+      });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text);
+    const intent = events.find((event) => event.type === "intent");
+    const toolCalls = events
+      .filter((event) => event.type === "tool_call")
+      .map((event) => event.tool);
+    const writeCalls = harness.calls.flatMap((call) => call.toolNames)
+      .filter((tool) => tool === "write_file" || tool === "replace_text");
+    const done = events.find((event) => event.type === "done");
+    const error = events.find((event) => event.type === "error");
+
+    expect(intent).toMatchObject({
+      intent: "DELIVERY",
+      operationMode: "DELIVERY",
+      requiresEvidence: false,
+    });
+    expect(toolCalls.slice(0, 2)).toEqual(["read_file", "run_validation"]);
+    expect(writeCalls).toEqual([]);
+    expect(harness.calls.every((call) =>
+      !call.toolNames.includes("write_file") && !call.toolNames.includes("replace_text"),
+    )).toBe(true);
+    expect(done).toBeDefined();
+    expect(error).toBeUndefined();
+  }, 60_000);
+
   it("retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW", async () => {
     const workspaceRoot = path.resolve(process.cwd(), "../..");
     const targetPath = "artifacts/dashboard/src/App.tsx";
