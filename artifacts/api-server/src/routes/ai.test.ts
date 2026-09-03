@@ -526,7 +526,7 @@ async function insertChangeProposal(
 
 async function makeRecoverableProposal(
   projectId: string,
-  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+  lifecycle: "isolated" | "abandoned" | "blocked" | "conflicted" = "blocked",
   options: { withWorkspace?: boolean; conflictReason?: string } = {},
 ): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
   path: string;
@@ -3077,6 +3077,63 @@ describe("delivery recovery routes", () => {
     });
     expect(res.body.operations[0]).not.toHaveProperty("workspaceRoot");
     expect(res.body.operations[0]).not.toHaveProperty("changes");
+  });
+
+  it("lists an isolated operation and resumes validation without applying live files", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "isolated");
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValue({
+        status: "passed",
+        profile: "api-ai-tests",
+        exitCode: 0,
+        scenario: "Run API tests for the isolated recovery.",
+        command: "pnpm test",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: randomUUID(),
+          observedAt: new Date().toISOString(),
+          artifactRef: "isolated-recovery-validation",
+        },
+        detail: "Validation passed.",
+      });
+
+    const list = await request(app)
+      .get("/api/ai/delivery/recoverable")
+      .query({ projectId });
+
+    expect(list.status).toBe(200);
+    expect(list.body.operations).toEqual([
+      expect.objectContaining({
+        proposalId: operation.proposalId,
+        lifecycle: "isolated",
+        recoveryState: "recoverable",
+        workspaceAvailable: true,
+      }),
+    ]);
+
+    const resume = await request(app)
+      .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+
+    expect(resume.status).toBe(200);
+    expect(resume.body).toMatchObject({
+      proposalId: operation.proposalId,
+      operationId: operation.operationId,
+      lifecycle: "validated",
+    });
+    expect(validationSpy).toHaveBeenCalledTimes(1);
+    const [proposal] = await db.select({
+      lifecycle: aiChangeProposalsTable.lifecycle,
+      status: aiChangeProposalsTable.status,
+    }).from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+    expect(proposal).toEqual({ lifecycle: "validated", status: "pending" });
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
   });
 
   it("explains missing and already-discarded recovery states without exposing paths", async () => {

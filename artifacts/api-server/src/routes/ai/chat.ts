@@ -6744,7 +6744,7 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
     .from(aiChangeProposalsTable)
     .where(and(
       eq(aiChangeProposalsTable.projectId, project.id),
-      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+      inArray(aiChangeProposalsTable.lifecycle, ["isolated", "abandoned", "blocked", "conflicted", "cancelled"]),
     ))
     .orderBy(desc(aiChangeProposalsTable.createdAt))
     .limit(20);
@@ -6765,6 +6765,8 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
         ? "The saved delivery workspace is no longer available, so recovery cannot continue."
         : proposal.lifecycle === "conflicted"
           ? "The delivery stopped because the retained changes need review before validation can continue."
+          : proposal.lifecycle === "isolated"
+            ? "The delivery was captured in its isolated workspace before the process stopped; its saved workspace can be checked again."
           : proposal.lifecycle === "abandoned"
             ? "The delivery was interrupted before it finished; its saved workspace can be checked again."
             : "Validation did not complete successfully; the saved workspace can be checked again.";
@@ -6815,7 +6817,7 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   if (proposal.lifecycle === "validated") {
     return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
   }
-  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+  if (!["isolated", "abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
     || proposal.status !== "pending"
     || !proposal.operationId
     || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
@@ -6914,7 +6916,7 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   }).where(and(
     eq(aiChangeProposalsTable.id, proposal.id),
     eq(aiChangeProposalsTable.status, "pending"),
-    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+    inArray(aiChangeProposalsTable.lifecycle, ["isolated", "abandoned", "blocked", "conflicted"]),
   )).returning({ id: aiChangeProposalsTable.id });
   if (!updated) {
     const [current] = await db.select({ lifecycle: aiChangeProposalsTable.lifecycle })
@@ -6938,8 +6940,8 @@ router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
   if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
     return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
   }
-  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
-    return res.status(409).json({ error: "Only abandoned or blocked delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
+  if (!["isolated", "abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+    return res.status(409).json({ error: "Only recoverable delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
   }
   const [updated] = await db.update(aiChangeProposalsTable).set({
     status: "rejected",

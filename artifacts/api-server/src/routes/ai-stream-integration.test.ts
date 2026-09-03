@@ -2091,13 +2091,37 @@ describe("Durable AI execution crash/reconnect", () => {
         label: "Validation profile: api-ai-tests",
       }],
     };
-    vi.mocked(chatWithFallback).mockResolvedValueOnce({
-      result: {
-        response: "Prepared the resumed change for review.",
-        sources: [relativePath],
-        pendingChanges: [proposedChange],
-      },
-      effectiveProvider: "groq",
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      args[6]?.({
+        kind: "validation",
+        status: "passed",
+        repairState: "READY_FOR_REVIEW",
+        result: {
+          profile: "api-ai-tests",
+          status: "passed",
+          scenario: "Resumed change validation",
+          exitCode: 0,
+          command: "fixture-validation",
+          stdout: "passed",
+          stderr: "",
+          failedTests: [],
+          changedFiles: [relativePath],
+          evidence: {
+            evidenceId: "resumed-change-validation",
+            observedAt: "2026-09-02T00:00:00.000Z",
+            artifactRef: "resumed-change-validation",
+          },
+          detail: "The resumed change validation passed.",
+        },
+      } as never);
+      return {
+        result: {
+          response: "Prepared the resumed change for review.",
+          sources: [relativePath],
+          pendingChanges: [proposedChange],
+        },
+        effectiveProvider: "groq",
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
     const resumed = await request(app)
@@ -2113,16 +2137,12 @@ describe("Durable AI execution crash/reconnect", () => {
     expect(resumed.status).toBe(200);
     const resumedEvents = parseSseEvents(resumed.text);
     const resumedDone = resumedEvents.find((event) => event["type"] === "done");
-    expect(resumedDone).toBeUndefined();
-    expect(resumedEvents.find((event) => event["type"] === "error")).toMatchObject({
-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
-      outcome: "FAILED",
-      failureKind: "INCOMPLETE",
-      recoveryState: "INCOMPLETE",
+    expect(resumedDone).toMatchObject({
+      operationId: created.execution.operationId ?? created.execution.id,
+      proposalId: expect.any(String),
     });
-    return;
 
-    const proposalId = resumedDone!["proposalId"] as string;
+    const proposalId = resumedDone["proposalId"] as string;
     const drifted = `// user edit\n${original}`;
     await fs.writeFile(absolutePath, drifted, "utf8");
 
@@ -2242,17 +2262,12 @@ describe("Implementation Plan Build handoff", () => {
     const operationId = done?.["operationId"] as string;
     const assistantMessageId = (done?.["message"] as { id?: string } | undefined)?.id;
     const error = parseSseEvents(stream.text).find((event) => event["type"] === "error");
-    expect(done).toBeUndefined();
-    expect(error).toMatchObject({
-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
-      outcome: "FAILED",
-      failureKind: "INCOMPLETE",
-      recoveryState: "INCOMPLETE",
+    expect(error).toBeUndefined();
+    expect(done).toMatchObject({
+      operationId,
+      proposalId: expect.any(String),
+      message: { id: assistantMessageId },
     });
-    expect(proposalId).toBeUndefined();
-    expect(operationId).toBeUndefined();
-    expect(assistantMessageId).toBeUndefined();
-    return;
 
     const [execution] = await db
       .select({
