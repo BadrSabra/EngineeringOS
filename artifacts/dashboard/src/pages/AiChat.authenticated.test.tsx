@@ -799,6 +799,29 @@ describe('AiChat authenticated generated mutations', () => {
     expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
   });
 
+  it('refreshes the active conversation when another dashboard tab publishes new AI data', async () => {
+    const { invalidateQueries } = renderAiChat();
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'eos_ai_sync_event',
+        newValue: JSON.stringify({
+          version: 1,
+          sequence: 1,
+          projectId: 'project-1',
+          kind: 'data',
+          sessionId: 'session-1',
+        }),
+      }));
+    });
+
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-messages', 'session-1'] });
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-pending-proposal', 'session-1'] });
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-sessions', 'project-1'] });
+    });
+  });
+
   it('replays a persisted analysis failure after dashboard reload without showing completion', async () => {
     mocks.serverProposal = { proposalId: 'failed-analysis-replay', changes: [] };
     mocks.proposalMessages[0] = {
