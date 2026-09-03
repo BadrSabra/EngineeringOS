@@ -2055,6 +2055,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     opts.initialFileContents !== undefined &&
     opts.initialFileContents.size > 0;
   let compoundProposalPromptSent = false;
+  let compoundProposalRetrySent = false;
   const compoundProposalTools = (): ToolDefinitionLike[] | undefined => {
     const available = repairPlanTools();
     if (!compoundProposalActive || !available) return available;
@@ -3323,6 +3324,26 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         }
       }
 
+      if (
+        compoundWriteMode &&
+        compoundProposalActive &&
+        pendingChanges.length === 0 &&
+        !compoundProposalRetrySent
+      ) {
+        compoundProposalRetrySent = true;
+        messages.push(
+          { role: "assistant", content: result.content ?? "" },
+          {
+            role: "user",
+            content:
+              "Do not stop after describing the evidence. The requested second phase is to create a pending change now. " +
+              "Call replace_text with an exact unique old_text/new_text pair, or write_file for a new file. " +
+              "Do not read, search, validate, or apply changes.",
+          },
+        );
+        continue;
+      }
+
       currentIteration = iter + 1;
       classifyZeroReadTerminal("response", currentIteration);
       const incompleteReason =
@@ -3881,6 +3902,21 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           content:
             "read_file is unavailable because every executable Repair Plan target is already loaded. " +
             "Call replace_text with an exact unique old_text/new_text pair, or write_file only for a new file.",
+        });
+        continue;
+      }
+
+      if (
+        compoundProposalActive &&
+        (tc.function.name === "read_file" || tc.function.name === "read_file_range")
+      ) {
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            "The evidence phase is complete. Source reads are unavailable now; " +
+            "create the requested pending proposal with replace_text or write_file. " +
+            "Changes are not applied to disk.",
         });
         continue;
       }
@@ -4516,6 +4552,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // Retain the body as source evidence so a later dependency proof may
         // cite `from_file` and reference text grounded in what was actually read.
         recordSourceEvidence(args.path, toolResult.output);
+        if (compoundWriteMode && fileContents.size > 0) {
+          compoundProposalActive = true;
+        }
       }
       if (
         toolResult.source &&
