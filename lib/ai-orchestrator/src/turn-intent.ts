@@ -103,7 +103,7 @@ const ARABIC_EXECUTION_ACTION_RE =
   /^\s*(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:(?:هل\s+يمكنك|ممكن)\s+)?(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:أن\s+)?(?:أصلح|صحح|عدّل|غير|غيّر|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|تصلح|تصحح|تعدّل|تعدل|تغير|تكتب|تطبّق|تطبق|تنفّذ|تنفذ|تبني|تنشئ|تضيف|تحذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)(?:\s|$)/iu;
 
 const COMPOUND_REQUEST_RE =
-  /(?:\b(?:then|and|after|once|before|followed\s+by)\b|ثم|وبعد(?:ها)?|بعد(?:ها| ذلك)?)[\s\S]{0,120}(?:\b(?:fix|patch|implement|modify|edit|apply|write|refactor|delete|remove|create|add)\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)/iu;
+  /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|(?:run|execute)\s+(?:the\s+)?tests?\b|run_validation\b|validate\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|اختبر|شغّل|شغل|تحقق)/iu;
 
 const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
