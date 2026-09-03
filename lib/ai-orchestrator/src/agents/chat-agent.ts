@@ -59,7 +59,11 @@ import {
   classifyRequest,
   isProjectOrientationQuestion,
 } from "../prompts/profile-classifier.js";
-import { resolveTurnIntent, type TurnIntent } from "../turn-intent.js";
+import {
+  isCompoundExecutionRequest,
+  resolveTurnIntent,
+  type TurnIntent,
+} from "../turn-intent.js";
 import {
   buildSemanticBehaviorAnswer,
   buildResponseLanguageFallback,
@@ -3985,7 +3989,8 @@ export async function chat(opts: {
   // fresh structured-output audit. Instead we recover the previous assistant's
   // Findings / Repair Plan from history and hand it to the execution prompt as
   // explicit context, so the model knows exactly which repairs to implement.
-  const immediateIntent = isImmediateExecutionRequest(message);
+  const immediateIntent =
+    isImmediateExecutionRequest(message) || isCompoundExecutionRequest(message);
   const storedExecutionPlan = executionPlanOverride ?? activeTaskState?.executionPlan ?? null;
   const resumedImplementationPlan =
     turnIntent.implementationPlanResume ? storedExecutionPlan?.implementationPlan : null;
