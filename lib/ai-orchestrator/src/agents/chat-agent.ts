@@ -3078,6 +3078,7 @@ function buildProviderTools(
   allowValidationTools = false,
   allowAnalysisTools = false,
   compoundExecution = false,
+  compoundWrite = true,
 ) {
   const policy = resolveToolPolicy({
     provider,
@@ -3116,8 +3117,7 @@ function buildProviderTools(
             "refresh_project_scan",
             "query_knowledge_graph",
             "discover_project_apis",
-            "write_file",
-            "replace_text",
+            ...(compoundWrite ? ["write_file", "replace_text"] : []),
             ...(allowValidationTools ? ["run_validation"] : []),
           ].includes(tool.function.name),
         )
@@ -3180,7 +3180,7 @@ function buildProviderTools(
         blockedTools: tools
           .filter((tool) => !scopedTools.includes(tool))
           .map((tool) => tool.function.name),
-        phases: ["evidence", "proposal"],
+        phases: compoundWrite ? ["evidence", "proposal"] : ["evidence", "validation"],
         validationAuthorized: allowValidationTools,
       }),
     );
