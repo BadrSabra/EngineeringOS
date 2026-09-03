@@ -2097,6 +2097,9 @@ describe("Durable AI execution crash/reconnect", () => {
       .limit(1);
     const projectRevision = project!.updatedAt.toISOString();
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const correlation = (args[1] as {
+        analysisCorrelation?: { operationId?: string; projectRevision?: string };
+      }).analysisCorrelation;
       args[6]?.({
         kind: "validation",
         status: "passed",
@@ -2115,8 +2118,8 @@ describe("Durable AI execution crash/reconnect", () => {
             evidenceId: "resumed-change-validation",
             observedAt: "2026-09-02T00:00:00.000Z",
             artifactRef: "resumed-change-validation",
-            operationId: created.execution.operationId ?? created.execution.id,
-            projectRevision,
+            operationId: correlation?.operationId,
+            projectRevision: correlation?.projectRevision ?? projectRevision,
           },
           detail: "The resumed change validation passed.",
         },
@@ -2221,7 +2224,7 @@ describe("Implementation Plan Build handoff", () => {
     const projectRevision = project!.updatedAt.toISOString();
     vi.mocked(chatWithFallback).mockImplementationOnce(async (
       _userId,
-      _input,
+      input,
       _provider,
       _onDelta,
       _options,
@@ -2244,8 +2247,12 @@ describe("Implementation Plan Build handoff", () => {
             evidenceId: "non-build-validation",
             observedAt: new Date().toISOString(),
             artifactRef: "non-build-validation",
-            operationId: sessionId,
-            projectRevision,
+            operationId: (input as {
+              analysisCorrelation?: { operationId?: string };
+            }).analysisCorrelation?.operationId,
+            projectRevision: (input as {
+              analysisCorrelation?: { projectRevision?: string };
+            }).analysisCorrelation?.projectRevision ?? projectRevision,
           },
           detail: "Non-Build correlation validation passed.",
         },
