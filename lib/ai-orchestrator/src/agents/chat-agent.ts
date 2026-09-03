@@ -4066,10 +4066,20 @@ export async function chat(opts: {
         ? extractExecutionFilePaths(priorRepairPlan)
         : [];
   const repairPlanExecution =
-    (immediateIntent &&
+    (!(
+      turnIntent.compoundExecution &&
+      turnIntent.compoundWrite &&
+      priorRepairPlan === null
+    ) &&
+      immediateIntent &&
       isRepairPlanExecutionRequest(message) &&
       (hasExplicitRepairPlanExecutionLanguage(message) || executionFilePaths.length > 0)) ||
     (buildHandoff && storedExecutionPlan != null);
+  const compoundWriteExecution =
+    turnIntent.compoundExecution &&
+    turnIntent.compoundWrite &&
+    priorRepairPlan === null &&
+    !buildHandoff;
   const responseLanguage = resolveResponseLanguage(message);
   const executionDiagnosticDetails: string[] = [];
   const recordExecutionDiagnostic = (
@@ -5858,6 +5868,7 @@ export async function chat(opts: {
       : structuredOutputMode
         ? "forensic"
         : undefined,
+    compoundWriteMode: compoundWriteExecution,
     executionTargetPaths: repairPlanExecution ? executionFilePaths : undefined,
     // A forensic request can be classified as single-file-shaped before a
     // usable file path is actually extracted (for example, when the user names

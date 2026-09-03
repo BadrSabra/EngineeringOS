@@ -1171,6 +1171,14 @@ export type ToolLoopOpts = {
    */
   executionMode?: "repair_plan" | "forensic";
 
+  /**
+   * A compound request has already acquired its first source evidence and must
+   * advance to a pending edit proposal. This is distinct from a recovered
+   * Repair Plan: the user supplied the read → proposal sequence directly, so
+   * no prior plan metadata is required.
+   */
+  compoundWriteMode?: boolean;
+
   /** Enables the server-owned validation tool for an approved Build handoff. */
   allowExecutionTools?: boolean;
 
@@ -1720,6 +1728,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     synthesisTimeoutMs = DEFAULT_SYNTHESIS_TIMEOUT_MS,
     synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
     executionMode,
+    compoundWriteMode = false,
     executionTargetPaths = [],
     objective,
     claimState,
@@ -2034,6 +2043,24 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     }
 
     return opts.tools;
+  };
+
+  // Compound write requests are intentionally two-phase. Once a usable source
+  // body is available, expose only the pending-change tools so a provider cannot
+  // spend the remaining turn budget re-reading the same file or stop after an
+  // evidence-only answer. The dispatcher still owns path validation and the
+  // tools only append in-memory pending changes.
+  let compoundProposalActive =
+    compoundWriteMode === true &&
+    opts.initialFileContents !== undefined &&
+    opts.initialFileContents.size > 0;
+  let compoundProposalPromptSent = false;
+  const compoundProposalTools = (): ToolDefinitionLike[] | undefined => {
+    const available = repairPlanTools();
+    if (!compoundProposalActive || !available) return available;
+    return available.filter((tool) =>
+      tool.function.name === "write_file" || tool.function.name === "replace_text",
+    );
   };
 
   const allowedTools = (() => {
@@ -2774,7 +2801,22 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     }
     const disabledForThisIteration = temporarilyDisabledTools;
     temporarilyDisabledTools = new Set<string>();
-    const availableIterationTools = synthesisOnly ? [] : repairPlanTools();
+    if (
+      compoundProposalActive &&
+      !compoundProposalPromptSent &&
+      opts.initialFileContents &&
+      opts.initialFileContents.size > 0
+    ) {
+      compoundProposalPromptSent = true;
+      messages.push({
+        role: "user",
+        content:
+          "The requested source evidence is now available above. Advance to the proposal phase now: " +
+          "use replace_text with an exact unique old_text/new_text pair for the requested fix, " +
+          "or write_file only when the requested file is new. Do not read, search, validate, or apply changes.",
+      });
+    }
+    const availableIterationTools = synthesisOnly ? [] : compoundProposalTools();
     const iterationTools = availableIterationTools?.filter(
       (tool) =>
         !disabledForThisIteration.has(tool.function.name) &&
@@ -4048,6 +4090,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }
           recordRead(tc.function.name, args.path, cached);
           recordSourceEvidence(args.path, cached);
+            if (compoundWriteMode && fileContents.size > 0) {
+              compoundProposalActive = true;
+            }
         }
         try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
         // Preserve the same source label as a fresh read. Persisted traces use
