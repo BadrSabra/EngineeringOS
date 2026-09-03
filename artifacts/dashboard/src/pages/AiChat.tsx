@@ -8874,14 +8874,13 @@ export default function AiChat() {
   useEffect(() => {
     if (!serverProposal) return;
     // A live stream can finish with a persisted proposal just before the
-    // session-scoped query observes it. Do not let its initial empty response
-    // erase the proposal that the stream has already handed to the user.
-    // Once the user rejects/applies it, the local proposal state is cleared
-    // and the next server response is authoritative again.
+    // session-scoped query observes it. Do not let an initial empty or stale
+    // response erase the proposal that the stream has already handed to the
+    // user. The server query becomes authoritative once it observes the same
+    // proposal identity (or after an explicit apply/reject clears this ref).
     if (
-      serverProposal.changes.length === 0
-      && serverProposal.proposalId === null
-      && liveProposalRef.current
+      liveProposalRef.current
+      && serverProposal.proposalId !== liveProposalRef.current
     ) {
       return;
     }
