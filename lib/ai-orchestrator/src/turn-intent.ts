@@ -75,13 +75,19 @@ export type TurnIntent = {
  */
 export function isWriteCapableTurn(intent: Pick<
   TurnIntent,
-  "kind" | "implementationPlanResume" | "allowsBuildHandoff" | "classification"
+  | "kind"
+  | "implementationPlanResume"
+  | "allowsBuildHandoff"
+  | "classification"
+  | "compoundExecution"
+  | "compoundWrite"
 >): boolean {
   return intent.allowsBuildHandoff ||
     (
       intent.kind === "DELIVERY" &&
       !intent.implementationPlanResume &&
-      !intent.classification.implementationPlanMode
+      !intent.classification.implementationPlanMode &&
+      !(intent.compoundExecution && !intent.compoundWrite)
     );
 }
 
