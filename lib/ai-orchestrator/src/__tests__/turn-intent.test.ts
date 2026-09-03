@@ -294,6 +294,7 @@ describe("resolveTurnIntent", () => {
   it.each([
     "inspect src/foo.ts and fix the bug",
     "audit src/foo.ts then apply the approved repair plan",
+    "verify src/foo.ts then run the tests",
     "تحقق من src/foo.ts ثم أصلح المشكلة",
   ])("keeps compound inspect-and-change requests write-capable: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(true);
@@ -311,6 +312,7 @@ describe("resolveTurnIntent", () => {
     "Audit src/foo.ts and report the root cause.",
     "راجع src/foo.ts ثم اذكر السبب الجذري فقط",
     "How do I edit settings?",
+    "Inspect src/foo.ts and explain how to fix the bug.",
   ])("does not promote read-only or explanatory requests to compound delivery: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(false);
   });
