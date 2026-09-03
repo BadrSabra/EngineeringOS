@@ -102,6 +102,12 @@ const ENGLISH_EXECUTION_ACTION_RE =
 const ARABIC_EXECUTION_ACTION_RE =
   /^\s*(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:(?:هل\s+يمكنك|ممكن)\s+)?(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:أن\s+)?(?:أصلح|صحح|عدّل|غير|غيّر|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|تصلح|تصحح|تعدّل|تعدل|تغير|تكتب|تطبّق|تطبق|تنفّذ|تنفذ|تبني|تنشئ|تضيف|تحذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)(?:\s|$)/iu;
 
+const COMPOUND_SEQUENCE_RE =
+  /(?:\b(?:then|and|after|once|before|followed\s+by)\b|ثم|وبعد(?:ها)?|بعد(?:ها| ذلك)?)/iu;
+
+const COMPOUND_MUTATION_RE =
+  /(?:\b(?:fix|patch|implement|modify|edit|apply|write|refactor|delete|remove|create|add)\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)/iu;
+
 const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
 
@@ -112,6 +118,19 @@ function isExecutionActionRequest(message: string): boolean {
     ENGLISH_EXECUTION_ACTION_RE.test(message) ||
     ARABIC_EXECUTION_ACTION_RE.test(message)
   );
+}
+
+/**
+ * Detect an ordered compound request without treating audit language as an
+ * authorization. The direct-action matcher intentionally remains separate:
+ * "fix the bug" is a delivery request, while "inspect the file then fix the
+ * bug" is a compound delivery request that must retain its evidence-first
+ * ordering.
+ */
+export function isCompoundExecutionRequest(message: string): boolean {
+  const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
+  if (isExecutionActionRequest(normalized)) return false;
+  return COMPOUND_SEQUENCE_RE.test(normalized) && COMPOUND_MUTATION_RE.test(normalized);
 }
 
 export function resolveTurnIntent(
@@ -127,6 +146,7 @@ export function resolveTurnIntent(
   const route = routeTask(classification.taskType);
   const buildHandoff = options.buildHandoff === true;
   const implementationPlanResume = options.implementationPlanResume === true;
+  const compoundExecution = isCompoundExecutionRequest(message);
   const planDelivery =
     !buildHandoff && !implementationPlanResume && classification.implementationPlanMode;
   const implementationDelivery =
@@ -135,7 +155,8 @@ export function resolveTurnIntent(
       !planDelivery &&
       (
         classification.implementationTaskMode ||
-        isExecutionActionRequest(message)
+        isExecutionActionRequest(message) ||
+        compoundExecution
       )
     );
   const hasProjectToolSignal =
@@ -239,6 +260,14 @@ export function resolveTurnIntent(
       : kind === "FORENSIC_AUDIT"
         ? "FORENSIC_AUDIT"
         : "CHAT";
+  const phases: TurnIntentPhase[] =
+    compoundExecution
+      ? ["evidence", "proposal"]
+      : implementationDelivery
+        ? ["execution"]
+        : explicitEvidenceIntent && !scopeClarificationRequired
+          ? ["evidence"]
+          : [];
 
   return {
     kind,
@@ -261,6 +290,8 @@ export function resolveTurnIntent(
     allowsBuildHandoff: buildHandoff,
     implementationPlanResume,
     scopeClarificationRequired,
+    compoundExecution,
+    phases,
     ...(explicitEvidenceIntent && !scopeClarificationRequired
       ? { auditScopeDescription: describeAuditScope(classification, message) }
       : {}),
