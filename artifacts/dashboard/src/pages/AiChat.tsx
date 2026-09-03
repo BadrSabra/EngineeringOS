@@ -7775,6 +7775,7 @@ export default function AiChat() {
   const [deliveryLifecycle, setDeliveryLifecycle] = useState<DeliveryLifecycle | undefined>(undefined);
   const [validationEvidence, setValidationEvidence] = useState<PublicValidationResult[]>([]);
   const reapprovalApplyRef = useRef<ApprovedPendingChange[] | null>(null);
+  const liveProposalRef = useRef<string | null>(null);
   const [verificationResults, setVerificationResults] = useState<Record<string, BehavioralVerification>>({});
   const [commitReadyPaths, setCommitReadyPaths] = useState<string[]>([]);
   const [commitProposalId, setCommitProposalId] = useState<string | undefined>(undefined);
