@@ -4387,6 +4387,27 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         );
       }
 
+      // A compound inspect → fix request has one proposal phase. Once the
+      // server has accepted an edit into pendingChanges, stop the model from
+      // replaying the same edit from the cache on later iterations. The
+      // proposal is already durable and reviewable; the next turn is only for
+      // a bounded final response.
+      if (
+        compoundWriteMode &&
+        pendingChanges.length > 0 &&
+        (tc.function.name === "write_file" || tc.function.name === "replace_text")
+      ) {
+        forceSynthesisNext = true;
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            "A pending proposal already exists for this compound request. " +
+            "Do not create another edit; summarize the pending change without calling tools.",
+        });
+        continue;
+      }
+
       // Successful execution — consume budget, cache, record source.
       totalToolCalls++;
       toolCallCache.set(key, toolResult.output);
@@ -4588,6 +4609,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         tool_call_id: tc.id,
         content: untrustedToolOutput(tc.function.name, toolResult.output, args),
       });
+      if (
+        compoundWriteMode &&
+        (tc.function.name === "write_file" || tc.function.name === "replace_text") &&
+        pendingChanges.length > 0
+      ) {
+        forceSynthesisNext = true;
+      }
     }
 
     // ── Progress enforcement (FEG-008) ────────────────

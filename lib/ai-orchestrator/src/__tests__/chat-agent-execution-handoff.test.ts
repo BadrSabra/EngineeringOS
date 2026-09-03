@@ -350,6 +350,10 @@ describe("chat agent — recovered Repair Plan execution", () => {
       expect(exposedTools).toContain("replace_text");
       expect(exposedTools).toContain("write_file");
       expect(exposedTools).not.toContain("run_validation");
+      const synthesisRequest = create.mock.calls[1]?.[0] as {
+        tools?: Array<{ function?: { name?: string } }>;
+      };
+      expect(synthesisRequest.tools ?? []).toHaveLength(0);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
