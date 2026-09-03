@@ -454,10 +454,10 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     expect(response.status).toBe(200);
     const events = parseSseEvents(response.text);
     const toolCalls = events
-      .filter((event) => event.type === "tool_call")
+      .filter((event) => event.type === "tool_call" && event.prefetched !== true)
       .map((event) => event.tool);
     const toolResults = events
-      .filter((event) => event.type === "tool_result")
+      .filter((event) => event.type === "tool_result" && event.prefetched !== true)
       .map((event) => event.tool);
     const intent = events.find((event) => event.type === "intent");
     const done = events.find((event) => event.type === "done");
@@ -525,7 +525,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const events = parseSseEvents(response.text);
     const intent = events.find((event) => event.type === "intent");
     const toolCalls = events
-      .filter((event) => event.type === "tool_call")
+      .filter((event) => event.type === "tool_call" && event.prefetched !== true)
       .map((event) => event.tool);
     const writeCalls = harness.calls.flatMap((call) => call.toolNames)
       .filter((tool) => tool === "write_file" || tool === "replace_text");
