@@ -3320,6 +3320,38 @@ describe("POST /api/ai/chat/apply-changes", () => {
     expect(res.status).toBe(400);
   });
 
+  it("does not replay an interrupted delivery before recovery validation", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const proposalChanges = [{
+      path: "src/recovery-gated.ts",
+      absolutePath: `/tmp/recovery-gated-${randomUUID()}.ts`,
+      newContent: "export const recoveryGated = true;\n",
+      originalContent: null,
+      reason: "Recovery gate test",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(projectId, proposalChanges);
+    await db.update(aiChangeProposalsTable)
+      .set({ lifecycle: "conflicted", conflictReason: "Interrupted promotion requires review." })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ projectId, proposalId, changes: proposalChanges });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      error: "This delivery must complete recovery validation before it can be applied again.",
+      code: "DELIVERY_RECOVERY_REQUIRED",
+      lifecycle: "conflicted",
+      recoveryState: "recoverable",
+      nextAction: "Resume validation before applying the delivery again, or discard it if it is no longer needed.",
+    });
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, proposalId))).toHaveLength(0);
+  });
+
   it("emits a warning AiChangesApplied event when no file can be written", async () => {
     // Use /tmp as the project rootPath but point the change outside the root so
     // the handler records a no-op apply with an event/audit trail.

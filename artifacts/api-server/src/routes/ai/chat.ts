@@ -7539,6 +7539,20 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     if (proposal.status !== "pending") {
       return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
     }
+    // A proposal left in an intermediate recovery state must not be replayed
+    // directly. The previous attempt may have promoted some files before the
+    // process stopped, so recovery validation is the only safe way to
+    // establish a new apply boundary. A normal proposal, or one explicitly
+    // revalidated through the recovery route, may proceed.
+    if (proposal.lifecycle !== "proposed" && proposal.lifecycle !== "validated") {
+      return res.status(409).json({
+        error: "This delivery must complete recovery validation before it can be applied again.",
+        code: "DELIVERY_RECOVERY_REQUIRED",
+        lifecycle: proposal.lifecycle,
+        recoveryState: "recoverable",
+        nextAction: "Resume validation before applying the delivery again, or discard it if it is no longer needed.",
+      });
+    }
     if (proposal.approvalRequired) {
       return res.status(409).json({
         error: "The rebased patch must be reviewed and approved again before apply",
