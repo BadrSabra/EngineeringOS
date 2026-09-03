@@ -107,6 +107,9 @@ const ARABIC_EXECUTION_ACTION_RE =
 const COMPOUND_REQUEST_RE =
   /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|(?:run|execute)\s+(?:the\s+)?tests?\b|run_validation\b|validate\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|اختبر|شغّل|شغل|تحقق)/iu;
 
+const COMPOUND_WRITE_REQUEST_RE =
+  /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
+
 const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
 
@@ -135,8 +138,7 @@ export function isCompoundExecutionRequest(message: string): boolean {
 export function isCompoundWriteRequest(message: string): boolean {
   const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
   if (isExecutionActionRequest(normalized)) return false;
-  return COMPOUND_REQUEST_RE.test(normalized) &&
-    !/(?:\b(?:run|execute)\s+(?:the\s+)?tests?\b|run_validation\b|validate\b|اختبر|شغّل|شغل|تحقق)\s*$/iu.test(normalized);
+  return COMPOUND_WRITE_REQUEST_RE.test(normalized);
 }
 
 export function resolveTurnIntent(

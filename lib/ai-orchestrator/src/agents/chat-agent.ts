@@ -61,6 +61,7 @@ import {
 } from "../prompts/profile-classifier.js";
 import {
   isCompoundExecutionRequest,
+  isCompoundWriteRequest,
   resolveTurnIntent,
   type TurnIntent,
 } from "../turn-intent.js";
@@ -4028,7 +4029,7 @@ export async function chat(opts: {
   // Findings / Repair Plan from history and hand it to the execution prompt as
   // explicit context, so the model knows exactly which repairs to implement.
   const immediateIntent =
-    isImmediateExecutionRequest(message) || isCompoundExecutionRequest(message);
+    isImmediateExecutionRequest(message) || isCompoundWriteRequest(message);
   const storedExecutionPlan = executionPlanOverride ?? activeTaskState?.executionPlan ?? null;
   const resumedImplementationPlan =
     turnIntent.implementationPlanResume ? storedExecutionPlan?.implementationPlan : null;
@@ -4719,6 +4720,7 @@ export async function chat(opts: {
         allowValidationTools,
         allowAnalysisTools,
         turnIntent.compoundExecution,
+        turnIntent.compoundWrite,
       )
     : undefined;
 
