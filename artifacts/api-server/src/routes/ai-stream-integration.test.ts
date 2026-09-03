@@ -2146,7 +2146,6 @@ describe("Durable AI execution crash/reconnect", () => {
       });
     expect(resumed.status).toBe(200);
     const resumedEvents = parseSseEvents(resumed.text);
-    console.log("resume-drift-events", resumedEvents);
     const resumedDone = resumedEvents.find((event) => event["type"] === "done");
     expect(resumedDone).toMatchObject({
       operationId: created.execution.operationId ?? created.execution.id,
@@ -2324,6 +2323,7 @@ describe("Implementation Plan Build handoff", () => {
     const apply = await request(app)
       .post("/api/ai/chat/apply-changes")
       .send({ projectId, proposalId, operationId, changes: [proposedChange] });
+    console.log("non-build-apply", apply.status, apply.body);
     expect(apply.status).toBe(200);
     const operationEvents = await db
       .select({ type: eventsTable.type, correlationId: eventsTable.correlationId })
