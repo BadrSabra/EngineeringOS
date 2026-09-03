@@ -294,7 +294,6 @@ describe("resolveTurnIntent", () => {
   it.each([
     "inspect src/foo.ts and fix the bug",
     "audit src/foo.ts then apply the approved repair plan",
-    "verify src/foo.ts then run the tests",
     "تحقق من src/foo.ts ثم أصلح المشكلة",
   ])("keeps compound inspect-and-change requests write-capable: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(true);
@@ -306,6 +305,22 @@ describe("resolveTurnIntent", () => {
       compoundExecution: true,
       phases: ["evidence", "proposal"],
     });
+  });
+
+  it("routes a compound validation request without write semantics", () => {
+    const message = "verify src/foo.ts then run the tests";
+
+    expect(isCompoundExecutionRequest(message)).toBe(true);
+    expect(resolveTurnIntent(message)).toMatchObject({
+      kind: "DELIVERY",
+      executionTaskType: "task_execution",
+      requiresTools: true,
+      requiresEvidence: false,
+      compoundExecution: true,
+      compoundWrite: false,
+      phases: ["evidence", "validation"],
+    });
+    expect(isWriteCapableTurn(resolveTurnIntent(message))).toBe(false);
   });
 
   it.each([

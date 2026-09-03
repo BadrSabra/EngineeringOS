@@ -60,7 +60,6 @@ import {
   isProjectOrientationQuestion,
 } from "../prompts/profile-classifier.js";
 import {
-  isCompoundExecutionRequest,
   isCompoundWriteRequest,
   resolveTurnIntent,
   type TurnIntent,
