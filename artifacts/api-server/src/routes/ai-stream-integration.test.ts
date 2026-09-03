@@ -70,7 +70,6 @@ import {
   unregisterAiExecutionController,
 } from "../lib/ai-execution-state.js";
 import { tryAdvisoryLock } from "../lib/advisory-lock.js";
-import { hashDeliveryTree } from "../lib/delivery-workspace.js";
 
 vi.mock("../lib/advisory-lock.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/advisory-lock.js")>();
@@ -2180,16 +2179,6 @@ describe("Durable AI execution crash/reconnect", () => {
     expect(resumed.status).toBe(200);
     const resumedEvents = parseSseEvents(resumed.text);
     const resumedDone = resumedEvents.find((event) => event["type"] === "done");
-    console.log("resume-events", JSON.stringify(resumedEvents));
-    const [resumeExecution] = await db
-      .select({ request: aiExecutionsTable.request, checkpoint: aiExecutionsTable.checkpoint })
-      .from(aiExecutionsTable)
-      .where(eq(aiExecutionsTable.id, created.execution.id))
-      .limit(1);
-    console.log("resume-checkpoint", JSON.stringify({
-      request: JSON.parse(resumeExecution!.request),
-      checkpoint: parseAiExecutionCheckpoint(resumeExecution!.checkpoint),
-    }));
     expect(resumedDone).toMatchObject({
       operationId: created.execution.operationId ?? created.execution.id,
       proposalId: expect.any(String),
