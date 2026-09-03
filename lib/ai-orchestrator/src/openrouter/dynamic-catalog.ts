@@ -31,6 +31,16 @@ let _refreshAttempted = false;
 let _lastRefreshStatus: "never" | "success" | "failed" | "empty" = "never";
 let _lastRefreshError: string | null = null;
 
+function classifyRefreshFailure(error: unknown): string {
+  if (error instanceof DOMException && error.name === "AbortError") return "timeout";
+  if (error instanceof Error && /abort|timeout/i.test(error.message)) return "timeout";
+  if (error instanceof Error) {
+    const status = error.message.match(/\b(?:status|HTTP)\s*[:=]?\s*(\d{3})\b/i)?.[1];
+    if (status) return `http_${status}`;
+  }
+  return "network_error";
+}
+
 /**
  * Whether the dynamic catalog has been loaded at least once.
  * Used by the resolver to decide whether to apply the filter.
@@ -178,14 +188,14 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
         }),
       );
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const failureCode = classifyRefreshFailure(err);
       _lastRefreshStatus = "failed";
-      _lastRefreshError = reason.slice(0, 120);
+      _lastRefreshError = failureCode;
       console.warn(
         JSON.stringify({
           scope: "dynamic-catalog",
           code: "FETCH_ERROR",
-          reason,
+          failureCode,
           hint: "Keeping previous catalog",
         }),
       );
