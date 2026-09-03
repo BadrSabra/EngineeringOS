@@ -9,7 +9,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck:dependencies": "tsc --build --force ../../lib/db ../../lib/api-zod ../../lib/api-client-react ../../lib/scanner ../../lib/knowledge-engine ../../lib/ai-orchestrator",
     "typecheck": "pnpm run typecheck:dependencies && tsc -p tsconfig.json --noEmit",
-    "test": "vitest run && node --test scripts/stop-old-api.test.mjs scripts/release-lock.test.mjs",
+    "test": "vitest run && node --test scripts/stop-old-api.test.mjs scripts/release-lock.test.mjs scripts/run-live-openrouter-free-smoke.test.mjs",
     "test:discovery-release": "DISCOVERY_RELEASE_RECEIPT_PATH=../../test-results/discovery/release-receipt.json vitest run src/routes/discovery.test.ts",
     "test:release-fixture-collisions": "node ./scripts/run-release-fixture-collision-check.mjs",
     "test:release-synthesis-telemetry": "node ./scripts/run-release-ai-stream.mjs && node ./scripts/run-release-synthesis-telemetry.mjs",
