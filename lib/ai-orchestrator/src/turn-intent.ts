@@ -23,6 +23,12 @@ export type TurnIntentKind =
 
 export type TurnOperationMode = "CHAT" | "FORENSIC_AUDIT" | "DELIVERY";
 
+export type TurnIntentPhase =
+  | "evidence"
+  | "proposal"
+  | "execution"
+  | "validation";
+
 /**
  * The single request-routing decision shared by the API, orchestrator, model
  * selector, tool loop, and UI response metadata.
@@ -45,6 +51,14 @@ export type TurnIntent = {
   implementationPlanResume: boolean;
   /** Broad forensic requests must declare a scope before expensive discovery. */
   scopeClarificationRequired: boolean;
+  /**
+   * The message contains an ordered read/inspect step followed by a
+   * change-oriented step. This is a planning signal only; write and validation
+   * authorization still comes from the server-owned operation contract.
+   */
+  compoundExecution: boolean;
+  /** Ordered phases requested by the user, not a permission grant. */
+  phases: readonly TurnIntentPhase[];
   /** User-readable description of the boundary approved for this audit. */
   auditScopeDescription?: string;
   operationMode: TurnOperationMode;
