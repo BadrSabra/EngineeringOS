@@ -3067,7 +3067,7 @@ function buildRepairPlanExecutionResponse(
  * generateContent function-calling format. Other providers use their
  * respective compatible tool transports.
  */
-function buildProviderTools(
+export function buildProviderTools(
   provider: ProviderId,
   rootPath: string | undefined,
   executionMode?: "forensic" | "repair_plan",

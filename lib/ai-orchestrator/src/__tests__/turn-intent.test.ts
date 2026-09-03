@@ -5,6 +5,7 @@ import {
   isWriteCapableTurn,
   resolveTurnIntent,
 } from "../turn-intent.js";
+import { buildProviderTools } from "../agents/chat-agent.js";
 
 describe("resolveTurnIntent", () => {
   it("treats an explicit validation capability request as a project query, not a forensic audit", () => {
@@ -321,6 +322,33 @@ describe("resolveTurnIntent", () => {
       phases: ["evidence", "validation"],
     });
     expect(isWriteCapableTurn(resolveTurnIntent(message))).toBe(false);
+  });
+
+  it("keeps the provider manifest write-free for validation-only compounds", () => {
+    const validationIntent = resolveTurnIntent("verify src/foo.ts then run the tests");
+    const writeIntent = resolveTurnIntent("inspect src/foo.ts then fix the bug");
+    const buildManifest = (intent: typeof validationIntent) =>
+      buildProviderTools(
+        "openrouter",
+        process.cwd(),
+        undefined,
+        false,
+        false,
+        [],
+        true,
+        false,
+        intent.compoundExecution,
+        intent.compoundWrite,
+      )?.map((tool) => tool.function.name) ?? [];
+
+    const validationTools = buildManifest(validationIntent);
+    const writeTools = buildManifest(writeIntent);
+
+    expect(validationTools).toContain("run_validation");
+    expect(validationTools).not.toContain("write_file");
+    expect(validationTools).not.toContain("replace_text");
+    expect(writeTools).toContain("write_file");
+    expect(writeTools).toContain("replace_text");
   });
 
   it.each([
