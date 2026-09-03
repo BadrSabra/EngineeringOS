@@ -974,6 +974,30 @@ describe("POST /api/ai/chat", () => {
       .where(eq(aiChangeProposalsTable.id, proposalId))
       .limit(1);
 
+    // A later completed attempt in the same session must not hide the
+    // still-pending proposal that the user has not reviewed yet.
+    const newerMessageId = randomUUID();
+    const newerProposalId = randomUUID();
+    const newerCreatedAt = new Date(Date.now() + 1_000);
+    await db.insert(aiChatMessagesTable).values({
+      id: newerMessageId,
+      sessionId: proposal.sessionId,
+      role: "assistant",
+      content: "Completed later attempt",
+      createdAt: newerCreatedAt,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: newerProposalId,
+      projectId,
+      sessionId: proposal.sessionId,
+      messageId: newerMessageId,
+      changes: JSON.stringify(changes),
+      status: "applied",
+      lifecycle: "applied",
+      createdAt: newerCreatedAt,
+      consumedAt: newerCreatedAt,
+    });
+
     const res = await request(app)
       .get(`/api/ai/chat/${proposal.sessionId}/pending-proposal`);
     expect(res.status).toBe(200);

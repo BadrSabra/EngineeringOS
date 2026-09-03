@@ -129,7 +129,7 @@ export type AiStreamDoneEvent = {
     newContent: string;
     originalContent: string | null;
     reason: string;
-    validationProfile?: 'ai-orchestrator-tests' | 'knowledge-engine-tests' | 'api-ai-tests';
+    validationProfile?: 'ai-orchestrator-tests' | 'knowledge-engine-tests' | 'api-ai-tests' | 'workspace-typecheck';
   }>;
   proposalId?: string;
   /** Stable Plan → Build → Apply operation identity when one exists. */

@@ -6664,6 +6664,7 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     .from(aiChangeProposalsTable)
     .where(and(
       eq(aiChangeProposalsTable.sessionId, req.params.sessionId),
+      eq(aiChangeProposalsTable.status, "pending"),
     ))
     .orderBy(desc(aiChangeProposalsTable.createdAt))
     .limit(1);
@@ -6688,15 +6689,13 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     ?? proposal.messageId;
 
   try {
-    const changes = proposal.status === "pending"
-      ? parseStoredJson(proposal.changes) as ServerPendingChange[]
-      : [];
+    const changes = parseStoredJson(proposal.changes) as ServerPendingChange[];
     return res.json({
-      proposalId: proposal.status === "pending" ? proposal.id : null,
+      proposalId: proposal.id,
       operationId: canonicalOperationId,
       changes,
-      approvalRequired: proposal.status === "pending" ? proposal.approvalRequired : false,
-      revision: proposal.status === "pending" ? proposal.revision : null,
+      approvalRequired: proposal.approvalRequired,
+      revision: proposal.revision,
       ...(
         proposal.lifecycle !== "proposed"
         || proposal.workspaceRoot
