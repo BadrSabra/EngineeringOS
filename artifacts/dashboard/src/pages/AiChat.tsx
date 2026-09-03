@@ -8591,6 +8591,7 @@ export default function AiChat() {
       setPendingChanges([]);
       setProposalId(undefined);
       setProposalUnavailable(null);
+      liveProposalRef.current = null;
       setProposalRequiresApproval(false);
       setProposalRevision(undefined);
       setVerificationResults({});
@@ -8924,6 +8925,7 @@ export default function AiChat() {
     setPendingChanges([]);
     setProposalId(undefined);
     setProposalUnavailable(null);
+    liveProposalRef.current = null;
     setProposalRequiresApproval(false);
     setProposalRevision(undefined);
     setVerificationResults({});
@@ -9043,6 +9045,7 @@ export default function AiChat() {
         // G-05: refresh git-status in the GitPanel so it reflects the newly
         // written files (dirty markers, unstaged changes) without a manual reload.
         void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
       },
       onError: (err) => {
         toast({ title: 'Failed to apply changes', description: describeAiError(err), variant: 'destructive' });
@@ -9151,6 +9154,7 @@ export default function AiChat() {
         setPendingChanges([]);
         setProposalId(undefined);
         setOperationId(undefined);
+        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
       },
       onError: (err) => {
         toast({ title: 'Failed to reject proposal', description: describeAiError(err), variant: 'destructive' });
