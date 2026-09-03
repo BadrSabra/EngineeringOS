@@ -7826,6 +7826,57 @@ export default function AiChat() {
     capabilityGap,
   } = useRecipeStream();
   const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+
+    const handleSyncEvent = (raw: string | null) => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as Partial<AiChatSyncEvent>;
+        if (
+          parsed.version !== 1
+          || parsed.projectId !== selectedProjectId
+          || (parsed.kind !== 'selection' && parsed.kind !== 'data')
+          || typeof parsed.sequence !== 'number'
+        ) return;
+        const incomingSessionId = isOpaqueSelectionId(parsed.sessionId)
+          ? parsed.sessionId
+          : undefined;
+
+        if (parsed.kind === 'selection' && incomingSessionId) {
+          setSessionId(incomingSessionId);
+        }
+        if (incomingSessionId) {
+          void qc.invalidateQueries({ queryKey: ['ai-messages', incomingSessionId] });
+          void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', incomingSessionId] });
+        }
+        void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+      } catch {
+        // Ignore malformed cross-tab state; the server remains authoritative.
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === AI_CHAT_SYNC_STORAGE_KEY) {
+        handleSyncEvent(event.newValue);
+        return;
+      }
+      if (event.key === aiChatSelectionStorageKey(selectedProjectId) && event.newValue) {
+        const selection = parseAiChatSelection(event.newValue, selectedProjectId);
+        if (selection?.kind === 'session') {
+          setSessionId(selection.sessionId);
+          void qc.invalidateQueries({ queryKey: ['ai-messages', selection.sessionId] });
+          void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', selection.sessionId] });
+          void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [qc, selectedProjectId]);
+
   const streamGenerationRef = useRef(0);
   const streamOwnerRef = useRef<StreamOwner | null>(null);
   const { data: operationEventsPage, isLoading: operationEventsLoading } = useListEvents(
