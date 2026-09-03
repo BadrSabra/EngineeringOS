@@ -2611,6 +2611,61 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
   });
 
+  it('keeps a streamed proposal visible while hydration is empty or stale', async () => {
+    const streamedChange = {
+      path: 'src/live-proposal.ts',
+      absolutePath: '/project/src/live-proposal.ts',
+      newContent: 'export const live = true;',
+      originalContent: null,
+      reason: 'Preserve the streamed proposal while it hydrates.',
+      validationProfile: 'api-ai-tests',
+    };
+    renderAiChat();
+
+    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(textarea, { target: { value: 'Prepare the live proposal' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    await waitFor(() => expect(mocks.streamCallbacks).toBeDefined());
+    act(() => {
+      (mocks.streamCallbacks as {
+        onDone?: (event: Record<string, unknown>) => void;
+      }).onDone?.({
+        type: 'done',
+        sessionId: 'session-1',
+        operationId: 'operation-live-proposal',
+        operationMode: 'DELIVERY',
+        proposalId: 'proposal-live',
+        pendingChanges: [streamedChange],
+        message: {
+          id: 'assistant-live-proposal',
+          role: 'assistant',
+          content: 'The change is ready for review.',
+          createdAt: '2026-08-31T00:00:00.000Z',
+        },
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+
+    mocks.serverProposal = {
+      proposalId: 'proposal-old',
+      changes: [{
+        ...streamedChange,
+        path: 'src/old-proposal.ts',
+      }],
+    };
+    fireEvent.change(textarea, { target: { value: 'Prepare the live proposal again' } });
+
+    expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(screen.getByText('src/live-proposal.ts')).toBeInTheDocument();
+
+    mocks.serverProposal = { proposalId: null, changes: [] };
+    fireEvent.change(textarea, { target: { value: 'Prepare the live proposal once more' } });
+    expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(screen.getByText('src/live-proposal.ts')).toBeInTheDocument();
+  });
+
   it('shows one execution proof panel as soon as durable work starts', async () => {
     renderAiChat();
 
