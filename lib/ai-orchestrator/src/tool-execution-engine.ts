@@ -4126,9 +4126,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }
           recordRead(tc.function.name, args.path, cached);
           recordSourceEvidence(args.path, cached);
-            if (compoundWriteMode && fileContents.size > 0) {
-              compoundProposalActive = true;
-            }
+          if (compoundWriteMode && fileContents.size > 0) {
+            compoundProposalActive = true;
+          }
         }
         try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
         // Preserve the same source label as a fresh read. Persisted traces use

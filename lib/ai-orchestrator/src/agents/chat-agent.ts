@@ -5122,7 +5122,8 @@ export async function chat(opts: {
     orderedForensicRoots.length === 0 &&
     tools != null &&
     rootPath &&
-    !(immediateIntent && priorRepairPlan)
+    !(immediateIntent && priorRepairPlan) &&
+    !compoundWriteExecution
   ) {
     queryPlan = await planQuery({
       message,

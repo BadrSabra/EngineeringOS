@@ -270,6 +270,82 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }
   });
 
+  it("moves a direct Arabic read-then-propose request to pendingChanges without a prior plan", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-compound-write-"));
+    const relativePath = "artifacts/dashboard/src/App.tsx";
+    const absolutePath = path.join(rootPath, relativePath);
+    const originalContent = "export const enabled = true;\n";
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, originalContent, "utf8");
+
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        choices: [{
+          message: {
+            content: "",
+            tool_calls: [{
+              id: "compound-replace-1",
+              type: "function",
+              function: {
+                name: "replace_text",
+                arguments: JSON.stringify({
+                  path: relativePath,
+                  old_text: "export const enabled = true;",
+                  new_text: "export const enabled = false;",
+                  reason: "اقتراح تغيير معلّق بعد قراءة المصدر",
+                }),
+              },
+            }],
+          },
+        }],
+        model: "compound-model",
+        usage: {},
+      })
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: "تم إنشاء التغيير المقترح للمراجعة." } }],
+        model: "compound-model",
+        usage: {},
+      });
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: string[] = [];
+      const result = await chat({
+        message:
+          "اقرأ artifacts/dashboard/src/App.tsx، ثم أنشئ تغييرًا معلّقًا آمنًا لإيقاف enabled دون تطبيقه أو تشغيل الاختبارات.",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        onStep: (step) => {
+          if (step.kind === "tool_call") steps.push(step.tool);
+        },
+      });
+
+      expect(result.pendingChanges).toHaveLength(1);
+      expect(result.pendingChanges[0]?.path).toBe(relativePath);
+      expect(result.pendingChanges[0]?.newContent).toContain("enabled = false");
+      expect(steps).toEqual(["replace_text"]);
+      expect(await fs.readFile(absolutePath, "utf8")).toBe(originalContent);
+
+      const firstRequest = create.mock.calls[0]?.[0] as {
+        tools?: Array<{ function?: { name?: string } }>;
+      };
+      const exposedTools = (firstRequest.tools ?? []).map((tool) => tool.function?.name);
+      expect(exposedTools).toContain("replace_text");
+      expect(exposedTools).toContain("write_file");
+      expect(exposedTools).not.toContain("run_validation");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("does not re-enter implementation planning for an approved Build handoff", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-build-handoff-"));
     const relativePath = "target.ts";
