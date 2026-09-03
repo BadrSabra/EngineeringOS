@@ -2179,6 +2179,7 @@ describe("Durable AI execution crash/reconnect", () => {
     expect(resumed.status).toBe(200);
     const resumedEvents = parseSseEvents(resumed.text);
     const resumedDone = resumedEvents.find((event) => event["type"] === "done");
+    console.log("resume-events", JSON.stringify(resumedEvents));
     expect(resumedDone).toMatchObject({
       operationId: created.execution.operationId ?? created.execution.id,
       proposalId: expect.any(String),
