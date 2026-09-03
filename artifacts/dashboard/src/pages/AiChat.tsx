@@ -7099,6 +7099,7 @@ function AcceptanceDispositionNotice({
   return (
     <div
       className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-100"
+      role="region"
       aria-label="Acceptance disposition"
     >
       <div className="font-medium">Acceptance incomplete</div>

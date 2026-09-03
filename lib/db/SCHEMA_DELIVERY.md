@@ -14,6 +14,21 @@ rows when adding the nullable `tasks.remediation_plan` column. The follow-up
 check is intentional: a successful push is not accepted as proof that the
 runtime contract is complete.
 
+The focused legacy memory delivery canary is:
+
+```sh
+SCHEMA_CANARY_MAINTENANCE_DATABASE_URL=postgresql://.../postgres \
+  pnpm --filter @workspace/db run schema:canary
+```
+
+It requires both `SCHEMA_CANARY_MAINTENANCE_DATABASE_URL` and the invoking
+`DATABASE_URL`. The maintenance URL must point at a different database from
+the invoking URL. The canary creates a uniquely named disposable database,
+constructs the pre-semantic-memory table shape, runs the exact `schema:apply`
+command twice, checks the upgraded rows and outbox through PostgreSQL/Drizzle,
+and drops only its disposable database on success or failure. It emits
+sanitized phase/issue diagnostics and never uses `push-force`.
+
 Use `schema:check` when DDL is managed by another release step and only
 verification is wanted. The separate `check-audit-schema` command verifies the
 pending audit outbox; it is not a substitute for the application contract

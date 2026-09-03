@@ -4211,12 +4211,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const notice = page.getByRole("region", { name: "Acceptance disposition" });
     await expect(notice).toContainText("EXECUTION_ACCEPTANCE_INCOMPLETE");
     await expect(notice).toContainText("Start a new scoped run");
-    const beforeReload = await notice.innerText();
+    const beforeReload = await notice.textContent();
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
 
     await page.reload();
     const reloadedNotice = page.getByRole("region", { name: "Acceptance disposition" });
-    await expect(reloadedNotice).toHaveText(beforeReload);
+    expect(await reloadedNotice.textContent()).toBe(beforeReload);
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
   });
 

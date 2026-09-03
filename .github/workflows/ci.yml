@@ -116,6 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/engineeringos_test
+      SCHEMA_CANARY_MAINTENANCE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
     services:
       postgres:
         image: postgres:16
@@ -166,6 +167,9 @@ jobs:
 
       - name: Type-check all packages
         run: pnpm run typecheck
+
+      - name: Prove legacy memory schema delivery
+        run: pnpm --filter @workspace/db run schema:canary
 
       - name: Apply and verify test database schema
         run: pnpm run db:schema:apply
