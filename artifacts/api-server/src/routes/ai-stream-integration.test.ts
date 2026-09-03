@@ -52,6 +52,7 @@ import {
   buildPatchHunks,
   buildProjectContext,
   formatMemoriesForPrompt,
+  hashDeliveryTree,
   hashPatchBase,
   type ExecutionNode,
 } from "@workspace/ai-orchestrator";
