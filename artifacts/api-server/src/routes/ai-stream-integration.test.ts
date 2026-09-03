@@ -2149,7 +2149,7 @@ describe("Durable AI execution crash/reconnect", () => {
       proposalId: expect.any(String),
     });
 
-    const proposalId = resumedDone["proposalId"] as string;
+    const proposalId = resumedDone!["proposalId"] as string;
     const drifted = `// user edit\n${original}`;
     await fs.writeFile(absolutePath, drifted, "utf8");
 
