@@ -66,6 +66,7 @@ import type {
   MissionCorrelationReport,
   Event as ApiEvent,
   ExportAiExecutionAudit200,
+  GroqModelAvailability,
   ProviderLifecycleSnapshot,
   AiProviderMetric,
 } from '@workspace/api-client-react';
@@ -530,6 +531,7 @@ type ProviderKeyStatus = {
   last4: string | null;
   updatedAt: string | null;
   lifecycle?: ProviderLifecycleSnapshot;
+  modelAvailability?: GroqModelAvailability;
 };
 type GroqKeyStatus = ProviderKeyStatus;
 type DeepSeekKeyStatus = ProviderKeyStatus;
@@ -723,6 +725,39 @@ function ProviderLifecycleNotice({ lifecycle }: { lifecycle?: ProviderLifecycleS
       </div>
     </div>
   );
+}
+
+function GroqModelAvailabilityNotice({
+  availability,
+}: {
+  availability?: GroqModelAvailability;
+}) {
+  if (!availability) return null;
+
+  if (availability.status === 'available') {
+    return (
+      <p className="mt-1.5 break-words text-[10px] text-green-300">
+        Groq models available · Fast: {availability.checkedModels.fast} · Powerful: {availability.checkedModels.powerful}
+      </p>
+    );
+  }
+
+  if (availability.status === 'unavailable' && availability.unavailableRoles.length > 0) {
+    return (
+      <div className="mt-1.5 space-y-0.5 text-[10px] text-amber-300">
+        {availability.unavailableRoles.map((role) => (
+          <p key={role} className="break-words">
+            Groq credential is valid, but the configured {role === 'fast' ? 'Fast' : 'Powerful'} ({availability.checkedModels[role]}) is unavailable
+          </p>
+        ))}
+        <p className="break-words text-amber-200/80">
+          Update the affected Groq model ID to a current catalog model, then restart the API.
+        </p>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function ProviderReadinessNotice({
@@ -5171,6 +5206,7 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
         <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
       )}
 
+      <GroqModelAvailabilityNotice availability={status?.modelAvailability} />
       <ProviderLifecycleNotice lifecycle={status?.lifecycle} />
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
