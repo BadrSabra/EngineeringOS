@@ -2770,6 +2770,10 @@ router.post("/ai/chat", async (req, res) => {
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
           objective,
           turnIntent,
+          allowValidationTools: Boolean(validationRunner),
+          validationRunner,
+          approvedValidationProfiles: validationRunner ? ["workspace-typecheck"] : undefined,
+          validationTargetPaths: validationOnlyTargetPaths,
           allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,
@@ -4565,8 +4569,16 @@ router.post("/ai/chat/stream", async (req, res) => {
       }
     }
 
+    const validationOnlyCompoundTurn =
+      streamTurnIntent.compoundExecution && !streamTurnIntent.compoundWrite;
+    const validationOnlyTargetPaths = validationOnlyCompoundTurn
+      ? compoundValidationTargetPaths(message)
+      : [];
     const validationRunner =
-      approvedImplementationPlan && implementationPlanScope && validRootPath
+      validRootPath && (
+        approvedImplementationPlan && implementationPlanScope
+        || validationOnlyCompoundTurn
+      )
         ? async (
             profile: string,
             targetPaths: string[],
@@ -4579,16 +4591,21 @@ router.post("/ai/chat/stream", async (req, res) => {
             },
           ) => {
             const parsedProfile = ValidationProfileSchema.safeParse(profile);
-            if (!parsedProfile.success) {
+            if (
+              !parsedProfile.success ||
+              (validationOnlyCompoundTurn && parsedProfile.data !== "workspace-typecheck")
+            ) {
               return {
                 status: "unavailable" as const,
-                detail: `Validation profile "${profile}" is not registered.`,
+                detail: validationOnlyCompoundTurn
+                  ? "Validation-only compound requests allow only the registered workspace typecheck profile."
+                  : `Validation profile "${profile}" is not registered.`,
               };
             }
             return runRepairValidation(
               validRootPath,
               parsedProfile.data,
-              targetPaths,
+              validationOnlyCompoundTurn ? validationOnlyTargetPaths : targetPaths,
               signal,
               pendingChanges ?? [],
               evidenceContext,
@@ -4730,10 +4747,19 @@ router.post("/ai/chat/stream", async (req, res) => {
             operationId: analysisCorrelation.operationId,
             revision: analysisCorrelation.projectRevision,
           },
-          approvedValidationProfiles: [
-            ...(validationRunner ? ["workspace-typecheck", "ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"] : []),
-            ...(browserValidationProfileName ? [browserValidationProfileName] : []),
-          ],
+          approvedValidationProfiles: validationRunner
+            ? validationOnlyCompoundTurn
+              ? ["workspace-typecheck"]
+              : [
+                  "workspace-typecheck",
+                  "ai-orchestrator-tests",
+                  "knowledge-engine-tests",
+                  "api-ai-tests",
+                  ...(browserValidationProfileName ? [browserValidationProfileName] : []),
+                ]
+            : browserValidationProfileName
+              ? [browserValidationProfileName]
+              : undefined,
            commandProfiles,
            commandRunner: commandProfiles ? runRegisteredCommand : undefined,
            commandContext: {
@@ -4742,7 +4768,11 @@ router.post("/ai/chat/stream", async (req, res) => {
              targetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
              operation: "build",
            },
-          validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+          validationTargetPaths: validationOnlyCompoundTurn
+            ? validationOnlyTargetPaths
+            : implementationPlanScope
+              ? [...implementationPlanScope]
+              : [],
            buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
           onExecutionNodes: publishExecutionNodes,
           signal: activeExecutionAbortController.signal,
