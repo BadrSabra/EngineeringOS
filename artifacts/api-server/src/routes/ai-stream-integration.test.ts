@@ -2024,6 +2024,11 @@ describe("Durable AI execution crash/reconnect", () => {
     const projectId = await insertProject(rootPath);
     projectIds.push(projectId);
     const plan = await insertApprovedPlan(projectId, "APPROVED", relativePath);
+    const [project] = await db.select({ updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const projectRevision = project!.updatedAt.toISOString();
     const requestEnvelope = {
       projectId,
       sessionId: plan.sessionId,
@@ -2031,6 +2036,7 @@ describe("Durable AI execution crash/reconnect", () => {
       modelMessage: "Apply the approved repair plan.",
       buildPlanMessageId: plan.messageId,
       validationTargetPaths: [relativePath],
+      workspaceRevision: projectRevision,
     };
 
     const created = await createAiExecution({
@@ -2050,11 +2056,6 @@ describe("Durable AI execution crash/reconnect", () => {
       workerId,
     }))?.status).toBe("running");
 
-    const [project] = await db.select({ updatedAt: projectsTable.updatedAt })
-      .from(projectsTable)
-      .where(eq(projectsTable.id, projectId))
-      .limit(1);
-    const projectRevision = project!.updatedAt.toISOString();
     const checkpointNode = {
       id: "step:step-1",
       title: "Modify the approved file",
