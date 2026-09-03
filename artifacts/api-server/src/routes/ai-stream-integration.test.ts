@@ -2050,20 +2050,56 @@ describe("Durable AI execution crash/reconnect", () => {
       workerId,
     }))?.status).toBe("running");
 
+    const [project] = await db.select({ updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const projectRevision = project!.updatedAt.toISOString();
+    const checkpointNode = {
+      id: "step:step-1",
+      title: "Modify the approved file",
+      status: "passed" as const,
+      allowedFiles: [relativePath],
+      dependencies: [],
+      validationProfile: "workspace-typecheck" as const,
+      attempts: 1,
+      validationAttempts: 1,
+      evidenceRefs: ["resumed-change-validation"],
+    };
+    const checkpointOperation = createAutonomousOperationContract({
+      operationId: created.execution.operationId ?? created.execution.id,
+      objective: requestEnvelope.message,
+      revisionManifest: projectRevision,
+      targetPaths: [relativePath],
+      expectedBehavior: requestEnvelope.message,
+      nodes: [{
+        id: checkpointNode.id,
+        kind: "mutate" as const,
+        dependencies: checkpointNode.dependencies,
+        status: checkpointNode.status,
+        attempts: checkpointNode.attempts,
+        validationAttempts: checkpointNode.validationAttempts,
+        allowedFiles: checkpointNode.allowedFiles,
+        validationProfile: checkpointNode.validationProfile,
+        evidenceRefs: checkpointNode.evidenceRefs,
+      }],
+    });
     await checkpointAiExecution({
       executionId: created.execution.id,
       workerId,
       checkpoint: {
         stage: "tool_loop",
         sequence: 1,
-        currentNode: "node-1",
-        completedNodes: [],
+        currentNode: checkpointNode.id,
+        completedNodes: [checkpointNode.id],
+        nodeStates: [checkpointNode],
+        operation: checkpointOperation,
         recentSteps: [{
           kind: "tool_result",
           tool: "read_file",
           source: relativePath,
         }],
-        detail: "Read the approved file before the worker stopped.",
+        detail: "The approved plan node completed before the worker stopped.",
         updatedAt: new Date().toISOString(),
       },
     });
@@ -2092,11 +2128,6 @@ describe("Durable AI execution crash/reconnect", () => {
         label: "Validation profile: api-ai-tests",
       }],
     };
-    const [project] = await db.select({ updatedAt: projectsTable.updatedAt })
-      .from(projectsTable)
-      .where(eq(projectsTable.id, projectId))
-      .limit(1);
-    const projectRevision = project!.updatedAt.toISOString();
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
       const correlation = (args[1] as {
         analysisCorrelation?: { operationId?: string; projectRevision?: string };
@@ -2148,7 +2179,6 @@ describe("Durable AI execution crash/reconnect", () => {
     expect(resumed.status).toBe(200);
     const resumedEvents = parseSseEvents(resumed.text);
     const resumedDone = resumedEvents.find((event) => event["type"] === "done");
-    console.log("resume-events", JSON.stringify(resumedEvents));
     expect(resumedDone).toMatchObject({
       operationId: created.execution.operationId ?? created.execution.id,
       proposalId: expect.any(String),
