@@ -8766,9 +8766,14 @@ export default function AiChat() {
         });
       } else {
         toast({ title: 'Delivery workspace discarded', description: 'Only this operation-owned workspace was removed.' });
+        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
         if (sessionId === proposal.sessionId) {
+          liveProposalRef.current = null;
           setPendingChanges([]);
           setProposalId(undefined);
+          setProposalRequiresApproval(false);
+          setProposalRevision(undefined);
+          setValidationEvidence([]);
         }
       }
     } catch (error) {
