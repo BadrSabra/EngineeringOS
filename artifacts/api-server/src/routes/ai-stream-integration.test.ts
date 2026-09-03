@@ -2355,25 +2355,6 @@ describe("Implementation Plan Build handoff", () => {
     const apply = await request(app)
       .post("/api/ai/chat/apply-changes")
       .send({ projectId, proposalId, operationId, changes: [proposedChange] });
-    console.log("non-build-apply", apply.status, JSON.stringify(apply.body));
-    const [proposalAfterApply] = await db
-      .select({ workspaceRoot: aiChangeProposalsTable.workspaceRoot })
-      .from(aiChangeProposalsTable)
-      .where(eq(aiChangeProposalsTable.id, proposalId))
-      .limit(1);
-    console.log(
-      "non-build-trees",
-      JSON.stringify({
-        root: await fs.readdir(rootPath, { recursive: true }),
-        workspace: proposalAfterApply?.workspaceRoot
-          ? await fs.readdir(proposalAfterApply.workspaceRoot, { recursive: true })
-          : [],
-        rootHash: await hashDeliveryTree(rootPath),
-        workspaceHash: proposalAfterApply?.workspaceRoot
-          ? await hashDeliveryTree(proposalAfterApply.workspaceRoot)
-          : null,
-      }),
-    );
     expect(apply.status).toBe(200);
     const operationEvents = await db
       .select({ type: eventsTable.type, correlationId: eventsTable.correlationId })
