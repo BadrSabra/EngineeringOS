@@ -1170,6 +1170,21 @@ async function persistFailedChatTurn(params: {
         });
       }
     }
+    // Serialize terminal persistence for one durable execution. The
+    // existence check below is otherwise vulnerable to two reconnects
+    // observing no assistant row at the same time and both inserting an
+    // outcome. The execution row is the shared lock for all recovery paths.
+    if (params.executionId) {
+      const executionLockQuery = tx
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, params.executionId));
+      if (typeof (executionLockQuery as { for?: unknown }).for === "function") {
+        await (executionLockQuery as { for: (mode: string) => Promise<unknown[]> }).for("update");
+      } else if (typeof (executionLockQuery as { limit?: unknown }).limit === "function") {
+        await (executionLockQuery as { limit: (count: number) => Promise<unknown[]> }).limit(1);
+      }
+    }
     // A provider/network failure may already have persisted the user turn.
     // Resuming that execution must only add the next assistant outcome, not
     // create a second copy of the user's request.
