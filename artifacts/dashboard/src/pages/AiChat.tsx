@@ -434,6 +434,17 @@ type Session = {
 };
 
 export const AI_CHAT_SELECTION_STORAGE_PREFIX = 'eos_ai_selection_';
+const AI_CHAT_SYNC_STORAGE_KEY = 'eos_ai_sync_event';
+
+type AiChatSyncEvent = {
+  version: 1;
+  sequence: number;
+  projectId: string;
+  kind: 'selection' | 'data';
+  sessionId?: string;
+};
+
+let aiChatSyncSequence = 0;
 
 type AiChatSelection =
   | {
@@ -502,6 +513,16 @@ function persistAiChatSelection(selection: AiChatSelection): void {
       aiChatSelectionStorageKey(selection.projectId),
       JSON.stringify(selection),
     );
+    localStorage.setItem(
+      AI_CHAT_SYNC_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        sequence: ++aiChatSyncSequence,
+        projectId: selection.projectId,
+        kind: 'selection',
+        ...(selection.kind === 'session' ? { sessionId: selection.sessionId } : {}),
+      } satisfies AiChatSyncEvent),
+    );
   } catch {
     // Browser storage can be unavailable in privacy-restricted contexts.
   }
@@ -511,6 +532,15 @@ function clearAiChatSelection(projectId: string | undefined): void {
   if (!projectId) return;
   try {
     localStorage.removeItem(aiChatSelectionStorageKey(projectId));
+    localStorage.setItem(
+      AI_CHAT_SYNC_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        sequence: ++aiChatSyncSequence,
+        projectId,
+        kind: 'selection',
+      } satisfies AiChatSyncEvent),
+    );
   } catch {
     // Browser storage can be unavailable in privacy-restricted contexts.
   }
