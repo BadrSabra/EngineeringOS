@@ -9026,6 +9026,7 @@ export default function AiChat() {
         );
         setPendingChanges((prev) => prev.filter((c) => !completedPaths.has(c.path)));
         if (succeeded.length > 0 && failed.length === 0 && completedPaths.size === succeeded.length) {
+          liveProposalRef.current = null;
           setProposalId(undefined);
           setCommitReadyPaths([...completedPaths]);
           setCommitProposalId(proposalId);
@@ -9143,6 +9144,7 @@ export default function AiChat() {
   const rejectMutation = useRejectAiChangeProposal({
     mutation: {
       onSuccess: () => {
+        liveProposalRef.current = null;
         setPendingChanges([]);
         setProposalId(undefined);
         setOperationId(undefined);
