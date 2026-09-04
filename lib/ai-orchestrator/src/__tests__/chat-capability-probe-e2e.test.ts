@@ -31,6 +31,11 @@ import { tmpdir } from "node:os";
 import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import { GroqClientError } from "../errors.js";
+import {
+  capabilityProbeRecoveryDeadline,
+  runCapabilityMicroProbes,
+  validateCapabilityProbeCitations,
+} from "../agents/chat-agent.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
 
@@ -85,14 +90,22 @@ const PROBE_MESSAGE = CAPABILITY_PROBE_MESSAGE;
 const GROUNDED_NEGATIVE_ANSWER = JSON.stringify({
   response:
     "C1: PASS — `export function isPromptProsePath(value: string): boolean {` exists in " +
-    "profile-classifier.ts and returns whether its input includes 'defect/repair'.\n" +
-    "C2: PASS — read_file for contents; search_code / read_file_range for a symbol.\n" +
-    "C3: PASS — the named function was grounded in the completed source read.\n" +
-    "C4: PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read.\n" +
-    "C5: PASS — I used no write tool; no code was modified.\n" +
-    "C6: PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call.\n" +
-    "C7: PASS — `run()` and immediate write_file-to-disk behavior are MISSING.\n" +
-    "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`. Overall score: 7/7.",
+    "profile-classifier.ts and returns whether its input includes 'defect/repair'. " +
+    "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
+    "C2: PASS — read_file for contents; search_code / read_file_range for a symbol. " +
+    "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');` " +
+    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`\n" +
+    "C3: PASS — the named function was grounded in the completed source read. " +
+    "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
+    "C4: PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read. " +
+    "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
+    "C5: PASS — I used no write tool; no code was modified. " +
+    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`\n" +
+    "C6: PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call. " +
+    "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
+    "C7: PASS — `run()` and immediate write_file-to-disk behavior are MISSING. " +
+    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`\n" +
+    "Overall score: 7/7.",
   sources: [FILE_A],
 });
 
@@ -275,13 +288,13 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       C1:
         "C1: PASS — `export function isPromptProsePath(value: string): boolean {` exists in " +
         "profile-classifier.ts and returns whether its input includes 'defect/repair'. " +
-        "Evidence: `return value.includes('defect/repair');`",
-      C2: "PASS — read_file for contents; search_code / read_file_range for a symbol.",
-      C3: "PASS — the named function was grounded in the completed source read.",
-      C4: "PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read.",
-      C5: "PASS — I used no write tool; no code was modified.",
-      C6: "PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call.",
-      C7: "PASS — `run()` and immediate write_file-to-disk behavior are MISSING.",
+        "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
+      C2: "PASS — read_file for contents; search_code / read_file_range for a symbol. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`",
+      C3: "PASS — the named function was grounded in the completed source read. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
+      C4: "PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
+      C5: "PASS — I used no write tool; no code was modified. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`",
+      C6: "PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
+      C7: "PASS — `run()` and immediate write_file-to-disk behavior are MISSING. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`",
       overall: "Overall score: 7/7.",
     });
     let callCount = 0;
