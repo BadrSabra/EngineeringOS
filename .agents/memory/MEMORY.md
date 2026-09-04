@@ -93,3 +93,4 @@
 - [Empirical corpus metadata](empirical-corpus-metadata.md) — traverse GitHub trees non-recursively; commit-SHA tree responses identify the commit, not its root tree SHA.
 - [Compound intent routing](compound-intent-routing.md) — compound requests retain first-read evidence ordering while later proposal tools are derived separately from forensic isolation.
 - [Live proposal hydration](live-proposal-hydration.md) — preserve a streamed pending proposal until the session query observes its durable approval record.
+- [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
