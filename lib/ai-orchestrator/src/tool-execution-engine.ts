@@ -4651,6 +4651,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }
         }
         if (
+          executionMode !== "repair_plan" &&
           noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD &&
           !forcedPrimaryEvidence
         ) {
@@ -4698,6 +4699,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // only redirect once planning has demonstrably spent its share AND the
       // run has had more than a single planning turn to reach evidence.
       if (
+          executionMode !== "repair_plan" &&
         planningIterations >= runBudget.planning &&
         planningIterations >= 2 &&
         firstSourceReadIter === null &&
