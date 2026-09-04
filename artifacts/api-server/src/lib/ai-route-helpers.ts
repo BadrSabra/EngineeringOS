@@ -488,6 +488,10 @@ export async function chatWithFallback(
   retainedEvidence?: Map<string, string>;
     /** Enabled only after the route validates an approved implementation plan. */
     allowValidationTools?: boolean;
+     /** Server-owned approval state for write/validation/execution tools. */
+     approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+     /** Server-owned file scope for write tools. */
+     approvedFilePaths?: readonly string[];
     /** Server-owned validation callback; never derived from model arguments. */
     validationRunner?: ValidationRunner;
     browserValidationRunner?: import("@workspace/ai-orchestrator").BrowserValidationRunner;
@@ -587,6 +591,8 @@ export async function chatWithFallback(
         onStreamReset,
         onStep,
         allowValidationTools: baseParams.allowValidationTools,
+         approvalState: baseParams.approvalState,
+         approvedFilePaths: baseParams.approvedFilePaths,
         validationRunner: baseParams.validationRunner,
         browserValidationRunner: baseParams.browserValidationRunner,
         browserValidationContext: baseParams.browserValidationContext,
