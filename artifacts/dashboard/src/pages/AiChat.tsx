@@ -8870,6 +8870,7 @@ export default function AiChat() {
           setValidationEvidence([]);
         }
       }
+       publishAiChatData(selectedProjectId, proposal.sessionId);
     } catch (error) {
       toast({
         title: 'Delivery recovery failed',
@@ -8896,6 +8897,7 @@ export default function AiChat() {
     onSuccess: () => {
       if (sessionId) void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
       void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+       publishAiChatData(selectedProjectId, sessionId);
       toast({ title: 'Historical report regenerated', description: 'The report is now available from the retained run evidence.' });
     },
     onError: (error) => {
