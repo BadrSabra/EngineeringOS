@@ -5964,6 +5964,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         ...publicAssistantMsg,
         taskResult: parseTaskResult(assistantMsg.taskResult),
       },
+      contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       sources: redactUserFacingValue(result.sources),
       toolTrace: publicToolTrace,
       pendingChanges: proposalId
