@@ -185,7 +185,7 @@ import app from "../app.js";
 type SseEvent = Record<string, unknown>;
 
 function parseSseEvents(body: string): SseEvent[] {
-  return body
+  const events = body
     .split("\n\n")
     .map((chunk) => chunk.trim())
     .filter((chunk) => chunk.startsWith("data: "))
@@ -197,6 +197,16 @@ function parseSseEvents(body: string): SseEvent[] {
       }
     })
     .filter((event): event is SseEvent => event !== null);
+  console.error("REPAIR_DEBUG_EVENTS", JSON.stringify(events.map((event) => ({
+    type: event.type,
+    tool: event.tool,
+    state: event.state,
+    status: event.status,
+    repairState: event.repairState,
+    prefetched: event.prefetched,
+    code: event.code,
+  }))));
+  return events;
 }
 
 async function insertProject(rootPath: string): Promise<string> {
