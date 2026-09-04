@@ -112,12 +112,17 @@ vi.mock("@workspace/db", () => {
   }
 
   const updateResult = (vals?: Record<string, unknown>) => {
-    if (vals) {
+    // Keep the cancellation fixture close to the real conditional updates:
+    // a running execution skips the queued/paused terminal update, then
+    // transitions through cancelling so the registered controller is aborted.
+    const skipQueuedCancellation =
+      vals?.status === "cancelled" && fixture.execution.status === "running";
+    if (vals && !skipQueuedCancellation) {
       fixture.execution = { ...fixture.execution, ...vals };
     }
     const promise = Promise.resolve();
     return Object.assign(promise, {
-      returning: () => Promise.resolve([fixture.execution]),
+      returning: () => Promise.resolve(skipQueuedCancellation ? [] : [fixture.execution]),
     });
   };
 
@@ -728,6 +733,95 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(exported).not.toContain("/tmp/");
     expect(exported).not.toContain("providerDiagnostic");
     expect(exported).not.toContain("rawProvider");
+  });
+
+  it("keeps context provenance on a failed quality result and its persisted history", async () => {
+    vi.mocked(buildProjectContext).mockImplementationOnce(async () => ({
+      contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
+    } as never));
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockResolvedValue({
+      ...MOCK_CHAT_RESULT,
+      result: {
+        ...MOCK_CHAT_RESULT.result,
+        _qualityError: {
+          code: "QUALITY_REVIEW_LOW",
+          score: 0.31,
+          threshold: 0.7,
+          reasons: ["The result did not meet the required completion checks."],
+        },
+      },
+    } as never);
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit this codebase" });
+
+    expect(response.status).toBe(200);
+    const frames = parseSseFrames(response.text) as Array<Record<string, unknown>>;
+    const error = frames.find((frame) => frame.type === "error");
+    expect(error).toMatchObject({
+      code: "QUALITY_REVIEW_LOW",
+      contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
+    });
+    expect(chatCapture.assistantToolTrace).not.toBeNull();
+    expect(JSON.parse(chatCapture.assistantToolTrace!)).toContainEqual({
+      kind: "context_provenance",
+      ...CONTEXT_PROVENANCE_FIXTURE,
+    });
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        session: Record<string, unknown> | null;
+      };
+    }).__chatTestFixture;
+    const sessionId = dbFixture.session?.id;
+    expect(typeof sessionId).toBe("string");
+    const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+    expect(history.status, JSON.stringify(history.body)).toBe(200);
+    const failedMessage = (history.body as Array<Record<string, unknown>>)
+      .find((message) => message.role === "assistant");
+    expect(failedMessage?.outcome).toBe("FAILED");
+    expect(failedMessage?.contextProvenance).toEqual(CONTEXT_PROVENANCE_FIXTURE);
+  });
+
+  it("keeps context provenance when an active execution is cancelled", async () => {
+    vi.mocked(buildProjectContext).mockImplementationOnce(async () => ({
+      contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
+    } as never));
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementation(
+      async () => {
+        const cancellation = await request(app)
+          .post("/api/ai/executions/test-execution-id/cancel");
+        expect(cancellation.status).toBe(200);
+        return {
+          ...MOCK_CHAT_RESULT,
+          result: {
+            ...MOCK_CHAT_RESULT.result,
+            response: "ANALYSIS_INCOMPLETE — The audit was cancelled.",
+          },
+        };
+      },
+    );
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit this codebase" });
+
+    expect(response.status).toBe(200);
+    const frames = parseSseFrames(response.text) as Array<Record<string, unknown>>;
+    const done = frames.find((frame) => frame.type === "done");
+    expect(done).toMatchObject({
+      contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
+      message: {
+        outcome: "INTERRUPTED",
+        contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
+      },
+    });
+    expect(chatCapture.assistantToolTrace).not.toBeNull();
+    expect(JSON.parse(chatCapture.assistantToolTrace!)).toContainEqual({
+      kind: "context_provenance",
+      ...CONTEXT_PROVENANCE_FIXTURE,
+    });
   });
 
   it("persists a forensic session, then keeps ابدأ read-only across JSON and SSE routes", async () => {
