@@ -6,6 +6,7 @@ import type {
   ForensicEvidence,
   ForensicEvidenceScope,
 } from "./forensic-output-guard.js";
+import { hasDisplayTruncationMarker } from "./source-read-status.js";
 
 const IMPLEMENTATION_FILE_RE =
   /\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh)$/i;
@@ -30,9 +31,7 @@ export type EvidenceWindow = {
 
 /** True when a retained source body carries a truncation marker. */
 function windowIsTruncated(content: string): boolean {
-  return /\[(?:prefetch|read) output truncated\b/i.test(content) ||
-    /\[.*forensic read exceeded the maximum safe evidence window\b/i.test(content) ||
-    /\[\.\.\.\s*(?:output truncated|forensic read exceeded)/i.test(content);
+  return hasDisplayTruncationMarker(content);
 }
 
 export type ForensicEvidencePacket = {

@@ -134,6 +134,7 @@ import {
 import { executeHierarchical, validateCompoundSynthesis } from "./hierarchical-executor.js";
 import { executeExecutionNodePlan } from "../execution-node-coordinator.js";
 import { stripReadFileWrapper, executeFileTool } from "../tools/file-tools.js";
+import { hasDisplayTruncationMarker, hasToolAppendedTruncationMarker } from "../source-read-status.js";
 import { classifyForensicTerminal, classifyObjectiveVerdict } from "../audit-telemetry.js";
 import type { RecoveryFailureKind, ObjectiveVerdictKind } from "../audit-telemetry.js";
 import {
@@ -906,7 +907,7 @@ function hasCompleteCapabilityProbeEvidence(
     const body = fileContents.get(file);
     return typeof body === "string" &&
       body.trim().length > 0 &&
-      !/\[\.\.\.\s*(?:output truncated|forensic read exceeded)/i.test(body);
+      !hasToolAppendedTruncationMarker(body);
   });
 }
 
@@ -2427,12 +2428,7 @@ export function emitForensicStatus(
   const files = [...fileContents.keys()];
   const inferredIncompleteFiles = new Set(
     [...fileContents.entries()]
-      .filter(([, content]) =>
-        /\[(?:prefetch|read) output truncated\b/i.test(content) ||
-        /\[.*forensic read exceeded the maximum safe evidence window\b/i.test(content) ||
-        /\[\.\.\.\s*(?:output truncated|forensic read exceeded)/i.test(content) ||
-        /\bdisplay limit\b.*\b(?:truncat|omitt)/i.test(content),
-      )
+      .filter(([, content]) => hasDisplayTruncationMarker(content))
       .map(([file]) => file),
   );
   const incomplete = incompleteFiles && incompleteFiles.size > 0
@@ -6208,9 +6204,7 @@ export async function chat(opts: {
       const wasRead = readContent !== undefined;
       const isTruncated =
         wasRead &&
-        (/\[(?:prefetch|read) output truncated\b/i.test(readContent) ||
-          /\[\.\.\.\s*(?:output truncated|forensic read exceeded)/i.test(readContent) ||
-          /\bdisplay limit\b.*\b(?:truncat|omitt)/i.test(readContent));
+        hasDisplayTruncationMarker(readContent);
       const coverageComplete = wasRead && !isTruncated;
       return {
         targetPath,
