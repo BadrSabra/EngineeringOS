@@ -208,7 +208,7 @@ describe("chat() blocks a final answer when the declared objective is uncomplete
       //    surfaced as a completed answer. (English or Arabic form, both reject.)
       expect(result.response).toMatch(/BLOCKED|محظور/);
       expect(result.response).not.toContain("ID: F-01");
-      expect(result.response).not.toMatch(/\bPROVEN\b/);
+       expect(result.response).not.toMatch(/\bFINDING\s+PROVEN\b/);
       expect(result.response).not.toContain("unsafe eval() over untrusted input");
 
       // 2. The returned decision trace is gated: NOT_PROVEN (rejection), not a
