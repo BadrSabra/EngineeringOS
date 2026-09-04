@@ -5427,6 +5427,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
     let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
     const assistantMessageId = randomUUID();
+    const durableExecutionId = aiExecution.id;
     const assistantMsg = await db.transaction(async (tx) => {
       // The execution row is the shared terminal fence. Lock it before the
       // session so failure and success paths use the same lock ordering.
@@ -5437,7 +5438,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           finalMessageId: aiExecutionsTable.finalMessageId,
         })
         .from(aiExecutionsTable)
-        .where(eq(aiExecutionsTable.id, aiExecution.id));
+        .where(eq(aiExecutionsTable.id, durableExecutionId));
       let lockedExecution: {
         id: string;
         status: string;
@@ -5462,7 +5463,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           updatedAt: msgNow,
         })
         .where(and(
-          eq(aiExecutionsTable.id, aiExecution.id),
+          eq(aiExecutionsTable.id, durableExecutionId),
           eq(aiExecutionsTable.status, "running"),
           isNull(aiExecutionsTable.finalMessageId),
         ))
