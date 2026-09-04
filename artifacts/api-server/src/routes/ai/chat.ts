@@ -2996,9 +2996,16 @@ router.post("/ai/chat", async (req, res) => {
           objective,
           turnIntent,
           allowValidationTools: Boolean(validationRunner),
-           approvalState: validationRunner ? "APPROVED" : undefined,
+           approvalState: validationRunner
+             ? "APPROVED"
+             : turnIntent.compoundWrite
+               ? "PENDING_APPROVAL"
+               : undefined,
           validationRunner,
           approvedValidationProfiles: validationRunner ? ["workspace-typecheck"] : undefined,
+           approvedFilePaths: turnIntent.compoundWrite
+             ? compoundValidationTargetPaths(message)
+             : undefined,
           validationTargetPaths: validationOnlyTargetPaths,
           allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
           analysisToolRunner,
@@ -5013,8 +5020,16 @@ router.post("/ai/chat/stream", async (req, res) => {
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
           objective,
           allowValidationTools: Boolean(validationRunner),
-           approvalState: validationRunner || approvedImplementationPlan ? "APPROVED" : undefined,
-           approvedFilePaths: implementationPlanScope ? [...implementationPlanScope] : undefined,
+           approvalState: validationRunner || approvedImplementationPlan
+             ? "APPROVED"
+             : streamTurnIntent.compoundWrite
+               ? "PENDING_APPROVAL"
+               : undefined,
+           approvedFilePaths: implementationPlanScope
+             ? [...implementationPlanScope]
+             : streamTurnIntent.compoundWrite
+               ? compoundValidationTargetPaths(message)
+               : undefined,
           validationRunner,
           browserValidationRunner,
           browserValidationContext: {
