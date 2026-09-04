@@ -91,9 +91,12 @@ function decideSlice(
 export function runAdmission(plan: ContextPlan, executionPlan: ExecutionPlan): ContextObject {
   const identityBound =
     plan.admissionIdentity.projectId === plan.projectId &&
+    plan.admissionIdentity.operationId.length > 0 &&
     plan.admissionIdentity.projectRevision.length > 0 &&
     plan.admissionIdentity.sourceRoot.length > 0 &&
-    plan.admissionIdentity.scanCorrelationId.length > 0;
+    plan.admissionIdentity.sourceRoot !== "unavailable" &&
+    plan.admissionIdentity.scanCorrelationId.length > 0 &&
+    plan.admissionIdentity.scanCorrelationId !== "unavailable";
   const sorted = [...plan.slices].sort(
     (a, b) => SLICE_IMPORTANCE[b.id] - SLICE_IMPORTANCE[a.id],
   );

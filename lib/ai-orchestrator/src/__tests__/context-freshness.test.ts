@@ -19,6 +19,7 @@ function makeObject(loadedAt: number): ContextObject {
       projectId: "freshness-test",
       admissionIdentity: {
         projectId: "freshness-test",
+        operationId: "operation-1",
         projectRevision: "revision-1",
         sourceRoot: "/project",
         scanCorrelationId: "scan-1",

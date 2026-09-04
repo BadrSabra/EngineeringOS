@@ -61,6 +61,7 @@ export type ContextSlice = {
 /** Stable identity that must travel with an admitted context snapshot. */
 export type ContextAdmissionIdentity = {
   projectId: string;
+  operationId: string;
   projectRevision: string;
   sourceRoot: string;
   scanCorrelationId: string;

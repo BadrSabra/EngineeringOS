@@ -294,8 +294,15 @@ export async function buildProjectContext(
       ) {
         // Never reuse a snapshot admitted for another project/root.
       } else {
+      const reboundAdmission = runAdmission({
+        ...cached.runtime.contextObject.plan,
+        admissionIdentity: {
+          ...cachedIdentity,
+          operationId,
+        },
+      }, effectivePlan);
       const lifetime = applyLifetime(
-        cached.runtime.contextObject,
+        reboundAdmission,
         options.lifetimePolicy ?? DEFAULT_LIFETIME_POLICY,
         now,
       );
@@ -352,6 +359,7 @@ export async function buildProjectContext(
     projectId,
     admissionIdentity: {
       projectId,
+      operationId,
       projectRevision: loaded.contextManifest.projectRevision,
       sourceRoot: options.sourceRoot
         ?? loaded.contextManifest.repositoryManifest?.sourceRoot
