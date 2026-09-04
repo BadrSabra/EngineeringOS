@@ -1364,9 +1364,6 @@ describe("executeToolLoop", () => {
         'Provider returned invalid tool-call output: tool "search_code" is not in request manifest.',
       ),
     );
-    const steps: AgentStep[] = [];
-    const prefetched = new Map([["src/forensic.ts", "export const inspected = true;\n"]]);
-
     const result = await executeToolLoop({
       messages: makeMessages(),
       strategy,
