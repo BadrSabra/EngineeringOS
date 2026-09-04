@@ -5356,6 +5356,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         quality,
         correlationId: randomUUID(),
         executionLedger: executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       });
       const persistedQualityFailure = await persistFailedChatTurn({
@@ -5371,6 +5372,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         terminalOutcome: {
           failureKind: "QUALITY_REVIEW",
           retryable: true,
@@ -5407,6 +5409,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
           executionLedger: executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
         const persistedParseFailure = await persistFailedChatTurn({
@@ -5422,6 +5425,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           assistantAt: msgNow,
           toolTrace: traceSteps,
           executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         }).catch((persistError) => {
           logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure");
           return undefined;
