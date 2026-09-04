@@ -4677,14 +4677,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           // Force the primary evidence target into the allow/read policy on the
           // next iteration so the model cannot keep planning past this point.
           if (fegTarget && allowedReads) allowedReads.add(fegTarget);
-          if (executionMode !== "repair_plan") {
-            // Hide planning tools on the next turn so the only route forward is
-            // a read (or a synthesis of already-gathered evidence). The
-            // dispatch-level forced-evidence gate independently rejects
-            // out-of-set calls, so this tool-hiding is a secondary nudge.
-            temporarilyDisabledTools.add("search_code");
-            temporarilyDisabledTools.add("list_directory");
-          }
+          // Hide planning tools on the next turn so the only route forward is
+          // a read (or a synthesis of already-gathered evidence). The
+          // dispatch-level forced-evidence gate independently rejects
+          // out-of-set calls, so this tool-hiding is a secondary nudge.
+          temporarilyDisabledTools.add("search_code");
+          temporarilyDisabledTools.add("list_directory");
         }
       }
       // FEG-009/010 protected primary-evidence allocation. Unlike a (brief)
@@ -4703,7 +4701,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // only redirect once planning has demonstrably spent its share AND the
       // run has had more than a single planning turn to reach evidence.
       if (
-          executionMode !== "repair_plan" &&
+        executionMode !== "repair_plan" &&
         planningIterations >= runBudget.planning &&
         planningIterations >= 2 &&
         firstSourceReadIter === null &&
@@ -4726,10 +4724,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           });
         } catch { /* ignore */ }
         if (fegTarget && allowedReads) allowedReads.add(fegTarget);
-        if (executionMode !== "repair_plan") {
-          temporarilyDisabledTools.add("search_code");
-          temporarilyDisabledTools.add("list_directory");
-        }
+        temporarilyDisabledTools.add("search_code");
+        temporarilyDisabledTools.add("list_directory");
       }
     } else {
       // FEG-009/010: an iteration that issued no tool calls is reasoning /
