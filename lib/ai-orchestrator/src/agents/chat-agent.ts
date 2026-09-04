@@ -4634,6 +4634,11 @@ export async function chat(opts: {
   // forensic turns. Generic exact-format requests such as CODE_EXTRACTION
   // retain their own output contract and do not enter the forensic gate.
   const structuredOutputMode = forensicOutputMode;
+  // Capability probes have their own strict C1–C7 evidence contract but do
+  // not use the six-section structured-report path. They still require the
+  // complete-read flag so read_file cannot retain a capped preview as source
+  // evidence and force a false incomplete result.
+  const completeReadEvidence = structuredOutputMode || capabilityProbeRequest;
   // Only the canonical six-section FORENSIC_REPORT route uses the new staged
   // synthesis envelope. FINDING_ANALYSIS retains its legacy Markdown
   // compatibility path, whose report still passes through the same strict
