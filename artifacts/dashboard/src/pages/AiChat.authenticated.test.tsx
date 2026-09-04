@@ -675,6 +675,13 @@ describe('AiChat authenticated generated mutations', () => {
     // The resume request reuses the persisted turn; it must not optimistically
     // render the resumed prompt as a second local user bubble.
     expect(screen.queryAllByText('Inspect the interrupted execution')).toHaveLength(0);
+    expect(JSON.parse(localStorage.getItem('eos_ai_sync_event') ?? '{}')).toEqual(
+      expect.objectContaining({
+        kind: 'data',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+      }),
+    );
   });
 
   it('recovers a missing resume token before offering the saved execution', async () => {
