@@ -5536,6 +5536,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           retryable: true,
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
         if (aiExecution) {
@@ -5561,6 +5562,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           assistantAt: msgNow,
           toolTrace: traceSteps,
           executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           terminalOutcome: {
             failureKind: "RECOVERY_FAILURE",
             retryable: true,
