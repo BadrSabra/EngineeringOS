@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 /**
  * Apply and verify the compatibility transform required by the generated Zod
- * client. Orval currently emits zod.looseObject for OpenAPI 3.1, while this
- * workspace uses Zod v3.
+ * client. Orval currently emits zod.looseObject and zod.int for OpenAPI 3.1,
+ * while this workspace uses Zod v3.
  *
  * This is deliberately a checked transform rather than a best-effort replace:
  * a zero-match result means Orval's output contract changed and must be
@@ -16,6 +16,8 @@ const LOOSE_OBJECT = "zod.looseObject(";
 const OBJECT = "zod.object(";
 const UUID = "zod.uuid()";
 const STRING_UUID = "zod.string().uuid()";
+const INT = "zod.int()";
+const NUMBER_INT = "zod.number().int()";
 const EXECUTION_LEDGER_CONSTANT =
   /^export const [A-Za-z0-9]+ExecutionLedger[A-Za-z0-9]* = [^\n]+;\n?/gm;
 
@@ -78,17 +80,21 @@ export function patchGeneratedZod(filePath: string): number {
     );
   }
 
+  const intMatches = content.split(INT).length - 1;
   const patched = content
     .replaceAll(LOOSE_OBJECT, OBJECT)
-    .replaceAll(UUID, STRING_UUID);
+    .replaceAll(UUID, STRING_UUID)
+    .replaceAll(INT, NUMBER_INT);
   const normalized = hoistExecutionLedgerConstants(patched);
   const remaining = normalized.split(LOOSE_OBJECT).length - 1;
+  const remainingInts = normalized.split(INT).length - 1;
   const transformed = normalized.split(OBJECT).length - 1;
 
-  if (remaining !== 0 || transformed < matches) {
+  if (remaining !== 0 || remainingInts !== 0 || transformed < matches) {
     throw new Error(
       [
         `Zod post-processing was incomplete: expected ${matches} replacements, applied ${transformed - (content.split(OBJECT).length - 1)}.`,
+        `Expected ${intMatches} integer compatibility replacements, but ${remainingInts} zod.int() markers remain.`,
         "Update the post-codegen transform before committing generated output.",
       ].join("\n"),
     );

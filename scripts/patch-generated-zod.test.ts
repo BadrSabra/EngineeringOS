@@ -39,15 +39,21 @@ test("converts every generated looseObject marker", async () => {
 
 test("converts Orval integer schemas to the Zod 3 equivalent", async () => {
   const generated = [
-    "const first = zod.int();",
-    "const bounded = zod.int().min(1);",
-    "const nullable = zod.int().nullable();",
+    "const object = zod.looseObject({",
+    "  first: zod.int(),",
+    "  bounded: zod.int().min(1),",
+    "  nullable: zod.int().nullable(),",
+    "});",
   ].join("\n");
 
   await withTemporaryFile(generated, async (filePath) => {
-    assert.throws(
-      () => patchGeneratedZod(filePath),
-      /contains no 'zod\\.looseObject\\(' markers/,
+    patchGeneratedZod(filePath);
+
+    const patched = await readFile(filePath, "utf8");
+    assert.equal(patched.includes("zod.int()"), false);
+    assert.equal(
+      (patched.match(/zod\.number\(\)\.int\(\)/g) ?? []).length,
+      3,
     );
   });
 });
