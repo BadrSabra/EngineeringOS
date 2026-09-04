@@ -195,7 +195,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     expect(valid.citedSources).toEqual(expect.arrayContaining([FILE_A, FILE_B]));
 
     const withoutC7Citation = groundedResponse.replace(
-      "Evidence: `return `executed:${name}`;`\nOverall score",
+      "Evidence: `return \"executed:\" + name;`\nOverall score",
       "Evidence: `run()`\nOverall score",
     );
     const rejected = validateCapabilityProbeCitations(
@@ -233,7 +233,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         deadlineAt: requestDeadline,
       });
 
-      await vi.advanceTimersByTimeAsync(4_001);
+      await vi.advanceTimersByTimeAsync(4_000);
       await expect(recovery).resolves.toBeNull();
       expect(strategy.call).toHaveBeenCalledTimes(1);
       expect(Date.now()).toBeLessThanOrEqual(
@@ -351,12 +351,12 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         "C1: PASS — `export function isPromptProsePath(value: string): boolean {` exists in " +
         "profile-classifier.ts and returns whether its input includes 'defect/repair'. " +
         "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
-      C2: "PASS — read_file for contents; search_code / read_file_range for a symbol. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`",
+      C2: "PASS — read_file for contents; search_code / read_file_range for a symbol. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \"executed:\" + name;`",
       C3: "PASS — the named function was grounded in the completed source read. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
       C4: "PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
-      C5: "PASS — I used no write tool; no code was modified. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`",
+      C5: "PASS — I used no write tool; no code was modified. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \"executed:\" + name;`",
       C6: "PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
-      C7: "PASS — `run()` and immediate write_file-to-disk behavior are MISSING. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`",
+      C7: "PASS — `run()` and immediate write_file-to-disk behavior are MISSING. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \"executed:\" + name;`",
       overall: "Overall score: 7/7.",
     });
     let callCount = 0;
