@@ -96,6 +96,7 @@ vi.mock("@workspace/db", () => {
     messages: [] as Array<Record<string, unknown>>,
     execution: { ...MOCK_EXECUTION } as Record<string, unknown>,
   };
+  let exposeExecutionForCancel = false;
 
   /**
    * Returns an object that is:
@@ -138,7 +139,10 @@ vi.mock("@workspace/db", () => {
               if ((table as { _tag?: string })._tag === "aiChatMessagesTable") {
                 return Promise.resolve([...fixture.messages]);
               }
-              if ((table as { _tag?: string })._tag === "aiExecutionsTable") {
+              if (
+                exposeExecutionForCancel
+                && (table as { _tag?: string })._tag === "aiExecutionsTable"
+              ) {
                 return Promise.resolve([{ ...fixture.execution }]);
               }
               return Promise.resolve([]);
@@ -238,6 +242,9 @@ vi.mock("@workspace/db", () => {
       },
     },
     __chatTestFixture: fixture,
+    __setExposeExecutionForCancel: (value: boolean) => {
+      exposeExecutionForCancel = value;
+    },
     // Drizzle table references — used as opaque args to the mocked db methods,
     // which ignore them.  Give each a unique marker so vi's call logs are clear.
     aiChatSessionsTable:   { _tag: "aiChatSessionsTable" },
