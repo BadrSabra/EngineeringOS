@@ -1364,6 +1364,8 @@ describe("executeToolLoop", () => {
         'Provider returned invalid tool-call output: tool "search_code" is not in request manifest.',
       ),
     );
+    const steps: AgentStep[] = [];
+    const prefetched = new Map([["src/forensic.ts", "export const inspected = true;\n"]]);
 
     const result = await executeToolLoop({
       messages: makeMessages(),
@@ -1402,7 +1404,7 @@ describe("executeToolLoop", () => {
     )).toBe(false);
   });
 
-  it("terminalizes an invalid tool call during the deliberate no-tools synthesis phase", async () => {
+  it("keeps an invalid tool call during no-tools synthesis recoverable", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
     (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
