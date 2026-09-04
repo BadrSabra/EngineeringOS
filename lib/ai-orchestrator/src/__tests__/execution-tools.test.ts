@@ -178,6 +178,8 @@ describe("execution tools", () => {
       validationRunner: runner,
       validationTargetPaths: ["src/approved.ts"],
       allowExecutionTools: true,
+      approvalState: "APPROVED",
+      approvedValidationProfiles: ["workspace-typecheck"],
     });
 
     expect(result.kind).toBe("ok");
