@@ -3047,6 +3047,7 @@ router.post("/ai/chat", async (req, res) => {
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       }) ?? {
         id: randomUUID(),
         sessionId: sessionIdToUse,
@@ -3069,6 +3070,7 @@ router.post("/ai/chat", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           recoveryState: terminalOutcome.recoveryState,
         }),
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       };
       // The HTTP request completed, but the assistant turn did not. Keep the
       // response transport-compatible with normal chat while making the
@@ -3095,9 +3097,11 @@ router.post("/ai/chat", async (req, res) => {
             recoveryState: terminalOutcome.recoveryState,
           }),
           executionLedger: executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         },
         executionLedger: executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         ...(report ? { report: sanitizeResponseText(report).slice(0, 12_000) } : {}),
       });
@@ -3123,6 +3127,7 @@ router.post("/ai/chat", async (req, res) => {
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         terminalOutcome: {
           failureKind: "QUALITY_REVIEW",
           retryable: true,
@@ -3139,6 +3144,7 @@ router.post("/ai/chat", async (req, res) => {
         quality,
         errorMessage: safeMessage,
         executionLedger: executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       });
     }
@@ -3157,6 +3163,7 @@ router.post("/ai/chat", async (req, res) => {
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
           executionLedger: executionLedgerSnapshot,
+           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
       }
@@ -3184,6 +3191,7 @@ router.post("/ai/chat", async (req, res) => {
           retryable: true,
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
+           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
       }
