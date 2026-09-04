@@ -2316,9 +2316,26 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         const attemptTimeoutMs = synthesisAttempts === 1
           ? Math.min(options.timeoutMs ?? 60_000, boundedSynthesisTimeoutMs)
           : Math.min(options.timeoutMs ?? 60_000, remaining);
+        // A tool-capable forensic model is not necessarily a conversational
+        // model. Once the loop enters no-tools synthesis, OpenRouter must
+        // resolve a fresh chat-capable candidate instead of validating the
+        // read-loop model against the new contract. This is especially
+        // important for catalog entries that advertise tool_calling/coding
+        // but not chat.
+        const synthesisOptions =
+          provider === "openrouter"
+            ? {
+                ...options,
+                model: undefined,
+                capability: "chat" as const,
+                requireTools: false,
+              }
+            : {
+                ...options,
+                ...(opts.capability ? { capability: opts.capability } : {}),
+              };
         return await callWithExecutionBudget(callMessages, {
-          ...options,
-          ...(opts.capability ? { capability: opts.capability } : {}),
+          ...synthesisOptions,
           timeoutMs: attemptTimeoutMs,
           signal: controller.signal,
         }, "synthesis", controller.signal);

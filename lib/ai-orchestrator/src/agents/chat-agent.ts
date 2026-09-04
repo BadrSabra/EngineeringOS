@@ -3532,19 +3532,28 @@ function normalizeRecoveryAssistantText(raw: string): string {
  */
 function buildJsonCorrectionOptions(
   provider: ProviderId,
-  model: string,
+  model: string | undefined,
   apiKey?: string,
   signal?: AbortSignal,
 ): StrategyCallOptions {
   const base: StrategyCallOptions = {
-    model,
+    ...(model ? { model } : {}),
     maxTokens: 4096,
     apiKey,
     ...(signal ? { signal } : {}),
   };
 
   if (provider === "openrouter") {
-    return base;
+    // JSON correction is a no-tools chat turn. Do not pin the model that
+    // performed the tool loop: some OpenRouter catalog entries support
+    // tool_calling but do not advertise chat.
+    return {
+      ...base,
+      model: undefined,
+      quality: "powerful",
+      capability: "chat",
+      requireTools: false,
+    };
   }
 
   return {
@@ -3597,7 +3606,8 @@ function buildForensicRecoveryOptions(
     return {
       ...base,
       quality: "powerful",
-      capability: "reasoning",
+      capability: "chat",
+      requireTools: false,
       // Prefer a provider-enforced JSON envelope. openrouterCompleteRaw has a
       // same-model retry without this field for free models that reject it.
       responseFormat: { type: "json_object" },
@@ -7490,7 +7500,9 @@ export async function chat(opts: {
       // The tool-loop fallback may have returned a different model than the
       // initially selected candidate. Correct using that actual model so the
       // follow-up sees a model-family-compatible response format.
-      const correctionModel = result.model || model;
+      const correctionModel = provider === "openrouter"
+        ? undefined
+        : result.model || model;
       const retry = await strategy.call(
         _compactSynthesisMessages(messages),
         {
@@ -9302,7 +9314,9 @@ export async function chat(opts: {
     responseBeforeBehaviorEvidence.trim().length > 0
   ) {
     recoveryAttemptsUsed += 1;
-    const recoveryModel = result.model || model;
+    const recoveryModel = providerId === "openrouter"
+      ? undefined
+      : result.model || model;
     try {
       const recovery = await strategy.call(
         buildBehaviorEvidenceRecoveryMessages(
@@ -9313,6 +9327,9 @@ export async function chat(opts: {
         {
           model: recoveryModel,
           apiKey,
+            ...(providerId === "openrouter"
+              ? { quality: "powerful" as const, capability: "chat" as const, requireTools: false }
+              : {}),
           maxTokens: 1024,
           timeoutMs: 45_000,
           retryTransient: false,
@@ -9383,7 +9400,9 @@ export async function chat(opts: {
     const recoveryDeadline = recoveryWindow.deadlineAt;
     capabilityProbeRecoveryDeadlineAt = recoveryDeadline;
     recoveryAttemptsUsed += 1;
-    const recoveryModel = result.model || model;
+    const recoveryModel = providerId === "openrouter"
+      ? undefined
+      : result.model || model;
     if (
       executionLedger?.isExhausted() ||
       recoveryDeadline <= Date.now()
@@ -9404,6 +9423,9 @@ export async function chat(opts: {
           {
             model: recoveryModel,
             apiKey,
+            ...(providerId === "openrouter"
+              ? { quality: "powerful" as const, capability: "chat" as const, requireTools: false }
+              : {}),
             maxTokens: 3072,
             timeoutMs: Math.min(
               CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
@@ -9527,7 +9549,7 @@ export async function chat(opts: {
     const microProbeRecovery = await runCapabilityMicroProbes({
       strategy,
       provider: providerId,
-      model: result.model || model,
+      model: providerId === "openrouter" ? undefined : result.model || model,
       apiKey,
       signal,
       executionLedger,
