@@ -21,7 +21,7 @@ function makeLoadedContext(): LoadedProjectContext {
       sourceId: "entity-1",
       targetId: "entity-2",
       relation: "depends_on",
-      relationType: "dependency",
+      relationType: "depends_on",
       confidence: 0.8,
       isHeuristic: false,
     }] as LoadedProjectContext["relationships"],

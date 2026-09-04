@@ -481,8 +481,9 @@ describe("loadProjectContext deadline and cancellation guards", () => {
     try {
       _tableDelays.set(projectsTable as object, 50);
       const pending = loadProjectContext(PROJECT_ID, { deadlineMs: 10 });
+      const assertion = expect(pending).rejects.toThrow("QUERY_TIMEOUT");
       await vi.advanceTimersByTimeAsync(15);
-      await expect(pending).rejects.toThrow("QUERY_TIMEOUT");
+      await assertion;
       await vi.advanceTimersByTimeAsync(50);
     } finally {
       vi.useRealTimers();
