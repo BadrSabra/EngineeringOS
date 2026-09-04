@@ -3371,6 +3371,7 @@ router.post("/ai/chat", async (req, res) => {
       message: {
         ...assistantMsg,
         taskResult: parseTaskResult(assistantMsg.taskResult),
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       },
       executionLedger: executionLedgerSnapshot,
