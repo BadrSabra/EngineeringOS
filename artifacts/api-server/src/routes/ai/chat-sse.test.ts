@@ -834,7 +834,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
 
     const response = await request(app)
       .post("/api/ai/chat/stream")
-      .send({ projectId: "test-project-id", message: "audit this codebase" });
+      .send({ projectId: "test-project-id", message: "Summarize the project context." });
 
     expect(response.status).toBe(200);
     const frames = parseSseFrames(response.text) as Array<Record<string, unknown>>;
