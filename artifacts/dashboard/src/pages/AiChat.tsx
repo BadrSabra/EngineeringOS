@@ -9146,6 +9146,7 @@ export default function AiChat() {
         // written files (dirty markers, unstaged changes) without a manual reload.
         void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
         void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({ title: 'Failed to apply changes', description: describeAiError(err), variant: 'destructive' });
