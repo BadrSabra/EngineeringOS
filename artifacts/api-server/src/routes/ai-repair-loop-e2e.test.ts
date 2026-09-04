@@ -59,6 +59,13 @@ const harness = vi.hoisted(() => {
         messages,
       });
       const response = responses.shift();
+      console.error("REPAIR_DEBUG_CALL", JSON.stringify({
+        call: calls.length,
+        responseTool: response?.toolCalls?.[0]?.function.name,
+        responseContent: response?.content?.slice(0, 80),
+        toolChoice: options.toolChoice,
+        tools: options.tools?.map((tool) => tool.function?.name),
+      }));
       if (!response) {
         throw new Error(
           "Repair-loop fixture exhausted its injected provider responses. "
