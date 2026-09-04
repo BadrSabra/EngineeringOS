@@ -644,8 +644,6 @@ function projectBoundedFreeTierEnvelope(value: unknown): BoundedFreeTierEnvelope
           : undefined;
         if (evidenceStatus === undefined || attemptCount === undefined) return [];
         return [{
-          provider: "openrouter",
-          model: raw.model === null ? null : typeof raw.model === "string" ? raw.model.slice(0, 200) : null,
           failureCategory,
           recoveryAction,
           evidenceStatus,
