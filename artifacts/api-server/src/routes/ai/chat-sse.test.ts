@@ -1554,7 +1554,9 @@ describe("POST /api/ai/chat/stream — terminal message reservation", () => {
 
     const doneFrames = [first, second]
       .flatMap((response) => parseSseFrames(response.text))
-      .filter((frame) => typeof frame === "object" && frame !== null && frame.type === "done");
+      .filter((frame) => typeof frame === "object"
+        && frame !== null
+        && (frame as Record<string, unknown>).type === "done");
     expect(doneFrames).toHaveLength(1);
   });
 });
