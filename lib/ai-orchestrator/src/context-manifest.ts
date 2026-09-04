@@ -63,5 +63,13 @@ export function contextManifestMatches(
 }
 
 export function contextManifestAllowsExecution(manifest: ContextManifest | undefined): boolean {
-  return manifest?.scanCompleteness === "COMPLETE";
+  const repositoryManifest = manifest?.repositoryManifest;
+  return Boolean(
+    manifest?.scanCompleteness === "COMPLETE" &&
+    manifest.scanCorrelationId &&
+    repositoryManifest &&
+    repositoryManifest.revision === manifest.projectRevision &&
+    repositoryManifest.sourceRoot.length > 0 &&
+    repositoryManifest.completeness === "COMPLETE",
+  );
 }

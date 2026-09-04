@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { compactGraphSummary, compactWorkflowSummary, estimateContextSize, trimContextToFit } from "../context-compressor.js";
 import { applyLifetime } from "../context-runtime/context-lifetime.js";
 import { buildSlice, type ContextObject } from "../context-runtime/context-object.js";
+import { runAdmission } from "../context-runtime/context-admission.js";
+import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 import type { ProjectContext } from "../context-builder.js";
 import { promptContextOverview } from "../prompts/prompt-composer.js";
 
@@ -50,6 +52,21 @@ function makeContext(overrides: Partial<ProjectContext> = {}): ProjectContext {
 }
 
 describe("context freshness and structural size controls", () => {
+  it("drops every slice when admission identity is unavailable", () => {
+    const object = makeObject(0);
+    const result = runAdmission({
+      ...object.plan,
+      admissionIdentity: {
+        ...object.plan.admissionIdentity,
+        sourceRoot: "unavailable",
+      },
+    }, resolveExecutionDecision("chat-agent", { contextIntensityOverride: "normal" }));
+
+    expect(result.admittedSlices).toEqual([]);
+    expect(result.referenceSlices).toEqual([]);
+    expect(result.droppedSlices).toHaveLength(object.plan.slices.length);
+  });
+
   it("archives aged slices and reports the effective decision", () => {
     const result = applyLifetime(makeObject(0), undefined, 120_000);
     const tasks = result.states.find((state) => state.sliceId === "recentTasks");

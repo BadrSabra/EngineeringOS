@@ -4,6 +4,7 @@ import {
   parseAgentContext,
 } from "../schemas/context.schema.js";
 import { parseContextProvenance, projectContextProvenance } from "../context-provenance.js";
+import { contextManifestAllowsExecution } from "../context-manifest.js";
 
 const legacyContext = {
   project: "Project",
@@ -16,6 +17,28 @@ const legacyContext = {
 };
 
 describe("unified context contract", () => {
+  it("requires the complete manifest identity before execution admission", () => {
+    const base = {
+      projectId: "project-a",
+      projectRevision: "revision-a",
+      scanCompleteness: "COMPLETE" as const,
+      sourceProvenance: "filesystem-scan",
+      capturedAt: "2026-09-04T00:00:00.000Z",
+    };
+
+    expect(contextManifestAllowsExecution(base)).toBe(false);
+    expect(contextManifestAllowsExecution({
+      ...base,
+      scanCorrelationId: "scan-a",
+      repositoryManifest: {
+        revision: "revision-a",
+        sourceRoot: "/project",
+        files: [],
+        completeness: "COMPLETE",
+      },
+    })).toBe(true);
+  });
+
   it("migrates legacy contexts to explicit unavailable identity", () => {
     const parsed = parseAgentContext(legacyContext);
 
