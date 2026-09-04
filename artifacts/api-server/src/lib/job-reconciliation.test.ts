@@ -1,7 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  aiApplyJournalTable,
+  aiChangeProposalsTable,
+  aiChatMessagesTable,
+  aiChatSessionsTable,
+  db,
+  discoverySessionsTable,
+  projectsTable,
+  scanJobsTable,
+  taskLogsTable,
+  tasksTable,
+} from "@workspace/db";
 import {
   dispatchPersistedPendingJobs,
   failStaleDiscoverySessions,
@@ -670,6 +683,7 @@ describe("requeueStalePendingJobs", () => {
 describe("dispatchPersistedPendingJobs", () => {
   const projectCleanup: string[] = [];
   const sessionCleanup: string[] = [];
+  const deliveryRootCleanup: string[] = [];
 
   afterEach(async () => {
     vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
@@ -686,6 +700,100 @@ describe("dispatchPersistedPendingJobs", () => {
         await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, id));
       }
     }
+    while (deliveryRootCleanup.length > 0) {
+      const rootPath = deliveryRootCleanup.pop();
+      if (rootPath) await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("reconciles an interrupted promotion once and does not replay it on a second sweep", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const rootPath = `/tmp/reconcile-delivery-${randomUUID()}`;
+    deliveryRootCleanup.push(rootPath);
+    await mkdir(rootPath, { recursive: true });
+
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const operationId = randomUUID();
+    const targetPath = "src/recovered.ts";
+    const originalContent = "export const recovered = false;\n";
+    const newContent = "export const recovered = true;\n";
+    const now = new Date();
+
+    await mkdir(join(rootPath, "src"), { recursive: true });
+    await writeFile(join(rootPath, targetPath), originalContent, "utf8");
+    await db.update(projectsTable)
+      .set({ rootPath })
+      .where(eq(projectsTable.id, projectId));
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Interrupted delivery",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Prepared delivery candidate",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: JSON.stringify([{
+        path: targetPath,
+        newContent,
+        originalContent,
+      }]),
+      status: "pending",
+      lifecycle: "validated",
+      operationId,
+      workspaceRoot: `/tmp/engineeringos-delivery/${operationId}`,
+    });
+    await db.insert(aiApplyJournalTable).values({
+      id: randomUUID(),
+      operationId,
+      attemptId: randomUUID(),
+      projectId,
+      proposalId,
+      stage: "PROMOTION_INTENT",
+      sequence: 1,
+      payload: {
+        files: [{ path: targetPath, originalContent, newContent }],
+      },
+      createdAt: now,
+    });
+
+    const firstSweep = await reconcileStuckJobs();
+    expect(firstSweep.deliveries).toBeGreaterThanOrEqual(1);
+    expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
+
+    const [reconciledProposal] = await db
+      .select({ lifecycle: aiChangeProposalsTable.lifecycle })
+      .from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    expect(reconciledProposal?.lifecycle).toBe("conflicted");
+
+    const firstJournal = await db
+      .select({ stage: aiApplyJournalTable.stage, sequence: aiApplyJournalTable.sequence })
+      .from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operationId));
+    expect(firstJournal.map((entry) => entry.stage)).toEqual(["PROMOTION_INTENT", "PROMOTED"]);
+
+    const secondSweep = await reconcileStuckJobs();
+    expect(secondSweep.deliveries).toBe(0);
+    const secondJournal = await db
+      .select({ stage: aiApplyJournalTable.stage, sequence: aiApplyJournalTable.sequence })
+      .from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operationId));
+    expect(secondJournal).toEqual(firstJournal);
+    expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
   });
 
   it("dispatches fresh queued scans and pending discoveries from durable rows", async () => {

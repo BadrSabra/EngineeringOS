@@ -18,6 +18,83 @@ export type AiTerminalOutcome = {
   evidenceAccepted: boolean;
 };
 
+/**
+ * Stable, public acceptance projection.  This deliberately contains no
+ * validator prose, evidence identities, provider details, or workspace paths.
+ * Keep this contract small because it is copied to the stream, message, and
+ * durable execution projections.
+ */
+export const AI_ACCEPTANCE_REASON_CODES = [
+  "EXECUTION_ACCEPTANCE_INCOMPLETE",
+] as const;
+export type AiAcceptanceReasonCode = (typeof AI_ACCEPTANCE_REASON_CODES)[number];
+export const AI_ACCEPTANCE_OPERATOR_ACTIONS = [
+  "START_NEW_RUN",
+] as const;
+export type AiAcceptanceOperatorAction = (typeof AI_ACCEPTANCE_OPERATOR_ACTIONS)[number];
+export type AiAcceptanceDisposition = {
+  reasonCodes: AiAcceptanceReasonCode[];
+  outcome: "FAILED" | "INTERRUPTED";
+  failureKind: "INCOMPLETE";
+  recoveryState: "INCOMPLETE";
+  operatorAction: AiAcceptanceOperatorAction;
+};
+
+const GENERIC_ACCEPTANCE_DISPOSITION: AiAcceptanceDisposition = {
+  reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
+  outcome: "FAILED",
+  failureKind: "INCOMPLETE",
+  recoveryState: "INCOMPLETE",
+  operatorAction: "START_NEW_RUN",
+};
+
+/**
+ * Accept only the server-owned acceptance shape, or derive the same safe
+ * generic fallback for an older proof-required failed execution.
+ */
+export function publicAcceptanceDisposition(input: {
+  value?: unknown;
+  code?: unknown;
+  outcome?: unknown;
+  failureKind?: unknown;
+  recoveryState?: unknown;
+  status?: unknown;
+  proofRequired?: boolean;
+  evidenceVerdict?: unknown;
+}): AiAcceptanceDisposition | undefined {
+  const value = input.value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const candidate = value as Record<string, unknown>;
+    const reasonCodes = candidate.reasonCodes;
+    if (
+      Array.isArray(reasonCodes)
+      && reasonCodes.length > 0
+      && reasonCodes.every((code): code is AiAcceptanceReasonCode =>
+        AI_ACCEPTANCE_REASON_CODES.includes(code as AiAcceptanceReasonCode),
+      )
+      && (candidate.outcome === "FAILED" || candidate.outcome === "INTERRUPTED")
+      && candidate.failureKind === "INCOMPLETE"
+      && candidate.recoveryState === "INCOMPLETE"
+      && AI_ACCEPTANCE_OPERATOR_ACTIONS.includes(candidate.operatorAction as AiAcceptanceOperatorAction)
+    ) {
+      return {
+        reasonCodes: [...new Set(reasonCodes)] as AiAcceptanceReasonCode[],
+        outcome: candidate.outcome,
+        failureKind: "INCOMPLETE",
+        recoveryState: "INCOMPLETE",
+        operatorAction: candidate.operatorAction as AiAcceptanceOperatorAction,
+      };
+    }
+  }
+
+  const explicitAcceptance = input.code === "EXECUTION_ACCEPTANCE_INCOMPLETE";
+  const legacyProofFailure = input.proofRequired === true
+    && (input.status === "failed" || input.outcome === "FAILED")
+    && input.evidenceVerdict !== "PROVEN";
+  if (!explicitAcceptance && !legacyProofFailure) return undefined;
+  return { ...GENERIC_ACCEPTANCE_DISPOSITION };
+}
+
 type TerminalClassifierInput = {
   result?: unknown;
   trace: readonly AgentStep[];

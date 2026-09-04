@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyAiTerminalOutcome,
+  publicAcceptanceDisposition,
   type AiTerminalOutcome,
 } from "./ai-terminal-outcome.js";
 import type { AgentStep } from "@workspace/ai-orchestrator";
@@ -98,5 +99,33 @@ describe("classifyAiTerminalOutcome", () => {
     ], { forensic: false, requiresEvidence: false, result: { response: "A normal delivery response." } })).toMatchObject({
       outcome: "SUCCEEDED",
     });
+  });
+});
+
+describe("publicAcceptanceDisposition", () => {
+  it("uses one safe generic projection for legacy failed proof records", () => {
+    expect(publicAcceptanceDisposition({
+      status: "failed",
+      proofRequired: true,
+      evidenceVerdict: "UNAVAILABLE",
+    })).toEqual({
+      reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+      operatorAction: "START_NEW_RUN",
+    });
+  });
+
+  it("drops untrusted acceptance fields instead of exposing them", () => {
+    expect(publicAcceptanceDisposition({
+      value: {
+        reasonCodes: ["validator_internal_reason", "EXECUTION_ACCEPTANCE_INCOMPLETE"],
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+        recoveryState: "INCOMPLETE",
+        operatorAction: "run /workspace/private-command",
+      },
+    })).toBeUndefined();
   });
 });

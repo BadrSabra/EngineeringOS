@@ -17,8 +17,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type BoundedBenchmarkScorecard = {
   suiteVersion?: string;
   generatedAt?: string;
-  provider?: string;
-  model?: string | null;
   metrics?: {
     observedCases?: number;
     totalCases?: number;
@@ -46,8 +44,6 @@ type BoundedBenchmarkScorecard = {
 };
 
 type BoundedProviderRecoverySummary = {
-  provider: "openrouter";
-  model: string | null;
   failureCategory: string | null;
   recoveryAction: string | null;
   evidenceStatus: "complete" | "incomplete";
@@ -67,8 +63,6 @@ type BoundedEmpiricalQualityScorecard = {
   version: 1;
   generatedAt?: string;
   corpusRevision?: string;
-  provider?: string;
-  model?: string | null;
   measurementOnly: true;
   status: "COMPLETE" | "INCOMPLETE" | "UNAVAILABLE";
   empiricalQualityStatus: "PROVEN" | "MEASURED" | "INCOMPLETE" | "UNAVAILABLE";
@@ -223,8 +217,6 @@ function projectBoundedScorecard(scorecard: BoundedBenchmarkScorecard): BoundedB
   return {
     ...(typeof scorecard.suiteVersion === "string" ? { suiteVersion: scorecard.suiteVersion } : {}),
     ...(typeof scorecard.generatedAt === "string" ? { generatedAt: scorecard.generatedAt } : {}),
-    ...(typeof scorecard.provider === "string" ? { provider: scorecard.provider } : {}),
-    ...(typeof scorecard.model === "string" || scorecard.model === null ? { model: scorecard.model } : {}),
     ...(metrics ? { metrics } : {}),
     ...(typeof scorecard.rolloutAllowed === "boolean"
       ? { rolloutAllowed: scorecard.rolloutAllowed }
@@ -341,8 +333,6 @@ function projectRecorderEvent(step: Record<string, unknown>): Record<string, unk
     kind: textValue(step.kind, 48) ?? "step",
     ...(status ? { status } : {}),
     ...(textValue(step.tool, 64) ? { tool: textValue(step.tool, 64) } : {}),
-    ...(textValue(step.provider, 64) ? { provider: textValue(step.provider, 64) } : {}),
-    ...(textValue(step.model, 120) ? { model: textValue(step.model, 120) } : {}),
     ...(detail ? { detail } : {}),
   };
 }
@@ -364,8 +354,6 @@ function projectExecution(
     const validation = asRecord(step.validation);
     return ["failed", "blocked", "unavailable"].includes(String(validation?.status ?? step.status));
   }).length;
-  const latestModelStep = [...steps].reverse().find((step) => textValue(step.model));
-  const latestProviderStep = [...steps].reverse().find((step) => textValue(step.provider));
   const hasPendingProposal = Boolean(execution.proposalId);
   const evidenceVerdict = textValue(checkpoint.evidenceVerdict ?? checkpoint.evidenceStatus, 48);
   const autonomousOperation = asRecord(checkpoint.operation);
@@ -402,8 +390,6 @@ function projectExecution(
       : state,
     executionStatus: execution.status,
     objective: objectiveText,
-    provider: textValue(latestProviderStep?.provider),
-    model: textValue(latestModelStep?.model),
     attempts,
     validationFailures,
     evidence: {
@@ -646,8 +632,6 @@ function projectBoundedFreeTierEnvelope(value: unknown): BoundedFreeTierEnvelope
           : undefined;
         if (evidenceStatus === undefined || attemptCount === undefined) return [];
         return [{
-          provider: "openrouter",
-          model: raw.model === null ? null : typeof raw.model === "string" ? raw.model.slice(0, 200) : null,
           failureCategory,
           recoveryAction,
           evidenceStatus,
@@ -760,9 +744,6 @@ function projectBoundedEmpiricalScorecard(value: unknown): BoundedEmpiricalQuali
     version: 1,
     ...(typeof value.generatedAt === "string" ? { generatedAt: value.generatedAt } : {}),
      ...(safePublicIdentifier(value.corpusRevision, 160) ? { corpusRevision: safePublicIdentifier(value.corpusRevision, 160) } : {}),
-     ...(safePublicIdentifier(value.provider, 80) ? { provider: safePublicIdentifier(value.provider, 80) } : {}),
-     ...(value.model === null ? { model: null } :
-       safePublicIdentifier(value.model, 200) ? { model: safePublicIdentifier(value.model, 200) } : {}),
     measurementOnly: true,
     status: value.status as BoundedEmpiricalQualityScorecard["status"],
     empiricalQualityStatus: value.empiricalQualityStatus as BoundedEmpiricalQualityScorecard["empiricalQualityStatus"],

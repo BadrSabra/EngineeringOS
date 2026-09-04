@@ -526,7 +526,7 @@ async function insertChangeProposal(
 
 async function makeRecoverableProposal(
   projectId: string,
-  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+  lifecycle: "isolated" | "abandoned" | "blocked" | "conflicted" = "blocked",
   options: { withWorkspace?: boolean; conflictReason?: string } = {},
 ): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
   path: string;
@@ -974,6 +974,30 @@ describe("POST /api/ai/chat", () => {
       .where(eq(aiChangeProposalsTable.id, proposalId))
       .limit(1);
 
+    // A later completed attempt in the same session must not hide the
+    // still-pending proposal that the user has not reviewed yet.
+    const newerMessageId = randomUUID();
+    const newerProposalId = randomUUID();
+    const newerCreatedAt = new Date(Date.now() + 1_000);
+    await db.insert(aiChatMessagesTable).values({
+      id: newerMessageId,
+      sessionId: proposal.sessionId,
+      role: "assistant",
+      content: "Completed later attempt",
+      createdAt: newerCreatedAt,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: newerProposalId,
+      projectId,
+      sessionId: proposal.sessionId,
+      messageId: newerMessageId,
+      changes: JSON.stringify(changes),
+      status: "applied",
+      lifecycle: "applied",
+      createdAt: newerCreatedAt,
+      consumedAt: newerCreatedAt,
+    });
+
     const res = await request(app)
       .get(`/api/ai/chat/${proposal.sessionId}/pending-proposal`);
     expect(res.status).toBe(200);
@@ -1007,6 +1031,28 @@ describe("POST /api/ai/chat", () => {
       });
     expect(res.status).toBe(409);
     expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+  });
+
+  it("rejects duplicate paths in an otherwise authorized apply payload", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const changes = [{
+      path: "src/duplicate.ts",
+      absolutePath: `/tmp/${randomUUID()}/src/duplicate.ts`,
+      newContent: "export const once = true;",
+      originalContent: null,
+      reason: "Duplicate path test",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(projectId, changes);
+
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ projectId, proposalId, changes: [changes[0], changes[0]] });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+    expect(res.body.error).toContain("duplicate path");
   });
 
   it("does not consume a proposal when behavioral verification blocks the write", async () => {
@@ -3055,6 +3101,84 @@ describe("delivery recovery routes", () => {
     expect(res.body.operations[0]).not.toHaveProperty("changes");
   });
 
+  it("lists an isolated operation and resumes validation without applying live files", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "isolated");
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValue({
+        status: "passed",
+        profile: "api-ai-tests",
+        exitCode: 0,
+        scenario: "Run API tests for the isolated recovery.",
+        command: "pnpm test",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: randomUUID(),
+          observedAt: new Date().toISOString(),
+          artifactRef: "isolated-recovery-validation",
+        },
+        detail: "Validation passed.",
+      });
+
+    const list = await request(app)
+      .get("/api/ai/delivery/recoverable")
+      .query({ projectId });
+
+    expect(list.status).toBe(200);
+    expect(list.body.operations).toEqual([
+      expect.objectContaining({
+        proposalId: operation.proposalId,
+        lifecycle: "isolated",
+        recoveryState: "recoverable",
+        workspaceAvailable: true,
+      }),
+    ]);
+
+    const resume = await request(app)
+      .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+
+    expect(resume.status).toBe(200);
+    expect(resume.body).toMatchObject({
+      proposalId: operation.proposalId,
+      operationId: operation.operationId,
+      lifecycle: "validated",
+    });
+    expect(validationSpy).toHaveBeenCalledTimes(1);
+    const [proposal] = await db.select({
+      lifecycle: aiChangeProposalsTable.lifecycle,
+      status: aiChangeProposalsTable.status,
+    }).from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+    expect(proposal).toEqual({ lifecycle: "validated", status: "pending" });
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+  });
+
+  it("does not report validated recovery when its workspace is gone", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "isolated", { withWorkspace: false });
+    await db.update(aiChangeProposalsTable)
+      .set({ lifecycle: "validated" })
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+
+    const res = await request(app)
+      .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      error: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+      code: "DELIVERY_NOT_RECOVERABLE",
+      lifecycle: "validated",
+      recoveryState: "missing_workspace",
+      nextAction: "Start a new delivery from the current project rather than retrying this recovery.",
+    });
+  });
+
   it("explains missing and already-discarded recovery states without exposing paths", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -3237,6 +3361,38 @@ describe("POST /api/ai/chat/apply-changes", () => {
       .post("/api/ai/chat/apply-changes")
       .send({ changes: [{ path: "a.ts", absolutePath: "/tmp/a.ts", newContent: "" }] });
     expect(res.status).toBe(400);
+  });
+
+  it("does not replay an interrupted delivery before recovery validation", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const proposalChanges = [{
+      path: "src/recovery-gated.ts",
+      absolutePath: `/tmp/recovery-gated-${randomUUID()}.ts`,
+      newContent: "export const recoveryGated = true;\n",
+      originalContent: null,
+      reason: "Recovery gate test",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(projectId, proposalChanges);
+    await db.update(aiChangeProposalsTable)
+      .set({ lifecycle: "conflicted", conflictReason: "Interrupted promotion requires review." })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ projectId, proposalId, changes: proposalChanges });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      error: "This delivery must complete recovery validation before it can be applied again.",
+      code: "DELIVERY_RECOVERY_REQUIRED",
+      lifecycle: "conflicted",
+      recoveryState: "recoverable",
+      nextAction: "Resume validation before applying the delivery again, or discard it if it is no longer needed.",
+    });
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, proposalId))).toHaveLength(0);
   });
 
   it("emits a warning AiChangesApplied event when no file can be written", async () => {
