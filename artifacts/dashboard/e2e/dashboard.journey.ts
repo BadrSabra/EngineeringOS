@@ -1071,6 +1071,35 @@ async function installArabicAiFixture(
       },
     },
   };
+  const contextProvenance = {
+    schemaVersion: "1",
+    intentKind: "FORENSIC_AUDIT",
+    revisionLabel: "workspace-revision-safe-7",
+    slices: [{
+      layer: "tasks",
+      source: "db:tasks",
+      status: "loaded",
+      freshness: "fresh",
+      rowCount: 1,
+      truncated: false,
+    }],
+    links: {
+      returnedCount: 2,
+      truncated: false,
+      statuses: ["loaded"],
+      details: [{
+        source: "file",
+        layer: "context",
+        direction: "outbound",
+        status: "loaded",
+        freshness: "fresh",
+        rowCount: 1,
+        linkReason: "context dependency",
+        sourceRefCount: 1,
+      }],
+    },
+    citations: [source],
+  };
   const message = {
     id: messageId,
     sessionId,
@@ -1081,6 +1110,7 @@ async function installArabicAiFixture(
     toolTrace: JSON.stringify(toolTrace),
     behaviorEvidence: evidence,
     taskResult,
+    contextProvenance,
     createdAt: "2026-01-01T00:02:00.000Z",
   };
   const sse = (event: Record<string, unknown>) =>
@@ -1133,6 +1163,7 @@ async function installArabicAiFixture(
       toolTrace: JSON.stringify(toolTrace),
       behaviorEvidence: evidence,
       taskResult,
+      contextProvenance,
       pendingChanges: [],
     }),
   ].join("");
@@ -4143,10 +4174,31 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         .last(),
     ).toBeVisible();
 
+    const provenance = page.locator('[aria-label="Context provenance"]');
+    await expect(provenance).toBeVisible();
+    await provenance.getByRole("button").click();
+    await expect(provenance).toContainText("Revision: workspace-revision-safe-7");
+    await expect(provenance).toContainText("Links: 2");
+    await expect(provenance).toContainText("file/context: context dependency");
+    const provenanceBeforeReload = await provenance.innerText();
+
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toContain("COMPLETED");
     expect(visibleText).not.toContain("Persisted execution proof");
     expect(visibleText).toContain("NOT PROVEN");
+
+    await page.reload();
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+    const reloadedProvenance = page.locator('[aria-label="Context provenance"]');
+    await expect(reloadedProvenance).toBeVisible();
+    await reloadedProvenance.getByRole("button").click();
+    await expect(reloadedProvenance).toContainText("Revision: workspace-revision-safe-7");
+    await expect(reloadedProvenance).toContainText("Links: 2");
+    await expect(reloadedProvenance).toContainText("file/context: context dependency");
+    expect(await reloadedProvenance.innerText()).toBe(provenanceBeforeReload);
+    const reloadedText = await page.locator("body").innerText();
+    expect(reloadedText).not.toContain("/home/runner/");
+    expect(reloadedText).not.toContain("provider diagnostics");
   });
 
   test("keeps the incomplete six-section forensic report and telemetry after reload", async ({
