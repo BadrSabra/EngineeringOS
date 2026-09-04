@@ -156,9 +156,11 @@ vi.mock("@workspace/db", () => {
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           select: () => ({
-            from: () => ({
+            from: (table: unknown) => ({
               where: () => ({
-                for: () => Promise.resolve(fixture.session ? [{ id: fixture.session.id }] : []),
+                for: () => (table as { _tag?: string })._tag === "aiExecutionsTable"
+                  ? Promise.resolve([{ ...MOCK_EXECUTION, status: "running" }])
+                  : Promise.resolve(fixture.session ? [{ id: fixture.session.id }] : []),
               }),
             }),
           }),
@@ -201,7 +203,16 @@ vi.mock("@workspace/db", () => {
                 if (fixture.session && "activeTaskState" in vals) {
                   fixture.session = { ...fixture.session, ...vals };
                 }
-                return Promise.resolve();
+                const updateResult = Promise.resolve();
+                return Object.assign(updateResult, {
+                  returning: () => Promise.resolve([{
+                    ...MOCK_EXECUTION,
+                    status: "running",
+                    ...(typeof vals.finalMessageId === "string"
+                      ? { finalMessageId: vals.finalMessageId }
+                      : {}),
+                  }]),
+                });
               },
             }),
           }),
