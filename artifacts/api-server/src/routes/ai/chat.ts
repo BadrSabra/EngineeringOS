@@ -5508,7 +5508,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       // the prompt in conversation history.
       if (!effectiveExecutionId) {
         await tx.insert(aiChatMessagesTable).values({
-          id: assistantMessageId,
+          id: randomUUID(),
           sessionId: sessionIdToUse,
           role: "user",
           content: message,
@@ -5521,7 +5521,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       const [msg] = await tx
         .insert(aiChatMessagesTable)
         .values({
-          id: randomUUID(),
+          id: assistantMessageId,
           sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
@@ -5586,6 +5586,14 @@ router.post("/ai/chat/stream", async (req, res) => {
         ));
       return msg;
     });
+    if (!assistantMsg) {
+      // A competing terminal path already owns this execution. The durable
+      // message and execution state will be visible to the reconnecting
+      // client; this request must not emit a contradictory second outcome.
+      executionTerminal = true;
+      res.end();
+      return;
+    }
 
     persistExecutionCheckpoint({
       stage: "finalizing",
