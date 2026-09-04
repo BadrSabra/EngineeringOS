@@ -1249,7 +1249,6 @@ async function persistFailedChatTurn(params: {
         ))
         .returning({ id: aiExecutionsTable.id });
       if (!reserved) return undefined;
-      }
     }
     // A provider/network failure may already have persisted the user turn.
     // Resuming that execution must only add the next assistant outcome, not
@@ -4980,7 +4979,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           serializeToolTrace(traceSteps, false),
           executionLedgerSnapshot,
         );
-        const forensicDiagnostic = deriveForensicDiagnostic(traceSteps);
+        const forensicDiagnostic = streamTurnIntent.requiresEvidence
+          ? deriveForensicDiagnostic(traceSteps)
+          : undefined;
         const failedMessage = await persistFailedChatTurn({
           sessionId: sessionIdToUse,
           projectId,
@@ -5014,6 +5015,14 @@ router.post("/ai/chat/stream", async (req, res) => {
           ),
           createdAt: msgNow,
         };
+        if (aiExecution && !failedMessage) {
+          // Another terminal path already owns this execution's final message.
+          // Do not emit a second outcome or let finally turn the winner into a
+          // failure while its success path is still finalizing.
+          executionTerminal = true;
+          res.end();
+          return;
+        }
         if (terminalOutcome.failureKind === "TOOL_FAILURE") {
           sse({
             type: "recipe_terminal",
