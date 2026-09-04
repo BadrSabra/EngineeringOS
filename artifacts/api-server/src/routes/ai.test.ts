@@ -1678,6 +1678,66 @@ describe("GET /api/ai/executions/history", () => {
 });
 
 describe("GET /api/ai/executions/:executionId/audit-export", () => {
+  it("projects stable terminal codes instead of persisted diagnostics", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        message: "Analyze the service",
+        modelMessage: "Analyze the service",
+      },
+    });
+    const providerDiagnostic = [
+      "provider response body: {\"error\":\"upstream failure\"}",
+      "https://provider.example.invalid/v1/chat",
+      "token=sk-live-do-not-export",
+      "/home/runner/workspace/private/runtime.log",
+    ].join(" ");
+    await db
+      .update(aiExecutionsTable)
+      .set({
+        status: "failed",
+        checkpoint: JSON.stringify({
+          stage: "failed",
+          detail: providerDiagnostic,
+          evidenceVerdict: "BLOCKED",
+        }),
+        error: providerDiagnostic,
+        checkpointVersion: 2,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const statusResponse = await request(app)
+      .get(`/api/ai/executions/${created.execution.id}`);
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.terminalReason).toBe("EXECUTION_FAILED");
+    expect(statusResponse.body.error).toBe("Execution stopped before a complete result was recorded.");
+    expect(JSON.stringify(statusResponse.body)).not.toContain(providerDiagnostic);
+    expect(JSON.stringify(statusResponse.body)).not.toContain("provider.example.invalid");
+    expect(JSON.stringify(statusResponse.body)).not.toContain("sk-live-do-not-export");
+    expect(JSON.stringify(statusResponse.body)).not.toContain("/home/runner/workspace");
+
+    const auditResponse = await request(app)
+      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+    expect(auditResponse.status).toBe(200);
+    expect(auditResponse.body.execution.terminalReason).toBe("EXECUTION_FAILED");
+    expect(auditResponse.body.timeline).toContainEqual(expect.objectContaining({
+      type: "execution_failed",
+      detail: "EXECUTION_FAILED",
+    }));
+    const exported = JSON.stringify(auditResponse.body);
+    expect(exported).not.toContain(providerDiagnostic);
+    expect(exported).not.toContain("provider.example.invalid");
+    expect(exported).not.toContain("sk-live-do-not-export");
+    expect(exported).not.toContain("/home/runner/workspace");
+  });
+
   it("exports owner-scoped terminal evidence while excluding sensitive execution data", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
