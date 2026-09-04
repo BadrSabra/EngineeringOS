@@ -135,11 +135,16 @@ vi.mock("@workspace/db", () => {
               }
               return Promise.resolve([]);
             },
-            orderBy: () => ({
-              limit: () => (table as { _tag?: string })._tag === "aiChatMessagesTable"
-                ? Promise.resolve([...fixture.messages])
-                : Promise.resolve([]),
-            }),
+            orderBy: () => {
+              const rows = (table as { _tag?: string })._tag === "aiChatSessionsTable"
+                ? (fixture.session ? [fixture.session] : [])
+                : (table as { _tag?: string })._tag === "aiChatMessagesTable"
+                  ? [...fixture.messages]
+                  : [];
+              return Object.assign(Promise.resolve(rows), {
+                limit: () => Promise.resolve(rows),
+              });
+            },
           }),
         }),
       }),
