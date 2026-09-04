@@ -29,8 +29,8 @@ export const ContextSliceHealthSchema = z.object({
   loadedAt: z.number().int().nonnegative(),
   freshness: z.enum(["fresh", "stale", "missing"]),
   failureCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,31}$/).optional(),
-  admissionDecision: z.enum(["ADMIT", "REFERENCE", "DEFER", "DROP"]),
-  lifetimeStage: z.enum(["fresh", "stale", "archived"]),
+  admissionDecision: z.enum(["ADMIT", "REFERENCE", "DEFER", "DROP"]).optional(),
+  lifetimeStage: z.enum(["fresh", "stale", "archived"]).optional(),
   collection: ContextCollectionSchema.optional(),
 }).strict();
 
@@ -74,7 +74,7 @@ const AgentContextBaseSchema = z
     /** Immutable revision/completeness contract for all downstream work. */
     contextManifest: ContextManifestSchema.optional(),
      /** Server-owned load, freshness, and admission status for every optional slice. */
-     contextHealth: ContextHealthSchema,
+     contextHealth: ContextHealthSchema.optional(),
     /**
      * Optional: formatted text summarising files and findings from previous
      * chat sessions for this project, injected via the session-memory layer.
@@ -86,7 +86,7 @@ const AgentContextBaseSchema = z
     /** Optional bounded source excerpts read specifically for implementation planning. */
     filesystemSources: ProjectFileSourcesSchema.optional(),
      /** Server-owned versioned identity for the current turn. */
-     contextIdentity: ContextIdentitySchema,
+     contextIdentity: ContextIdentitySchema.optional(),
      schemaVersion: z.union([z.literal(CONTEXT_SCHEMA_VERSION), z.literal(1)])
       .transform(() => CONTEXT_SCHEMA_VERSION)
       .optional(),
@@ -123,6 +123,25 @@ export const AgentContextSchema = Object.assign(
 
 export type AgentContext = z.infer<typeof AgentContextSchema>;
 
+const ServerOwnedContextSliceHealthSchema = ContextSliceHealthSchema.extend({
+  admissionDecision: z.enum(["ADMIT", "REFERENCE", "DEFER", "DROP"]),
+  lifetimeStage: z.enum(["fresh", "stale", "archived"]),
+});
+
+const ServerOwnedContextHealthSchema = z.object({
+  tasks: ServerOwnedContextSliceHealthSchema,
+  metrics: ServerOwnedContextSliceHealthSchema,
+  graphEntities: ServerOwnedContextSliceHealthSchema,
+  graphRelationships: ServerOwnedContextSliceHealthSchema,
+  events: ServerOwnedContextSliceHealthSchema,
+  workflows: ServerOwnedContextSliceHealthSchema,
+}).strict();
+
+const ServerOwnedAgentContextSchema = AgentContextBaseSchema.extend({
+  contextHealth: ServerOwnedContextHealthSchema,
+  contextIdentity: ContextIdentitySchema,
+});
+
 const DEFAULT_CONTEXT_HEALTH: ContextHealth = {
   tasks: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
   metrics: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
@@ -132,11 +151,11 @@ const DEFAULT_CONTEXT_HEALTH: ContextHealth = {
   workflows: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
 };
 
-const DEFAULT_CONTEXT_INTENT = {
+const DEFAULT_CONTEXT_INTENT: z.infer<typeof ContextIntentSchema> = {
   kind: "CHAT",
   phases: [],
   requiresEvidence: false,
-} as const;
+};
 
 function normalizeHealth(value: unknown): ContextHealth {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -191,7 +210,7 @@ export function parseAgentContext(value: unknown): AgentContext {
         intent,
         requestedSections,
       };
-  const parsed = AgentContextSchema.parse({
+  const parsed = ServerOwnedAgentContextSchema.parse({
     ...(candidate as Record<string, unknown>),
     contextIdentity: identity,
     contextHealth: normalizeHealth(candidate.contextHealth),
