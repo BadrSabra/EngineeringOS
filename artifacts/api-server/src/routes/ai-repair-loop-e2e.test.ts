@@ -455,6 +455,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const intent = events.find((event) => event.type === "intent");
     const done = events.find((event) => event.type === "done");
     const error = events.find((event) => event.type === "error");
+    console.log("compound inspect-fix events", events);
 
     expect(intent).toMatchObject({
       intent: "DELIVERY",
