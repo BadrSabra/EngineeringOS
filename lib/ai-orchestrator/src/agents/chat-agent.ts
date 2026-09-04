@@ -3738,6 +3738,9 @@ export function buildIncompleteForensicReport(
     reason?: string;
     nextAction?: string;
     cancelled?: boolean;
+    /** Preserve the forensic incomplete classification while naming an
+     * explicitly declared objective that was blocked by the completion gate. */
+    objectiveBlocked?: boolean;
     incompleteEnvelope?: ForensicRecoveryEnvelope;
   } = {},
 ): string {
@@ -3769,7 +3772,13 @@ export function buildIncompleteForensicReport(
   // The fallback is user-facing. Keep internal tool names out of its retained
   // evidence narrative while leaving the shared report builder unchanged for
   // compatibility with its lower-level evidence-contract tests.
-  return report.replace(/\bread_file(?:_range)?\b/g, "source read");
+  const safeReport = report.replace(/\bread_file(?:_range)?\b/g, "source read");
+  if (!options.objectiveBlocked) return safeReport;
+
+  const blockedNotice = language === "ar"
+    ? "محظور — لم يكتمل الهدف المصرَّح به؛ لا توجد نتيجة نهائية قابلة للإصدار."
+    : "BLOCKED — the declared objective was not completed; no final answer is emitted.";
+  return `${safeReport}\n${blockedNotice}`;
 }
 
 // hint: Structural and logic conflict. Both design and behavior differ.
@@ -10109,6 +10118,7 @@ export async function chat(opts: {
               : "FORENSIC_REPORT_INCOMPLETE",
             nextAction: "Retry or narrow the question to a specific file or function; retain the source evidence before making a verdict.",
             cancelled: cancelledForensicAudit(),
+            objectiveBlocked: Boolean(objectiveBlocksVerdict),
             incompleteEnvelope: retainedIncompleteForensicEnvelope,
           },
         )

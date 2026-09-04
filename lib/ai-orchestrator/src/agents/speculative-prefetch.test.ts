@@ -175,6 +175,8 @@ describe("prefetchForensicRoots", () => {
         readFiles: 1,
         unreadFiles: 0,
         status: "COMPLETE",
+        unreadPaths: [],
+        truncatedPaths: [],
       },
       {
         root: "second",
@@ -182,6 +184,8 @@ describe("prefetchForensicRoots", () => {
         readFiles: 1,
         unreadFiles: 0,
         status: "COMPLETE",
+        unreadPaths: ["second/runtime.ts"],
+        truncatedPaths: [],
       },
     ]);
   });
@@ -216,6 +220,7 @@ describe("prefetchForensicRoots", () => {
       readFiles: 0,
       unreadFiles: 0,
       status: "BUDGET_EXHAUSTED",
+      unreadPaths: [],
     });
     expect(result.sources).not.toContain("second/late.ts");
   });
