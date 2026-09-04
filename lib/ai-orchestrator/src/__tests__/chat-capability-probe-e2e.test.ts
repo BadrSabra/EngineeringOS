@@ -76,7 +76,7 @@ const CONTENT_A = [
 const CONTENT_B = [
   "/* file-tools.ts */",
   "export function executeFileTool(name: string): string {",
-  "  return `executed:${name}`;",
+  "  return \"executed:\" + name;",
   "}",
 ].join("\n");
 
@@ -94,17 +94,17 @@ const GROUNDED_NEGATIVE_ANSWER = JSON.stringify({
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
     "C2: PASS — read_file for contents; search_code / read_file_range for a symbol. " +
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');` " +
-    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`\n" +
+    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \"executed:\" + name;`\n" +
     "C3: PASS — the named function was grounded in the completed source read. " +
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
     "C4: PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read. " +
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
     "C5: PASS — I used no write tool; no code was modified. " +
-    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`\n" +
+    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \"executed:\" + name;`\n" +
     "C6: PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call. " +
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
     "C7: PASS — `run()` and immediate write_file-to-disk behavior are MISSING. " +
-    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`\n" +
+    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \"executed:\" + name;`\n" +
     "Overall score: 7/7.",
   sources: [FILE_A],
 });
