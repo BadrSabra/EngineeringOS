@@ -189,9 +189,9 @@ async function safeLoad<T>(
 }
 
 function loadFailure(code: ContextLoadFailureCode): Error & { code: string } {
-  const error = new Error(code);
-  error.code = code === "QUERY_CANCELLED" ? "57012" : code === "QUERY_TIMEOUT" ? "57014" : code;
-  return error;
+  return Object.assign(new Error(code), {
+    code: code === "QUERY_CANCELLED" ? "57012" : code === "QUERY_TIMEOUT" ? "57014" : code,
+  });
 }
 
 async function guardedLoad<T>(
