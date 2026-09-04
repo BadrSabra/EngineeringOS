@@ -441,6 +441,8 @@ export type SingleToolOpts = {
   allowExecutionTools?: boolean;
   /** Server-owned approval and scope manifest; never inferred from model text. */
   approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+  /** Compound writes are proposals; they remain pending approval and never apply bytes. */
+  compoundWriteMode?: boolean;
   approvedFilePaths?: readonly string[];
   approvedValidationProfiles?: readonly string[];
   /** Server-owned effective tool manifest, checked again at dispatch. */
