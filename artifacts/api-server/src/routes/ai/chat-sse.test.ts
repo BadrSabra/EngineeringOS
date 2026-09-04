@@ -24,6 +24,7 @@ import {
   RepairPlanMetadataSchema,
   type AgentStep,
   type EvidenceReference,
+  buildProjectContext,
 } from "@workspace/ai-orchestrator";
 
 // Task #59: capture the exact serialized values written to the assistant
@@ -495,6 +496,53 @@ const BEHAVIOR_EVIDENCE_STEP_RESULT = {
   effectiveProvider: "openai",
 };
 
+const CONTEXT_PROVENANCE_FIXTURE = {
+  schemaVersion: "1",
+  intentKind: "CHAT",
+  revisionLabel: "revision-context-parity",
+  slices: [
+    {
+      layer: "project",
+      source: "project",
+      status: "loaded",
+      freshness: "fresh",
+      rowCount: 2,
+      truncated: false,
+      admissionDecision: "ADMIT",
+      lifetimeStage: "fresh",
+    },
+    {
+      layer: "memory",
+      source: "session_memory",
+      status: "empty",
+      freshness: "missing",
+      rowCount: 0,
+      truncated: false,
+      admissionDecision: "DROP",
+      lifetimeStage: "fresh",
+    },
+  ],
+  links: {
+    returnedCount: 1,
+    truncated: false,
+    statuses: ["loaded"],
+    details: [
+      {
+        source: "file",
+        layer: "direct",
+        direction: "outbound",
+        status: "loaded",
+        freshness: "fresh",
+        rowCount: 1,
+        linkReason: "The response was grounded in the requested source.",
+        sourceRefCount: 1,
+        confidence: 0.98,
+      },
+    ],
+  },
+  citations: ["src/routes/ai/chat.ts"],
+} as const;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Parse all SSE events from a text/event-stream response body. */
@@ -602,6 +650,78 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("keeps context provenance identical across JSON, SSE done, persistence, and history", async () => {
+    vi.mocked(buildProjectContext)
+      .mockImplementationOnce(async () => ({
+        contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
+      } as never))
+      .mockImplementationOnce(async () => ({
+        contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
+      } as never));
+
+    const json = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId: "test-project-id", message: "Summarize the project context." });
+
+    expect(json.status, JSON.stringify(json.body)).toBe(200);
+    expect(json.body.contextProvenance).toEqual(CONTEXT_PROVENANCE_FIXTURE);
+    expect(json.body.message.contextProvenance).toEqual(CONTEXT_PROVENANCE_FIXTURE);
+
+    const jsonTrace = JSON.parse(json.body.toolTrace) as Array<Record<string, unknown>>;
+    expect(jsonTrace).toContainEqual({
+      kind: "context_provenance",
+      ...CONTEXT_PROVENANCE_FIXTURE,
+    });
+    const sessionId = json.body.sessionId as string;
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId: "test-project-id",
+        sessionId,
+        message: "Summarize the project context.",
+      });
+
+    expect(stream.status, stream.text).toBe(200);
+    const frames = parseSseFrames(stream.text) as Array<Record<string, unknown>>;
+    const done = frames.find((frame) => frame.type === "done");
+    expect(done).toBeDefined();
+    expect(done?.contextProvenance).toEqual(CONTEXT_PROVENANCE_FIXTURE);
+    expect((done?.message as Record<string, unknown>).contextProvenance)
+      .toEqual(CONTEXT_PROVENANCE_FIXTURE);
+
+    const doneTrace = JSON.parse(done?.toolTrace as string) as Array<Record<string, unknown>>;
+    expect(doneTrace).toContainEqual({
+      kind: "context_provenance",
+      ...CONTEXT_PROVENANCE_FIXTURE,
+    });
+
+    const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+    expect(history.status, JSON.stringify(history.body)).toBe(200);
+    const historyAssistants = (history.body as Array<Record<string, unknown>>)
+      .filter((message) => message.role === "assistant");
+    expect(historyAssistants).toHaveLength(2);
+    for (const message of historyAssistants) {
+      expect(message.contextProvenance).toEqual(CONTEXT_PROVENANCE_FIXTURE);
+      const trace = JSON.parse(message.toolTrace as string) as Array<Record<string, unknown>>;
+      expect(trace).toContainEqual({
+        kind: "context_provenance",
+        ...CONTEXT_PROVENANCE_FIXTURE,
+      });
+    }
+
+    const exported = JSON.stringify({
+      json: json.body,
+      sse: frames,
+      history: history.body,
+    });
+    expect(exported).not.toContain("/home/runner");
+    expect(exported).not.toContain("/tmp/");
+    expect(exported).not.toContain("providerDiagnostic");
+    expect(exported).not.toContain("rawProvider");
+  });
+
   it("persists a forensic session, then keeps ابدأ read-only across JSON and SSE routes", async () => {
     const { promises: fs } = await import("node:fs");
     const { tmpdir } = await import("node:os");
