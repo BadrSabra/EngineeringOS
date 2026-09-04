@@ -281,7 +281,6 @@ describe('Mission Control', () => {
 
     expect(await screen.findByText('Switched to a bounded retry')).toBeInTheDocument();
     expect(screen.getByText('RATE_LIMIT')).toBeInTheDocument();
-    expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
     expect(screen.getByText('RECOVERED')).toBeInTheDocument();
     expect(screen.getByText('CONTEXT_LENGTH')).toBeInTheDocument();
     expect(screen.getByText('Compacted the evidence window')).toBeInTheDocument();
@@ -433,13 +432,13 @@ describe('Mission Control', () => {
     };
     expect(exported.executions).toHaveLength(1);
     expect(exported.executions[0]).toMatchObject({ id: 'included', evidence: nestedEvidence });
+    expect(exported.executions[0]).not.toHaveProperty('provider');
+    expect(exported.executions[0]).not.toHaveProperty('model');
+    const { provider: _provider, model: _model, ...safeEmpiricalCampaign } =
+      missionControlFixture.benchmark.empiricalCampaign;
     expect(exported.benchmark).toMatchObject({
       ...missionControlFixture.benchmark,
-      empiricalCampaign: {
-        ...missionControlFixture.benchmark.empiricalCampaign,
-        provider: undefined,
-        model: undefined,
-      },
+      empiricalCampaign: safeEmpiricalCampaign,
     });
     expect(JSON.stringify(exported.benchmark)).not.toContain('openrouter');
     expect(JSON.stringify(exported.benchmark)).not.toContain('test-model');
