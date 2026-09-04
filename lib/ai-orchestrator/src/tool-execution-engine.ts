@@ -63,6 +63,7 @@ import { isForensicTestSourcePath } from "./forensic-source-policy.js";
 import type { ForensicRootCoverage } from "./forensic-output-guard.js";
 import type { ValidationResult } from "./validation-result.js";
 import { formatUntrustedContent } from "./untrusted-content.js";
+import { hasToolAppendedTruncationMarker } from "./source-read-status.js";
 
 // ── Defaults ────────────────────────
 
@@ -484,7 +485,7 @@ function isUsableReadOutput(output: string): boolean {
   if (/^Contents of\s+/i.test(trimmed)) return false;
   if (/^Synthesis phase is active\./i.test(trimmed)) return false;
   if (/^Forensic collection stopped\./i.test(trimmed)) return false;
-  if (/\[\.\.\.\s*(?:output truncated|forensic read exceeded)/i.test(trimmed)) return false;
+  if (hasToolAppendedTruncationMarker(trimmed)) return false;
   return true;
 }
 
@@ -534,7 +535,7 @@ export function classifyReadStatus(toolName: string, output: string): ReadStatus
 
 /** True when a read_file body carries a truncation marker (incomplete source). */
 function hasReadTruncationMarker(output: string): boolean {
-  return /\[\.\.\.\s*(?:output truncated|forensic read exceeded)/i.test(output);
+  return hasToolAppendedTruncationMarker(output);
 }
 
 /**
