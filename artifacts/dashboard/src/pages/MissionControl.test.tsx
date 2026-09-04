@@ -753,7 +753,7 @@ describe('Mission Control', () => {
       'live', 'live-selected', 'Repair the "auth", scope\ncheck', 'BLOCKED',
       '2', '1', '2', 'RATE_LIMIT', 'Bounded, "safe" retry', 'INCOMPLETE',
       JSON.stringify(currentMissionControl.executions[0].evidence),
-      JSON.stringify(currentMissionControl.executions[0].recovery),
+      JSON.stringify({ attempt: 2, note: 'Retry,\nthen verify' }),
       JSON.stringify(currentMissionControl.executions[0].timestamps),
       JSON.stringify(currentMissionControl.executions[0].recentEvents),
       'passed',
@@ -774,6 +774,8 @@ describe('Mission Control', () => {
 
     expect(click).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:selected-comparison-csv');
+    expect(await blob.text()).not.toContain('openrouter');
+    expect(await blob.text()).not.toContain('openai/gpt-4.1-mini');
     expect(refetchMissionControl).not.toHaveBeenCalled();
     expect(currentMissionControl.executions).toHaveLength(1);
     expect(imported.executions).toHaveLength(1);
