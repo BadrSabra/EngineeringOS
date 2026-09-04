@@ -9201,6 +9201,7 @@ export default function AiChat() {
           description: `${data.rebasedFiles.length} file${data.rebasedFiles.length !== 1 ? 's' : ''} matched the current workspace. Review and approve the new diff before applying.`,
         });
         void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({
@@ -9224,6 +9225,7 @@ export default function AiChat() {
         setPushReady(true);
         setOperationId(data.correlationId);
         void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({ title: 'Failed to create commit', description: describeAiError(err), variant: 'destructive' });
@@ -9241,6 +9243,7 @@ export default function AiChat() {
         setPushReady(false);
         setOperationId(data.correlationId);
         void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({ title: 'Failed to push changes', description: describeAiError(err), variant: 'destructive' });
@@ -9256,6 +9259,7 @@ export default function AiChat() {
         setProposalId(undefined);
         setOperationId(undefined);
         void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({ title: 'Failed to reject proposal', description: describeAiError(err), variant: 'destructive' });
@@ -9861,6 +9865,7 @@ export default function AiChat() {
              // record instead of retaining a stale empty query result.
              void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', data.sessionId] });
            }
+           publishAiChatData(requestProjectId, data.sessionId);
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
         },
         onError: (err) => {
@@ -9898,6 +9903,7 @@ export default function AiChat() {
             void qc.invalidateQueries({ queryKey: ['ai-messages', failedSessionId] });
           }
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
+           publishAiChatData(requestProjectId, failedSessionId);
           if (err.outcome === 'FAILED' || err.outcome === 'INTERRUPTED') {
             const safeMessage = err.message
               ? redactInternalDetails(err.message).slice(0, 500)
