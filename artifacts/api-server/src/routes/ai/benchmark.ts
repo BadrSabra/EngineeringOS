@@ -17,8 +17,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type BoundedBenchmarkScorecard = {
   suiteVersion?: string;
   generatedAt?: string;
-  provider?: string;
-  model?: string | null;
   metrics?: {
     observedCases?: number;
     totalCases?: number;
@@ -46,8 +44,6 @@ type BoundedBenchmarkScorecard = {
 };
 
 type BoundedProviderRecoverySummary = {
-  provider: "openrouter";
-  model: string | null;
   failureCategory: string | null;
   recoveryAction: string | null;
   evidenceStatus: "complete" | "incomplete";
@@ -67,8 +63,6 @@ type BoundedEmpiricalQualityScorecard = {
   version: 1;
   generatedAt?: string;
   corpusRevision?: string;
-  provider?: string;
-  model?: string | null;
   measurementOnly: true;
   status: "COMPLETE" | "INCOMPLETE" | "UNAVAILABLE";
   empiricalQualityStatus: "PROVEN" | "MEASURED" | "INCOMPLETE" | "UNAVAILABLE";
