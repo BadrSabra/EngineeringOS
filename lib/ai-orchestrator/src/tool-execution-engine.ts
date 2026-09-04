@@ -3504,6 +3504,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const validationFingerprint = isValidationCall
         ? pendingChangesFingerprint(pendingChanges)
         : undefined;
+      const pendingChangesBeforeTool = pendingChanges.length;
       // Validation is intentionally not replay-cached: after a pending patch,
       // the same profile must execute again against the new workspace state.
       const key = isValidationCall
@@ -4399,7 +4400,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // a bounded final response.
       if (
         compoundWriteMode &&
-        pendingChanges.length > 0 &&
+        pendingChangesBeforeTool > 0 &&
         (tc.function.name === "write_file" || tc.function.name === "replace_text")
       ) {
         forceSynthesisNext = true;
