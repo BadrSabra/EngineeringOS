@@ -1921,21 +1921,38 @@ async function runCapabilityMicroProbes(opts: {
         );
       }
       // The model selects the semantic result, but the server owns the
-      // citation bytes. If a group answered a claim without quoting its
-      // verified candidate, attach the exact retained fragment before the
-      // aggregate is built. This converts evidence into claim-linked
-      // citations without trusting provider-supplied source text.
+      // citation bytes. Only an explicit Evidence ID selected by the model may
+      // cause the server to attach a candidate fragment; an ungrounded line
+      // must never be upgraded merely because the server can find a plausible
+      // nearby line. This keeps the repair claim-linked without laundering an
+      // unsupported answer into a verified one.
       for (const label of group.labels) {
         const line = extractedLines.get(label);
         if (!line) continue;
         const hasVerifiedQuote = [...(line.matchAll(/`([^`\n]{8,})`/g))]
           .some((match) => [...opts.fileContents.values()].some((body) => body.includes(match[1]!)));
-        const candidate = [...microProbePacket.candidates.values()][0];
-        if (!hasVerifiedQuote && candidate) {
+        if (!hasVerifiedQuote && selectedCandidate) {
           extractedLines.set(
             label,
-            `${line} Source: ${candidate.file}; Evidence: \`${candidate.fragment}\``,
+            `${line} Source: ${selectedCandidate.file}; Evidence: \`${selectedCandidate.fragment}\``,
           );
+        }
+      }
+      // A single verified quote can support both halves of the grounding group
+      // (C1 identifies the function and C3 explains the grounding relation).
+      // Copy it to the other claim only after the provider supplied the quote
+      // itself; never synthesize a quote for an ungrounded response.
+      if (group.name === "grounding") {
+        const verifiedProviderQuote = quotedFragments.find((fragment) =>
+          [...opts.fileContents.values()].some((body) => body.includes(fragment)),
+        );
+        if (verifiedProviderQuote) {
+          for (const label of group.labels) {
+            const line = extractedLines.get(label);
+            if (line && !line.includes(verifiedProviderQuote)) {
+              extractedLines.set(label, `${line} Evidence: \`${verifiedProviderQuote}\``);
+            }
+          }
         }
       }
       const verifiedQuoteCount = quotedFragments.filter((fragment) =>
