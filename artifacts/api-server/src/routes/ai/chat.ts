@@ -3722,13 +3722,6 @@ router.post("/ai/chat/stream", async (req, res) => {
     implementationPlanResume: streamImplementationPlanResume,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
   });
-  logger.info({
-    scope: "chat-route",
-    action: "debug_stream_turn_intent",
-    message,
-    compoundExecution: streamTurnIntent.compoundExecution,
-    compoundWrite: streamTurnIntent.compoundWrite,
-  });
   // Keep this compatible with consumers that still resolve the pre-scope
   // TurnIntent declaration while the workspace packages are being rebuilt.
   const streamAuditScopeDescription = (streamTurnIntent as unknown as {

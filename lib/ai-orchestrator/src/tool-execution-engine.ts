@@ -4452,6 +4452,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
          commandContext,
         validationTargetPaths,
         approvalState,
+        compoundWriteMode,
         approvedFilePaths,
         approvedValidationProfiles,
         allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
