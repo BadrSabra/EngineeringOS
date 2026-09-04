@@ -223,8 +223,6 @@ function projectBoundedScorecard(scorecard: BoundedBenchmarkScorecard): BoundedB
   return {
     ...(typeof scorecard.suiteVersion === "string" ? { suiteVersion: scorecard.suiteVersion } : {}),
     ...(typeof scorecard.generatedAt === "string" ? { generatedAt: scorecard.generatedAt } : {}),
-    ...(typeof scorecard.provider === "string" ? { provider: scorecard.provider } : {}),
-    ...(typeof scorecard.model === "string" || scorecard.model === null ? { model: scorecard.model } : {}),
     ...(metrics ? { metrics } : {}),
     ...(typeof scorecard.rolloutAllowed === "boolean"
       ? { rolloutAllowed: scorecard.rolloutAllowed }
