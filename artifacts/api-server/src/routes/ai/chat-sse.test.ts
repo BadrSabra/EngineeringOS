@@ -177,12 +177,24 @@ vi.mock("@workspace/db", () => {
       }),
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
-          select: () => ({
+          select: (fields?: Record<string, unknown>) => ({
             from: (table: unknown) => ({
               where: () => ({
-                for: () => (table as { _tag?: string })._tag === "aiExecutionsTable"
-                  ? Promise.resolve([{ ...fixture.execution }])
-                  : Promise.resolve(fixture.session ? [{ id: fixture.session.id }] : []),
+                for: () => {
+                  const tableTag = (table as { _tag?: string })._tag;
+                  if (tableTag === "aiExecutionsTable") {
+                    return Promise.resolve([{ ...fixture.execution }]);
+                  }
+                  if (tableTag === "aiChatMessagesTable") {
+                    const rows = fixture.messages.filter((message) =>
+                      Object.keys(fields ?? {}).length === 1
+                        ? message.role === "user"
+                        : message.role === "assistant",
+                    );
+                    return Promise.resolve(rows);
+                  }
+                  return Promise.resolve(fixture.session ? [{ id: fixture.session.id }] : []);
+                },
               }),
             }),
           }),
@@ -563,6 +575,62 @@ const CONTEXT_PROVENANCE_FIXTURE = {
   citations: ["src/routes/ai/chat.ts"],
 } as const;
 
+const RAW_CONTEXT_PROVENANCE_FIXTURE = {
+  project: "fixture project",
+  recentTasks: "No tasks",
+  latestMetrics: "No metrics",
+  graphSummary: "No graph",
+  recentEvents: "No events",
+  workflows: "No workflows",
+  metricsVerified: false,
+  workspaceRevision: "fixture-revision",
+  intent: { kind: "CHAT" },
+  contextLinks: [{
+    anchor: "fixture-source",
+    source: "file",
+    layer: "direct",
+    direction: "outbound",
+    status: "loaded",
+    freshness: "fresh",
+    rowCount: 1,
+    loadedAt: 1,
+    admissionDecision: "ADMIT",
+    lifetimeStage: "fresh",
+    linkReason: "fixture source",
+    sourceRefs: [
+      "file:src/safe.ts",
+      "file:/home/runner/workspace/private.ts",
+      "file:../unsafe.ts",
+    ],
+    confidence: 0.9,
+  }],
+  contextLinkCollection: { truncated: true },
+};
+
+const EXPECTED_CONTEXT_PROVENANCE = {
+  schemaVersion: "1",
+  intentKind: "CHAT",
+  revisionLabel: "fixture-revision",
+  slices: [],
+  links: {
+    returnedCount: 1,
+    truncated: true,
+    statuses: ["loaded"],
+    details: [{
+      source: "file",
+      layer: "direct",
+      direction: "outbound",
+      status: "loaded",
+      freshness: "fresh",
+      rowCount: 1,
+      linkReason: "fixture source",
+      sourceRefCount: 3,
+      confidence: 0.9,
+    }],
+  },
+  citations: ["src/safe.ts"],
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Parse all SSE events from a text/event-stream response body. */
@@ -640,6 +708,7 @@ beforeEach(async () => {
   vi.mocked(requireProvider).mockReset();
   vi.mocked(checkProjectRateLimitDb).mockReset();
   vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockReset();
+  vi.mocked(buildProjectContext).mockReset();
   vi.mocked(resolveRootPath).mockReset();
   vi.mocked(requestLooksToolBound).mockReset();
   vi.mocked(enrichContextWithMemories).mockReset();
@@ -649,6 +718,7 @@ beforeEach(async () => {
   vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
   vi.mocked(checkProjectRateLimitDb).mockResolvedValue({ allowed: true });
   vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockResolvedValue(MOCK_CHAT_RESULT);
+  vi.mocked(buildProjectContext).mockResolvedValue({ tasks: [], metrics: [] } as never);
   vi.mocked(requestLooksToolBound).mockReturnValue(false);
   vi.mocked(enrichContextWithMemories).mockResolvedValue(undefined);
   vi.mocked(tryAdvisoryLock).mockResolvedValue({
@@ -798,15 +868,21 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     const dbFixture = (await import("@workspace/db") as unknown as {
       __setExposeExecutionForCancel: (value: boolean) => void;
     });
-    dbFixture.__setExposeExecutionForCancel(true);
+    let providerStarted!: () => void;
+    let releaseProvider!: () => void;
+    const providerStartedPromise = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    const providerReleasePromise = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
     vi.mocked(buildProjectContext).mockImplementationOnce(async () => ({
       contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
     } as never));
     vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementation(
       async () => {
-        const cancellation = await request(app)
-          .post("/api/ai/executions/test-execution-id/cancel");
-        expect(cancellation.status).toBe(200);
+        providerStarted();
+        await providerReleasePromise;
         return {
           ...MOCK_CHAT_RESULT,
           result: {
@@ -817,9 +893,17 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       },
     );
 
-    const response = await request(app)
+    const streamPromise = request(app)
       .post("/api/ai/chat/stream")
-      .send({ projectId: "test-project-id", message: "audit this codebase" });
+      .send({ projectId: "test-project-id", message: "audit this codebase" })
+      .then((result) => result);
+    await providerStartedPromise;
+    dbFixture.__setExposeExecutionForCancel(true);
+    const cancellation = await request(app)
+      .post("/api/ai/executions/test-execution-id/cancel");
+    expect(cancellation.status, JSON.stringify(cancellation.body)).toBe(200);
+    releaseProvider();
+    const response = await streamPromise;
 
     expect(response.status).toBe(200);
     const frames = parseSseFrames(response.text) as Array<Record<string, unknown>>;
@@ -836,6 +920,95 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       kind: "context_provenance",
       ...CONTEXT_PROVENANCE_FIXTURE,
     });
+  });
+
+  it("filters unsafe citations and provider diagnostics from provenance exports", async () => {
+    const unsafeCitation = "file:/home/runner/workspace/private.ts";
+    const unsafeTraversal = "file:../unsafe.ts";
+    const providerDiagnostic = "provider-fixture-diagnostic should never cross the API boundary";
+
+    vi.mocked(buildProjectContext)
+      .mockResolvedValueOnce(RAW_CONTEXT_PROVENANCE_FIXTURE as never)
+      .mockResolvedValueOnce(RAW_CONTEXT_PROVENANCE_FIXTURE as never);
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementation(
+      async (...args: unknown[]) => {
+        const onStep = args[6] as ((step: AgentStep) => void) | undefined;
+        onStep?.({
+          kind: "diagnostic",
+          code: "EXECUTION_PROVIDER_FAILURE",
+          details: [providerDiagnostic],
+        } as AgentStep);
+        return {
+          ...MOCK_CHAT_RESULT,
+          result: {
+            ...MOCK_CHAT_RESULT.result,
+            response: "Context provenance fixture response.",
+            sources: ["src/result.ts", "/home/runner/workspace/private.ts"],
+          },
+          providerDiagnostics: providerDiagnostic,
+        } as never;
+      },
+    );
+
+    const body = {
+      projectId: "test-project-id",
+      message: "Summarize the fixture context.",
+    };
+    const json = await request(app).post("/api/ai/chat").send(body);
+
+    expect(json.status, JSON.stringify(json.body)).toBe(200);
+    expect(json.body.contextProvenance).toEqual(EXPECTED_CONTEXT_PROVENANCE);
+    const jsonSessionId = json.body.sessionId as string;
+    const historyAfterJson = await request(app)
+      .get(`/api/ai/chat/${jsonSessionId}/messages`);
+    expect(historyAfterJson.status, JSON.stringify(historyAfterJson.body)).toBe(200);
+    const jsonHistoryAssistant = (historyAfterJson.body as Array<Record<string, unknown>>)
+      .find((message) => message.role === "assistant");
+    expect(jsonHistoryAssistant?.contextProvenance).toEqual(EXPECTED_CONTEXT_PROVENANCE);
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ ...body, sessionId: jsonSessionId });
+    expect(stream.status, stream.text).toBe(200);
+    const done = parseSseFrames(stream.text).find(
+      (frame): frame is Record<string, unknown> =>
+        Boolean(frame)
+        && typeof frame === "object"
+        && (frame as Record<string, unknown>).type === "done",
+    );
+    expect(done?.contextProvenance).toEqual(EXPECTED_CONTEXT_PROVENANCE);
+
+    const historyAfterStream = await request(app)
+      .get(`/api/ai/chat/${jsonSessionId}/messages`);
+    expect(historyAfterStream.status, JSON.stringify(historyAfterStream.body)).toBe(200);
+    const historyAssistants = (historyAfterStream.body as Array<Record<string, unknown>>)
+      .filter((message) => message.role === "assistant");
+    expect(historyAssistants).toHaveLength(2);
+    expect(historyAssistants.map((message) => message.contextProvenance))
+      .toEqual([EXPECTED_CONTEXT_PROVENANCE, EXPECTED_CONTEXT_PROVENANCE]);
+
+    const persistedTraces = historyAssistants.map((message) => {
+      const rawTrace = message.toolTrace;
+      expect(typeof rawTrace).toBe("string");
+      return JSON.parse(rawTrace as string) as Array<Record<string, unknown>>;
+    });
+    for (const trace of persistedTraces) {
+      const provenanceEntries = trace.filter((entry) => entry.kind === "context_provenance");
+      expect(provenanceEntries).toHaveLength(1);
+      const { kind: _kind, ...provenance } = provenanceEntries[0]!;
+      expect(provenance).toEqual(EXPECTED_CONTEXT_PROVENANCE);
+    }
+
+    const publicPayload = [
+      JSON.stringify(json.body),
+      stream.text,
+      JSON.stringify(historyAfterJson.body),
+      JSON.stringify(historyAfterStream.body),
+      ...persistedTraces.map((trace) => JSON.stringify(trace)),
+    ].join("\n");
+    expect(publicPayload).not.toContain(unsafeCitation);
+    expect(publicPayload).not.toContain(unsafeTraversal);
+    expect(publicPayload).not.toContain(providerDiagnostic);
   });
 
   it("persists a forensic session, then keeps ابدأ read-only across JSON and SSE routes", async () => {
