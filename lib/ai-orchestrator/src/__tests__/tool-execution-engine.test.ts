@@ -1024,6 +1024,49 @@ describe("executeToolLoop", () => {
     }
   });
 
+  it("upgrades an incomplete cached read once when complete evidence is required", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const TRUNCATED =
+      "File: src/cache.ts\n```\nconst a = 1;\n[... output truncated at 128 KB by the read tool ...]\n```";
+    const COMPLETE = "File: src/cache.ts\n```\nexport const verified = true;\n```";
+    FILE_TOOL_MOCK.mockResolvedValueOnce(COMPLETE);
+    FILE_TOOL_MOCK.mockClear();
+
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("upgrade-1", "read_file", { path: "src/cache.ts" })]),
+      makeResponse("final"),
+    ]);
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      cache: new Map([[
+        'read_file:{"path":"src/cache.ts"}',
+        TRUNCATED,
+      ]]),
+      completeReads: true,
+      maxIterations: 3,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/cache.ts", complete: "true" },
+      "/project",
+      [],
+    );
+    if (result.kind === "response") {
+      expect(result.fileContents?.get("src/cache.ts")).toContain("verified");
+      expect(result.sourceRetrieval?.truncatedReads).toBe(0);
+    }
+  });
+
   it("classifies a targeted window read as READ_TARGETED evidence (SR-003/SR-008)", async () => {
     const { classifyReadStatus } = await import("../tool-execution-engine.js");
     expect(classifyReadStatus("read_file_range", "File: src/a.ts\n```\nline\n```\n")).toBe("READ_TARGETED");

@@ -1821,6 +1821,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const toolCallCache = opts.cache ?? new Map<string, string>();
   const toolSources: string[] = [];
   const fileContents = new Map<string, string>(opts.initialFileContents ?? []);
+  // A partial prefetched body may already occupy the shared cache. In a
+  // complete-read run, allow exactly one server-owned cache upgrade per path
+  // before the normal repeated-truncated-read guard takes over.
+  const completeReadUpgradePaths = new Set<string>();
   // Retained SOURCE EVIDENCE keyed by canonical path — the ground truth the
   // dependency-proof gate validates from_file/reference against, populated from
   // prefetched bodies then every successful read this run.
@@ -3511,7 +3515,25 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const key = isValidationCall
         ? `${toolCacheKey(tc.function.name, args)}::attempt:${validationAttempt}`
         : toolCacheKey(tc.function.name, args);
-      const cached = toolCallCache.get(key);
+      const cachedValue = toolCallCache.get(key);
+      const cachedPath =
+        (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
+        typeof args.path === "string"
+          ? canonicalRel(args.path)
+          : "";
+      const shouldUpgradeCachedRead =
+        opts.completeReads === true &&
+        tc.function.name === "read_file" &&
+        cachedValue !== undefined &&
+        cachedPath !== "" &&
+        !completeReadUpgradePaths.has(cachedPath) &&
+        classifyReadStatus("read_file", cachedValue) !== "READ_COMPLETE";
+      if (shouldUpgradeCachedRead) completeReadUpgradePaths.add(cachedPath);
+      // Treat an incomplete cached read as a cache miss. executeSingleTool will
+      // add complete=true at the server boundary, then replace this cache entry
+      // with the upgraded body. This fixes prefetch/model disagreement without
+      // requiring the model to remember the complete flag.
+      const cached = shouldUpgradeCachedRead ? undefined : cachedValue;
 
       // Some providers emit the same read twice in one tool-calling response.
       // Keep one protocol result for each call id, but do not replay the same
@@ -3980,7 +4002,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // replay path (the cache would re-serve the exact capped body).
       if (
         tc.function.name === "read_file" &&
-        isTruncatedPath(args.path)
+        isTruncatedPath(args.path) &&
+        !shouldUpgradeCachedRead
       ) {
         sourceRetrieval.redundantReads += 1;
         console.warn(
