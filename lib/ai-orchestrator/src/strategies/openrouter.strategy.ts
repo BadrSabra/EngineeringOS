@@ -44,7 +44,7 @@ import type {
  * and must not suppress otherwise healthy OpenRouter candidates for later
  * requests.
  */
-function shouldRecordCircuitFailure(error: unknown): boolean {
+export function shouldRecordCircuitFailure(error: unknown): boolean {
   if (!(error instanceof GroqClientError)) return true;
   return !(
     error.code === "INVALID_CONFIG" ||

@@ -37,7 +37,10 @@ import {
   classifyOpenRouterFailure,
   openrouterCompleteStream,
 } from "../openai-compatible-client.js";
-import { openrouterStrategy } from "../strategies/openrouter.strategy.js";
+import {
+  openrouterStrategy,
+  shouldRecordCircuitFailure,
+} from "../strategies/openrouter.strategy.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -140,6 +143,23 @@ describe("circuit-breaker", () => {
     for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
     expect(isCircuitOpen("openrouter")).toBe(true);
     expect(isCircuitOpen("groq")).toBe(false);
+  });
+
+  it("does not count local capability/configuration mismatches as provider failures", () => {
+    expect(
+      shouldRecordCircuitFailure(
+        new GroqClientError(
+          "INVALID_CONFIG",
+          "model does not satisfy the requested capability",
+          { context: { providerCode: "MODEL_CAPABILITY_MISMATCH" } },
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRecordCircuitFailure(
+        new GroqClientError("SERVER_ERROR", "provider unavailable"),
+      ),
+    ).toBe(true);
   });
 });
 
