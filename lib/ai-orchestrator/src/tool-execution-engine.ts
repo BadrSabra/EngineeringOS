@@ -2871,6 +2871,65 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     } catch (err) {
       if (signal?.aborted) return cancelledResult();
       if (err instanceof GroqClientError && err.code === "INVALID_TOOL_CALL") {
+        // Some OpenRouter models still return a tool call after the server has
+        // deliberately removed tools for synthesis. That is a provider
+        // protocol mismatch, not an unavailable application tool. Preserve
+        // the retained evidence and let the caller's finalization/recovery
+        // path decide whether the answer is complete.
+        if (synthesisOnly) {
+          console.warn(
+            JSON.stringify({
+              scope: "tool-execution-engine",
+              code: "SYNTHESIS_TOOL_CALL_FALLBACK",
+              provider,
+              model,
+              iter,
+              reason: "provider emitted a tool call during no-tools synthesis",
+            }),
+          );
+          const terminalResult: RawGroqResponse = {
+            ...(lastTextSeen ?? {
+              content: "",
+              model,
+              usage: { promptTokens: 0, completionTokens: 0 },
+            }),
+            toolCalls: null,
+          };
+          loopPhase = "reasoning";
+          currentIteration = iter + 1;
+          classifyZeroReadTerminal("synthesis", currentIteration);
+          try {
+            onStep?.({
+              kind: "done",
+              iterations: currentIteration,
+              maxIterations,
+              ...executionCounts(),
+              stopReason: terminalResult.content?.trim()
+                ? "response"
+                : "empty_response",
+              synthesisStarted,
+              synthesisAttempts,
+              synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+              synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+              ...(sourceRetrieval.synthesisElapsedMs !== undefined
+                ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+                : {}),
+              ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+              diagnosticCodes: [],
+              sourceRetrieval,
+            });
+          } catch { /* observers must not change terminal semantics */ }
+          return {
+            kind: "partial",
+            result: terminalResult,
+            toolSources,
+            fileContents,
+            sourceRetrieval,
+            reason: terminalResult.content?.trim()
+              ? "soft_limit"
+              : "empty_response",
+          };
+        }
         return terminalInvalidToolCall(err, iter);
       }
       // OR-004: only fall back to powerModel on transient infrastructure errors,

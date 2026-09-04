@@ -4716,9 +4716,13 @@ export async function chat(opts: {
   // A forensic response is not safe to stream before the staged envelope,
   // deterministic report assembly, and evidence gates have completed. Route it
   // through the same buffered finalization path as non-streaming requests;
-  // ordinary chat and behavior answers retain token streaming.
+  // ordinary chat and behavior answers retain token streaming. Capability
+  // probes also stay buffered so their C1–C7 validator and citation recovery
+  // run before any answer is emitted.
   const streamCallback =
-    repairPlanExecution || forensicOutputMode ? undefined : onDelta;
+    repairPlanExecution || forensicOutputMode || capabilityProbeRequest
+      ? undefined
+      : onDelta;
 
   // Deep-analysis gate: forensic/audit prompts (structuredOutputMode) and
   // deep_analysis category are handled purely through prompt behavioural rules
@@ -6091,17 +6095,20 @@ export async function chat(opts: {
     taskType: executionPlan.taskProfile.taskType,
     requiresEvidence: turnIntent.requiresEvidence,
     deterministicTaskExecution,
-    maxToolCalls: structuredOutputMode
+    maxToolCalls: structuredOutputMode || capabilityProbeRequest
       ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)
       : budget.maxToolCalls,
-    toolCallsDisabledAfter: structuredOutputMode
+    toolCallsDisabledAfter: structuredOutputMode || capabilityProbeRequest
       ? Math.max(0, budget.maxIterations - STRUCTURED_OUTPUT_SYNTHESIS_TURNS)
       : undefined,
     // The tool loop may reach its synthesis window after prefetch has already
     // supplied the source bodies. Request a JSON envelope only for that
     // no-tools synthesis call; the OpenAI-compatible client deliberately
     // ignores response_format while tools are attached.
-    responseFormat: structuredOutputMode ? { type: "json_object" } : undefined,
+    responseFormat:
+      structuredOutputMode || capabilityProbeRequest
+        ? { type: "json_object" }
+        : undefined,
     completeReads: completeReadEvidence,
     executionMode: repairPlanExecution
       ? "repair_plan"
