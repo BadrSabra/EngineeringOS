@@ -133,6 +133,9 @@ vi.mock("@workspace/db", () => {
               if ((table as { _tag?: string })._tag === "aiChatMessagesTable") {
                 return Promise.resolve([...fixture.messages]);
               }
+              if ((table as { _tag?: string })._tag === "aiExecutionsTable") {
+                return Promise.resolve([{ ...fixture.execution }]);
+              }
               return Promise.resolve([]);
             },
             orderBy: () => {
