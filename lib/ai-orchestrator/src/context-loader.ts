@@ -15,7 +15,7 @@ import {
   type Event,
   type Workflow,
 } from "@workspace/db";
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, desc, asc, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { RepositoryRevisionManifest } from "./context-manifest.js";
 import type { ContextCollection } from "./context-contract.js";
@@ -224,6 +224,21 @@ async function guardedLoad<T>(
     if (timer) clearTimeout(timer);
     if (abortHandler) signal?.removeEventListener("abort", abortHandler);
   }
+}
+
+/**
+ * Promise racing bounds the application wait, while PostgreSQL's local
+ * statement timeout bounds the actual server-side work for deadline-limited
+ * transactions.  The feature check keeps lightweight test doubles and older
+ * query handles compatible.
+ */
+async function applyDatabaseDeadline(tx: Queryable, deadlineAt: number): Promise<void> {
+  const execute = (tx as unknown as {
+    execute?: (query: unknown) => Promise<unknown>;
+  }).execute;
+  if (typeof execute !== "function") return;
+  const remainingMs = Math.max(1, Math.ceil(deadlineAt - Date.now()));
+  await execute.call(tx, sql.raw(`SET LOCAL statement_timeout = ${remainingMs}`));
 }
 
 function classifyLoadFailure(error: unknown): ContextLoadFailureCode {
@@ -435,6 +450,7 @@ export async function loadProjectContext(
       // Cast is required because PgTransaction and NodePgDatabase are siblings
       // in Drizzle's class hierarchy — both expose the same query interface.
       const q = tx as unknown as Queryable;
+      await applyDatabaseDeadline(q, deadlineAt);
 
       const [
         project,

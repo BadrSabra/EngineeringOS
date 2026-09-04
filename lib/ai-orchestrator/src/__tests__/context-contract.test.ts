@@ -3,7 +3,7 @@ import {
   AgentContextSchema,
   parseAgentContext,
 } from "../schemas/context.schema.js";
-import { projectContextProvenance } from "../context-provenance.js";
+import { parseContextProvenance, projectContextProvenance } from "../context-provenance.js";
 
 const legacyContext = {
   project: "Project",
@@ -87,5 +87,24 @@ describe("unified context contract", () => {
     });
     expect(provenance.citations).toEqual(["src/app.ts"]);
     expect(provenance.citations.join(" ")).not.toContain("private-id");
+  });
+
+  it("reads stored provenance wrappers and migrates legacy link details", () => {
+    const parsed = parseContextProvenance({
+      kind: "context_provenance",
+      schemaVersion: "1",
+      intentKind: "CHAT",
+      revisionLabel: "revision-a",
+      slices: [],
+      links: {
+        returnedCount: 1,
+        truncated: false,
+        statuses: ["loaded"],
+      },
+      citations: [],
+    });
+
+    expect(parsed).toBeDefined();
+    expect(parsed?.links.details).toEqual([]);
   });
 });

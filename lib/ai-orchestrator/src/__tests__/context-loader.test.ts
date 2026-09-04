@@ -9,14 +9,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── vi.hoisted: shared mock state ─────────────────────────────────────────────
-const { _tableData, _mockDb } = vi.hoisted(() => {
+const { _tableData, _tableDelays, _mockDb } = vi.hoisted(() => {
   const _tableData = new Map<object, unknown[]>();
+  const _tableDelays = new Map<object, number>();
 
-  function makeChain(rows: unknown[]): Record<string, unknown> {
+  function makeChain(table: object, rows: unknown[]): Record<string, unknown> {
     const c: Record<string, unknown> = {};
     c.where = () => c;
     c.orderBy = () => c;
-    c.limit = () => Promise.resolve(rows);
+    c.limit = () => {
+      const delay = _tableDelays.get(table) ?? 0;
+      return delay > 0
+        ? new Promise<unknown[]>((resolve) => setTimeout(() => resolve(rows), delay))
+        : Promise.resolve(rows);
+    };
     return c;
   }
 
@@ -26,11 +32,11 @@ const { _tableData, _mockDb } = vi.hoisted(() => {
 
   const _mockDb: MockDb = {
     select: (_fields?: unknown) => ({
-      from: (table: object) => makeChain(_tableData.get(table) ?? []),
+      from: (table: object) => makeChain(table, _tableData.get(table) ?? []),
     }),
   };
 
-  return { _tableData, _mockDb };
+  return { _tableData, _tableDelays, _mockDb };
 });
 
 vi.mock("drizzle-orm", () => ({
@@ -77,6 +83,7 @@ import {
   loadEvents,
   loadWorkflow,
   loadScanJobs,
+  loadProjectContext,
 } from "../context-loader.js";
 
 // Cast the mock to Queryable — structurally compatible for test purposes.
@@ -444,5 +451,42 @@ describe("loadScanJobs", () => {
     _tableData.set(scanJobsTable as object, [makeScanJob("queued")]);
     const row = await loadScanJobs(q, PROJECT_ID);
     expect(row?.status).toBe("queued");
+  });
+});
+
+describe("loadProjectContext deadline and cancellation guards", () => {
+  beforeEach(() => {
+    _tableData.clear();
+    _tableDelays.clear();
+    _tableData.set(projectsTable as object, [makeProject()]);
+    _tableData.set(tasksTable as object, []);
+    _tableData.set(metricsTable as object, []);
+    _tableData.set(graphEntitiesTable as object, []);
+    _tableData.set(graphRelationshipsTable as object, []);
+    _tableData.set(eventsTable as object, []);
+    _tableData.set(workflowsTable as object, []);
+    _tableData.set(scanJobsTable as object, []);
+  });
+
+  it("fails closed when the caller has already cancelled the load", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(loadProjectContext(PROJECT_ID, { signal: controller.signal }))
+      .rejects.toThrow("QUERY_CANCELLED");
+  });
+
+  it("bounds the database transaction when a query exceeds the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      _tableDelays.set(projectsTable as object, 50);
+      const pending = loadProjectContext(PROJECT_ID, { deadlineMs: 10 });
+      await vi.advanceTimersByTimeAsync(15);
+      await expect(pending).rejects.toThrow("QUERY_TIMEOUT");
+      await vi.advanceTimersByTimeAsync(50);
+    } finally {
+      vi.useRealTimers();
+      _tableDelays.clear();
+    }
   });
 });
