@@ -618,17 +618,20 @@ const FIXTURE_VERDICT_STEP: Extract<AgentStep, { kind: "decision_trace" }> = {
 // ── Test setup ────────────────────────────────────────────────────────────────
 
 beforeEach(async () => {
-  const dbFixture = (await import("@workspace/db") as unknown as {
+  const dbModule = (await import("@workspace/db") as unknown as {
     __chatTestFixture: {
       session: Record<string, unknown> | null;
       messages: Array<Record<string, unknown>>;
        execution: Record<string, unknown>;
     };
-  }).__chatTestFixture;
+    __setExposeExecutionForCancel: (value: boolean) => void;
+  });
+  const dbFixture = dbModule.__chatTestFixture;
   dbFixture.session = null;
   dbFixture.messages.length = 0;
   dbFixture.execution.status = "queued";
   dbFixture.execution.finalMessageId = null;
+  dbModule.__setExposeExecutionForCancel(false);
 
   // Each test owns the in-memory DB and the route-bound mocks it exercises.
   // Reset these implementations so a prior SSE scenario cannot leak callback
@@ -792,6 +795,10 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
   });
 
   it("keeps context provenance when an active execution is cancelled", async () => {
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __setExposeExecutionForCancel: (value: boolean) => void;
+    });
+    dbFixture.__setExposeExecutionForCancel(true);
     vi.mocked(buildProjectContext).mockImplementationOnce(async () => ({
       contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
     } as never));
