@@ -5259,7 +5259,7 @@ export async function chat(opts: {
       pendingChanges,
       toolCacheKeyFn: toolCacheKey,
       profileDepth: contextProfile,
-      complete: structuredOutputMode,
+      complete: completeReadEvidence,
       maxFiles: remainingForensicPrefetchSlots(),
       excludeFiles: prefetchExcludeFiles(),
     });
@@ -5313,7 +5313,7 @@ export async function chat(opts: {
         rootPath,
         pendingChanges,
         toolCacheKeyFn: toolCacheKey,
-        complete: structuredOutputMode,
+        complete: completeReadEvidence,
         maxFiles: remainingForensicPrefetchSlots(),
         excludeFiles: prefetchExcludeFiles(),
         includeTestSources,
