@@ -1510,3 +1510,51 @@ describe("POST /api/ai/chat/stream — scoped verdict persists into tool_trace/r
     expect(result.data![0]).not.toHaveProperty("scopedFindingStatus");
   });
 });
+
+describe("POST /api/ai/chat/stream — terminal message reservation", () => {
+  it("keeps one successful terminal message when success requests overlap", async () => {
+    let providerCalls = 0;
+    let releaseProviders!: () => void;
+    const bothProvidersEntered = new Promise<void>((resolve) => {
+      releaseProviders = resolve;
+    });
+
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async () => {
+        providerCalls += 1;
+        if (providerCalls === 2) releaseProviders();
+        await bothProvidersEntered;
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const firstRequest = request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "overlapping request" });
+    const secondRequest = request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "overlapping request" });
+    const [first, second] = await Promise.all([firstRequest, secondRequest]);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(providerCalls).toBe(2);
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+        messages: Array<Record<string, unknown>>;
+      };
+    }).__chatTestFixture;
+    const assistants = dbFixture.messages.filter((message) => message.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.outcome).toBe("SUCCEEDED");
+    expect(dbFixture.execution.finalMessageId).toBe(assistants[0]?.id);
+    expect(dbFixture.execution.status).toBe("completed");
+
+    const doneFrames = [first, second]
+      .flatMap((response) => parseSseFrames(response.text))
+      .filter((frame) => typeof frame === "object" && frame !== null && frame.type === "done");
+    expect(doneFrames).toHaveLength(1);
+  });
+});
