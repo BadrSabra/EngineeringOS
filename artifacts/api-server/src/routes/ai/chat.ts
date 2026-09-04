@@ -24,7 +24,7 @@ import {
   tasksTable,
   browserValidationProfilesTable,
 } from "@workspace/db";
-import { eq, desc, and, inArray, sql } from "drizzle-orm";
+import { eq, desc, and, inArray, isNull, sql } from "drizzle-orm";
 import { walkProject } from "@workspace/scanner";
 import {
   buildProjectContext,
@@ -1150,7 +1150,7 @@ async function persistFailedChatTurn(params: {
   assistantAt: Date;
   toolTrace?: AgentStep[];
   executionLedgerSnapshot?: ExecutionLedgerPublicSnapshot;
-}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; acceptanceDisposition?: AiAcceptanceDisposition }> {
+}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; acceptanceDisposition?: AiAcceptanceDisposition } | undefined> {
   return db.transaction(async (tx) => {
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -1174,15 +1174,81 @@ async function persistFailedChatTurn(params: {
     // existence check below is otherwise vulnerable to two reconnects
     // observing no assistant row at the same time and both inserting an
     // outcome. The execution row is the shared lock for all recovery paths.
+    let lockedExecution: {
+      id: string;
+      status: string;
+      finalMessageId: string | null;
+    } | undefined;
+    const reservedAssistantId = params.executionId ? randomUUID() : undefined;
     if (params.executionId) {
       const executionLockQuery = tx
-        .select({ id: aiExecutionsTable.id })
+        .select({
+          id: aiExecutionsTable.id,
+          status: aiExecutionsTable.status,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+        })
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, params.executionId));
       if (typeof (executionLockQuery as { for?: unknown }).for === "function") {
-        await (executionLockQuery as { for: (mode: string) => Promise<unknown[]> }).for("update");
+        lockedExecution = (await (executionLockQuery as { for: (mode: string) => Promise<unknown[]> }).for("update"))[0] as typeof lockedExecution;
       } else if (typeof (executionLockQuery as { limit?: unknown }).limit === "function") {
-        await (executionLockQuery as { limit: (count: number) => Promise<unknown[]> }).limit(1);
+        lockedExecution = (await (executionLockQuery as { limit: (count: number) => Promise<unknown[]> }).limit(1))[0] as typeof lockedExecution;
+      }
+      if (!lockedExecution) return undefined;
+
+      // finalMessageId is the single terminal-message reservation for this
+      // execution. A resumed execution may already have its authoritative
+      // assistant outcome; replay that row, but never append another one.
+      if (lockedExecution.finalMessageId) {
+        const [existingFinal] = await tx
+          .select({
+            id: aiChatMessagesTable.id,
+            content: aiChatMessagesTable.content,
+            outcome: aiChatMessagesTable.outcome,
+            errorCode: aiChatMessagesTable.errorCode,
+            errorMessage: aiChatMessagesTable.errorMessage,
+            toolTrace: aiChatMessagesTable.toolTrace,
+            createdAt: aiChatMessagesTable.createdAt,
+          })
+          .from(aiChatMessagesTable)
+          .where(eq(aiChatMessagesTable.id, lockedExecution.finalMessageId))
+          .limit(1);
+        if (!existingFinal) return undefined;
+        return {
+          id: existingFinal.id,
+          sessionId: params.sessionId,
+          role: "assistant",
+          content: existingFinal.content,
+          outcome: existingFinal.outcome,
+          errorCode: existingFinal.errorCode,
+          errorMessage: existingFinal.errorMessage,
+          toolTrace: existingFinal.toolTrace,
+          ...terminalMetadataFromTrace(existingFinal.toolTrace),
+          createdAt: existingFinal.createdAt,
+          ...(readExecutionLedgerTrace(existingFinal.toolTrace)
+            ? { executionLedger: readExecutionLedgerTrace(existingFinal.toolTrace) }
+            : {}),
+        };
+      }
+      if (
+        !["queued", "running", "paused", "cancelling"].includes(lockedExecution.status)
+        || !reservedAssistantId
+      ) {
+        return undefined;
+      }
+      const [reserved] = await tx
+        .update(aiExecutionsTable)
+        .set({
+          finalMessageId: reservedAssistantId,
+          updatedAt: params.assistantAt,
+        })
+        .where(and(
+          eq(aiExecutionsTable.id, params.executionId),
+          isNull(aiExecutionsTable.finalMessageId),
+          inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+        ))
+        .returning({ id: aiExecutionsTable.id });
+      if (!reserved) return undefined;
       }
     }
     // A provider/network failure may already have persisted the user turn.
@@ -1312,7 +1378,7 @@ async function persistFailedChatTurn(params: {
           ]);
         })()
       : persistedTrace;
-    const assistantId = randomUUID();
+    const assistantId = reservedAssistantId ?? randomUUID();
     const assistantContent = params.content ? sanitizeResponseText(params.content).slice(0, 12_000) : "";
     const assistantErrorMessage = redactUserFacingText(params.errorMessage).slice(0, 500);
     await tx.insert(aiChatMessagesTable).values({
