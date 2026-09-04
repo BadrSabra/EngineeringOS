@@ -926,6 +926,8 @@ function validateCapabilityProbeResponse(response: string): string[] {
       violations.push(`${capability} is missing`);
     } else if (!/\b(?:PASS|FAIL)\b/i.test(line)) {
       violations.push(`${capability} must be labelled PASS or FAIL`);
+    } else if (/\bFAIL\b/i.test(line)) {
+      violations.push(`${capability} is not demonstrated`);
     }
   }
   const lineFor = (capability: string): string =>
