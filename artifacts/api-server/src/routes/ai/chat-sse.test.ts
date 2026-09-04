@@ -93,6 +93,7 @@ vi.mock("@workspace/db", () => {
   const fixture = {
     session: null as Record<string, unknown> | null,
     messages: [] as Array<Record<string, unknown>>,
+    execution: { ...MOCK_EXECUTION } as Record<string, unknown>,
   };
 
   /**
@@ -109,10 +110,13 @@ vi.mock("@workspace/db", () => {
     };
   }
 
-  const updateResult = () => {
+  const updateResult = (vals?: Record<string, unknown>) => {
+    if (vals) {
+      fixture.execution = { ...fixture.execution, ...vals };
+    }
     const promise = Promise.resolve();
     return Object.assign(promise, {
-      returning: () => Promise.resolve([MOCK_EXECUTION]),
+      returning: () => Promise.resolve([fixture.execution]),
     });
   };
 
@@ -140,7 +144,7 @@ vi.mock("@workspace/db", () => {
       }),
       insert: () => ({
         values: (vals?: Record<string, unknown>) => {
-          if (vals && "idempotencyKey" in vals) return insertResult([MOCK_EXECUTION]);
+          if (vals && "idempotencyKey" in vals) return insertResult([fixture.execution]);
           if (vals && "projectId" in vals) {
             fixture.session = { ...MOCK_SESSION, ...vals };
             return insertResult([fixture.session]);
@@ -149,8 +153,8 @@ vi.mock("@workspace/db", () => {
         },
       }),
       update: () => ({
-        set: () => ({
-          where: () => updateResult(),
+        set: (vals: Record<string, unknown>) => ({
+          where: () => updateResult(vals),
         }),
       }),
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -159,7 +163,7 @@ vi.mock("@workspace/db", () => {
             from: (table: unknown) => ({
               where: () => ({
                 for: () => (table as { _tag?: string })._tag === "aiExecutionsTable"
-                  ? Promise.resolve([{ ...MOCK_EXECUTION, status: "running" }])
+                  ? Promise.resolve([{ ...fixture.execution }])
                   : Promise.resolve(fixture.session ? [{ id: fixture.session.id }] : []),
               }),
             }),
@@ -204,14 +208,13 @@ vi.mock("@workspace/db", () => {
                   fixture.session = { ...fixture.session, ...vals };
                 }
                 const updateResult = Promise.resolve();
+                const isFinalMessageReservation = typeof vals.finalMessageId === "string";
+                const reservationWon = !isFinalMessageReservation || fixture.execution.finalMessageId === null;
+                if (isFinalMessageReservation && reservationWon) {
+                  fixture.execution = { ...fixture.execution, ...vals };
+                }
                 return Object.assign(updateResult, {
-                  returning: () => Promise.resolve([{
-                    ...MOCK_EXECUTION,
-                    status: "running",
-                    ...(typeof vals.finalMessageId === "string"
-                      ? { finalMessageId: vals.finalMessageId }
-                      : {}),
-                  }]),
+                  returning: () => Promise.resolve(reservationWon ? [fixture.execution] : []),
                 });
               },
             }),
@@ -551,10 +554,13 @@ beforeEach(async () => {
     __chatTestFixture: {
       session: Record<string, unknown> | null;
       messages: Array<Record<string, unknown>>;
+       execution: Record<string, unknown>;
     };
   }).__chatTestFixture;
   dbFixture.session = null;
   dbFixture.messages.length = 0;
+  dbFixture.execution.status = "queued";
+  dbFixture.execution.finalMessageId = null;
 
   // Each test owns the in-memory DB and the route-bound mocks it exercises.
   // Reset these implementations so a prior SSE scenario cannot leak callback
