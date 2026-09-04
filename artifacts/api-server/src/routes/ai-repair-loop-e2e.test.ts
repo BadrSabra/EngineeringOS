@@ -60,13 +60,6 @@ const harness = vi.hoisted(() => {
         messages,
       });
       const response = responses.shift();
-      console.error("REPAIR_DEBUG_CALL", JSON.stringify({
-        call: calls.length,
-        responseTool: response?.toolCalls?.[0]?.function.name,
-        responseContent: response?.content?.slice(0, 80),
-        toolChoice: options.toolChoice,
-        tools: options.tools?.map((tool) => tool.function?.name),
-      }));
       if (!response) {
         throw new Error(
           "Repair-loop fixture exhausted its injected provider responses. "
@@ -176,11 +169,6 @@ vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
     runRepairValidation: vi.fn(async (...args: unknown[]) => {
       harness.incrementValidationCall();
       const fixtureResult = harness.validationResults.shift();
-      console.error("REPAIR_DEBUG_VALIDATION", JSON.stringify({
-        call: harness.validationCallCount,
-        status: fixtureResult?.status,
-        pendingChanges: Array.isArray(args[5]) ? args[5].length : undefined,
-      }));
       if (fixtureResult) {
         return fixtureResult;
       }
@@ -214,15 +202,6 @@ function parseSseEvents(body: string): SseEvent[] {
       }
     })
     .filter((event): event is SseEvent => event !== null);
-  console.error("REPAIR_DEBUG_EVENTS", JSON.stringify(events.map((event) => ({
-    type: event.type,
-    tool: event.tool,
-    state: event.state,
-    status: event.status,
-    repairState: event.repairState,
-    prefetched: event.prefetched,
-    code: event.code,
-  }))));
   return events;
 }
 
@@ -496,8 +475,14 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       operationMode: "DELIVERY",
       requiresEvidence: false,
     });
-    expect(toolCalls.slice(0, 2)).toEqual(["read_file", "write_file"]);
-    expect(toolResults.slice(0, 2)).toEqual(["read_file", "write_file"]);
+    expect(events.filter((event) => event.type === "tool_call" && event.prefetched === true)
+      .map((event) => event.tool))
+      .toEqual(["read_file"]);
+    expect(events.filter((event) => event.type === "tool_result" && event.prefetched === true)
+      .map((event) => event.tool))
+      .toEqual(["read_file"]);
+    expect(toolCalls.slice(0, 1)).toEqual(["write_file"]);
+    expect(toolResults.slice(0, 1)).toEqual(["write_file"]);
     expect(harness.calls[0]?.toolNames).toContain("write_file");
     expect(done).toBeDefined();
     expect(done).toMatchObject({

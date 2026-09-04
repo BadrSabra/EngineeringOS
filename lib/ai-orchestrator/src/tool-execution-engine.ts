@@ -2037,8 +2037,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
     // Prefetch normally loads every executable target before the first model
     // call. Hiding read_file in that state makes the desired next action
-    // structurally unavoidable: replace_text or write_file.
-    if (allTargetsRead) {
+    // structurally unavoidable: replace_text or write_file. After a failed
+    // validation, however, the approved repair retry must be able to reread
+    // the scoped target before producing its next patch.
+    if (allTargetsRead && failedValidationFingerprints.size === 0) {
       return opts.tools.filter((tool) => tool.function.name !== "read_file");
     }
 
@@ -3912,7 +3914,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       if (
         (compoundProposalActive || pendingChanges.length > 0) &&
         tc.function.name !== "write_file" &&
-        tc.function.name !== "replace_text"
+        tc.function.name !== "replace_text" &&
+        !(executionMode === "repair_plan" && isValidationCall)
       ) {
         messages.push({
           role: "tool",
