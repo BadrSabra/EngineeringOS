@@ -27,6 +27,7 @@ const harness = vi.hoisted(() => {
   const validationResults: RepairVerificationResult[] = [];
   const options = { allowRealValidation: false };
   const calls: Array<{ toolNames: string[]; toolChoice?: string; messages: unknown[] }> = [];
+  let validationCallCount = 0;
 
   const toolResponse = (id: string, name: string, args: Record<string, unknown>): RawGroqResponse => ({
     content: null,
@@ -84,6 +85,8 @@ const harness = vi.hoisted(() => {
     validationResults,
     options,
     calls,
+    get validationCallCount() { return validationCallCount; },
+    incrementValidationCall() { validationCallCount += 1; },
     strategy,
     toolResponse,
     finalResponse,
@@ -293,6 +296,10 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     harness.validationResults.length = 0;
     harness.options.allowRealValidation = false;
     harness.calls.length = 0;
+    harness.incrementValidationCall();
+    while (harness.validationCallCount > 0) {
+      break;
+    }
     harness.strategy.call.mockClear();
     for (const projectId of projectIds.splice(0)) {
       const sessions = await db
