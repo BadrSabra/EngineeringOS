@@ -91,6 +91,18 @@ describe("AI user-facing JSON redaction contract", () => {
     expect(redactUserFacingText("failed at /app/run.txt for 123e4567-e89b-12d3-a456-426614174000"))
       .toBe("failed at [runtime path] for [internal id]");
   });
+
+  it("redacts bare provider credentials from legacy history values", () => {
+    const legacyTrace = {
+      provider: "openrouter",
+      detail: "request sk-or-v1-legacy-secret and Google AIza123456789012345678901",
+    };
+    const redacted = JSON.stringify(redactUserFacingValue(legacyTrace));
+
+    expect(redacted).not.toContain("sk-or-v1-legacy-secret");
+    expect(redacted).not.toContain("AIza123456789012345678901");
+    expect(redacted).toContain("[redacted credential]");
+  });
 });
 
 describe("provider health failure contract", () => {

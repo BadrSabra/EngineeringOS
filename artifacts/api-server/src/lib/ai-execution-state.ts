@@ -2,8 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { db, aiExecutionsTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
-import type { ExecutionNode, FlightDeckEvidenceVerdict, RecipeReceipt } from "@workspace/ai-orchestrator";
+import type {
+  ExecutionNode,
+  FlightDeckEvidenceVerdict,
+  RecipeReceipt,
+  ValidationEvidence,
+} from "@workspace/ai-orchestrator";
 import { formatUntrustedContent } from "@workspace/ai-orchestrator";
+import type { AiAcceptanceDisposition } from "./ai-terminal-outcome.js";
 
 export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
 export const AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT = 12_000;
@@ -370,7 +376,30 @@ export function transitionAutonomousOperation(
 export type AutonomousOperationCompletionCheck = {
   allowed: boolean;
   reasons: string[];
+  reasonCodes?: AutonomousAcceptanceReasonCode[];
 };
+
+export const AUTONOMOUS_ACCEPTANCE_REASON_CODES = [
+  "missing_objective",
+  "unbound_revision",
+  "missing_expected_behavior",
+  "missing_acceptance_checks",
+  "revision_mismatch",
+  "candidate_mismatch",
+  "invalid_acceptance_check",
+  "node_not_passed",
+  "missing_scope",
+  "scope_mismatch",
+  "missing_evidence",
+  "verdict_not_proven",
+  "operation_mismatch",
+  "checkpoint_operation_mismatch",
+  "evidence_operation_mismatch",
+  "evidence_revision_mismatch",
+  "evidence_candidate_mismatch",
+] as const;
+export type AutonomousAcceptanceReasonCode =
+  (typeof AUTONOMOUS_ACCEPTANCE_REASON_CODES)[number];
 
 /**
  * The terminal success contract for autonomous work. This is deliberately
@@ -381,54 +410,97 @@ export function validateAutonomousOperationCompletion(
   operation: AutonomousOperationContract,
   params: {
     evidenceRefs?: readonly string[];
+    evidence?: readonly Pick<
+      ValidationEvidence,
+      "evidenceId"
+      | "artifactRef"
+      | "operationId"
+      | "projectRevision"
+      | "candidateHash"
+    >[];
     evidenceVerdict?: FlightDeckEvidenceVerdict;
     workspaceRevision?: string;
     candidateIdentity?: string | null;
+    operationId?: string;
+    checkpointOperationId?: string;
     nodeStates?: readonly Pick<AutonomousOperationNode, "status" | "evidenceRefs">[];
+    requireProven?: boolean;
   } = {},
 ): AutonomousOperationCompletionCheck {
   const reasons: string[] = [];
-  if (!operation.objective.trim()) reasons.push("objective is missing");
+  const reasonCodes: AutonomousAcceptanceReasonCode[] = [];
+  const addReason = (code: AutonomousAcceptanceReasonCode, message: string): void => {
+    if (!reasonCodes.includes(code)) reasonCodes.push(code);
+    reasons.push(message);
+  };
+  if (!operation.objective.trim()) addReason("missing_objective", "objective is missing");
   if (!operation.revisionManifest.trim() || operation.revisionManifest === "unbound") {
-    reasons.push("workspace revision is unbound");
+    addReason("unbound_revision", "workspace revision is unbound");
   }
-  if (!operation.expectedBehavior.trim()) reasons.push("expected behavior is missing");
-  if (operation.acceptanceChecks.length === 0) reasons.push("acceptance checks are missing");
+  if (!operation.expectedBehavior.trim()) addReason("missing_expected_behavior", "expected behavior is missing");
+  if (operation.acceptanceChecks.length === 0) addReason("missing_acceptance_checks", "acceptance checks are missing");
   if (params.workspaceRevision && operation.revisionManifest !== params.workspaceRevision) {
-    reasons.push("workspace revision does not match the execution request");
+    addReason("revision_mismatch", "workspace revision does not match the execution request");
   }
   if (params.candidateIdentity !== undefined && operation.candidateIdentity !== params.candidateIdentity) {
-    reasons.push("candidate identity does not match the operation");
+    addReason("candidate_mismatch", "candidate identity does not match the operation");
+  }
+  if (params.operationId !== undefined && operation.operationId !== params.operationId) {
+    addReason("operation_mismatch", "operation identity does not match the durable execution");
+  }
+  if (
+    params.checkpointOperationId !== undefined
+    && operation.operationId !== params.checkpointOperationId
+  ) {
+    addReason("checkpoint_operation_mismatch", "checkpoint operation identity does not match the completion operation");
   }
   const requiredChecks = operation.acceptanceChecks.filter((check) => check.required);
   if (requiredChecks.some((check) => !check.id || !check.description.trim())) {
-    reasons.push("acceptance checks are not executable");
+    addReason("invalid_acceptance_check", "acceptance checks are not executable");
   }
   const nodes = params.nodeStates ?? operation.nodes;
-  if (nodes.some((node) => node.status !== "passed")) reasons.push("not all execution nodes passed");
+  if (nodes.some((node) => node.status !== "passed")) addReason("node_not_passed", "not all execution nodes passed");
   const mutatingOperation = operation.nodes.some((node) =>
     ["mutate", "repair", "promote", "delivery"].includes(node.kind),
   );
   if (mutatingOperation && operation.targetPaths.length === 0) {
-    reasons.push("mutating operation has no approved target scope");
+    addReason("missing_scope", "mutating operation has no approved target scope");
   }
   if (operation.targetPaths.length > 0) {
     const approved = new Set(operation.targetPaths);
     const outOfScope = operation.nodes
       .flatMap((node) => node.allowedFiles)
       .find((file) => !approved.has(file));
-    if (outOfScope) reasons.push(`execution node is outside approved target scope: ${outOfScope}`);
+    if (outOfScope) addReason("scope_mismatch", "execution node is outside approved target scope");
   }
   const refs = [...new Set([
     ...operation.evidenceRefs,
     ...(params.evidenceRefs ?? []),
     ...nodes.flatMap((node) => node.evidenceRefs),
   ])];
-  if (refs.length === 0) reasons.push("required acceptance evidence is missing");
-  if (params.evidenceVerdict !== "PROVEN") {
-    reasons.push(`evidence verdict is ${params.evidenceVerdict ?? "NOT_RECORDED"}`);
+  if (refs.length === 0) addReason("missing_evidence", "required acceptance evidence is missing");
+  if (params.requireProven !== false && params.evidenceVerdict !== "PROVEN") {
+    addReason("verdict_not_proven", `evidence verdict is ${params.evidenceVerdict ?? "NOT_RECORDED"}`);
   }
-  return { allowed: reasons.length === 0, reasons };
+  for (const evidence of params.evidence ?? []) {
+    if (evidence.operationId !== operation.operationId) {
+      addReason("evidence_operation_mismatch", "validation evidence is not bound to the completion operation");
+    }
+    if (evidence.projectRevision !== operation.revisionManifest) {
+      addReason("evidence_revision_mismatch", "validation evidence is not bound to the execution revision");
+    }
+    if (
+      operation.candidateIdentity !== null
+      && evidence.candidateHash !== operation.candidateIdentity
+    ) {
+      addReason("evidence_candidate_mismatch", "validation evidence is not bound to the operation candidate");
+    }
+  }
+  return {
+    allowed: reasons.length === 0,
+    reasons,
+    ...(reasonCodes.length > 0 ? { reasonCodes } : {}),
+  };
 }
 
 export function assertAutonomousOperationIdentity(
@@ -524,6 +596,7 @@ export type AiExecutionCheckpoint = {
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   proofRequired?: boolean;
+  acceptanceDisposition?: AiAcceptanceDisposition;
   detail?: string;
   operation?: AutonomousOperationContract;
   recipeBinding?: RecipeOperationBinding;
@@ -1171,6 +1244,7 @@ function mergeTerminalCheckpoint(
     recentSteps?: Array<Record<string, unknown>>;
     streamedPreview?: string;
     operation?: AutonomousOperationContract;
+    acceptanceDisposition?: AiAcceptanceDisposition;
   },
 ): AiExecutionCheckpoint {
   const previous = parseAiExecutionCheckpoint(execution.checkpoint);
@@ -1206,6 +1280,9 @@ function mergeTerminalCheckpoint(
       : {}),
     ...(params.nodeStates && params.nodeStates.length > 0
       ? { nodeStates: params.nodeStates }
+      : {}),
+    ...(params.acceptanceDisposition
+      ? { acceptanceDisposition: params.acceptanceDisposition }
       : {}),
     detail: params.error.slice(0, 500),
     updatedAt: now,
@@ -1447,6 +1524,16 @@ export async function completeAiExecution(params: {
   evidenceReason?: string;
   proofRequired?: boolean;
   evidenceRefs?: readonly string[];
+  evidence?: readonly Pick<
+    ValidationEvidence,
+    "evidenceId"
+    | "artifactRef"
+    | "operationId"
+    | "projectRevision"
+    | "candidateHash"
+  >[];
+  operationId?: string;
+  candidateIdentity?: string | null;
   recipeBinding?: RecipeOperationBinding;
   recipeReceipt?: RecipeReceipt;
 }): Promise<boolean> {
@@ -1486,15 +1573,25 @@ export async function completeAiExecution(params: {
   const operation = params.operation ?? checkpoint?.operation;
   if (requiresProof) {
     if (!operation) return false;
+    if (!request?.workspaceRevision) return false;
+    const durableOperationId = current.operationId ?? params.executionId;
+    const pendingProposal = Boolean(params.proposalId);
     const completion = validateAutonomousOperationCompletion(operation, {
       evidenceRefs: params.evidenceRefs,
+      evidence: params.evidence,
       evidenceVerdict: params.evidenceVerdict,
       workspaceRevision: request?.workspaceRevision,
-      candidateIdentity: operation.candidateIdentity,
+      candidateIdentity: params.candidateIdentity,
+      operationId: params.operationId ?? durableOperationId,
+      checkpointOperationId: checkpoint?.operation?.operationId ?? "",
       nodeStates: params.nodeStates?.map((node) => ({
         status: node.status,
         evidenceRefs: node.evidenceRefs ?? [],
       })),
+      // A pending approval proposal is intentionally review-ready rather than
+      // autonomously proven. It still has to satisfy identity, scope, node, and
+      // evidence-reference checks before the chat execution is finalized.
+      requireProven: !pendingProposal,
     });
     if (!completion.allowed) return false;
   }
@@ -1552,6 +1649,7 @@ export async function failAiExecution(params: {
   streamedPreview?: string;
   operation?: AutonomousOperationContract;
   recipeBinding?: RecipeOperationBinding;
+  acceptanceDisposition?: AiAcceptanceDisposition;
 }): Promise<boolean> {
   const status = params.cancelled ? "cancelled" : "failed";
   const [current] = await db

@@ -233,4 +233,67 @@ describe("autonomous operation contract", () => {
       evidenceRefs: ["validation-result:1"],
     })).toEqual({ allowed: true, reasons: [] });
   });
+
+  it("returns bounded identity diagnostics and allows review-ready proposals without claiming proof", () => {
+    const operation = createAutonomousOperationContract({
+      operationId: "operation-5",
+      objective: "Update the parser",
+      revisionManifest: "revision-current",
+      candidateIdentity: "candidate-1",
+      targetPaths: ["src/parser.ts"],
+      expectedBehavior: "The parser accepts quoted values.",
+      nodes: [{
+        id: "validate-parser",
+        kind: "mutate",
+        dependencies: [],
+        status: "passed",
+        attempts: 1,
+        validationAttempts: 1,
+        allowedFiles: ["src/parser.ts"],
+        validationProfile: "workspace-typecheck",
+        evidenceRefs: ["validation-result:5"],
+      }],
+    });
+    const evidence = {
+      evidenceId: "evidence-5",
+      artifactRef: "validation-result:5",
+      operationId: "operation-stale",
+      projectRevision: "revision-stale",
+      candidateHash: "candidate-stale",
+    };
+    const rejected = validateAutonomousOperationCompletion(operation, {
+      operationId: "operation-5",
+      checkpointOperationId: "operation-checkpoint-stale",
+      candidateIdentity: "candidate-1",
+      evidenceVerdict: "PROVEN",
+      workspaceRevision: "revision-current",
+      evidenceRefs: ["validation-result:5"],
+      evidence: [evidence],
+    });
+    expect(rejected.allowed).toBe(false);
+    expect(rejected.reasonCodes).toEqual(expect.arrayContaining([
+      "checkpoint_operation_mismatch",
+      "evidence_operation_mismatch",
+      "evidence_revision_mismatch",
+      "evidence_candidate_mismatch",
+    ]));
+    expect(rejected.reasons.join(" ")).not.toContain("candidate-stale");
+
+    const reviewReady = validateAutonomousOperationCompletion(operation, {
+      operationId: "operation-5",
+      checkpointOperationId: "operation-5",
+      candidateIdentity: "candidate-1",
+      evidenceVerdict: "PARTIAL",
+      workspaceRevision: "revision-current",
+      evidenceRefs: ["validation-result:5"],
+      evidence: [{
+        ...evidence,
+        operationId: "operation-5",
+        projectRevision: "revision-current",
+        candidateHash: "candidate-1",
+      }],
+      requireProven: false,
+    });
+    expect(reviewReady).toEqual({ allowed: true, reasons: [] });
+  });
 });
