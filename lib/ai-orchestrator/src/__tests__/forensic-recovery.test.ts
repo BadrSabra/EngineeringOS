@@ -22,6 +22,54 @@ const evidence = {
 };
 
 describe("staged forensic Recovery", () => {
+  it("keeps a retained packet candidate visible without proving an incomplete scope", () => {
+    const report = buildStructuredForensicReport(
+      {
+        verdict: "FINDING_PROVEN",
+        findings: [{
+          id: "F-01",
+          title: "Dynamic evaluation executes untrusted input",
+          files: [sourcePath],
+          evidence: "`return eval(expression);`",
+          whyItMatters: "Input can execute arbitrary code.",
+          rootCause: "The implementation evaluates the caller-provided string directly.",
+          fix: "Replace dynamic evaluation with an allow-listed parser.",
+        }],
+        repairPlan: [],
+        validationChecklist: ["Read the remaining requested source files."],
+      },
+      {
+        ...evidence,
+        sourceCoverage: {
+          complete: false,
+          roots: [{
+            root: ".",
+            discoveredFiles: 2,
+            readFiles: 1,
+            unreadFiles: 1,
+            status: "PARTIAL",
+            unreadPaths: ["src/missing.ts"],
+            truncatedPaths: [],
+          }],
+        },
+      },
+      {
+        emptyVerdict: "ANALYSIS_INCOMPLETE",
+        incompleteReason: "SOURCE_COVERAGE_INCOMPLETE",
+        incompleteNextAction: "Retry the bounded read.",
+      },
+    );
+
+    expect(report).toContain("## 1) Executive Verdict");
+    expect(report).toContain("## 6) Final Judgment");
+    expect(report).toContain("ANALYSIS_INCOMPLETE");
+    expect(report).toContain("NOT PROVEN");
+    expect(report).toContain("ID: F-01");
+    expect(report).toContain("src/missing.ts");
+    expect(report).not.toContain("Phase 1 (F-01):");
+    expect(report).toContain("Safe terminal reason: SOURCE_COVERAGE_INCOMPLETE");
+  });
+
   it("keeps exhausted Arabic Recovery evidence-only and truthful", () => {
     const prompt = "راجع هذا السلوك في تدقيق جنائي كامل.";
     const report = buildStructuredForensicReport(

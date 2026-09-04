@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../prompts/profile-classifier.js";
-import { isWriteCapableTurn, resolveTurnIntent } from "../turn-intent.js";
+import {
+  isCompoundExecutionRequest,
+  isWriteCapableTurn,
+  resolveTurnIntent,
+} from "../turn-intent.js";
+import { buildProviderTools } from "../agents/chat-agent.js";
 
 describe("resolveTurnIntent", () => {
   it("treats an explicit validation capability request as a project query, not a forensic audit", () => {
@@ -286,4 +291,73 @@ describe("resolveTurnIntent", () => {
       });
     },
   );
+
+  it.each([
+    "inspect src/foo.ts and fix the bug",
+    "audit src/foo.ts then apply the approved repair plan",
+    "تحقق من src/foo.ts ثم أصلح المشكلة",
+    "افحص أولًا الملف artifacts/dashboard/src/App.tsx، وبعد اكتمال قراءة المصدر، انتقل إلى مسار inspect → fix وأنشئ تغييرًا معلّقًا للمراجعة فقط",
+  ])("keeps compound inspect-and-change requests write-capable: %s", (message) => {
+    expect(isCompoundExecutionRequest(message)).toBe(true);
+    expect(resolveTurnIntent(message)).toMatchObject({
+      kind: "DELIVERY",
+      executionTaskType: "task_execution",
+      requiresTools: true,
+      requiresEvidence: false,
+      compoundExecution: true,
+      phases: ["evidence", "proposal"],
+    });
+  });
+
+  it("routes a compound validation request without write semantics", () => {
+    const message = "verify src/foo.ts then run the tests";
+
+    expect(isCompoundExecutionRequest(message)).toBe(true);
+    expect(resolveTurnIntent(message)).toMatchObject({
+      kind: "DELIVERY",
+      executionTaskType: "task_execution",
+      requiresTools: true,
+      requiresEvidence: false,
+      compoundExecution: true,
+      compoundWrite: false,
+      phases: ["evidence", "validation"],
+    });
+    expect(isWriteCapableTurn(resolveTurnIntent(message))).toBe(false);
+  });
+
+  it("keeps the provider manifest write-free for validation-only compounds", () => {
+    const validationIntent = resolveTurnIntent("verify src/foo.ts then run the tests");
+    const writeIntent = resolveTurnIntent("inspect src/foo.ts then fix the bug");
+    const buildManifest = (intent: typeof validationIntent) =>
+      buildProviderTools(
+        "openrouter",
+        process.cwd(),
+        undefined,
+        false,
+        false,
+        [],
+        true,
+        false,
+        intent.compoundExecution,
+        intent.compoundWrite,
+      )?.map((tool) => tool.function.name) ?? [];
+
+    const validationTools = buildManifest(validationIntent);
+    const writeTools = buildManifest(writeIntent);
+
+    expect(validationTools).toContain("run_validation");
+    expect(validationTools).not.toContain("write_file");
+    expect(validationTools).not.toContain("replace_text");
+    expect(writeTools).toContain("write_file");
+    expect(writeTools).toContain("replace_text");
+  });
+
+  it.each([
+    "Audit src/foo.ts and report the root cause.",
+    "راجع src/foo.ts ثم اذكر السبب الجذري فقط",
+    "How do I edit settings?",
+    "Inspect src/foo.ts and explain how to fix the bug.",
+  ])("does not promote read-only or explanatory requests to compound delivery: %s", (message) => {
+    expect(isCompoundExecutionRequest(message)).toBe(false);
+  });
 });
