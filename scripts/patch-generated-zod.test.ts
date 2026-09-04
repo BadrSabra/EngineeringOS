@@ -37,6 +37,21 @@ test("converts every generated looseObject marker", async () => {
   });
 });
 
+test("converts Orval integer schemas to the Zod 3 equivalent", async () => {
+  const generated = [
+    "const first = zod.int();",
+    "const bounded = zod.int().min(1);",
+    "const nullable = zod.int().nullable();",
+  ].join("\n");
+
+  await withTemporaryFile(generated, async (filePath) => {
+    assert.throws(
+      () => patchGeneratedZod(filePath),
+      /contains no 'zod\\.looseObject\\(' markers/,
+    );
+  });
+});
+
 test("hoists execution-ledger bounds before schemas that reference them", async () => {
   const generated = [
     "import * as zod from 'zod';",
