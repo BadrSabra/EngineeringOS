@@ -6,10 +6,10 @@
  * source files can legitimately define or document the marker itself.
  */
 const TOOL_TRUNCATION_MARKER_LINE =
-  /^(?:\[\.\.\.\s*(?:output truncated|forensic read exceeded)\b[^\]]*\]|\u2026\s*\[(?:prefetch|read) output truncated\b[^\]]*\]|\[(?:prefetch|read) output truncated\b[^\]]*\])$/i;
+  /^(?:\[\.\.\.\s*(?:output truncated|forensic read exceeded)\b(?:[^\]]*\])?|\u2026\s*\[(?:prefetch|read) output truncated\b[^\]]*\]|\[(?:prefetch|read) output truncated\b[^\]]*\])$/i;
 
 const DISPLAY_LIMIT_MARKER_LINE =
-  /^(?:\u2026\s*)?\[(?:prefetch|read) output truncated\b[^\]]*\]$|^(?:\[\.\.\.\s*)?(?:output truncated|forensic read exceeded)\b[^\]]*\]$|^(?:\.\.\.\s*)?\[\d+\s+(?:lines?|bytes?)\s+omitted\b[^\]]*\]$/i;
+  /^(?:\u2026\s*)?\[(?:prefetch|read) output truncated\b[^\]]*\]$|^(?:\[\.\.\.\s*)?(?:output truncated|forensic read exceeded)\b(?:[^\]]*\])?$|^(?:\.\.\.\s*)?\[\d+\s+(?:lines?|bytes?)\s+omitted\b[^\]]*\]$/i;
 
 /**
  * True only when the returned transport payload ends with a known truncation
@@ -28,9 +28,10 @@ export function hasToolAppendedTruncationMarker(content: string): boolean {
  * as hasToolAppendedTruncationMarker.
  */
 export function hasDisplayTruncationMarker(content: string): boolean {
-  const lines = content.replace(/\r\n/g, "\n").trimEnd().split("\n");
-  const last = lines.at(-1)?.trim() ?? "";
-  const candidate = last === "```" ? (lines.at(-2)?.trim() ?? "") : last;
-  return DISPLAY_LIMIT_MARKER_LINE.test(candidate) ||
-    /\bdisplay limit\b.*\b(?:truncat|omitt)/i.test(candidate);
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  return lines.some((line) => {
+    const candidate = line.trim();
+    return DISPLAY_LIMIT_MARKER_LINE.test(candidate) ||
+      /\bdisplay limit\b.*\b(?:truncat|omitt)/i.test(candidate);
+  });
 }
