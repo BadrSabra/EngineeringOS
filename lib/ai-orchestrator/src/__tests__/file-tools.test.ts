@@ -131,6 +131,26 @@ describe("executeFileTool — bounded source reads", () => {
     }
   });
 
+  it("preserves complete forensic reads when list_directory is mistakenly given a file", async () => {
+    const filePath = path.join("/tmp", `complete-list-file-${Date.now()}.ts`);
+    const tail = "export const completeListTail = true;\n";
+    await fs.writeFile(filePath, `export const start = true;\n${"x".repeat(128_100)}${tail}`, "utf-8");
+
+    try {
+      const result = await executeFileTool(
+        "list_directory",
+        { path: path.basename(filePath), complete: "true" },
+        "/tmp",
+        [],
+      );
+      expect(result).toContain(tail);
+      expect(result).not.toContain("output truncated at 128 KB by the read tool");
+      expect(result).not.toContain("forensic read exceeded the maximum safe evidence window");
+    } finally {
+      await fs.rm(filePath, { force: true });
+    }
+  });
+
   it("describes read_file as a bounded preview in the tool contract", () => {
     const readTool = FILE_TOOL_DEFINITIONS.find((tool) => tool.function.name === "read_file");
     expect(readTool?.function.description).toContain("first 128 KB");
