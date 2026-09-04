@@ -1177,7 +1177,8 @@ async function persistFailedChatTurn(params: {
   assistantAt: Date;
   toolTrace?: AgentStep[];
   executionLedgerSnapshot?: ExecutionLedgerPublicSnapshot;
-}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; acceptanceDisposition?: AiAcceptanceDisposition } | undefined> {
+  contextProvenance?: ReturnType<typeof projectContextProvenance>;
+}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; acceptanceDisposition?: AiAcceptanceDisposition; contextProvenance?: ReturnType<typeof projectContextProvenance> } | undefined> {
   return db.transaction(async (tx) => {
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -1254,6 +1255,9 @@ async function persistFailedChatTurn(params: {
           createdAt: existingFinal.createdAt,
           ...(readExecutionLedgerTrace(existingFinal.toolTrace)
             ? { executionLedger: readExecutionLedgerTrace(existingFinal.toolTrace) }
+            : {}),
+          ...(readContextProvenanceTrace(existingFinal.toolTrace)
+            ? { contextProvenance: readContextProvenanceTrace(existingFinal.toolTrace) }
             : {}),
         };
       }
@@ -1373,6 +1377,9 @@ async function persistFailedChatTurn(params: {
         ...(readExecutionLedgerTrace(existing.toolTrace)
           ? { executionLedger: readExecutionLedgerTrace(existing.toolTrace) }
           : {}),
+        ...(readContextProvenanceTrace(existing.toolTrace)
+          ? { contextProvenance: readContextProvenanceTrace(existing.toolTrace) }
+          : {}),
       };
     }
     if (params.activeTaskState !== undefined) {
@@ -1387,9 +1394,12 @@ async function persistFailedChatTurn(params: {
         ));
     }
     const trace = params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null;
-    const persistedTrace = params.executionLedgerSnapshot
-      ? appendExecutionLedgerTrace(trace, params.executionLedgerSnapshot)
+    const traceWithProvenance = params.contextProvenance
+      ? appendContextProvenanceTrace(trace, params.contextProvenance)
       : trace;
+    const persistedTrace = params.executionLedgerSnapshot
+      ? appendExecutionLedgerTrace(traceWithProvenance, params.executionLedgerSnapshot)
+      : traceWithProvenance;
     const terminalTrace = params.terminalOutcome && persistedTrace
       ? (() => {
           const parsed = parseStoredJson(persistedTrace);
@@ -1470,6 +1480,7 @@ async function persistFailedChatTurn(params: {
         }),
       } : {}),
       ...(params.executionLedgerSnapshot ? { executionLedger: params.executionLedgerSnapshot } : {}),
+      ...(params.contextProvenance ? { contextProvenance: params.contextProvenance } : {}),
     };
   });
 }
