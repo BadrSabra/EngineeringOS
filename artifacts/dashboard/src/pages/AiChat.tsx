@@ -513,14 +513,26 @@ function persistAiChatSelection(selection: AiChatSelection): void {
       aiChatSelectionStorageKey(selection.projectId),
       JSON.stringify(selection),
     );
+    publishAiChatSyncEvent({
+      projectId: selection.projectId,
+      kind: 'selection',
+      ...(selection.kind === 'session' ? { sessionId: selection.sessionId } : {}),
+    });
+  } catch {
+    // Browser storage can be unavailable in privacy-restricted contexts.
+  }
+}
+
+function publishAiChatSyncEvent(
+  event: Omit<AiChatSyncEvent, 'version' | 'sequence'>,
+): void {
+  try {
     localStorage.setItem(
       AI_CHAT_SYNC_STORAGE_KEY,
       JSON.stringify({
         version: 1,
         sequence: ++aiChatSyncSequence,
-        projectId: selection.projectId,
-        kind: 'selection',
-        ...(selection.kind === 'session' ? { sessionId: selection.sessionId } : {}),
+        ...event,
       } satisfies AiChatSyncEvent),
     );
   } catch {
@@ -532,18 +544,19 @@ function clearAiChatSelection(projectId: string | undefined): void {
   if (!projectId) return;
   try {
     localStorage.removeItem(aiChatSelectionStorageKey(projectId));
-    localStorage.setItem(
-      AI_CHAT_SYNC_STORAGE_KEY,
-      JSON.stringify({
-        version: 1,
-        sequence: ++aiChatSyncSequence,
-        projectId,
-        kind: 'selection',
-      } satisfies AiChatSyncEvent),
-    );
+    publishAiChatSyncEvent({ projectId, kind: 'selection' });
   } catch {
     // Browser storage can be unavailable in privacy-restricted contexts.
   }
+}
+
+function publishAiChatData(projectId: string | undefined, sessionId?: string): void {
+  if (!projectId) return;
+  publishAiChatSyncEvent({
+    projectId,
+    kind: 'data',
+    ...(sessionId && isOpaqueSelectionId(sessionId) ? { sessionId } : {}),
+  });
 }
 
 function sessionForensicStatusLabel(status: Session['forensicStatus']): string | null {
