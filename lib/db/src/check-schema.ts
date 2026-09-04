@@ -8,7 +8,7 @@ import { pool } from "./index.js";
 try {
   await assertApplicationSchema();
   console.log(
-    "Application schema is ready: public.tasks and public.task_logs satisfy the release contract.",
+    "Application schema is ready: the release-critical application tables satisfy the contract.",
   );
 } catch (error) {
   if (error instanceof ApplicationSchemaError) {
