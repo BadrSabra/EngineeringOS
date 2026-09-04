@@ -196,16 +196,19 @@ export function authorizeToolInvocation(opts: {
   if (isValidationOrExecution && opts.approvedValidationProfiles === undefined) {
     return { allowed: false, reason: "approval_manifest_missing" };
   }
+  const approvedFilePaths = opts.approvedFilePaths;
+  const approvedValidationProfiles = opts.approvedValidationProfiles;
   const requestedPath = typeof opts.args?.path === "string"
     ? opts.args.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "")
     : undefined;
   if (isWrite && (
-    !requestedPath || !opts.approvedFilePaths.includes(requestedPath)
+    !requestedPath || !approvedFilePaths!.includes(requestedPath)
   )) {
     return { allowed: false, reason: "path_outside_approved_scope" };
   }
   if (isValidationOrExecution &&
-      !opts.approvedValidationProfiles.includes(String(opts.args?.profile ?? "").trim())) {
+      !approvedValidationProfiles &&
+      !approvedValidationProfiles!.includes(String(opts.args?.profile ?? "").trim())) {
     return { allowed: false, reason: "validation_profile_not_approved" };
   }
   return { allowed: true, reason: "allowed" };

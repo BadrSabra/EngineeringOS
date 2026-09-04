@@ -22,7 +22,6 @@ import type {
   AdmissionDecision,
   ContextObject,
   ContextPlan,
-  ContextAdmissionIdentity,
 } from "./context-object.js";
 
 /** Importance score (higher = more critical; used when budget is constrained). */

@@ -17,6 +17,12 @@ function makeObject(loadedAt: number): ContextObject {
   return {
     plan: {
       projectId: "freshness-test",
+      admissionIdentity: {
+        projectId: "freshness-test",
+        projectRevision: "revision-1",
+        sourceRoot: "/project",
+        scanCorrelationId: "scan-1",
+      },
       slices,
       totalEstimatedTokens: slices.reduce((total, slice) => total + slice.estimatedTokens, 0),
       budgetTokens: 1000,
