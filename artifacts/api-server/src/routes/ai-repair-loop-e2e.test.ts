@@ -25,9 +25,7 @@ import type { RepairVerificationResult } from "../lib/ai-repair-validation.js";
 const harness = vi.hoisted(() => {
   const responses: RawGroqResponse[] = [];
   const validationResults: RepairVerificationResult[] = [];
-  const options = { allowRealValidation: false };
   const calls: Array<{ toolNames: string[]; toolChoice?: string; messages: unknown[] }> = [];
-  let validationCallCount = 0;
 
   const toolResponse = (id: string, name: string, args: Record<string, unknown>): RawGroqResponse => ({
     content: null,
@@ -76,11 +74,7 @@ const harness = vi.hoisted(() => {
   return {
     responses,
     validationResults,
-    options,
     calls,
-    get validationCallCount() { return validationCallCount; },
-    incrementValidationCall() { validationCallCount += 1; },
-    resetValidationCallCount() { validationCallCount = 0; },
     strategy,
     toolResponse,
     finalResponse,
@@ -166,21 +160,15 @@ vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/ai-repair-validation.js")>();
   return {
     ...actual,
-    runRepairValidation: vi.fn(async (...args: unknown[]) => {
-      harness.incrementValidationCall();
+    runRepairValidation: vi.fn(async () => {
       const fixtureResult = harness.validationResults.shift();
       if (fixtureResult) {
         return fixtureResult;
       }
-      if (!harness.options.allowRealValidation) {
-        throw new Error(
-          "Repair-loop fixture exhausted its injected validation results. "
-          + "Add a deterministic result before invoking run_validation, or explicitly enable real validation.",
-        );
-      }
-      return actual.runRepairValidation(...(
-        args as Parameters<typeof actual.runRepairValidation>
-      ));
+      throw new Error(
+        "Repair-loop fixture exhausted its injected validation results. "
+        + "Add a deterministic result before invoking run_validation.",
+      );
     }),
   };
 });
@@ -276,9 +264,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
   afterEach(async () => {
     harness.responses.length = 0;
     harness.validationResults.length = 0;
-    harness.options.allowRealValidation = false;
     harness.calls.length = 0;
-    harness.resetValidationCallCount();
     harness.strategy.call.mockClear();
     for (const projectId of projectIds.splice(0)) {
       const sessions = await db
