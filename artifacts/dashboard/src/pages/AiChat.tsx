@@ -4712,11 +4712,12 @@ function MessageBubble({
   retryPending?: boolean;
 }) {
   const isUser = msg.role === 'user';
+  const isChatTurn = !isUser && msg.turnIntent === 'CHAT';
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
   const sources = parseSources(msg.sources);
   const toolTrace = parseToolTrace(msg.toolTrace);
   const activityTrace = toolTrace.filter((entry) => entry.kind !== 'execution_ledger');
-  const forensicDiagnostic = !isUser
+  const forensicDiagnostic = !isUser && !isChatTurn
     ? msg.forensicDiagnostic
       ?? [...toolTrace].reverse().find((entry) => entry.kind === 'forensic_diagnostic')?.forensicDiagnostic
     : undefined;
@@ -4773,10 +4774,10 @@ function MessageBubble({
   const userFacingContent = internalTechnicalDump
     ? 'The agent produced internal technical details for this run.'
     : redactedDisplayContent;
-  const persistedForensicStatus = !isUser
+  const persistedForensicStatus = !isUser && !isChatTurn
     ? [...toolTrace].reverse().find((entry) => entry.kind === 'forensic_status')
     : undefined;
-  const finalVerdict = !isUser
+  const finalVerdict = !isUser && !isChatTurn
     ? getFinalForensicVerdict(displayContent, persistedForensicStatus?.findingStatus)
     : null;
   const productionTrace = !isUser
@@ -4789,7 +4790,7 @@ function MessageBubble({
         .filter((entry) => entry.kind === 'cross_file_trace' && entry.crossFileTrace)
         .map((entry) => entry.crossFileTrace as AiCrossFileSemanticTrace)
     : [];
-  const isForensicFallback = !isUser && isForensicFallbackMessage(displayContent);
+  const isForensicFallback = !isUser && !isChatTurn && isForensicFallbackMessage(displayContent);
   const isEvidenceOnlyFallback = isForensicFallback && isEvidenceOnlyFallbackMessage(displayContent);
   const incompleteBeforeEvidence = !isUser && isIncompleteBeforeEvidenceSummary(executionSummary);
   const isNoFindingFallback = !isUser && Boolean(
@@ -4812,7 +4813,7 @@ function MessageBubble({
         proposalId,
       })
     : undefined;
-  const isForensicRun = !isUser && (
+  const isForensicRun = !isUser && !isChatTurn && (
     inferredOperationMode === 'FORENSIC_AUDIT'
     || isForensicFallback
     || finalVerdict !== null
@@ -4824,22 +4825,17 @@ function MessageBubble({
     || Boolean(repairRadar)
     || toolTrace.some((entry) => entry.kind === 'validation' || entry.kind === 'repair_state')
   );
-  const forensicEvidence = !isUser &&
+  const forensicEvidence = !isUser && !isChatTurn &&
     (isForensicFallback || finalVerdict !== null || Boolean(forensicDiagnostic) || isForensicRejection(executionSummary, finalVerdict))
     ? parseForensicEvidence(toolTrace, executionSummary, forensicDiagnostic)
     : null;
-  const reportGeneratedAt = !isUser
+  const reportGeneratedAt = !isUser && !isChatTurn
     ? readMissionCorrelationReportGeneratedAt(msg.missionCorrelationReport)
     : null;
   const safeFailureMessage = failedTurn ? safeChatRecoveryMessage(msg) : null;
   const partialProviderResponse = failedTurn && !structuredFailure
     ? safePartialProviderResponse(msg, displayContent, internalTechnicalDump)
     : null;
-  // A generic chat turn can still retain a bounded provider response and its
-  // terminal execution summary. Show that diagnostic without inferring a
-  // forensic or delivery operation mode from the failure.
-  const failedChatHasExecutionSummary = failedTurn && executionSummary !== null;
-
   return (
     <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
       <div
@@ -5029,10 +5025,10 @@ function MessageBubble({
             : <ExecutionSummaryBanner
                 summary={executionSummary}
                 operatorTraceId={`operator-trace-${msg.id}`}
-                visible={isForensicRun || isEngineeringExecution || failedChatHasExecutionSummary}
+                visible={isForensicRun || isEngineeringExecution}
               />}
         {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
-        {!isUser && <ExecutionLedgerCard snapshot={executionLedger} />}
+        {!isUser && !isChatTurn && <ExecutionLedgerCard snapshot={executionLedger} />}
         {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (
           <PersistedExecutionProof
             summary={executionSummary}
@@ -5043,14 +5039,18 @@ function MessageBubble({
             traceId={`operator-trace-${msg.id}`}
           />
         )}
-        <CompletedActivityTimeline
-          events={activityEvents}
-          defaultOpen={false}
-        />
-        <SemanticTraceCard
-          productionTrace={productionTrace}
-          crossFileTraces={crossFileTraces}
-        />
+        {!isChatTurn && (
+          <CompletedActivityTimeline
+            events={activityEvents}
+            defaultOpen={false}
+          />
+        )}
+        {!isChatTurn && (
+          <SemanticTraceCard
+            productionTrace={productionTrace}
+            crossFileTraces={crossFileTraces}
+          />
+        )}
         {forensicEvidence && (
           <ForensicEvidenceCard
             evidence={forensicEvidence}
