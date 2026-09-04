@@ -171,6 +171,10 @@ vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
     ...actual,
     runRepairValidation: vi.fn(async (...args: unknown[]) => {
       const fixtureResult = harness.validationResults.shift();
+      console.error("REPAIR_DEBUG_VALIDATION", JSON.stringify({
+        status: fixtureResult?.status,
+        pendingChanges: Array.isArray(args[5]) ? args[5].length : undefined,
+      }));
       if (fixtureResult) {
         return fixtureResult;
       }
