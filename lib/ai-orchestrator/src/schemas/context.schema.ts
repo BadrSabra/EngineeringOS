@@ -7,6 +7,7 @@ import { ContextManifestSchema } from "../context-manifest.js";
 import {
   CONTEXT_SCHEMA_VERSION,
   ContextCollectionSchema,
+  ContextIdentitySchema,
   ContextIntentSchema,
   ContextLinkSchema,
   ContextProvenanceSchema,
@@ -28,8 +29,8 @@ export const ContextSliceHealthSchema = z.object({
   loadedAt: z.number().int().nonnegative(),
   freshness: z.enum(["fresh", "stale", "missing"]),
   failureCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,31}$/).optional(),
-  admissionDecision: z.enum(["ADMIT", "REFERENCE", "DEFER", "DROP"]).optional(),
-  lifetimeStage: z.enum(["fresh", "stale", "archived"]).optional(),
+  admissionDecision: z.enum(["ADMIT", "REFERENCE", "DEFER", "DROP"]),
+  lifetimeStage: z.enum(["fresh", "stale", "archived"]),
   collection: ContextCollectionSchema.optional(),
 }).strict();
 
@@ -72,8 +73,8 @@ const AgentContextBaseSchema = z
     metricsVerified: z.boolean(),
     /** Immutable revision/completeness contract for all downstream work. */
     contextManifest: ContextManifestSchema.optional(),
-    /** Server-owned load, freshness, and admission status for every optional slice. */
-    contextHealth: ContextHealthSchema.optional(),
+     /** Server-owned load, freshness, and admission status for every optional slice. */
+     contextHealth: ContextHealthSchema,
     /**
      * Optional: formatted text summarising files and findings from previous
      * chat sessions for this project, injected via the session-memory layer.
@@ -84,8 +85,9 @@ const AgentContextBaseSchema = z
      filesystemManifest: ProjectFileManifestSchema.optional(),
     /** Optional bounded source excerpts read specifically for implementation planning. */
     filesystemSources: ProjectFileSourcesSchema.optional(),
-    /** Server-owned versioned identity for the current turn. */
-    schemaVersion: z.union([z.literal(CONTEXT_SCHEMA_VERSION), z.literal(1)])
+     /** Server-owned versioned identity for the current turn. */
+     contextIdentity: ContextIdentitySchema,
+     schemaVersion: z.union([z.literal(CONTEXT_SCHEMA_VERSION), z.literal(1)])
       .transform(() => CONTEXT_SCHEMA_VERSION)
       .optional(),
     projectId: z.string().min(1).optional(),
@@ -121,6 +123,42 @@ export const AgentContextSchema = Object.assign(
 
 export type AgentContext = z.infer<typeof AgentContextSchema>;
 
+const DEFAULT_CONTEXT_HEALTH: ContextHealth = {
+  tasks: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
+  metrics: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
+  graphEntities: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
+  graphRelationships: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
+  events: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
+  workflows: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
+};
+
+const DEFAULT_CONTEXT_INTENT = {
+  kind: "CHAT",
+  phases: [],
+  requiresEvidence: false,
+} as const;
+
+function normalizeHealth(value: unknown): ContextHealth {
+  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const normalized = Object.fromEntries(
+    Object.keys(DEFAULT_CONTEXT_HEALTH).map((section) => {
+      const candidate = input[section] && typeof input[section] === "object"
+        ? input[section] as Record<string, unknown>
+        : {};
+      const status = candidate.status;
+      return [section, {
+        ...DEFAULT_CONTEXT_HEALTH[section as keyof ContextHealth],
+        ...candidate,
+        admissionDecision: candidate.admissionDecision
+          ?? (status === "loaded" || status === "empty" ? "ADMIT" : status === "load_failed" ? "REFERENCE" : "DROP"),
+        lifetimeStage: candidate.lifetimeStage
+          ?? (status === "loaded" || status === "empty" ? "fresh" : status === "load_failed" ? "stale" : "archived"),
+      }];
+    }),
+  );
+  return normalized as ContextHealth;
+}
+
 /**
  * Parse a context at the boundary.  Older contexts remain readable, but are
  * explicitly marked unavailable rather than silently treated as current.
@@ -136,7 +174,28 @@ export function parseAgentContext(value: unknown): AgentContext {
   ) {
     throw new Error("Unsupported context schema version.");
   }
-  const parsed = AgentContextSchema.parse(value);
+  const requestedSections = Array.isArray(candidate.requestedSections)
+    ? candidate.requestedSections.filter((entry): entry is string => typeof entry === "string").slice(0, 16)
+    : [];
+  const intent = candidate.intent && typeof candidate.intent === "object"
+    ? candidate.intent
+    : DEFAULT_CONTEXT_INTENT;
+  const identity = candidate.contextIdentity && typeof candidate.contextIdentity === "object"
+    ? candidate.contextIdentity
+    : {
+        schemaVersion: CONTEXT_SCHEMA_VERSION,
+        projectId: typeof candidate.projectId === "string" ? candidate.projectId : "unavailable",
+        operationId: typeof candidate.operationId === "string" ? candidate.operationId : "unavailable",
+        workspaceRevision: typeof candidate.workspaceRevision === "string" ? candidate.workspaceRevision : "unavailable",
+        capturedAt: typeof candidate.capturedAt === "string" ? candidate.capturedAt : new Date(0).toISOString(),
+        intent,
+        requestedSections,
+      };
+  const parsed = AgentContextSchema.parse({
+    ...(candidate as Record<string, unknown>),
+    contextIdentity: identity,
+    contextHealth: normalizeHealth(candidate.contextHealth),
+  });
   // Kept intentionally narrow: this catches compatibility regressions where
   // a newly added metadata object is enumerable but lacks the legacy marker.
   for (const [_key, entry] of Object.entries(parsed)) {
@@ -144,9 +203,29 @@ export function parseAgentContext(value: unknown): AgentContext {
       Object.defineProperty(entry, "length", { value: 1, enumerable: false });
     }
   }
-  if (parsed.schemaVersion === CONTEXT_SCHEMA_VERSION) return parsed;
+  if (parsed.schemaVersion === CONTEXT_SCHEMA_VERSION) {
+    return {
+      ...parsed,
+      schemaVersion: parsed.contextIdentity.schemaVersion,
+      projectId: parsed.contextIdentity.projectId,
+      operationId: parsed.contextIdentity.operationId,
+      workspaceRevision: parsed.contextIdentity.workspaceRevision,
+      capturedAt: parsed.contextIdentity.capturedAt,
+      intent: parsed.contextIdentity.intent,
+      requestedSections: parsed.contextIdentity.requestedSections,
+    };
+  }
   return {
     ...parsed,
+    contextIdentity: {
+      schemaVersion: CONTEXT_SCHEMA_VERSION,
+      projectId: parsed.projectId ?? "unavailable",
+      operationId: parsed.operationId ?? "unavailable",
+      workspaceRevision: parsed.workspaceRevision ?? "unavailable",
+      capturedAt: parsed.capturedAt ?? new Date(0).toISOString(),
+      intent: parsed.intent ?? DEFAULT_CONTEXT_INTENT,
+      requestedSections: parsed.requestedSections ?? [],
+    },
     schemaVersion: CONTEXT_SCHEMA_VERSION,
     projectId: parsed.projectId ?? "unavailable",
     operationId: parsed.operationId ?? "unavailable",

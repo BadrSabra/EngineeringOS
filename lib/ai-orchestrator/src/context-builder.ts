@@ -34,6 +34,7 @@ import { buildContextLinks, contextLinkCollection } from "./context-links.js";
 import { projectContextProvenance } from "./context-provenance.js";
 import { getFullAuthorizedToolManifest } from "./tool-policy.js";
 import type { ContextIntent } from "./context-contract.js";
+import { CONTEXT_SCHEMA_VERSION } from "./context-contract.js";
 
 export { invalidateContextCache, invalidateContextSlice, hashExecutionPlan, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
 export type { BuildProjectContextOptions, ContextLoadSection } from "./context-loader.js";
@@ -205,19 +206,32 @@ function bindContextIdentity(
 ): ProjectContext {
   const bound: ProjectContext = {
     ...context,
-    schemaVersion: "1",
+    schemaVersion: CONTEXT_SCHEMA_VERSION,
     projectId: options.projectId,
     operationId: options.operationId,
     workspaceRevision: context.workspaceRevision ?? context.contextManifest?.projectRevision ?? "unavailable",
     capturedAt: context.capturedAt ?? context.contextManifest?.capturedAt ?? new Date(0).toISOString(),
     requestedSections: options.requestedSections ?? context.requestedSections,
-    ...(options.intent ? { intent: options.intent } : {}),
+    intent: options.intent ?? context.intent ?? {
+      kind: "CHAT",
+      phases: [],
+      requiresEvidence: false,
+    },
     authorizedToolManifest: context.authorizedToolManifest ?? getFullAuthorizedToolManifest(),
     ...(options.availableToolNames
       ? { availableToolNames: [...options.availableToolNames] }
       : context.availableToolNames
         ? { availableToolNames: context.availableToolNames }
         : {}),
+  };
+  bound.contextIdentity = {
+    schemaVersion: CONTEXT_SCHEMA_VERSION,
+    projectId: bound.projectId!,
+    operationId: bound.operationId!,
+    workspaceRevision: bound.workspaceRevision!,
+    capturedAt: bound.capturedAt!,
+    intent: bound.intent!,
+    requestedSections: bound.requestedSections ?? [],
   };
   return {
     ...bound,

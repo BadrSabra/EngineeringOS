@@ -24,6 +24,17 @@ export const ContextIntentSchema = z.object({
 });
 export type ContextIntent = z.infer<typeof ContextIntentSchema>;
 
+export const ContextIdentitySchema = z.object({
+  schemaVersion: z.literal(CONTEXT_SCHEMA_VERSION),
+  projectId: z.string().min(1).max(200),
+  operationId: z.string().min(1).max(200),
+  workspaceRevision: z.string().min(1).max(200),
+  capturedAt: z.string().datetime(),
+  intent: ContextIntentSchema,
+  requestedSections: z.array(z.string().min(1).max(80)).max(16),
+}).strict();
+export type ContextIdentity = z.infer<typeof ContextIdentitySchema>;
+
 export const ContextCollectionSchema = z.object({
   page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
