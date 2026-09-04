@@ -262,6 +262,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     await mockChatProviders(fakeStrategy);
 
     const diagnostics: string[] = [];
+    const deltas: string[] = [];
     let steps: AgentStep[] = [];
     try {
       const { chat } = await import("../agents/chat-agent.js");
@@ -277,6 +278,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
           void steps.push(step);
           if (step.kind === "diagnostic") diagnostics.push(step.code);
         },
+        onDelta: (chunk) => deltas.push(chunk),
       });
 
       // ── Routing gates: the probe must NOT be rejected (regression guard) ──
@@ -290,6 +292,9 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       expect(result.response).toMatch(/NO FINDING/i);
       expect(result.response).not.toMatch(/Executive Verdict|Evidence Map|Repair Plan|Final Judgment/i);
       expect(result.response).toMatch(/C1|C2|C4|C5|C6|C7/);
+      // Capability Probe is buffered until its validator and citation gates
+      // finish; it must not use the ordinary token-streaming path.
+      expect(deltas).toEqual([]);
 
       // ── C1/C3: ground the verdict in an ACTUAL completed read ──────────────
       // The verdict quotes the exact signature fragment from the read file's body.

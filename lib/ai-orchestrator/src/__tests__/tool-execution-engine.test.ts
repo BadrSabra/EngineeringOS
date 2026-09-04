@@ -2852,6 +2852,49 @@ describe("executeToolLoop", () => {
     expect(errorMsg).toBeDefined();
   });
 
+  it("keeps synthesis tool-call mismatches recoverable after tools are disabled", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new GroqClientError(
+        "INVALID_TOOL_CALL",
+        'Provider returned invalid tool-call output: tool "search_code" is not in request manifest.',
+      ),
+    );
+    const steps: AgentStep[] = [];
+    const prefetched = new Map([["src/forensic.ts", "export const inspected = true;\n"]]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialFileContents: prefetched,
+      toolCallsDisabledAfter: 0,
+      executionMode: "forensic",
+      responseFormat: { type: "json_object" },
+      maxIterations: 2,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("partial");
+    if (result.kind === "partial") {
+      expect(result.reason).toBe("empty_response");
+      expect(result.fileContents?.get("src/forensic.ts")).toBe(prefetched.get("src/forensic.ts"));
+    }
+    expect(steps.some(
+      (step) => step.kind === "diagnostic" && step.code === "TOOL_UNAVAILABLE",
+    )).toBe(false);
+    expect(steps).toContainEqual(expect.objectContaining({
+      kind: "done",
+      stopReason: "empty_response",
+    }));
+  });
+
   it("fails closed with a bounded diagnostic when a file tool throws", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     FILE_TOOL_MOCK.mockRejectedValueOnce(new Error("/secret/workspace/private.txt leaked"));
