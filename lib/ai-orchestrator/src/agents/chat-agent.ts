@@ -3552,7 +3552,6 @@ function buildJsonCorrectionOptions(
       model: undefined,
       quality: "powerful",
       capability: "chat",
-      requireTools: false,
     };
   }
 
@@ -3607,7 +3606,6 @@ function buildForensicRecoveryOptions(
       ...base,
       quality: "powerful",
       capability: "chat",
-      requireTools: false,
       // Prefer a provider-enforced JSON envelope. openrouterCompleteRaw has a
       // same-model retry without this field for free models that reject it.
       responseFormat: { type: "json_object" },
@@ -9328,7 +9326,7 @@ export async function chat(opts: {
           model: recoveryModel,
           apiKey,
             ...(providerId === "openrouter"
-              ? { quality: "powerful" as const, capability: "chat" as const, requireTools: false }
+              ? { quality: "powerful" as const, capability: "chat" as const }
               : {}),
           maxTokens: 1024,
           timeoutMs: 45_000,
@@ -9424,7 +9422,7 @@ export async function chat(opts: {
             model: recoveryModel,
             apiKey,
             ...(providerId === "openrouter"
-              ? { quality: "powerful" as const, capability: "chat" as const, requireTools: false }
+              ? { quality: "powerful" as const, capability: "chat" as const }
               : {}),
             maxTokens: 3072,
             timeoutMs: Math.min(

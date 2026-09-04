@@ -2328,7 +2328,6 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 ...options,
                 model: undefined,
                 capability: "chat" as const,
-                requireTools: false,
               }
             : {
                 ...options,
