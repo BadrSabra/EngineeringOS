@@ -1166,7 +1166,12 @@ describe("executeToolLoop", () => {
     const synthesisOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
     expect(synthesisOptions).toMatchObject({
       responseFormat: { type: "json_object" },
+      capability: "chat",
     });
+    // The tool-loop model may only advertise tool_calling/coding. Synthesis
+    // must let OpenRouter resolve a fresh chat-capable candidate rather than
+    // pinning that incompatible model into the no-tools phase.
+    expect(synthesisOptions.model).toBeUndefined();
     expect(synthesisOptions).not.toHaveProperty("tools");
   });
 
