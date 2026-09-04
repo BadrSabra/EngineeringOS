@@ -13,16 +13,13 @@ import type { AiEmpiricalQualityScorecardStatus } from './aiEmpiricalQualityScor
 import type { AiEmpiricalQualityScorecardVersion } from './aiEmpiricalQualityScorecardVersion';
 
 /**
- * Redacted measurement-only empirical AI quality evidence. It compares provider/model observations with a versioned ground-truth corpus and never changes deterministic release acceptance.
+ * Redacted measurement-only empirical AI quality evidence. It compares quality observations with a versioned ground-truth corpus and never changes deterministic release acceptance.
  */
 export interface AiEmpiricalQualityScorecard {
   kind: AiEmpiricalQualityScorecardKind;
   version: AiEmpiricalQualityScorecardVersion;
   generatedAt?: Date;
   corpusRevision?: string;
-  provider?: string;
-  /** @nullable */
-  model?: string | null;
   measurementOnly: true;
   status: AiEmpiricalQualityScorecardStatus;
   empiricalQualityStatus: AiEmpiricalQualityScorecardEmpiricalQualityStatus;
