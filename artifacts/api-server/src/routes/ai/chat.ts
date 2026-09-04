@@ -3183,49 +3183,7 @@ router.post("/ai/chat", async (req, res) => {
       executionPlan,
     });
 
-    const assistantMessageId = randomUUID();
     const assistantMsg = await db.transaction(async (tx) => {
-      // The execution row is the shared terminal fence. Lock it before the
-      // session so failure and success paths use the same lock ordering.
-      const executionLockQuery = tx
-        .select({
-          id: aiExecutionsTable.id,
-          status: aiExecutionsTable.status,
-          finalMessageId: aiExecutionsTable.finalMessageId,
-        })
-        .from(aiExecutionsTable)
-        .where(eq(aiExecutionsTable.id, aiExecution.id));
-      let lockedExecution: {
-        id: string;
-        status: string;
-        finalMessageId: string | null;
-      } | undefined;
-      if (typeof (executionLockQuery as { for?: unknown }).for === "function") {
-        lockedExecution = (await (executionLockQuery as { for: (mode: string) => Promise<unknown[]> }).for("update"))[0] as typeof lockedExecution;
-      } else if (typeof (executionLockQuery as { limit?: unknown }).limit === "function") {
-        lockedExecution = (await (executionLockQuery as { limit: (count: number) => Promise<unknown[]> }).limit(1))[0] as typeof lockedExecution;
-      }
-      if (
-        !lockedExecution
-        || lockedExecution.finalMessageId
-        || lockedExecution.status !== "running"
-      ) {
-        return undefined;
-      }
-      const [reserved] = await tx
-        .update(aiExecutionsTable)
-        .set({
-          finalMessageId: assistantMessageId,
-          updatedAt: msgNow,
-        })
-        .where(and(
-          eq(aiExecutionsTable.id, aiExecution.id),
-          eq(aiExecutionsTable.status, "running"),
-          isNull(aiExecutionsTable.finalMessageId),
-        ))
-        .returning({ id: aiExecutionsTable.id });
-      if (!reserved) return undefined;
-
       if (existingSession) {
         await tx
           .select({ id: aiChatSessionsTable.id })
@@ -3272,7 +3230,7 @@ router.post("/ai/chat", async (req, res) => {
       const [msg] = await tx
         .insert(aiChatMessagesTable)
         .values({
-          id: assistantMessageId,
+          id: randomUUID(),
           sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
@@ -5468,7 +5426,49 @@ router.post("/ai/chat/stream", async (req, res) => {
       throw error;
     }
     let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
+    const assistantMessageId = randomUUID();
     const assistantMsg = await db.transaction(async (tx) => {
+      // The execution row is the shared terminal fence. Lock it before the
+      // session so failure and success paths use the same lock ordering.
+      const executionLockQuery = tx
+        .select({
+          id: aiExecutionsTable.id,
+          status: aiExecutionsTable.status,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, aiExecution.id));
+      let lockedExecution: {
+        id: string;
+        status: string;
+        finalMessageId: string | null;
+      } | undefined;
+      if (typeof (executionLockQuery as { for?: unknown }).for === "function") {
+        lockedExecution = (await (executionLockQuery as { for: (mode: string) => Promise<unknown[]> }).for("update"))[0] as typeof lockedExecution;
+      } else if (typeof (executionLockQuery as { limit?: unknown }).limit === "function") {
+        lockedExecution = (await (executionLockQuery as { limit: (count: number) => Promise<unknown[]> }).limit(1))[0] as typeof lockedExecution;
+      }
+      if (
+        !lockedExecution
+        || lockedExecution.finalMessageId
+        || lockedExecution.status !== "running"
+      ) {
+        return undefined;
+      }
+      const [reserved] = await tx
+        .update(aiExecutionsTable)
+        .set({
+          finalMessageId: assistantMessageId,
+          updatedAt: msgNow,
+        })
+        .where(and(
+          eq(aiExecutionsTable.id, aiExecution.id),
+          eq(aiExecutionsTable.status, "running"),
+          isNull(aiExecutionsTable.finalMessageId),
+        ))
+        .returning({ id: aiExecutionsTable.id });
+      if (!reserved) return undefined;
+
       if (existingSession) {
         await tx
           .select({ id: aiChatSessionsTable.id })
@@ -5508,7 +5508,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       // the prompt in conversation history.
       if (!effectiveExecutionId) {
         await tx.insert(aiChatMessagesTable).values({
-          id: randomUUID(),
+          id: assistantMessageId,
           sessionId: sessionIdToUse,
           role: "user",
           content: message,
