@@ -9875,6 +9875,7 @@ export default function AiChat() {
              setAgentStage('Disconnected — execution saved');
              setAgentStartedAt(null);
              setAgentElapsedSeconds(0);
+              publishAiChatData(requestProjectId, activeExecutionRef.current.sessionId);
              toast({
                title: 'AI execution saved',
                description: 'The stream disconnected, but the server kept the execution. Resume it below.',
