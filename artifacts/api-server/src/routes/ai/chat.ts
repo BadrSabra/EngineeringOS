@@ -1323,6 +1323,15 @@ async function persistFailedChatTurn(params: {
       : [];
     if (existingAssistant.length > 0) {
       const existing = existingAssistant[0]!;
+      // Legacy rows may predate finalMessageId. If one was found after the
+      // reservation, point the execution at that existing authoritative row
+      // rather than leaving a reservation to a message that was never used.
+      if (params.executionId && reservedAssistantId && lockedExecution?.finalMessageId === null) {
+        await tx
+          .update(aiExecutionsTable)
+          .set({ finalMessageId: existing.id, updatedAt: params.assistantAt })
+          .where(eq(aiExecutionsTable.id, params.executionId));
+      }
       return {
         id: existing.id,
         sessionId: params.sessionId,
@@ -5002,7 +5011,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           toolTrace: traceSteps,
           executionLedgerSnapshot,
         });
-        if (aiExecution && !persistedFailedMessage) {
+        if (aiExecution && (
+          !persistedFailedMessage
+          || persistedFailedMessage.outcome === "SUCCEEDED"
+        )) {
           // Another terminal path already owns this execution's final message.
           // Do not emit a second outcome or let finally turn the winner into a
           // failure while its success path is still finalizing.
