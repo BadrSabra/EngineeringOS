@@ -5776,6 +5776,9 @@ export async function chat(opts: {
           executionTargetPaths: allowedPaths,
           allowedReadPaths: allowedPaths,
           allowExecutionTools: allowValidationTools,
+        approvalState,
+        approvedFilePaths,
+        approvedValidationProfiles,
           validationRunner,
           validationTargetPaths: allowedPaths,
           // The coordinator owns the durable three-attempt budget. A child
@@ -5827,6 +5830,8 @@ export async function chat(opts: {
           nodePendingChanges.length > 0 &&
           hasEditTool &&
           allowValidationTools &&
+          approvalState === "APPROVED" &&
+          approvedValidationProfiles?.includes(node.validationProfile) &&
           validationRunner &&
           validationAttemptsConsumed < remainingValidationAttempts &&
           shouldRunAutomaticFinalValidation

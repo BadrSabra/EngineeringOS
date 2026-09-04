@@ -439,6 +439,8 @@ describe("chat agent — recovered Repair Plan execution", () => {
         projectContext: makeContext(),
         rootPath,
         buildHandoff: true,
+        approvalState: "APPROVED",
+        approvedFilePaths: [relativePath],
         onStep: (step) => {
           if (step.kind === "tool_call") steps.push(step.tool);
         },
