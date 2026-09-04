@@ -81,6 +81,32 @@ const FALLBACK_DEFAULT_MODEL: string =
   FREE_MODELS.find((m) => m.quality === "fast")?.id ??
   "meta-llama/llama-3.1-8b-instruct:free";
 
+/**
+ * OpenRouter models are not consistent about the OpenAI-compatible content
+ * shape: some return a string, while others return text content blocks or an
+ * array of strings. Keep only textual content at this provider boundary.
+ * Reasoning-only payloads intentionally normalize to null; reasoning is
+ * retained as bounded metadata and must never be shown as the final answer.
+ */
+function coerceProviderText(value: unknown, depth = 0): string | null {
+  if (typeof value === "string") return value;
+  if (depth > 3 || value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((part) => coerceProviderText(part, depth + 1))
+      .filter((part): part is string => Boolean(part));
+    return parts.length > 0 ? parts.join("\n") : null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["text", "content", "value"]) {
+      const text = coerceProviderText(record[key], depth + 1);
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
 // ── OpenRouter free-tier helpers ──────────────────────────────────────────────
 
 /**
@@ -766,14 +792,14 @@ async function oacCompleteRawUntracked(
     choices: Array<{
       finish_reason?: string | null;
       message?: {
-        content?: string | null;
+        content?: unknown;
         tool_calls?: unknown;
-        reasoning_content?: string | null;
-        reasoning?: string | null;
+        reasoning_content?: unknown;
+        reasoning?: unknown;
       };
     }>;
     model: string;
-    output_text?: string | null;
+    output_text?: unknown;
     usage?: {
       prompt_tokens?: number;
       completion_tokens?: number;
@@ -800,15 +826,17 @@ async function oacCompleteRawUntracked(
 
   const choice = data.choices[0];
   const msg = choice?.message;
-  const outputText = data.output_text ?? null;
+  const outputText = coerceProviderText(data.output_text);
   if (!msg && !outputText) {
     throw new GroqClientError("EMPTY_RESPONSE", `${providerName} returned an empty response`, {
       context: { providerName, providerModel: model },
     });
   }
 
-  let content = msg?.content ?? outputText;
-  const reasoningContent = msg?.reasoning_content ?? msg?.reasoning ?? null;
+  let content = coerceProviderText(msg?.content) ?? outputText;
+  const reasoningContent =
+    coerceProviderText(msg?.reasoning_content) ??
+    coerceProviderText(msg?.reasoning);
   const reasoningTokens =
     data.usage?.reasoning_tokens ??
     data.usage?.completion_tokens_details?.reasoning_tokens;

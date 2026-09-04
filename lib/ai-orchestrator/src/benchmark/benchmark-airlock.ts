@@ -13,6 +13,7 @@ import {
 import type {
   ProviderHealthProbeResult,
 } from "./provider-health-probe.js";
+import { projectSafeProviderHealth } from "./provider-health-probe.js";
 import type { ProviderId } from "../provider-registry.js";
 import type { BenchmarkShardConfig } from "./benchmark-shards.js";
 import {
@@ -214,7 +215,8 @@ export async function runCodeAgentBenchmarkAirlock(args: {
   const orderedProviders = providerOrder(args.providers);
   const healthyProviders = orderedProviders.filter((provider) => provider.health.status === "usable");
   const quarantinedProviders = new Set<BenchmarkAirlockProvider>();
-  await args.onHealth?.(orderedProviders.map((provider) => provider.health));
+  const safeProviderHealth = orderedProviders.map((provider) => projectSafeProviderHealth(provider.health));
+  await args.onHealth?.(safeProviderHealth);
   // A checkpointed U is an environment attempt, not completed case evidence.
   // Keep quality-proven observations for resume, but retry U on the next run.
   const caseIds = new Set(cases.map((testCase) => testCase.id));
@@ -255,9 +257,12 @@ export async function runCodeAgentBenchmarkAirlock(args: {
     const blockers = [
       "provider preflight blocked; no usable provider lane",
       ...orderedProviders
-        .map((provider) => provider.health.failureReason
-          ? `${provider.provider}: ${provider.health.failureReason}`
-          : `${provider.provider}: provider unavailable`)
+        .map((provider) => {
+          const health = projectSafeProviderHealth(provider.health);
+          return health.failureCode
+            ? `${provider.provider}: ${health.failureCode}`
+            : `${provider.provider}: provider unavailable`;
+        })
         .filter((blocker, index, all) => all.indexOf(blocker) === index),
     ];
     let scorecard = buildCodeAgentBenchmarkScorecard({
@@ -303,7 +308,7 @@ export async function runCodeAgentBenchmarkAirlock(args: {
       completedAt: new Date().toISOString(),
       targetCaseCount: cases.length,
       providerOrder: orderedProviders.map((provider) => provider.provider),
-      providerHealth: orderedProviders.map((provider) => provider.health),
+      providerHealth: safeProviderHealth,
       preflight: { status: "blocked", blockers },
       observations,
       ...(args.shard
@@ -446,7 +451,7 @@ export async function runCodeAgentBenchmarkAirlock(args: {
     completedAt,
     targetCaseCount: cases.length,
     providerOrder: orderedProviders.map((provider) => provider.provider),
-    providerHealth: orderedProviders.map((provider) => provider.health),
+    providerHealth: safeProviderHealth,
     observations,
     ...(runtimePreflightBlockers.length > 0
       ? { preflight: { status: "blocked" as const, blockers: runtimePreflightBlockers } }

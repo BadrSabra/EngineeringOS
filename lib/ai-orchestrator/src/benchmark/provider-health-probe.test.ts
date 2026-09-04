@@ -82,6 +82,112 @@ describe("providerHealthProbe", () => {
     });
   });
 
+  it("allows the caller to disable nested OpenRouter fallback for one candidate", async () => {
+    const calls: Array<{ model?: string; maxFallbackModels?: number }> = [];
+    const strategy: ProviderStrategy = {
+      ...strategyReturning(response([{
+        id: "probe-1",
+        type: "function",
+        function: { name: PROBE_TOOL_NAME, arguments: '{"probe":"wrong"}' },
+      }])),
+      async call(_messages, options) {
+        calls.push({ model: options.model, maxFallbackModels: options.maxFallbackModels });
+        return response([{
+          id: "probe-1",
+          type: "function",
+          function: { name: PROBE_TOOL_NAME, arguments: '{"probe":"wrong"}' },
+        }]);
+      },
+    };
+
+    const result = await probeProviderHealth({
+      provider: "openrouter",
+      model: "first-model:free",
+      maxFallbackModels: 1,
+      strategy,
+    });
+
+    expect(result.failureCode).toBe("MALFORMED_TOOL_ARGUMENTS");
+    expect(calls).toEqual([{ model: "first-model:free", maxFallbackModels: 1 }]);
+  });
+
+  it("recovers from a malformed first candidate without exceeding the candidate bound", async () => {
+    const candidates = ["first-model:free", "second-model:free", "third-model:free"];
+    const calls: string[] = [];
+    const strategy: ProviderStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      async call(_messages, options) {
+        calls.push(options.model ?? "");
+        const isFallback = options.model === candidates[1];
+        return response([{
+          id: "probe-1",
+          type: "function",
+          function: {
+            name: PROBE_TOOL_NAME,
+            arguments: isFallback ? '{"probe":"ok"}' : '{"probe":"wrong"}',
+          },
+        }]);
+      },
+      async *stream() {
+        yield "";
+      },
+    };
+
+    const results = [];
+    for (const model of candidates.slice(0, 2)) {
+      const result = await probeProviderHealth({
+        provider: "openrouter",
+        model,
+        maxFallbackModels: 1,
+        strategy,
+      });
+      results.push(result);
+      if (result.status === "usable") break;
+    }
+
+    expect(results.map((result) => result.failureCode ?? result.status)).toEqual([
+      "MALFORMED_TOOL_ARGUMENTS",
+      "usable",
+    ]);
+    expect(calls).toEqual(candidates.slice(0, 2));
+    expect(calls).toHaveLength(2);
+  });
+
+  it("reports every malformed candidate without probing beyond the configured bound", async () => {
+    const candidates = ["first-model:free", "second-model:free", "third-model:free"];
+    const calls: string[] = [];
+    const strategy: ProviderStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      async call(_messages, options) {
+        calls.push(options.model ?? "");
+        return response([{
+          id: "probe-1",
+          type: "function",
+          function: { name: PROBE_TOOL_NAME, arguments: '{"probe":"wrong"}' },
+        }]);
+      },
+      async *stream() {
+        yield "";
+      },
+    };
+
+    const results = [];
+    for (const model of candidates.slice(0, 2)) {
+      results.push(await probeProviderHealth({
+        provider: "openrouter",
+        model,
+        maxFallbackModels: 1,
+        strategy,
+      }));
+    }
+
+    expect(results.every((result) => result.failureCode === "MALFORMED_TOOL_ARGUMENTS")).toBe(true);
+    expect(calls).toEqual(candidates.slice(0, 2));
+    expect(calls).toHaveLength(2);
+  });
+
   it("classifies transport errors as U without leaking raw provider content", async () => {
     const strategy: ProviderStrategy = {
       ...strategyReturning(response(null)),

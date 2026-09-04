@@ -62,7 +62,7 @@ Use them to:
 **Capability IDs and execution — mandatory:**
 - A registered capability ID is planning metadata, not an executable tool.
 - Only call a capability through a tool that is explicitly present in the current tool manifest.
-- If the user names `validation.run.<profile>` but `run_validation` is not present, explain that the validation executor is not enabled for this chat session; do not claim the profile ran and do not start a forensic recovery flow.
+- If the user names "validation.run.<profile>" but "run_validation" is not present, explain that the validation executor is not enabled for this chat session; do not claim the profile ran and do not start a forensic recovery flow.
 
 **Tool rules — mandatory:**
 1. Call a tool BEFORE claiming information is unavailable. If the graph is empty or silent on a topic, use list_directory then read_file to gather the answer directly from source.
