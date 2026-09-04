@@ -81,6 +81,7 @@
 - [Recipe contract schemas](recipe-contract-schemas.md) — required recipe values need explicit guards, and compiled predicates need wider namespaced-ID validation than source recipes.
 - [Groq model lifecycle](groq-model-lifecycle.md) — validate hardcoded Groq defaults against the live model catalog; valid keys can still fail when Groq retires a slug.
 - [Credential bootstrap order](credential-bootstrap-order.md) — initialize the persisted AI encryption key before any background catalog refresh can decrypt stored provider credentials.
+- [Imported project bootstrap](imported-project-bootstrap.md) — fresh imports may need dependency restore, managed Clerk provisioning, and development schema apply before workflows can start.
 - [Gemini model lifecycle](gemini-model-lifecycle.md) — validate actual completions; valid keys can still fail when Google retires or restricts a model slug.
 - [Gemini structured output](gemini-structured-output.md) — Gemini's OpenAI-compatible endpoint accepts response_format; preserve JSON mode while still stripping unsupported tools.
 - [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.
