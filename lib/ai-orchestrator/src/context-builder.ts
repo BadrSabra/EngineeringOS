@@ -12,7 +12,9 @@
  * This module owns NO ranking, sizing, or trimming rules.
  * All budget enforcement is delegated to the Admission Engine.
  */
+import { randomUUID } from "node:crypto";
 import type { AgentContext } from "./schemas/context.schema.js";
+import { parseAgentContext } from "./schemas/context.schema.js";
 import { buildContextCacheKey, getCachedContext, setCachedContext, hashExecutionPlan, type ContextCacheRuntime } from "./context-cache-manager.js";
 import { loadProjectContext, type BuildProjectContextOptions, type ContextLoadSection } from "./context-loader.js";
 import { buildProjectContextFromLoadedContext } from "./context-serializer.js";
@@ -28,6 +30,10 @@ import {
 import { runAdmission } from "./context-runtime/context-admission.js";
 import { applyLifetime, DEFAULT_LIFETIME_POLICY, type LifetimePolicy, type SliceLifetimeState } from "./context-runtime/context-lifetime.js";
 import { trimContextToFit, warnIfContextTooLarge } from "./context-compressor.js";
+import { buildContextLinks, contextLinkCollection } from "./context-links.js";
+import { projectContextProvenance } from "./context-provenance.js";
+import { getFullAuthorizedToolManifest } from "./tool-policy.js";
+import type { ContextIntent } from "./context-contract.js";
 
 export { invalidateContextCache, invalidateContextSlice, hashExecutionPlan, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
 export type { BuildProjectContextOptions, ContextLoadSection } from "./context-loader.js";
@@ -47,6 +53,12 @@ export type BuildContextOptions = BuildProjectContextOptions & {
   lifetimePolicy?: LifetimePolicy;
   /** Deterministic size override for callers and validation. */
   maxChars?: number;
+  /** Server-owned turn identity. Generated only for direct library callers. */
+  operationId?: string;
+  /** Server-owned resolved intent; never inferred from augmented prompt text. */
+  intent?: ContextIntent;
+  /** Server-owned available subset; the full manifest remains immutable. */
+  availableToolNames?: readonly string[];
 };
 
 // ─── Slice configuration ──────────────────────────────────────────────────────
@@ -181,6 +193,38 @@ function assembleContext(
   return result;
 }
 
+function bindContextIdentity(
+  context: ProjectContext,
+  options: {
+    operationId: string;
+    projectId: string;
+    requestedSections?: string[];
+    intent?: ContextIntent;
+    availableToolNames?: readonly string[];
+  },
+): ProjectContext {
+  const bound: ProjectContext = {
+    ...context,
+    schemaVersion: "1",
+    projectId: options.projectId,
+    operationId: options.operationId,
+    workspaceRevision: context.workspaceRevision ?? context.contextManifest?.projectRevision ?? "unavailable",
+    capturedAt: context.capturedAt ?? context.contextManifest?.capturedAt ?? new Date(0).toISOString(),
+    requestedSections: options.requestedSections ?? context.requestedSections,
+    ...(options.intent ? { intent: options.intent } : {}),
+    authorizedToolManifest: context.authorizedToolManifest ?? getFullAuthorizedToolManifest(),
+    ...(options.availableToolNames
+      ? { availableToolNames: [...options.availableToolNames] }
+      : context.availableToolNames
+        ? { availableToolNames: context.availableToolNames }
+        : {}),
+  };
+  return {
+    ...bound,
+    contextProvenance: projectContextProvenance(bound),
+  };
+}
+
 function emitLifetimeTrace(
   projectId: string,
   states: readonly SliceLifetimeState[],
@@ -210,6 +254,7 @@ export async function buildProjectContext(
   projectId: string,
   options: BuildContextOptions = {},
 ): Promise<ProjectContext> {
+  const operationId = options.operationId ?? randomUUID();
   // Resolve execution plan first — its hash is part of the cache key so plan
   // changes (e.g. switching context intensity) produce distinct cache entries.
   const effectivePlan = options.plan ?? resolveExecutionDecision("chat-agent", {
@@ -232,10 +277,23 @@ export async function buildProjectContext(
       );
       emitLifetimeTrace(projectId, lifetime.states, "cache");
       const cachedResult = assembleContext(cached.runtime.baseContext, lifetime.contextObject, lifetime.states);
+      const rebound = bindContextIdentity(cachedResult, {
+        operationId,
+        projectId,
+        requestedSections: options.sections ?? cachedResult.requestedSections,
+        ...(options.intent ? { intent: options.intent } : {}),
+        ...(options.availableToolNames ? { availableToolNames: options.availableToolNames } : {}),
+      });
       warnIfContextTooLarge(projectId, cachedResult);
-      return trimContextToFit(projectId, cachedResult, options.maxChars);
+      return parseAgentContext(trimContextToFit(projectId, rebound, options.maxChars));
     }
-    return cached.data;
+    return parseAgentContext(bindContextIdentity(cached.data, {
+      operationId,
+      projectId,
+      ...(options.sections ? { requestedSections: options.sections } : {}),
+      ...(options.intent ? { intent: options.intent } : {}),
+      ...(options.availableToolNames ? { availableToolNames: options.availableToolNames } : {}),
+    }));
   }
 
   // Load raw DB rows and serialize to prompt strings.
@@ -257,6 +315,7 @@ export async function buildProjectContext(
       freshness:       meta?.freshness ?? (content.startsWith("[") ? "missing" : "fresh"),
       healthStatus:    meta?.status ?? "loaded",
       ...(meta?.failureCode ? { failureCode: meta.failureCode } : {}),
+      rowCount:        meta?.rowCount ?? 0,
       loadedAt:        meta?.loadedAt ?? now,
       dependencyHints,
     });
@@ -311,17 +370,37 @@ export async function buildProjectContext(
   emitLifetimeTrace(projectId, lifetime.states, "fresh");
 
   // Assemble the final ProjectContext from admission decisions.
+  const links = buildContextLinks(loaded);
   const result = assembleContext(
     {
       ...raw,
       metricsVerified: loaded.scanVerified,
       contextManifest: loaded.contextManifest,
+      schemaVersion: "1",
+      projectId,
+      operationId,
+      workspaceRevision: loaded.contextManifest.projectRevision,
+      capturedAt: loaded.contextManifest.capturedAt,
+      requestedSections: [...loaded.requestedSections],
+      ...(links.length > 0 ? { contextLinks: links } : {}),
+      contextLinkCollection: contextLinkCollection(links),
+      authorizedToolManifest: getFullAuthorizedToolManifest(),
+      ...(options.intent ? { intent: options.intent } : {}),
+      ...(options.availableToolNames
+        ? { availableToolNames: [...options.availableToolNames] }
+        : {}),
     },
     contextObject,
     lifetime.states,
   );
   warnIfContextTooLarge(projectId, result);
-  const boundedResult = trimContextToFit(projectId, result, options.maxChars);
+  const withProvenance = {
+    ...result,
+    contextProvenance: projectContextProvenance(result),
+  };
+  const boundedResult = parseAgentContext(
+    trimContextToFit(projectId, withProvenance, options.maxChars),
+  );
 
   const hasLoadFailure = Object.values(raw.contextHealth ?? {}).some(
     (health) => health.status === "load_failed",

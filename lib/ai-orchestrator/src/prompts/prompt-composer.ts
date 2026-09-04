@@ -114,12 +114,36 @@ export function promptContextOverview(
         })
         .join("\n")
     : undefined;
+  const contextIdentity = [
+    context.schemaVersion ? `schemaVersion=${context.schemaVersion}` : "",
+    context.projectId ? `projectId=${context.projectId}` : "",
+    context.operationId ? `operationId=${context.operationId}` : "",
+    context.workspaceRevision ? `workspaceRevision=${context.workspaceRevision}` : "",
+    context.requestedSections?.length
+      ? `requestedSections=${context.requestedSections.join(",")}`
+      : "",
+  ].filter(Boolean).join(" ");
+  const contextLinks = context.contextLinks && context.contextLinks.length > 0
+    ? JSON.stringify(context.contextLinks.map((entry) => ({
+      anchor: entry.anchor,
+      source: entry.source,
+      layer: entry.layer,
+      direction: entry.direction,
+      status: entry.status,
+      freshness: entry.freshness,
+      rowCount: entry.rowCount,
+      linkReason: entry.linkReason,
+      sourceRefs: entry.sourceRefs,
+    })))
+    : undefined;
 
   return composePrompt(
+    ...(contextIdentity ? [promptSection("Context Identity", contextIdentity)] : []),
     ...(contextHealth ? [promptSection(
       "Context Health",
       `${contextHealth}\nUnavailable or not-requested sections are not evidence that the project lacks those records.`,
     )] : []),
+    ...(contextLinks ? [promptEvidenceSection("Cross-layer Links", contextLinks, "tool_output")] : []),
     ...(sections.has("project") ? [promptEvidenceSection("Project", context.project, "source")] : []),
     ...(sections.has("latestMetrics") ? [promptEvidenceSection("Quality Metrics", context.latestMetrics, "provider_diagnostic")] : []),
     ...(sections.has("graphSummary") ? [promptEvidenceSection("Knowledge Graph", context.graphSummary, "source")] : []),

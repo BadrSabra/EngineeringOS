@@ -289,19 +289,22 @@ describe("loadMetrics", () => {
 
 describe("loadGraph", () => {
   beforeEach(() => {
-    _tableData.set(graphEntitiesTable as object, [makeEntity()]);
+    _tableData.set(graphEntitiesTable as object, [
+      makeEntity(),
+      makeEntity({ id: "entity-002", name: "ApiClient", path: "client.ts" }),
+    ]);
     _tableData.set(graphRelationshipsTable as object, [makeRelationship()]);
   });
 
   it("returns entities and relationships when both are wanted", async () => {
     const { entities, relationships } = await loadGraph(q, PROJECT_ID, true, true);
-    expect(entities).toHaveLength(1);
+    expect(entities).toHaveLength(2);
     expect(relationships).toHaveLength(1);
   });
 
   it("returns only entities when relationships not wanted", async () => {
     const { entities, relationships } = await loadGraph(q, PROJECT_ID, true, false);
-    expect(entities).toHaveLength(1);
+    expect(entities).toHaveLength(2);
     expect(relationships).toEqual([]);
   });
 
@@ -336,6 +339,19 @@ describe("loadGraph", () => {
     expect(r).toHaveProperty("relationType");
     expect(r).toHaveProperty("confidence");
     expect(r).toHaveProperty("isHeuristic");
+  });
+
+  it("rejects relationships whose endpoint is absent or owned by another project", async () => {
+    _tableData.set(graphEntitiesTable as object, [
+      makeEntity(),
+      makeEntity({ id: "entity-foreign", projectId: "other-project" }),
+    ]);
+    _tableData.set(graphRelationshipsTable as object, [
+      makeRelationship({ sourceId: "entity-foreign", targetId: "entity-001" }),
+      makeRelationship({ sourceId: "entity-001", targetId: "missing-entity" }),
+    ]);
+    const { relationships } = await loadGraph(q, PROJECT_ID, false, true);
+    expect(relationships).toEqual([]);
   });
 });
 

@@ -9,6 +9,7 @@ import { FILE_TOOL_DEFINITIONS, type ToolDefinition } from "./tools/file-tools.j
 import { GIT_TOOL_DEFINITIONS, type GitToolDefinition } from "./tools/git-tools.js";
 import { EXECUTION_TOOL_DEFINITIONS } from "./tools/execution-tools.js";
 import { ANALYSIS_TOOL_DEFINITIONS } from "./tools/analysis-tools.js";
+import type { AuthorizedToolManifestEntry } from "./context-contract.js";
 
 export type ToolMode = "workspace" | "read-only";
 
@@ -49,6 +50,29 @@ const ALL_TOOL_DEFINITIONS: ToolDefinitionLike[] = [
   ...GIT_TOOL_DEFINITIONS,
   ...EXECUTION_TOOL_DEFINITIONS,
 ];
+
+/** Full manifest is server-owned and is never derived from model output. */
+export function getFullAuthorizedToolManifest(): AuthorizedToolManifestEntry[] {
+  return [
+    ...ALL_TOOL_DEFINITIONS,
+    ...ANALYSIS_TOOL_DEFINITIONS,
+  ].map((tool) => {
+    const name = tool.function.name;
+    const category: AuthorizedToolManifestEntry["category"] =
+      FILE_READ_TOOL_NAMES.has(name) ? "file_read"
+        : FILE_WRITE_TOOL_NAMES.has(name) ? "file_write"
+          : GIT_TOOL_NAMES.has(name) ? "git_read"
+            : ANALYSIS_TOOL_NAMES.has(name) ? "analysis"
+              : name === "run_validation" || name === "run_browser_validation" ? "validation"
+                : "execution";
+    return {
+      name,
+      category,
+      authorization: "server_owned" as const,
+      approvalRequired: category === "file_write" || category === "validation" || category === "execution",
+    };
+  });
+}
 
 export function resolveToolPolicy(opts: {
   provider: ProviderId;

@@ -143,10 +143,16 @@ export function applyLifetime(
     const state = applyLifetimeToSlice(slice, nowMs, slicePolicy);
     states.push(state);
 
-    if (state.effectiveDecision === state.originalDecision) return slice;
+    if (state.effectiveDecision === state.originalDecision) {
+      return { ...slice, lifetimeStage: state.stage };
+    }
 
     anyDemoted = true;
-    return { ...slice, admissionDecision: state.effectiveDecision };
+    return {
+      ...slice,
+      admissionDecision: state.effectiveDecision,
+      lifetimeStage: state.stage,
+    };
   }
 
   const newAdmitted:   ContextSlice[] = [];

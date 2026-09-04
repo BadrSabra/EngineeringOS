@@ -73,6 +73,8 @@ import {
   createExecutionLedger,
   toPublicExecutionLedgerSnapshot,
   deriveForensicDiagnostic,
+  projectContextProvenance,
+  ContextProvenanceSchema,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -475,6 +477,32 @@ function appendExecutionLedgerTrace(
   const parsed = parseStoredJson(serializedTrace);
   const entries = Array.isArray(parsed) ? parsed : [];
   return JSON.stringify([...entries, { kind: "execution_ledger", ...snapshot }]);
+}
+
+function appendContextProvenanceTrace(
+  serializedTrace: string | null | undefined,
+  provenance: ReturnType<typeof projectContextProvenance>,
+): string {
+  const parsed = parseStoredJson(serializedTrace);
+  const entries = Array.isArray(parsed)
+    ? parsed.filter((entry) => !(
+      entry && typeof entry === "object"
+      && (entry as Record<string, unknown>).kind === "context_provenance"
+    ))
+    : [];
+  return JSON.stringify([...entries, { kind: "context_provenance", ...provenance }]);
+}
+
+function readContextProvenanceTrace(value: string | null | undefined): ReturnType<typeof projectContextProvenance> | undefined {
+  const rawTrace = parseStoredJson(value);
+  if (!Array.isArray(rawTrace)) return undefined;
+  const entry = [...rawTrace].reverse().find((candidate) =>
+    candidate && typeof candidate === "object"
+    && (candidate as Record<string, unknown>).kind === "context_provenance",
+  );
+  if (!entry || typeof entry !== "object") return undefined;
+  const parsedProvenance = ContextProvenanceSchema.safeParse(entry);
+  return parsedProvenance.success ? parsedProvenance.data : undefined;
 }
 
 function readExecutionLedgerTrace(value: string | null | undefined): ExecutionLedgerPublicSnapshot | undefined {
@@ -2827,15 +2855,27 @@ router.post("/ai/chat", async (req, res) => {
   try {
     const baseProjectContext = await buildProjectContext(projectId, {
       plan: contextExecutionPlan,
+      operationId: analysisCorrelation.operationId,
+      intent: {
+        kind: turnIntent.kind,
+        classification: String(turnIntent.classification),
+        operationMode: turnIntent.operationMode,
+        phases: turnIntent.phases.map((phase) => String(phase)),
+        requiresEvidence: turnIntent.requiresEvidence,
+        compoundExecution: turnIntent.compoundExecution,
+        compoundWrite: turnIntent.compoundWrite,
+      },
     });
     const projectContext = chatClassification.implementationPlanMode
       ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
+    analysisCorrelation.projectRevision =
+      projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
     // Enrich context with cross-session memories (outside cache; always fresh).
     // Failure is non-fatal — agent proceeds without memory context.
     await enrichContextWithMemories(projectContext, projectId, contextExecutionPlan, {
       taskScope: contextExecutionPlan.taskProfile.scope,
-      projectRevision: project.updatedAt.toISOString(),
+      projectRevision: baseProjectContext.workspaceRevision ?? project.updatedAt.toISOString(),
     }).catch((err) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
     });
@@ -3006,7 +3046,10 @@ router.post("/ai/chat", async (req, res) => {
         errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
         errorMessage: safeMessage,
         toolTrace: appendExecutionLedgerTrace(
-          serializeToolTrace(traceSteps, true),
+          appendContextProvenanceTrace(
+            serializeToolTrace(traceSteps, true),
+            projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+          ),
           executionLedgerSnapshot,
         ),
         createdAt: msgNow,
@@ -3247,7 +3290,10 @@ router.post("/ai/chat", async (req, res) => {
           outcome: "SUCCEEDED",
           sources: JSON.stringify(redactUserFacingValue(result.sources)),
           toolTrace: appendExecutionLedgerTrace(
-            serializeToolTrace(traceSteps),
+            appendContextProvenanceTrace(
+              serializeToolTrace(traceSteps),
+              projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+            ),
             executionLedgerSnapshot!,
           ),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
@@ -3309,7 +3355,7 @@ router.post("/ai/chat", async (req, res) => {
             memoryMode: contextExecutionPlan.taskProfile.memoryMode,
             userMessage: message,
             taskScope: contextExecutionPlan.taskProfile.scope,
-            projectRevision: project.updatedAt.toISOString(),
+            projectRevision: projectContext.workspaceRevision ?? analysisCorrelation.projectRevision,
             taskResult: result.taskResult,
           },
         );
@@ -3331,6 +3377,7 @@ router.post("/ai/chat", async (req, res) => {
       executionLedger: executionLedgerSnapshot,
       turnIntent: turnIntent.kind,
       outcome: "SUCCEEDED",
+      contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       sources: redactUserFacingValue(result.sources),
       toolTrace: assistantMsg.toolTrace,
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
@@ -4241,14 +4288,26 @@ router.post("/ai/chat/stream", async (req, res) => {
     sse({ type: "stage", stage: "building-context" });
     const baseProjectContext = await buildProjectContext(projectId, {
       plan: streamExecutionPlan,
+      operationId: analysisCorrelation.operationId,
+      intent: {
+        kind: streamTurnIntent.kind,
+        classification: String(streamTurnIntent.classification),
+        operationMode: streamTurnIntent.operationMode,
+        phases: streamTurnIntent.phases.map((phase) => String(phase)),
+        requiresEvidence: streamTurnIntent.requiresEvidence,
+        compoundExecution: streamTurnIntent.compoundExecution,
+        compoundWrite: streamTurnIntent.compoundWrite,
+      },
     });
     const projectContext = streamClassification.implementationPlanMode
       ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
+    analysisCorrelation.projectRevision =
+      projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
     // Enrich with cross-session memories (outside cache; always fresh).
     await enrichContextWithMemories(projectContext, projectId, streamExecutionPlan, {
       taskScope: streamExecutionPlan.taskProfile.scope,
-      projectRevision: project.updatedAt.toISOString(),
+      projectRevision: baseProjectContext.workspaceRevision ?? project.updatedAt.toISOString(),
     }).catch((err) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
     });
@@ -4260,6 +4319,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       intent: streamTurnIntent.kind,
       operationMode: streamTurnIntent.operationMode,
       requiresEvidence: streamTurnIntent.requiresEvidence,
+      operationId: projectContext.operationId,
+      workspaceRevision: projectContext.workspaceRevision,
+      contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
     });
 
     sse({ type: "stage", stage: "calling-model" });
@@ -4991,7 +5053,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           ? undefined
           : result.response;
         const publicToolTrace = appendExecutionLedgerTrace(
-          serializeToolTrace(traceSteps, false),
+          appendContextProvenanceTrace(
+            serializeToolTrace(traceSteps, false),
+            projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+          ),
           executionLedgerSnapshot,
         );
         const forensicDiagnostic = streamTurnIntent.requiresEvidence
@@ -5037,7 +5102,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
           errorMessage: safeMessage,
           toolTrace: appendExecutionLedgerTrace(
-            serializeToolTrace(traceSteps, true),
+            appendContextProvenanceTrace(
+              serializeToolTrace(traceSteps, true),
+              projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+            ),
             executionLedgerSnapshot,
           ),
           createdAt: msgNow,
@@ -5582,7 +5650,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           outcome: "SUCCEEDED",
           sources: JSON.stringify(redactUserFacingValue(result.sources)),
           toolTrace: appendExecutionLedgerTrace(
-            serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
+            appendContextProvenanceTrace(
+              serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
+              projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+            ),
             executionLedgerSnapshot,
           ),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
@@ -5835,7 +5906,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             memoryMode: streamExecutionPlan.taskProfile.memoryMode,
             userMessage: message,
             taskScope: streamExecutionPlan.taskProfile.scope,
-            projectRevision: project.updatedAt.toISOString(),
+            projectRevision: projectContext.workspaceRevision ?? analysisCorrelation.projectRevision,
             taskResult: result.taskResult,
           },
         );
@@ -5856,7 +5927,10 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     const publicToolTrace = streamTurnIntent.requiresEvidence
         ? appendExecutionLedgerTrace(
-            serializeToolTrace(traceSteps, false, streamAuditScopeDescription),
+            appendContextProvenanceTrace(
+              serializeToolTrace(traceSteps, false, streamAuditScopeDescription),
+              projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+            ),
             executionLedgerSnapshot,
           )
       : assistantMsg.toolTrace;
@@ -5881,6 +5955,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       executionId: aiExecutionId,
       outcome: "SUCCEEDED",
       executionLedger: executionLedgerSnapshot,
+      contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
     };
     sse({
@@ -6637,6 +6712,9 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         : { missionCorrelationReport: historicalReport.report }),
       taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
       executionLedger: readExecutionLedgerTrace(message.toolTrace),
+      ...(readContextProvenanceTrace(message.toolTrace)
+        ? { contextProvenance: readContextProvenanceTrace(message.toolTrace) }
+        : {}),
     };
   }));
 });

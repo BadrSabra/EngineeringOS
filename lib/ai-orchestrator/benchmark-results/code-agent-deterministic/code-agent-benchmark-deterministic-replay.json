@@ -2,7 +2,7 @@
   "kind": "code-agent-benchmark-replay",
   "version": 1,
   "suiteVersion": "flight-deck-v2",
-  "recordedAt": "2026-09-04T05:51:58.427Z",
+  "recordedAt": "2026-09-04T06:36:44.185Z",
   "cases": [
     {
       "caseId": "single-file-001",

@@ -18,6 +18,7 @@ import {
 import { eq, desc, asc } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { RepositoryRevisionManifest } from "./context-manifest.js";
+import type { ContextCollection } from "./context-contract.js";
 
 // ─── Queryable ────────────────────────────────────────────────────────────────
 // NodePgDatabase is structurally compatible with both the global db handle and
@@ -81,6 +82,8 @@ export type SliceMetadata = {
   dependencyHints: ContextLoadSection[];
   /** Safe, bounded category for a failed load; raw DB errors never cross the boundary. */
   failureCode?: ContextLoadFailureCode;
+  /** Bounded collection facts; totalKnown is false unless explicitly counted. */
+  collection: ContextCollection;
 };
 
 export type ContextLoadFailureCode =
@@ -217,7 +220,7 @@ export async function loadProject(
   return project;
 }
 
-/** Load up to 10 tasks for the project, ordered by priority then recency. */
+/** Load up to 15 tasks for the project, ordered by priority then recency. */
 export async function loadTasks(
   tx: Queryable,
   projectId: string,
@@ -227,7 +230,7 @@ export async function loadTasks(
     .from(tasksTable)
     .where(eq(tasksTable.projectId, projectId))
     .orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt))
-    .limit(10);
+    .limit(15);
 }
 
 /** Load the single most recent metric snapshot, or undefined if none exists. */
@@ -245,7 +248,7 @@ export async function loadMetrics(
 }
 
 /**
- * Load graph entities (up to 60) and/or relationships (up to 40, projected).
+ * Load graph entities (up to 80) and/or relationships (up to 60, projected).
  * Pass the section-gating flags so unused queries are skipped entirely.
  */
 export async function loadGraph(
@@ -254,14 +257,14 @@ export async function loadGraph(
   wantsEntities: boolean,
   wantsRelationships: boolean,
 ): Promise<{ entities: GraphEntityRow[]; relationships: GraphRelationshipRow[] }> {
-  const [entities, relationships] = await Promise.all([
+  const [candidateEntities, candidateRelationships] = await Promise.all([
     wantsEntities
       ? (tx
           .select()
           .from(graphEntitiesTable)
           .where(eq(graphEntitiesTable.projectId, projectId))
           .orderBy(desc(graphEntitiesTable.confidence))
-          .limit(60) as Promise<GraphEntityRow[]>)
+          .limit(80) as Promise<GraphEntityRow[]>)
       : Promise.resolve<GraphEntityRow[]>([]),
     wantsRelationships
       ? tx
@@ -277,13 +280,47 @@ export async function loadGraph(
           .from(graphRelationshipsTable)
           .where(eq(graphRelationshipsTable.projectId, projectId))
           .orderBy(desc(graphRelationshipsTable.confidence))
-          .limit(40)
+           .limit(60)
       : Promise.resolve<GraphRelationshipRow[]>([]),
   ]);
-  return { entities, relationships };
+  // Relationships are not trusted solely because their denormalized
+  // projectId matches. Both endpoints must resolve to entities owned by this
+  // project; otherwise the edge is rejected without disclosing its endpoints.
+  const ownedEntities = wantsEntities
+    ? candidateEntities
+    : candidateRelationships.length > 0
+      ? await tx
+          .select()
+          .from(graphEntitiesTable)
+          .where(eq(graphEntitiesTable.projectId, projectId))
+          .limit(80) as GraphEntityRow[]
+      : [];
+  const ownedIds = new Set(ownedEntities.map((entity) => entity.id));
+  const knownEntityProjects = new Map(
+    ownedEntities.map((entity) => [entity.id, (entity as GraphEntityRow & { projectId?: string }).projectId]),
+  );
+  const relationships = candidateRelationships.filter(
+    (relationship) => {
+      const sourceProject = knownEntityProjects.get(relationship.sourceId);
+      const targetProject = knownEntityProjects.get(relationship.targetId);
+      // A foreign endpoint is always rejected. If an old projection does not
+      // include endpoint rows at all, retain the edge for compatibility; the
+      // graph serializer will not disclose an unknown endpoint's details.
+      const foreignEndpoint =
+        (sourceProject !== undefined && sourceProject !== projectId) ||
+        (targetProject !== undefined && targetProject !== projectId);
+      return !foreignEndpoint
+        && ownedIds.has(relationship.sourceId)
+        && ownedIds.has(relationship.targetId);
+    },
+  );
+  return {
+    entities: wantsEntities ? candidateEntities : [],
+    relationships,
+  };
 }
 
-/** Load up to 10 recent events, ordered by timestamp descending. */
+/** Load up to 15 recent events, ordered by timestamp descending. */
 export async function loadEvents(
   tx: Queryable,
   projectId: string,
@@ -293,10 +330,10 @@ export async function loadEvents(
     .from(eventsTable)
     .where(eq(eventsTable.projectId, projectId))
     .orderBy(desc(eventsTable.timestamp))
-    .limit(10);
+    .limit(15);
 }
 
-/** Load up to 20 workflows, ordered by last updated descending. */
+/** Load up to 25 workflows, ordered by last updated descending. */
 export async function loadWorkflow(
   tx: Queryable,
   projectId: string,
@@ -306,7 +343,7 @@ export async function loadWorkflow(
     .from(workflowsTable)
     .where(eq(workflowsTable.projectId, projectId))
     .orderBy(desc(workflowsTable.updatedAt))
-    .limit(20);
+    .limit(25);
 }
 
 /**
@@ -480,7 +517,22 @@ export async function loadProjectContext(
 
       const loadedAt = Date.now();
       const _meta = new Map<ContextLoadSection | "project", SliceMetadata>();
-      _meta.set("project", { source: "db:projects", status: "loaded", freshness: "fresh", loadedAt, rowCount: 1, dependencyHints: [] });
+        _meta.set("project", {
+          source: "db:projects",
+          status: "loaded",
+          freshness: "fresh",
+          loadedAt,
+          rowCount: 1,
+          dependencyHints: [],
+          collection: {
+            page: 1,
+            pageSize: 1,
+            returnedCount: 1,
+            totalKnown: true,
+            hasMore: false,
+            truncated: false,
+          },
+        });
 
       const setMeta = (
         section: ContextLoadSection,
@@ -488,6 +540,7 @@ export async function loadProjectContext(
         result: SafeLoadResult<unknown>,
         rowCount: number,
         dependencyHints: ContextLoadSection[] = [],
+        pageSize = Math.max(1, rowCount),
       ) => {
         const requested = wants(section);
         _meta.set(section, {
@@ -497,12 +550,20 @@ export async function loadProjectContext(
           loadedAt,
           rowCount: requested ? rowCount : 0,
           dependencyHints,
+          collection: {
+            page: 1,
+            pageSize,
+            returnedCount: Math.min(rowCount, pageSize),
+            totalKnown: false,
+            hasMore: rowCount >= pageSize,
+            truncated: rowCount >= pageSize,
+          },
           ...(requested && result.failureCode ? { failureCode: result.failureCode } : {}),
         });
       };
 
-      setMeta("tasks", "db:tasks", tasksResult, rawTasks.length);
-      setMeta("metrics", "db:metrics", metricsResult, latestMetric != null ? 1 : 0);
+       setMeta("tasks", "db:tasks", tasksResult, rawTasks.length, [], 15);
+       setMeta("metrics", "db:metrics", metricsResult, latestMetric != null ? 1 : 0, [], 1);
       const graphResultFor = (rowCount: number): SafeLoadResult<unknown> => ({
         value: rowCount,
         status: graphResult.status === "load_failed"
@@ -510,10 +571,10 @@ export async function loadProjectContext(
           : rowCount > 0 ? "loaded" : "empty",
         ...(graphResult.failureCode ? { failureCode: graphResult.failureCode } : {}),
       });
-      setMeta("graphEntities", "db:graph_entities", graphResultFor(entities.length), entities.length, ["graphRelationships"]);
-      setMeta("graphRelationships", "db:graph_relationships", graphResultFor(relationships.length), relationships.length, ["graphEntities"]);
-      setMeta("events", "db:events", eventsResult, recentEvents.length);
-      setMeta("workflows", "db:workflows", workflowsResult, rawWorkflows.length);
+       setMeta("graphEntities", "db:graph_entities", graphResultFor(entities.length), entities.length, ["graphRelationships"], 80);
+       setMeta("graphRelationships", "db:graph_relationships", graphResultFor(relationships.length), relationships.length, ["graphEntities"], 60);
+       setMeta("events", "db:events", eventsResult, recentEvents.length, [], 15);
+       setMeta("workflows", "db:workflows", workflowsResult, rawWorkflows.length, [], 25);
       const sliceMetadata: ReadonlyMap<ContextLoadSection | "project", SliceMetadata> = _meta;
 
       return {

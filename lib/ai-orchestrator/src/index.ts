@@ -44,6 +44,33 @@ export {
   contextManifestAllowsExecution,
 } from "./context-manifest.js";
 export type { ContextManifest, ScanCompleteness, RepositoryRevisionManifest } from "./context-manifest.js";
+export {
+  parseAgentContext,
+} from "./schemas/context.schema.js";
+export {
+  CONTEXT_SCHEMA_VERSION,
+  ContextIntentSchema,
+  ContextCollectionSchema,
+  ContextLinkSchema,
+  ContextProvenanceSchema,
+  AuthorizedToolManifestEntrySchema,
+} from "./context-contract.js";
+export { projectContextProvenance } from "./context-provenance.js";
+export type {
+  ContextIntent,
+  ContextCollection,
+  ContextLink,
+  ContextLinkSource,
+  ContextLinkStatus,
+  ContextProvenance,
+  ContextProvenanceSlice,
+  AuthorizedToolManifestEntry,
+} from "./context-contract.js";
+export {
+  CONTEXT_LINK_LIMITS,
+  buildContextLinks,
+  contextLinkCollection,
+} from "./context-links.js";
 export { buildForensicEvidencePackets } from "./forensic-evidence-packets.js";
 export type { ForensicEvidencePacket } from "./forensic-evidence-packets.js";
 export { mergeForensicRecoveryEnvelopes } from "./forensic-recovery.js";
@@ -243,6 +270,7 @@ export type {
 } from "./benchmark/empirical-quality.js";
 export { buildTaskProfile, inferTaskType } from "./quality/task-profile.js";
 export type { TaskProfile, TaskType, ContextIntensity, MemoryMode, GraphMode, HistoryMode } from "./quality/task-profile.js";
+export { getFullAuthorizedToolManifest } from "./tool-policy.js";
 export { decideRetry } from "./quality/retry-controller.js";
 export type { RetryDecision } from "./quality/retry-controller.js";
 

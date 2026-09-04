@@ -46,8 +46,12 @@ export type ContextSlice = {
   healthStatus: ContextSliceHealthStatus;
   /** Safe bounded failure category, present only when healthStatus is load_failed. */
   failureCode?: string;
+  /** Number of source rows represented by this slice. */
+  rowCount: number;
   /** Unix ms timestamp when this slice was loaded from the DB. */
   loadedAt: number;
+  /** Current lifetime stage, updated by applyLifetime(). */
+  lifetimeStage: "fresh" | "stale" | "archived";
   /** Other slices whose full rendering depends on this slice being admitted. */
   dependencyHints: SliceId[];
   /** Set by the Admission Engine. Default before admission pass: "ADMIT". */
@@ -91,7 +95,9 @@ export function buildSlice(
     freshness?: ContextSlice["freshness"];
     healthStatus?: ContextSlice["healthStatus"];
     failureCode?: string;
+    rowCount?: number;
     loadedAt?: number;
+    lifetimeStage?: ContextSlice["lifetimeStage"];
     dependencyHints?: SliceId[];
   },
 ): ContextSlice {
@@ -103,7 +109,9 @@ export function buildSlice(
     freshness: opts.freshness ?? "fresh",
     healthStatus: opts.healthStatus ?? "loaded",
     ...(opts.failureCode ? { failureCode: opts.failureCode } : {}),
+    rowCount: opts.rowCount ?? 0,
     loadedAt: opts.loadedAt ?? Date.now(),
+    lifetimeStage: opts.lifetimeStage ?? "fresh",
     dependencyHints: opts.dependencyHints ?? [],
     admissionDecision: "ADMIT",
   };

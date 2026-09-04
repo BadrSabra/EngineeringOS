@@ -3,11 +3,11 @@
  * are consumed by autonomous context readers as well as interactive clients.
  */
 export const GRAPH_LIMITS = {
-  maxEntities: 500,
-  maxRelationships: 1_000,
-  maxTraversalDepth: 8,
+  maxEntities: 80,
+  maxRelationships: 60,
+  maxTraversalDepth: 4,
   maxSemanticDepth: 4,
-  maxTraversalEntities: 1_000,
-  maxTraversalWork: 2_000,
+  maxTraversalEntities: 80,
+  maxTraversalWork: 480,
   maxResponseBytes: 512_000,
 } as const;

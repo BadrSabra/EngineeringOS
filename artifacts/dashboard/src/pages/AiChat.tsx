@@ -146,6 +146,29 @@ type ChatMessage = {
   behaviorEvidence?: AiBehaviorEvidence[] | string | null;
   /** AI-008: per-task typed result from the SSE done event. Absent on generic turns and reloaded history. */
   taskResult?: AiTaskResult | null;
+  /** Allowlisted context health/link projection shared by live and history turns. */
+  contextProvenance?: {
+    schemaVersion: string;
+    intentKind: string;
+    revisionLabel: string;
+    slices: Array<{
+      layer: string;
+      source: string;
+      status: 'not_requested' | 'empty' | 'loaded' | 'load_failed';
+      freshness: 'fresh' | 'stale' | 'missing';
+      rowCount: number;
+      truncated: boolean;
+      failureCode?: string;
+      admissionDecision?: string;
+      lifetimeStage?: string;
+    }>;
+    links: {
+      returnedCount: number;
+      truncated: boolean;
+      statuses: string[];
+    };
+    citations: string[];
+  };
   /** Server-owned structured review result used for the scope disclosure panel. */
   structuredReview?: AiCodeReview | null;
   operationMode?: OperationMode;
@@ -4971,6 +4994,9 @@ function MessageBubble({
               </Badge>
             ))}
           </div>
+        )}
+        {!isUser && msg.contextProvenance && (
+          <ContextProvenanceCard provenance={msg.contextProvenance} />
         )}
         {!isUser && <BehaviorEvidencePanel evidence={parseBehaviorEvidence(msg.behaviorEvidence)} projectId={projectId} />}
         {!isUser && (
@@ -10916,6 +10942,52 @@ export default function AiChat() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ContextProvenanceCard({
+  provenance,
+}: {
+  provenance: NonNullable<ChatMessage['contextProvenance']>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const loaded = provenance.slices.filter((slice) => slice.status === 'loaded').length;
+  const failed = provenance.slices.filter((slice) => slice.status === 'load_failed').length;
+  const unavailable = provenance.slices.filter((slice) => slice.status === 'not_requested' || slice.status === 'empty').length;
+  return (
+    <div className="mt-2 w-full overflow-hidden rounded-lg border border-border/60 bg-muted/20 text-[11px]" aria-label="Context provenance">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40"
+      >
+        <span className="font-medium text-foreground">Context provenance</span>
+        <span className="text-muted-foreground">
+          {loaded} loaded · {unavailable} unavailable{failed > 0 ? ` · ${failed} failed` : ''}
+        </span>
+        <ChevronRight className={`ml-auto h-3 w-3 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </button>
+      {expanded && (
+        <div className="space-y-1 border-t border-border/40 px-3 py-2 text-muted-foreground">
+          <div><span className="text-foreground">Intent:</span> {provenance.intentKind}</div>
+          <div><span className="text-foreground">Revision:</span> {provenance.revisionLabel}</div>
+          <div><span className="text-foreground">Links:</span> {provenance.links.returnedCount}{provenance.links.truncated ? ' (truncated)' : ''}</div>
+          <div className="space-y-0.5">
+            {provenance.slices.map((slice) => (
+              <div key={slice.layer}>
+                <span className="text-foreground">{slice.layer}:</span> {slice.status}, {slice.rowCount} rows
+                {slice.truncated ? ' (truncated)' : ''}
+                {slice.failureCode ? ` · ${slice.failureCode}` : ''}
+              </div>
+            ))}
+          </div>
+          {provenance.citations.length > 0 && (
+            <div><span className="text-foreground">Citations:</span> {provenance.citations.join(', ')}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

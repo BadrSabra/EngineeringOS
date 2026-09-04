@@ -45,6 +45,7 @@ function buildContextHealth(loaded: LoadedProjectContext): ContextHealth {
         rowCount: metadata?.rowCount ?? 0,
         loadedAt: metadata?.loadedAt ?? 0,
         freshness: metadata?.freshness ?? "missing",
+        collection: metadata?.collection,
         ...(metadata?.failureCode ? { failureCode: metadata.failureCode } : {}),
       };
       return [section, value];
@@ -84,7 +85,6 @@ function buildProjectSummary(loaded: LoadedProjectContext): string {
     `Language: ${project.language}${project.framework ? ` / ${project.framework}` : ""}`,
     `Status: ${project.status}`,
     `Quality: ${qualityNote}/100`,
-    `Path: ${project.rootPath}`,
     `Last scan: ${lastScan} [${buildScanLabel(loaded)}]`,
   ];
 
