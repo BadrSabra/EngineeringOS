@@ -6109,7 +6109,7 @@ export async function chat(opts: {
     completeReads: completeReadEvidence,
     executionMode: repairPlanExecution
       ? "repair_plan"
-      : structuredOutputMode
+      : structuredOutputMode || capabilityProbeRequest
         ? "forensic"
         : undefined,
     compoundWriteMode: compoundWriteExecution,

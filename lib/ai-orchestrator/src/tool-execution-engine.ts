@@ -3484,6 +3484,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // batch; preserve the tool-message protocol and synthesize on the next
     // iteration instead.
     let forensicBatchStopped = false;
+    const forensicBatchKeys = new Set<string>();
     loopPhase = "evidence";
     for (const tc of safeToolCalls) {
       let args: Record<string, string> = {};
@@ -3511,6 +3512,23 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         ? `${toolCacheKey(tc.function.name, args)}::attempt:${validationAttempt}`
         : toolCacheKey(tc.function.name, args);
       const cached = toolCallCache.get(key);
+
+      // Some providers emit the same read twice in one tool-calling response.
+      // Keep one protocol result for each call id, but do not replay the same
+      // cached body twice or let a duplicate consume another evidence turn.
+      // This is limited to forensic collection; repair-plan validation calls
+      // intentionally retain their existing retry semantics.
+      if (executionMode === "forensic" && forensicBatchKeys.has(key)) {
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            "Duplicate tool call omitted; the identical result is already attached to this turn. " +
+            "Continue with any missing declared source read or synthesize from the retained evidence.",
+        });
+        continue;
+      }
+      if (executionMode === "forensic") forensicBatchKeys.add(key);
 
       if (synthesisOnly) {
         messages.push({
