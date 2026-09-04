@@ -3056,7 +3056,7 @@ router.post("/ai/chat", async (req, res) => {
       const forensicDiagnostic = turnIntent.requiresEvidence
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
-      const persistedProviderFailure = await persistFailedChatTurn({
+      await persistFailedChatTurn({
         sessionId: sessionIdToUse,
         projectId,
         message,
@@ -5209,7 +5209,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           executionLedger: executionLedgerSnapshot,
         });
       }
-      await persistFailedChatTurn({
+      const persistedProviderFailure = await persistFailedChatTurn({
         sessionId: sessionIdToUse,
         projectId,
         message,
