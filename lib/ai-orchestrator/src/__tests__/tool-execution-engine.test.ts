@@ -1410,6 +1410,8 @@ describe("executeToolLoop", () => {
         'Provider returned invalid tool-call output: tool "search_code" is not in request manifest.',
       ),
     );
+    const steps: AgentStep[] = [];
+    const prefetched = new Map([["src/forensic.ts", "export const inspected = true;\n"]]);
 
     const result = await executeToolLoop({
       messages: makeMessages(),
@@ -1419,19 +1421,25 @@ describe("executeToolLoop", () => {
       provider: "openrouter",
       tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
       rootPath: "/project",
+      initialFileContents: prefetched,
       pendingChanges: [],
       maxIterations: 2,
       toolCallsDisabledAfter: 0,
+      executionMode: "forensic",
+      responseFormat: { type: "json_object" },
+      onStep: (step) => steps.push(step),
     });
 
-    expect(result).toMatchObject({
-      kind: "failed",
-      tool: "search_code",
-      failureKind: "unavailable",
-      diagnosticCode: "TOOL_UNAVAILABLE",
-    });
+    expect(result.kind).toBe("partial");
+    if (result.kind === "partial") {
+      expect(result.reason).toBe("empty_response");
+      expect(result.fileContents?.get("src/forensic.ts")).toBe(prefetched.get("src/forensic.ts"));
+    }
     expect(strategy.call).toHaveBeenCalledTimes(1);
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(steps.some(
+      (step) => step.kind === "diagnostic" && step.code === "TOOL_UNAVAILABLE",
+    )).toBe(false);
   });
 
   it("emits a bounded provider diagnostic for a Repair Plan timeout", async () => {
