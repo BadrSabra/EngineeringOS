@@ -36,7 +36,24 @@ describe("repository instruction trust boundary", () => {
       toolName: "run_validation",
       args: { profile: "pnpm run reveal-secret" },
       allowedTools: new Set(["run_validation"]),
+      approvalState: "APPROVED",
       approvedValidationProfiles: ["ai-orchestrator-tests"],
     })).toEqual({ allowed: false, reason: "validation_profile_not_approved" });
+  });
+
+  it("fails closed when a write or validation approval manifest is absent", () => {
+    expect(authorizeToolInvocation({
+      toolName: "write_file",
+      args: { path: "src/approved.ts", content: "safe" },
+      allowedTools: new Set(["write_file"]),
+      approvalState: "APPROVED",
+    })).toEqual({ allowed: false, reason: "approval_manifest_missing" });
+
+    expect(authorizeToolInvocation({
+      toolName: "run_validation",
+      args: { profile: "ai-orchestrator-tests" },
+      allowedTools: new Set(["run_validation"]),
+      approvalState: "APPROVED",
+    })).toEqual({ allowed: false, reason: "approval_manifest_missing" });
   });
 });

@@ -235,6 +235,8 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts", content: "x" },
       rootPath: "/project",
       pendingChanges: pending,
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/foo.ts"],
     });
 
     expect(result.kind).toBe("ok");
