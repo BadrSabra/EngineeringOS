@@ -207,7 +207,6 @@ export function authorizeToolInvocation(opts: {
     return { allowed: false, reason: "path_outside_approved_scope" };
   }
   if (isValidationOrExecution &&
-      !approvedValidationProfiles &&
       !approvedValidationProfiles!.includes(String(opts.args?.profile ?? "").trim())) {
     return { allowed: false, reason: "validation_profile_not_approved" };
   }
