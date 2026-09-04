@@ -2995,6 +2995,8 @@ router.post("/ai/chat", async (req, res) => {
           objective,
           turnIntent,
           allowValidationTools: Boolean(validationRunner),
+           approvalState: validationRunner || approvedImplementationPlan ? "APPROVED" : undefined,
+           approvedFilePaths: implementationPlanScope ? [...implementationPlanScope] : undefined,
           validationRunner,
           approvedValidationProfiles: validationRunner ? ["workspace-typecheck"] : undefined,
           validationTargetPaths: validationOnlyTargetPaths,
@@ -5010,6 +5012,8 @@ router.post("/ai/chat/stream", async (req, res) => {
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
           objective,
           allowValidationTools: Boolean(validationRunner),
+           approvalState: validationRunner || approvedImplementationPlan ? "APPROVED" : undefined,
+           approvedFilePaths: implementationPlanScope ? [...implementationPlanScope] : undefined,
           validationRunner,
           browserValidationRunner,
           browserValidationContext: {
