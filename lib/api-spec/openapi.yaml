@@ -3615,10 +3615,6 @@ components:
         generatedAt:
           type: string
           format: date-time
-        provider:
-          type: string
-        model:
-          type: [string, "null"]
         metrics:
           $ref: "#/components/schemas/AiBenchmarkMetrics"
         rolloutAllowed:
@@ -3637,7 +3633,7 @@ components:
       additionalProperties: false
       description: >
         Redacted measurement-only empirical AI quality evidence. It compares
-        provider/model observations with a versioned ground-truth corpus and
+        quality observations with a versioned ground-truth corpus and
         never changes deterministic release acceptance.
       required: [kind, version, measurementOnly, status, empiricalQualityStatus, blockers, metrics, cases]
       properties:
@@ -3648,10 +3644,6 @@ components:
           format: date-time
         corpusRevision:
           type: string
-        provider:
-          type: string
-        model:
-          type: [string, "null"]
         measurementOnly: { type: boolean, enum: [true] }
         status:
           type: string
@@ -3983,10 +3975,6 @@ components:
           type: string
         tool:
           type: string
-        provider:
-          type: string
-        model:
-          type: string
         detail:
           type: string
 
@@ -4009,10 +3997,6 @@ components:
           type: string
         objective:
           type: string
-        provider:
-          type: ["string", "null"]
-        model:
-          type: ["string", "null"]
         attempts:
           type: integer
         validationFailures:
