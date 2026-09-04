@@ -9445,7 +9445,7 @@ export async function chat(opts: {
       );
       relayAgentStep({
         kind: "recovery_model_call",
-        model: recovery.model || recoveryModel,
+        model: recovery.model || recoveryModel || model,
         provider: providerId,
         attempt: recoveryAttemptsUsed,
       });
