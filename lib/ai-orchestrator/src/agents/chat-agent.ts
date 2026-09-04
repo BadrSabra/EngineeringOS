@@ -5393,7 +5393,7 @@ export async function chat(opts: {
         rootPath,
         pendingChanges,
         toolCacheKeyFn: toolCacheKey,
-        complete: structuredOutputMode,
+        complete: completeReadEvidence,
         maxFiles: remainingForensicPrefetchSlots(),
         excludeFiles: prefetchExcludeFiles(),
         includeTestSources,
@@ -6106,7 +6106,7 @@ export async function chat(opts: {
     // no-tools synthesis call; the OpenAI-compatible client deliberately
     // ignores response_format while tools are attached.
     responseFormat: structuredOutputMode ? { type: "json_object" } : undefined,
-    completeReads: structuredOutputMode,
+    completeReads: completeReadEvidence,
     executionMode: repairPlanExecution
       ? "repair_plan"
       : structuredOutputMode
@@ -9179,7 +9179,7 @@ export async function chat(opts: {
       {
         effectiveRoot: rootPath ? "PROJECT_ROOT" : "ROOT_UNAVAILABLE",
         projectRevision: analysisCorrelation?.projectRevision,
-        completeReads: structuredOutputMode,
+        completeReads: completeReadEvidence,
         appliedBudget: {
           maxIterations: budget.maxIterations,
           maxToolCalls: Math.max(0, budget.maxToolCalls - prefetchFileContents.size),
