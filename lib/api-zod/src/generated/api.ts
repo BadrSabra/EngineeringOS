@@ -34,45 +34,45 @@ export const listAiChatMessagesResponseExecutionLedgerOneModelsMax = 16;
 export const GetHealthResponse = zod.object({
   "status": zod.enum(['ok']),
   "jobQueue": zod.object({
-  "running": zod.int().describe('Number of jobs currently executing'),
-  "queued": zod.int().describe('Number of jobs waiting for a free concurrency slot'),
-  "concurrency": zod.int().describe('Maximum number of jobs that can run simultaneously')
+  "running": zod.number().int().describe('Number of jobs currently executing'),
+  "queued": zod.number().int().describe('Number of jobs waiting for a free concurrency slot'),
+  "concurrency": zod.number().int().describe('Maximum number of jobs that can run simultaneously')
 }).optional().describe('Current state of the in-process job queue (scan + discovery jobs). ⚠️ This queue is process-local — jobs in flight are lost on restart. The reconciliation layer marks orphaned DB rows as `failed` on startup, but the work must be re-submitted by the caller.\n'),
   "operationalCounters": zod.object({
-  "auditWriteFailures": zod.int().describe('Number of audit_logs insert failures since last startup. Non-zero means state changes went unrecorded in the traceability trail.\n'),
-  "auditWritesPending": zod.int().describe('Audit rows currently awaiting durable recovery.'),
-  "auditWritesRecovered": zod.int().describe('Audit rows recovered after an earlier write failure.'),
-  "auditPersistenceUnavailable": zod.int().describe('Audit destination or durable outbox persistence failures since startup.'),
-  "mutationsWithoutAudit": zod.int().describe('Committed mutations whose audit intent could not be durably retained.'),
-  "rateLimiterFailOpenCount": zod.int().describe('Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls.\n')
+  "auditWriteFailures": zod.number().int().describe('Number of audit_logs insert failures since last startup. Non-zero means state changes went unrecorded in the traceability trail.\n'),
+  "auditWritesPending": zod.number().int().describe('Audit rows currently awaiting durable recovery.'),
+  "auditWritesRecovered": zod.number().int().describe('Audit rows recovered after an earlier write failure.'),
+  "auditPersistenceUnavailable": zod.number().int().describe('Audit destination or durable outbox persistence failures since startup.'),
+  "mutationsWithoutAudit": zod.number().int().describe('Committed mutations whose audit intent could not be durably retained.'),
+  "rateLimiterFailOpenCount": zod.number().int().describe('Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls.\n')
 }).optional().describe('PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.\n'),
   "aiDiagnosticsRetention": zod.object({
   "status": zod.enum(['success', 'failed']),
   "attemptedAt": zod.coerce.date().nullable(),
   "completedAt": zod.coerce.date().nullable(),
-  "chatRowsScanned": zod.int(),
-  "chatRowsPruned": zod.int(),
-  "executionRowsScanned": zod.int(),
-  "executionRowsPruned": zod.int()
+  "chatRowsScanned": zod.number().int(),
+  "chatRowsPruned": zod.number().int(),
+  "executionRowsScanned": zod.number().int(),
+  "executionRowsPruned": zod.number().int()
 }).optional().describe('Content-free status of the most recent historical AI diagnostics retention sweep. A failed sweep is retried on the next startup.\n'),
   "taskExecutionRetention": zod.object({
   "status": zod.enum(['success', 'failed']),
   "attemptedAt": zod.coerce.date().nullable(),
   "completedAt": zod.coerce.date().nullable(),
-  "taskLogRowsScanned": zod.int(),
-  "taskLogRowsRemoved": zod.int(),
-  "receiptRowsScanned": zod.int(),
-  "receiptRowsRemoved": zod.int()
+  "taskLogRowsScanned": zod.number().int(),
+  "taskLogRowsRemoved": zod.number().int(),
+  "receiptRowsScanned": zod.number().int(),
+  "receiptRowsRemoved": zod.number().int()
 }).optional().describe('Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.\n'),
   "jobRecovery": zod.object({
   "status": zod.enum(['healthy', 'degraded']),
-  "queuedScanJobs": zod.int(),
-  "pendingDiscoverySessions": zod.int(),
-  "expiredScanLeases": zod.int(),
-  "expiredDiscoveryLeases": zod.int(),
-  "expiredTaskLeases": zod.int(),
-  "retryExhaustedScanJobs": zod.int(),
-  "retryExhaustedTasks": zod.int()
+  "queuedScanJobs": zod.number().int(),
+  "pendingDiscoverySessions": zod.number().int(),
+  "expiredScanLeases": zod.number().int(),
+  "expiredDiscoveryLeases": zod.number().int(),
+  "expiredTaskLeases": zod.number().int(),
+  "retryExhaustedScanJobs": zod.number().int(),
+  "retryExhaustedTasks": zod.number().int()
 }).optional().describe('Content-free health projection of durable background work. A degraded status means at least one worker lease has expired and needs recovery.\n')
 })
 
@@ -212,9 +212,9 @@ export const ScanProjectResponse = zod.object({
   "result": zod.object({
   "projectId": zod.string(),
   "scannedAt": zod.coerce.date(),
-  "filesFound": zod.int(),
-  "issuesDetected": zod.int(),
-  "tasksCreated": zod.int(),
+  "filesFound": zod.number().int(),
+  "issuesDetected": zod.number().int(),
+  "tasksCreated": zod.number().int(),
   "summary": zod.string().optional()
 }).optional(),
   "error": zod.string().optional(),
@@ -239,9 +239,9 @@ export const GetScanJobResponse = zod.object({
   "result": zod.object({
   "projectId": zod.string(),
   "scannedAt": zod.coerce.date(),
-  "filesFound": zod.int(),
-  "issuesDetected": zod.int(),
-  "tasksCreated": zod.int(),
+  "filesFound": zod.number().int(),
+  "issuesDetected": zod.number().int(),
+  "tasksCreated": zod.number().int(),
   "summary": zod.string().optional()
 }).optional(),
   "error": zod.string().optional(),
@@ -262,11 +262,11 @@ export const GetProjectSummaryResponse = zod.object({
   "projectId": zod.string(),
   "qualityScore": zod.number(),
   "taskCounts": zod.object({
-  "total": zod.int(),
-  "pending": zod.int(),
-  "running": zod.int(),
-  "completed": zod.int(),
-  "failed": zod.int()
+  "total": zod.number().int(),
+  "pending": zod.number().int(),
+  "running": zod.number().int(),
+  "completed": zod.number().int(),
+  "failed": zod.number().int()
 }),
   "recentEvents": zod.array(zod.object({
   "id": zod.string(),
@@ -293,9 +293,9 @@ export const GetProjectSummaryResponse = zod.object({
   "reliabilityScore": zod.number().optional(),
   "maintainabilityScore": zod.number().optional(),
   "testCoverage": zod.number().optional(),
-  "lintIssues": zod.int().optional(),
-  "testsPassed": zod.int().optional(),
-  "testsTotal": zod.int().optional(),
+  "lintIssues": zod.number().int().optional(),
+  "testsPassed": zod.number().int().optional(),
+  "testsTotal": zod.number().int().optional(),
   "technicalDebt": zod.number().optional(),
   "buildStatus": zod.enum(['passing', 'failing', 'unknown']).optional()
 })
@@ -346,8 +346,8 @@ export const ListTasksResponseItem = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -381,12 +381,12 @@ export const ListTasksResponseItem = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(listTasksResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(listTasksResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(listTasksResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(listTasksResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(listTasksResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(listTasksResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -452,8 +452,8 @@ export const CreateTaskResponse = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -487,12 +487,12 @@ export const CreateTaskResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(createTaskResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(createTaskResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(createTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(createTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(createTaskResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(createTaskResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -549,8 +549,8 @@ export const GetTaskResponse = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -584,12 +584,12 @@ export const GetTaskResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(getTaskResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(getTaskResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(getTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(getTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(getTaskResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(getTaskResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -653,8 +653,8 @@ export const UpdateTaskResponse = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -688,12 +688,12 @@ export const UpdateTaskResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(updateTaskResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(updateTaskResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(updateTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(updateTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(updateTaskResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(updateTaskResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -760,8 +760,8 @@ export const ExecuteTaskResponse = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -795,12 +795,12 @@ export const ExecuteTaskResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(executeTaskResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(executeTaskResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(executeTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(executeTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(executeTaskResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(executeTaskResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -867,8 +867,8 @@ export const RecordTaskVerificationResponse = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -902,12 +902,12 @@ export const RecordTaskVerificationResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(recordTaskVerificationResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(recordTaskVerificationResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(recordTaskVerificationResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(recordTaskVerificationResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(recordTaskVerificationResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(recordTaskVerificationResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -964,8 +964,8 @@ export const RetryTaskResponse = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -999,12 +999,12 @@ export const RetryTaskResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(retryTaskResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(retryTaskResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(retryTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(retryTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(retryTaskResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(retryTaskResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -1061,8 +1061,8 @@ export const RollbackTaskResponse = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -1096,12 +1096,12 @@ export const RollbackTaskResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(rollbackTaskResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(rollbackTaskResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(rollbackTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(rollbackTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(rollbackTaskResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(rollbackTaskResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -1173,7 +1173,7 @@ export const ListRulesResponseItem = zod.object({
   "fixDescription": zod.string().optional(),
   "verifySteps": zod.array(zod.string()).optional(),
   "enabled": zod.boolean(),
-  "hitCount": zod.int().optional(),
+  "hitCount": zod.number().int().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -1205,7 +1205,7 @@ export const CreateRuleResponse = zod.object({
   "fixDescription": zod.string().optional(),
   "verifySteps": zod.array(zod.string()).optional(),
   "enabled": zod.boolean(),
-  "hitCount": zod.int().optional(),
+  "hitCount": zod.number().int().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -1229,7 +1229,7 @@ export const GetRuleResponse = zod.object({
   "fixDescription": zod.string().optional(),
   "verifySteps": zod.array(zod.string()).optional(),
   "enabled": zod.boolean(),
-  "hitCount": zod.int().optional(),
+  "hitCount": zod.number().int().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -1262,7 +1262,7 @@ export const UpdateRuleResponse = zod.object({
   "fixDescription": zod.string().optional(),
   "verifySteps": zod.array(zod.string()).optional(),
   "enabled": zod.boolean(),
-  "hitCount": zod.int().optional(),
+  "hitCount": zod.number().int().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -1293,10 +1293,10 @@ export const EvaluateRuleResponse = zod.object({
   "ruleId": zod.string(),
   "projectId": zod.string(),
   "matched": zod.boolean(),
-  "matchCount": zod.int(),
+  "matchCount": zod.number().int(),
   "matches": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int(),
+  "line": zod.number().int(),
   "snippet": zod.string()
 }))
 })
@@ -1321,7 +1321,7 @@ export const ListWorkflowsResponseItem = zod.object({
   "condition": zod.string().optional()
 })),
   "currentPhase": zod.string().optional(),
-  "executionCount": zod.int().optional(),
+  "executionCount": zod.number().int().optional(),
   "lastExecutedAt": zod.coerce.date().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1355,7 +1355,7 @@ export const CreateWorkflowResponse = zod.object({
   "condition": zod.string().optional()
 })),
   "currentPhase": zod.string().optional(),
-  "executionCount": zod.int().optional(),
+  "executionCount": zod.number().int().optional(),
   "lastExecutedAt": zod.coerce.date().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1381,7 +1381,7 @@ export const GetWorkflowResponse = zod.object({
   "condition": zod.string().optional()
 })),
   "currentPhase": zod.string().optional(),
-  "executionCount": zod.int().optional(),
+  "executionCount": zod.number().int().optional(),
   "lastExecutedAt": zod.coerce.date().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1581,7 +1581,7 @@ export const ListEventsResponse = zod.object({
   "timestamp": zod.coerce.date(),
   "correlationId": zod.string().optional().describe('Ties this event to a logical operation (scan, task execute, workflow advance). All records sharing the same correlationId were produced by a single call — filter by this to see the full trace.\n')
 })),
-  "total": zod.int().min(listEventsResponseTotalMin).describe('Total number of events matching the filters, before pagination.')
+  "total": zod.number().int().min(listEventsResponseTotalMin).describe('Total number of events matching the filters, before pagination.')
 })
 
 
@@ -1614,9 +1614,9 @@ export const ListMetricsResponseItem = zod.object({
   "reliabilityScore": zod.number().optional(),
   "maintainabilityScore": zod.number().optional(),
   "testCoverage": zod.number().optional(),
-  "lintIssues": zod.int().optional(),
-  "testsPassed": zod.int().optional(),
-  "testsTotal": zod.int().optional(),
+  "lintIssues": zod.number().int().optional(),
+  "testsPassed": zod.number().int().optional(),
+  "testsTotal": zod.number().int().optional(),
   "technicalDebt": zod.number().optional(),
   "buildStatus": zod.enum(['passing', 'failing', 'unknown']).optional()
 })
@@ -1641,9 +1641,9 @@ export const GetLatestMetricsResponseItem = zod.object({
   "reliabilityScore": zod.number().optional(),
   "maintainabilityScore": zod.number().optional(),
   "testCoverage": zod.number().optional(),
-  "lintIssues": zod.int().optional(),
-  "testsPassed": zod.int().optional(),
-  "testsTotal": zod.int().optional(),
+  "lintIssues": zod.number().int().optional(),
+  "testsPassed": zod.number().int().optional(),
+  "testsTotal": zod.number().int().optional(),
   "technicalDebt": zod.number().optional(),
   "buildStatus": zod.enum(['passing', 'failing', 'unknown']).optional()
 })
@@ -1697,8 +1697,8 @@ export const ListGraphEntitiesResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -1706,9 +1706,9 @@ export const ListGraphEntitiesResponse = zod.object({
   "createdAt": zod.coerce.date()
 })),
   "meta": zod.object({
-  "page": zod.int(),
-  "pageSize": zod.int(),
-  "total": zod.int(),
+  "page": zod.number().int(),
+  "pageSize": zod.number().int(),
+  "total": zod.number().int(),
   "truncated": zod.boolean()
 })
 })
@@ -1755,12 +1755,12 @@ export const ListGraphRelationshipsResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -1773,8 +1773,8 @@ export const ListGraphRelationshipsResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -1782,9 +1782,9 @@ export const ListGraphRelationshipsResponse = zod.object({
   "createdAt": zod.coerce.date()
 })),
   "meta": zod.object({
-  "page": zod.int(),
-  "pageSize": zod.int(),
-  "total": zod.int(),
+  "page": zod.number().int(),
+  "pageSize": zod.number().int(),
+  "total": zod.number().int(),
   "truncated": zod.boolean()
 })
 })
@@ -1842,8 +1842,8 @@ export const GetGraphEntityImpactResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -1875,8 +1875,8 @@ export const GetGraphEntityImpactResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -1898,12 +1898,12 @@ export const GetGraphEntityImpactResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -1916,17 +1916,17 @@ export const GetGraphEntityImpactResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
 }).optional().describe('Provenance record for a graph entity or relationship. All fields are optional for backwards compatibility.\n'),
   "createdAt": zod.coerce.date()
 }),
-  "depth": zod.int().describe('How many hops from the root entity')
+  "depth": zod.number().int().describe('How many hops from the root entity')
 })),
-  "maxDepthReached": zod.int()
+  "maxDepthReached": zod.number().int()
 })
 
 
@@ -1982,8 +1982,8 @@ export const GetGraphPathResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2005,12 +2005,12 @@ export const GetGraphPathResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -2023,8 +2023,8 @@ export const GetGraphPathResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2032,7 +2032,7 @@ export const GetGraphPathResponse = zod.object({
   "createdAt": zod.coerce.date()
 }).optional()
 })).optional(),
-  "length": zod.int().optional()
+  "length": zod.number().int().optional()
 })
 
 
@@ -2056,43 +2056,43 @@ export const getGraphSummaryResponseLayeredByLayerRuntimeAvgConfidenceMax = 1;
 
 export const GetGraphSummaryResponse = zod.object({
   "projectId": zod.string(),
-  "entityCount": zod.int(),
-  "relationshipCount": zod.int(),
-  "entitiesByType": zod.record(zod.string(), zod.int()),
-  "relationsByType": zod.record(zod.string(), zod.int()),
+  "entityCount": zod.number().int(),
+  "relationshipCount": zod.number().int(),
+  "entitiesByType": zod.record(zod.string(), zod.number().int()),
+  "relationsByType": zod.record(zod.string(), zod.number().int()),
   "topConnected": zod.array(zod.object({
   "entityId": zod.string(),
   "entityName": zod.string(),
   "entityType": zod.string(),
-  "inDegree": zod.int(),
-  "outDegree": zod.int(),
-  "totalDegree": zod.int()
+  "inDegree": zod.number().int(),
+  "outDegree": zod.number().int(),
+  "totalDegree": zod.number().int()
 })),
   "avgDegree": zod.number(),
-  "isolatedCount": zod.int(),
-  "clusterCount": zod.int(),
+  "isolatedCount": zod.number().int(),
+  "clusterCount": zod.number().int(),
   "layered": zod.object({
   "byLayer": zod.object({
   "structural": zod.object({
-  "entityCount": zod.int(),
-  "relationshipCount": zod.int(),
+  "entityCount": zod.number().int(),
+  "relationshipCount": zod.number().int(),
   "avgConfidence": zod.number().min(getGraphSummaryResponseLayeredByLayerStructuralAvgConfidenceMin).max(getGraphSummaryResponseLayeredByLayerStructuralAvgConfidenceMax)
 }),
   "heuristic": zod.object({
-  "entityCount": zod.int(),
-  "relationshipCount": zod.int(),
+  "entityCount": zod.number().int(),
+  "relationshipCount": zod.number().int(),
   "avgConfidence": zod.number().min(getGraphSummaryResponseLayeredByLayerHeuristicAvgConfidenceMin).max(getGraphSummaryResponseLayeredByLayerHeuristicAvgConfidenceMax)
 }),
   "runtime": zod.object({
-  "entityCount": zod.int(),
-  "relationshipCount": zod.int(),
+  "entityCount": zod.number().int(),
+  "relationshipCount": zod.number().int(),
   "avgConfidence": zod.number().min(getGraphSummaryResponseLayeredByLayerRuntimeAvgConfidenceMin).max(getGraphSummaryResponseLayeredByLayerRuntimeAvgConfidenceMax)
 })
 }),
-  "byEdgeType": zod.record(zod.string(), zod.int()).describe('Edge-type distribution across the graph (e.g. imports=12, calls=4).'),
+  "byEdgeType": zod.record(zod.string(), zod.number().int()).describe('Edge-type distribution across the graph (e.g. imports=12, calls=4).'),
   "avgConfidenceOverall": zod.number(),
-  "documentedEntityCount": zod.int(),
-  "undocumentedEntityCount": zod.int()
+  "documentedEntityCount": zod.number().int(),
+  "undocumentedEntityCount": zod.number().int()
 }).optional()
 })
 
@@ -2149,8 +2149,8 @@ export const GetGraphEntityNeighborsResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2172,12 +2172,12 @@ export const GetGraphEntityNeighborsResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -2190,8 +2190,8 @@ export const GetGraphEntityNeighborsResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2213,12 +2213,12 @@ export const GetGraphEntityNeighborsResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -2231,8 +2231,8 @@ export const GetGraphEntityNeighborsResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2263,8 +2263,8 @@ export const GetGraphEntityNeighborsResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2326,8 +2326,8 @@ export const GetGraphSubgraphResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2349,12 +2349,12 @@ export const GetGraphSubgraphResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -2367,8 +2367,8 @@ export const GetGraphSubgraphResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2385,16 +2385,16 @@ export const GetGraphSubgraphResponse = zod.object({
 }),
   "layered": zod.object({
   "structural": zod.object({
-  "entityCount": zod.int(),
-  "relationshipCount": zod.int()
+  "entityCount": zod.number().int(),
+  "relationshipCount": zod.number().int()
 }),
   "heuristic": zod.object({
-  "entityCount": zod.int(),
-  "relationshipCount": zod.int()
+  "entityCount": zod.number().int(),
+  "relationshipCount": zod.number().int()
 }),
   "runtime": zod.object({
-  "entityCount": zod.int(),
-  "relationshipCount": zod.int()
+  "entityCount": zod.number().int(),
+  "relationshipCount": zod.number().int()
 })
 })
 })
@@ -2458,8 +2458,8 @@ export const GetGraphSemanticNeighborhoodResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2490,8 +2490,8 @@ export const GetGraphSemanticNeighborhoodResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2513,12 +2513,12 @@ export const GetGraphSemanticNeighborhoodResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -2531,8 +2531,8 @@ export const GetGraphSemanticNeighborhoodResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2585,8 +2585,8 @@ export const GetGraphEvidenceResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2609,12 +2609,12 @@ export const GetGraphEvidenceResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -2627,8 +2627,8 @@ export const GetGraphEvidenceResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2637,8 +2637,8 @@ export const GetGraphEvidenceResponse = zod.object({
 }),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship'))
@@ -2689,8 +2689,8 @@ export const GetGraphRuntimeSubgraphResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2712,12 +2712,12 @@ export const GetGraphRuntimeSubgraphResponse = zod.object({
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Structured evidence records that justify this relationship'),
-  "evidenceCount": zod.int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
+  "evidenceCount": zod.number().int().optional().describe('Number of evidence items (indexed separately for fast cardinality queries)'),
   "evidenceSummary": zod.string().optional().describe('Human-readable summary of the evidence'),
   "semanticTags": zod.array(zod.string()).optional(),
   "sourceType": zod.string().optional().describe('Which extractor produced this relationship'),
@@ -2730,8 +2730,8 @@ export const GetGraphRuntimeSubgraphResponse = zod.object({
   "extractedAt": zod.coerce.date().optional(),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().optional(),
-  "column": zod.int().optional(),
+  "line": zod.number().int().optional(),
+  "column": zod.number().int().optional(),
   "snippet": zod.string().optional().describe('Source code snippet at the evidence location'),
   "kind": zod.enum(['import-statement', 'call-site', 'class-definition', 'interface-definition', 'jsdoc', 'heuristic'])
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
@@ -2840,7 +2840,7 @@ export const StartDiscoveryBody = zod.object({
   "options": zod.object({
   "skipRules": zod.boolean().default(startDiscoveryBodyOptionsSkipRulesDefault),
   "skipGraph": zod.boolean().default(startDiscoveryBodyOptionsSkipGraphDefault),
-  "maxDepth": zod.int().min(1).max(startDiscoveryBodyOptionsMaxDepthMax).optional(),
+  "maxDepth": zod.number().int().min(1).max(startDiscoveryBodyOptionsMaxDepthMax).optional(),
   "includeTests": zod.boolean().default(startDiscoveryBodyOptionsIncludeTestsDefault)
 }).optional()
 })
@@ -2848,12 +2848,12 @@ export const StartDiscoveryBody = zod.object({
 export const StartDiscoveryResponse = zod.object({
   "id": zod.string(),
   "status": zod.enum(['pending', 'discovering', 'ready', 'imported', 'error']),
-  "progress": zod.int(),
+  "progress": zod.number().int(),
   "currentStep": zod.string().nullish(),
   "steps": zod.array(zod.object({
   "name": zod.string(),
   "status": zod.enum(['pending', 'running', 'done', 'error']),
-  "durationMs": zod.int().nullish()
+  "durationMs": zod.number().int().nullish()
 })),
   "startedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().nullish(),
@@ -2872,12 +2872,12 @@ export const GetDiscoverySessionParams = zod.object({
 export const GetDiscoverySessionResponse = zod.object({
   "id": zod.string(),
   "status": zod.enum(['pending', 'discovering', 'ready', 'imported', 'error']),
-  "progress": zod.int(),
+  "progress": zod.number().int(),
   "currentStep": zod.string().nullish(),
   "steps": zod.array(zod.object({
   "name": zod.string(),
   "status": zod.enum(['pending', 'running', 'done', 'error']),
-  "durationMs": zod.int().nullish()
+  "durationMs": zod.number().int().nullish()
 })),
   "startedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().nullish(),
@@ -2932,30 +2932,30 @@ export const GetDiscoverySummaryResponse = zod.object({
   "isMonorepo": zod.boolean(),
   "hasDocker": zod.boolean(),
   "hasOpenApi": zod.boolean(),
-  "packageCount": zod.int(),
-  "moduleCount": zod.int(),
-  "repoSizeBytes": zod.int(),
+  "packageCount": zod.number().int(),
+  "moduleCount": zod.number().int(),
+  "repoSizeBytes": zod.number().int(),
   "detectedApis": zod.array(zod.string()),
   "detectedRisks": zod.array(zod.string()),
   "qualityScore": zod.number(),
   "confidenceScore": zod.number(),
   "graphSummary": zod.object({
-  "entityCount": zod.int(),
-  "relationshipCount": zod.int(),
-  "entitiesByType": zod.record(zod.string(), zod.int()),
-  "filesByLanguage": zod.record(zod.string(), zod.int())
+  "entityCount": zod.number().int(),
+  "relationshipCount": zod.number().int(),
+  "entitiesByType": zod.record(zod.string(), zod.number().int()),
+  "filesByLanguage": zod.record(zod.string(), zod.number().int())
 }),
   "ruleViolations": zod.array(zod.object({
   "ruleId": zod.string().optional(),
   "code": zod.string(),
   "title": zod.string(),
   "severity": zod.string(),
-  "count": zod.int(),
+  "count": zod.number().int(),
   "matches": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(getDiscoverySummaryResponseRuleViolationsItemMatchesItemOccurrencesMin)
+  "occurrences": zod.number().int().min(getDiscoverySummaryResponseRuleViolationsItemMatchesItemOccurrencesMin)
 })).max(getDiscoverySummaryResponseRuleViolationsItemMatchesMax).optional(),
   "fixDescription": zod.string().nullish(),
   "verifySteps": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemVerifyStepsMax).optional(),
@@ -2965,12 +2965,12 @@ export const GetDiscoverySummaryResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -3042,10 +3042,10 @@ export const UploadArchiveResponse = zod.object({
  */
 export const GetDashboardResponse = zod.object({
   "freshnessRevision": zod.string().describe('Monotonic server-owned revision for the authenticated dashboard snapshot.'),
-  "projectCount": zod.int(),
-  "activeTaskCount": zod.int(),
-  "completedTaskCount": zod.int(),
-  "failedTaskCount": zod.int(),
+  "projectCount": zod.number().int(),
+  "activeTaskCount": zod.number().int(),
+  "completedTaskCount": zod.number().int(),
+  "failedTaskCount": zod.number().int(),
   "recentEvents": zod.array(zod.object({
   "id": zod.string(),
   "type": zod.string(),
@@ -3066,12 +3066,12 @@ export const GetDashboardResponse = zod.object({
   "score": zod.number(),
   "trend": zod.enum(['improving', 'stable', 'declining'])
 })),
-  "taskStatusBreakdown": zod.record(zod.string(), zod.int()).optional(),
+  "taskStatusBreakdown": zod.record(zod.string(), zod.number().int()).optional(),
   "topRules": zod.array(zod.object({
   "ruleId": zod.string(),
   "code": zod.string(),
   "title": zod.string(),
-  "hitCount": zod.int()
+  "hitCount": zod.number().int()
 })).optional()
 })
 
@@ -3249,12 +3249,12 @@ export const AiChatResponse = zod.object({
   "executionLedger": zod.union([zod.object({
   "id": zod.string().max(aiChatResponseMessageExecutionLedgerOneIdMax),
   "mode": zod.enum(['simple_chat', 'tool_chat', 'forensic', 'repair_plan', 'hierarchical']),
-  "startedAt": zod.int(),
-  "deadlineAt": zod.int(),
-  "elapsedMs": zod.int().min(aiChatResponseMessageExecutionLedgerOneElapsedMsMin),
-  "remainingMs": zod.int().min(aiChatResponseMessageExecutionLedgerOneRemainingMsMin),
-  "budget": zod.record(zod.string(), zod.int().min(aiChatResponseMessageExecutionLedgerOneBudgetMinOne)),
-  "counts": zod.record(zod.string(), zod.int().min(aiChatResponseMessageExecutionLedgerOneCountsMinOne)),
+  "startedAt": zod.number().int(),
+  "deadlineAt": zod.number().int(),
+  "elapsedMs": zod.number().int().min(aiChatResponseMessageExecutionLedgerOneElapsedMsMin),
+  "remainingMs": zod.number().int().min(aiChatResponseMessageExecutionLedgerOneRemainingMsMin),
+  "budget": zod.record(zod.string(), zod.number().int().min(aiChatResponseMessageExecutionLedgerOneBudgetMinOne)),
+  "counts": zod.record(zod.string(), zod.number().int().min(aiChatResponseMessageExecutionLedgerOneCountsMinOne)),
   "providers": zod.array(zod.string().max(aiChatResponseMessageExecutionLedgerOneProvidersItemMax)).max(aiChatResponseMessageExecutionLedgerOneProvidersMax),
   "models": zod.array(zod.string().max(aiChatResponseMessageExecutionLedgerOneModelsItemMax)).max(aiChatResponseMessageExecutionLedgerOneModelsMax),
   "terminalReason": zod.enum(['completed', 'cancelled', 'deadline', 'model_budget', 'tool_budget', 'recovery_budget', 'provider_exhausted', 'failed']).optional()
@@ -3282,9 +3282,9 @@ export const AiChatResponse = zod.object({
   "nextActionCode": zod.enum(['NONE', 'RETRY_AUDIT', 'REVIEW_SCOPE', 'RETRY_AFTER_TIMEOUT', 'RETRY_WITH_NARROWER_SCOPE']),
   "nextAction": zod.string().min(1).max(aiChatResponseMessageForensicDiagnosticOneNextActionMax),
   "unreadFiles": zod.array(zod.string().min(1).max(aiChatResponseMessageForensicDiagnosticOneUnreadFilesItemMax)).max(aiChatResponseMessageForensicDiagnosticOneUnreadFilesMax),
-  "unreadFileCount": zod.int().min(aiChatResponseMessageForensicDiagnosticOneUnreadFileCountMin),
+  "unreadFileCount": zod.number().int().min(aiChatResponseMessageForensicDiagnosticOneUnreadFileCountMin),
   "truncatedFiles": zod.array(zod.string().min(1).max(aiChatResponseMessageForensicDiagnosticOneTruncatedFilesItemMax)).max(aiChatResponseMessageForensicDiagnosticOneTruncatedFilesMax),
-  "truncatedFileCount": zod.int().min(aiChatResponseMessageForensicDiagnosticOneTruncatedFileCountMin)
+  "truncatedFileCount": zod.number().int().min(aiChatResponseMessageForensicDiagnosticOneTruncatedFileCountMin)
 }),zod.null()]).optional().describe('Server-owned, bounded forensic verdict shared by live and historical responses.'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
@@ -3294,8 +3294,8 @@ export const AiChatResponse = zod.object({
   "sourceType": zod.string().optional(),
   "evidenceClass": zod.string().optional(),
   "sourceSpan": zod.object({
-  "startLine": zod.int().min(1),
-  "endLine": zod.int().min(1)
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1)
 }).optional()
 })).max(aiChatResponseMessageBehaviorEvidenceMax).optional().describe('Parsed accepted behavior-evidence references, each with an optional exact source line span'),
   "missionCorrelationReport": zod.union([zod.object({
@@ -3310,13 +3310,13 @@ export const AiChatResponse = zod.object({
   "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
   "outcomeClass": zod.string(),
   "counts": zod.object({
-  "messages": zod.int().min(aiChatResponseMessageMissionCorrelationReportOneCountsMessagesMin),
-  "sseEvents": zod.int().min(aiChatResponseMessageMissionCorrelationReportOneCountsSseEventsMin),
-  "executionCheckpoints": zod.int().min(aiChatResponseMessageMissionCorrelationReportOneCountsExecutionCheckpointsMin),
-  "evidence": zod.int().min(aiChatResponseMessageMissionCorrelationReportOneCountsEvidenceMin),
-  "proposals": zod.int().min(aiChatResponseMessageMissionCorrelationReportOneCountsProposalsMin),
-  "validation": zod.int().min(aiChatResponseMessageMissionCorrelationReportOneCountsValidationMin),
-  "correlatedEvents": zod.int().min(aiChatResponseMessageMissionCorrelationReportOneCountsCorrelatedEventsMin)
+  "messages": zod.number().int().min(aiChatResponseMessageMissionCorrelationReportOneCountsMessagesMin),
+  "sseEvents": zod.number().int().min(aiChatResponseMessageMissionCorrelationReportOneCountsSseEventsMin),
+  "executionCheckpoints": zod.number().int().min(aiChatResponseMessageMissionCorrelationReportOneCountsExecutionCheckpointsMin),
+  "evidence": zod.number().int().min(aiChatResponseMessageMissionCorrelationReportOneCountsEvidenceMin),
+  "proposals": zod.number().int().min(aiChatResponseMessageMissionCorrelationReportOneCountsProposalsMin),
+  "validation": zod.number().int().min(aiChatResponseMessageMissionCorrelationReportOneCountsValidationMin),
+  "correlatedEvents": zod.number().int().min(aiChatResponseMessageMissionCorrelationReportOneCountsCorrelatedEventsMin)
 }),
   "agreement": zod.object({
   "execution": zod.boolean(),
@@ -3362,8 +3362,8 @@ export const AiChatResponse = zod.object({
   "originalContent": zod.string().nullish().describe('Original content before the change, or null for new files'),
   "baseHash": zod.string().regex(aiChatResponsePendingChangesItemBaseHashRegExp).optional().describe('SHA-256 hash of the source content observed when the patch was generated'),
   "hunks": zod.array(zod.object({
-  "startLine": zod.int().min(1),
-  "endLine": zod.int().min(1),
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1),
   "expectedText": zod.string(),
   "replacementText": zod.string(),
   "reason": zod.string().min(1),
@@ -3373,7 +3373,7 @@ export const AiChatResponse = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(aiChatResponsePendingChangesItemHunksItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(aiChatResponsePendingChangesItemHunksItemEvidenceMax).optional()
 })).max(aiChatResponsePendingChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
@@ -3384,7 +3384,7 @@ export const AiChatResponse = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(aiChatResponsePendingChangesItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(aiChatResponsePendingChangesItemEvidenceMax).optional()
 })).describe('File changes proposed by the AI agent; populated only when a server-owned approval proposal was created'),
   "proposalId": zod.string().optional().describe('Server-owned approval proposal ID, when the pending changes are eligible for approval'),
@@ -3407,8 +3407,8 @@ export const AiChatResponse = zod.object({
   "evidence": zod.string().optional(),
   "sourceSpan": zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
-  "column": zod.int().min(aiChatResponseProductionReachabilityEdgesItemSourceSpanColumnMin).optional(),
+  "line": zod.number().int().min(1),
+  "column": zod.number().int().min(aiChatResponseProductionReachabilityEdgesItemSourceSpanColumnMin).optional(),
   "snippet": zod.string().optional()
 }).optional(),
   "runtimeObserved": zod.boolean()
@@ -3432,13 +3432,13 @@ export const AiChatResponse = zod.object({
   "evidence": zod.string().optional(),
   "sourceSpan": zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
-  "column": zod.int().min(aiChatResponseCrossFileTracesItemEdgesItemSourceSpanColumnMin).optional(),
+  "line": zod.number().int().min(1),
+  "column": zod.number().int().min(aiChatResponseCrossFileTracesItemEdgesItemSourceSpanColumnMin).optional(),
   "snippet": zod.string().optional()
 }).optional(),
   "runtimeObserved": zod.boolean()
 })),
-  "maxDepth": zod.int().min(1).max(aiChatResponseCrossFileTracesItemMaxDepthMax),
+  "maxDepth": zod.number().int().min(1).max(aiChatResponseCrossFileTracesItemMaxDepthMax),
   "reason": zod.string().optional()
 })).max(aiChatResponseCrossFileTracesMax).optional(),
   "taskResult": zod.union([zod.object({
@@ -3492,7 +3492,7 @@ export const GetAiExecutionResponse = zod.object({
   "objective": zod.record(zod.string(), zod.unknown()).nullish().describe('Server-retained objective contract used to scope this execution'),
   "linkedTaskId": zod.string().nullish(),
   "buildPlanMessageId": zod.string().nullish(),
-  "attempt": zod.int().optional().describe('Current bounded execution attempt'),
+  "attempt": zod.number().int().optional().describe('Current bounded execution attempt'),
   "projectRevision": zod.string().nullish().describe('Workspace revision captured when this execution began'),
   "status": zod.enum(['queued', 'running', 'paused', 'cancelling', 'cancelled', 'completed', 'failed']),
   "flightState": zod.enum(['BUILDING', 'VALIDATING', 'REPAIRING', 'READY_FOR_REVIEW', 'BLOCKED', 'APPLIED', 'COMMITTED', 'PUSHED', 'CANCELLED', 'COMPLETED']).describe('Unified server-derived Code Flight Deck lifecycle state'),
@@ -3503,14 +3503,14 @@ export const GetAiExecutionResponse = zod.object({
   "executionId": zod.string(),
   "operationId": zod.string(),
   "recipeId": zod.string(),
-  "recipeVersion": zod.int(),
+  "recipeVersion": zod.number().int(),
   "status": zod.enum(['completed', 'blocked', 'cancelled']),
   "completedNodeIds": zod.array(zod.string()),
   "nodes": zod.array(zod.object({
   "nodeId": zod.string(),
   "status": zod.enum(['passed', 'failed', 'blocked']),
-  "attempts": zod.int().min(getAiExecutionResponseRecipeReceiptOneNodesItemAttemptsMin),
-  "elapsedMs": zod.int().min(getAiExecutionResponseRecipeReceiptOneNodesItemElapsedMsMin),
+  "attempts": zod.number().int().min(getAiExecutionResponseRecipeReceiptOneNodesItemAttemptsMin),
+  "elapsedMs": zod.number().int().min(getAiExecutionResponseRecipeReceiptOneNodesItemElapsedMsMin),
   "evidenceId": zod.string().nullable(),
   "excerpt": zod.string().nullable()
 })),
@@ -3521,7 +3521,7 @@ export const GetAiExecutionResponse = zod.object({
   "evidenceReason": zod.string().nullish().describe('Bounded explanation for the current evidence verdict'),
   "terminalReason": zod.string().nullish().describe('Safe reason explaining why the execution stopped or is blocked'),
   "checkpoint": zod.record(zod.string(), zod.unknown()),
-  "checkpointVersion": zod.int(),
+  "checkpointVersion": zod.number().int(),
   "finalMessageId": zod.string().nullish(),
   "proposalId": zod.string().nullish(),
   "operationId": zod.string().nullish().describe('Stable operation trace identity used by Apply'),
@@ -3548,13 +3548,13 @@ export const GetAiExecutionResponse = zod.object({
   "committed": zod.string().nullable()
 }),
   "counts": zod.object({
-  "executions": zod.int(),
-  "checkpoints": zod.int(),
-  "events": zod.int(),
-  "audit": zod.int(),
-  "taskLogs": zod.int(),
-  "journal": zod.int(),
-  "receipts": zod.int()
+  "executions": zod.number().int(),
+  "checkpoints": zod.number().int(),
+  "events": zod.number().int(),
+  "audit": zod.number().int(),
+  "taskLogs": zod.number().int(),
+  "journal": zod.number().int(),
+  "receipts": zod.number().int()
 }),
   "receipts": zod.array(zod.record(zod.string(), zod.unknown())),
   "gaps": zod.array(zod.object({
@@ -3608,7 +3608,7 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "disposition": zod.enum(['RETAIN_FOR_REVIEW', 'NEW_RUN_RECOMMENDED']),
   "recommendedAction": zod.enum(['REVIEW_RETAINED_PROOF', 'START_NEW_RUN', 'RESUME_CHECKPOINT']),
   "resumable": zod.boolean(),
-  "checkpointVersion": zod.int(),
+  "checkpointVersion": zod.number().int(),
   "operationId": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
@@ -3643,13 +3643,13 @@ export const ExportAiExecutionAuditResponse = zod.object({
   "committed": zod.string().nullable()
 }),
   "counts": zod.object({
-  "executions": zod.int(),
-  "checkpoints": zod.int(),
-  "events": zod.int(),
-  "audit": zod.int(),
-  "taskLogs": zod.int(),
-  "journal": zod.int(),
-  "receipts": zod.int()
+  "executions": zod.number().int(),
+  "checkpoints": zod.number().int(),
+  "events": zod.number().int(),
+  "audit": zod.number().int(),
+  "taskLogs": zod.number().int(),
+  "journal": zod.number().int(),
+  "receipts": zod.number().int()
 }),
   "receipts": zod.array(zod.record(zod.string(), zod.unknown())),
   "gaps": zod.array(zod.object({
@@ -3696,7 +3696,7 @@ export const runAiRecipeBodyCandidateIdentityMax = 160;
 
 export const RunAiRecipeBody = zod.object({
   "recipeId": zod.string().min(1).max(runAiRecipeBodyRecipeIdMax),
-  "recipeVersion": zod.int().min(1),
+  "recipeVersion": zod.number().int().min(1),
   "approvedPaths": zod.array(zod.string().min(1).max(runAiRecipeBodyApprovedPathsItemMax)).max(runAiRecipeBodyApprovedPathsMax).optional(),
   "candidateIdentity": zod.string().max(runAiRecipeBodyCandidateIdentityMax).nullish()
 })
@@ -3719,14 +3719,14 @@ export const RunAiRecipeResponse = zod.object({
   "executionId": zod.string(),
   "operationId": zod.string(),
   "recipeId": zod.string(),
-  "recipeVersion": zod.int(),
+  "recipeVersion": zod.number().int(),
   "status": zod.enum(['completed', 'blocked', 'cancelled']),
   "completedNodeIds": zod.array(zod.string()),
   "nodes": zod.array(zod.object({
   "nodeId": zod.string(),
   "status": zod.enum(['passed', 'failed', 'blocked']),
-  "attempts": zod.int().min(runAiRecipeResponseReceiptNodesItemAttemptsMin),
-  "elapsedMs": zod.int().min(runAiRecipeResponseReceiptNodesItemElapsedMsMin),
+  "attempts": zod.number().int().min(runAiRecipeResponseReceiptNodesItemAttemptsMin),
+  "elapsedMs": zod.number().int().min(runAiRecipeResponseReceiptNodesItemElapsedMsMin),
   "evidenceId": zod.string().nullable(),
   "excerpt": zod.string().nullable()
 })),
@@ -3808,10 +3808,10 @@ export const GetAiBenchmarkScorecardResponse = zod.object({
   "suiteVersion": zod.string().optional(),
   "generatedAt": zod.coerce.date().optional(),
   "metrics": zod.object({
-  "observedCases": zod.int().optional(),
-  "totalCases": zod.int().optional(),
-  "gradeCounts": zod.record(zod.string(), zod.int()).optional(),
-  "providerUnavailableCount": zod.int().optional(),
+  "observedCases": zod.number().int().optional(),
+  "totalCases": zod.number().int().optional(),
+  "gradeCounts": zod.record(zod.string(), zod.number().int()).optional(),
+  "providerUnavailableCount": zod.number().int().optional(),
   "falseSuccessRate": zod.number().optional(),
   "scopeEscapeRate": zod.number().optional(),
   "correctCompletionRate": zod.number().optional()
@@ -3888,15 +3888,15 @@ export const GetAiEmpiricalQualityScorecardResponse = zod.object({
   "empiricalQualityStatus": zod.enum(['PROVEN', 'MEASURED', 'INCOMPLETE', 'UNAVAILABLE']),
   "blockers": zod.array(zod.string()).max(getAiEmpiricalQualityScorecardResponseBlockersMax),
   "metrics": zod.object({
-  "totalCases": zod.int(),
-  "completedCases": zod.int(),
-  "incompleteCases": zod.int(),
-  "providerUnavailableCount": zod.int(),
-  "timeoutCount": zod.int(),
-  "errorCount": zod.int(),
-  "truePositiveCount": zod.int(),
-  "falsePositiveCount": zod.int(),
-  "falseNegativeCount": zod.int(),
+  "totalCases": zod.number().int(),
+  "completedCases": zod.number().int(),
+  "incompleteCases": zod.number().int(),
+  "providerUnavailableCount": zod.number().int(),
+  "timeoutCount": zod.number().int(),
+  "errorCount": zod.number().int(),
+  "truePositiveCount": zod.number().int(),
+  "falsePositiveCount": zod.number().int(),
+  "falseNegativeCount": zod.number().int(),
   "precision": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsPrecisionMin).max(getAiEmpiricalQualityScorecardResponseMetricsPrecisionMax),
   "recall": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsRecallMin).max(getAiEmpiricalQualityScorecardResponseMetricsRecallMax),
   "f1": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsF1Min).max(getAiEmpiricalQualityScorecardResponseMetricsF1Max),
@@ -3910,11 +3910,11 @@ export const GetAiEmpiricalQualityScorecardResponse = zod.object({
   "falseAcceptanceRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsFalseAcceptanceRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsFalseAcceptanceRateMax),
   "falseRejectionRate": zod.number().min(getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMin).max(getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMax),
   "normalizationCounters": zod.object({
-  "changedFindingType": zod.int(),
-  "changedSeverity": zod.int(),
-  "droppedCitation": zod.int()
+  "changedFindingType": zod.number().int(),
+  "changedSeverity": zod.number().int(),
+  "droppedCitation": zod.number().int()
 }),
-  "highScoreLowCoverageCount": zod.int(),
+  "highScoreLowCoverageCount": zod.number().int(),
   "latencyMs": zod.object({
   "p50": zod.number().nullable(),
   "p95": zod.number().nullable(),
@@ -3925,22 +3925,22 @@ export const GetAiEmpiricalQualityScorecardResponse = zod.object({
   "cases": zod.array(zod.object({
   "caseId": zod.string(),
   "outcome": zod.enum(['COMPLETE', 'PROVIDER_UNAVAILABLE', 'TIMEOUT', 'ERROR']),
-  "truePositives": zod.int(),
-  "falsePositives": zod.int(),
-  "falseNegatives": zod.int(),
-  "citationCoveredFindings": zod.int(),
-  "unsupportedCitations": zod.int(),
+  "truePositives": zod.number().int(),
+  "falsePositives": zod.number().int(),
+  "falseNegatives": zod.number().int(),
+  "citationCoveredFindings": zod.number().int(),
+  "unsupportedCitations": zod.number().int(),
   "contractPassed": zod.boolean(),
   "semanticVerdictConsistent": zod.boolean(),
   "qualityGateAccepted": zod.boolean(),
   "falseAcceptance": zod.boolean(),
   "falseRejection": zod.boolean(),
   "normalization": zod.object({
-  "changedFindingType": zod.int(),
-  "changedSeverity": zod.int(),
-  "droppedCitation": zod.int()
+  "changedFindingType": zod.number().int(),
+  "changedSeverity": zod.number().int(),
+  "droppedCitation": zod.number().int()
 }),
-  "latencyMs": zod.int().optional(),
+  "latencyMs": zod.number().int().optional(),
   "errorCode": zod.string().optional()
 })).max(getAiEmpiricalQualityScorecardResponseCasesMax)
 }).describe('Redacted measurement-only empirical AI quality evidence. It compares quality observations with a versioned ground-truth corpus and never changes deterministic release acceptance.\n')
@@ -4020,10 +4020,10 @@ export const GetAiMissionControlResponse = zod.object({
   "suiteVersion": zod.string().optional(),
   "generatedAt": zod.coerce.date().optional(),
   "metrics": zod.object({
-  "observedCases": zod.int().optional(),
-  "totalCases": zod.int().optional(),
-  "gradeCounts": zod.record(zod.string(), zod.int()).optional(),
-  "providerUnavailableCount": zod.int().optional(),
+  "observedCases": zod.number().int().optional(),
+  "totalCases": zod.number().int().optional(),
+  "gradeCounts": zod.record(zod.string(), zod.number().int()).optional(),
+  "providerUnavailableCount": zod.number().int().optional(),
   "falseSuccessRate": zod.number().optional(),
   "scopeEscapeRate": zod.number().optional(),
   "correctCompletionRate": zod.number().optional()
@@ -4048,10 +4048,10 @@ export const GetAiMissionControlResponse = zod.object({
   "suiteVersion": zod.string().optional(),
   "generatedAt": zod.coerce.date().optional(),
   "metrics": zod.object({
-  "observedCases": zod.int().optional(),
-  "totalCases": zod.int().optional(),
-  "gradeCounts": zod.record(zod.string(), zod.int()).optional(),
-  "providerUnavailableCount": zod.int().optional(),
+  "observedCases": zod.number().int().optional(),
+  "totalCases": zod.number().int().optional(),
+  "gradeCounts": zod.record(zod.string(), zod.number().int()).optional(),
+  "providerUnavailableCount": zod.number().int().optional(),
   "falseSuccessRate": zod.number().optional(),
   "scopeEscapeRate": zod.number().optional(),
   "correctCompletionRate": zod.number().optional()
@@ -4065,12 +4065,12 @@ export const GetAiMissionControlResponse = zod.object({
   "liveProviderChecks": zod.enum(['disabled', 'enabled']),
   "previewChecks": zod.enum(['disabled', 'enabled']),
   "summary": zod.object({
-  "totalCases": zod.int(),
-  "passedCases": zod.int(),
-  "failedCases": zod.int(),
-  "skippedCases": zod.int(),
-  "blockingFailures": zod.int(),
-  "informationalFailures": zod.int()
+  "totalCases": zod.number().int(),
+  "passedCases": zod.number().int(),
+  "failedCases": zod.number().int(),
+  "skippedCases": zod.number().int(),
+  "blockingFailures": zod.number().int(),
+  "informationalFailures": zod.number().int()
 }),
   "blockers": zod.array(zod.string()).max(getAiMissionControlResponseBenchmarkReleaseGateBlockersMax),
   "runtimeOraclePreflight": zod.object({
@@ -4094,15 +4094,15 @@ export const GetAiMissionControlResponse = zod.object({
   "empiricalQualityStatus": zod.enum(['PROVEN', 'MEASURED', 'INCOMPLETE', 'UNAVAILABLE']),
   "blockers": zod.array(zod.string()).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignBlockersMax),
   "metrics": zod.object({
-  "totalCases": zod.int(),
-  "completedCases": zod.int(),
-  "incompleteCases": zod.int(),
-  "providerUnavailableCount": zod.int(),
-  "timeoutCount": zod.int(),
-  "errorCount": zod.int(),
-  "truePositiveCount": zod.int(),
-  "falsePositiveCount": zod.int(),
-  "falseNegativeCount": zod.int(),
+  "totalCases": zod.number().int(),
+  "completedCases": zod.number().int(),
+  "incompleteCases": zod.number().int(),
+  "providerUnavailableCount": zod.number().int(),
+  "timeoutCount": zod.number().int(),
+  "errorCount": zod.number().int(),
+  "truePositiveCount": zod.number().int(),
+  "falsePositiveCount": zod.number().int(),
+  "falseNegativeCount": zod.number().int(),
   "precision": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsPrecisionMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsPrecisionMax),
   "recall": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsRecallMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsRecallMax),
   "f1": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsF1Min).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsF1Max),
@@ -4116,11 +4116,11 @@ export const GetAiMissionControlResponse = zod.object({
   "falseAcceptanceRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseAcceptanceRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseAcceptanceRateMax),
   "falseRejectionRate": zod.number().min(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRejectionRateMin).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRejectionRateMax),
   "normalizationCounters": zod.object({
-  "changedFindingType": zod.int(),
-  "changedSeverity": zod.int(),
-  "droppedCitation": zod.int()
+  "changedFindingType": zod.number().int(),
+  "changedSeverity": zod.number().int(),
+  "droppedCitation": zod.number().int()
 }),
-  "highScoreLowCoverageCount": zod.int(),
+  "highScoreLowCoverageCount": zod.number().int(),
   "latencyMs": zod.object({
   "p50": zod.number().nullable(),
   "p95": zod.number().nullable(),
@@ -4131,22 +4131,22 @@ export const GetAiMissionControlResponse = zod.object({
   "cases": zod.array(zod.object({
   "caseId": zod.string(),
   "outcome": zod.enum(['COMPLETE', 'PROVIDER_UNAVAILABLE', 'TIMEOUT', 'ERROR']),
-  "truePositives": zod.int(),
-  "falsePositives": zod.int(),
-  "falseNegatives": zod.int(),
-  "citationCoveredFindings": zod.int(),
-  "unsupportedCitations": zod.int(),
+  "truePositives": zod.number().int(),
+  "falsePositives": zod.number().int(),
+  "falseNegatives": zod.number().int(),
+  "citationCoveredFindings": zod.number().int(),
+  "unsupportedCitations": zod.number().int(),
   "contractPassed": zod.boolean(),
   "semanticVerdictConsistent": zod.boolean(),
   "qualityGateAccepted": zod.boolean(),
   "falseAcceptance": zod.boolean(),
   "falseRejection": zod.boolean(),
   "normalization": zod.object({
-  "changedFindingType": zod.int(),
-  "changedSeverity": zod.int(),
-  "droppedCitation": zod.int()
+  "changedFindingType": zod.number().int(),
+  "changedSeverity": zod.number().int(),
+  "droppedCitation": zod.number().int()
 }),
-  "latencyMs": zod.int().optional(),
+  "latencyMs": zod.number().int().optional(),
   "errorCode": zod.string().optional()
 })).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesMax)
 }).optional().describe('Redacted measurement-only empirical AI quality evidence. It compares quality observations with a versioned ground-truth corpus and never changes deterministic release acceptance.\n')
@@ -4157,18 +4157,18 @@ export const GetAiMissionControlResponse = zod.object({
   "state": zod.string(),
   "executionStatus": zod.string(),
   "objective": zod.string(),
-  "attempts": zod.int(),
-  "validationFailures": zod.int(),
+  "attempts": zod.number().int(),
+  "validationFailures": zod.number().int(),
   "evidence": zod.object({
   "verdict": zod.string(),
   "reason": zod.string().nullish(),
-  "validationEvents": zod.int(),
-  "readEvents": zod.int()
+  "validationEvents": zod.number().int(),
+  "readEvents": zod.number().int()
 }),
-  "checkpointVersion": zod.int(),
-  "eventCount": zod.int(),
-  "completedNodes": zod.int(),
-  "totalNodes": zod.int(),
+  "checkpointVersion": zod.number().int(),
+  "eventCount": zod.number().int(),
+  "completedNodes": zod.number().int(),
+  "totalNodes": zod.number().int(),
   "recentEvents": zod.array(zod.object({
   "kind": zod.string(),
   "status": zod.string().optional(),
@@ -4191,13 +4191,13 @@ export const GetAiMissionControlResponse = zod.object({
   "committed": zod.string().nullable()
 }),
   "counts": zod.object({
-  "executions": zod.int(),
-  "checkpoints": zod.int(),
-  "events": zod.int(),
-  "audit": zod.int(),
-  "taskLogs": zod.int(),
-  "journal": zod.int(),
-  "receipts": zod.int()
+  "executions": zod.number().int(),
+  "checkpoints": zod.number().int(),
+  "events": zod.number().int(),
+  "audit": zod.number().int(),
+  "taskLogs": zod.number().int(),
+  "journal": zod.number().int(),
+  "receipts": zod.number().int()
 }),
   "receipts": zod.array(zod.record(zod.string(), zod.unknown())),
   "gaps": zod.array(zod.object({
@@ -4571,8 +4571,8 @@ export const AiApplyChangesBody = zod.object({
   "originalContent": zod.string().nullable().describe('Original content observed when the AI proposed the change; used to reject stale approvals'),
   "baseHash": zod.string().regex(aiApplyChangesBodyChangesItemBaseHashRegExp).optional().describe('SHA-256 hash of the source content observed when the patch was generated'),
   "hunks": zod.array(zod.object({
-  "startLine": zod.int().min(1),
-  "endLine": zod.int().min(1),
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1),
   "expectedText": zod.string(),
   "replacementText": zod.string(),
   "reason": zod.string().min(1),
@@ -4582,7 +4582,7 @@ export const AiApplyChangesBody = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(aiApplyChangesBodyChangesItemHunksItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(aiApplyChangesBodyChangesItemHunksItemEvidenceMax).optional()
 })).max(aiApplyChangesBodyChangesItemHunksMax).optional(),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
@@ -4593,7 +4593,7 @@ export const AiApplyChangesBody = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(aiApplyChangesBodyChangesItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(aiApplyChangesBodyChangesItemEvidenceMax).optional()
 }))
 })
@@ -4625,7 +4625,7 @@ export const AiApplyChangesResponse = zod.object({
   "profile": zod.string(),
   "status": zod.enum(['passed', 'failed', 'skipped', 'unavailable', 'blocked']),
   "scenario": zod.string(),
-  "exitCode": zod.int().nullable(),
+  "exitCode": zod.number().int().nullable(),
   "evidence": zod.object({
   "evidenceId": zod.string(),
   "observedAt": zod.coerce.date(),
@@ -4644,14 +4644,14 @@ export const AiApplyChangesResponse = zod.object({
   "promotedTreeHash": zod.string().optional().describe('Canonical complete-tree digest observed after promotion'),
   "committedTreeHash": zod.string().optional().describe('Canonical complete-tree digest observed after the Git commit'),
   "screenshotAvailable": zod.boolean().optional(),
-  "consoleErrorCount": zod.int().optional()
+  "consoleErrorCount": zod.number().int().optional()
 }),
   "reasonCode": zod.enum(['ownership', 'invalid_profile', 'resource_limit', 'stale_revision']).optional(),
   "detail": zod.string().optional(),
-  "processBudgetMs": zod.int().min(aiApplyChangesResponseValidationEvidenceItemProcessBudgetMsMin).optional(),
-  "overallBudgetMs": zod.int().min(aiApplyChangesResponseValidationEvidenceItemOverallBudgetMsMin).optional(),
-  "elapsedMs": zod.int().min(aiApplyChangesResponseValidationEvidenceItemElapsedMsMin).optional(),
-  "remainingMs": zod.int().min(aiApplyChangesResponseValidationEvidenceItemRemainingMsMin).optional(),
+  "processBudgetMs": zod.number().int().min(aiApplyChangesResponseValidationEvidenceItemProcessBudgetMsMin).optional(),
+  "overallBudgetMs": zod.number().int().min(aiApplyChangesResponseValidationEvidenceItemOverallBudgetMsMin).optional(),
+  "elapsedMs": zod.number().int().min(aiApplyChangesResponseValidationEvidenceItemElapsedMsMin).optional(),
+  "remainingMs": zod.number().int().min(aiApplyChangesResponseValidationEvidenceItemRemainingMsMin).optional(),
   "terminalState": zod.enum(['running', 'passed', 'failed', 'blocked', 'unavailable', 'timed_out']).optional(),
   "nextAction": zod.string().optional()
 })).optional(),
@@ -4664,7 +4664,7 @@ export const AiApplyChangesResponse = zod.object({
   "kind": zod.enum(['base_hash_mismatch', 'hunk_mismatch']).optional(),
   "expectedHash": zod.string().optional(),
   "actualHash": zod.string().optional(),
-  "hunkIndex": zod.int().optional()
+  "hunkIndex": zod.number().int().optional()
 }).optional(),
   "writeStatus": zod.enum(['written', 'not_written']).optional().describe('`not_written` also covers a guarded rollback when mandatory behavioral verification does not pass.'),
   "persistenceVerified": zod.boolean().optional().describe('True only when the new bytes remain persisted after the behavioral gate passes.'),
@@ -4716,8 +4716,8 @@ export const AiRebaseChangesBody = zod.object({
   "originalContent": zod.string().nullish().describe('Original content before the change, or null for new files'),
   "baseHash": zod.string().regex(aiRebaseChangesBodyChangesItemBaseHashRegExp).optional().describe('SHA-256 hash of the source content observed when the patch was generated'),
   "hunks": zod.array(zod.object({
-  "startLine": zod.int().min(1),
-  "endLine": zod.int().min(1),
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1),
   "expectedText": zod.string(),
   "replacementText": zod.string(),
   "reason": zod.string().min(1),
@@ -4727,7 +4727,7 @@ export const AiRebaseChangesBody = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(aiRebaseChangesBodyChangesItemHunksItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(aiRebaseChangesBodyChangesItemHunksItemEvidenceMax).optional()
 })).max(aiRebaseChangesBodyChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
@@ -4738,7 +4738,7 @@ export const AiRebaseChangesBody = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(aiRebaseChangesBodyChangesItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(aiRebaseChangesBodyChangesItemEvidenceMax).optional()
 })).min(1).max(aiRebaseChangesBodyChangesMax)
 })
@@ -4776,8 +4776,8 @@ export const AiRebaseChangesResponse = zod.object({
   "originalContent": zod.string().nullish().describe('Original content before the change, or null for new files'),
   "baseHash": zod.string().regex(aiRebaseChangesResponseChangesItemBaseHashRegExp).optional().describe('SHA-256 hash of the source content observed when the patch was generated'),
   "hunks": zod.array(zod.object({
-  "startLine": zod.int().min(1),
-  "endLine": zod.int().min(1),
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1),
   "expectedText": zod.string(),
   "replacementText": zod.string(),
   "reason": zod.string().min(1),
@@ -4787,7 +4787,7 @@ export const AiRebaseChangesResponse = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(aiRebaseChangesResponseChangesItemHunksItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(aiRebaseChangesResponseChangesItemHunksItemEvidenceMax).optional()
 })).max(aiRebaseChangesResponseChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
@@ -4798,12 +4798,12 @@ export const AiRebaseChangesResponse = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(aiRebaseChangesResponseChangesItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(aiRebaseChangesResponseChangesItemEvidenceMax).optional()
 })),
   "rebasedFiles": zod.array(zod.string()),
   "approvalRequired": zod.boolean().describe('Always true because the rebased diff must be reviewed again'),
-  "revision": zod.int().min(aiRebaseChangesResponseRevisionMin).describe('Server-owned proposal revision that must be approved before apply')
+  "revision": zod.number().int().min(aiRebaseChangesResponseRevisionMin).describe('Server-owned proposal revision that must be approved before apply')
 })
 
 
@@ -4821,7 +4821,7 @@ export const approveAiRebasedProposalBodyRevisionMin = 0;
 
 export const ApproveAiRebasedProposalBody = zod.object({
   "projectId": zod.string(),
-  "revision": zod.int().min(approveAiRebasedProposalBodyRevisionMin)
+  "revision": zod.number().int().min(approveAiRebasedProposalBodyRevisionMin)
 })
 
 export const approveAiRebasedProposalResponseRevisionMin = 0;
@@ -4831,7 +4831,7 @@ export const approveAiRebasedProposalResponseRevisionMin = 0;
 export const ApproveAiRebasedProposalResponse = zod.object({
   "proposalId": zod.string(),
   "approvalRequired": zod.boolean().describe('False after the requested rebased revision is approved'),
-  "revision": zod.int().min(approveAiRebasedProposalResponseRevisionMin)
+  "revision": zod.number().int().min(approveAiRebasedProposalResponseRevisionMin)
 })
 
 
@@ -4904,8 +4904,8 @@ export const GetAiPendingProposalResponse = zod.object({
   "originalContent": zod.string().nullish().describe('Original content before the change, or null for new files'),
   "baseHash": zod.string().regex(getAiPendingProposalResponseChangesItemBaseHashRegExp).optional().describe('SHA-256 hash of the source content observed when the patch was generated'),
   "hunks": zod.array(zod.object({
-  "startLine": zod.int().min(1),
-  "endLine": zod.int().min(1),
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1),
   "expectedText": zod.string(),
   "replacementText": zod.string(),
   "reason": zod.string().min(1),
@@ -4915,7 +4915,7 @@ export const GetAiPendingProposalResponse = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(getAiPendingProposalResponseChangesItemHunksItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(getAiPendingProposalResponseChangesItemHunksItemEvidenceMax).optional()
 })).max(getAiPendingProposalResponseChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
@@ -4926,11 +4926,11 @@ export const GetAiPendingProposalResponse = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(getAiPendingProposalResponseChangesItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(getAiPendingProposalResponseChangesItemEvidenceMax).optional()
 })),
   "approvalRequired": zod.boolean().describe('True when a rebased proposal must be reviewed and approved again'),
-  "revision": zod.int().min(getAiPendingProposalResponseRevisionMin).nullable().describe('Current server-owned proposal revision, or null when no pending proposal exists'),
+  "revision": zod.number().int().min(getAiPendingProposalResponseRevisionMin).nullable().describe('Current server-owned proposal revision, or null when no pending proposal exists'),
   "lifecycle": zod.enum(['proposed', 'isolated', 'validated', 'applied', 'conflicted', 'committed', 'cancelled', 'abandoned', 'blocked']).optional(),
   "baseRevision": zod.string().optional(),
   "changeSetHash": zod.string().optional(),
@@ -4945,8 +4945,8 @@ export const GetAiPendingProposalResponse = zod.object({
   "originalContent": zod.string().nullish().describe('Original content before the change, or null for new files'),
   "baseHash": zod.string().regex(getAiPendingProposalResponseAppliedChangesItemBaseHashRegExp).optional().describe('SHA-256 hash of the source content observed when the patch was generated'),
   "hunks": zod.array(zod.object({
-  "startLine": zod.int().min(1),
-  "endLine": zod.int().min(1),
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1),
   "expectedText": zod.string(),
   "replacementText": zod.string(),
   "reason": zod.string().min(1),
@@ -4956,7 +4956,7 @@ export const GetAiPendingProposalResponse = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceMax).optional()
 })).max(getAiPendingProposalResponseAppliedChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
@@ -4967,7 +4967,7 @@ export const GetAiPendingProposalResponse = zod.object({
   "id": zod.string().min(1),
   "label": zod.string().min(1).max(getAiPendingProposalResponseAppliedChangesItemEvidenceItemLabelMax),
   "file": zod.string().min(1).optional(),
-  "line": zod.int().min(1).optional()
+  "line": zod.number().int().min(1).optional()
 })).max(getAiPendingProposalResponseAppliedChangesItemEvidenceMax).optional()
 })).optional(),
   "commitHash": zod.string().optional(),
@@ -4977,7 +4977,7 @@ export const GetAiPendingProposalResponse = zod.object({
   "profile": zod.string(),
   "status": zod.enum(['passed', 'failed', 'skipped', 'unavailable', 'blocked']),
   "scenario": zod.string(),
-  "exitCode": zod.int().nullable(),
+  "exitCode": zod.number().int().nullable(),
   "evidence": zod.object({
   "evidenceId": zod.string(),
   "observedAt": zod.coerce.date(),
@@ -4996,14 +4996,14 @@ export const GetAiPendingProposalResponse = zod.object({
   "promotedTreeHash": zod.string().optional().describe('Canonical complete-tree digest observed after promotion'),
   "committedTreeHash": zod.string().optional().describe('Canonical complete-tree digest observed after the Git commit'),
   "screenshotAvailable": zod.boolean().optional(),
-  "consoleErrorCount": zod.int().optional()
+  "consoleErrorCount": zod.number().int().optional()
 }),
   "reasonCode": zod.enum(['ownership', 'invalid_profile', 'resource_limit', 'stale_revision']).optional(),
   "detail": zod.string().optional(),
-  "processBudgetMs": zod.int().min(getAiPendingProposalResponseValidationEvidenceItemProcessBudgetMsMin).optional(),
-  "overallBudgetMs": zod.int().min(getAiPendingProposalResponseValidationEvidenceItemOverallBudgetMsMin).optional(),
-  "elapsedMs": zod.int().min(getAiPendingProposalResponseValidationEvidenceItemElapsedMsMin).optional(),
-  "remainingMs": zod.int().min(getAiPendingProposalResponseValidationEvidenceItemRemainingMsMin).optional(),
+  "processBudgetMs": zod.number().int().min(getAiPendingProposalResponseValidationEvidenceItemProcessBudgetMsMin).optional(),
+  "overallBudgetMs": zod.number().int().min(getAiPendingProposalResponseValidationEvidenceItemOverallBudgetMsMin).optional(),
+  "elapsedMs": zod.number().int().min(getAiPendingProposalResponseValidationEvidenceItemElapsedMsMin).optional(),
+  "remainingMs": zod.number().int().min(getAiPendingProposalResponseValidationEvidenceItemRemainingMsMin).optional(),
   "terminalState": zod.enum(['running', 'passed', 'failed', 'blocked', 'unavailable', 'timed_out']).optional(),
   "nextAction": zod.string().optional()
 })).optional()
@@ -5127,12 +5127,12 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "executionLedger": zod.union([zod.object({
   "id": zod.string().max(listAiChatMessagesResponseExecutionLedgerOneIdMax),
   "mode": zod.enum(['simple_chat', 'tool_chat', 'forensic', 'repair_plan', 'hierarchical']),
-  "startedAt": zod.int(),
-  "deadlineAt": zod.int(),
-  "elapsedMs": zod.int().min(listAiChatMessagesResponseExecutionLedgerOneElapsedMsMin),
-  "remainingMs": zod.int().min(listAiChatMessagesResponseExecutionLedgerOneRemainingMsMin),
-  "budget": zod.record(zod.string(), zod.int().min(listAiChatMessagesResponseExecutionLedgerOneBudgetMinOne)),
-  "counts": zod.record(zod.string(), zod.int().min(listAiChatMessagesResponseExecutionLedgerOneCountsMinOne)),
+  "startedAt": zod.number().int(),
+  "deadlineAt": zod.number().int(),
+  "elapsedMs": zod.number().int().min(listAiChatMessagesResponseExecutionLedgerOneElapsedMsMin),
+  "remainingMs": zod.number().int().min(listAiChatMessagesResponseExecutionLedgerOneRemainingMsMin),
+  "budget": zod.record(zod.string(), zod.number().int().min(listAiChatMessagesResponseExecutionLedgerOneBudgetMinOne)),
+  "counts": zod.record(zod.string(), zod.number().int().min(listAiChatMessagesResponseExecutionLedgerOneCountsMinOne)),
   "providers": zod.array(zod.string().max(listAiChatMessagesResponseExecutionLedgerOneProvidersItemMax)).max(listAiChatMessagesResponseExecutionLedgerOneProvidersMax),
   "models": zod.array(zod.string().max(listAiChatMessagesResponseExecutionLedgerOneModelsItemMax)).max(listAiChatMessagesResponseExecutionLedgerOneModelsMax),
   "terminalReason": zod.enum(['completed', 'cancelled', 'deadline', 'model_budget', 'tool_budget', 'recovery_budget', 'provider_exhausted', 'failed']).optional()
@@ -5160,9 +5160,9 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "nextActionCode": zod.enum(['NONE', 'RETRY_AUDIT', 'REVIEW_SCOPE', 'RETRY_AFTER_TIMEOUT', 'RETRY_WITH_NARROWER_SCOPE']),
   "nextAction": zod.string().min(1).max(listAiChatMessagesResponseForensicDiagnosticOneNextActionMax),
   "unreadFiles": zod.array(zod.string().min(1).max(listAiChatMessagesResponseForensicDiagnosticOneUnreadFilesItemMax)).max(listAiChatMessagesResponseForensicDiagnosticOneUnreadFilesMax),
-  "unreadFileCount": zod.int().min(listAiChatMessagesResponseForensicDiagnosticOneUnreadFileCountMin),
+  "unreadFileCount": zod.number().int().min(listAiChatMessagesResponseForensicDiagnosticOneUnreadFileCountMin),
   "truncatedFiles": zod.array(zod.string().min(1).max(listAiChatMessagesResponseForensicDiagnosticOneTruncatedFilesItemMax)).max(listAiChatMessagesResponseForensicDiagnosticOneTruncatedFilesMax),
-  "truncatedFileCount": zod.int().min(listAiChatMessagesResponseForensicDiagnosticOneTruncatedFileCountMin)
+  "truncatedFileCount": zod.number().int().min(listAiChatMessagesResponseForensicDiagnosticOneTruncatedFileCountMin)
 }),zod.null()]).optional().describe('Server-owned, bounded forensic verdict shared by live and historical responses.'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
@@ -5172,8 +5172,8 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "sourceType": zod.string().optional(),
   "evidenceClass": zod.string().optional(),
   "sourceSpan": zod.object({
-  "startLine": zod.int().min(1),
-  "endLine": zod.int().min(1)
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1)
 }).optional()
 })).max(listAiChatMessagesResponseBehaviorEvidenceMax).optional().describe('Parsed accepted behavior-evidence references, each with an optional exact source line span'),
   "missionCorrelationReport": zod.union([zod.object({
@@ -5188,13 +5188,13 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
   "outcomeClass": zod.string(),
   "counts": zod.object({
-  "messages": zod.int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsMessagesMin),
-  "sseEvents": zod.int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsSseEventsMin),
-  "executionCheckpoints": zod.int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsExecutionCheckpointsMin),
-  "evidence": zod.int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsEvidenceMin),
-  "proposals": zod.int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsProposalsMin),
-  "validation": zod.int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsValidationMin),
-  "correlatedEvents": zod.int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsCorrelatedEventsMin)
+  "messages": zod.number().int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsMessagesMin),
+  "sseEvents": zod.number().int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsSseEventsMin),
+  "executionCheckpoints": zod.number().int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsExecutionCheckpointsMin),
+  "evidence": zod.number().int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsEvidenceMin),
+  "proposals": zod.number().int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsProposalsMin),
+  "validation": zod.number().int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsValidationMin),
+  "correlatedEvents": zod.number().int().min(listAiChatMessagesResponseMissionCorrelationReportOneCountsCorrelatedEventsMin)
 }),
   "agreement": zod.object({
   "execution": zod.boolean(),
@@ -5273,13 +5273,13 @@ export const RegenerateMissionCorrelationReportResponse = zod.object({
   "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
   "outcomeClass": zod.string(),
   "counts": zod.object({
-  "messages": zod.int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsMessagesMin),
-  "sseEvents": zod.int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsSseEventsMin),
-  "executionCheckpoints": zod.int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsExecutionCheckpointsMin),
-  "evidence": zod.int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsEvidenceMin),
-  "proposals": zod.int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsProposalsMin),
-  "validation": zod.int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsValidationMin),
-  "correlatedEvents": zod.int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsCorrelatedEventsMin)
+  "messages": zod.number().int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsMessagesMin),
+  "sseEvents": zod.number().int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsSseEventsMin),
+  "executionCheckpoints": zod.number().int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsExecutionCheckpointsMin),
+  "evidence": zod.number().int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsEvidenceMin),
+  "proposals": zod.number().int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsProposalsMin),
+  "validation": zod.number().int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsValidationMin),
+  "correlatedEvents": zod.number().int().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsCorrelatedEventsMin)
 }),
   "agreement": zod.object({
   "execution": zod.boolean(),
@@ -5314,12 +5314,12 @@ export const GetAiChatFileContentResponse = zod.object({
   "available": zod.boolean(),
   "reason": zod.string().optional().describe('Reason code when available=false (project_root_unavailable, file_not_found, file_unreadable, outside_project_root)'),
   "path": zod.string().optional(),
-  "startLine": zod.int().optional(),
-  "endLine": zod.int().optional(),
-  "fileLines": zod.int().optional(),
+  "startLine": zod.number().int().optional(),
+  "endLine": zod.number().int().optional(),
+  "fileLines": zod.number().int().optional(),
   "truncated": zod.boolean().optional(),
   "lines": zod.array(zod.object({
-  "line": zod.int(),
+  "line": zod.number().int(),
   "text": zod.string()
 })).optional()
 })
@@ -5405,14 +5405,14 @@ export const AiReviewCodeResponse = zod.object({
   "mode": zod.enum(['GRAPH_METRICS', 'SELECTED_FILES']),
   "bounded": zod.literal(true).describe('Always true; this review is limited to supplied evidence.'),
   "selectedFiles": zod.object({
-  "received": zod.int().min(aiReviewCodeResponseReviewScopeSelectedFilesReceivedMin),
-  "included": zod.int().min(aiReviewCodeResponseReviewScopeSelectedFilesIncludedMin),
-  "omitted": zod.int().min(aiReviewCodeResponseReviewScopeSelectedFilesOmittedMin),
-  "clippedExcerpts": zod.int().min(aiReviewCodeResponseReviewScopeSelectedFilesClippedExcerptsMin)
+  "received": zod.number().int().min(aiReviewCodeResponseReviewScopeSelectedFilesReceivedMin),
+  "included": zod.number().int().min(aiReviewCodeResponseReviewScopeSelectedFilesIncludedMin),
+  "omitted": zod.number().int().min(aiReviewCodeResponseReviewScopeSelectedFilesOmittedMin),
+  "clippedExcerpts": zod.number().int().min(aiReviewCodeResponseReviewScopeSelectedFilesClippedExcerptsMin)
 }),
   "context": zod.object({
-  "graphEntitiesIncluded": zod.int().min(aiReviewCodeResponseReviewScopeContextGraphEntitiesIncludedMin),
-  "graphRelationshipsIncluded": zod.int().min(aiReviewCodeResponseReviewScopeContextGraphRelationshipsIncludedMin),
+  "graphEntitiesIncluded": zod.number().int().min(aiReviewCodeResponseReviewScopeContextGraphEntitiesIncludedMin),
+  "graphRelationshipsIncluded": zod.number().int().min(aiReviewCodeResponseReviewScopeContextGraphRelationshipsIncludedMin),
   "metricsIncluded": zod.boolean(),
   "tasksIncluded": zod.boolean(),
   "eventsIncluded": zod.boolean(),
@@ -5521,8 +5521,8 @@ export const AiExecuteTaskResponse = zod.object({
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
   "relatedFiles": zod.array(zod.string()).optional(),
   "dependsOn": zod.array(zod.string()).optional(),
-  "retryCount": zod.int().optional(),
-  "maxRetries": zod.int().optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
   "phase": zod.string().optional(),
   "prompt": zod.string().optional(),
   "agentResponse": zod.string().optional(),
@@ -5556,12 +5556,12 @@ export const AiExecuteTaskResponse = zod.object({
   "ruleCode": zod.string(),
   "ruleTitle": zod.string(),
   "severity": zod.string(),
-  "occurrenceCount": zod.int().min(aiExecuteTaskResponseRemediationPlanOneOccurrenceCountMin),
+  "occurrenceCount": zod.number().int().min(aiExecuteTaskResponseRemediationPlanOneOccurrenceCountMin),
   "evidence": zod.array(zod.object({
   "file": zod.string(),
-  "line": zod.int().min(1),
+  "line": zod.number().int().min(1),
   "snippet": zod.string(),
-  "occurrences": zod.int().min(aiExecuteTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+  "occurrences": zod.number().int().min(aiExecuteTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
 })).max(aiExecuteTaskResponseRemediationPlanOneEvidenceMax),
   "relatedFiles": zod.array(zod.string()).max(aiExecuteTaskResponseRemediationPlanOneRelatedFilesMax),
   "fixDescription": zod.string().nullish(),
@@ -5750,8 +5750,8 @@ export const GetProviderKeyStatusResponse = zod.object({
   "lifecycle": zod.object({
   "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
   "source": zod.enum(['user', 'server', 'none']),
-  "revision": zod.int().min(getProviderKeyStatusResponseLifecycleRevisionMin),
-  "generation": zod.int().min(getProviderKeyStatusResponseLifecycleGenerationMin),
+  "revision": zod.number().int().min(getProviderKeyStatusResponseLifecycleRevisionMin),
+  "generation": zod.number().int().min(getProviderKeyStatusResponseLifecycleGenerationMin),
   "checkedAt": zod.coerce.date().nullable(),
   "expiresAt": zod.coerce.date().nullable(),
   "lastKnownGoodAt": zod.coerce.date().nullable(),
@@ -5818,8 +5818,8 @@ export const SaveProviderKeyResponse = zod.object({
   "lifecycle": zod.object({
   "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
   "source": zod.enum(['user', 'server', 'none']),
-  "revision": zod.int().min(saveProviderKeyResponseLifecycleRevisionMin),
-  "generation": zod.int().min(saveProviderKeyResponseLifecycleGenerationMin),
+  "revision": zod.number().int().min(saveProviderKeyResponseLifecycleRevisionMin),
+  "generation": zod.number().int().min(saveProviderKeyResponseLifecycleGenerationMin),
   "checkedAt": zod.coerce.date().nullable(),
   "expiresAt": zod.coerce.date().nullable(),
   "lastKnownGoodAt": zod.coerce.date().nullable(),
@@ -5881,29 +5881,29 @@ export const getAiMetricsResponseMetricsItemLifecycleGenerationMin = 0;
 export const GetAiMetricsResponse = zod.object({
   "metrics": zod.array(zod.object({
   "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
-  "requests": zod.int(),
-  "failures": zod.int(),
-  "fallbackSuccesses": zod.int(),
-  "invalidModels": zod.int(),
-  "p50LatencyMs": zod.int().nullable(),
-  "p95LatencyMs": zod.int().nullable(),
-  "avgLatencyMs": zod.int().nullable(),
+  "requests": zod.number().int(),
+  "failures": zod.number().int(),
+  "fallbackSuccesses": zod.number().int(),
+  "invalidModels": zod.number().int(),
+  "p50LatencyMs": zod.number().int().nullable(),
+  "p95LatencyMs": zod.number().int().nullable(),
+  "avgLatencyMs": zod.number().int().nullable(),
   "successRate": zod.number().nullable(),
   "lastSuccessAt": zod.coerce.date().nullable(),
   "lastFailureAt": zod.coerce.date().nullable(),
-  "consecutiveFailures": zod.int(),
+  "consecutiveFailures": zod.number().int(),
   "configured": zod.boolean(),
   "availabilityState": zod.enum(['missing_credentials', 'authentication_failed', 'incompatible_model', 'no_compatible_free_model', 'catalog_stale', 'quota_exhausted', 'rate_limited', 'circuit_open', 'provider_outage', 'degraded', 'healthy', 'unknown']),
   "operatorAction": zod.string().nullable(),
   "correlationId": zod.string(),
   "circuitOpen": zod.boolean(),
   "circuitHalfOpen": zod.boolean(),
-  "cooldownRemainingMs": zod.int().nullable(),
+  "cooldownRemainingMs": zod.number().int().nullable(),
   "lifecycle": zod.object({
   "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
   "source": zod.enum(['user', 'server', 'none']),
-  "revision": zod.int().min(getAiMetricsResponseMetricsItemLifecycleRevisionMin),
-  "generation": zod.int().min(getAiMetricsResponseMetricsItemLifecycleGenerationMin),
+  "revision": zod.number().int().min(getAiMetricsResponseMetricsItemLifecycleRevisionMin),
+  "generation": zod.number().int().min(getAiMetricsResponseMetricsItemLifecycleGenerationMin),
   "checkedAt": zod.coerce.date().nullable(),
   "expiresAt": zod.coerce.date().nullable(),
   "lastKnownGoodAt": zod.coerce.date().nullable(),
@@ -5930,11 +5930,11 @@ export const GetAiMetricsResponse = zod.object({
 })),
   "behavioralScorecards": zod.array(zod.object({
   "model": zod.string(),
-  "windowMs": zod.int().describe('Rolling behavioral observation window in milliseconds'),
-  "sampleCount": zod.int(),
-  "loopCount": zod.int(),
-  "softLimitCount": zod.int(),
-  "malformedJsonCount": zod.int(),
+  "windowMs": zod.number().int().describe('Rolling behavioral observation window in milliseconds'),
+  "sampleCount": zod.number().int(),
+  "loopCount": zod.number().int(),
+  "softLimitCount": zod.number().int(),
+  "malformedJsonCount": zod.number().int(),
   "loopRate": zod.number(),
   "softLimitRate": zod.number(),
   "malformedJsonRate": zod.number(),
@@ -5970,7 +5970,7 @@ export const ListOperatorAlertsResponse = zod.object({
   "title": zod.string(),
   "message": zod.string(),
   "remediation": zod.string(),
-  "occurrenceCount": zod.int(),
+  "occurrenceCount": zod.number().int(),
   "firstSeenAt": zod.coerce.date(),
   "lastSeenAt": zod.coerce.date(),
   "resolvedAt": zod.coerce.date().nullable()
