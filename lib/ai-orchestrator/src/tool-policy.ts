@@ -176,6 +176,8 @@ export function authorizeToolInvocation(opts: {
   approvedFilePaths?: readonly string[];
   approvedValidationProfiles?: readonly string[];
   approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+  /** Compound writes are proposals; they remain pending approval and never apply bytes. */
+  compoundWriteMode?: boolean;
 }): ToolAuthorization {
   const known = new Set([...FILE_READ_TOOL_NAMES, ...FILE_WRITE_TOOL_NAMES, ...GIT_TOOL_NAMES, ...EXECUTION_TOOL_NAMES, ...ANALYSIS_TOOL_NAMES]);
   if (!known.has(opts.toolName)) return { allowed: false, reason: "unknown_tool" };
@@ -187,7 +189,11 @@ export function authorizeToolInvocation(opts: {
     opts.toolName === "run_validation"
     || opts.toolName === "run_browser_validation"
     || opts.toolName === "run_command";
-  if ((isWrite || isValidationOrExecution) && opts.approvalState !== "APPROVED") {
+  if (
+    (isWrite || isValidationOrExecution) &&
+    opts.approvalState !== "APPROVED" &&
+    !(isWrite && opts.compoundWriteMode && opts.approvalState === "PENDING_APPROVAL")
+  ) {
     return { allowed: false, reason: "approval_required" };
   }
   if (isWrite && opts.approvedFilePaths === undefined) {

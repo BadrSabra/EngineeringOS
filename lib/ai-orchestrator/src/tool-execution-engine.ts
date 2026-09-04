@@ -712,6 +712,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       toolName: name,
       args,
       approvalState: opts.approvalState,
+      compoundWriteMode: opts.compoundWriteMode,
       ...(opts.approvedFilePaths ? { approvedFilePaths: opts.approvedFilePaths } : {}),
       ...(opts.approvedValidationProfiles ? { approvedValidationProfiles: opts.approvedValidationProfiles } : {}),
       ...(opts.allowedToolNames ? { allowedTools: opts.allowedToolNames } : {}),

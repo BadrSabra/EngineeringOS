@@ -4843,6 +4843,10 @@ export async function chat(opts: {
     ...singleFilePaths.map((value) => canonicalRelativePath(value)),
     ...(firstEvidenceTargetPath ? [canonicalRelativePath(firstEvidenceTargetPath)] : []),
   ].filter((value, index, all) => value && all.indexOf(value) === index);
+  const effectiveApprovalState = approvalState ??
+    (compoundWriteExecution ? "PENDING_APPROVAL" as const : undefined);
+  const effectiveApprovedFilePaths = approvedFilePaths ??
+    (compoundWriteExecution && eagerReadTargets.length > 0 ? eagerReadTargets : undefined);
 
   let firstEvidenceReadEmitted = false;
   if (eagerReadTargets.length > 0 && rootPath) {
@@ -6147,8 +6151,8 @@ export async function chat(opts: {
     orderedForensicRoots: orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,
     allowTestSources: includeTestSources,
     allowExecutionTools: allowValidationTools,
-    approvalState,
-    approvedFilePaths,
+    approvalState: effectiveApprovalState,
+    approvedFilePaths: effectiveApprovedFilePaths,
     validationRunner,
     browserValidationRunner,
     browserValidationContext,
