@@ -9,7 +9,7 @@ const TOOL_TRUNCATION_MARKER_LINE =
   /^(?:\[\.\.\.\s*(?:output truncated|forensic read exceeded)\b[^\]]*\]|\u2026\s*\[(?:prefetch|read) output truncated\b[^\]]*\]|\[(?:prefetch|read) output truncated\b[^\]]*\])$/i;
 
 const DISPLAY_LIMIT_MARKER_LINE =
-  /^(?:\u2026\s*)?\[(?:prefetch|read) output truncated\b[^\]]*\]$|^(?:\[\.\.\.\s*)?(?:output truncated|forensic read exceeded)\b[^\]]*\]$/i;
+  /^(?:\u2026\s*)?\[(?:prefetch|read) output truncated\b[^\]]*\]$|^(?:\[\.\.\.\s*)?(?:output truncated|forensic read exceeded)\b[^\]]*\]$|^(?:\.\.\.\s*)?\[\d+\s+(?:lines?|bytes?)\s+omitted\b[^\]]*\]$/i;
 
 /**
  * True only when the returned transport payload ends with a known truncation

@@ -11,6 +11,7 @@ import {
   isPathWithinForensicScope,
   normalizeForensicSourcePath,
 } from "./forensic-source-policy.js";
+import { hasDisplayTruncationMarker } from "./source-read-status.js";
 
 export type ForensicEvidenceScope = {
   roots?: readonly string[];
@@ -166,19 +167,6 @@ const PLACEHOLDER_REPORT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = 
     reason: "the report contains copied template instructions",
   },
 ];
-
-const DISPLAY_TRUNCATION_MARKERS = [
-  /\[prefetch output truncated\b/i,
-  /\[read output truncated\b/i,
-  /\[.*forensic read exceeded the maximum safe evidence window\b/i,
-  /\.\.\.\s*\[\d+\s+(?:lines?|bytes?)\s+omitted\b/i,
-  /\[\d+\s+(?:lines?|bytes?)\s+omitted\b/i,
-  /\bdisplay limit\b.*\b(?:truncat|omitt)/i,
-];
-
-function hasDisplayTruncationMarker(content: string): boolean {
-  return DISPLAY_TRUNCATION_MARKERS.some((pattern) => pattern.test(content));
-}
 
 function validateResponseLanguageForensic(
   response: string,
