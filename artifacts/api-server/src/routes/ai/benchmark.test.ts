@@ -78,7 +78,10 @@ describe.sequential("GET /api/ai/benchmark/scorecard", () => {
     expect(response.status).toBe(200);
     expect(response.body.metrics.gradeCounts).toEqual({ A: 1, F: 0, U: 1 });
     expect(response.body.metrics.providerUnavailableCount).toBe(1);
-    expect(response.body.model).toBe("test-model");
+    expect(response.body.provider).toBeUndefined();
+    expect(response.body.model).toBeUndefined();
+    expect(JSON.stringify(response.body)).not.toContain("openrouter");
+    expect(JSON.stringify(response.body)).not.toContain("test-model");
     expect(response.body.baseline.baselineId).toBe("approved-baseline");
     expect(response.body.baselineComparison.status).toBe("regressed");
     expect(response.body.baselineComparison.metricDeltas).toEqual({ correctCompletionRate: -0.1 });
@@ -216,13 +219,12 @@ describe.sequential("GET /api/ai/mission-control", () => {
     expect(response.body.executions[0]?.request).toBeUndefined();
     expect(response.body.executions[0]?.resumeToken).toBeUndefined();
     expect(response.body.benchmark.freeTierEnvelope.providerRecoverySummaries).toEqual([{
-      provider: "openrouter",
-      model: "test-model:free",
       failureCategory: "quota",
       recoveryAction: "choose-alternative",
       evidenceStatus: "incomplete",
       attemptCount: 3,
     }]);
+    expect(JSON.stringify(response.body)).not.toContain("test-model:free");
     expect(JSON.stringify(response.body)).not.toContain("do not expose this");
   });
 

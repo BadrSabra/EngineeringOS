@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Cpu,
   Download,
   ExternalLink,
   FileUp,
@@ -433,7 +432,6 @@ function ComparisonRunColumn({
   const evidenceRowsForRun = evidenceRows(execution.evidence);
   const details = [
     ['State', stateText(execution.state)],
-    ['Provider / model', `${textValue(execution.provider) ?? 'Not recorded'} / ${textValue(execution.model) ?? 'Not recorded'}`],
     ['Attempts', formatValue(execution.attempts ?? 0)],
     ['Validation failures', formatValue(execution.validationFailures ?? 0)],
     ['Event count', String(eventCount)],
@@ -750,7 +748,7 @@ function downloadFilteredHistory(
   const runtimeOracleChecks = serialize(runtimeOracle?.checks);
   const runtimeOracleFailureIds = serialize(runtimeOracle?.failureIds);
   const headers = [
-    'Execution ID', 'Objective', 'State', 'Provider', 'Model',
+    'Execution ID', 'Objective', 'State',
     'Failure Category', 'Recovery Action', 'Evidence Status', 'Attempts',
     'Benchmark Suite Version', 'Benchmark Baseline ID', 'Benchmark Scorecard', 'Benchmark Baseline Metrics',
     'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
@@ -759,8 +757,6 @@ function downloadFilteredHistory(
     execution.id,
     objectiveText(execution.objective),
     stateText(execution.state),
-    textValue(execution.provider) ?? 'Not recorded',
-    textValue(execution.model) ?? 'Not recorded',
     recoveryDetail(execution, 'failureCategory') ?? 'Not categorized',
     recoveryDetail(execution, 'recoveryAction') ?? 'No recovery action',
     recoveryDetail(execution, 'evidenceStatus')
@@ -796,8 +792,6 @@ function comparisonExportRow(
     id: execution.id,
     objective: objectiveText(execution.objective),
     state: stateText(execution.state),
-    provider: textValue(execution.provider) ?? 'Not recorded',
-    model: textValue(execution.model) ?? 'Not recorded',
     attempts: numberValue(execution.attempts) ?? 0,
     validationFailures: numberValue(execution.validationFailures) ?? 0,
     eventCount: numberValue(execution.eventCount) ?? events.length,
@@ -994,8 +988,6 @@ export default function MissionControl() {
       const searchable = [
         execution.id,
         objectiveText(execution.objective),
-        execution.provider,
-        execution.model,
         recoveryDetail(execution, 'failureCategory'),
         recoveryDetail(execution, 'recoveryAction'),
         recoveryDetail(execution, 'evidenceStatus'),
@@ -1332,7 +1324,6 @@ export default function MissionControl() {
                         </div>
                         <h3 className="mt-2 line-clamp-2 text-sm font-medium leading-5 text-foreground">{objectiveText(execution.objective)}</h3>
                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
-                          <span className="inline-flex items-center gap-1"><Cpu className="h-3 w-3 text-primary/80" />{textValue(execution.provider) ?? 'Provider not recorded'} / {textValue(execution.model) ?? 'model not recorded'}</span>
                           <span className="inline-flex items-center gap-1"><Wrench className="h-3 w-3 text-amber-300/80" />{numberValue(execution.attempts) ?? 0} repair attempts</span>
                           <span className="inline-flex items-center gap-1"><TerminalSquare className="h-3 w-3 text-muted-foreground" />{eventCount} events</span>
                            {failureCategory && <span>Failure: {failureCategory}</span>}
