@@ -1209,9 +1209,10 @@ describe("executeToolLoop", () => {
     expect(strategy.call).toHaveBeenCalledTimes(3);
     const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[2]?.[1] as Record<string, unknown>;
     expect(fallbackOptions).toMatchObject({
-      model: "powerful-model",
+      capability: "chat",
       responseFormat: { type: "json_object" },
     });
+    expect(fallbackOptions.model).toBeUndefined();
     expect(fallbackOptions).not.toHaveProperty("tools");
   });
 

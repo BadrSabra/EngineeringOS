@@ -38,6 +38,20 @@ import type {
   StrategyStreamOptions,
 } from "../provider-strategy.js";
 
+/**
+ * Circuit state represents provider health, not request-local configuration.
+ * A pinned model that cannot satisfy the requested capability is deterministic
+ * and must not suppress otherwise healthy OpenRouter candidates for later
+ * requests.
+ */
+function shouldRecordCircuitFailure(error: unknown): boolean {
+  if (!(error instanceof GroqClientError)) return true;
+  return !(
+    error.code === "INVALID_CONFIG" ||
+    error.providerCode === "MODEL_CAPABILITY_MISMATCH"
+  );
+}
+
 export const openrouterStrategy: ProviderStrategy = {
   providerId: "openrouter",
   supportsNativeStream: false,
@@ -126,7 +140,9 @@ export const openrouterStrategy: ProviderStrategy = {
       return result;
     } catch (err) {
       // PR-07: record failure so the circuit opens after the threshold.
-      recordCircuitFailure("openrouter");
+      if (shouldRecordCircuitFailure(err)) {
+        recordCircuitFailure("openrouter");
+      }
       const failedModel =
         err instanceof GroqClientError && err.providerModel
           ? err.providerModel
@@ -215,7 +231,9 @@ export const openrouterStrategy: ProviderStrategy = {
         }),
       );
     } catch (err) {
-      recordCircuitFailure("openrouter");
+      if (shouldRecordCircuitFailure(err)) {
+        recordCircuitFailure("openrouter");
+      }
       console.warn(
         JSON.stringify({
           scope: "openrouter-strategy",
