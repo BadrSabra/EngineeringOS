@@ -3958,6 +3958,10 @@ export async function chat(opts: {
    * This is intentionally separate from classifier output.
    */
   allowValidationTools?: boolean;
+  /** Server-owned approval state for write/validation/execution tools. */
+  approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+  /** Server-owned file scope for write tools. */
+  approvedFilePaths?: readonly string[];
   /** Server-owned validation runner; never supplied by the model. */
   validationRunner?: ValidationRunner;
   /** Server-owned browser contract runner; the model selects a profile only. */
@@ -4041,6 +4045,8 @@ export async function chat(opts: {
     onStep,
     signal,
     allowValidationTools = false,
+    approvalState,
+    approvedFilePaths,
     validationRunner,
     browserValidationRunner,
     browserValidationContext,
@@ -6136,6 +6142,8 @@ export async function chat(opts: {
     orderedForensicRoots: orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,
     allowTestSources: includeTestSources,
     allowExecutionTools: allowValidationTools,
+    approvalState,
+    approvedFilePaths,
     validationRunner,
     browserValidationRunner,
     browserValidationContext,

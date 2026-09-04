@@ -34,6 +34,7 @@ export type ToolAuthorization = {
     | "allowed"
     | "unknown_tool"
     | "tool_not_in_manifest"
+    | "approval_manifest_missing"
     | "path_outside_approved_scope"
     | "validation_profile_not_approved"
     | "approval_required";
@@ -182,19 +183,28 @@ export function authorizeToolInvocation(opts: {
     return { allowed: false, reason: "tool_not_in_manifest" };
   }
   const isWrite = FILE_WRITE_TOOL_NAMES.has(opts.toolName);
-  if (isWrite && opts.approvalState !== undefined && opts.approvalState !== "APPROVED") {
+  const isValidationOrExecution =
+    opts.toolName === "run_validation"
+    || opts.toolName === "run_browser_validation"
+    || opts.toolName === "run_command";
+  if ((isWrite || isValidationOrExecution) && opts.approvalState !== "APPROVED") {
     return { allowed: false, reason: "approval_required" };
+  }
+  if (isWrite && opts.approvedFilePaths === undefined) {
+    return { allowed: false, reason: "approval_manifest_missing" };
+  }
+  if (isValidationOrExecution && opts.approvedValidationProfiles === undefined) {
+    return { allowed: false, reason: "approval_manifest_missing" };
   }
   const requestedPath = typeof opts.args?.path === "string"
     ? opts.args.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "")
     : undefined;
-  if (isWrite && opts.approvedFilePaths && (
+  if (isWrite && (
     !requestedPath || !opts.approvedFilePaths.includes(requestedPath)
   )) {
     return { allowed: false, reason: "path_outside_approved_scope" };
   }
-    if ((opts.toolName === "run_validation" || opts.toolName === "run_command" || opts.toolName === "run_browser_validation") &&
-      opts.approvedValidationProfiles &&
+  if (isValidationOrExecution &&
       !opts.approvedValidationProfiles.includes(String(opts.args?.profile ?? "").trim())) {
     return { allowed: false, reason: "validation_profile_not_approved" };
   }
