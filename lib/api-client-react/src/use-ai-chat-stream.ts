@@ -129,7 +129,7 @@ export type AiStreamDoneEvent = {
     newContent: string;
     originalContent: string | null;
     reason: string;
-    validationProfile?: 'ai-orchestrator-tests' | 'knowledge-engine-tests' | 'api-ai-tests';
+    validationProfile?: 'ai-orchestrator-tests' | 'knowledge-engine-tests' | 'api-ai-tests' | 'workspace-typecheck';
   }>;
   proposalId?: string;
   /** Stable Plan → Build → Apply operation identity when one exists. */
@@ -255,10 +255,19 @@ export type AiStreamErrorEvent = {
   failureKind?: 'PROVIDER_FORMAT' | 'QUALITY_REVIEW' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT'
     | 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE';
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
+  acceptanceDisposition?: AiAcceptanceDisposition;
   forensicDiagnostic?: ForensicDiagnostic;
   /** Allowlisted request-budget snapshot retained for failed terminal turns. */
   executionLedger?: ExecutionLedgerPublicSnapshot;
   correlationId?: string;
+};
+
+export type AiAcceptanceDisposition = {
+  reasonCodes: ['EXECUTION_ACCEPTANCE_INCOMPLETE'];
+    outcome: 'FAILED' | 'INTERRUPTED';
+    failureKind: 'INCOMPLETE';
+    recoveryState: 'INCOMPLETE';
+    operatorAction: 'START_NEW_RUN';
 };
 
 const PUBLIC_FAILURE_KINDS = new Set([
@@ -296,6 +305,23 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
           .slice(0, 8),
       }
     : undefined;
+  const candidateAcceptance = event.acceptanceDisposition;
+  const safeAcceptance = candidateAcceptance
+    && Array.isArray(candidateAcceptance.reasonCodes)
+    && candidateAcceptance.reasonCodes.length > 0
+    && candidateAcceptance.reasonCodes.every((code) => code === 'EXECUTION_ACCEPTANCE_INCOMPLETE')
+    && (candidateAcceptance.outcome === 'FAILED' || candidateAcceptance.outcome === 'INTERRUPTED')
+    && candidateAcceptance.failureKind === 'INCOMPLETE'
+    && candidateAcceptance.recoveryState === 'INCOMPLETE'
+    && candidateAcceptance.operatorAction === 'START_NEW_RUN'
+    ? {
+        reasonCodes: ['EXECUTION_ACCEPTANCE_INCOMPLETE'] as ['EXECUTION_ACCEPTANCE_INCOMPLETE'],
+        outcome: candidateAcceptance.outcome,
+        failureKind: 'INCOMPLETE' as const,
+        recoveryState: 'INCOMPLETE' as const,
+        operatorAction: 'START_NEW_RUN' as const,
+      }
+    : undefined;
   const safeEvent = { ...event } as AiStreamErrorEvent & Record<string, unknown>;
   delete safeEvent.raw;
   delete safeEvent.providerContext;
@@ -303,6 +329,7 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
   delete safeEvent.suggestedFix;
   delete safeEvent.availabilityState;
   delete safeEvent.operatorAction;
+  delete safeEvent.acceptanceDisposition;
   delete safeEvent.failureKind;
   delete safeEvent.quality;
   return {
@@ -311,6 +338,7 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
     message: safeMessage,
     ...(safeFailureKind ? { failureKind: safeFailureKind } : {}),
     ...(safeQuality ? { quality: safeQuality } : {}),
+    ...(safeAcceptance ? { acceptanceDisposition: safeAcceptance } : {}),
   };
 }
 

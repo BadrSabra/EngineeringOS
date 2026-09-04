@@ -740,6 +740,13 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           safeMessage: string;
         }
       | undefined;
+    const validationEvidenceContext = opts.analysisCorrelation?.operationId
+      || opts.analysisCorrelation?.projectRevision
+      ? {
+          operationId: opts.analysisCorrelation.operationId,
+          projectRevision: opts.analysisCorrelation.projectRevision,
+        }
+      : undefined;
     const output = await (isGitTool
       ? await executeGitTool(name, effectiveArgs, rootPath)
       : isFileTool
@@ -752,6 +759,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             opts.validationRunner,
             opts.signal,
             pendingChanges,
+            validationEvidenceContext,
           )
         : name === "run_command"
           ? await executeCommandTool(
@@ -1163,6 +1171,14 @@ export type ToolLoopOpts = {
    */
   executionMode?: "repair_plan" | "forensic";
 
+  /**
+   * A compound request has already acquired its first source evidence and must
+   * advance to a pending edit proposal. This is distinct from a recovered
+   * Repair Plan: the user supplied the read → proposal sequence directly, so
+   * no prior plan metadata is required.
+   */
+  compoundWriteMode?: boolean;
+
   /** Enables the server-owned validation tool for an approved Build handoff. */
   allowExecutionTools?: boolean;
 
@@ -1387,6 +1403,7 @@ export type AgentDiagnosticCode =
   | "FORENSIC_DETERMINISTIC_FINDING"
   | "FORENSIC_DETERMINISTIC_NO_FINDING"
   | "FORENSIC_NO_FINDING"
+  | "FORENSIC_REPORT_FALLBACK_EMITTED"
   | "EXECUTION_RESPONSE_FORMAT_INVALID"
   | "EXECUTION_JSON_CORRECTION_FAILED"
   | "EXECUTION_JSON_CORRECTION_RETRY_FAILED"
@@ -1550,6 +1567,26 @@ export type AgentStep =
       requestedFiles?: string[];
       rootCoverage?: ForensicRootCoverage[];
       reason?: string;
+      /** Bounded server-owned telemetry for forensic terminal reconciliation. */
+      effectiveRoot?: "PROJECT_ROOT" | "ROOT_UNAVAILABLE";
+      projectRevision?: string;
+      completeReads?: boolean;
+      appliedBudget?: {
+        maxIterations: number;
+        maxToolCalls: number;
+        synthesisMaxAttempts?: number;
+        synthesisTimeoutMs?: number;
+      };
+      readStatuses?: Array<{
+        path: string;
+        status: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED";
+      }>;
+      synthesisLifecycle?: {
+        started: boolean;
+        attempted: boolean;
+        timedOut: boolean;
+        skipped: boolean;
+      };
       /**
        * True when the proven Finding is supported only by evidence from
        * fixture/test/spec paths — not from production source files.
@@ -1691,6 +1728,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     synthesisTimeoutMs = DEFAULT_SYNTHESIS_TIMEOUT_MS,
     synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
     executionMode,
+    compoundWriteMode = false,
     executionTargetPaths = [],
     objective,
     claimState,
@@ -1999,12 +2037,33 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
     // Prefetch normally loads every executable target before the first model
     // call. Hiding read_file in that state makes the desired next action
-    // structurally unavoidable: replace_text or write_file.
-    if (allTargetsRead) {
+    // structurally unavoidable: replace_text or write_file. After a failed
+    // validation, however, the approved repair retry must be able to reread
+    // the scoped target before producing its next patch.
+    if (allTargetsRead && failedValidationFingerprints.size === 0) {
       return opts.tools.filter((tool) => tool.function.name !== "read_file");
     }
 
     return opts.tools;
+  };
+
+  // Compound write requests are intentionally two-phase. Once a usable source
+  // body is available, expose only the pending-change tools so a provider cannot
+  // spend the remaining turn budget re-reading the same file or stop after an
+  // evidence-only answer. The dispatcher still owns path validation and the
+  // tools only append in-memory pending changes.
+  let compoundProposalActive =
+    compoundWriteMode === true &&
+    opts.initialFileContents !== undefined &&
+    opts.initialFileContents.size > 0;
+  let compoundProposalPromptSent = false;
+  let compoundProposalRetrySent = false;
+  const compoundProposalTools = (): ToolDefinitionLike[] | undefined => {
+    const available = repairPlanTools();
+    if (!compoundProposalActive || !available) return available;
+    return available.filter((tool) =>
+      tool.function.name === "write_file" || tool.function.name === "replace_text",
+    );
   };
 
   const allowedTools = (() => {
@@ -2722,10 +2781,6 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     let fallbackReason: string | undefined;
     const t0 = Date.now();
 
-    // Sanitize before every model call: remove tool-result messages whose IDs
-    // no longer have a parent assistant turn (can happen when the provider
-    // silently truncates the context window and drops the assistant turn).
-    const safeMessages = stripOrphanedToolMessages(messages);
     // A repair-plan handoff must start with a real tool call, but subsequent
     // turns must be allowed to synthesize a final answer after the tool result.
     const callToolChoice = iter === 0 ? opts.toolChoice : undefined;
@@ -2745,7 +2800,25 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     }
     const disabledForThisIteration = temporarilyDisabledTools;
     temporarilyDisabledTools = new Set<string>();
-    const availableIterationTools = synthesisOnly ? [] : repairPlanTools();
+    if (
+      compoundProposalActive &&
+      !compoundProposalPromptSent &&
+      opts.initialFileContents &&
+      opts.initialFileContents.size > 0
+    ) {
+      compoundProposalPromptSent = true;
+      messages.push({
+        role: "user",
+        content:
+          "The requested source evidence is now available above. Advance to the proposal phase now: " +
+          "use replace_text with an exact unique old_text/new_text pair for the requested fix, " +
+          "or write_file only when the requested file is new. Do not read, search, validate, or apply changes.",
+      });
+    }
+    // Sanitize after adding the server-owned phase instruction so the current
+    // provider call receives that instruction as well as the retained evidence.
+    const safeMessages = stripOrphanedToolMessages(messages);
+    const availableIterationTools = synthesisOnly ? [] : compoundProposalTools();
     const iterationTools = availableIterationTools?.filter(
       (tool) =>
         !disabledForThisIteration.has(tool.function.name) &&
@@ -3012,7 +3085,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           // valuable and must reach chat-agent's bounded no-tools recovery;
           // returning exhausted here would discard them and produce a
           // contract failure for an empty response.
-          if (synthesisStarted || (executionMode === "forensic" && fileContents.size > 0)) {
+          if (
+            synthesisStarted ||
+            (executionMode === "forensic" && fileContents.size > 0) ||
+            (compoundWriteMode && fileContents.size > 0)
+          ) {
             classifyZeroReadTerminal("empty_response", iter + 1);
             try {
               onStep?.({
@@ -3252,6 +3329,26 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         }
       }
 
+      if (
+        compoundWriteMode &&
+        compoundProposalActive &&
+        pendingChanges.length === 0 &&
+        !compoundProposalRetrySent
+      ) {
+        compoundProposalRetrySent = true;
+        messages.push(
+          { role: "assistant", content: result.content ?? "" },
+          {
+            role: "user",
+            content:
+              "Do not stop after describing the evidence. The requested second phase is to create a pending change now. " +
+              "Call replace_text with an exact unique old_text/new_text pair, or write_file for a new file. " +
+              "Do not read, search, validate, or apply changes.",
+          },
+        );
+        continue;
+      }
+
       currentIteration = iter + 1;
       classifyZeroReadTerminal("response", currentIteration);
       const incompleteReason =
@@ -3407,6 +3504,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const validationFingerprint = isValidationCall
         ? pendingChangesFingerprint(pendingChanges)
         : undefined;
+      const pendingChangesBeforeTool = pendingChanges.length;
       // Validation is intentionally not replay-cached: after a pending patch,
       // the same profile must execute again against the new workspace state.
       const key = isValidationCall
@@ -3815,6 +3913,24 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       if (
+        (compoundProposalActive || pendingChanges.length > 0) &&
+        tc.function.name !== "write_file" &&
+        tc.function.name !== "replace_text" &&
+        !(isValidationCall && !compoundWriteMode)
+      ) {
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            "The evidence phase is complete and the pending proposal phase is active. " +
+            "Gathering tools are unavailable now; " +
+            "create the requested pending proposal with replace_text or write_file. " +
+            "Changes are not applied to disk.",
+        });
+        continue;
+      }
+
+      if (
         searchBudgetEnabled &&
         tc.function.name === "search_code" &&
         searchBudgetExhausted
@@ -4019,6 +4135,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }
           recordRead(tc.function.name, args.path, cached);
           recordSourceEvidence(args.path, cached);
+          if (compoundWriteMode && fileContents.size > 0) {
+            compoundProposalActive = true;
+          }
         }
         try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
         // Preserve the same source label as a fresh read. Persisted traces use
@@ -4274,6 +4393,27 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         );
       }
 
+      // A compound inspect → fix request has one proposal phase. Once the
+      // server has accepted an edit into pendingChanges, stop the model from
+      // replaying the same edit from the cache on later iterations. The
+      // proposal is already durable and reviewable; the next turn is only for
+      // a bounded final response.
+      if (
+        compoundWriteMode &&
+        pendingChangesBeforeTool > 0 &&
+        (tc.function.name === "write_file" || tc.function.name === "replace_text")
+      ) {
+        forceSynthesisNext = true;
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            "A pending proposal already exists for this compound request. " +
+            "Do not create another edit; summarize the pending change without calling tools.",
+        });
+        continue;
+      }
+
       // Successful execution — consume budget, cache, record source.
       totalToolCalls++;
       toolCallCache.set(key, toolResult.output);
@@ -4442,6 +4582,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // Retain the body as source evidence so a later dependency proof may
         // cite `from_file` and reference text grounded in what was actually read.
         recordSourceEvidence(args.path, toolResult.output);
+        if (compoundWriteMode && fileContents.size > 0) {
+          compoundProposalActive = true;
+        }
       }
       if (
         toolResult.source &&
@@ -4472,6 +4615,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         tool_call_id: tc.id,
         content: untrustedToolOutput(tc.function.name, toolResult.output, args),
       });
+      if (
+        compoundWriteMode &&
+        (tc.function.name === "write_file" || tc.function.name === "replace_text") &&
+        pendingChanges.length > 0
+      ) {
+        forceSynthesisNext = true;
+      }
     }
 
     // ── Progress enforcement (FEG-008) ────────────────
@@ -4505,6 +4655,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }
         }
         if (
+          executionMode !== "repair_plan" &&
           noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD &&
           !forcedPrimaryEvidence
         ) {
@@ -4526,14 +4677,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           // Force the primary evidence target into the allow/read policy on the
           // next iteration so the model cannot keep planning past this point.
           if (fegTarget && allowedReads) allowedReads.add(fegTarget);
-          if (executionMode !== "repair_plan") {
-            // Hide planning tools on the next turn so the only route forward is
-            // a read (or a synthesis of already-gathered evidence). The
-            // dispatch-level forced-evidence gate independently rejects
-            // out-of-set calls, so this tool-hiding is a secondary nudge.
-            temporarilyDisabledTools.add("search_code");
-            temporarilyDisabledTools.add("list_directory");
-          }
+          // Hide planning tools on the next turn so the only route forward is
+          // a read (or a synthesis of already-gathered evidence). The
+          // dispatch-level forced-evidence gate independently rejects
+          // out-of-set calls, so this tool-hiding is a secondary nudge.
+          temporarilyDisabledTools.add("search_code");
+          temporarilyDisabledTools.add("list_directory");
         }
       }
       // FEG-009/010 protected primary-evidence allocation. Unlike a (brief)
@@ -4552,6 +4701,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // only redirect once planning has demonstrably spent its share AND the
       // run has had more than a single planning turn to reach evidence.
       if (
+        executionMode !== "repair_plan" &&
         planningIterations >= runBudget.planning &&
         planningIterations >= 2 &&
         firstSourceReadIter === null &&
@@ -4574,10 +4724,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           });
         } catch { /* ignore */ }
         if (fegTarget && allowedReads) allowedReads.add(fegTarget);
-        if (executionMode !== "repair_plan") {
-          temporarilyDisabledTools.add("search_code");
-          temporarilyDisabledTools.add("list_directory");
-        }
+        temporarilyDisabledTools.add("search_code");
+        temporarilyDisabledTools.add("list_directory");
       }
     } else {
       // FEG-009/010: an iteration that issued no tool calls is reasoning /

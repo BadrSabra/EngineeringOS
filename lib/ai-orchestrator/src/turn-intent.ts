@@ -23,6 +23,12 @@ export type TurnIntentKind =
 
 export type TurnOperationMode = "CHAT" | "FORENSIC_AUDIT" | "DELIVERY";
 
+export type TurnIntentPhase =
+  | "evidence"
+  | "proposal"
+  | "execution"
+  | "validation";
+
 /**
  * The single request-routing decision shared by the API, orchestrator, model
  * selector, tool loop, and UI response metadata.
@@ -45,6 +51,16 @@ export type TurnIntent = {
   implementationPlanResume: boolean;
   /** Broad forensic requests must declare a scope before expensive discovery. */
   scopeClarificationRequired: boolean;
+  /**
+   * The message contains an ordered read/inspect step followed by a
+   * change-oriented step. This is a planning signal only; write and validation
+   * authorization still comes from the server-owned operation contract.
+   */
+  compoundExecution: boolean;
+  /** True only when the compound request asks for a later project mutation. */
+  compoundWrite: boolean;
+  /** Ordered phases requested by the user, not a permission grant. */
+  phases: readonly TurnIntentPhase[];
   /** User-readable description of the boundary approved for this audit. */
   auditScopeDescription?: string;
   operationMode: TurnOperationMode;
@@ -59,13 +75,19 @@ export type TurnIntent = {
  */
 export function isWriteCapableTurn(intent: Pick<
   TurnIntent,
-  "kind" | "implementationPlanResume" | "allowsBuildHandoff" | "classification"
+  | "kind"
+  | "implementationPlanResume"
+  | "allowsBuildHandoff"
+  | "classification"
+  | "compoundExecution"
+  | "compoundWrite"
 >): boolean {
   return intent.allowsBuildHandoff ||
     (
       intent.kind === "DELIVERY" &&
       !intent.implementationPlanResume &&
-      !intent.classification.implementationPlanMode
+      !intent.classification.implementationPlanMode &&
+      !(intent.compoundExecution && !intent.compoundWrite)
     );
 }
 
@@ -88,6 +110,22 @@ const ENGLISH_EXECUTION_ACTION_RE =
 const ARABIC_EXECUTION_ACTION_RE =
   /^\s*(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:(?:هل\s+يمكنك|ممكن)\s+)?(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:أن\s+)?(?:أصلح|صحح|عدّل|غير|غيّر|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|تصلح|تصحح|تعدّل|تعدل|تغير|تكتب|تطبّق|تطبق|تنفّذ|تنفذ|تبني|تنشئ|تضيف|تحذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)(?:\s|$)/iu;
 
+const COMPOUND_REQUEST_RE =
+  /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|(?:run|execute)\s+(?:the\s+)?tests?\b|run_validation\b|validate\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|اختبر|شغّل|شغل|تحقق)/iu;
+
+const COMPOUND_WRITE_REQUEST_RE =
+  /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
+
+/**
+ * Arabic users commonly qualify the transition instead of placing the
+ * mutation verb immediately after "then", for example:
+ * "بعد اكتمال قراءة المصدر، انتقل إلى مسار الإصلاح وأنشئ تغييرًا معلّقًا".
+ * Keep this bridge deliberately narrow so explanatory text such as
+ * "ثم اشرح كيف أصلح..." remains read-only.
+ */
+const ARABIC_QUALIFIED_COMPOUND_REQUEST_RE =
+  /(?:بعد\s+(?:اكتمال|الانتهاء\s+من)\s+[^.!?\n،]{1,100}[،,]\s*(?:انتقل|ننتقل)\s+إلى\s+(?:مسار\s+)?[^.!?\n]{0,100}?(?:ثم\s+)?|بعد\s+(?:اكتمال|الانتهاء\s+من)\s+[^.!?\n،]{1,100}[،,]\s*)(?:و)?(?:أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
+
 const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
 
@@ -98,6 +136,25 @@ function isExecutionActionRequest(message: string): boolean {
     ENGLISH_EXECUTION_ACTION_RE.test(message) ||
     ARABIC_EXECUTION_ACTION_RE.test(message)
   );
+}
+
+/**
+ * Detect an ordered compound request without treating audit language as an
+ * authorization. The direct-action matcher intentionally remains separate:
+ * "fix the bug" is a delivery request, while "inspect the file then fix the
+ * bug" is a compound delivery request that must retain its evidence-first
+ * ordering.
+ */
+export function isCompoundExecutionRequest(message: string): boolean {
+  const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
+  if (isExecutionActionRequest(normalized)) return false;
+  return COMPOUND_REQUEST_RE.test(normalized) || ARABIC_QUALIFIED_COMPOUND_REQUEST_RE.test(normalized);
+}
+
+export function isCompoundWriteRequest(message: string): boolean {
+  const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
+  if (isExecutionActionRequest(normalized)) return false;
+  return COMPOUND_WRITE_REQUEST_RE.test(normalized) || ARABIC_QUALIFIED_COMPOUND_REQUEST_RE.test(normalized);
 }
 
 export function resolveTurnIntent(
@@ -113,6 +170,8 @@ export function resolveTurnIntent(
   const route = routeTask(classification.taskType);
   const buildHandoff = options.buildHandoff === true;
   const implementationPlanResume = options.implementationPlanResume === true;
+  const compoundExecution = isCompoundExecutionRequest(message);
+  const compoundWrite = isCompoundWriteRequest(message);
   const planDelivery =
     !buildHandoff && !implementationPlanResume && classification.implementationPlanMode;
   const implementationDelivery =
@@ -121,7 +180,8 @@ export function resolveTurnIntent(
       !planDelivery &&
       (
         classification.implementationTaskMode ||
-        isExecutionActionRequest(message)
+        isExecutionActionRequest(message) ||
+        compoundExecution
       )
     );
   const hasProjectToolSignal =
@@ -225,6 +285,16 @@ export function resolveTurnIntent(
       : kind === "FORENSIC_AUDIT"
         ? "FORENSIC_AUDIT"
         : "CHAT";
+  const phases: TurnIntentPhase[] =
+    compoundExecution
+      ? compoundWrite
+        ? ["evidence", "proposal"]
+        : ["evidence", "validation"]
+      : implementationDelivery
+        ? ["execution"]
+        : explicitEvidenceIntent && !scopeClarificationRequired
+          ? ["evidence"]
+          : [];
 
   return {
     kind,
@@ -247,6 +317,9 @@ export function resolveTurnIntent(
     allowsBuildHandoff: buildHandoff,
     implementationPlanResume,
     scopeClarificationRequired,
+    compoundExecution,
+    compoundWrite,
+    phases,
     ...(explicitEvidenceIntent && !scopeClarificationRequired
       ? { auditScopeDescription: describeAuditScope(classification, message) }
       : {}),

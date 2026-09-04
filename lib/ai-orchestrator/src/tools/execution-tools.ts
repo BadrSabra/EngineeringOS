@@ -91,6 +91,11 @@ export type ValidationRunner = (
   targetPaths: string[],
   signal?: AbortSignal,
   pendingChanges?: readonly PendingChange[],
+  evidenceContext?: {
+    operationId?: string;
+    projectRevision?: string;
+    candidateHash?: string;
+  },
 ) => Promise<ValidationResult | LegacyValidationRunnerResult>;
 
 function unavailableValidation(profile: string, detail: string): ValidationResult {
@@ -321,6 +326,11 @@ export async function executeValidationTool(
   runner: ValidationRunner | undefined,
   signal?: AbortSignal,
   pendingChanges?: readonly PendingChange[],
+  evidenceContext?: {
+    operationId?: string;
+    projectRevision?: string;
+    candidateHash?: string;
+  },
 ): Promise<string> {
   if (name !== "run_validation") {
     throw new Error(`Unknown execution tool "${name}".`);
@@ -346,11 +356,13 @@ export async function executeValidationTool(
     });
   }
   const hasPendingChanges = (pendingChanges?.length ?? 0) > 0;
-  const rawResult = !hasPendingChanges && signal === undefined
-    ? await runner(profile, targetPaths)
-    : !hasPendingChanges
-      ? await runner(profile, targetPaths, signal)
-      : await runner(profile, targetPaths, signal, pendingChanges);
+  const rawResult = evidenceContext
+    ? await runner(profile, targetPaths, signal, pendingChanges, evidenceContext)
+    : !hasPendingChanges && signal === undefined
+      ? await runner(profile, targetPaths)
+      : !hasPendingChanges
+        ? await runner(profile, targetPaths, signal)
+        : await runner(profile, targetPaths, signal, pendingChanges);
   const result = normalizeValidationResult(profile, rawResult);
   return JSON.stringify({ tool: name, ...result });
 }
