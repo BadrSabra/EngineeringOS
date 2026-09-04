@@ -94,3 +94,4 @@
 - [Compound intent routing](compound-intent-routing.md) — compound requests retain first-read evidence ordering while later proposal tools are derived separately from forensic isolation.
 - [Live proposal hydration](live-proposal-hydration.md) — preserve a streamed pending proposal until the session query observes its durable approval record.
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
+- [Forensic truncation marker collision](forensic-truncation-marker-collision.md) — literal marker constants in source can be mistaken for tool-appended truncation.
