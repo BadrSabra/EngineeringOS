@@ -405,6 +405,32 @@ function safePublicDiagnosticDetails(details: readonly string[] | undefined): st
     .slice(0, 8);
 }
 
+/**
+ * Project the terminal state without trusting persisted worker/provider text.
+ * `execution.error` and checkpoint detail remain server-side diagnostics; the
+ * public contract gets only a stable, status-derived code.
+ */
+export function publicExecutionTerminalReason(params: {
+  status: string;
+  acceptanceDisposition?: AiAcceptanceDisposition;
+}): string | null {
+  if (params.acceptanceDisposition) return "EXECUTION_ACCEPTANCE_INCOMPLETE";
+  switch (params.status) {
+    case "cancelled":
+      return "EXECUTION_CANCELLED";
+    case "cancelling":
+      return "EXECUTION_CANCELLING";
+    case "failed":
+      return "EXECUTION_FAILED";
+    case "paused":
+      return "EXECUTION_PAUSED";
+    case "completed":
+      return "EXECUTION_COMPLETED";
+    default:
+      return null;
+  }
+}
+
 function projectPublicExecutionSummary<T extends { diagnosticDetails?: string[] }>(
   summary: T | undefined,
   includeSafeDetails: boolean,
@@ -6242,10 +6268,10 @@ router.get("/ai/executions/:executionId", async (req, res) => {
       ? checkpointRecord.evidenceReason
       : undefined,
     ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
-    terminalReason: acceptanceDisposition
-      ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
-      : execution.error
-      ?? (typeof checkpointRecord.detail === "string" ? checkpointRecord.detail : null),
+     terminalReason: publicExecutionTerminalReason({
+       status: execution.status,
+       acceptanceDisposition,
+     }),
          checkpoint: sanitizeExecutionCheckpointForClient(checkpoint),
     checkpointVersion: execution.checkpointVersion,
     finalMessageId: execution.finalMessageId,
@@ -6364,7 +6390,18 @@ router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
       timestamp: execution.completedAt,
       type: `execution_${execution.status}`,
       status: execution.status,
-      detail: safeText(execution.error ?? checkpoint.detail ?? `Execution ${execution.status}`, 500),
+       detail: publicExecutionTerminalReason({
+         status: execution.status,
+         acceptanceDisposition: publicAcceptanceDisposition({
+           value: checkpoint.acceptanceDisposition,
+           code: execution.error === "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision."
+             ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+             : undefined,
+           status: execution.status,
+           proofRequired: checkpoint.proofRequired === true,
+           evidenceVerdict: checkpoint.evidenceVerdict,
+         }),
+       }),
     }] : []),
   ].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
 
@@ -6419,7 +6456,18 @@ router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
       createdAt: execution.createdAt,
       startedAt: execution.startedAt,
       completedAt: execution.completedAt,
-      terminalReason: safeText(execution.error ?? checkpoint.detail, 500) ?? null,
+       terminalReason: publicExecutionTerminalReason({
+         status: execution.status,
+         acceptanceDisposition: publicAcceptanceDisposition({
+           value: checkpoint.acceptanceDisposition,
+           code: execution.error === "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision."
+             ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+             : undefined,
+           status: execution.status,
+           proofRequired: checkpoint.proofRequired === true,
+           evidenceVerdict: checkpoint.evidenceVerdict,
+         }),
+       }),
     },
     operationEvidence: redactOperationEvidence(operationEvidence),
     timeline,
