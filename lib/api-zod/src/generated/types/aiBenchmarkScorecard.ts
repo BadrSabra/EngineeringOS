@@ -15,9 +15,6 @@ import type { AiBenchmarkMetrics } from './aiBenchmarkMetrics';
 export interface AiBenchmarkScorecard {
   suiteVersion?: string;
   generatedAt?: Date;
-  provider?: string;
-  /** @nullable */
-  model?: string | null;
   metrics?: AiBenchmarkMetrics;
   rolloutAllowed?: boolean;
   rolloutBlockers?: string[];

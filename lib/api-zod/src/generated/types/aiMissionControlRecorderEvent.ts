@@ -10,7 +10,5 @@ export interface AiMissionControlRecorderEvent {
   kind: string;
   status?: string;
   tool?: string;
-  provider?: string;
-  model?: string;
   detail?: string;
 }

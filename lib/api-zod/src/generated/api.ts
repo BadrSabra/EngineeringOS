@@ -3807,8 +3807,6 @@ export const CancelAiExecutionByIdResponse = zod.object({
 export const GetAiBenchmarkScorecardResponse = zod.object({
   "suiteVersion": zod.string().optional(),
   "generatedAt": zod.coerce.date().optional(),
-  "provider": zod.string().optional(),
-  "model": zod.string().nullish(),
   "metrics": zod.object({
   "observedCases": zod.number().optional(),
   "totalCases": zod.number().optional(),
@@ -3885,8 +3883,6 @@ export const GetAiEmpiricalQualityScorecardResponse = zod.object({
   "version": zod.literal(1),
   "generatedAt": zod.coerce.date().optional(),
   "corpusRevision": zod.string().optional(),
-  "provider": zod.string().optional(),
-  "model": zod.string().nullish(),
   "measurementOnly": zod.literal(true),
   "status": zod.enum(['COMPLETE', 'INCOMPLETE', 'UNAVAILABLE']),
   "empiricalQualityStatus": zod.enum(['PROVEN', 'MEASURED', 'INCOMPLETE', 'UNAVAILABLE']),
@@ -3947,7 +3943,7 @@ export const GetAiEmpiricalQualityScorecardResponse = zod.object({
   "latencyMs": zod.number().optional(),
   "errorCode": zod.string().optional()
 })).max(getAiEmpiricalQualityScorecardResponseCasesMax)
-}).describe('Redacted measurement-only empirical AI quality evidence. It compares provider\/model observations with a versioned ground-truth corpus and never changes deterministic release acceptance.\n')
+}).describe('Redacted measurement-only empirical AI quality evidence. It compares quality observations with a versioned ground-truth corpus and never changes deterministic release acceptance.\n')
 
 
 /**
@@ -4023,8 +4019,6 @@ export const GetAiMissionControlResponse = zod.object({
   "scorecard": zod.object({
   "suiteVersion": zod.string().optional(),
   "generatedAt": zod.coerce.date().optional(),
-  "provider": zod.string().optional(),
-  "model": zod.string().nullish(),
   "metrics": zod.object({
   "observedCases": zod.number().optional(),
   "totalCases": zod.number().optional(),
@@ -4095,8 +4089,6 @@ export const GetAiMissionControlResponse = zod.object({
   "version": zod.literal(1),
   "generatedAt": zod.coerce.date().optional(),
   "corpusRevision": zod.string().optional(),
-  "provider": zod.string().optional(),
-  "model": zod.string().nullish(),
   "measurementOnly": zod.literal(true),
   "status": zod.enum(['COMPLETE', 'INCOMPLETE', 'UNAVAILABLE']),
   "empiricalQualityStatus": zod.enum(['PROVEN', 'MEASURED', 'INCOMPLETE', 'UNAVAILABLE']),
@@ -4157,7 +4149,7 @@ export const GetAiMissionControlResponse = zod.object({
   "latencyMs": zod.number().optional(),
   "errorCode": zod.string().optional()
 })).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesMax)
-}).optional().describe('Redacted measurement-only empirical AI quality evidence. It compares provider\/model observations with a versioned ground-truth corpus and never changes deterministic release acceptance.\n')
+}).optional().describe('Redacted measurement-only empirical AI quality evidence. It compares quality observations with a versioned ground-truth corpus and never changes deterministic release acceptance.\n')
 }).nullish(),
   "executions": zod.array(zod.object({
   "id": zod.string(),
@@ -4165,8 +4157,6 @@ export const GetAiMissionControlResponse = zod.object({
   "state": zod.string(),
   "executionStatus": zod.string(),
   "objective": zod.string(),
-  "provider": zod.string().nullish(),
-  "model": zod.string().nullish(),
   "attempts": zod.number(),
   "validationFailures": zod.number(),
   "evidence": zod.object({
@@ -4183,8 +4173,6 @@ export const GetAiMissionControlResponse = zod.object({
   "kind": zod.string(),
   "status": zod.string().optional(),
   "tool": zod.string().optional(),
-  "provider": zod.string().optional(),
-  "model": zod.string().optional(),
   "detail": zod.string().optional()
 })),
   "operationId": zod.string(),

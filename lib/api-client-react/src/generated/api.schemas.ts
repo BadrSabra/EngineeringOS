@@ -304,9 +304,6 @@ export interface AiBenchmarkBaselineComparison {
 export interface AiBenchmarkScorecard {
   suiteVersion?: string;
   generatedAt?: string;
-  provider?: string;
-  /** @nullable */
-  model?: string | null;
   metrics?: AiBenchmarkMetrics;
   rolloutAllowed?: boolean;
   rolloutBlockers?: string[];
@@ -468,16 +465,13 @@ export interface AiEmpiricalQualityCase {
 }
 
 /**
- * Redacted measurement-only empirical AI quality evidence. It compares provider/model observations with a versioned ground-truth corpus and never changes deterministic release acceptance.
+ * Redacted measurement-only empirical AI quality evidence. It compares quality observations with a versioned ground-truth corpus and never changes deterministic release acceptance.
  */
 export interface AiEmpiricalQualityScorecard {
   kind: AiEmpiricalQualityScorecardKind;
   version: AiEmpiricalQualityScorecardVersion;
   generatedAt?: string;
   corpusRevision?: string;
-  provider?: string;
-  /** @nullable */
-  model?: string | null;
   measurementOnly: true;
   status: AiEmpiricalQualityScorecardStatus;
   empiricalQualityStatus: AiEmpiricalQualityScorecardEmpiricalQualityStatus;
@@ -693,8 +687,6 @@ export interface AiMissionControlRecorderEvent {
   kind: string;
   status?: string;
   tool?: string;
-  provider?: string;
-  model?: string;
   detail?: string;
 }
 
@@ -790,10 +782,6 @@ export interface AiMissionControlExecution {
   state: string;
   executionStatus: string;
   objective: string;
-  /** @nullable */
-  provider?: string | null;
-  /** @nullable */
-  model?: string | null;
   attempts: number;
   validationFailures: number;
   evidence: AiMissionControlEvidence;

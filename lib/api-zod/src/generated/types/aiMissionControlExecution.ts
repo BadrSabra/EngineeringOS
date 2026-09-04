@@ -15,10 +15,6 @@ export interface AiMissionControlExecution {
   state: string;
   executionStatus: string;
   objective: string;
-  /** @nullable */
-  provider?: string | null;
-  /** @nullable */
-  model?: string | null;
   attempts: number;
   validationFailures: number;
   evidence: AiMissionControlEvidence;
