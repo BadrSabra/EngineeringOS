@@ -509,6 +509,14 @@ const MAX_RECOVERY_TOOL_RESULT_CHARS = 16_000;
 /** Capability probes are short reports; recovery must not become a second audit. */
 const CAPABILITY_PROBE_RECOVERY_DEADLINE_MS = 30_000;
 const CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS = 15_000;
+/**
+ * Keep a request-owned tail reserve for the final terminal/ledger write. A
+ * recovery clock must never extend beyond the parent execution deadline or
+ * consume the only time left to render an explicit incomplete result.
+ */
+const CAPABILITY_PROBE_RECOVERY_RESERVE_MS = 8_000;
+const CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS = 4_000;
+const CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS = 2_000;
 
 /**
  * Run one recovery provider call with both a server-owned deadline and an
@@ -1434,8 +1442,9 @@ export function buildCapabilityProbeRecoveryMessages(
          "Use exactly one labelled line for each of C1, C2, C3, C4, C5, C6, and C7, plus an overall X/7 score.",
          "Use this literal line shape: C1: PASS/FAIL — answer; evidence: `exact source fragment`.",
          "Do not use forensic headings such as Executive Verdict, Evidence Map, Findings, Repair Plan, or Final Judgment.",
-        "For at least the behavior claim, quote an exact contiguous source fragment from one of the supplied file bodies inside backticks. The fragment must include executable control flow such as return, if, switch, throw, or a call — not only a declaration or filename.",
-        "The quoted fragment must be source code, not only a filename or symbol name. Every cited path must be one of the FILE entries below.",
+         "Every C1–C7 line is a separate claim. When the claim is supported by code, cite the exact contiguous source fragment that supports that line and include the exact file path. Do not use one generic quote for unrelated claims.",
+         "For a negative claim, say MISSING/NO honestly and cite the completed-read manifest as the scope boundary; never invent a quote proving absence.",
+         "The quoted fragment must be source code, not only a filename or symbol name. Every cited path must be one of the FILE entries below.",
         "For a negative answer such as no eval()/Function() call, state MISSING/NO honestly; do not invent a quote proving absence. The exact quote from a real executable fragment may ground the overall read, while the negative claim remains limited to the completed file.",
         "",
         "VERIFIED COMPLETED READS:",
@@ -1588,30 +1597,49 @@ function buildCapabilityMicroProbeEvidenceCandidates(
   fileContents: ReadonlyMap<string, string>,
 ): Map<string, CapabilityMicroProbeEvidenceCandidate> {
   const candidates = new Map<string, CapabilityMicroProbeEvidenceCandidate>();
-  if (groupName !== "grounding") return candidates;
+  const addCandidate = (
+    id: string,
+    file: string | undefined,
+    content: string | undefined,
+    needles: readonly string[],
+    description: string,
+  ) => {
+    if (!file || !content) return;
+    const lines = content.split("\n");
+    const matchIndex = lines.findIndex((line) => needles.some((needle) => line.includes(needle)));
+    if (matchIndex < 0) return;
+    const executableLine = lines
+      .slice(matchIndex, Math.min(lines.length, matchIndex + 16))
+      .find((line) => /^\s*(?:return|if|switch|throw)\b/.test(line))
+      ?? lines
+        .slice(matchIndex, Math.min(lines.length, matchIndex + 16))
+        .find((line) => /\b(?:return|if|switch|throw|await|call)\b/.test(line));
+    if (!executableLine?.trim()) return;
+    candidates.set(id, {
+      id,
+      file,
+      fragment: executableLine.trim(),
+      description,
+    });
+  };
 
-  const file = [...fileContents.keys()].find((item) => item.endsWith("profile-classifier.ts"));
-  const content = file ? fileContents.get(file) : undefined;
-  if (!file || !content) return candidates;
+  const profileFile = [...fileContents.keys()].find((item) => item.endsWith("profile-classifier.ts"));
+  const profileContent = profileFile ? fileContents.get(profileFile) : undefined;
+  const toolsFile = [...fileContents.keys()].find((item) => item.endsWith("file-tools.ts"));
+  const toolsContent = toolsFile ? fileContents.get(toolsFile) : undefined;
 
-  const lines = content.split("\n");
-  const functionIndex = lines.findIndex((line) => line.includes("isPromptProsePath"));
-  if (functionIndex < 0) return candidates;
-  const executableLine = lines
-    .slice(functionIndex, Math.min(lines.length, functionIndex + 12))
-    .find((line) => /^\s*return\b/.test(line))
-    ?? lines
-      .slice(functionIndex, Math.min(lines.length, functionIndex + 12))
-      .find((line) => /\b(?:if|switch|throw)\b/.test(line));
-  if (!executableLine) return candidates;
-
-  const id = "E1";
-  candidates.set(id, {
-    id,
-    file,
-    fragment: executableLine.trim(),
-    description: "executable line from isPromptProsePath",
-  });
+  if (groupName === "grounding") {
+    addCandidate("E1", profileFile, profileContent, ["isPromptProsePath"], "executable line from isPromptProsePath");
+  } else if (groupName === "scope-boundary") {
+    addCandidate("E2", profileFile, profileContent, ["PROSE_PSEUDO_PATH_DENYLIST"], "scope-boundary executable line");
+  } else if (groupName === "anti-hallucination") {
+    addCandidate("E3", toolsFile, toolsContent, ["write_file", "run()"], "server-side tool boundary");
+  } else if (groupName === "negative-behavior") {
+    // An absence cannot be quoted. This executable context gives the model a
+    // legal, literal anchor while the completed-read manifest limits the
+    // negative claim to the named implementation file.
+    addCandidate("E4", profileFile, profileContent, ["isPromptProsePath", "PROSE_PSEUDO_PATH_DENYLIST"], "profile classifier executable context");
+  }
   return candidates;
 }
 
@@ -1781,9 +1809,17 @@ async function runCapabilityMicroProbes(opts: {
 }): Promise<{ response: string; sources: string[]; model?: string } | null> {
   const lines = new Map<string, string>();
   let lastModel: string | undefined;
+  const completedGroups = new Set<string>();
+  let deadlineExhausted = false;
 
   for (const group of CAPABILITY_MICRO_PROBE_GROUPS) {
-    if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) break;
+    if (
+      opts.deadlineAt !== undefined &&
+      Date.now() + CAPABILITY_PROBE_RECOVERY_RESERVE_MS >= opts.deadlineAt
+    ) {
+      deadlineExhausted = true;
+      break;
+    }
     try {
       const microProbePacket = buildCapabilityMicroProbeMessages(group, opts.fileContents);
       const invoke = (retry: boolean) =>
@@ -1794,10 +1830,14 @@ async function runCapabilityMicroProbes(opts: {
               model: opts.model,
               maxTokens: retry ? 500 : 900,
               timeoutMs: Math.min(
-                retry ? 25_000 : 45_000,
+                retry
+                  ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
+                  : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
                 opts.deadlineAt !== undefined
-                  ? Math.max(1, opts.deadlineAt - Date.now())
-                  : retry ? 25_000 : 45_000,
+                  ? Math.max(1, opts.deadlineAt - CAPABILITY_PROBE_RECOVERY_RESERVE_MS - Date.now())
+                  : retry
+                    ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
+                    : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
               ),
               retryTransient: false,
               maxFallbackModels: 1,
@@ -1807,8 +1847,10 @@ async function runCapabilityMicroProbes(opts: {
             },
           ),
           opts.deadlineAt !== undefined
-            ? Math.max(1, opts.deadlineAt - Date.now())
-            : (retry ? 25_000 : 45_000),
+            ? Math.max(1, opts.deadlineAt - CAPABILITY_PROBE_RECOVERY_RESERVE_MS - Date.now())
+            : (retry
+              ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
+              : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS),
           opts.signal,
         );
       let result;
@@ -1878,6 +1920,24 @@ async function runCapabilityMicroProbes(opts: {
           `C3: PASS — source grounding is verified by ${citationLabel}; Evidence: ${exactEvidence}`,
         );
       }
+      // The model selects the semantic result, but the server owns the
+      // citation bytes. If a group answered a claim without quoting its
+      // verified candidate, attach the exact retained fragment before the
+      // aggregate is built. This converts evidence into claim-linked
+      // citations without trusting provider-supplied source text.
+      for (const label of group.labels) {
+        const line = extractedLines.get(label);
+        if (!line) continue;
+        const hasVerifiedQuote = [...(line.matchAll(/`([^`\n]{8,})`/g))]
+          .some((match) => [...opts.fileContents.values()].some((body) => body.includes(match[1]!)));
+        const candidate = [...microProbePacket.candidates.values()][0];
+        if (!hasVerifiedQuote && candidate) {
+          extractedLines.set(
+            label,
+            `${line} Source: ${candidate.file}; Evidence: \`${candidate.fragment}\``,
+          );
+        }
+      }
       const verifiedQuoteCount = quotedFragments.filter((fragment) =>
         [...opts.fileContents.values()].some((body) => body.includes(fragment)),
       ).length;
@@ -1895,7 +1955,17 @@ async function runCapabilityMicroProbes(opts: {
       for (const [label, line] of extractedLines) {
         lines.set(label, line);
       }
+      if (group.labels.every((label) => extractedLines.has(label))) {
+        completedGroups.add(group.name);
+      }
     } catch (error) {
+      if (
+        error instanceof Error &&
+        ("code" in error && String((error as { code?: unknown }).code) === "TIMEOUT" ||
+          /timed out|deadline/i.test(error.message))
+      ) {
+        deadlineExhausted = true;
+      }
       console.warn(JSON.stringify({
         scope: "chat-agent",
         code: "CAPABILITY_MICRO_PROBE_FAILED",
@@ -1903,6 +1973,16 @@ async function runCapabilityMicroProbes(opts: {
         reason: error instanceof Error ? error.message : String(error),
       }));
     }
+  }
+
+  // Do not turn timeout-generated FAIL lines into a seemingly valid C1–C7
+  // report. A micro-probe aggregate is a recovery candidate only when every
+  // requested group actually returned its labelled answer.
+  if (
+    deadlineExhausted ||
+    completedGroups.size !== CAPABILITY_MICRO_PROBE_GROUPS.length
+  ) {
+    return null;
   }
 
   const readObserved = opts.fileContents.size > 0;
@@ -9122,11 +9202,25 @@ export async function chat(opts: {
       !hasCapabilityProbeSourceGrounding(responseBeforeBehaviorEvidence, forensicFileContents)
     )
   ) {
-    capabilityProbeRecoveryDeadlineAt =
-      Date.now() + CAPABILITY_PROBE_RECOVERY_DEADLINE_MS;
+    const requestDeadline = executionLedger?.deadlineAt ?? Number.POSITIVE_INFINITY;
+    const recoveryDeadline = Math.min(
+      Date.now() + CAPABILITY_PROBE_RECOVERY_DEADLINE_MS,
+      requestDeadline - CAPABILITY_PROBE_RECOVERY_RESERVE_MS,
+    );
+    capabilityProbeRecoveryDeadlineAt = recoveryDeadline;
     recoveryAttemptsUsed += 1;
     const recoveryModel = result.model || model;
-    try {
+    if (
+      executionLedger?.isExhausted() ||
+      recoveryDeadline <= Date.now()
+    ) {
+      recoveryFailureKind = "TIMEOUT";
+      relayAgentStep({
+        kind: "diagnostic",
+        code: "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT",
+        details: ["request deadline left no bounded citation-repair window"],
+      });
+    } else try {
       const recovery = await awaitAbortableRecovery(
         (recoverySignal) => strategy.call(
           buildCapabilityProbeRecoveryMessages(

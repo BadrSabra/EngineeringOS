@@ -498,9 +498,19 @@ export async function executeFileTool(
         // بدل إرجاع خطأ ENOTDIR الذي يُربك النموذج ويدفعه لتكرار المحاولة.
         if (stat.isFile()) {
           const buf = await fs.readFile(abs);
-          const truncated = buf.length > MAX_READ_BYTES;
-          const text = (truncated ? buf.subarray(0, MAX_READ_BYTES) : buf).toString("utf-8");
-          const content = truncated ? text + READ_TRUNCATION_MARKER : text;
+          // A capability/forensic probe may use list_directory as a mistaken
+          // read_file call. Preserve its explicit complete contract here; the
+          // old branch silently downgraded it to the 128 KB display limit and
+          // made a valid probe look like incomplete source evidence.
+          const complete =
+            args.complete === "true" ||
+            (args.complete as unknown) === true;
+          const limit = complete ? MAX_FORENSIC_READ_BYTES : MAX_READ_BYTES;
+          const truncated = buf.length > limit;
+          const text = (truncated ? buf.subarray(0, limit) : buf).toString("utf-8");
+          const content = truncated
+            ? text + (complete ? FORENSIC_READ_TRUNCATION_MARKER : READ_TRUNCATION_MARKER)
+            : text;
           return `[note: "${target}" is a file, not a directory — returning its contents via read_file]\nFile: ${target}\n\`\`\`\n${content}\n\`\`\``;
         }
         const entries = await fs.readdir(abs, { withFileTypes: true });
