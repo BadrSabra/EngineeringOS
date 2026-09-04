@@ -59,9 +59,10 @@ export function buildContextCacheKey(
   projectId: string,
   sections?: readonly string[],
   planHash?: string,
+  sourceRoot?: string,
 ): string {
   const normalized = [...new Set(sections && sections.length > 0 ? sections : [])].sort();
-  const base = `${projectId}::${normalized.join(",")}`;
+  const base = `${projectId}::${normalized.join(",")}${sourceRoot ? `::root:${sourceRoot}` : ""}`;
   return planHash ? `${base}::plan:${planHash}` : base;
 }
 

@@ -23,6 +23,7 @@ import type { ExecutionPlan } from "./model-selection/execution-plan.js";
 import {
   buildSlice,
   type ContextPlan,
+  type ContextAdmissionIdentity,
   type SliceId,
   type AdmissionDecision,
   type ContextObject,
@@ -60,6 +61,8 @@ export type BuildContextOptions = BuildProjectContextOptions & {
   intent?: ContextIntent;
   /** Server-owned available subset; the full manifest remains immutable. */
   availableToolNames?: readonly string[];
+  /** Server-owned source root used to bind cached and admitted context. */
+  sourceRoot?: string;
 };
 
 // ─── Slice configuration ──────────────────────────────────────────────────────
@@ -278,12 +281,19 @@ export async function buildProjectContext(
   const sections = options.sections ??
     [...(effectivePlan.contextSections ?? [])] as ContextLoadSection[];
   const planHash = hashExecutionPlan(effectivePlan);
-  const cacheKey = buildContextCacheKey(projectId, sections, planHash);
+  const cacheKey = buildContextCacheKey(projectId, sections, planHash, options.sourceRoot);
   const now = Date.now();
   const cacheMode = effectivePlan.cacheMode;
   const cached = getCachedContext(cacheKey, cacheMode);
   if (cached && cached.expiresAt > now) {
     if (cached.runtime) {
+      const cachedIdentity = cached.runtime.contextObject.plan.admissionIdentity;
+      if (
+        cachedIdentity.projectId !== projectId ||
+        (options.sourceRoot !== undefined && cachedIdentity.sourceRoot !== options.sourceRoot)
+      ) {
+        // Never reuse a snapshot admitted for another project/root.
+      } else {
       const lifetime = applyLifetime(
         cached.runtime.contextObject,
         options.lifetimePolicy ?? DEFAULT_LIFETIME_POLICY,
@@ -300,14 +310,17 @@ export async function buildProjectContext(
       });
       warnIfContextTooLarge(projectId, cachedResult);
       return parseAgentContext(trimContextToFit(projectId, rebound, options.maxChars));
+      }
     }
-    return parseAgentContext(bindContextIdentity(cached.data, {
+    if (cached && (!options.sourceRoot || cached.data.contextManifest?.repositoryManifest?.sourceRoot === options.sourceRoot)) {
+      return parseAgentContext(bindContextIdentity(cached.data, {
       operationId,
       projectId,
       ...(options.sections ? { requestedSections: options.sections } : {}),
       ...(options.intent ? { intent: options.intent } : {}),
       ...(options.availableToolNames ? { availableToolNames: options.availableToolNames } : {}),
-    }));
+      }));
+    }
   }
 
   // Load raw DB rows and serialize to prompt strings.
@@ -337,6 +350,14 @@ export async function buildProjectContext(
 
   const contextPlan: ContextPlan = {
     projectId,
+    admissionIdentity: {
+      projectId,
+      projectRevision: loaded.contextManifest.projectRevision,
+      sourceRoot: options.sourceRoot
+        ?? loaded.contextManifest.repositoryManifest?.sourceRoot
+        ?? "unavailable",
+      scanCorrelationId: loaded.contextManifest.scanCorrelationId ?? "unavailable",
+    } satisfies ContextAdmissionIdentity,
     slices,
     totalEstimatedTokens: slices.reduce((s, sl) => s + sl.estimatedTokens, 0),
     budgetTokens:      effectivePlan.contextBudget,

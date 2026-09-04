@@ -58,9 +58,18 @@ export type ContextSlice = {
   admissionDecision: AdmissionDecision;
 };
 
+/** Stable identity that must travel with an admitted context snapshot. */
+export type ContextAdmissionIdentity = {
+  projectId: string;
+  projectRevision: string;
+  sourceRoot: string;
+  scanCorrelationId: string;
+};
+
 /** Full set of slices for one request plus their token budget constraints. */
 export type ContextPlan = {
   projectId: string;
+  admissionIdentity: ContextAdmissionIdentity;
   slices: ContextSlice[];
   totalEstimatedTokens: number;
   /** Overall context budget in tokens (from ExecutionPlan.contextBudget). */

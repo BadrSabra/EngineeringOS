@@ -22,6 +22,7 @@ import type {
   AdmissionDecision,
   ContextObject,
   ContextPlan,
+  ContextAdmissionIdentity,
 } from "./context-object.js";
 
 /** Importance score (higher = more critical; used when budget is constrained). */
@@ -89,6 +90,11 @@ function decideSlice(
  * Returns a ContextObject with every slice carrying its final decision.
  */
 export function runAdmission(plan: ContextPlan, executionPlan: ExecutionPlan): ContextObject {
+  const identityBound =
+    plan.admissionIdentity.projectId === plan.projectId &&
+    plan.admissionIdentity.projectRevision.length > 0 &&
+    plan.admissionIdentity.sourceRoot.length > 0 &&
+    plan.admissionIdentity.scanCorrelationId.length > 0;
   const sorted = [...plan.slices].sort(
     (a, b) => SLICE_IMPORTANCE[b.id] - SLICE_IMPORTANCE[a.id],
   );
@@ -107,10 +113,19 @@ export function runAdmission(plan: ContextPlan, executionPlan: ExecutionPlan): C
   }));
 
   return {
-    plan: { ...plan, slices: classified },
-    admittedSlices:  classified.filter((s) => s.admissionDecision === "ADMIT"),
-    referenceSlices: classified.filter((s) => s.admissionDecision === "REFERENCE"),
-    deferredSlices:  classified.filter((s) => s.admissionDecision === "DEFER"),
-    droppedSlices:   classified.filter((s) => s.admissionDecision === "DROP"),
+    plan: {
+      ...plan,
+      // An unbound identity is never allowed to present an admitted slice.
+      // Keeping the slices in the plan preserves bounded diagnostics without
+      // allowing them into the assembled prompt.
+      slices: classified.map((slice) => ({
+        ...slice,
+        admissionDecision: identityBound ? slice.admissionDecision : "DROP",
+      })),
+    },
+    admittedSlices:  classified.filter((s) => identityBound && s.admissionDecision === "ADMIT"),
+    referenceSlices: classified.filter((s) => identityBound && s.admissionDecision === "REFERENCE"),
+    deferredSlices:  classified.filter((s) => identityBound && s.admissionDecision === "DEFER"),
+    droppedSlices:   classified.filter((s) => !identityBound || s.admissionDecision === "DROP"),
   };
 }

@@ -2892,6 +2892,7 @@ router.post("/ai/chat", async (req, res) => {
     const baseProjectContext = await buildProjectContext(projectId, {
       plan: contextExecutionPlan,
       operationId: analysisCorrelation.operationId,
+      ...(validRootPath ? { sourceRoot: validRootPath } : {}),
       intent: {
         kind: turnIntent.kind,
         classification: String(turnIntent.classification),
@@ -4336,6 +4337,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     const baseProjectContext = await buildProjectContext(projectId, {
       plan: streamExecutionPlan,
       operationId: analysisCorrelation.operationId,
+      ...(validRootPath ? { sourceRoot: validRootPath } : {}),
       intent: {
         kind: streamTurnIntent.kind,
         classification: String(streamTurnIntent.classification),
