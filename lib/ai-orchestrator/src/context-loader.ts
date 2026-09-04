@@ -110,6 +110,10 @@ export type ContextLoadSection =
 
 export type BuildProjectContextOptions = {
   sections?: ContextLoadSection[];
+  /** Parent cancellation signal; aborted loads become QUERY_CANCELLED. */
+  signal?: AbortSignal;
+  /** Maximum loader duration. Defaults to the bounded 5-second context window. */
+  deadlineMs?: number;
 };
 
 // ─── LoadedProjectContext ─────────────────────────────────────────────────────
@@ -161,9 +165,11 @@ async function safeLoad<T>(
   fallback: T,
   label: string,
   projectId: string,
+  signal?: AbortSignal,
+  deadlineAt?: number,
 ): Promise<SafeLoadResult<T>> {
   try {
-    const value = await load();
+    const value = await guardedLoad(load, signal, deadlineAt);
     const empty =
       Array.isArray(value) ? value.length === 0 : value === undefined || value === null;
     return { value, status: empty ? "empty" : "loaded" };
@@ -179,6 +185,44 @@ async function safeLoad<T>(
       }),
     );
     return { value: fallback, status: "load_failed", failureCode };
+  }
+}
+
+function loadFailure(code: ContextLoadFailureCode): Error & { code: string } {
+  const error = new Error(code);
+  error.code = code === "QUERY_CANCELLED" ? "57012" : code === "QUERY_TIMEOUT" ? "57014" : code;
+  return error;
+}
+
+async function guardedLoad<T>(
+  load: () => Promise<T>,
+  signal?: AbortSignal,
+  deadlineAt?: number,
+): Promise<T> {
+  const check = () => {
+    if (signal?.aborted) throw loadFailure("QUERY_CANCELLED");
+    if (deadlineAt !== undefined && Date.now() >= deadlineAt) throw loadFailure("QUERY_TIMEOUT");
+  };
+  check();
+  if (!signal && deadlineAt === undefined) return load();
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abortHandler: (() => void) | undefined;
+  const guard = new Promise<never>((_, reject) => {
+    abortHandler = () => reject(loadFailure("QUERY_CANCELLED"));
+    signal?.addEventListener("abort", abortHandler, { once: true });
+    if (deadlineAt !== undefined) {
+      timer = setTimeout(
+        () => reject(loadFailure("QUERY_TIMEOUT")),
+        Math.max(0, deadlineAt - Date.now()),
+      );
+    }
+  });
+  try {
+    return await Promise.race([load(), guard]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (abortHandler) signal?.removeEventListener("abort", abortHandler);
   }
 }
 
@@ -382,6 +426,7 @@ export async function loadProjectContext(
   options: BuildProjectContextOptions = {},
 ): Promise<LoadedProjectContext> {
   const requestedSections = resolveContextSections(options.sections);
+  const deadlineAt = Date.now() + Math.max(1, options.deadlineMs ?? 5_000);
   const wants = (section: ContextLoadSection): boolean =>
     requestedSections.has(section);
 
@@ -400,13 +445,15 @@ export async function loadProjectContext(
         workflowsResult,
         scanResult,
       ] = await Promise.all([
-        loadProject(q, projectId), // throws on missing project
+        guardedLoad(() => loadProject(q, projectId), options.signal, deadlineAt), // throws on missing project
         wants("tasks")
           ? safeLoad(
               () => loadTasks(q, projectId),
               [] as TaskRow[],
               "tasks",
               projectId,
+              options.signal,
+              deadlineAt,
             )
           : Promise.resolve<SafeLoadResult<TaskRow[]>>({
               value: [],
@@ -418,6 +465,8 @@ export async function loadProjectContext(
               undefined,
               "metrics",
               projectId,
+              options.signal,
+              deadlineAt,
             )
           : Promise.resolve<SafeLoadResult<MetricRow | undefined>>({
               value: undefined,
@@ -435,6 +484,8 @@ export async function loadProjectContext(
               { entities: [] as GraphEntityRow[], relationships: [] as GraphRelationshipRow[] },
               "graph",
               projectId,
+              options.signal,
+              deadlineAt,
             )
           : Promise.resolve<SafeLoadResult<{
               entities: GraphEntityRow[];
@@ -449,6 +500,8 @@ export async function loadProjectContext(
               [] as EventRow[],
               "events",
               projectId,
+              options.signal,
+              deadlineAt,
             )
           : Promise.resolve<SafeLoadResult<EventRow[]>>({
               value: [],
@@ -460,6 +513,8 @@ export async function loadProjectContext(
               [] as WorkflowRow[],
               "workflows",
               projectId,
+              options.signal,
+              deadlineAt,
             )
           : Promise.resolve<SafeLoadResult<WorkflowRow[]>>({
               value: [],
@@ -470,6 +525,8 @@ export async function loadProjectContext(
           undefined,
           "scanJobs",
           projectId,
+          options.signal,
+          deadlineAt,
         ),
       ]);
 
