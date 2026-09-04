@@ -109,6 +109,19 @@ export const ContextProvenanceSliceSchema = z.object({
 }).strict();
 export type ContextProvenanceSlice = z.infer<typeof ContextProvenanceSliceSchema>;
 
+export const ContextProvenanceLinkSchema = z.object({
+  source: ContextLinkSourceSchema,
+  layer: z.enum(["direct", "derived", "conflict"]),
+  direction: z.enum(["outbound", "inbound", "related"]),
+  status: ContextLinkStatusSchema,
+  freshness: z.enum(["fresh", "stale", "missing"]),
+  rowCount: z.number().int().nonnegative(),
+  linkReason: z.string().min(1).max(160),
+  sourceRefCount: z.number().int().nonnegative().max(8),
+  confidence: z.number().min(0).max(1).optional(),
+}).strict();
+export type ContextProvenanceLink = z.infer<typeof ContextProvenanceLinkSchema>;
+
 export const ContextProvenanceSchema = z.object({
   schemaVersion: z.literal(CONTEXT_SCHEMA_VERSION),
   intentKind: z.string().min(1).max(80),
@@ -118,6 +131,7 @@ export const ContextProvenanceSchema = z.object({
     returnedCount: z.number().int().nonnegative(),
     truncated: z.boolean(),
     statuses: z.array(ContextLinkStatusSchema).max(48),
+    details: z.array(ContextProvenanceLinkSchema).max(48),
   }).strict(),
   citations: z.array(z.string().min(1).max(256)).max(48),
 }).strict().transform((provenance) => {

@@ -76,6 +76,7 @@ export function buildContextLinks(loaded: LoadedProjectContext): ContextLink[] {
   const links: ContextLink[] = [];
   const perAnchor = new Map<string, number>();
   const entitiesByPath = new Map<string, Array<{ id: string; confidence: number | undefined }>>();
+  const entitiesById = new Map(loaded.entities.map((entity) => [entity.id, entity]));
   for (const entity of loaded.entities) {
     const path = relativePath(entity.path);
     if (!path) continue;
@@ -154,6 +155,28 @@ export function buildContextLinks(loaded: LoadedProjectContext): ContextLink[] {
     }
   }
 
+  for (const relationship of loaded.relationships) {
+    const source = entitiesById.get(relationship.sourceId);
+    const target = entitiesById.get(relationship.targetId);
+    if (!source || !target) continue;
+    const sourcePath = relativePath(source.path);
+    const targetPath = relativePath(target.path);
+    const refs = [
+      `graph:${relationship.sourceId}`,
+      `graph:${relationship.targetId}`,
+      ...(sourcePath ? [`file:${sourcePath}`] : []),
+      ...(targetPath ? [`file:${targetPath}`] : []),
+    ];
+    addBounded(links, perAnchor, link(
+      `graph:${relationship.sourceId}`,
+      "graph",
+      "outbound",
+      `Graph relationship ${relationship.relationType ?? relationship.relation} connects two project-owned entities.`,
+      refs,
+      { layer: relationship.isHeuristic ? "derived" : "direct", confidence: relationship.confidence ?? undefined },
+    ));
+  }
+
   const metricMeta = loaded.sliceMetadata.get("metrics");
   if (loaded.latestMetric && metricMeta?.status === "loaded") {
     addBounded(links, perAnchor, link(
@@ -164,6 +187,16 @@ export function buildContextLinks(loaded: LoadedProjectContext): ContextLink[] {
       ["project", "metric:latest"],
       { layer: "direct" },
     ));
+    for (const entity of loaded.entities.slice(0, 10)) {
+      addBounded(links, perAnchor, link(
+        `graph:${entity.id}`,
+        "metric",
+        "related",
+        "The current graph entity is evaluated within the latest project metric snapshot.",
+        [`graph:${entity.id}`, "metric:latest"],
+        { layer: "derived", confidence: entity.confidence ?? undefined },
+      ));
+    }
   }
   const scanMeta = loaded.sliceMetadata.get("project");
   if (loaded.scanVerified && scanMeta?.status === "loaded") {
@@ -175,8 +208,20 @@ export function buildContextLinks(loaded: LoadedProjectContext): ContextLink[] {
       ["project", "scan:latest"],
       { layer: "direct" },
     ));
+    for (const entity of loaded.entities.slice(0, 10)) {
+      addBounded(links, perAnchor, link(
+        `graph:${entity.id}`,
+        "scan",
+        "related",
+        "The current graph entity is covered by the completed project scan revision.",
+        [`graph:${entity.id}`, `scan:${loaded.contextManifest.projectRevision}`],
+        { layer: "derived" },
+      ));
+    }
   }
-  return links;
+  const capturedAt = Date.parse(loaded.contextManifest.capturedAt);
+  const stableLoadedAt = Number.isFinite(capturedAt) ? capturedAt : 0;
+  return links.map((entry) => ({ ...entry, loadedAt: stableLoadedAt }));
 }
 
 export function contextLinkCollection(links: readonly ContextLink[]) {

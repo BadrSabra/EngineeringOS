@@ -166,6 +166,17 @@ type ChatMessage = {
       returnedCount: number;
       truncated: boolean;
       statuses: string[];
+      details: Array<{
+        source: string;
+        layer: string;
+        direction: string;
+        status: string;
+        freshness: string;
+        rowCount: number;
+        linkReason: string;
+        sourceRefCount: number;
+        confidence?: number;
+      }>;
     };
     citations: string[];
   };
@@ -10974,6 +10985,16 @@ function ContextProvenanceCard({
           <div><span className="text-foreground">Intent:</span> {provenance.intentKind}</div>
           <div><span className="text-foreground">Revision:</span> {provenance.revisionLabel}</div>
           <div><span className="text-foreground">Links:</span> {provenance.links.returnedCount}{provenance.links.truncated ? ' (truncated)' : ''}</div>
+          {provenance.links.details.length > 0 && (
+            <div className="space-y-0.5">
+              {provenance.links.details.slice(0, 12).map((link, index) => (
+                <div key={`${link.source}-${link.layer}-${index}`}>
+                  <span className="text-foreground">{link.source}/{link.layer}:</span>{' '}
+                  {link.linkReason} ({link.direction}, {link.status}, {link.sourceRefCount} refs)
+                </div>
+              ))}
+            </div>
+          )}
           <div className="space-y-0.5">
             {provenance.slices.map((slice) => (
               <div key={slice.layer}>

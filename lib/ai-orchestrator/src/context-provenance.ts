@@ -42,6 +42,17 @@ export function projectContextProvenance(context: AgentContext): ContextProvenan
       returnedCount: links.length,
       truncated: context.contextLinkCollection?.truncated ?? false,
       statuses: [...new Set(links.map((entry) => entry.status))],
+      details: links.slice(0, 48).map((entry) => ({
+        source: entry.source,
+        layer: entry.layer,
+        direction: entry.direction,
+        status: entry.status,
+        freshness: entry.freshness,
+        rowCount: entry.rowCount,
+        linkReason: entry.linkReason,
+        sourceRefCount: entry.sourceRefs.length,
+        ...(entry.confidence !== undefined ? { confidence: entry.confidence } : {}),
+      })),
     },
     citations,
   };
