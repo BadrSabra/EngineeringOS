@@ -70,7 +70,6 @@ async function insertProject(status: "active" | "scanning"): Promise<string> {
 describe("reconcileStuckJobs", () => {
   const projectCleanup: string[] = [];
   const sessionCleanup: string[] = [];
-  const deliveryRootCleanup: string[] = [];
 
   afterEach(async () => {
     vi.mocked(heavyJobQueue.enqueue).mockClear();
@@ -684,6 +683,7 @@ describe("requeueStalePendingJobs", () => {
 describe("dispatchPersistedPendingJobs", () => {
   const projectCleanup: string[] = [];
   const sessionCleanup: string[] = [];
+  const deliveryRootCleanup: string[] = [];
 
   afterEach(async () => {
     vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
