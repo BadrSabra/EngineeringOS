@@ -5100,6 +5100,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           assistantAt: msgNow,
           toolTrace: traceSteps,
           executionLedgerSnapshot,
+           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         });
         if (aiExecution && (
           !persistedFailedMessage
@@ -5128,6 +5129,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             executionLedgerSnapshot,
           ),
           createdAt: msgNow,
+           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         };
         if (terminalOutcome.failureKind === "TOOL_FAILURE") {
           sse({
@@ -5147,6 +5149,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             executionId: aiExecution.id,
             sessionId: sessionIdToUse,
             executionLedger: executionLedgerSnapshot,
+             contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
           });
         } else {
@@ -5177,10 +5180,12 @@ router.post("/ai/chat/stream", async (req, res) => {
               retryable: terminalOutcome.retryable,
               recoveryState: terminalOutcome.recoveryState,
               executionLedger: executionLedgerSnapshot,
+               contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
               ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
             },
             sources: redactUserFacingValue(result.sources),
             toolTrace: publicToolTrace,
+             contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             pendingChanges: redactUserFacingValue(result.pendingChanges),
             operationMode: streamTurnIntent.operationMode,
             execution: projectPublicExecutionSummary(executionSummary, false),
