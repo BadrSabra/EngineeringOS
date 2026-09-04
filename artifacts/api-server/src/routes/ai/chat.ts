@@ -74,7 +74,7 @@ import {
   toPublicExecutionLedgerSnapshot,
   deriveForensicDiagnostic,
   projectContextProvenance,
-  ContextProvenanceSchema,
+  parseContextProvenance,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -501,8 +501,7 @@ function readContextProvenanceTrace(value: string | null | undefined): ReturnTyp
     && (candidate as Record<string, unknown>).kind === "context_provenance",
   );
   if (!entry || typeof entry !== "object") return undefined;
-  const parsedProvenance = ContextProvenanceSchema.safeParse(entry);
-  return parsedProvenance.success ? parsedProvenance.data : undefined;
+  return parseContextProvenance(entry);
 }
 
 function readExecutionLedgerTrace(value: string | null | undefined): ExecutionLedgerPublicSnapshot | undefined {

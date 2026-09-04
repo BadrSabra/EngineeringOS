@@ -55,7 +55,7 @@ export {
   ContextProvenanceSchema,
   AuthorizedToolManifestEntrySchema,
 } from "./context-contract.js";
-export { projectContextProvenance } from "./context-provenance.js";
+export { parseContextProvenance, projectContextProvenance } from "./context-provenance.js";
 export type {
   ContextIntent,
   ContextCollection,

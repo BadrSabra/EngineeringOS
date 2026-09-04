@@ -1,6 +1,7 @@
 import type { AgentContext, ContextHealth } from "./schemas/context.schema.js";
 import {
   CONTEXT_SCHEMA_VERSION,
+  ContextProvenanceSchema,
   type ContextProvenance,
 } from "./context-contract.js";
 
@@ -9,6 +10,28 @@ function safeCitation(value: string): string | undefined {
   const path = value.replace(/^file:/, "").replaceAll("\\", "/");
   if (!path || path.startsWith("/") || /^[A-Za-z]:\//.test(path) || path.includes("..")) return undefined;
   return path.length <= 256 ? path : undefined;
+}
+
+/**
+ * Read persisted provenance at the boundary.  The trace wrapper's `kind`
+ * marker is storage metadata, not part of the public contract.  Older traces
+ * also predate the per-link detail projection, so an absent details array is
+ * migrated to an empty one rather than making the whole historical message
+ * unreadable.
+ */
+export function parseContextProvenance(value: unknown): ContextProvenance | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const { kind: _kind, ...candidate } = value as Record<string, unknown>;
+  const rawLinks = candidate.links;
+  if (rawLinks && typeof rawLinks === "object" && !Array.isArray(rawLinks)) {
+    const links = rawLinks as Record<string, unknown>;
+    candidate.links = {
+      ...links,
+      details: Array.isArray(links.details) ? links.details : [],
+    };
+  }
+  const parsed = ContextProvenanceSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : undefined;
 }
 
 /** Allowlisted projection shared by API, SSE, persistence, and dashboard. */
