@@ -3916,7 +3916,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         (compoundProposalActive || pendingChanges.length > 0) &&
         tc.function.name !== "write_file" &&
         tc.function.name !== "replace_text" &&
-        !(executionMode === "repair_plan" && isValidationCall)
+        !(isValidationCall && !compoundWriteMode)
       ) {
         messages.push({
           role: "tool",
