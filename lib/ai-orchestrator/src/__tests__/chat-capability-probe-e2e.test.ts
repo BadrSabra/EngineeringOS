@@ -94,13 +94,13 @@ const GROUNDED_NEGATIVE_ANSWER = JSON.stringify({
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
     "C2: PASS — read_file for contents; search_code / read_file_range for a symbol. " +
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');` " +
-    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`\n" +
+    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`\n" +
     "C3: PASS — the named function was grounded in the completed source read. " +
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
     "C4: PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read. " +
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
     "C5: PASS — I used no write tool; no code was modified. " +
-    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`\n" +
+    "Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`\n" +
     "C6: PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call. " +
     "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`\n" +
     "C7: PASS — `run()` and immediate write_file-to-disk behavior are MISSING. " +
@@ -180,6 +180,68 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     expect(classification.taskType).toBe("BEHAVIOR_QUERY");
     // Both named files remain the single-file forensic scope.
     expect(classification.singleFileForensicMode).toBe(true);
+  });
+
+  it("requires a separate exact citation for every capability claim and both source files", () => {
+    const groundedResponse = JSON.parse(GROUNDED_NEGATIVE_ANSWER).response as string;
+    const valid = validateCapabilityProbeCitations(
+      groundedResponse,
+      new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+    );
+    expect(valid.valid).toBe(true);
+    expect(valid.citedSources).toEqual(expect.arrayContaining([FILE_A, FILE_B]));
+
+    const withoutC7Citation = groundedResponse.replace(
+      "Evidence: `return `executed:${name}`;`\nOverall score",
+      "Evidence: `run()`\nOverall score",
+    );
+    const rejected = validateCapabilityProbeCitations(
+      withoutC7Citation,
+      new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+    );
+    expect(rejected.valid).toBe(false);
+    expect(rejected.violations.some((violation) => violation.startsWith("C7 "))).toBe(true);
+  });
+
+  it("stops near-deadline citation recovery before the final-output reserve", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const requestDeadline = 13_000;
+      const recoveryWindow = capabilityProbeRecoveryDeadline(Date.now(), requestDeadline);
+      expect(recoveryWindow.deadlineAt).toBe(5_000);
+      expect(requestDeadline - recoveryWindow.deadlineAt).toBe(recoveryWindow.reserveMs);
+
+      const strategy = {
+        call: vi.fn(async () => new Promise<{ content: string; model: string }>(() => undefined)),
+      };
+      const recovery = runCapabilityMicroProbes({
+        strategy,
+        provider: "openrouter",
+        model: "initial-model",
+        fileContents: new Map([
+          [FILE_A, CONTENT_A],
+          [FILE_B, CONTENT_B],
+        ]),
+        pendingChanges: [],
+        deadlineAt: requestDeadline,
+      });
+
+      await vi.advanceTimersByTimeAsync(4_001);
+      await expect(recovery).resolves.toBeNull();
+      expect(strategy.call).toHaveBeenCalledTimes(1);
+      expect(Date.now()).toBeLessThanOrEqual(
+        requestDeadline - recoveryWindow.reserveMs,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication", async () => {
@@ -289,12 +351,12 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         "C1: PASS — `export function isPromptProsePath(value: string): boolean {` exists in " +
         "profile-classifier.ts and returns whether its input includes 'defect/repair'. " +
         "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
-      C2: "PASS — read_file for contents; search_code / read_file_range for a symbol. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`",
+      C2: "PASS — read_file for contents; search_code / read_file_range for a symbol. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`",
       C3: "PASS — the named function was grounded in the completed source read. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
       C4: "PASS — `PROSE_PSEUDO_PATH_DENYLIST` is MISSING; no out-of-scope file was read. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
-      C5: "PASS — I used no write tool; no code was modified. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`",
+      C5: "PASS — I used no write tool; no code was modified. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`",
       C6: "PASS — NO FINDING: profile-classifier.ts has no `eval(` or `Function(` call. Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; Evidence: `return value.includes('defect/repair');`",
-      C7: "PASS — `run()` and immediate write_file-to-disk behavior are MISSING. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return \\`executed:${name}\\`;`",
+      C7: "PASS — `run()` and immediate write_file-to-disk behavior are MISSING. Source: `lib/ai-orchestrator/src/tools/file-tools.ts`; Evidence: `return `executed:${name}`;`",
       overall: "Overall score: 7/7.",
     });
     let callCount = 0;
