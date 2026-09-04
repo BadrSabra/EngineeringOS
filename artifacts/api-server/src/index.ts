@@ -148,6 +148,11 @@ try {
   process.exit(1);
 }
 
+// Ensure the AI credential encryption key is available before any background
+// job can decrypt stored provider credentials. Auto-generates and persists one
+// if AI_CREDENTIALS_ENCRYPTION_KEY is not set.
+await ensureEncryptionKey();
+
 // Start the background free-model catalog refresh scheduler.  Runs every 5
 // minutes so the resolver always has a fresh live list of free-tier models —
 // even when the server is idle between user sessions.  The first refresh
@@ -172,10 +177,6 @@ try {
     "AI provider startup validation failed — continuing without AI validation",
   );
 }
-
-// Ensure the AI credential encryption key is available before accepting traffic.
-// Auto-generates and persists one if AI_CREDENTIALS_ENCRYPTION_KEY is not set.
-await ensureEncryptionKey();
 
 // Reconcile any scan/discovery jobs orphaned by a previous process (crash,
 // deploy, kill) before accepting traffic — see job-reconciliation.ts. This
