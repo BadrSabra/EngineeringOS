@@ -3056,7 +3056,7 @@ router.post("/ai/chat", async (req, res) => {
       const forensicDiagnostic = turnIntent.requiresEvidence
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
-      await persistFailedChatTurn({
+      const persistedProviderFailure = await persistFailedChatTurn({
         sessionId: sessionIdToUse,
         projectId,
         message,
@@ -5222,7 +5222,18 @@ router.post("/ai/chat/stream", async (req, res) => {
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
-      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+      }).catch((persistError) => {
+        logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure");
+        return undefined;
+      });
+      if (aiExecution && (
+        !persistedProviderFailure
+        || persistedProviderFailure.outcome === "SUCCEEDED"
+      )) {
+        executionTerminal = true;
+        res.end();
+        return;
+      }
       res.end();
       return;
     }
@@ -5246,7 +5257,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionLedger: executionLedgerSnapshot,
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       });
-      await persistFailedChatTurn({
+      const persistedQualityFailure = await persistFailedChatTurn({
         sessionId: sessionIdToUse,
         projectId,
         message,
@@ -5264,7 +5275,18 @@ router.post("/ai/chat/stream", async (req, res) => {
           retryable: true,
           recoveryState: "REQUIRED",
         },
-      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: quality failure persistence failed"));
+      }).catch((persistError) => {
+        logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: quality failure persistence failed");
+        return undefined;
+      });
+      if (aiExecution && (
+        !persistedQualityFailure
+        || persistedQualityFailure.outcome === "SUCCEEDED"
+      )) {
+        executionTerminal = true;
+        res.end();
+        return;
+      }
       res.end();
       return;
     }
@@ -5286,7 +5308,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           executionLedger: executionLedgerSnapshot,
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
-        await persistFailedChatTurn({
+        const persistedParseFailure = await persistFailedChatTurn({
           sessionId: sessionIdToUse,
           projectId,
           message,
@@ -5299,7 +5321,18 @@ router.post("/ai/chat/stream", async (req, res) => {
           assistantAt: msgNow,
           toolTrace: traceSteps,
           executionLedgerSnapshot,
-        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+        }).catch((persistError) => {
+          logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure");
+          return undefined;
+        });
+        if (aiExecution && (
+          !persistedParseFailure
+          || persistedParseFailure.outcome === "SUCCEEDED"
+        )) {
+          executionTerminal = true;
+          res.end();
+          return;
+        }
         res.end();
         return;
       }
