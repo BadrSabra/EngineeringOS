@@ -4090,6 +4090,12 @@ router.post("/ai/chat/stream", async (req, res) => {
       id: aiExecution.id,
       mode: executionLedgerMode(streamTurnIntent),
       signal: activeExecutionAbortController.signal,
+      // Capability probes include a source-grounding repair pass after the
+      // read loop. Keep that pass inside the same request-owned ledger while
+      // allowing a bounded tail for citations and terminal persistence.
+      ...(isCapabilityProbeRequest(executionRequest.message)
+        ? { budget: { deadlineMs: 150_000 } }
+        : {}),
     });
     let executionLedgerSnapshot: ExecutionLedgerPublicSnapshot | undefined;
     let checkpointChain: Promise<void> = Promise.resolve();

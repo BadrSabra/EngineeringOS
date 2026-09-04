@@ -3946,7 +3946,14 @@ export async function chat(opts: {
     createExecutionLedger({
       mode: "tool_chat",
       signal,
-      budget: { modelCalls: BUDGET_BY_SCOPE.tool_chat.maxIterations, toolCalls: BUDGET_BY_SCOPE.tool_chat.maxToolCalls },
+      // Capability probes have a bounded citation-repair phase after source
+      // collection. Give that phase a small, explicit tail instead of letting
+      // the general tool loop consume the entire request window.
+      budget: {
+        modelCalls: BUDGET_BY_SCOPE.tool_chat.maxIterations,
+        toolCalls: BUDGET_BY_SCOPE.tool_chat.maxToolCalls,
+        ...(isCapabilityProbeRequest(message) ? { deadlineMs: 150_000 } : {}),
+      },
     });
 
   // ── Profile classification ────────────────────────────────────────────────
