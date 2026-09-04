@@ -722,6 +722,7 @@ describe("dispatchPersistedPendingJobs", () => {
     const newContent = "export const recovered = true;\n";
     const now = new Date();
 
+    await mkdir(join(rootPath, "src"), { recursive: true });
     await writeFile(join(rootPath, targetPath), originalContent, "utf8");
     await db.update(projectsTable)
       .set({ rootPath })

@@ -5588,6 +5588,11 @@ export async function chat(opts: {
           shouldRunAutomaticFinalValidation
         ) {
           validationAttemptsConsumed += 1;
+          recordNodeStep({
+            kind: "repair_state",
+            state: "VALIDATING",
+            detail: `Running registered validation profile "${node.validationProfile}".`,
+          });
           let automaticValidation: ValidationResult | undefined;
           try {
             const output = await executeValidationTool(
