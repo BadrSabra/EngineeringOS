@@ -5296,6 +5296,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           recoveryState: "REQUIRED",
           correlationId: randomUUID(),
           executionLedger: executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         });
       } else {
         logger.error({ err }, "chat stream: unexpected non-GroqClientError");
@@ -5305,6 +5306,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           message: "The AI provider could not complete the request. Retry in a moment or configure another provider.",
           correlationId: randomUUID(),
           executionLedger: executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         });
       }
       const persistedProviderFailure = await persistFailedChatTurn({
@@ -5320,6 +5322,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       }).catch((persistError) => {
         logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure");
         return undefined;
