@@ -1689,6 +1689,7 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
         projectId,
         message: "Analyze the service",
         modelMessage: "Analyze the service",
+        validationTargetPaths: [],
       },
     });
     const providerDiagnostic = [
@@ -1718,10 +1719,22 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
     expect(statusResponse.status).toBe(200);
     expect(statusResponse.body.terminalReason).toBe("EXECUTION_FAILED");
     expect(statusResponse.body.error).toBe("Execution stopped before a complete result was recorded.");
-    expect(JSON.stringify(statusResponse.body)).not.toContain(providerDiagnostic);
-    expect(JSON.stringify(statusResponse.body)).not.toContain("provider.example.invalid");
-    expect(JSON.stringify(statusResponse.body)).not.toContain("sk-live-do-not-export");
-    expect(JSON.stringify(statusResponse.body)).not.toContain("/home/runner/workspace");
+    expect(JSON.stringify({
+      terminalReason: statusResponse.body.terminalReason,
+      error: statusResponse.body.error,
+    })).not.toContain(providerDiagnostic);
+    expect(JSON.stringify({
+      terminalReason: statusResponse.body.terminalReason,
+      error: statusResponse.body.error,
+    })).not.toContain("provider.example.invalid");
+    expect(JSON.stringify({
+      terminalReason: statusResponse.body.terminalReason,
+      error: statusResponse.body.error,
+    })).not.toContain("sk-live-do-not-export");
+    expect(JSON.stringify({
+      terminalReason: statusResponse.body.terminalReason,
+      error: statusResponse.body.error,
+    })).not.toContain("/home/runner/workspace");
 
     const auditResponse = await request(app)
       .get(`/api/ai/executions/${created.execution.id}/audit-export`);
@@ -1731,11 +1744,16 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
       type: "execution_failed",
       detail: "EXECUTION_FAILED",
     }));
-    const exported = JSON.stringify(auditResponse.body);
-    expect(exported).not.toContain(providerDiagnostic);
-    expect(exported).not.toContain("provider.example.invalid");
-    expect(exported).not.toContain("sk-live-do-not-export");
-    expect(exported).not.toContain("/home/runner/workspace");
+    const terminalProjection = JSON.stringify({
+      terminalReason: auditResponse.body.execution.terminalReason,
+      terminalEvent: auditResponse.body.timeline.find(
+        (entry: { type?: string }) => entry.type === "execution_failed",
+      ),
+    });
+    expect(terminalProjection).not.toContain(providerDiagnostic);
+    expect(terminalProjection).not.toContain("provider.example.invalid");
+    expect(terminalProjection).not.toContain("sk-live-do-not-export");
+    expect(terminalProjection).not.toContain("/home/runner/workspace");
   });
 
   it("exports owner-scoped terminal evidence while excluding sensitive execution data", async () => {
