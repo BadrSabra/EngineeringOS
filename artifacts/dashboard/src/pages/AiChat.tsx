@@ -5025,7 +5025,11 @@ function MessageBubble({
             : <ExecutionSummaryBanner
                 summary={executionSummary}
                 operatorTraceId={`operator-trace-${msg.id}`}
-                visible={isForensicRun || isEngineeringExecution}
+                // Generic chats do not show forensic evidence cards, but a
+                // failed provider/connection still needs its persisted
+                // execution stop reason and diagnostic surfaced. Keep this
+                // narrow so successful ordinary chat stays telemetry-free.
+                visible={isForensicRun || isEngineeringExecution || (failedTurn && executionSummary !== null)}
               />}
         {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
         {!isUser && !isChatTurn && <ExecutionLedgerCard snapshot={executionLedger} />}
