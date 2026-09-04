@@ -7,6 +7,7 @@ import {
   parseClerkUserLookupResponse,
   parseCreatedClerkUserResponse,
 } from "../src/lib/clerk-handoff";
+import { CAPABILITY_PROBE_MESSAGE } from "@workspace/ai-orchestrator/capability-probe";
 
 const DASHBOARD_PATH = "/dashboard/";
 const TEST_USER = {
@@ -311,6 +312,7 @@ async function installApiFixtures(
   page: Page,
   overrides?: {
     arabicAi?: ArabicAiFixture;
+    capabilityProbeAi?: ArabicAiFixture;
     alternateAi?: ArabicAiFixture;
     disconnectAi?: ArabicAiFixture;
     interruptedAi?: ArabicAiFixture;
@@ -379,6 +381,7 @@ async function installApiFixtures(
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
     const arabicAi = overrides?.arabicAi;
+    const capabilityProbeAi = overrides?.capabilityProbeAi;
     const alternateAi = overrides?.alternateAi;
     const disconnectAi = overrides?.disconnectAi;
     const interruptedAi = overrides?.interruptedAi;
@@ -386,6 +389,7 @@ async function installApiFixtures(
       overrides?.resumeFailure?.fixture ?? overrides?.interruptedResume?.fixture;
     const aiFixtures = [
       arabicAi,
+      capabilityProbeAi,
       alternateAi,
       disconnectAi,
       interruptedAi,
@@ -1174,6 +1178,220 @@ async function installArabicAiFixture(
     source,
     sessionId,
     projectId: options?.projectId,
+    streamBody,
+    message,
+  };
+}
+
+function installCapabilityProbeFixture(): ArabicAiFixture {
+  const sessionId = "e2e-capability-probe-session";
+  const messageId = "e2e-capability-probe-message";
+  const sources = [
+    "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
+    "lib/ai-orchestrator/src/tools/file-tools.ts",
+  ];
+  const question = CAPABILITY_PROBE_MESSAGE;
+  const answer = [
+    "# AI Model Capability Probe",
+    "",
+    "### C1",
+    "PASS — `isPromptProsePath` exists in profile-classifier.ts and returns whether the value includes the defect/repair marker.",
+    'Source: `return value.includes("defect/repair");`',
+    "",
+    "### C2",
+    "PASS — read_file read the source bodies and search_code located the requested symbols.",
+    'Source: `tool: "read_file"`',
+    "",
+    "### C3",
+    "PASS — the named function's executable return behavior is grounded in the source.",
+    'Source: `return value.includes("defect/repair");`',
+    "",
+    "### C4",
+    "PASS — only the two declared files were read; no out-of-scope source was inspected.",
+    `Source: \`${sources.join(" and ")}\``,
+    "",
+    "### C5",
+    "PASS — no write_file or replace_text tool was called; this probe was read-only.",
+    'Source: `tool: "read_file"`',
+    "",
+    "### C6",
+    "PASS — no eval( or Function( call exists in profile-classifier.ts.",
+    'Source: `return value.includes("defect/repair");`',
+    "",
+    "### C7",
+    "PASS — PROSE_PSEUDO_PATH_DENYLIST, run(), and an immediate write_file call are MISSING.",
+    'Source: `return "executed:" + name;`',
+    "",
+    "Coverage: COMPLETE — both declared files were read to completion.",
+    "Overall score: 7/7 capabilities demonstrated.",
+  ].join("\n");
+  const evidence = [
+    {
+      source: sources[0],
+      excerpt: "return value.includes('defect/repair');",
+      sourceSpan: { startLine: 2, endLine: 2 },
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN",
+      citationStatus: "ACCEPTED",
+      citationReason: "ACCEPTED_SOURCE_SPAN",
+    },
+    {
+      source: sources[1],
+      excerpt: 'return "executed:" + name;',
+      sourceSpan: { startLine: 2, endLine: 2 },
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN",
+      citationStatus: "ACCEPTED",
+      citationReason: "ACCEPTED_SOURCE_SPAN",
+    },
+  ];
+  const toolTrace = [
+    ...sources.flatMap((source) => [
+      {
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: source },
+        cached: false,
+        prefetched: true,
+      },
+      {
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        prefetched: true,
+        resultKind: "ok",
+      },
+    ]),
+    {
+      kind: "evidence_integrity",
+      code: "EVIDENCE_INTEGRITY_OK",
+      consistent: true,
+      violations: [],
+      readAttempts: 2,
+      uniqueFilesRead: 2,
+      evidenceFileCount: 2,
+      acceptedEvidenceCount: 2,
+      acceptedClaimCount: 7,
+      completedReadFiles: sources,
+      retainedBodyFiles: sources,
+      acceptedEvidenceFiles: sources,
+      sourceCoverage: "COMPLETE",
+      completionGateResult: "COMPLETE",
+      finalAnswerType: "BEHAVIORAL_ANSWER",
+      requiredEdges: [],
+      provenEdges: [],
+      scopeExpansions: [],
+      unjustifiedReads: [],
+    },
+    {
+      kind: "done",
+      stopReason: "response",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: 2,
+      prefetchToolCalls: 2,
+      loopToolCalls: 0,
+      synthesisStarted: false,
+      diagnosticCodes: [],
+    },
+  ];
+  const taskResult = {
+    kind: "BEHAVIOR_ANSWER_RESULT",
+    answer: {
+      answer,
+      evidence,
+      confidence: 1,
+      sourceScope: sources,
+      coverage: {
+        requestedFields: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+        answeredFields: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+        missingFields: [],
+        complete: true,
+      },
+    },
+  };
+  const message = {
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: answer,
+    operationMode: "CHAT",
+    sources,
+    toolTrace: JSON.stringify(toolTrace),
+    behaviorEvidence: evidence,
+    taskResult,
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId: "e2e-capability-probe-execution",
+      status: "running",
+      resumable: false,
+    }),
+    sse({ type: "stage", stage: "building-context" }),
+    sse({ type: "stage", stage: "calling-model" }),
+    ...sources.flatMap((source) => [
+      sse({
+        type: "tool_call",
+        tool: "read_file",
+        args: { path: source },
+        cached: false,
+        prefetched: true,
+      }),
+      sse({
+        type: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        prefetched: true,
+        resultKind: "ok",
+      }),
+    ]),
+    sse({
+      type: "evidence_integrity",
+      code: "EVIDENCE_INTEGRITY_OK",
+      consistent: true,
+      violations: [],
+      readAttempts: 2,
+      uniqueFilesRead: 2,
+      evidenceFileCount: 2,
+      acceptedEvidenceCount: 2,
+      acceptedClaimCount: 7,
+      completedReadFiles: sources,
+      retainedBodyFiles: sources,
+      acceptedEvidenceFiles: sources,
+      sourceCoverage: "COMPLETE",
+      completionGateResult: "COMPLETE",
+      finalAnswerType: "BEHAVIORAL_ANSWER",
+      requiredEdges: [],
+      provenEdges: [],
+      scopeExpansions: [],
+      unjustifiedReads: [],
+    }),
+    sse({ type: "delta", delta: answer }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId: "e2e-capability-probe-execution",
+      message,
+      sources,
+      toolTrace: JSON.stringify(toolTrace),
+      behaviorEvidence: evidence,
+      taskResult,
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    question,
+    answer,
+    source: sources[0],
+    sessionId,
     streamBody,
     message,
   };
@@ -2908,6 +3126,51 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+  });
+
+  test("runs the Capability Probe action with complete source-grounded C1-C7 coverage", async ({
+    page,
+  }) => {
+    const fixture = installCapabilityProbeFixture();
+    await installApiFixtures(page, { capabilityProbeAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const probeRequestPromise = page.waitForRequest((request) =>
+      request.url().includes("/api/ai/chat/stream"),
+    );
+    const probeResponsePromise = page.waitForResponse((response) =>
+      response.url().includes("/api/ai/chat/stream"),
+    );
+    await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
+
+    const probeRequest = await probeRequestPromise;
+    expect(probeRequest.postDataJSON()).toMatchObject({
+      message: CAPABILITY_PROBE_MESSAGE,
+    });
+    expect((await probeResponsePromise).status()).toBe(200);
+
+    await expect(
+      page.locator("body"),
+    ).toContainText("Coverage: COMPLETE — both declared files were read to completion.");
+    await expect(page.locator("body")).toContainText(
+      "Overall score: 7/7 capabilities demonstrated.",
+    );
+    for (const capability of ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]) {
+      await expect(page.getByRole("heading", { name: capability, exact: true })).toBeVisible();
+    }
+    await expect(
+      page.getByText("Behavior evidence · 2 excerpts", { exact: true }).first(),
+    ).toBeVisible();
+
+    const bodyText = await page.locator("body").innerText();
+    expect(bodyText).toContain("profile-classifier.ts:2");
+    expect(bodyText).toContain("file-tools.ts:2");
+    expect(bodyText).toContain("Accepted: source span verified.");
+    expect(bodyText).not.toMatch(
+      /file-tools\.ts[^\n]{0,80}(?:truncated|↕)/i,
+    );
+    expect(bodyText).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
   });
 
   test("opens failed task and workflow details with redacted recovery guidance", async ({
