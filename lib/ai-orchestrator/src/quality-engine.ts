@@ -36,6 +36,9 @@ function clampScore(value: number): number {
 function buildBasePlans(profile: QualityProfile): Pick<QualityPlan, "strictHints" | "relaxedHints"> {
   switch (profile) {
     case "capability_probe":
+      // Capability probes are read-only evidence collection, not reasoning
+      // tasks. Keep the contract tool-capable without inheriting the
+      // reasoning requirements of the parent analysis task.
       return {
         strictHints: {
           requireStreaming: true,

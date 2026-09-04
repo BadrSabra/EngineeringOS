@@ -54,6 +54,9 @@ function wantsPowerfulModel(plan: ExecutionPlan): boolean {
 }
 
 function selectCapability(plan: ExecutionPlan): ModelCapability {
+  if (plan.qualityProfile === "capability_probe") {
+    return "tool_calling";
+  }
   if (plan.strictHints.requireTools || plan.taskProfile.useTools) {
     return "tool_calling";
   }
@@ -94,6 +97,7 @@ export function resolveExecutionModel(
   const isCapabilityProbe = plan.qualityProfile === "capability_probe";
   const wantPowerful = isCapabilityProbe ? false : wantsPowerfulModel(plan);
   const capability = selectCapability(plan);
+  const requireTools = isCapabilityProbe ? true : plan.strictHints.requireTools ?? false;
 
   let decision: ExecutionModelDecision;
 
@@ -101,7 +105,7 @@ export function resolveExecutionModel(
     const fallbackChain = resolveFallbackChain({
       capability,
       quality: wantPowerful ? "powerful" : "fast",
-      requireTools: plan.strictHints.requireTools ?? false,
+      requireTools,
     }).map((model) => model.id);
 
     // Controlled live checks may opt into a known paid OpenRouter model. Keep
@@ -113,7 +117,7 @@ export function resolveExecutionModel(
       try {
         liveModel = resolveFreeModelOverride(configuredModel, {
           capability,
-          requireTools: plan.strictHints.requireTools ?? false,
+          requireTools,
         });
       } catch (error) {
         // An environment-pinned model can become paid, retired, or lose the
@@ -186,9 +190,9 @@ export function resolveExecutionModel(
       fallbackChain: decision.fallbackChain,
       source: decision.source,
       taskType: plan.taskProfile.taskType,
-      requireTools: plan.strictHints.requireTools ?? false,
-      requireThinking: plan.strictHints.requireThinking ?? false,
-      requireReasoning: plan.strictHints.requireReasoning ?? false,
+      requireTools,
+      requireThinking: isCapabilityProbe ? false : plan.strictHints.requireThinking ?? false,
+      requireReasoning: isCapabilityProbe ? false : plan.strictHints.requireReasoning ?? false,
       minimumContext: plan.strictHints.minimumContext ?? 0,
       ...(isCapabilityProbe ? { selectionMode: "fast_tool_calling" } : {}),
     }),
