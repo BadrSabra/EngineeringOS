@@ -338,6 +338,25 @@ const FIXTURE_LOCAL_STEP: Extract<AgentStep, { kind: "forensic_status" }> = {
   implementationFiles: 1,
   contextFiles: 0,
   generatedFiles: 0,
+  effectiveRoot: "PROJECT_ROOT",
+  projectRevision: "rev-safe-123",
+  completeReads: false,
+  appliedBudget: {
+    maxIterations: 12,
+    maxToolCalls: 24,
+    synthesisMaxAttempts: 2,
+    synthesisTimeoutMs: 1500,
+  },
+  readStatuses: [
+    { path: "src/a.ts", status: "READ_COMPLETE" },
+    { path: "src/b.ts", status: "READ_TRUNCATED" },
+  ],
+  synthesisLifecycle: {
+    started: true,
+    attempted: true,
+    timedOut: false,
+    skipped: false,
+  },
 };
 
 /** Forensic status step without isFixtureLocal (production audit). */
@@ -1016,6 +1035,22 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(forensicFrame).toBeDefined();
     expect(forensicFrame!.isFixtureLocal).toBe(true);
     expect(forensicFrame!.auditScope).toBe("FIXTURE_LOCAL");
+    expect(forensicFrame).toMatchObject({
+      effectiveRoot: "PROJECT_ROOT",
+      projectRevision: "rev-safe-123",
+      completeReads: false,
+      appliedBudget: { maxIterations: 12, maxToolCalls: 24 },
+      readStatuses: [
+        { path: "src/a.ts", status: "READ_COMPLETE" },
+        { path: "src/b.ts", status: "READ_TRUNCATED" },
+      ],
+      synthesisLifecycle: {
+        started: true,
+        attempted: true,
+        timedOut: false,
+        skipped: false,
+      },
+    });
   });
 
   it("isFixtureLocal is absent from the forensic_status event when the step has a production scope", async () => {

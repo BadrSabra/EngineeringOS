@@ -147,6 +147,8 @@ import {
 } from "../../lib/ai-execution-state.js";
 import {
   classifyAiTerminalOutcome,
+  publicAcceptanceDisposition,
+  type AiAcceptanceDisposition,
   type AiTerminalOutcome,
 } from "../../lib/ai-terminal-outcome.js";
 import { inspectAiChange } from "../../lib/ai-change-guard.js";
@@ -349,6 +351,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   retryable?: boolean;
   recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
   forensicDiagnostic?: ForensicDiagnostic;
+  acceptanceDisposition?: AiAcceptanceDisposition;
 } {
   const parsed = value ? parseStoredJson(value) : undefined;
   if (!Array.isArray(parsed)) return {};
@@ -357,6 +360,13 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   ) as Record<string, unknown> | undefined;
   const failureKind = terminal?.failureKind;
   const forensicDiagnostic = deriveForensicDiagnostic(parsed);
+  const acceptanceDisposition = publicAcceptanceDisposition({
+    value: terminal?.acceptanceDisposition,
+    code: terminal?.code,
+    outcome: terminal?.outcome,
+    failureKind,
+    recoveryState: terminal?.recoveryState,
+  });
   return {
     ...(failureKind === "QUALITY_REVIEW"
       || failureKind === "TOOL_FAILURE"
@@ -374,6 +384,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
         : {}
     ),
     ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+    ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
   };
 }
 
@@ -832,6 +843,28 @@ function safePlanFiles(files: readonly string[] | undefined, rootPath: string | 
     .slice(0, 12);
 }
 
+function safeForensicTracePath(value: string): string | undefined {
+  const raw = value.trim().replaceAll("\\", "/");
+  if (!raw || path.isAbsolute(raw)) return undefined;
+  const normalized = path.posix.normalize(raw).replace(/^(\.\/)+/, "");
+  if (!normalized || normalized === "." || normalized === ".." || normalized.startsWith("../")) {
+    return undefined;
+  }
+  return normalized.slice(0, 500);
+}
+
+function compoundValidationTargetPaths(message: string): string[] {
+  const paths = [...message.matchAll(
+    /(?:^|[\s`"'(])((?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html))\b/giu,
+  )]
+    .map((match) => safeForensicTracePath(match[1] ?? ""))
+    .filter((file): file is string => Boolean(file));
+  // A validation-only compound turn may not name a file. "." is the
+  // server-owned whole-workspace scope accepted by workspace-typecheck; it
+  // does not grant the model any file-write capability.
+  return [...new Set(paths.length > 0 ? paths : ["."])].slice(0, 12);
+}
+
 function getImplementationPlanScope(
   plan: ApprovedImplementationPlan,
   rootPath: string,
@@ -1117,7 +1150,7 @@ async function persistFailedChatTurn(params: {
   assistantAt: Date;
   toolTrace?: AgentStep[];
   executionLedgerSnapshot?: ExecutionLedgerPublicSnapshot;
-}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot }> {
+}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; acceptanceDisposition?: AiAcceptanceDisposition }> {
   return db.transaction(async (tx) => {
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -1135,6 +1168,21 @@ async function persistFailedChatTurn(params: {
           createdAt: params.createdAt,
           updatedAt: params.createdAt,
         });
+      }
+    }
+    // Serialize terminal persistence for one durable execution. The
+    // existence check below is otherwise vulnerable to two reconnects
+    // observing no assistant row at the same time and both inserting an
+    // outcome. The execution row is the shared lock for all recovery paths.
+    if (params.executionId) {
+      const executionLockQuery = tx
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, params.executionId));
+      if (typeof (executionLockQuery as { for?: unknown }).for === "function") {
+        await (executionLockQuery as { for: (mode: string) => Promise<unknown[]> }).for("update");
+      } else if (typeof (executionLockQuery as { limit?: unknown }).limit === "function") {
+        await (executionLockQuery as { limit: (count: number) => Promise<unknown[]> }).limit(1);
       }
     }
     // A provider/network failure may already have persisted the user turn.
@@ -1219,6 +1267,7 @@ async function persistFailedChatTurn(params: {
         errorCode: existing.errorCode,
         errorMessage: existing.errorMessage,
         toolTrace: existing.toolTrace,
+        ...terminalMetadataFromTrace(existing.toolTrace),
         createdAt: existing.createdAt,
         ...(readExecutionLedgerTrace(existing.toolTrace)
           ? { executionLedger: readExecutionLedgerTrace(existing.toolTrace) }
@@ -1243,13 +1292,22 @@ async function persistFailedChatTurn(params: {
     const terminalTrace = params.terminalOutcome && persistedTrace
       ? (() => {
           const parsed = parseStoredJson(persistedTrace);
+          const acceptanceDisposition = publicAcceptanceDisposition({
+            code: params.errorCode,
+            outcome: params.outcome,
+            failureKind: params.terminalOutcome?.failureKind,
+            recoveryState: params.terminalOutcome?.recoveryState,
+          });
           return JSON.stringify([
             ...(Array.isArray(parsed) ? parsed : []),
             {
               kind: "terminal_outcome",
+              code: params.errorCode,
+              outcome: params.outcome,
               failureKind: params.terminalOutcome.failureKind,
               retryable: params.terminalOutcome.retryable,
               recoveryState: params.terminalOutcome.recoveryState,
+              ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
             },
           ]);
         })()
@@ -1297,6 +1355,19 @@ async function persistFailedChatTurn(params: {
       errorMessage: assistantErrorMessage,
       toolTrace: terminalTrace,
       createdAt: params.assistantAt,
+      ...(publicAcceptanceDisposition({
+        code: params.errorCode,
+        outcome: params.outcome,
+        failureKind: params.terminalOutcome?.failureKind,
+        recoveryState: params.terminalOutcome?.recoveryState,
+      }) ? {
+        acceptanceDisposition: publicAcceptanceDisposition({
+          code: params.errorCode,
+          outcome: params.outcome,
+          failureKind: params.terminalOutcome?.failureKind,
+          recoveryState: params.terminalOutcome?.recoveryState,
+        }),
+      } : {}),
       ...(params.executionLedgerSnapshot ? { executionLedger: params.executionLedgerSnapshot } : {}),
     };
   });
@@ -1329,6 +1400,40 @@ type ApplyJournalStage =
   | "PROMOTION_INTENT"
   | "PROMOTED"
   | "RECOVERY_REQUIRED";
+
+/**
+ * Resolve an apply target's parent without creating directories in the live
+ * project. Existing path components are realpathed one at a time so symlink
+ * escapes (including broken links) remain fail-closed; missing suffixes are
+ * appended only after the last verified component.
+ */
+async function resolveApplyParent(
+  parentDir: string,
+  resolvedRoot: string,
+): Promise<string> {
+  const relative = path.relative(resolvedRoot, parentDir);
+  const segments = relative ? relative.split(path.sep).filter(Boolean) : [];
+  let lexical = resolvedRoot;
+  let real = await fs.realpath(resolvedRoot);
+
+  for (let index = 0; index < segments.length; index += 1) {
+    lexical = path.join(lexical, segments[index]!);
+    let stat;
+    try {
+      stat = await fs.lstat(lexical);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return path.join(real, ...segments.slice(index));
+    }
+    if (!stat.isDirectory()) {
+      throw new Error("Apply target parent is not a directory");
+    }
+    // realpath rejects broken symlinks and resolves valid symlinks before the
+    // final containment check below.
+    real = await fs.realpath(lexical);
+  }
+  return real;
+}
 
 async function restoreApplySnapshots(
   changes: readonly ApplySnapshot[],
@@ -1418,8 +1523,19 @@ function authorizeChangeSubset(
   }>,
   stored: ServerPendingChange[],
 ): string | null {
-  const storedByPath = new Map(stored.map((c) => [c.path, c]));
+  const storedByPath = new Map<string, ServerPendingChange>();
+  for (const change of stored) {
+    if (storedByPath.has(change.path)) {
+      return `Stored proposal contains duplicate path "${change.path}"`;
+    }
+    storedByPath.set(change.path, change);
+  }
+  const submittedPaths = new Set<string>();
   for (const change of submitted) {
+    if (submittedPaths.has(change.path)) {
+      return `Submitted changes contain duplicate path "${change.path}"`;
+    }
+    submittedPaths.add(change.path);
     const storedChange = storedByPath.get(change.path);
     if (!storedChange) {
       return `Path "${change.path}" is not in the stored proposal`;
@@ -1563,6 +1679,20 @@ function bindPendingChangesToImplementationPlan(
       },
     );
   });
+}
+
+function bindPendingChangesToCompoundWrite(
+  changes: ServerPendingChange[],
+  sourceReadObserved: boolean,
+): ServerPendingChange[] {
+  if (!sourceReadObserved) return changes;
+  return changes.map((change) => ({
+    ...change,
+    // Compound inspect → fix intentionally has no approved repair plan or
+    // validation phase. Keep the proposal reviewable without treating the
+    // change as already applied; the apply endpoint remains approval-gated.
+    validationProfile: change.validationProfile ?? "workspace-typecheck",
+  }));
 }
 
 export function canCreateProposal(
@@ -1714,9 +1844,28 @@ type PersistedToolTraceEntry = {
     readFiles: number;
     unreadFiles: number;
     status: "COMPLETE" | "EMPTY" | "PARTIAL" | "BUDGET_EXHAUSTED";
-      unreadPaths?: string[];
-      truncatedPaths?: string[];
+    unreadPaths?: string[];
+    truncatedPaths?: string[];
   }>;
+  effectiveRoot?: "PROJECT_ROOT" | "ROOT_UNAVAILABLE";
+  projectRevision?: string;
+  completeReads?: boolean;
+  appliedBudget?: {
+    maxIterations: number;
+    maxToolCalls: number;
+    synthesisMaxAttempts?: number;
+    synthesisTimeoutMs?: number;
+  };
+  readStatuses?: Array<{
+    path: string;
+    status: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED";
+  }>;
+  synthesisLifecycle?: {
+    started: boolean;
+    attempted: boolean;
+    timedOut: boolean;
+    skipped: boolean;
+  };
   forensicDiagnostic?: ForensicDiagnostic;
   reason?: string;
   root?: string;
@@ -1897,6 +2046,20 @@ function serializeToolTrace(
           "rootCoverage" in step && Array.isArray(step.rootCoverage)
             ? step.rootCoverage as NonNullable<PersistedToolTraceEntry["rootCoverage"]>
             : undefined;
+        const readStatuses =
+          "readStatuses" in step && Array.isArray(step.readStatuses)
+            ? step.readStatuses
+                .map((read) => {
+                  const safePath = typeof read.path === "string"
+                    ? safeForensicTracePath(read.path)
+                    : undefined;
+                  return safePath ? { path: safePath, status: read.status } : undefined;
+                })
+                .filter((read): read is NonNullable<PersistedToolTraceEntry["readStatuses"]>[number] =>
+                  read !== undefined,
+                )
+                .slice(0, 48)
+            : undefined;
         return {
           kind: step.kind,
           auditScope: step.auditScope,
@@ -1908,10 +2071,18 @@ function serializeToolTrace(
           implementationFiles: step.implementationFiles,
           contextFiles: step.contextFiles,
           generatedFiles: step.generatedFiles,
-           ...(step.requestedFiles ? { requestedFiles: step.requestedFiles } : {}),
+          ...(step.requestedFiles ? { requestedFiles: step.requestedFiles } : {}),
           ...(rootCoverage ? { rootCoverage } : {}),
           ...(step.reason ? { reason: step.reason } : {}),
           ...(step.isFixtureLocal ? { isFixtureLocal: true } : {}),
+          ...("effectiveRoot" in step && step.effectiveRoot ? { effectiveRoot: step.effectiveRoot } : {}),
+          ...("projectRevision" in step && step.projectRevision
+            ? { projectRevision: redactUserFacingText(step.projectRevision).slice(0, 240) }
+            : {}),
+          ...("completeReads" in step && step.completeReads !== undefined ? { completeReads: step.completeReads } : {}),
+          ...("appliedBudget" in step && step.appliedBudget ? { appliedBudget: step.appliedBudget } : {}),
+          ...(readStatuses ? { readStatuses } : {}),
+          ...("synthesisLifecycle" in step && step.synthesisLifecycle ? { synthesisLifecycle: step.synthesisLifecycle } : {}),
         };
         }
       case "audit_state":
@@ -2529,6 +2700,45 @@ router.post("/ai/chat", async (req, res) => {
   const executionLedger = createExecutionLedger({
     mode: executionLedgerMode(turnIntent),
   });
+  const validationOnlyCompoundTurn =
+    turnIntent.compoundExecution && !turnIntent.compoundWrite;
+  const validationOnlyTargetPaths = validationOnlyCompoundTurn
+    ? compoundValidationTargetPaths(message)
+    : [];
+  // Validation-only compound requests may run one server-owned profile without
+  // an approved implementation plan, while the compound tool manifest keeps
+  // write_file and replace_text hidden.
+  const validationRunner = validationOnlyCompoundTurn && validRootPath
+    ? async (
+        profile: string,
+        targetPaths: string[],
+        signal?: AbortSignal,
+        _pendingChanges?: readonly PendingValidationChange[],
+        evidenceContext?: {
+          operationId?: string;
+          projectRevision?: string;
+        },
+      ) => {
+        const parsedProfile = ValidationProfileSchema.safeParse(profile);
+        if (!parsedProfile.success || parsedProfile.data !== "workspace-typecheck") {
+          return {
+            status: "unavailable" as const,
+            detail: "Validation-only compound requests allow only the registered workspace typecheck profile.",
+          };
+        }
+        return runRepairValidation(
+          validRootPath,
+          parsedProfile.data,
+          targetPaths,
+          signal,
+          [],
+          {
+            operationId: evidenceContext?.operationId ?? analysisCorrelation.operationId,
+            projectRevision: evidenceContext?.projectRevision ?? analysisCorrelation.projectRevision,
+          },
+        );
+      }
+    : undefined;
   let executionLedgerSnapshot: ExecutionLedgerPublicSnapshot | undefined;
 
   const applyProbe = isWriteCapableTurn(turnIntent)
@@ -2567,6 +2777,9 @@ router.post("/ai/chat", async (req, res) => {
       promptMode: activeTask ? "task" : "chat",
       messageCount: historyRows.length,
       turnIntent: turnIntent.kind,
+      intentPhases: turnIntent.phases,
+      compoundExecution: turnIntent.compoundExecution,
+      compoundWrite: turnIntent.compoundWrite,
       requireTools: modelHasTools,
       requiresEvidence: turnIntent.requiresEvidence,
       qualityProfile: turnIntent.executionTaskType,
@@ -2596,7 +2809,9 @@ router.post("/ai/chat", async (req, res) => {
         },
       },
       executionHandoff: {
-        requested: immediateExecutionRequest,
+        requested: immediateExecutionRequest || turnIntent.compoundWrite,
+        compoundExecution: turnIntent.compoundExecution,
+        phases: turnIntent.phases,
         sessionId: existingSession?.id ?? sessionId ?? null,
         historyMessageCount: historyRows.length,
         repairPlanCandidateCount: countRepairPlanCandidates(historyRows),
@@ -2629,6 +2844,10 @@ router.post("/ai/chat", async (req, res) => {
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
           objective,
           turnIntent,
+          allowValidationTools: Boolean(validationRunner),
+          validationRunner,
+          approvedValidationProfiles: validationRunner ? ["workspace-typecheck"] : undefined,
+          validationTargetPaths: validationOnlyTargetPaths,
           allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,
@@ -2717,6 +2936,12 @@ router.post("/ai/chat", async (req, res) => {
           executionLedgerSnapshot,
         ),
         createdAt: msgNow,
+        acceptanceDisposition: publicAcceptanceDisposition({
+          code: terminalOutcome.code,
+          outcome: terminalOutcome.outcome,
+          failureKind: terminalOutcome.failureKind,
+          recoveryState: terminalOutcome.recoveryState,
+        }),
       };
       // The HTTP request completed, but the assistant turn did not. Keep the
       // response transport-compatible with normal chat while making the
@@ -2736,6 +2961,12 @@ router.post("/ai/chat", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           retryable: terminalOutcome.retryable,
           recoveryState: terminalOutcome.recoveryState,
+          acceptanceDisposition: publicAcceptanceDisposition({
+            code: terminalOutcome.code,
+            outcome: terminalOutcome.outcome,
+            failureKind: terminalOutcome.failureKind,
+            recoveryState: terminalOutcome.recoveryState,
+          }),
           executionLedger: executionLedgerSnapshot,
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         },
@@ -2838,11 +3069,19 @@ router.post("/ai/chat", async (req, res) => {
     // Atomic: session creation (when needed) + user message + assistant message
     // + session timestamp update in one transaction — prevents a half-saved
     // conversation if one insert fails.
-    const proposalChanges = bindPendingChangesToRepairPlan(
-      (result.pendingChanges ?? []) as ServerPendingChange[],
-      result.repairPlan,
+    const compoundSourceReadObserved = turnIntent.compoundWrite && traceSteps.some(
+      (step) =>
+        step.kind === "tool_result" &&
+        (step.tool === "read_file" || step.tool === "read_file_range"),
     );
-    const proposalId = canCreateProposal(
+    const proposalChanges = bindPendingChangesToCompoundWrite(
+      bindPendingChangesToRepairPlan(
+        (result.pendingChanges ?? []) as ServerPendingChange[],
+        result.repairPlan,
+      ),
+      !turnIntent.compoundWrite || compoundSourceReadObserved,
+    );
+    const proposalId = (!turnIntent.compoundWrite || compoundSourceReadObserved) && canCreateProposal(
       proposalChanges,
       result.repairPlan,
       hasPassedLatestValidation(traceSteps),
@@ -3459,7 +3698,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       });
     }
 
-    const executionRequest: AiExecutionRequestEnvelope = {
+    let executionRequest: AiExecutionRequestEnvelope = {
       projectId,
       ...(streamResumableStateForTurn?.operationId
         ? { operationId: streamResumableStateForTurn.operationId }
@@ -3472,10 +3711,14 @@ router.post("/ai/chat/stream", async (req, res) => {
       ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
       ...(objective ? { objective } : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+      // Session task linkage is context, not an autonomous execution request.
+      // Only an explicit delivery/task execution, Build handoff, declared
+      // objective, scoped implementation plan, or direct execution command
+      // enters the proof-required contract.
       proofRequired: Boolean(
-        effectiveLinkedTaskId
+        objective
         || effectiveBuildPlanMessageId
-        || objective
+        || (effectiveLinkedTaskId && streamTurnIntent.kind === "DELIVERY")
         || (implementationPlanScope && implementationPlanScope.size > 0)
         || isImmediateExecutionRequest(message),
       ),
@@ -3497,7 +3740,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           }
         : {}),
     };
-    const proofRequired = executionRequest.proofRequired === true;
+    let proofRequired = executionRequest.proofRequired === true;
     executionWorkerId = randomUUID();
     let executionResumeToken: string | undefined;
     aiExecution = effectiveExecutionId
@@ -3519,6 +3762,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           `${executionRequest.message}\n\nBUILD HANDOFF`,
         ),
       );
+      const optionalBindingMatches = (
+        storedValue: unknown,
+        requestedValue: unknown,
+        requested: boolean,
+      ): boolean => !requested || JSON.stringify(storedValue ?? null) === JSON.stringify(requestedValue ?? null);
       const bindingMatches = storedRequest &&
         storedRequest.projectId === executionRequest.projectId &&
         storedRequest.sessionId === executionRequest.sessionId &&
@@ -3527,14 +3775,22 @@ router.post("/ai/chat/stream", async (req, res) => {
           storedRequest.modelMessage === executionRequest.modelMessage
           || legacyBuildModelBinding
         ) &&
-        (storedRequest.linkedTaskId ?? undefined) === (executionRequest.linkedTaskId ?? undefined) &&
-        (storedRequest.buildPlanMessageId ?? undefined) === (executionRequest.buildPlanMessageId ?? undefined) &&
-        JSON.stringify(storedRequest.validationTargetPaths) === JSON.stringify(executionRequest.validationTargetPaths) &&
-        JSON.stringify(storedRequest.objective ?? null) === JSON.stringify(executionRequest.objective ?? null) &&
-        (
-          storedRequest.proofRequired === undefined
-          || Boolean(storedRequest.proofRequired) === Boolean(executionRequest.proofRequired)
-        );
+        optionalBindingMatches(
+          storedRequest.linkedTaskId,
+          executionRequest.linkedTaskId,
+          linkedTaskId !== undefined,
+        ) &&
+        optionalBindingMatches(
+          storedRequest.buildPlanMessageId,
+          executionRequest.buildPlanMessageId,
+          effectiveBuildPlanMessageId !== undefined,
+        ) &&
+        optionalBindingMatches(
+          storedRequest.validationTargetPaths,
+          executionRequest.validationTargetPaths,
+          implementationPlanScope !== undefined && implementationPlanScope.size > 0,
+        ) &&
+        optionalBindingMatches(storedRequest.objective, executionRequest.objective, objective !== undefined);
       if (!bindingMatches) {
         sse({
           type: "error",
@@ -3600,6 +3856,22 @@ router.post("/ai/chat/stream", async (req, res) => {
       if (storedRequest?.workspaceRevision) {
         analysisCorrelation.projectRevision = storedRequest.workspaceRevision;
       }
+      // A resume is governed by the immutable request that created the
+      // execution. The retry message cannot downgrade or upgrade its proof
+      // contract by omitting Build/objective metadata.
+      // Older executions predate the explicit proofRequired field. Recover
+      // their proof contract only from stored execution metadata; never from
+      // the retry message or from a session's ambient task linkage.
+      proofRequired = storedRequest?.proofRequired ?? Boolean(
+        storedRequest?.buildPlanMessageId
+        || storedRequest?.objective
+        || storedRequest.validationTargetPaths.length > 0
+        || isImmediateExecutionRequest(storedRequest.message),
+      );
+      executionRequest = {
+        ...storedRequest,
+        modelMessage: storedRequest.modelMessage,
+      };
       modelMessage = storedRequest.modelMessage;
       resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
       const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
@@ -3719,8 +3991,8 @@ router.post("/ai/chat/stream", async (req, res) => {
     const checkpointOperation = resumeCheckpoint?.operation;
     autonomousOperation = checkpointOperation ?? createAutonomousOperationContract({
       operationId: aiExecution.operationId ?? aiExecution.id,
-      objective: typeof executionRequest.objective === "string"
-        ? executionRequest.objective
+      objective: executionRequest.objective
+        ? JSON.stringify(executionRequest.objective)
         : executionRequest.message,
       revisionManifest: executionRequest.workspaceRevision,
       targetPaths: executionRequest.validationTargetPaths,
@@ -3924,6 +4196,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       promptMode: activeTask ? "task" : "chat",
       messageCount: historyRows.length,
       turnIntent: streamTurnIntent.kind,
+      intentPhases: streamTurnIntent.phases,
+      compoundExecution: streamTurnIntent.compoundExecution,
+      compoundWrite: streamTurnIntent.compoundWrite,
       requireTools: streamModelHasTools,
       requiresEvidence: streamTurnIntent.requiresEvidence,
       qualityProfile: streamTurnIntent.executionTaskType,
@@ -3953,7 +4228,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         },
       },
       executionHandoff: {
-        requested: immediateExecutionRequest,
+        requested: immediateExecutionRequest || streamTurnIntent.compoundWrite,
+        compoundExecution: streamTurnIntent.compoundExecution,
+        phases: streamTurnIntent.phases,
         sessionId: existingSession?.id ?? sessionId ?? null,
         historyMessageCount: historyRows.length,
         repairPlanCandidateCount: countRepairPlanCandidates(historyRows),
@@ -4172,6 +4449,13 @@ router.post("/ai/chat/stream", async (req, res) => {
       } else if (step.kind === "synthesis_start") {
         sse({ type: "synthesis_start", iter: step.iter, max: step.maxIterations });
       } else if (step.kind === "forensic_status") {
+        const readStatuses = step.readStatuses
+          ?.map((read) => {
+            const safePath = safeForensicTracePath(read.path);
+            return safePath ? { path: safePath, status: read.status } : undefined;
+          })
+          .filter((read): read is NonNullable<typeof read> => read !== undefined)
+          .slice(0, 48);
         sse({
           type: "forensic_status",
           auditScope: step.auditScope,
@@ -4180,6 +4464,14 @@ router.post("/ai/chat/stream", async (req, res) => {
             : {}),
           ...(step.requestedFiles ? { requestedFiles: step.requestedFiles } : {}),
           isFixtureLocal: step.isFixtureLocal === true ? true : undefined,
+          ...(step.effectiveRoot ? { effectiveRoot: step.effectiveRoot } : {}),
+          ...(step.projectRevision
+            ? { projectRevision: redactUserFacingText(step.projectRevision).slice(0, 240) }
+            : {}),
+          ...(step.completeReads !== undefined ? { completeReads: step.completeReads } : {}),
+          ...(step.appliedBudget ? { appliedBudget: step.appliedBudget } : {}),
+          ...(readStatuses ? { readStatuses } : {}),
+          ...(step.synthesisLifecycle ? { synthesisLifecycle: step.synthesisLifecycle } : {}),
         });
       } else if (step.kind === "audit_state") {
         sse({ type: "audit_state", ...step.state });
@@ -4359,27 +4651,46 @@ router.post("/ai/chat/stream", async (req, res) => {
       }
     }
 
+    const validationOnlyCompoundTurn =
+      streamTurnIntent.compoundExecution && !streamTurnIntent.compoundWrite;
+    const validationOnlyTargetPaths = validationOnlyCompoundTurn
+      ? compoundValidationTargetPaths(message)
+      : [];
     const validationRunner =
-      approvedImplementationPlan && implementationPlanScope && validRootPath
+      validRootPath && (
+        approvedImplementationPlan && implementationPlanScope
+        || validationOnlyCompoundTurn
+      )
         ? async (
             profile: string,
             targetPaths: string[],
             signal?: AbortSignal,
             pendingChanges?: readonly PendingValidationChange[],
+            evidenceContext?: {
+              operationId?: string;
+              projectRevision?: string;
+              candidateHash?: string;
+            },
           ) => {
             const parsedProfile = ValidationProfileSchema.safeParse(profile);
-            if (!parsedProfile.success) {
+            if (
+              !parsedProfile.success ||
+              (validationOnlyCompoundTurn && parsedProfile.data !== "workspace-typecheck")
+            ) {
               return {
                 status: "unavailable" as const,
-                detail: `Validation profile "${profile}" is not registered.`,
+                detail: validationOnlyCompoundTurn
+                  ? "Validation-only compound requests allow only the registered workspace typecheck profile."
+                  : `Validation profile "${profile}" is not registered.`,
               };
             }
             return runRepairValidation(
               validRootPath,
               parsedProfile.data,
-              targetPaths,
+              validationOnlyCompoundTurn ? validationOnlyTargetPaths : targetPaths,
               signal,
               pendingChanges ?? [],
+              evidenceContext,
             );
           }
         : undefined;
@@ -4518,10 +4829,19 @@ router.post("/ai/chat/stream", async (req, res) => {
             operationId: analysisCorrelation.operationId,
             revision: analysisCorrelation.projectRevision,
           },
-          approvedValidationProfiles: [
-            ...(validationRunner ? ["workspace-typecheck", "ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"] : []),
-            ...(browserValidationProfileName ? [browserValidationProfileName] : []),
-          ],
+          approvedValidationProfiles: validationRunner
+            ? validationOnlyCompoundTurn
+              ? ["workspace-typecheck"]
+              : [
+                  "workspace-typecheck",
+                  "ai-orchestrator-tests",
+                  "knowledge-engine-tests",
+                  "api-ai-tests",
+                  ...(browserValidationProfileName ? [browserValidationProfileName] : []),
+                ]
+            : browserValidationProfileName
+              ? [browserValidationProfileName]
+              : undefined,
            commandProfiles,
            commandRunner: commandProfiles ? runRegisteredCommand : undefined,
            commandContext: {
@@ -4530,7 +4850,11 @@ router.post("/ai/chat/stream", async (req, res) => {
              targetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
              operation: "build",
            },
-          validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+          validationTargetPaths: validationOnlyCompoundTurn
+            ? validationOnlyTargetPaths
+            : implementationPlanScope
+              ? [...implementationPlanScope]
+              : [],
            buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
           onExecutionNodes: publishExecutionNodes,
           signal: activeExecutionAbortController.signal,
@@ -4918,14 +5242,22 @@ router.post("/ai/chat/stream", async (req, res) => {
     // Atomic: session creation (when needed) + user message + assistant message
     // + session timestamp update in one transaction — prevents a half-saved
     // conversation if one insert fails.
+    const compoundSourceReadObserved = streamTurnIntent.compoundWrite && traceSteps.some(
+      (step) =>
+        step.kind === "tool_result" &&
+        (step.tool === "read_file" || step.tool === "read_file_range"),
+    );
     const proposalChanges = bindPendingChangesToImplementationPlan(
-      bindPendingChangesToRepairPlan(
-        (result.pendingChanges ?? []) as ServerPendingChange[],
-        result.repairPlan,
+      bindPendingChangesToCompoundWrite(
+        bindPendingChangesToRepairPlan(
+          (result.pendingChanges ?? []) as ServerPendingChange[],
+          result.repairPlan,
+        ),
+        !streamTurnIntent.compoundWrite || compoundSourceReadObserved,
       ),
       Boolean(approvedImplementationPlan),
     );
-    const proposalId = canCreateProposal(
+    const proposalId = (!streamTurnIntent.compoundWrite || compoundSourceReadObserved) && canCreateProposal(
       proposalChanges,
       result.repairPlan,
       hasPassedLatestValidation(traceSteps),
@@ -5148,7 +5480,16 @@ router.post("/ai/chat/stream", async (req, res) => {
       .find((step) => step.kind === "validation");
     if (finalValidation?.kind === "validation") {
       if (finalValidation.status === "passed") {
+        const evidenceBoundToExecution =
+          finalValidation.result.evidence.operationId === (aiExecution.operationId ?? aiExecution.id)
+          && finalValidation.result.evidence.projectRevision === analysisCorrelation.projectRevision
+          && (
+            autonomousOperation?.candidateIdentity === null
+            || autonomousOperation?.candidateIdentity === undefined
+            || finalValidation.result.evidence.candidateHash === autonomousOperation.candidateIdentity
+          );
         executionEvidenceVerdict = isProvenValidation(finalValidation.result)
+          && evidenceBoundToExecution
           && !proposalId
           ? "PROVEN"
           : "PARTIAL";
@@ -5225,12 +5566,23 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
         proofRequired,
+        operationId: aiExecution.operationId ?? aiExecution.id,
+        candidateIdentity: autonomousOperation?.candidateIdentity,
         evidenceRefs: finalValidation?.kind === "validation"
           ? [finalValidation.result.evidence.artifactRef]
+          : [],
+        evidence: finalValidation?.kind === "validation"
+          ? [finalValidation.result.evidence]
           : [],
       });
       if (!completed) {
         const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
+        const acceptanceDisposition = publicAcceptanceDisposition({
+          code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+          outcome: "FAILED",
+          failureKind: "INCOMPLETE",
+          recoveryState: "INCOMPLETE",
+        })!;
         await db
           .update(aiChatMessagesTable)
           .set({
@@ -5243,9 +5595,12 @@ router.post("/ai/chat/stream", async (req, res) => {
                 : []),
               {
                 kind: "terminal_outcome",
+                code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+                outcome: "FAILED",
                 failureKind: "INCOMPLETE",
                 retryable: true,
                 recoveryState: "INCOMPLETE",
+                acceptanceDisposition,
               },
             ]),
           })
@@ -5257,6 +5612,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           cancelled: false,
           nodeStates: executionNodeStates,
           operation: undefined,
+          acceptanceDisposition,
         });
         executionTerminal = true;
         sse({
@@ -5267,6 +5623,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           failureKind: "INCOMPLETE",
           retryable: true,
           recoveryState: "INCOMPLETE",
+          acceptanceDisposition,
           executionId: aiExecution.id,
           sessionId: sessionIdToUse,
           executionLedger: executionLedgerSnapshot,
@@ -5447,10 +5804,21 @@ router.get("/ai/executions/history", async (req, res) => {
       ? checkpoint as Record<string, unknown>
       : {};
     const hasPendingProposal = Boolean(execution.proposalId);
+    const proofRequired = checkpointRecord.proofRequired === true
+      || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId);
     const evidenceVerdict = derivePersistedEvidenceVerdict({
       executionStatus: execution.status,
       checkpoint: checkpointRecord,
       hasPendingProposal,
+    });
+    const acceptanceDisposition = publicAcceptanceDisposition({
+      value: checkpointRecord.acceptanceDisposition,
+      code: execution.error === "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision."
+        ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+        : undefined,
+      status: execution.status,
+      proofRequired,
+      evidenceVerdict,
     });
     const resumable = execution.status === "paused" || execution.status === "failed";
     const disposition = evidenceVerdict === "PROVEN"
@@ -5469,16 +5837,18 @@ router.get("/ai/executions/history", async (req, res) => {
         500,
       ),
       evidenceVerdict,
-      evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+      evidenceReason: acceptanceDisposition
+        ? "Required acceptance evidence was not proven for this run."
+        : typeof checkpointRecord.evidenceReason === "string"
         ? safeText(checkpointRecord.evidenceReason, "", 500)
         : null,
+      ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
       terminalReason: execution.status === "cancelled"
         ? "Audit was cancelled before completion."
         : execution.status === "failed"
           ? "Execution stopped before a complete result was recorded."
           : "Execution is paused at a durable checkpoint.",
-      proofRequired: checkpointRecord.proofRequired === true
-        || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId),
+      proofRequired,
       disposition,
       recommendedAction: disposition === "RETAIN_FOR_REVIEW"
         ? "REVIEW_RETAINED_PROOF"
@@ -5537,6 +5907,15 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     checkpoint: checkpointRecord,
     hasPendingProposal,
   });
+  const acceptanceDisposition = publicAcceptanceDisposition({
+    value: checkpointRecord.acceptanceDisposition,
+    code: execution.error === "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision."
+      ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+      : undefined,
+    status: execution.status,
+    proofRequired,
+    evidenceVerdict,
+  });
   const operationRecord = checkpointRecord.operation && typeof checkpointRecord.operation === "object"
     ? checkpointRecord.operation as Record<string, unknown>
     : undefined;
@@ -5570,10 +5949,15 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     }),
     proofRequired,
     evidenceVerdict,
-    evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+    evidenceReason: acceptanceDisposition
+      ? "Required acceptance evidence was not proven for this run."
+      : typeof checkpointRecord.evidenceReason === "string"
       ? checkpointRecord.evidenceReason
       : undefined,
-    terminalReason: execution.error
+    ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
+    terminalReason: acceptanceDisposition
+      ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+      : execution.error
       ?? (typeof checkpointRecord.detail === "string" ? checkpointRecord.detail : null),
          checkpoint: sanitizeExecutionCheckpointForClient(checkpoint),
     checkpointVersion: execution.checkpointVersion,
@@ -6340,6 +6724,7 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     .from(aiChangeProposalsTable)
     .where(and(
       eq(aiChangeProposalsTable.sessionId, req.params.sessionId),
+      eq(aiChangeProposalsTable.status, "pending"),
     ))
     .orderBy(desc(aiChangeProposalsTable.createdAt))
     .limit(1);
@@ -6364,15 +6749,13 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     ?? proposal.messageId;
 
   try {
-    const changes = proposal.status === "pending"
-      ? parseStoredJson(proposal.changes) as ServerPendingChange[]
-      : [];
+    const changes = parseStoredJson(proposal.changes) as ServerPendingChange[];
     return res.json({
-      proposalId: proposal.status === "pending" ? proposal.id : null,
+      proposalId: proposal.id,
       operationId: canonicalOperationId,
       changes,
-      approvalRequired: proposal.status === "pending" ? proposal.approvalRequired : false,
-      revision: proposal.status === "pending" ? proposal.revision : null,
+      approvalRequired: proposal.approvalRequired,
+      revision: proposal.revision,
       ...(
         proposal.lifecycle !== "proposed"
         || proposal.workspaceRoot
@@ -6421,7 +6804,7 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
     .from(aiChangeProposalsTable)
     .where(and(
       eq(aiChangeProposalsTable.projectId, project.id),
-      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+      inArray(aiChangeProposalsTable.lifecycle, ["isolated", "abandoned", "blocked", "conflicted", "cancelled"]),
     ))
     .orderBy(desc(aiChangeProposalsTable.createdAt))
     .limit(20);
@@ -6442,6 +6825,8 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
         ? "The saved delivery workspace is no longer available, so recovery cannot continue."
         : proposal.lifecycle === "conflicted"
           ? "The delivery stopped because the retained changes need review before validation can continue."
+          : proposal.lifecycle === "isolated"
+            ? "The delivery was captured in its isolated workspace before the process stopped; its saved workspace can be checked again."
           : proposal.lifecycle === "abandoned"
             ? "The delivery was interrupted before it finished; its saved workspace can be checked again."
             : "Validation did not complete successfully; the saved workspace can be checked again.";
@@ -6490,9 +6875,27 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   if (!project) return;
 
   if (proposal.lifecycle === "validated") {
-    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+    const workspaceAvailable = Boolean(
+      proposal.operationId
+      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+    );
+    if (!workspaceAvailable) {
+      return res.status(409).json({
+        error: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+        code: "DELIVERY_NOT_RECOVERABLE",
+        lifecycle: proposal.lifecycle,
+        recoveryState: "missing_workspace",
+        nextAction: "Start a new delivery from the current project rather than retrying this recovery.",
+      });
+    }
+    return res.json({
+      proposalId: proposal.id,
+      operationId: proposal.operationId,
+      lifecycle: proposal.lifecycle,
+      idempotent: true,
+    });
   }
-  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+  if (!["isolated", "abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
     || proposal.status !== "pending"
     || !proposal.operationId
     || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
@@ -6591,7 +6994,7 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   }).where(and(
     eq(aiChangeProposalsTable.id, proposal.id),
     eq(aiChangeProposalsTable.status, "pending"),
-    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+    inArray(aiChangeProposalsTable.lifecycle, ["isolated", "abandoned", "blocked", "conflicted"]),
   )).returning({ id: aiChangeProposalsTable.id });
   if (!updated) {
     const [current] = await db.select({ lifecycle: aiChangeProposalsTable.lifecycle })
@@ -6615,8 +7018,8 @@ router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
   if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
     return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
   }
-  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
-    return res.status(409).json({ error: "Only abandoned or blocked delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
+  if (!["isolated", "abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+    return res.status(409).json({ error: "Only recoverable delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
   }
   const [updated] = await db.update(aiChangeProposalsTable).set({
     status: "rejected",
@@ -7180,6 +7583,41 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     if (proposal.status !== "pending") {
       return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
     }
+    // A proposal left in an intermediate recovery state must not be replayed
+    // directly. The previous attempt may have promoted some files before the
+    // process stopped, so recovery validation is the only safe way to
+    // establish a new apply boundary. A normal proposal, an explicitly
+    // revalidated proposal, or a known no-promotion result may proceed.
+    //
+    // A conflicted proposal is retryable only when its durable journal proves
+    // that the previous attempt was blocked before promotion or rolled back
+    // cleanly. Missing/unknown journal state is fail-closed.
+    let recoveryRequiresValidation =
+      proposal.lifecycle === "isolated" || proposal.lifecycle === "abandoned";
+    if (proposal.lifecycle === "conflicted") {
+      const [latestApplyJournal] = proposal.operationId
+        ? await db
+          .select({ stage: aiApplyJournalTable.stage })
+          .from(aiApplyJournalTable)
+          .where(and(
+            eq(aiApplyJournalTable.operationId, proposal.operationId),
+            eq(aiApplyJournalTable.proposalId, proposal.id),
+          ))
+          .orderBy(desc(aiApplyJournalTable.sequence))
+          .limit(1)
+        : [];
+      recoveryRequiresValidation = !latestApplyJournal
+        || !["BLOCKED", "ROLLED_BACK"].includes(latestApplyJournal.stage);
+    }
+    if (recoveryRequiresValidation) {
+      return res.status(409).json({
+        error: "This delivery must complete recovery validation before it can be applied again.",
+        code: "DELIVERY_RECOVERY_REQUIRED",
+        lifecycle: proposal.lifecycle,
+        recoveryState: "recoverable",
+        nextAction: "Resume validation before applying the delivery again, or discard it if it is no longer needed.",
+      });
+    }
     if (proposal.approvalRequired) {
       return res.status(409).json({
         error: "The rebased patch must be reviewed and approved again before apply",
@@ -7344,11 +7782,10 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         continue;
       }
       try {
-        // Create parent dirs then realpath them to detect symlink escape — path.resolve()
-        // is purely lexical and does not follow symlinks.
+        // Resolve existing parent components without mutating the live root.
+        // path.resolve() is purely lexical and does not follow symlinks.
         const parentDir = path.dirname(resolved);
-        await fs.mkdir(parentDir, { recursive: true });
-        const realParent = await fs.realpath(parentDir);
+        const realParent = await resolveApplyParent(parentDir, resolvedRoot);
         const realResolved = path.join(realParent, path.basename(resolved));
         if (realResolved !== resolvedRoot && !realResolved.startsWith(resolvedRoot + path.sep)) {
           results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
@@ -7591,6 +8028,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       try {
         for (const change of writableChanges) {
           attemptedChanges.push(change);
+          // Directory creation is part of the guarded promotion, not
+          // preflight, so an empty parent cannot look like live-root drift.
+          await fs.mkdir(path.dirname(change.realPath), { recursive: true });
           await atomicallyPromoteFile(change.realPath, change.newContent, applyCorrelationId);
           const persisted = await fs.readFile(change.realPath, "utf-8");
           if (persisted !== change.newContent) {

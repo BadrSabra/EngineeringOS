@@ -313,6 +313,7 @@ async function installApiFixtures(
     arabicAi?: ArabicAiFixture;
     alternateAi?: ArabicAiFixture;
     disconnectAi?: ArabicAiFixture;
+    interruptedAi?: ArabicAiFixture;
     resumeFailure?: {
       fixture: ArabicAiFixture;
       execution: Record<string, unknown>;
@@ -349,6 +350,10 @@ async function installApiFixtures(
       messageOutcome?: string;
       failFirstPreview?: boolean;
     };
+    historicalAudits?: {
+      audits: Array<Record<string, unknown>>;
+      executions?: Record<string, Record<string, unknown>>;
+    };
     liveTask?: {
       id: string;
       title: string;
@@ -376,9 +381,16 @@ async function installApiFixtures(
     const arabicAi = overrides?.arabicAi;
     const alternateAi = overrides?.alternateAi;
     const disconnectAi = overrides?.disconnectAi;
-    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
-      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
-    );
+    const interruptedAi = overrides?.interruptedAi;
+    const recoveryAi =
+      overrides?.resumeFailure?.fixture ?? overrides?.interruptedResume?.fixture;
+    const aiFixtures = [
+      arabicAi,
+      alternateAi,
+      disconnectAi,
+      interruptedAi,
+      recoveryAi,
+    ].filter((fixture): fixture is ArabicAiFixture => Boolean(fixture));
     const hasConfiguredAiFixture =
       aiFixtures.length > 0 ||
       Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
@@ -404,6 +416,12 @@ async function installApiFixtures(
           })),
         ),
       );
+    }
+    if (
+      overrides?.historicalAudits &&
+      path === "/api/ai/executions/history"
+    ) {
+      return route.fulfill(jsonResponse(overrides.historicalAudits.audits));
     }
     if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
       let requestBody: Record<string, unknown> = {};
@@ -486,7 +504,7 @@ async function installApiFixtures(
             content: messageFixture.question,
             createdAt: "2026-01-01T00:01:00.000Z",
           },
-          messageFixture.message,
+          ...(messageFixture === recoveryAi ? [] : [messageFixture.message]),
         ]),
       );
     if (
@@ -941,6 +959,13 @@ async function installApiFixtures(
         }),
       );
     }
+    if (overrides?.historicalAudits?.executions?.[path.split("/").pop() ?? ""]) {
+      return route.fulfill(
+        jsonResponse(
+          overrides.historicalAudits.executions[path.split("/").pop() ?? ""],
+        ),
+      );
+    }
     if (path === `/api/ai/executions/${EXECUTION_ID}`)
       return route.fulfill(
         jsonResponse(overrides?.auditExport?.execution ?? executionFixture),
@@ -1210,6 +1235,367 @@ function installToolFailureFixture(): ArabicAiFixture {
   };
 }
 
+function installIncompleteForensicFixture(): ArabicAiFixture {
+  const sessionId = "e2e-incomplete-forensic-session";
+  const executionId = "e2e-incomplete-forensic-execution";
+  const source = "src/incomplete-audit.ts";
+  const question = "Audit the incomplete source scope and report only verified evidence.";
+  const answer = [
+    "## 1) Executive Verdict",
+    "ANALYSIS_INCOMPLETE — NOT PROVEN.",
+    "",
+    "## 2) Evidence Map",
+    `The requested source scope could not be read completely: ${source}.`,
+    "",
+    "## 3) Findings",
+    "No Finding is proven from the retained evidence.",
+    "",
+    "## 4) Repair Plan",
+    "No repair phases are authorized for this incomplete audit.",
+    "",
+    "## 5) Validation Checklist",
+    "Retry the bounded read before drawing a conclusion.",
+    "",
+    "## 6) Final Judgment",
+    "ANALYSIS_INCOMPLETE — NOT PROVEN. Safe terminal reason: SOURCE_COVERAGE_INCOMPLETE. Next safe action: Retry the bounded read.",
+  ].join("\n");
+  const toolTrace = [
+    {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+    },
+    {
+      kind: "tool_result",
+      tool: "read_file",
+      source,
+      resultKind: "failed",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      resultSummary: "The required source read did not complete.",
+    },
+    {
+      kind: "forensic_status",
+      auditScope: "PRODUCTION",
+      sourceCoverage: "PARTIAL",
+      behavioralAssessment: "INCOMPLETE",
+      findingStatus: "NOT_PROVEN",
+      repairReadiness: "BLOCKED",
+      productionReachability: "NOT_PROVEN",
+      implementationFiles: 1,
+      contextFiles: 0,
+      generatedFiles: 0,
+      effectiveRoot: "PROJECT_ROOT",
+      projectRevision: "e2e-forensic-revision-1",
+      completeReads: false,
+      appliedBudget: {
+        maxIterations: 8,
+        maxToolCalls: 12,
+        synthesisMaxAttempts: 2,
+        synthesisTimeoutMs: 1500,
+      },
+      readStatuses: [{ path: source, status: "READ_FAILED" }],
+      synthesisLifecycle: {
+        started: false,
+        attempted: false,
+        timedOut: false,
+        skipped: true,
+      },
+    },
+    {
+      kind: "forensic_terminal",
+      terminalKind: "NO_EVIDENCE_FOUND",
+    },
+    {
+      kind: "forensic_diagnostic",
+      forensicDiagnostic: {
+        version: "v1",
+        verdict: "ANALYSIS_INCOMPLETE",
+        reasonCode: "SOURCE_COVERAGE_INCOMPLETE",
+        explanation: "The requested source scope could not be read completely.",
+        unreadFileCount: 1,
+        unreadFiles: [source],
+        truncatedFileCount: 0,
+        truncatedFiles: [],
+        nextActionCode: "RETRY_READ",
+        nextAction: "Retry the bounded read before drawing a conclusion.",
+      },
+    },
+    {
+      kind: "done",
+      stopReason: "tool_failure",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: 1,
+      prefetchToolCalls: 0,
+      loopToolCalls: 1,
+      synthesisStarted: false,
+      diagnosticCodes: ["TOOL_EXECUTION_FAILED", "FORENSIC_REPORT_FALLBACK_EMITTED"],
+    },
+  ];
+  const message = {
+    id: "e2e-incomplete-forensic-message",
+    sessionId,
+    role: "assistant",
+    content: answer,
+    operationMode: "FORENSIC_AUDIT",
+    sources: [source],
+    toolTrace: JSON.stringify(toolTrace),
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      status: "running",
+      resumable: true,
+    }),
+    sse({ type: "tool_call", tool: "read_file", args: { path: source }, cached: false }),
+    sse({
+      type: "tool_result",
+      tool: "read_file",
+      source,
+      resultKind: "failed",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      resultSummary: "The required source read did not complete.",
+    }),
+    sse({ type: "forensic_status", ...toolTrace[2] }),
+    sse({ type: "forensic_terminal", terminalKind: "NO_EVIDENCE_FOUND" }),
+    sse({ type: "delta", delta: answer }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId,
+      message,
+      sources: [source],
+      toolTrace: JSON.stringify(toolTrace),
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    question,
+    answer,
+    source,
+    sessionId,
+    executionId,
+    streamBody,
+    message,
+  };
+}
+
+function installAcceptanceIncompleteFixture(): ArabicAiFixture {
+  const base = installIncompleteForensicFixture();
+  const acceptanceDisposition = {
+    reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
+    outcome: "FAILED",
+    failureKind: "INCOMPLETE",
+    recoveryState: "INCOMPLETE",
+    operatorAction: "START_NEW_RUN",
+  } as const;
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  return {
+    ...base,
+    question: "Retry the proof-required run with mismatched evidence.",
+    message: {
+      ...base.message,
+      content: "",
+      outcome: "FAILED",
+      errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      errorMessage: "The acceptance evidence was not proven for this run.",
+      failureKind: "INCOMPLETE",
+      retryable: true,
+      recoveryState: "INCOMPLETE",
+      acceptanceDisposition,
+    },
+    streamBody: [
+      sse({ type: "session_started", sessionId: base.sessionId }),
+      sse({
+        type: "execution_started",
+        executionId: base.executionId,
+        status: "running",
+        resumable: true,
+      }),
+      sse({
+        type: "error",
+        executionId: base.executionId,
+        sessionId: base.sessionId,
+        code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        message: "The acceptance evidence was not proven for this run.",
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+        retryable: true,
+        recoveryState: "INCOMPLETE",
+        acceptanceDisposition,
+      }),
+    ].join(""),
+  };
+}
+
+function installCancelledForensicFixture(): ArabicAiFixture {
+  const sessionId = "e2e-cancelled-forensic-session";
+  const executionId = "e2e-cancelled-forensic-execution";
+  const source = "src/cancelled-audit.ts";
+  const question = "Audit the source and preserve the report if recovery is cancelled.";
+  const answer = [
+    "## 1) Executive Verdict",
+    "ANALYSIS_INCOMPLETE — the audit was cancelled during recovery.",
+    "",
+    "## 2) Evidence Map",
+    `Retained evidence from ${source} is preserved for the next attempt.`,
+    "",
+    "## 3) Findings",
+    "No verified finding was established before cancellation.",
+    "",
+    "## 4) Repair Plan",
+    "No repair phases are authorized for this incomplete audit.",
+    "",
+    "## 5) Validation Checklist",
+    "No executable validation scenario is authorized for this incomplete audit.",
+    "",
+    "## 6) Final Judgment",
+    "ANALYSIS_INCOMPLETE — Safe terminal reason: CANCELLED. Retry the audit before drawing a conclusion.",
+  ].join("\n");
+  const forensicDiagnostic = {
+    version: "v1",
+    verdict: "ANALYSIS_INCOMPLETE",
+    reasonCode: "CANCELLED",
+    explanation: "The audit was cancelled before recovery completed.",
+    unreadFileCount: 1,
+    unreadFiles: [source],
+    truncatedFileCount: 0,
+    truncatedFiles: [],
+    nextActionCode: "RETRY_READ",
+    nextAction: "Retry the bounded audit before drawing a conclusion.",
+  };
+  const toolTrace = [
+    {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+      prefetched: true,
+    },
+    {
+      kind: "tool_result",
+      tool: "read_file",
+      source,
+      cached: false,
+      prefetched: true,
+      resultKind: "ok",
+      resultSummary: "Retained source evidence before cancellation.",
+    },
+    {
+      kind: "forensic_status",
+      auditScope: "PRODUCTION",
+      productionReachability: "NOT_PROVEN",
+      sourceCoverage: "PARTIAL",
+      behavioralAssessment: "INCOMPLETE",
+      findingStatus: "NOT_PROVEN",
+      repairReadiness: "BLOCKED",
+      implementationFiles: 1,
+      contextFiles: 0,
+      generatedFiles: 0,
+      requestedFiles: [source],
+      effectiveRoot: "PROJECT_ROOT",
+      projectRevision: "e2e-cancelled-forensic-revision-1",
+      completeReads: false,
+      readStatuses: [{ path: source, status: "READ_COMPLETE" }],
+    },
+    {
+      kind: "forensic_recovery_start",
+      attempt: 1,
+    },
+    {
+      kind: "forensic_terminal",
+      terminalKind: "NO_RESPONSE_RECOVERY_BLOCKED",
+    },
+    {
+      kind: "forensic_diagnostic",
+      forensicDiagnostic,
+    },
+    {
+      kind: "done",
+      stopReason: "cancelled",
+      iterations: 2,
+      maxIterations: 8,
+      toolCalls: 1,
+      prefetchToolCalls: 1,
+      loopToolCalls: 0,
+      synthesisStarted: true,
+      recoveryStarted: true,
+      diagnosticCodes: ["EXECUTION_CANCELLED"],
+    },
+  ];
+  const message = {
+    id: "e2e-cancelled-forensic-message",
+    sessionId,
+    role: "assistant",
+    content: answer,
+    operationMode: "FORENSIC_AUDIT",
+    sources: [source],
+    toolTrace: JSON.stringify(toolTrace),
+    outcome: "INTERRUPTED",
+    errorCode: "EXECUTION_CANCELLED",
+    errorMessage: "Execution was cancelled before completion.",
+    failureKind: "CANCELLATION",
+    retryable: true,
+    recoveryState: "INCOMPLETE",
+    forensicDiagnostic,
+    executionId,
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      status: "running",
+      resumable: true,
+    }),
+    sse({ type: "tool_call", tool: "read_file", args: { path: source }, cached: false, prefetched: true }),
+    sse({
+      type: "tool_result",
+      tool: "read_file",
+      source,
+      cached: false,
+      prefetched: true,
+      resultKind: "ok",
+      resultSummary: "Retained source evidence before cancellation.",
+    }),
+    sse({ type: "forensic_status", ...toolTrace[2] }),
+    sse({ type: "forensic_recovery_start", attempt: 1 }),
+    sse({ type: "forensic_terminal", terminalKind: "NO_RESPONSE_RECOVERY_BLOCKED" }),
+    sse({ type: "forensic_diagnostic", forensicDiagnostic }),
+    sse({ type: "delta", delta: answer }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId,
+      message,
+      sources: [source],
+      toolTrace: JSON.stringify(toolTrace),
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    question,
+    answer,
+    source,
+    sessionId,
+    executionId,
+    streamBody,
+    message,
+  };
+}
+
 function installDisconnectedAiFixture(): ArabicAiFixture {
   const sessionId = "e2e-disconnected-ai-session";
   const executionId = "e2e-disconnected-ai-execution";
@@ -1260,6 +1646,76 @@ function installDisconnectedAiFixture(): ArabicAiFixture {
     sse({ type: "delta", delta: answer }),
     // The real route emits this after a provider disconnect so the client
     // drops the transient bubble before rendering the persisted result.
+    sse({ type: "stream_reset" }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId,
+      message,
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    question,
+    answer,
+    source: "provider",
+    sessionId,
+    executionId,
+    streamBody,
+    message,
+  };
+}
+
+function installInterruptedAiFixture(): ArabicAiFixture {
+  const sessionId = "e2e-interrupted-ai-session";
+  const executionId = "e2e-interrupted-ai-execution";
+  const question =
+    "What remains visible when the request is cancelled after starting an answer?";
+  const answer =
+    "The request confirmed the initial scope before cancellation.";
+  const diagnosticCode = "EXECUTION_CANCELLED";
+  const toolTrace = [
+    {
+      kind: "done",
+      stopReason: "cancelled",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: 0,
+      prefetchToolCalls: 0,
+      loopToolCalls: 0,
+      synthesisStarted: false,
+      diagnosticCodes: [diagnosticCode],
+      diagnosticDetails: [
+        "Cancellation stopped the response after visible text was retained.",
+      ],
+    },
+  ];
+  const message = {
+    id: "e2e-interrupted-ai-message",
+    sessionId,
+    role: "assistant",
+    content: answer,
+    toolTrace: JSON.stringify(toolTrace),
+    outcome: "INTERRUPTED",
+    failureKind: "CANCELLATION",
+    errorCode: diagnosticCode,
+    errorMessage: "Execution was cancelled before completion.",
+    executionId,
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      status: "running",
+      resumable: false,
+    }),
+    sse({ type: "stage", stage: "calling-model" }),
+    sse({ type: "delta", delta: answer }),
     sse({ type: "stream_reset" }),
     sse({
       type: "done",
@@ -1594,10 +2050,18 @@ async function navigateBrowserHistory(
 }
 
 async function programmaticSignIn(page: Page) {
-  await page.goto(DASHBOARD_PATH);
-  await expect(
-    page.getByRole("link", { name: "Sign In", exact: true }),
-  ).toBeVisible();
+  const signInLink = page.getByRole("link", { name: "Sign In", exact: true });
+  let signInLoaded = false;
+  for (let attempt = 0; attempt < 3 && !signInLoaded; attempt += 1) {
+    await page.goto(DASHBOARD_PATH);
+    try {
+      await expect(signInLink).toBeVisible({ timeout: 5_000 });
+      signInLoaded = true;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await page.waitForTimeout(250);
+    }
+  }
 
   const helper =
     globalThis.signInClerkUser ??
@@ -3685,6 +4149,265 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(visibleText).toContain("NOT PROVEN");
   });
 
+  test("keeps the incomplete six-section forensic report and telemetry after reload", async ({
+    page,
+  }) => {
+    const fixture = installIncompleteForensicFixture();
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    await expect(page.getByRole("heading", { name: "1) Executive Verdict" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "6) Final Judgment" })).toBeVisible();
+    await expect(page.getByText(/Safe terminal reason: SOURCE_COVERAGE_INCOMPLETE/)).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+    const evidenceToggle = page.getByRole("button", { name: /Forensic evidence/ });
+    if (await evidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await evidenceToggle.click();
+    }
+    await expect(page.getByText("PROJECT_ROOT", { exact: true })).toBeVisible();
+    await expect(page.getByText("e2e-forensic-revision-1", { exact: true })).toBeVisible();
+    await expect(page.getByText("skipped", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Retry the bounded read before drawing a conclusion/).last()).toBeVisible();
+
+    const beforeReload = await page.locator("body").innerText();
+    expect(beforeReload).not.toContain("FINDING PROVEN");
+    expect(beforeReload).not.toContain("NO_VERIFIED_FINDING");
+
+    await page.reload();
+    // The project-scoped last-session selection restores this conversation
+    // without requiring another session-drawer click.
+    await expect(page.getByRole("heading", { name: "1) Executive Verdict" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "6) Final Judgment" })).toBeVisible();
+    await expect(page.getByText(/Safe terminal reason: SOURCE_COVERAGE_INCOMPLETE/)).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+    const reloadedEvidenceToggle = page.getByRole("button", { name: /Forensic evidence/ });
+    if (await reloadedEvidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await reloadedEvidenceToggle.click();
+    }
+    await expect(page.getByText("PROJECT_ROOT", { exact: true })).toBeVisible();
+    await expect(page.getByText("e2e-forensic-revision-1", { exact: true })).toBeVisible();
+    const afterReload = await page.locator("body").innerText();
+    expect(afterReload).not.toContain("FINDING PROVEN");
+    expect(afterReload).not.toContain("NO_VERIFIED_FINDING");
+  });
+
+  test("keeps the acceptance disposition identical after chat reload", async ({
+    page,
+  }) => {
+    const fixture = installAcceptanceIncompleteFixture();
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    const notice = page.getByRole("region", { name: "Acceptance disposition" });
+    await expect(notice).toContainText("EXECUTION_ACCEPTANCE_INCOMPLETE");
+    await expect(notice).toContainText("Start a new scoped run");
+    const beforeReload = await notice.textContent();
+    expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
+
+    await page.reload();
+    const reloadedNotice = page.getByRole("region", { name: "Acceptance disposition" });
+    expect(await reloadedNotice.textContent()).toBe(beforeReload);
+    expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
+  });
+
+  test("reopens a cancelled forensic report from session history after reload", async ({
+    page,
+  }) => {
+    const fixture = installCancelledForensicFixture();
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    for (const heading of [
+      "## 1) Executive Verdict",
+      "## 2) Evidence Map",
+      "## 3) Findings",
+      "## 4) Repair Plan",
+      "## 5) Validation Checklist",
+      "## 6) Final Judgment",
+    ]) {
+      await expect(page.locator("body")).toContainText(heading);
+    }
+    await expect(page.getByText(/Safe terminal reason: CANCELLED/).last()).toBeVisible();
+    await expect(page.getByText("Cancelled before completion")).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+
+    const evidenceToggle = page.getByRole("button", { name: /Forensic evidence/ });
+    if (await evidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await evidenceToggle.click();
+    }
+    await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
+    await expect(page.getByText("PARTIAL", { exact: true })).toBeVisible();
+    await expect(page.getByText("INCOMPLETE", { exact: true }).last()).toBeVisible();
+    await expect(page.getByText(/Retry the bounded audit before drawing a conclusion/)).toBeVisible();
+
+    const beforeReload = await page.locator("body").innerText();
+    expect(beforeReload).not.toContain("NO_VERIFIED_FINDING");
+    expect(beforeReload).not.toContain("FINDING PROVEN");
+    expect(beforeReload).not.toContain("Persisted execution proof");
+    expect(beforeReload).not.toContain("COMPLETED");
+    expect(beforeReload).not.toContain("recovery-provider");
+    expect(beforeReload).not.toContain("recovery-provider-model");
+    expect(beforeReload).not.toContain(fixture.sessionId);
+    expect(beforeReload).not.toContain(fixture.executionId);
+    expect(beforeReload).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
+
+    await page.reload();
+    // The cancelled audit remains the explicit re-selection coverage below;
+    // this reload verifies the normal selected-session path.
+    await page.getByRole("button", { name: fixture.question, exact: true }).click();
+    for (const heading of [
+      "## 1) Executive Verdict",
+      "## 2) Evidence Map",
+      "## 3) Findings",
+      "## 4) Repair Plan",
+      "## 5) Validation Checklist",
+      "## 6) Final Judgment",
+    ]) {
+      await expect(page.locator("body")).toContainText(heading);
+    }
+    await expect(page.getByText(/Safe terminal reason: CANCELLED/).last()).toBeVisible();
+    await expect(page.getByText("Cancelled before completion")).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+
+    const reloadedEvidenceToggle = page.getByRole("button", { name: /Forensic evidence/ });
+    if (await reloadedEvidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await reloadedEvidenceToggle.click();
+    }
+    await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
+    await expect(page.getByText(/Retry the bounded audit before drawing a conclusion/)).toBeVisible();
+    const afterReload = await page.locator("body").innerText();
+    expect(afterReload).not.toContain("NO_VERIFIED_FINDING");
+    expect(afterReload).not.toContain("FINDING PROVEN");
+    expect(afterReload).not.toContain("Persisted execution proof");
+    expect(afterReload).not.toContain("COMPLETED");
+    expect(afterReload).not.toContain("recovery-provider");
+    expect(afterReload).not.toContain("recovery-provider-model");
+    expect(afterReload).not.toContain(fixture.sessionId);
+    expect(afterReload).not.toContain(fixture.executionId);
+    expect(afterReload).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
+  });
+
+  test("restores a selected historical audit with its linked session after reload", async ({
+    page,
+  }) => {
+    const fixture = installCancelledForensicFixture();
+    const historyItem = {
+      id: fixture.executionId,
+      projectId: "e2e-project",
+      sessionId: fixture.sessionId,
+      status: "cancelled",
+      objective: fixture.question,
+      evidenceVerdict: "PARTIAL",
+      evidenceReason: "The audit was cancelled during bounded recovery.",
+      terminalReason: "CANCELLED",
+      proofRequired: true,
+      disposition: "RETAIN_FOR_REVIEW",
+      recommendedAction: "REVIEW_RETAINED_PROOF",
+      resumable: false,
+      checkpointVersion: 1,
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:02:00.000Z",
+      completedAt: null,
+    };
+    const execution = {
+      id: fixture.executionId,
+      projectId: "e2e-project",
+      sessionId: fixture.sessionId,
+      status: "cancelled",
+      message: fixture.question,
+      checkpointVersion: 1,
+    };
+    await installApiFixtures(page, {
+      arabicAi: fixture,
+      historicalAudits: {
+        audits: [historyItem],
+        executions: { [fixture.executionId]: execution },
+      },
+    });
+    await page.addInitScript(
+      ({ value }) => localStorage.setItem("eos_ai_selection_e2e-project", value),
+      {
+        value: JSON.stringify({
+          version: 1,
+          projectId: "e2e-project",
+          kind: "historical-audit",
+          executionId: fixture.executionId,
+          sessionId: fixture.sessionId,
+        }),
+      },
+    );
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    for (const heading of [
+      "## 1) Executive Verdict",
+      "## 2) Evidence Map",
+      "## 3) Findings",
+      "## 4) Repair Plan",
+      "## 5) Validation Checklist",
+      "## 6) Final Judgment",
+    ]) {
+      await expect(page.locator("body")).toContainText(heading);
+    }
+    await expect(page.getByText(/Safe terminal reason: CANCELLED/).last()).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: `Review audit ${fixture.question}` }),
+    ).toHaveClass(/bg-primary\/10/);
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain("FINDING PROVEN");
+    expect(visibleText).not.toContain("NO_VERIFIED_FINDING");
+    expect(visibleText).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
+  });
+
+  test("clears a project-mismatched last selection instead of showing stale audit content", async ({
+    page,
+  }) => {
+    const fixture = installIncompleteForensicFixture();
+    await installApiFixtures(page, { arabicAi: fixture });
+    await page.addInitScript(
+      ({ value }) => localStorage.setItem("eos_ai_selection_e2e-project", value),
+      {
+        value: JSON.stringify({
+          version: 1,
+          projectId: "another-project",
+          kind: "session",
+          sessionId: fixture.sessionId,
+          report: fixture.answer,
+        }),
+      },
+    );
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    await expect(
+      page.getByRole("button", { name: fixture.question, exact: true }),
+    ).not.toHaveClass(/bg-primary\/10/);
+    await expect(page.getByRole("heading", { name: "1) Executive Verdict" }))
+      .not.toBeVisible();
+    expect(
+      await page.evaluate(() => localStorage.getItem("eos_ai_selection_e2e-project")),
+    ).toBeNull();
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain("ANALYSIS_INCOMPLETE");
+    expect(visibleText).not.toContain("FINDING PROVEN");
+  });
+
   test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({
     page,
   }) => {
@@ -4107,6 +4830,41 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
   });
 
+  test("preserves one partial answer after an interrupted terminal result", async ({
+    page,
+  }) => {
+    const fixture = installInterruptedAiFixture();
+    await installApiFixtures(page, { interruptedAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    const assertInterruptedReplay = async () => {
+      await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+      await expect(page.getByText("Execution interrupted", { exact: true }).last()).toBeVisible();
+      await expect(page.getByText("Connection interrupted", { exact: true }).last()).toBeVisible();
+      await expect(page.getByText("INCOMPLETE:", { exact: false }).last()).toBeVisible();
+      await expect(page.getByText("stopped: cancelled", { exact: false }).last()).toBeVisible();
+      await expect(page.getByText("EXECUTION_CANCELLED", { exact: false }).last()).toBeVisible();
+      await expect(page.getByLabel("Agent execution proof")).toHaveCount(0);
+      const visibleText = await page.locator("body").innerText();
+      expect(visibleText).not.toMatch(
+        /raw provider exception|stack trace|\/home\/runner|secret|apiKey=|123e4567-e89b-12d3-a456-426614174000/i,
+      );
+    };
+
+    await assertInterruptedReplay();
+
+    await page.reload();
+    await page
+      .getByRole("button", { name: fixture.question, exact: true })
+      .click();
+    await assertInterruptedReplay();
+  });
+
   test("resumes a failed analysis and keeps the execution incomplete", async ({
     page,
   }) => {
@@ -4225,6 +4983,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
                 controller.enqueue(
                   encoder.encode(buffered.slice(0, frameEnd + 2)),
                 );
+                // Let the browser deliver the durable identity frame before
+                // simulating the transport failure. Without this yield,
+                // Chromium can reject the stream before the client observes
+                // execution_started.
+                await new Promise((resolve) => setTimeout(resolve, 0));
                 controller.error(new TypeError("network connection reset"));
                 return;
               }
@@ -4308,7 +5071,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       )
       .toBe(recovery.recoveredToken);
 
-    await page.getByRole("button", { name: "Resume", exact: true }).click();
+    await executionProof
+      .getByRole("button", { name: "Resume", exact: true })
+      .click();
     await expect(
       page.getByText(recovery.fixture.answer, { exact: true }),
     ).toBeVisible();
@@ -4723,7 +5488,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         await expect(input).toBeVisible();
         await expect(save).toBeVisible();
         await input.scrollIntoViewIfNeeded();
-        await save.scrollIntoViewIfNeeded();
+        await save.evaluate((element) =>
+          element.scrollIntoView({ block: "center", inline: "nearest" }),
+        );
         await expectWithinViewport(
           input,
           viewport,

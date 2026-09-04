@@ -1,7 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import AiChat, { auditExportFilename, BenchmarkMissionControlPanel } from './AiChat';
+import AiChat, {
+  AI_CHAT_SELECTION_STORAGE_PREFIX,
+  auditExportFilename,
+  BenchmarkMissionControlPanel,
+} from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
 
 /** Minimal structural mirror of the AI-008 taskResult union for rendering tests. */
@@ -64,6 +68,8 @@ const mocks = vi.hoisted(() => {
     operationEvents: [] as Array<Record<string, unknown>>,
     projects: [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }],
     sessions: [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }],
+    sessionsFetched: true,
+    sessionsError: false,
     historicalAudits: [] as Array<Record<string, unknown>>,
     proposalMessages: [{
       id: 'message-1',
@@ -223,8 +229,8 @@ vi.mock('@workspace/api-client-react', () => {
     })),
     useListAiChatSessions: vi.fn(() => ({
       data: mocks.sessions,
-      isFetched: true,
-      isError: false,
+      isFetched: mocks.sessionsFetched,
+      isError: mocks.sessionsError,
       error: null,
     })),
     useListAiChatMessages: vi.fn((sessionId: string) => ({
@@ -322,6 +328,8 @@ beforeEach(() => {
   mocks.groqStatus = undefined;
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
+  mocks.sessionsFetched = true;
+  mocks.sessionsError = false;
   mocks.proposalMessages[0] = {
     ...mocks.proposalMessages[0],
     id: 'message-1',
@@ -446,6 +454,141 @@ describe('AiChat authenticated generated mutations', () => {
     assertSafeRecovery();
   });
 
+  it('shows a retained partial provider response and incomplete execution diagnostic for generic chat', async () => {
+    const partialAnswer = 'The provider began reviewing the request before disconnecting.';
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: partialAnswer,
+      outcome: 'FAILED',
+      errorCode: 'EXECUTION_PROVIDER_FAILURE',
+      errorMessage: 'The provider disconnected before completion.',
+      toolTrace: JSON.stringify([{
+        kind: 'done',
+        stopReason: 'provider_timeout',
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 0,
+        diagnosticCodes: ['EXECUTION_PROVIDER_FAILURE'],
+        diagnosticDetails: ['The provider disconnected after visible response text.'],
+      }]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText(partialAnswer, { exact: true })).toBeInTheDocument();
+    expect(screen.getByText('INCOMPLETE:', { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByText(/provider failure/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/stopped: provider timeout/i)).toBeInTheDocument();
+    expect(screen.getByText('The provider disconnected after visible response text.')).toBeInTheDocument();
+    expect(screen.queryByText(/stack trace|\/home\/runner|secret|apiKey=/i)).not.toBeInTheDocument();
+  });
+
+  it('replays a persisted interrupted chat response safely after reload', async () => {
+    const partialAnswer = 'The response confirmed the requested scope before cancellation.';
+    const unsafeError = [
+      'Raw provider exception: model secret-model-name failed at /home/runner/workspace/artifacts/api-server/src/chat.ts',
+      'apiKey=sk-live-provider-secret',
+      'executionId=123e4567-e89b-12d3-a456-426614174000',
+    ].join(' ');
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: partialAnswer,
+      outcome: 'INTERRUPTED',
+      failureKind: 'CANCELLATION',
+      errorCode: 'EXECUTION_CANCELLED',
+      errorMessage: unsafeError,
+      toolTrace: JSON.stringify([{
+        kind: 'done',
+        stopReason: 'cancelled',
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 0,
+        diagnosticCodes: ['EXECUTION_CANCELLED'],
+        diagnosticDetails: [unsafeError],
+      }]),
+    };
+
+    const assertInterruptedReplay = () => {
+      expect(screen.getByText(partialAnswer, { exact: true })).toBeInTheDocument();
+      expect(screen.getByText('Execution interrupted')).toBeInTheDocument();
+      expect(screen.getAllByText('Connection interrupted', { exact: true }).length).toBeGreaterThan(0);
+      expect(screen.getByText('INCOMPLETE:', { exact: false })).toBeInTheDocument();
+      expect(screen.getByText(/stopped: cancelled/i)).toBeInTheDocument();
+      const visibleText = document.body.textContent ?? '';
+      expect(visibleText).not.toMatch(
+        /Raw provider exception|secret-model-name|\/home\/runner|sk-live-provider-secret|123e4567-e89b-12d3-a456-426614174000|Persisted execution proof/i,
+      );
+      expect(screen.queryByText(/Execution was cancelled before completion\./i)).not.toBeInTheDocument();
+    };
+
+    const firstRender = renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    assertInterruptedReplay();
+
+    firstRender.unmount();
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    assertInterruptedReplay();
+  });
+
+  it('does not render an interrupted internal technical dump as a partial answer', async () => {
+    const internalDump = [
+      'AiStreamDecisionTraceEvent decision_trace',
+      'validator: internal recoveryattempt: 1 finalstate: cancelled',
+    ].join(' ');
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: internalDump,
+      outcome: 'INTERRUPTED',
+      failureKind: 'CANCELLATION',
+      errorCode: 'EXECUTION_CANCELLED',
+      errorMessage: 'Execution was cancelled before completion.',
+      toolTrace: JSON.stringify([{
+        kind: 'done',
+        stopReason: 'cancelled',
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 0,
+        diagnosticCodes: ['EXECUTION_CANCELLED'],
+      }]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(screen.queryByText(internalDump, { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText(/The AI provider could not complete this request/i)).toBeInTheDocument();
+    expect(screen.getByText('Execution interrupted')).toBeInTheDocument();
+  });
+
+  it('keeps a clean successful chat response free of an execution diagnostic banner', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: 'The provider completed the request successfully.',
+      outcome: 'SUCCEEDED',
+      toolTrace: JSON.stringify([{
+        kind: 'done',
+        stopReason: 'response',
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 0,
+        diagnosticCodes: [],
+      }]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText('The provider completed the request successfully.')).toBeInTheDocument();
+    expect(screen.queryByText(/INCOMPLETE:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Execution diagnostic:/)).not.toBeInTheDocument();
+  });
+
   it('restores a paused execution after refresh and resumes the same execution', async () => {
     mocks.activeExecutionStatus = { status: 'paused' };
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
@@ -532,6 +675,13 @@ describe('AiChat authenticated generated mutations', () => {
     // The resume request reuses the persisted turn; it must not optimistically
     // render the resumed prompt as a second local user bubble.
     expect(screen.queryAllByText('Inspect the interrupted execution')).toHaveLength(0);
+    expect(JSON.parse(localStorage.getItem('eos_ai_sync_event') ?? '{}')).toEqual(
+      expect.objectContaining({
+        kind: 'data',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+      }),
+    );
   });
 
   it('recovers a missing resume token before offering the saved execution', async () => {
@@ -656,6 +806,29 @@ describe('AiChat authenticated generated mutations', () => {
     expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
   });
 
+  it('refreshes the active conversation when another dashboard tab publishes new AI data', async () => {
+    const { invalidateQueries } = renderAiChat();
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'eos_ai_sync_event',
+        newValue: JSON.stringify({
+          version: 1,
+          sequence: 1,
+          projectId: 'project-1',
+          kind: 'data',
+          sessionId: 'session-1',
+        }),
+      }));
+    });
+
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-messages', 'session-1'] });
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-pending-proposal', 'session-1'] });
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-sessions', 'project-1'] });
+    });
+  });
+
   it('replays a persisted analysis failure after dashboard reload without showing completion', async () => {
     mocks.serverProposal = { proposalId: 'failed-analysis-replay', changes: [] };
     mocks.proposalMessages[0] = {
@@ -765,6 +938,175 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('Inspect the new session root', {
       selector: 'div.chat-message-bubble',
     })).toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBe(
+      JSON.stringify({
+        version: 1,
+        projectId: 'project-1',
+        kind: 'session',
+        sessionId: 'session-new',
+      }),
+    );
+  });
+
+  it('restores the last selected session after reload without copying conversation data', async () => {
+    mocks.serverProposal = { changes: [] };
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByText('Existing response')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Existing session' })).toHaveClass('bg-primary/10');
+    const selection = localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`) ?? '';
+    expect(selection).not.toContain('Existing response');
+    expect(selection).not.toContain('resumeToken');
+    expect(selection).not.toContain('/home/');
+  });
+
+  it('clears malformed or unavailable selections without exposing stale messages', async () => {
+    mocks.serverProposal = { changes: [] };
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 99,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-removed',
+      report: 'stale forensic report',
+    }));
+
+    renderAiChat();
+
+    const sessionButton = await screen.findByRole('button', { name: 'Existing session' });
+    expect(sessionButton).not.toHaveClass('bg-primary/10');
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
+    expect(screen.queryByText('stale forensic report')).not.toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBeNull();
+  });
+
+  it('restores a historical audit only when its project-owned linked session is listed', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.activeExecutionStatus = { status: 'cancelled' };
+    mocks.historicalAudits = [{
+      id: 'historical-execution-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      status: 'cancelled',
+      objective: 'Review the retained audit',
+      evidenceVerdict: 'ANALYSIS_INCOMPLETE',
+      disposition: 'RETAIN_FOR_REVIEW',
+      recommendedAction: 'REVIEW',
+      proofRequired: true,
+      resumable: false,
+      checkpointVersion: 1,
+      createdAt: '2026-08-13T00:00:00.000Z',
+      updatedAt: '2026-08-13T00:00:00.000Z',
+    }];
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'historical-audit',
+      executionId: 'historical-execution-1',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByText('Existing response')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Review audit Review the retained audit/ }))
+      .toHaveClass('bg-primary/10');
+    expect(screen.getByText(/Execution historical-/)).toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBe(
+      JSON.stringify({
+        version: 1,
+        projectId: 'project-1',
+        kind: 'historical-audit',
+        executionId: 'historical-execution-1',
+        sessionId: 'session-1',
+      }),
+    );
+  });
+
+  it('keeps selections isolated by project and preserves an independent execution pointer', async () => {
+    mocks.projects = [
+      { id: 'project-1', name: 'demo-service', language: 'TypeScript' },
+      { id: 'project-2', name: 'worker-service', language: 'TypeScript' },
+    ];
+    mocks.sessions = [
+      { id: 'session-1', title: 'Project one session', updatedAt: '2026-08-13T00:00:00.000Z' },
+      { id: 'session-2', title: 'Project two session', updatedAt: '2026-08-14T00:00:00.000Z' },
+    ];
+    mocks.serverProposal = { changes: [] };
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-1',
+    }));
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-2`, JSON.stringify({
+      version: 1,
+      projectId: 'project-2',
+      kind: 'session',
+      sessionId: 'session-2',
+    }));
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-project-one',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      resumeToken: 'opaque-resume-token',
+      message: 'Resume project one',
+    }));
+    mocks.activeExecutionStatus = { status: 'paused' };
+
+    renderAiChat();
+    expect(await screen.findByText(/Execution execution-/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Project one session' })).toHaveClass('bg-primary/10');
+
+    const projectSelector = screen.getByRole('combobox');
+    fireEvent.change(projectSelector, { target: { value: 'project-2' } });
+    expect(await screen.findByRole('button', { name: 'Project two session' }))
+      .toHaveClass('bg-primary/10');
+    expect(screen.queryByText(/Resume project one/)).not.toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toContain('session-1');
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-2`)).toContain('session-2');
+    expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).toContain('opaque-resume-token');
+  });
+
+  it('does not hydrate a selection while the project session list is unavailable', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.sessionsError = true;
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByRole('button', { name: 'Existing session' }))
+      .not.toHaveClass('bg-primary/10');
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).not.toBeNull();
+  });
+
+  it('clears the selection when starting a new session', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'session',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+    await screen.findByRole('button', { name: 'Existing session' });
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+
+    expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBeNull();
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
   });
 
   it('preserves each project execution pointer when switching away and back', async () => {
@@ -856,15 +1198,19 @@ describe('AiChat authenticated generated mutations', () => {
       data: { apiKey: 'sk_test_key_123' },
     });
 
-    mocks.mutationOptions.saveDeepSeek?.onSuccess?.({
-      configured: true,
-      last4: '0123',
-      updatedAt: null,
+    act(() => {
+      mocks.mutationOptions.saveDeepSeek?.onSuccess?.({
+        configured: true,
+        last4: '0123',
+        updatedAt: null,
+      });
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'DeepSeek key saved' }));
 
-    mocks.mutationOptions.saveDeepSeek?.onError?.(new Error('provider rejected key'));
+    act(() => {
+      mocks.mutationOptions.saveDeepSeek?.onError?.(new Error('provider rejected key'));
+    });
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Failed to save key',
       description: 'provider rejected key',
@@ -1016,6 +1362,25 @@ it('shows Groq model readiness without requiring a personal key when the server 
         implementationFiles: 1,
         contextFiles: 0,
         generatedFiles: 0,
+        effectiveRoot: 'PROJECT_ROOT',
+        projectRevision: 'rev-safe-123',
+        completeReads: false,
+        appliedBudget: {
+          maxIterations: 12,
+          maxToolCalls: 24,
+          synthesisMaxAttempts: 2,
+          synthesisTimeoutMs: 1500,
+        },
+        readStatuses: [
+          { path: 'src/a.ts', status: 'READ_COMPLETE' },
+          { path: 'src/missing.ts', status: 'READ_FAILED' },
+        ],
+        synthesisLifecycle: {
+          started: false,
+          attempted: false,
+          timedOut: false,
+          skipped: true,
+        },
       },
       {
         kind: 'forensic_diagnostic',
@@ -1042,6 +1407,16 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getByText(/Unread scope: 2/)).toBeInTheDocument();
     expect(screen.getByText('src/missing.ts')).toBeInTheDocument();
     expect(screen.getByText(/Review the unread scope and start a new audit/)).toBeInTheDocument();
+    const forensicEvidenceToggle = screen.getByRole('button', { name: /Forensic evidence/ });
+    if (forensicEvidenceToggle.getAttribute('aria-expanded') !== 'true') {
+      fireEvent.click(forensicEvidenceToggle);
+    }
+    expect(screen.getByText('PROJECT_ROOT')).toBeInTheDocument();
+    expect(screen.getByText('rev-safe-123')).toBeInTheDocument();
+    expect(screen.getByText('off')).toBeInTheDocument();
+    expect(screen.getByText('12 iterations / 24 tool calls')).toBeInTheDocument();
+    expect(screen.getByText('skipped')).toBeInTheDocument();
+    expect(screen.getByText(/file reads:/)).toHaveTextContent('1 complete · 0 truncated · 1 failed');
     expect(screen.queryByText('NO FINDING')).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-diagnostic|\/home\/runner|secret-fixture-value|raw tool output/i)).not.toBeInTheDocument();
   });
@@ -1114,15 +1489,17 @@ it('shows Groq model readiness without requiring a personal key when the server 
       },
     });
 
-    mocks.mutationOptions.applyChanges?.onSuccess?.({
-      results: [{
-        path: 'src/app.ts',
-        ok: true,
-        writeStatus: 'written',
-        persistenceVerified: true,
-        behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
-      }],
-      proposalId: 'proposal-1',
+    act(() => {
+      mocks.mutationOptions.applyChanges?.onSuccess?.({
+        results: [{
+          path: 'src/app.ts',
+          ok: true,
+          writeStatus: 'written',
+          persistenceVerified: true,
+          behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
+        }],
+        proposalId: 'proposal-1',
+      });
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['git-status', 'project-1'] });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Commit verified changes' })).toBeInTheDocument());
@@ -1131,12 +1508,16 @@ it('shows Groq model readiness without requiring a personal key when the server 
       projectId: 'project-1',
       data: { message: 'Apply verified AI changes', proposalId: 'proposal-1' },
     });
-    mocks.mutationOptions.commit?.onSuccess?.({ ok: true, output: 'created commit' });
+    act(() => {
+      mocks.mutationOptions.commit?.onSuccess?.({ ok: true, output: 'created commit' });
+    });
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Commit verified changes' })).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Push committed changes' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Push committed changes' }));
     expect(mocks.mutations.push.mutate).toHaveBeenCalledWith({ projectId: 'project-1' });
-    mocks.mutationOptions.push?.onSuccess?.({ ok: true, branch: 'main', output: 'pushed' });
+    act(() => {
+      mocks.mutationOptions.push?.onSuccess?.({ ok: true, branch: 'main', output: 'pushed' });
+    });
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Push committed changes' })).not.toBeInTheDocument());
   });
 
@@ -1200,15 +1581,17 @@ it('shows Groq model readiness without requiring a personal key when the server 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
-    mocks.mutationOptions.applyChanges?.onSuccess?.({
-      correlationId: 'operation-proof',
-      results: [{
-        path: 'src/app.ts',
-        ok: true,
-        writeStatus: 'written',
-        persistenceVerified: true,
-        behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
-      }],
+    act(() => {
+      mocks.mutationOptions.applyChanges?.onSuccess?.({
+        correlationId: 'operation-proof',
+        results: [{
+          path: 'src/app.ts',
+          ok: true,
+          writeStatus: 'written',
+          persistenceVerified: true,
+          behavioralVerification: { status: 'passed', profile: 'api-ai-tests' },
+        }],
+      });
     });
 
     expect(await screen.findByText('Delivery proof')).toBeInTheDocument();
@@ -1243,19 +1626,21 @@ it('shows Groq model readiness without requiring a personal key when the server 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
-    mocks.mutationOptions.applyChanges?.onSuccess?.({
-      correlationId: 'operation-rebase-1',
-      results: [{
-        path: 'src/app.ts',
-        ok: false,
-        code: 'STALE_BASE',
-        error: 'The file changed after the proposal was created.',
-        conflict: {
-          kind: 'base_hash_mismatch',
-          expectedHash: 'a'.repeat(64),
-          actualHash: 'b'.repeat(64),
-        },
-      }],
+    act(() => {
+      mocks.mutationOptions.applyChanges?.onSuccess?.({
+        correlationId: 'operation-rebase-1',
+        results: [{
+          path: 'src/app.ts',
+          ok: false,
+          code: 'STALE_BASE',
+          error: 'The file changed after the proposal was created.',
+          conflict: {
+            kind: 'base_hash_mismatch',
+            expectedHash: 'a'.repeat(64),
+            actualHash: 'b'.repeat(64),
+          },
+        }],
+      });
     });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Rebase patch' }));
@@ -1279,12 +1664,14 @@ it('shows Groq model readiness without requiring a personal key when the server 
       approvalRequired: true,
       revision: 1,
     };
-    mocks.mutationOptions.rebaseChanges?.onSuccess?.({
-      proposalId: 'proposal-rebase-1',
-      changes: [rebasedChange],
-      rebasedFiles: ['src/app.ts'],
-      approvalRequired: true,
-      revision: 1,
+    act(() => {
+      mocks.mutationOptions.rebaseChanges?.onSuccess?.({
+        proposalId: 'proposal-rebase-1',
+        changes: [rebasedChange],
+        rebasedFiles: ['src/app.ts'],
+        approvalRequired: true,
+        revision: 1,
+      });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Approve & apply 1 change' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Approve & apply 1 change' }));
@@ -1292,10 +1679,12 @@ it('shows Groq model readiness without requiring a personal key when the server 
       proposalId: 'proposal-rebase-1',
       data: { projectId: 'project-1', revision: 1 },
     });
-    mocks.mutationOptions.approveRebased?.onSuccess?.({
-      proposalId: 'proposal-rebase-1',
-      approvalRequired: false,
-      revision: 1,
+    act(() => {
+      mocks.mutationOptions.approveRebased?.onSuccess?.({
+        proposalId: 'proposal-rebase-1',
+        approvalRequired: false,
+        revision: 1,
+      });
     });
     expect(mocks.mutations.applyChanges.mutate).toHaveBeenLastCalledWith({
       data: expect.objectContaining({
@@ -2250,6 +2639,61 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getByText(/Reading source/)).toBeInTheDocument();
     expect(screen.getByText(/Model response/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
+  });
+
+  it('keeps a streamed proposal visible while hydration is empty or stale', async () => {
+    const streamedChange = {
+      path: 'src/live-proposal.ts',
+      absolutePath: '/project/src/live-proposal.ts',
+      newContent: 'export const live = true;',
+      originalContent: null,
+      reason: 'Preserve the streamed proposal while it hydrates.',
+      validationProfile: 'api-ai-tests',
+    };
+    renderAiChat();
+
+    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(textarea, { target: { value: 'Prepare the live proposal' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    await waitFor(() => expect(mocks.streamCallbacks).toBeDefined());
+    act(() => {
+      (mocks.streamCallbacks as {
+        onDone?: (event: Record<string, unknown>) => void;
+      }).onDone?.({
+        type: 'done',
+        sessionId: 'session-1',
+        operationId: 'operation-live-proposal',
+        operationMode: 'DELIVERY',
+        proposalId: 'proposal-live',
+        pendingChanges: [streamedChange],
+        message: {
+          id: 'assistant-live-proposal',
+          role: 'assistant',
+          content: 'The change is ready for review.',
+          createdAt: '2026-08-31T00:00:00.000Z',
+        },
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+
+    mocks.serverProposal = {
+      proposalId: 'proposal-old',
+      changes: [{
+        ...streamedChange,
+        path: 'src/old-proposal.ts',
+      }],
+    };
+    fireEvent.change(textarea, { target: { value: 'Prepare the live proposal again' } });
+
+    expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(screen.getByText('src/live-proposal.ts')).toBeInTheDocument();
+
+    mocks.serverProposal = { proposalId: null, changes: [] };
+    fireEvent.change(textarea, { target: { value: 'Prepare the live proposal once more' } });
+    expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(screen.getByText('src/live-proposal.ts')).toBeInTheDocument();
   });
 
   it('shows one execution proof panel as soon as durable work starts', async () => {

@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Cpu,
   Download,
   ExternalLink,
   FileUp,
@@ -165,7 +164,6 @@ function formatDate(value: unknown): string | undefined {
 function ProviderRecoverySummary({ value }: { value: unknown }) {
   const summary = asRecord(value);
   if (!summary) return null;
-  const model = textValue(summary.model) ?? 'Model not recorded';
   const category = textValue(summary.failureCategory) ?? 'Not categorized';
   const action = textValue(summary.recoveryAction) ?? 'No recovery action';
   const evidence = textValue(summary.evidenceStatus) ?? 'Not recorded';
@@ -179,8 +177,7 @@ function ProviderRecoverySummary({ value }: { value: unknown }) {
           {evidence}
         </span>
       </div>
-      <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
-        <div><div className="text-muted-foreground">Provider / model</div><div className="mt-0.5 font-medium">{textValue(summary.provider) ?? 'Provider not recorded'} · {model}</div></div>
+      <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
         <div><div className="text-muted-foreground">Failure category</div><div className="mt-0.5 font-medium">{category}</div></div>
         <div><div className="text-muted-foreground">Recovery action</div><div className="mt-0.5 font-medium">{action}</div></div>
         <div><div className="text-muted-foreground">Attempts</div><div className="mt-0.5 font-medium">{attempts ?? 'Not recorded'}</div></div>
@@ -345,18 +342,16 @@ function EmpiricalQualityCard({ value }: { value: unknown }) {
   const campaign = asRecord(value);
   const metrics = asRecord(campaign?.metrics);
   const status = textValue(campaign?.empiricalQualityStatus)?.toUpperCase();
-  const provider = textValue(campaign?.provider) ?? 'Provider not recorded';
-  const model = textValue(campaign?.model) ?? 'Model not recorded';
   const blockers = Array.isArray(campaign?.blockers)
     ? campaign.blockers.filter((item): item is string => typeof item === 'string')
     : [];
   const latency = asRecord(metrics?.latencyMs);
   return (
-    <section className="rounded-xl border border-primary/25 bg-card" aria-label="Empirical provider review">
+    <section className="rounded-xl border border-primary/25 bg-card" aria-label="Empirical quality review">
       <div className="flex items-center gap-2 border-b border-primary/20 px-4 py-3.5">
         <Activity className="h-4 w-4 text-primary" />
         <div>
-          <h2 className="font-semibold">Empirical provider review</h2>
+          <h2 className="font-semibold">Empirical quality review</h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">Opt-in measurement only — never a release control.</p>
         </div>
         <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] uppercase ${status === 'PROVEN' ? 'border-emerald-500/30 text-emerald-200' : 'border-primary/30 text-primary'}`}>
@@ -371,7 +366,6 @@ function EmpiricalQualityCard({ value }: { value: unknown }) {
         ) : (
           <>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-              <span>{provider} · {model}</span>
               {textValue(campaign.corpusRevision) && <span>Corpus {textValue(campaign.corpusRevision)}</span>}
               {formatDate(campaign.generatedAt) && <span>Last observed {formatDate(campaign.generatedAt)}</span>}
             </div>
@@ -433,7 +427,6 @@ function ComparisonRunColumn({
   const evidenceRowsForRun = evidenceRows(execution.evidence);
   const details = [
     ['State', stateText(execution.state)],
-    ['Provider / model', `${textValue(execution.provider) ?? 'Not recorded'} / ${textValue(execution.model) ?? 'Not recorded'}`],
     ['Attempts', formatValue(execution.attempts ?? 0)],
     ['Validation failures', formatValue(execution.validationFailures ?? 0)],
     ['Event count', String(eventCount)],
@@ -694,15 +687,35 @@ function releaseGateExport(value: unknown): JsonRecord | undefined {
   };
 }
 
+const PRIVATE_MISSION_CONTROL_KEYS = new Set([
+  'provider',
+  'model',
+  'providerMessage',
+  'providerOutput',
+  'rawResponse',
+  'sourceBody',
+]);
+
+function redactMissionControlExport(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactMissionControlExport);
+  const record = asRecord(value);
+  if (!record) return value;
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([key]) => !PRIVATE_MISSION_CONTROL_KEYS.has(key))
+      .map(([key, entry]) => [key, redactMissionControlExport(entry)]),
+  );
+}
+
 function benchmarkExport(value: unknown): unknown {
   const benchmark = asRecord(value);
   if (!benchmark) return value;
   const { releaseGate, ...rest } = benchmark;
   const projectedReleaseGate = releaseGateExport(releaseGate);
-  return {
+  return redactMissionControlExport({
     ...rest,
     ...(projectedReleaseGate ? { releaseGate: projectedReleaseGate } : {}),
-  };
+  });
 }
 
 function benchmarkRuntimeOracle(value: unknown): JsonRecord | undefined {
@@ -719,7 +732,10 @@ function downloadFilteredHistory(
   if (executions.length === 0) return;
   const date = new Date().toISOString().slice(0, 10);
   if (format === 'json') {
-    const json = JSON.stringify({ executions, benchmark: benchmarkExport(benchmark) }, null, 2);
+    const json = JSON.stringify({
+      executions: redactMissionControlExport(executions),
+      benchmark: benchmarkExport(benchmark),
+    }, null, 2);
     const blob = new Blob([`${json}\n`], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -750,7 +766,7 @@ function downloadFilteredHistory(
   const runtimeOracleChecks = serialize(runtimeOracle?.checks);
   const runtimeOracleFailureIds = serialize(runtimeOracle?.failureIds);
   const headers = [
-    'Execution ID', 'Objective', 'State', 'Provider', 'Model',
+    'Execution ID', 'Objective', 'State',
     'Failure Category', 'Recovery Action', 'Evidence Status', 'Attempts',
     'Benchmark Suite Version', 'Benchmark Baseline ID', 'Benchmark Scorecard', 'Benchmark Baseline Metrics',
     'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
@@ -759,8 +775,6 @@ function downloadFilteredHistory(
     execution.id,
     objectiveText(execution.objective),
     stateText(execution.state),
-    textValue(execution.provider) ?? 'Not recorded',
-    textValue(execution.model) ?? 'Not recorded',
     recoveryDetail(execution, 'failureCategory') ?? 'Not categorized',
     recoveryDetail(execution, 'recoveryAction') ?? 'No recovery action',
     recoveryDetail(execution, 'evidenceStatus')
@@ -791,13 +805,11 @@ function comparisonExportRow(
   benchmark: unknown,
 ): JsonRecord {
   const events = Array.isArray(execution.recentEvents) ? execution.recentEvents : [];
-  return {
+  return redactMissionControlExport({
     side: label,
     id: execution.id,
     objective: objectiveText(execution.objective),
     state: stateText(execution.state),
-    provider: textValue(execution.provider) ?? 'Not recorded',
-    model: textValue(execution.model) ?? 'Not recorded',
     attempts: numberValue(execution.attempts) ?? 0,
     validationFailures: numberValue(execution.validationFailures) ?? 0,
     eventCount: numberValue(execution.eventCount) ?? events.length,
@@ -811,7 +823,7 @@ function comparisonExportRow(
     timestamps: execution.timestamps ?? null,
     timeline: events,
     runtimeOraclePreflight: benchmarkRuntimeOracle(benchmark) ?? null,
-  };
+  }) as JsonRecord;
 }
 
 function downloadComparisonPair(
@@ -854,13 +866,13 @@ function downloadComparisonPair(
   }
 
   const headers = [
-    'Side', 'Execution ID', 'Objective', 'State', 'Provider', 'Model',
+    'Side', 'Execution ID', 'Objective', 'State',
     'Attempts', 'Validation Failures', 'Event Count', 'Failure Category',
     'Recovery Action', 'Evidence Status', 'Evidence', 'Recovery', 'Timestamps', 'Event Timeline',
     'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
   ];
   const rows = [live, imported].map((row) => [
-    row.side, row.id, row.objective, row.state, row.provider, row.model,
+    row.side, row.id, row.objective, row.state,
     row.attempts, row.validationFailures, row.eventCount, row.failureCategory,
     row.recoveryAction, row.evidenceStatus, row.evidence, row.recovery,
     row.timestamps, row.timeline,
@@ -879,7 +891,7 @@ function downloadComparisonPair(
   const csv = [
     headers.map(csvCell).join(','),
     ...rows.map((row) => row.map((value, index) => csvCell(
-      [12, 13, 14, 15, 17, 18].includes(index) ? serialize(value) : value,
+      [10, 11, 12, 13, 15, 16].includes(index) ? serialize(value) : value,
     )).join(',')),
   ].join('\r\n');
   const blob = new Blob([`${csv}\r\n`], { type: 'text/csv;charset=utf-8' });
@@ -994,8 +1006,6 @@ export default function MissionControl() {
       const searchable = [
         execution.id,
         objectiveText(execution.objective),
-        execution.provider,
-        execution.model,
         recoveryDetail(execution, 'failureCategory'),
         recoveryDetail(execution, 'recoveryAction'),
         recoveryDetail(execution, 'evidenceStatus'),
@@ -1247,7 +1257,7 @@ export default function MissionControl() {
                    type="search"
                    value={historyQuery}
                    onChange={(event) => { setHistoryQuery(event.target.value); setHistoryPage(1); }}
-                   placeholder="Search ID, objective, provider, model, failure, action…"
+                    placeholder="Search ID, objective, failure, action…"
                    aria-label="Search execution history"
                    className="h-8 w-full rounded-md border border-border bg-background/50 pl-8 pr-3 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:ring-1 focus:ring-primary/30"
                  />
@@ -1332,7 +1342,6 @@ export default function MissionControl() {
                         </div>
                         <h3 className="mt-2 line-clamp-2 text-sm font-medium leading-5 text-foreground">{objectiveText(execution.objective)}</h3>
                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
-                          <span className="inline-flex items-center gap-1"><Cpu className="h-3 w-3 text-primary/80" />{textValue(execution.provider) ?? 'Provider not recorded'} / {textValue(execution.model) ?? 'model not recorded'}</span>
                           <span className="inline-flex items-center gap-1"><Wrench className="h-3 w-3 text-amber-300/80" />{numberValue(execution.attempts) ?? 0} repair attempts</span>
                           <span className="inline-flex items-center gap-1"><TerminalSquare className="h-3 w-3 text-muted-foreground" />{eventCount} events</span>
                            {failureCategory && <span>Failure: {failureCategory}</span>}

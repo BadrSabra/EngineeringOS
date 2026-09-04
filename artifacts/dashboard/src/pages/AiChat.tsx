@@ -55,6 +55,7 @@ import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
 import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-probe';
 import type {
   AiStreamErrorEvent,
+  AiAcceptanceDisposition,
   AiExecutionNodeSnapshot,
   AiScanAnalysis,
   AiCodeReview,
@@ -65,6 +66,7 @@ import type {
   MissionCorrelationReport,
   Event as ApiEvent,
   ExportAiExecutionAudit200,
+  GroqModelAvailability,
   ProviderLifecycleSnapshot,
   AiProviderMetric,
 } from '@workspace/api-client-react';
@@ -151,6 +153,7 @@ type ChatMessage = {
   failureKind?: AiStreamErrorEvent['failureKind'];
   retryable?: boolean;
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
+  acceptanceDisposition?: AiAcceptanceDisposition | null;
   forensicDiagnostic?: ForensicDiagnostic | null;
   createdAt: string;
 };
@@ -430,6 +433,132 @@ type Session = {
   forensicStatus?: 'INCOMPLETE' | 'NO_FINDING' | 'FINDING_PROVEN' | 'NOT_PROVEN';
 };
 
+export const AI_CHAT_SELECTION_STORAGE_PREFIX = 'eos_ai_selection_';
+const AI_CHAT_SYNC_STORAGE_KEY = 'eos_ai_sync_event';
+
+type AiChatSyncEvent = {
+  version: 1;
+  sequence: number;
+  projectId: string;
+  kind: 'selection' | 'data';
+  sessionId?: string;
+};
+
+let aiChatSyncSequence = 0;
+
+type AiChatSelection =
+  | {
+      version: 1;
+      projectId: string;
+      kind: 'session';
+      sessionId: string;
+    }
+  | {
+      version: 1;
+      projectId: string;
+      kind: 'historical-audit';
+      executionId: string;
+      sessionId?: string;
+    };
+
+function aiChatSelectionStorageKey(projectId: string): string {
+  return `${AI_CHAT_SELECTION_STORAGE_PREFIX}${projectId}`;
+}
+
+function isOpaqueSelectionId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 512;
+}
+
+export function parseAiChatSelection(raw: string | null, projectId: string): AiChatSelection | null {
+  if (!raw || !isOpaqueSelectionId(projectId)) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      parsed.version !== 1
+      || parsed.projectId !== projectId
+      || (parsed.kind !== 'session' && parsed.kind !== 'historical-audit')
+    ) {
+      return null;
+    }
+    if (parsed.kind === 'session' && isOpaqueSelectionId(parsed.sessionId)) {
+      return {
+        version: 1,
+        projectId,
+        kind: 'session',
+        sessionId: parsed.sessionId,
+      };
+    }
+    if (
+      parsed.kind === 'historical-audit'
+      && isOpaqueSelectionId(parsed.executionId)
+      && (parsed.sessionId === undefined || isOpaqueSelectionId(parsed.sessionId))
+    ) {
+      return {
+        version: 1,
+        projectId,
+        kind: 'historical-audit',
+        executionId: parsed.executionId,
+        ...(parsed.sessionId !== undefined ? { sessionId: parsed.sessionId } : {}),
+      };
+    }
+  } catch {
+    // Malformed browser state is treated as an unavailable selection.
+  }
+  return null;
+}
+
+function persistAiChatSelection(selection: AiChatSelection): void {
+  try {
+    localStorage.setItem(
+      aiChatSelectionStorageKey(selection.projectId),
+      JSON.stringify(selection),
+    );
+    publishAiChatSyncEvent({
+      projectId: selection.projectId,
+      kind: 'selection',
+      ...(selection.kind === 'session' ? { sessionId: selection.sessionId } : {}),
+    });
+  } catch {
+    // Browser storage can be unavailable in privacy-restricted contexts.
+  }
+}
+
+function publishAiChatSyncEvent(
+  event: Omit<AiChatSyncEvent, 'version' | 'sequence'>,
+): void {
+  try {
+    localStorage.setItem(
+      AI_CHAT_SYNC_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        sequence: ++aiChatSyncSequence,
+        ...event,
+      } satisfies AiChatSyncEvent),
+    );
+  } catch {
+    // Browser storage can be unavailable in privacy-restricted contexts.
+  }
+}
+
+function clearAiChatSelection(projectId: string | undefined): void {
+  if (!projectId) return;
+  try {
+    localStorage.removeItem(aiChatSelectionStorageKey(projectId));
+    publishAiChatSyncEvent({ projectId, kind: 'selection' });
+  } catch {
+    // Browser storage can be unavailable in privacy-restricted contexts.
+  }
+}
+
+function publishAiChatData(projectId: string | undefined, sessionId?: string): void {
+  if (!projectId) return;
+  publishAiChatSyncEvent({
+    projectId,
+    kind: 'data',
+    ...(sessionId && isOpaqueSelectionId(sessionId) ? { sessionId } : {}),
+  });
+}
+
 function sessionForensicStatusLabel(status: Session['forensicStatus']): string | null {
   switch (status) {
     case 'INCOMPLETE': return 'Incomplete';
@@ -445,6 +574,7 @@ type ProviderKeyStatus = {
   last4: string | null;
   updatedAt: string | null;
   lifecycle?: ProviderLifecycleSnapshot;
+  modelAvailability?: GroqModelAvailability;
 };
 type GroqKeyStatus = ProviderKeyStatus;
 type DeepSeekKeyStatus = ProviderKeyStatus;
@@ -526,6 +656,20 @@ type BehavioralVerification = {
 // PR-06: AiApiError replaced by the shared ApiError from lib/api-fetch.
 // Alias retained only to avoid renaming the one remaining internal reference.
 const AiApiError = ApiError;
+
+const BLOCKING_PROVIDER_STATES = new Set([
+  'authentication_failed',
+  'incompatible_model',
+  'no_compatible_free_model',
+  'quota_exhausted',
+  'rate_limited',
+  'circuit_open',
+  'provider_outage',
+]);
+
+function isProviderSendBlocked(metric: ProviderRuntimeMetric | undefined): boolean {
+  return Boolean(metric?.circuitOpen || (metric?.availabilityState && BLOCKING_PROVIDER_STATES.has(metric.availabilityState)));
+}
 
 /**
  * PR-06: Compact runtime status badge for a provider card.
@@ -640,6 +784,39 @@ function ProviderLifecycleNotice({ lifecycle }: { lifecycle?: ProviderLifecycleS
   );
 }
 
+function GroqModelAvailabilityNotice({
+  availability,
+}: {
+  availability?: GroqModelAvailability;
+}) {
+  if (!availability) return null;
+
+  if (availability.status === 'available') {
+    return (
+      <p className="mt-1.5 break-words text-[10px] text-green-300">
+        Groq models available · Fast: {availability.checkedModels.fast} · Powerful: {availability.checkedModels.powerful}
+      </p>
+    );
+  }
+
+  if (availability.status === 'unavailable' && availability.unavailableRoles.length > 0) {
+    return (
+      <div className="mt-1.5 space-y-0.5 text-[10px] text-amber-300">
+        {availability.unavailableRoles.map((role) => (
+          <p key={role} className="break-words">
+            Groq credential is valid, but the configured {role === 'fast' ? 'Fast' : 'Powerful'} ({availability.checkedModels[role]}) is unavailable
+          </p>
+        ))}
+        <p className="break-words text-amber-200/80">
+          Update the affected Groq model ID to a current catalog model, then restart the API.
+        </p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function ProviderReadinessNotice({
   activeProvider,
   metric,
@@ -665,14 +842,20 @@ function ProviderReadinessNotice({
     );
   }
 
-  if (metric?.circuitOpen) {
+  if (metric && isProviderSendBlocked(metric)) {
     const cooldown = metric.cooldownRemainingMs != null
       ? ` Retry in ${Math.ceil(metric.cooldownRemainingMs / 1000)}s.`
       : '';
+    const stateLabel =
+      metric.availabilityState === 'rate_limited' || metric.availabilityState === 'quota_exhausted'
+        ? 'temporarily rate-limited'
+        : metric.availabilityState === 'authentication_failed'
+          ? 'not authorized'
+          : 'temporarily unavailable';
     return (
       <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="status">
         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+        <span>{activeProvider.provider} is {stateLabel}.{cooldown} Retry after the provider recovers or configure another provider.</span>
       </div>
     );
   }
@@ -773,13 +956,16 @@ function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'err
 }
 
 function safePartialProviderResponse(
-  message: Pick<ChatMessage, 'errorCode' | 'errorMessage' | 'content'>,
+  message: Pick<ChatMessage, 'outcome' | 'errorCode' | 'errorMessage' | 'content'>,
   displayContent: string,
   internalTechnicalDump: boolean,
 ): string | null {
   const content = displayContent.trim();
+  const retainedResponseCode =
+    message.errorCode === 'EXECUTION_PROVIDER_FAILURE' ||
+    (message.outcome === 'INTERRUPTED' && message.errorCode === 'EXECUTION_CANCELLED');
   if (
-    message.errorCode !== 'EXECUTION_PROVIDER_FAILURE' ||
+    !retainedResponseCode ||
     !content ||
     internalTechnicalDump ||
     content === message.errorMessage?.trim()
@@ -896,6 +1082,25 @@ type ToolTraceEntry = {
     unreadPaths?: string[];
     truncatedPaths?: string[];
   }>;
+  effectiveRoot?: 'PROJECT_ROOT' | 'ROOT_UNAVAILABLE';
+  projectRevision?: string;
+  completeReads?: boolean;
+  appliedBudget?: {
+    maxIterations: number;
+    maxToolCalls: number;
+    synthesisMaxAttempts?: number;
+    synthesisTimeoutMs?: number;
+  };
+  readStatuses?: Array<{
+    path: string;
+    status: 'READ_COMPLETE' | 'READ_TRUNCATED' | 'READ_FAILED';
+  }>;
+  synthesisLifecycle?: {
+    started: boolean;
+    attempted: boolean;
+    timedOut: boolean;
+    skipped: boolean;
+  };
   /** FEG-017: why a forensic investigation's terminal failed (PROVEN/NO_FINDING omit it). */
   terminalKind?:
     | 'INVESTIGATION_NOT_STARTED'
@@ -1341,6 +1546,25 @@ type ForensicEvidenceSummary = {
       unreadPaths?: string[];
       truncatedPaths?: string[];
     }>;
+    effectiveRoot?: 'PROJECT_ROOT' | 'ROOT_UNAVAILABLE';
+    projectRevision?: string;
+    completeReads?: boolean;
+    appliedBudget?: {
+      maxIterations: number;
+      maxToolCalls: number;
+      synthesisMaxAttempts?: number;
+      synthesisTimeoutMs?: number;
+    };
+    readStatuses?: Array<{
+      path: string;
+      status: 'READ_COMPLETE' | 'READ_TRUNCATED' | 'READ_FAILED';
+    }>;
+    synthesisLifecycle?: {
+      started: boolean;
+      attempted: boolean;
+      timedOut: boolean;
+      skipped: boolean;
+    };
     /** True when the proven Finding is supported only by fixture/test/spec evidence. */
     isFixtureLocal?: boolean;
   } | null;
@@ -1531,6 +1755,12 @@ function parseForensicEvidence(
              requestedFiles: statusEntry.requestedFiles ?? [],
             reason: statusEntry.reason,
             rootCoverage: statusEntry.rootCoverage ?? [],
+            effectiveRoot: statusEntry.effectiveRoot,
+            projectRevision: statusEntry.projectRevision,
+            completeReads: statusEntry.completeReads,
+            appliedBudget: statusEntry.appliedBudget,
+            readStatuses: statusEntry.readStatuses,
+            synthesisLifecycle: statusEntry.synthesisLifecycle,
             // Normalize from both fields so auditScope-only traces are handled correctly.
             isFixtureLocal:
               (statusEntry.auditScope === 'FIXTURE_LOCAL' || statusEntry.isFixtureLocal === true)
@@ -2322,6 +2552,58 @@ function ForensicEvidenceCard({
                 <div className="mt-2 border-t border-violet-500/20 pt-2 text-[10px] leading-relaxed text-violet-200">
                   Evidence scope: fixture/test paths only. Production reachability requires caller and
                   input-path evidence from non-fixture source files.
+                </div>
+              )}
+              {(evidence.forensicStatus.effectiveRoot
+                || evidence.forensicStatus.projectRevision
+                || evidence.forensicStatus.completeReads !== undefined
+                || evidence.forensicStatus.appliedBudget
+                || evidence.forensicStatus.synthesisLifecycle
+                || (evidence.forensicStatus.readStatuses?.length ?? 0) > 0) && (
+                <div className="mt-2 rounded border border-border/40 bg-background/20 px-2 py-1.5 text-[10px] leading-relaxed">
+                  <div className="font-medium text-foreground">Audit collection telemetry</div>
+                  <div className="mt-1 grid grid-cols-1 gap-x-3 gap-y-0.5 text-muted-foreground sm:grid-cols-2">
+                    {evidence.forensicStatus.effectiveRoot && (
+                      <span>source root: <strong className="text-foreground">{evidence.forensicStatus.effectiveRoot}</strong></span>
+                    )}
+                    {evidence.forensicStatus.projectRevision && (
+                      <span>revision: <code className="text-foreground">{evidence.forensicStatus.projectRevision}</code></span>
+                    )}
+                    {evidence.forensicStatus.completeReads !== undefined && (
+                      <span>complete-read mode: <strong className="text-foreground">{evidence.forensicStatus.completeReads ? 'on' : 'off'}</strong></span>
+                    )}
+                    {evidence.forensicStatus.appliedBudget && (
+                      <span>
+                        budget: <strong className="text-foreground">
+                          {evidence.forensicStatus.appliedBudget.maxIterations} iterations / {evidence.forensicStatus.appliedBudget.maxToolCalls} tool calls
+                        </strong>
+                      </span>
+                    )}
+                    {evidence.forensicStatus.synthesisLifecycle && (
+                      <span>
+                        synthesis: <strong className="text-foreground">
+                          {evidence.forensicStatus.synthesisLifecycle.skipped
+                            ? 'skipped'
+                            : evidence.forensicStatus.synthesisLifecycle.timedOut
+                              ? 'timed out'
+                              : evidence.forensicStatus.synthesisLifecycle.attempted
+                                ? 'attempted'
+                                : 'started'}
+                        </strong>
+                      </span>
+                    )}
+                    {evidence.forensicStatus.readStatuses && evidence.forensicStatus.readStatuses.length > 0 && (
+                      <span>
+                        file reads: <strong className="text-foreground">
+                          {evidence.forensicStatus.readStatuses.filter((read) => read.status === 'READ_COMPLETE').length} complete
+                        </strong>
+                        {' · '}
+                        {evidence.forensicStatus.readStatuses.filter((read) => read.status === 'READ_TRUNCATED').length} truncated
+                        {' · '}
+                        {evidence.forensicStatus.readStatuses.filter((read) => read.status === 'READ_FAILED').length} failed
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
               {!evidence.forensicStatus.isFixtureLocal && evidence.forensicStatus.reason && (
@@ -4008,8 +4290,9 @@ const REPAIR_BLOCK_REASON_TEXT: Record<string, string> = {
 
 /**
  * AI-008: render the per-task typed result as a structured panel instead of a
- * single prose wall. Dispatches on `taskResult.kind`. Returns null when no
- * typed result is present (generic chat turns fall back to plain prose).
+ * single prose wall. Dispatches on `taskResult.kind`. Generic chat turns
+ * continue to fall back to plain prose; forensic reports remain visible as
+ * the primary result even when their verdict is incomplete.
  */
 type PlanDecision = 'approve' | 'reject';
 
@@ -4120,7 +4403,18 @@ function TaskResultPanel({
     }
     case 'FORENSIC_REPORT_RESULT':
     case 'WORKSPACE_REVIEW_RESULT': {
-      if (!result.report) return null;
+       if (!result.report) {
+         return (
+           <div
+             className="mt-1 w-full rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200"
+             role="status"
+             aria-label="Forensic report incomplete"
+           >
+             ANALYSIS_INCOMPLETE — the forensic report contained no user-facing report body.
+             Start a new bounded audit; no forensic verdict was proven.
+           </div>
+         );
+       }
       const evidence = Array.isArray(result.evidence)
         ? result.evidence.filter((e): e is AiBehaviorEvidence => Boolean(e && typeof e.source === 'string'))
         : [];
@@ -4436,10 +4730,23 @@ function MessageBubble({
   const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
   const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
   const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+  const isGenericInterruptedTurn = !isUser &&
+    msg.outcome === 'INTERRUPTED' &&
+    (msg.operationMode === 'CHAT' ||
+      (!msg.operationMode &&
+        !msg.taskResult &&
+        !msg.forensicDiagnostic &&
+        !toolTrace.some((entry) =>
+          entry.kind === 'forensic_status' ||
+          entry.kind === 'forensic_diagnostic' ||
+          entry.kind === 'forensic_recovery_start',
+        )));
   const structuredFailure = !isUser && failedTurn && msg.structuredTask
     ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
     : null;
-  const failureKindLabel = msg.failureKind === 'QUALITY_REVIEW'
+  const failureKindLabel = isGenericInterruptedTurn
+    ? 'Connection interrupted'
+    : msg.failureKind === 'QUALITY_REVIEW'
     ? 'Quality review rejected'
     : msg.failureKind === 'PROVIDER_FORMAT'
       ? 'Provider format issue'
@@ -4528,6 +4835,10 @@ function MessageBubble({
   const partialProviderResponse = failedTurn && !structuredFailure
     ? safePartialProviderResponse(msg, displayContent, internalTechnicalDump)
     : null;
+  // A generic chat turn can still retain a bounded provider response and its
+  // terminal execution summary. Show that diagnostic without inferring a
+  // forensic or delivery operation mode from the failure.
+  const failedChatHasExecutionSummary = failedTurn && executionSummary !== null;
 
   return (
     <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
@@ -4613,6 +4924,7 @@ function MessageBubble({
                       </div>
                     )}
                   </div>
+                  <AcceptanceDispositionNotice disposition={msg.acceptanceDisposition} />
                 </>
               )}
             </>
@@ -4717,7 +5029,7 @@ function MessageBubble({
             : <ExecutionSummaryBanner
                 summary={executionSummary}
                 operatorTraceId={`operator-trace-${msg.id}`}
-                visible={isForensicRun || isEngineeringExecution}
+                visible={isForensicRun || isEngineeringExecution || failedChatHasExecutionSummary}
               />}
         {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
         {!isUser && <ExecutionLedgerCard snapshot={executionLedger} />}
@@ -4957,6 +5269,7 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
         <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
       )}
 
+      <GroqModelAvailabilityNotice availability={status?.modelAvailability} />
       <ProviderLifecycleNotice lifecycle={status?.lifecycle} />
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
@@ -6611,6 +6924,7 @@ type AgentExecutionProofStatus = {
     | 'COMPLETED';
   evidenceVerdict?: 'PROVEN' | 'PARTIAL' | 'UNAVAILABLE' | 'BLOCKED' | 'NOT_RECORDED';
   evidenceReason?: string | null;
+  acceptanceDisposition?: AiAcceptanceDisposition | null;
   objective?: Record<string, unknown> | null;
   proofRequired?: boolean;
   recovery?: {
@@ -6875,6 +7189,29 @@ function proofStatusClasses(status: string | undefined): string {
   return 'border-primary/40 bg-primary/10 text-primary';
 }
 
+function AcceptanceDispositionNotice({
+  disposition,
+}: {
+  disposition?: AiAcceptanceDisposition | null;
+}) {
+  if (!disposition) return null;
+  return (
+    <div
+      className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-100"
+      role="region"
+      aria-label="Acceptance disposition"
+    >
+      <div className="font-medium">Acceptance incomplete</div>
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">
+        {disposition.reasonCodes.join(', ')}
+      </div>
+      <div className="mt-1 text-[11px]">
+        Start a new scoped run before relying on the result.
+      </div>
+    </div>
+  );
+}
+
 export function auditExportFilename(
   contentDisposition: string | null,
   fallback: string,
@@ -6924,6 +7261,7 @@ function AgentExecutionProofPanel({
   onRetryPreview,
   onClosePreview,
   controlPending,
+  forensicVerdict,
 }: {
   execution?: AgentExecutionProofStatus | null;
   executionId?: string;
@@ -6962,6 +7300,7 @@ function AgentExecutionProofPanel({
   onRetryPreview?: () => void;
   onClosePreview?: () => void;
   controlPending?: boolean;
+  forensicVerdict?: FinalForensicVerdict | null;
 }) {
   const persistedStatus = execution?.status;
   const flightState = execution?.flightState;
@@ -7022,6 +7361,8 @@ function AgentExecutionProofPanel({
   const proofBlocked = execution?.proofRequired === true
     && execution.evidenceVerdict !== 'PROVEN'
     && status === 'completed';
+  const forensicIncomplete = forensicVerdict === 'INCOMPLETE'
+    || (execution?.proofRequired === true && execution.evidenceVerdict !== 'PROVEN');
   const objectiveLabel = execution?.objective && typeof execution.objective === 'object'
     ? String(
         execution.objective.objective
@@ -7069,7 +7410,7 @@ function AgentExecutionProofPanel({
     >
       <div className="flex flex-wrap items-start gap-2 border-b border-border/40 px-3 py-2.5">
         <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-background/40">
-          {status === 'failed' || proofBlocked
+           {status === 'failed' || proofBlocked || forensicIncomplete
             ? <ShieldAlert className="h-3.5 w-3.5 text-red-300" />
             : status === 'completed' || status.startsWith('ready-')
               ? <CheckCircle2 className="h-3.5 w-3.5 text-green-300" />
@@ -7086,6 +7427,19 @@ function AgentExecutionProofPanel({
              {execution?.evidenceVerdict && (
                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${flightDeckEvidenceClasses(execution.evidenceVerdict)}`}>
                  Evidence: {execution.evidenceVerdict.replace('_', ' ')}
+               </span>
+             )}
+             {forensicVerdict && (
+               <span
+                 className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+                   forensicVerdict === 'INCOMPLETE'
+                     ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                     : forensicVerdict === 'FINDING PROVEN'
+                       ? 'border-green-500/40 bg-green-500/10 text-green-200'
+                       : 'border-border/60 bg-background/30 text-muted-foreground'
+                 }`}
+               >
+                 Forensic: {forensicVerdict === 'INCOMPLETE' ? 'ANALYSIS INCOMPLETE' : forensicVerdict}
                </span>
              )}
             {scopeLabel && (
@@ -7194,6 +7548,7 @@ function AgentExecutionProofPanel({
           {execution?.evidenceReason && (
             <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{execution.evidenceReason}</p>
           )}
+          <AcceptanceDispositionNotice disposition={execution?.acceptanceDisposition} />
         </div>
       </div>
 
@@ -7456,6 +7811,7 @@ export default function AiChat() {
   const [planBuildPending, setPlanBuildPending] = useState<string | null>(null);
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   const [proposalId, setProposalId] = useState<string | undefined>(undefined);
+  const [proposalUnavailable, setProposalUnavailable] = useState<string | null>(null);
   const [operationId, setOperationId] = useState<string | undefined>(undefined);
   const [operationMode, setOperationMode] = useState<OperationMode | undefined>(undefined);
   const [proposalRequiresApproval, setProposalRequiresApproval] = useState(false);
@@ -7463,6 +7819,7 @@ export default function AiChat() {
   const [deliveryLifecycle, setDeliveryLifecycle] = useState<DeliveryLifecycle | undefined>(undefined);
   const [validationEvidence, setValidationEvidence] = useState<PublicValidationResult[]>([]);
   const reapprovalApplyRef = useRef<ApprovedPendingChange[] | null>(null);
+  const liveProposalRef = useRef<string | null>(null);
   const [verificationResults, setVerificationResults] = useState<Record<string, BehavioralVerification>>({});
   const [commitReadyPaths, setCommitReadyPaths] = useState<string[]>([]);
   const [commitProposalId, setCommitProposalId] = useState<string | undefined>(undefined);
@@ -7482,6 +7839,57 @@ export default function AiChat() {
     capabilityGap,
   } = useRecipeStream();
   const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+
+    const handleSyncEvent = (raw: string | null) => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as Partial<AiChatSyncEvent>;
+        if (
+          parsed.version !== 1
+          || parsed.projectId !== selectedProjectId
+          || (parsed.kind !== 'selection' && parsed.kind !== 'data')
+          || typeof parsed.sequence !== 'number'
+        ) return;
+        const incomingSessionId = isOpaqueSelectionId(parsed.sessionId)
+          ? parsed.sessionId
+          : undefined;
+
+        if (parsed.kind === 'selection' && incomingSessionId) {
+          setSessionId(incomingSessionId);
+        }
+        if (incomingSessionId) {
+          void qc.invalidateQueries({ queryKey: ['ai-messages', incomingSessionId] });
+          void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', incomingSessionId] });
+        }
+        void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+      } catch {
+        // Ignore malformed cross-tab state; the server remains authoritative.
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === AI_CHAT_SYNC_STORAGE_KEY) {
+        handleSyncEvent(event.newValue);
+        return;
+      }
+      if (event.key === aiChatSelectionStorageKey(selectedProjectId) && event.newValue) {
+        const selection = parseAiChatSelection(event.newValue, selectedProjectId);
+        if (selection?.kind === 'session') {
+          setSessionId(selection.sessionId);
+          void qc.invalidateQueries({ queryKey: ['ai-messages', selection.sessionId] });
+          void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', selection.sessionId] });
+          void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [qc, selectedProjectId]);
+
   const streamGenerationRef = useRef(0);
   const streamOwnerRef = useRef<StreamOwner | null>(null);
   const { data: operationEventsPage, isLoading: operationEventsLoading } = useListEvents(
@@ -7521,6 +7929,7 @@ export default function AiChat() {
   const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
   const [historicalExecutionId, setHistoricalExecutionId] = useState<string | null>(null);
+  const hydratedSelectionProjectRef = useRef<string | null>(null);
   const [executionControlPending, setExecutionControlPending] = useState(false);
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
   const [resumeRecoveryAttempt, setResumeRecoveryAttempt] = useState(0);
@@ -8025,6 +8434,12 @@ export default function AiChat() {
         const failureEvents = agentActivityEventsRef.current;
         const failure = safeStructuredFailure(err, task);
         if (err.sessionId) {
+          persistAiChatSelection({
+            version: 1,
+            projectId: selectedProjectId,
+            kind: 'session',
+            sessionId: err.sessionId,
+          });
           setSessionId(err.sessionId);
           qc.setQueryData<Session[]>(
             ['ai-sessions', selectedProjectId],
@@ -8098,6 +8513,8 @@ export default function AiChat() {
     query: {
       queryKey: ['active-provider'],
       staleTime: 30_000,
+      refetchInterval: 10_000,
+      refetchOnWindowFocus: true,
     },
   });
 
@@ -8113,6 +8530,10 @@ export default function AiChat() {
   const metricsMap = new Map(
     (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
   );
+  const activeProviderMetric = activeProvider?.provider
+    ? metricsMap.get(activeProvider.provider)
+    : undefined;
+  const activeProviderSendBlocked = isProviderSendBlocked(activeProviderMetric);
 
   // G-06 fix: pending changes are stored with a timestamp so stale entries
   // (from a crashed/closed tab after the server wrote the files but before
@@ -8225,6 +8646,120 @@ export default function AiChat() {
     },
   );
 
+  // Browser selection state is only trusted after both project-owned lists
+  // have loaded. The durable execution pointer is intentionally independent:
+  // when it recovered a different session, leave that resumable execution
+  // visible rather than allowing a stale selection to replace it.
+  useEffect(() => {
+    if (
+      !selectedProjectId
+      || !sessionsFetched
+      || sessionsError
+      || hydratedSelectionProjectRef.current === selectedProjectId
+    ) {
+      return;
+    }
+
+    let rawSelection: string | null = null;
+    try {
+      rawSelection = localStorage.getItem(aiChatSelectionStorageKey(selectedProjectId));
+    } catch {
+      return;
+    }
+    const selection = parseAiChatSelection(rawSelection, selectedProjectId);
+    if (!selection) {
+      hydratedSelectionProjectRef.current = selectedProjectId;
+      if (rawSelection !== null) clearAiChatSelection(selectedProjectId);
+      return;
+    }
+    if (selection.kind === 'historical-audit' && historicalAuditsLoading) return;
+    hydratedSelectionProjectRef.current = selectedProjectId;
+
+    const recoveredExecution = Boolean(
+      storedExecution
+      && storedExecution.projectId === selectedProjectId,
+    );
+
+    const resetVisibleSelection = (preserveRecoveredExecution: boolean) => {
+      setLocalMessages([]);
+      setPendingChanges([]);
+      setProposalId(undefined);
+      setProposalUnavailable(null);
+      liveProposalRef.current = null;
+      setProposalRequiresApproval(false);
+      setProposalRevision(undefined);
+      setVerificationResults({});
+      setHistoricalExecutionId(null);
+      setAuditPreview(null);
+      setAuditPreviewError(null);
+      if (!preserveRecoveredExecution) {
+        clearExecutionScopedState();
+        setSessionId(undefined);
+      }
+    };
+
+    if (selection.kind === 'session') {
+      if (recoveredExecution && storedExecution?.sessionId !== selection.sessionId) {
+        return;
+      }
+      if (!sessions.some((session) => session.id === selection.sessionId)) {
+        clearAiChatSelection(selectedProjectId);
+        resetVisibleSelection(recoveredExecution);
+        return;
+      }
+      resetVisibleSelection(recoveredExecution);
+      setSessionId(selection.sessionId);
+      return;
+    }
+
+    const audit = historicalAudits.find((candidate) => candidate.id === selection.executionId);
+    const linkedSessionId = audit && isOpaqueSelectionId(audit.sessionId)
+      ? audit.sessionId
+      : undefined;
+    if (
+      recoveredExecution
+      && (
+        storedExecution?.sessionId !== linkedSessionId
+        || storedExecution?.id !== selection.executionId
+      )
+    ) {
+      return;
+    }
+    const hasUsableAuditSession = Boolean(
+      audit
+      && audit.projectId === selectedProjectId
+      && linkedSessionId
+      && (!selection.sessionId || linkedSessionId === selection.sessionId)
+      && sessions.some((session) => session.id === linkedSessionId),
+    );
+    if (!hasUsableAuditSession || !audit || !linkedSessionId) {
+      clearAiChatSelection(selectedProjectId);
+      resetVisibleSelection(recoveredExecution);
+      return;
+    }
+
+    resetVisibleSelection(recoveredExecution);
+    setHistoricalExecutionId(audit.id);
+    setSessionId(linkedSessionId);
+    setActiveExecution({
+      id: audit.id,
+      projectId: audit.projectId,
+      sessionId: linkedSessionId,
+      message: audit.objective,
+    });
+  }, [
+    activeExecution?.id,
+    activeExecution?.projectId,
+    activeExecution?.sessionId,
+    historicalAudits,
+    historicalAuditsLoading,
+    selectedProjectId,
+    sessions,
+    sessionsError,
+    sessionsFetched,
+    storedExecution?.id,
+  ]);
+
   const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
     sessionId ?? '',
     {
@@ -8325,11 +8860,17 @@ export default function AiChat() {
         });
       } else {
         toast({ title: 'Delivery workspace discarded', description: 'Only this operation-owned workspace was removed.' });
+        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
         if (sessionId === proposal.sessionId) {
+          liveProposalRef.current = null;
           setPendingChanges([]);
           setProposalId(undefined);
+          setProposalRequiresApproval(false);
+          setProposalRevision(undefined);
+          setValidationEvidence([]);
         }
       }
+       publishAiChatData(selectedProjectId, proposal.sessionId);
     } catch (error) {
       toast({
         title: 'Delivery recovery failed',
@@ -8356,6 +8897,7 @@ export default function AiChat() {
     onSuccess: () => {
       if (sessionId) void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
       void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+       publishAiChatData(selectedProjectId, sessionId);
       toast({ title: 'Historical report regenerated', description: 'The report is now available from the retained run evidence.' });
     },
     onError: (error) => {
@@ -8427,6 +8969,20 @@ export default function AiChat() {
 
   useEffect(() => {
     if (!serverProposal) return;
+    // A live stream can finish with a persisted proposal just before the
+    // session-scoped query observes it. Do not let an initial empty or stale
+    // response erase the proposal that the stream has already handed to the
+    // user. The server query becomes authoritative once it observes the same
+    // proposal identity (or after an explicit apply/reject clears this ref).
+    if (
+      liveProposalRef.current
+      && serverProposal.proposalId !== liveProposalRef.current
+    ) {
+      return;
+    }
+    if (serverProposal.changes.length > 0) {
+      liveProposalRef.current = null;
+    }
     setProposalId(serverProposal.proposalId ?? undefined);
     setOperationId(serverProposal.operationId ?? undefined);
     setOperationMode(serverProposal.proposalId ? 'DELIVERY' : undefined);
@@ -8468,6 +9024,8 @@ export default function AiChat() {
     setLocalMessages([]);
     setPendingChanges([]);
     setProposalId(undefined);
+    setProposalUnavailable(null);
+    liveProposalRef.current = null;
     setProposalRequiresApproval(false);
     setProposalRevision(undefined);
     setVerificationResults({});
@@ -8573,6 +9131,7 @@ export default function AiChat() {
         );
         setPendingChanges((prev) => prev.filter((c) => !completedPaths.has(c.path)));
         if (succeeded.length > 0 && failed.length === 0 && completedPaths.size === succeeded.length) {
+          liveProposalRef.current = null;
           setProposalId(undefined);
           setCommitReadyPaths([...completedPaths]);
           setCommitProposalId(proposalId);
@@ -8586,6 +9145,8 @@ export default function AiChat() {
         // G-05: refresh git-status in the GitPanel so it reflects the newly
         // written files (dirty markers, unstaged changes) without a manual reload.
         void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({ title: 'Failed to apply changes', description: describeAiError(err), variant: 'destructive' });
@@ -8640,6 +9201,7 @@ export default function AiChat() {
           description: `${data.rebasedFiles.length} file${data.rebasedFiles.length !== 1 ? 's' : ''} matched the current workspace. Review and approve the new diff before applying.`,
         });
         void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({
@@ -8663,6 +9225,7 @@ export default function AiChat() {
         setPushReady(true);
         setOperationId(data.correlationId);
         void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({ title: 'Failed to create commit', description: describeAiError(err), variant: 'destructive' });
@@ -8680,6 +9243,7 @@ export default function AiChat() {
         setPushReady(false);
         setOperationId(data.correlationId);
         void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({ title: 'Failed to push changes', description: describeAiError(err), variant: 'destructive' });
@@ -8690,9 +9254,12 @@ export default function AiChat() {
   const rejectMutation = useRejectAiChangeProposal({
     mutation: {
       onSuccess: () => {
+        liveProposalRef.current = null;
         setPendingChanges([]);
         setProposalId(undefined);
         setOperationId(undefined);
+        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
+        publishAiChatData(selectedProjectId, sessionId);
       },
       onError: (err) => {
         toast({ title: 'Failed to reject proposal', description: describeAiError(err), variant: 'destructive' });
@@ -8827,7 +9394,16 @@ export default function AiChat() {
       toast({ title: 'AI provider unavailable', description: 'Save an API key in the provider cards before sending a message.', variant: 'destructive' });
       return;
     }
+    if (activeProviderSendBlocked) {
+      toast({
+        title: 'AI provider temporarily unavailable',
+        description: 'Wait for the provider to recover or configure another provider before retrying.',
+        variant: 'destructive',
+      });
+      return;
+    }
     if (isSending) return;
+    setProposalUnavailable(null);
     const generation = ++streamGenerationRef.current;
     const requestProjectId = selectedProjectId;
     const requestSessionId = sessionId;
@@ -8932,6 +9508,12 @@ export default function AiChat() {
         onSessionStarted: (event) => {
           if (!ownsStream({ sessionId: event.sessionId })) return;
           streamOwnerRef.current!.sessionId = event.sessionId;
+          persistAiChatSelection({
+            version: 1,
+            projectId: requestProjectId,
+            kind: 'session',
+            sessionId: event.sessionId,
+          });
           setSessionId(event.sessionId);
           qc.setQueryData<Session[]>(
             ['ai-sessions', requestProjectId],
@@ -9207,6 +9789,12 @@ export default function AiChat() {
         },
         onDone: (data) => {
           if (!ownsStream({ sessionId: data.sessionId })) return;
+          persistAiChatSelection({
+            version: 1,
+            projectId: requestProjectId,
+            kind: 'session',
+            sessionId: data.sessionId,
+          });
            const activityEvents = agentActivityEventsRef.current;
           setAgentStage(null);
           setStreamingContent('');
@@ -9255,6 +9843,10 @@ export default function AiChat() {
           });
           setPendingChanges(data.pendingChanges ?? []);
           setProposalId(data.proposalId ?? undefined);
+          setProposalUnavailable(data.proposalUnavailable ?? null);
+          if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
+            liveProposalRef.current = data.proposalId;
+          }
            const nextOperationMode = inferOperationMode({
              operationMode: data.operationMode,
              taskResult: data.taskResult as AiTaskResult | undefined,
@@ -9267,6 +9859,13 @@ export default function AiChat() {
                : undefined,
            );
           streamOwnerRef.current = null;
+           if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
+             // Refresh the durable proposal after the live result so a
+             // just-created session converges to the server-owned approval
+             // record instead of retaining a stale empty query result.
+             void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', data.sessionId] });
+           }
+           publishAiChatData(requestProjectId, data.sessionId);
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
         },
         onError: (err) => {
@@ -9276,6 +9875,7 @@ export default function AiChat() {
              setAgentStage('Disconnected — execution saved');
              setAgentStartedAt(null);
              setAgentElapsedSeconds(0);
+              publishAiChatData(requestProjectId, activeExecutionRef.current.sessionId);
              toast({
                title: 'AI execution saved',
                description: 'The stream disconnected, but the server kept the execution. Resume it below.',
@@ -9304,6 +9904,7 @@ export default function AiChat() {
             void qc.invalidateQueries({ queryKey: ['ai-messages', failedSessionId] });
           }
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
+           publishAiChatData(requestProjectId, failedSessionId);
           if (err.outcome === 'FAILED' || err.outcome === 'INTERRUPTED') {
             const safeMessage = err.message
               ? redactInternalDetails(err.message).slice(0, 500)
@@ -9320,6 +9921,7 @@ export default function AiChat() {
                 failureKind: err.failureKind,
                 retryable: err.retryable,
                 recoveryState: err.recoveryState,
+                acceptanceDisposition: err.acceptanceDisposition,
                 executionLedger: err.executionLedger,
                 createdAt: new Date().toISOString(),
               },
@@ -9486,11 +10088,15 @@ export default function AiChat() {
   function resetConversationView(options: { forgetCurrentExecution: boolean }) {
     streamGenerationRef.current += 1;
     cancelStream();
-    if (options.forgetCurrentExecution && executionPointerKey) {
-      localStorage.removeItem(executionPointerKey);
+    if (options.forgetCurrentExecution) {
+      if (executionPointerKey) localStorage.removeItem(executionPointerKey);
+      clearAiChatSelection(selectedProjectId);
     }
     clearExecutionScopedState();
     setSessionId(undefined);
+    setHistoricalExecutionId(null);
+    setAuditPreview(null);
+    setAuditPreviewError(null);
     setInput('');
     setLocalMessages([]);
     setPendingChanges([]);
@@ -9544,6 +10150,22 @@ export default function AiChat() {
   const messages = localMessages;
   const isEmpty = messages.length === 0;
   const isAgentBusy = isSending || isTaskSending;
+  const latestForensicMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === 'assistant' && (
+      Boolean(message.taskResult)
+      || Boolean(message.forensicDiagnostic)
+      || /\bANALYSIS_INCOMPLETE\b|\bFINDING PROVEN\b|\bNO FINDING\b|\bNOT PROVEN\b/i.test(message.content)
+    ));
+  const latestForensicTrace = latestForensicMessage
+    ? parseToolTrace(latestForensicMessage.toolTrace)
+    : [];
+  const latestForensicStatus = [...latestForensicTrace]
+    .reverse()
+    .find((entry) => entry.kind === 'forensic_status')?.findingStatus;
+  const latestForensicVerdict = latestForensicMessage
+    ? getFinalForensicVerdict(latestForensicMessage.content, latestForensicStatus)
+    : null;
   const showExecutionProof = Boolean(
     activeExecution ||
     pendingChanges.length > 0 ||
@@ -9687,9 +10309,28 @@ export default function AiChat() {
                 key={s.id}
                 aria-label={s.title}
                 onClick={() => {
+                  if (s.id === sessionId && !historicalExecutionId) {
+                    persistAiChatSelection({
+                      version: 1,
+                      projectId: selectedProjectId,
+                      kind: 'session',
+                      sessionId: s.id,
+                    });
+                    if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
+                    return;
+                  }
                   streamGenerationRef.current += 1;
                   cancelStream();
                   clearExecutionScopedState();
+                  persistAiChatSelection({
+                    version: 1,
+                    projectId: selectedProjectId,
+                    kind: 'session',
+                    sessionId: s.id,
+                  });
+                  setHistoricalExecutionId(null);
+                  setAuditPreview(null);
+                  setAuditPreviewError(null);
                   setSessionId(s.id);
                   setLocalMessages([]);
                   setPendingChanges([]);
@@ -9753,7 +10394,20 @@ export default function AiChat() {
                           streamGenerationRef.current += 1;
                           cancelStream();
                           cancelTaskStream();
+                          persistAiChatSelection({
+                            version: 1,
+                            projectId: selectedProjectId,
+                            kind: 'historical-audit',
+                            executionId: audit.id,
+                            ...(audit.sessionId ? { sessionId: audit.sessionId } : {}),
+                          });
                           setHistoricalExecutionId(audit.id);
+                          setLocalMessages([]);
+                          setPendingChanges([]);
+                          setProposalId(undefined);
+                          setProposalRequiresApproval(false);
+                          setProposalRevision(undefined);
+                          setVerificationResults({});
                           setAuditPreview(null);
                           setAuditPreviewError(null);
                           setActiveExecution({
@@ -9995,6 +10649,7 @@ export default function AiChat() {
                    previewPending={auditPreviewPending}
                    auditPreview={auditPreview}
                    auditPreviewError={auditPreviewError}
+                    forensicVerdict={latestForensicVerdict}
                    onClosePreview={() => {
                      setAuditPreview(null);
                      setAuditPreviewError(null);
@@ -10134,6 +10789,18 @@ export default function AiChat() {
                   lifecycle={deliveryLifecycle}
                 />
               )}
+              {pendingChanges.length === 0 && proposalUnavailable && (
+                <div
+                  className="mx-auto mb-4 flex w-full max-w-3xl items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200"
+                  role="alert"
+                >
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
+                  <div className="min-w-0">
+                    <p className="font-medium text-amber-100">Changes need more verification before review</p>
+                    <p className="mt-1 break-words text-amber-200/80">{proposalUnavailable}</p>
+                  </div>
+                </div>
+              )}
               {pendingChanges.length === 0 && validationEvidence.length > 0 && (
                 <div className="mx-auto mb-4 w-full max-w-3xl overflow-hidden rounded-xl border border-border/60 bg-card/30">
                   <CandidateValidationProof
@@ -10215,7 +10882,7 @@ export default function AiChat() {
           <div className="mx-auto w-full min-w-0 max-w-3xl">
             <ProviderReadinessNotice
               activeProvider={activeProvider}
-              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
+              metric={activeProviderMetric}
             />
             <div className="flex items-end gap-2">
             <Textarea
@@ -10226,12 +10893,12 @@ export default function AiChat() {
               placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
               className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border text-sm"
               rows={1}
-              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || applyMutation.isPending || isAgentBusy}
+              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || applyMutation.isPending || isAgentBusy}
             />
             <Button
               size="icon"
               onClick={handleSend}
-               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || isAgentBusy || applyMutation.isPending}
+               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
               className="h-11 w-11 shrink-0"
               title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
             >

@@ -199,7 +199,9 @@ describe('Mission Control', () => {
     expect(await screen.findByRole('heading', { name: 'Mission Control' })).toBeInTheDocument();
     expect(await screen.findByText('Repair the auth scope check')).toBeInTheDocument();
     expect(screen.getAllByText('READY FOR REVIEW').length).toBeGreaterThan(0);
-    expect(screen.getByText('openrouter / openai/gpt-4.1-mini')).toBeInTheDocument();
+    expect(screen.queryByText('openrouter / openai/gpt-4.1-mini')).not.toBeInTheDocument();
+    expect(screen.queryByText('openrouter')).not.toBeInTheDocument();
+    expect(screen.queryByText('openai/gpt-4.1-mini')).not.toBeInTheDocument();
     expect(screen.getByText('Validation failures: 1')).toBeInTheDocument();
     expect(screen.getByText('Validation')).toBeInTheDocument();
     expect(screen.getByText('Recorder evidence')).toBeInTheDocument();
@@ -207,7 +209,7 @@ describe('Mission Control', () => {
     expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('single-file-002');
     expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('pnpm --dir lib/ai-orchestrator exec vitest run src/benchmark-scenarios/single-file-002.test.ts');
     expect(screen.getByLabelText('Runtime oracle preflight')).toHaveTextContent('passed');
-    expect(screen.getByText('Empirical provider review')).toBeInTheDocument();
+    expect(screen.getByText('Empirical quality review')).toBeInTheDocument();
     expect(screen.getByText('Opt-in measurement only — never a release control.')).toBeInTheDocument();
     expect(screen.getByText('Corpus public-disposable-v1')).toBeInTheDocument();
     expect(screen.getByText('Validation and behavior proof accepted.')).toBeInTheDocument();
@@ -253,14 +255,16 @@ describe('Mission Control', () => {
     currentMissionControl = historicalRecoveryFixture;
     const { rerender } = renderPage();
 
-    expect(await screen.findByText('openrouter · openai/gpt-4.1-mini')).toBeInTheDocument();
+    expect(await screen.findByText('Switched to a bounded retry')).toBeInTheDocument();
     expect(screen.getByText('RATE_LIMIT')).toBeInTheDocument();
-    expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
     expect(screen.getByText('RECOVERED')).toBeInTheDocument();
-    expect(screen.getByText('openai · gpt-4o-mini')).toBeInTheDocument();
     expect(screen.getByText('CONTEXT_LENGTH')).toBeInTheDocument();
     expect(screen.getByText('Compacted the evidence window')).toBeInTheDocument();
     expect(screen.getByText('VERIFIED')).toBeInTheDocument();
+    expect(screen.queryByText('openrouter · openai/gpt-4.1-mini')).not.toBeInTheDocument();
+    expect(screen.queryByText('openai · gpt-4o-mini')).not.toBeInTheDocument();
+    expect(screen.queryByText('openrouter')).not.toBeInTheDocument();
+    expect(screen.queryByText('gpt-4o-mini')).not.toBeInTheDocument();
     expect(screen.getAllByText('Attempts')).toHaveLength(2);
     expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
     expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
@@ -275,14 +279,16 @@ describe('Mission Control', () => {
     };
     rerender(<MissionControl />);
 
-    expect(await screen.findByText('openrouter · openai/gpt-4.1-mini')).toBeInTheDocument();
+    expect(await screen.findByText('Switched to a bounded retry')).toBeInTheDocument();
     expect(screen.getByText('RATE_LIMIT')).toBeInTheDocument();
-    expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
     expect(screen.getByText('RECOVERED')).toBeInTheDocument();
-    expect(screen.getByText('openai · gpt-4o-mini')).toBeInTheDocument();
     expect(screen.getByText('CONTEXT_LENGTH')).toBeInTheDocument();
     expect(screen.getByText('Compacted the evidence window')).toBeInTheDocument();
     expect(screen.getByText('VERIFIED')).toBeInTheDocument();
+    expect(screen.queryByText('openrouter · openai/gpt-4.1-mini')).not.toBeInTheDocument();
+    expect(screen.queryByText('openai · gpt-4o-mini')).not.toBeInTheDocument();
+    expect(screen.queryByText('openrouter')).not.toBeInTheDocument();
+    expect(screen.queryByText('gpt-4o-mini')).not.toBeInTheDocument();
     expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
     expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
     expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
@@ -374,7 +380,9 @@ describe('Mission Control', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     const blob = createObjectURL.mock.calls[0][0] as Blob;
     const csv = await blob.text();
-    expect(csv).toContain('"Execution ID","Objective","State","Provider","Model","Failure Category","Recovery Action","Evidence Status","Attempts"');
+    expect(csv).toContain('"Execution ID","Objective","State","Failure Category","Recovery Action","Evidence Status","Attempts"');
+    expect(csv).not.toContain('Provider');
+    expect(csv).not.toContain('Model');
     expect(csv).toContain('"execution-1"');
     expect(csv).toContain('"execution-9"');
     expect(csv).not.toContain('"execution-10"');
@@ -424,7 +432,16 @@ describe('Mission Control', () => {
     };
     expect(exported.executions).toHaveLength(1);
     expect(exported.executions[0]).toMatchObject({ id: 'included', evidence: nestedEvidence });
-    expect(exported.benchmark).toEqual(missionControlFixture.benchmark);
+    expect(exported.executions[0]).not.toHaveProperty('provider');
+    expect(exported.executions[0]).not.toHaveProperty('model');
+    const { provider: _provider, model: _model, ...safeEmpiricalCampaign } =
+      missionControlFixture.benchmark.empiricalCampaign;
+    expect(exported.benchmark).toMatchObject({
+      ...missionControlFixture.benchmark,
+      empiricalCampaign: safeEmpiricalCampaign,
+    });
+    expect(JSON.stringify(exported.benchmark)).not.toContain('openrouter');
+    expect(JSON.stringify(exported.benchmark)).not.toContain('test-model');
     expect(exported.benchmark.releaseGate.runtimeOraclePreflight).toEqual(
       missionControlFixture.benchmark.releaseGate.runtimeOraclePreflight,
     );
@@ -725,18 +742,18 @@ describe('Mission Control', () => {
     expect(blob.type).toBe('text/csv;charset=utf-8');
     const rows = parseCsv(await blob.text());
     expect(rows).toHaveLength(3);
-    expect(rows.every((row) => row.length === 19)).toBe(true);
+    expect(rows.every((row) => row.length === 17)).toBe(true);
     expect(rows[0]).toEqual([
-      'Side', 'Execution ID', 'Objective', 'State', 'Provider', 'Model',
+      'Side', 'Execution ID', 'Objective', 'State',
       'Attempts', 'Validation Failures', 'Event Count', 'Failure Category',
       'Recovery Action', 'Evidence Status', 'Evidence', 'Recovery', 'Timestamps', 'Event Timeline',
       'Runtime Oracle Status', 'Runtime Oracle Checks', 'Runtime Oracle Failure IDs',
     ]);
     expect(rows[1]).toEqual([
-      'live', 'live-selected', 'Repair the "auth", scope\ncheck', 'BLOCKED', 'openrouter', 'openai/gpt-4.1-mini',
+      'live', 'live-selected', 'Repair the "auth", scope\ncheck', 'BLOCKED',
       '2', '1', '2', 'RATE_LIMIT', 'Bounded, "safe" retry', 'INCOMPLETE',
       JSON.stringify(currentMissionControl.executions[0].evidence),
-      JSON.stringify(currentMissionControl.executions[0].recovery),
+      JSON.stringify({ attempt: 2, note: 'Retry,\nthen verify' }),
       JSON.stringify(currentMissionControl.executions[0].timestamps),
       JSON.stringify(currentMissionControl.executions[0].recentEvents),
       'passed',
@@ -744,7 +761,7 @@ describe('Mission Control', () => {
       '[]',
     ]);
     expect(rows[2]).toEqual([
-      'imported', 'archived-selected', 'Archived recovery, "verified"\nfrom import', 'COMPLETED', 'Not recorded', 'Not recorded',
+      'imported', 'archived-selected', 'Archived recovery, "verified"\nfrom import', 'COMPLETED',
       '0', '0', '1', 'Not categorized', 'Imported retry', 'VERIFIED',
       JSON.stringify(imported.executions[0].evidence),
       JSON.stringify(imported.executions[0].recoverySummary),
@@ -757,6 +774,8 @@ describe('Mission Control', () => {
 
     expect(click).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:selected-comparison-csv');
+    expect(await blob.text()).not.toContain('openrouter');
+    expect(await blob.text()).not.toContain('openai/gpt-4.1-mini');
     expect(refetchMissionControl).not.toHaveBeenCalled();
     expect(currentMissionControl.executions).toHaveLength(1);
     expect(imported.executions).toHaveLength(1);
