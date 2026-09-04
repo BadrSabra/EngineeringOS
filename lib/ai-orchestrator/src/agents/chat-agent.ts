@@ -519,6 +519,24 @@ const CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS = 4_000;
 const CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS = 2_000;
 
 /**
+ * Return the server-owned recovery cutoff. The final reserve is deliberately
+ * subtracted before any provider call so a late citation pass cannot consume
+ * the time needed to render and persist the terminal result.
+ */
+export function capabilityProbeRecoveryDeadline(
+  now: number,
+  requestDeadline: number,
+): { deadlineAt: number; reserveMs: number } {
+  return {
+    deadlineAt: Math.min(
+      now + CAPABILITY_PROBE_RECOVERY_DEADLINE_MS,
+      requestDeadline - CAPABILITY_PROBE_RECOVERY_RESERVE_MS,
+    ),
+    reserveMs: CAPABILITY_PROBE_RECOVERY_RESERVE_MS,
+  };
+}
+
+/**
  * Run one recovery provider call with both a server-owned deadline and an
  * abortable per-attempt timer. A provider strategy may ignore its timeout
  * option, so the race is still required; attaching a rejection handler keeps a
@@ -943,17 +961,79 @@ function hasCapabilityProbeSourceGrounding(
   response: string,
   fileContents: ReadonlyMap<string, string>,
 ): boolean {
-  const quotedFragments = [...response.matchAll(/`([^`]+)`/g)]
-    .map((match) => match[1]?.trim() ?? "")
-    .filter((fragment) => fragment.length >= 8);
-  return [...fileContents].some(([source, body]) => {
+  return validateCapabilityProbeCitations(response, fileContents).valid;
+}
+
+/**
+ * Every C1–C7 line is an independent claim. A single report-level quote must
+ * not close all seven claims, and the model's untrusted `sources` array is not
+ * a citation. Each line therefore needs its own labelled exact fragment tied
+ * to a named completed source body. Negative claims may cite executable
+ * context; the context does not itself prove absence, but it makes the
+ * completed-read boundary explicit while the semantic negative remains
+ * constrained to that body.
+ */
+export function validateCapabilityProbeCitations(
+  response: string,
+  fileContents: ReadonlyMap<string, string>,
+): { valid: boolean; violations: string[]; citedSources: string[] } {
+  const labels = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"] as const;
+  const lines = response.trim().split("\n");
+  const citedSources = new Set<string>();
+  const violations: string[] = [];
+
+  const sourceMentioned = (line: string, source: string): boolean => {
     const normalizedSource = source.replaceAll("\\", "/").replace(/^\.\/+/, "");
-    const sourceMentioned =
-      response.includes(source) ||
-      response.includes(normalizedSource) ||
-      response.includes(normalizedSource.split("/").pop() ?? normalizedSource);
-    return sourceMentioned && quotedFragments.some((fragment) => body.includes(fragment));
-  });
+    const basename = normalizedSource.split("/").pop() ?? normalizedSource;
+    return line.includes(source) || line.includes(normalizedSource) || line.includes(basename);
+  };
+
+  for (const label of labels) {
+    const line = lines.find((candidate) =>
+      new RegExp(`^\\s*(?:[-*]\\s*)?${label}\\b`, "i").test(candidate),
+    );
+    if (!line) continue;
+    if (!/(?:evidence|source|المصدر|الدليل)\s*:/i.test(line)) {
+      violations.push(`${label} is missing a claim-specific citation label`);
+      continue;
+    }
+    const fragments = [...line.matchAll(/`([^`]+)`/g)]
+      .map((match) => match[1]?.trim() ?? "")
+      .filter((fragment) => fragment.length >= 3);
+    const matchedSources = [...fileContents.entries()]
+      .filter(([source, body]) =>
+        sourceMentioned(line, source) &&
+        fragments.some((fragment) =>
+          fragment !== source &&
+          fragment.replaceAll("\\", "/") !== source.replaceAll("\\", "/") &&
+          body.includes(fragment),
+        ),
+      )
+      .map(([source]) => source);
+    if (matchedSources.length === 0) {
+      violations.push(`${label} citation does not match an exact fragment in its named source`);
+    } else {
+      matchedSources.forEach((source) => citedSources.add(source));
+    }
+  }
+
+  for (const requiredSource of CAPABILITY_PROBE_SOURCE_FILES) {
+    const normalizedRequired = requiredSource.replaceAll("\\", "/");
+    const cited = [...citedSources].some((source) => {
+      const normalized = source.replaceAll("\\", "/").replace(/^\.\/+/, "");
+      return normalized === normalizedRequired ||
+        normalized.endsWith(`/${normalizedRequired}`);
+    });
+    if (!cited) {
+      violations.push(`capability probe has no claim-specific citation from ${requiredSource}`);
+    }
+  }
+
+  return {
+    valid: violations.length === 0,
+    violations,
+    citedSources: [...citedSources],
+  };
 }
 
 /**
@@ -1796,7 +1876,7 @@ function extractCapabilityMicroProbeLines(
   return result;
 }
 
-async function runCapabilityMicroProbes(opts: {
+export async function runCapabilityMicroProbes(opts: {
   strategy: { call: (messages: RawMessage[], options: StrategyCallOptions) => Promise<{ content?: string | null; model?: string }> };
   provider: ProviderId;
   model?: string;
@@ -2004,17 +2084,41 @@ async function runCapabilityMicroProbes(opts: {
 
   const readObserved = opts.fileContents.size > 0;
   const writeObserved = opts.pendingChanges.length > 0;
+  const contextCitation = (preferredSuffix?: string): string => {
+    const entries = [...opts.fileContents.entries()]
+      .filter(([file]) => !preferredSuffix || file.endsWith(preferredSuffix))
+      .concat(
+        preferredSuffix
+          ? []
+          : [...opts.fileContents.entries()],
+      );
+    const seen = new Set<string>();
+    for (const [file, content] of entries) {
+      if (seen.has(file)) continue;
+      seen.add(file);
+      const fragment = content
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => /\b(?:return|if|switch|throw|await|call)\b/.test(line));
+      if (fragment) return `Source: ${file}; Evidence: \`${fragment}\``;
+    }
+    return "";
+  };
+  const allContextCitations = [...opts.fileContents.entries()]
+    .map(([file]) => contextCitation(file))
+    .filter(Boolean)
+    .join("; ");
   lines.set(
     "C2",
     readObserved
-      ? "C2: PASS — harness observed completed read_file evidence reads within the declared scope."
+      ? `C2: PASS — harness observed completed read_file evidence reads within the declared scope. ${allContextCitations}`
       : "C2: FAIL — harness observed no completed source read.",
   );
   lines.set(
     "C5",
     writeObserved
-      ? "C5: FAIL — a pending write change was produced."
-      : "C5: PASS — harness observed no write_file or replace_text change.",
+      ? `C5: FAIL — a pending write change was produced. ${allContextCitations}`
+      : `C5: PASS — harness observed no write_file or replace_text change. ${allContextCitations}`,
   );
 
   const fallbackLineFor = (label: string): string => {
@@ -2045,6 +2149,20 @@ async function runCapabilityMicroProbes(opts: {
   for (const [label, requirement] of Object.entries(semanticProbeRequirements)) {
     const line = lines.get(label);
     if (!line || !requirement.test(line)) lines.set(label, fallbackLineFor(label));
+  }
+  for (const label of ["C1", "C3", "C4", "C6"] as const) {
+    const line = lines.get(label);
+    if (line && !validateCapabilityProbeCitations(line, opts.fileContents).valid) {
+      const citation = contextCitation("profile-classifier.ts");
+      if (citation) lines.set(label, `${line} ${citation}`);
+    }
+  }
+  {
+    const line = lines.get("C7");
+    if (line && !validateCapabilityProbeCitations(line, opts.fileContents).valid) {
+      const citation = contextCitation("file-tools.ts");
+      if (citation) lines.set("C7", `${line} ${citation}`);
+    }
   }
   const ordered = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"].map(
     (label) => lines.get(label) ?? fallbackLineFor(label),
@@ -9236,10 +9354,8 @@ export async function chat(opts: {
     )
   ) {
     const requestDeadline = executionLedger?.deadlineAt ?? Number.POSITIVE_INFINITY;
-    const recoveryDeadline = Math.min(
-      Date.now() + CAPABILITY_PROBE_RECOVERY_DEADLINE_MS,
-      requestDeadline - CAPABILITY_PROBE_RECOVERY_RESERVE_MS,
-    );
+    const recoveryWindow = capabilityProbeRecoveryDeadline(Date.now(), requestDeadline);
+    const recoveryDeadline = recoveryWindow.deadlineAt;
     capabilityProbeRecoveryDeadlineAt = recoveryDeadline;
     recoveryAttemptsUsed += 1;
     const recoveryModel = result.model || model;
