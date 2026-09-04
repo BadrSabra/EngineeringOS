@@ -87,6 +87,7 @@ const harness = vi.hoisted(() => {
     calls,
     get validationCallCount() { return validationCallCount; },
     incrementValidationCall() { validationCallCount += 1; },
+    resetValidationCallCount() { validationCallCount = 0; },
     strategy,
     toolResponse,
     finalResponse,
@@ -173,8 +174,10 @@ vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
   return {
     ...actual,
     runRepairValidation: vi.fn(async (...args: unknown[]) => {
+      harness.incrementValidationCall();
       const fixtureResult = harness.validationResults.shift();
       console.error("REPAIR_DEBUG_VALIDATION", JSON.stringify({
+        call: harness.validationCallCount,
         status: fixtureResult?.status,
         pendingChanges: Array.isArray(args[5]) ? args[5].length : undefined,
       }));
@@ -296,10 +299,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     harness.validationResults.length = 0;
     harness.options.allowRealValidation = false;
     harness.calls.length = 0;
-    harness.incrementValidationCall();
-    while (harness.validationCallCount > 0) {
-      break;
-    }
+    harness.resetValidationCallCount();
     harness.strategy.call.mockClear();
     for (const projectId of projectIds.splice(0)) {
       const sessions = await db
