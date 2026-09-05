@@ -2856,12 +2856,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // When tools remain exposed, retain the full authorized manifest so a
     // stale call from an earlier narrowed iteration is still validated against
     // the server-owned authorization boundary.
-    const providerToolOptions = iterationTools && iterationTools.length > 0
-      ? {
-          tools: iterationTools,
-          ...(opts.tools && opts.tools.length > 0 ? { toolManifest: opts.tools } : {}),
-        }
-      : {};
+    const providerToolOptions = iterationTools === undefined
+      ? {}
+      : iterationTools.length > 0
+        ? {
+            tools: iterationTools,
+            ...(opts.tools && opts.tools.length > 0 ? { toolManifest: opts.tools } : {}),
+          }
+        : { tools: [] };
 
     // Keep the complete messages in memory for provenance/evidence validation,
     // but never resend unbounded tool bodies to a provider. This applies to

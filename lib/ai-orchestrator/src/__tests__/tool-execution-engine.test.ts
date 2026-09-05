@@ -1486,7 +1486,7 @@ describe("executeToolLoop", () => {
     expect(result.kind).toBe("response");
     expect(strategy.call).toHaveBeenCalledTimes(1);
     const providerOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(providerOptions.tools).toBeUndefined();
+    expect(providerOptions.tools).toEqual([]);
     expect(providerOptions.toolManifest).toBeUndefined();
     const done = [...steps].reverse().find((step) => step.kind === "done");
     expect(done?.kind).toBe("done");
