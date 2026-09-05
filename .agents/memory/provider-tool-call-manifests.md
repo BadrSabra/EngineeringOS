@@ -13,4 +13,4 @@ Authorization inputs must also survive the final dispatcher boundary: a compound
 
 **Why:** a missing request-scoped mode is indistinguishable from an unapproved mutation at dispatch time, causing safe pending proposals to fail closed as unavailable.
 
-**How to apply:** when adding an authorization field to the loop options, trace it through the loop's executeSingleTool call and cover both the allowed proposal and blocked ordinary-write cases.
+**How to apply:** when adding an authorization field to the loop options, trace it through the loop's executeSingleTool call and cover both the allowed proposal and blocked ordinary-write cases. Recovered Repair Plan edits are also deferred proposals: derive their approved paths from the server-owned executable phase, keep approval pending unless explicitly approved, and never write bytes during handoff.

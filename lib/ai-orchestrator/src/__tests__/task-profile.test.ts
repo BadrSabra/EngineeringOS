@@ -71,9 +71,12 @@ describe("task profile", () => {
       const deep = resolveExecutionDecision("scan-runner");
       const stateless = resolveExecutionDecision("workflow-orchestrator");
 
+      // Keep these assertions aligned with the source-owned budget tables:
+      // lite/index currently materialize to 4000/1200, while deep/expanded
+      // materialize to 16000/4800. The explicit values guard policy drift.
       expect(lite).toMatchObject({
-        contextBudget: 3000,
-        graphBudget: 800,
+        contextBudget: 4000,
+        graphBudget: 1200,
         historyDepth: 4,
         memoryDepth: 5,
         cacheMode: "aggressive",
@@ -82,8 +85,8 @@ describe("task profile", () => {
         expect.arrayContaining(["tasks", "graphEntities", "graphRelationships"]),
       );
       expect(deep).toMatchObject({
-        contextBudget: 12000,
-        graphBudget: 3200,
+        contextBudget: 16000,
+        graphBudget: 4800,
         historyDepth: 0,
         memoryDepth: 0,
         cacheMode: "bypass",

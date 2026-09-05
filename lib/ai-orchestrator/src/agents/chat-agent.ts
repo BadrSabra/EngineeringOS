@@ -4327,6 +4327,11 @@ export async function chat(opts: {
     turnIntent.compoundWrite &&
     priorRepairPlan === null &&
     !buildHandoff;
+  // Both direct compound requests and recovered Repair Plan executions produce
+  // deferred proposals.  A recovered plan is already scope-bound by its
+  // executable phase files, but it must still remain pending approval and
+  // must never write bytes during this turn.
+  const deferredWriteProposal = compoundWriteExecution || repairPlanExecution;
   const responseLanguage = resolveResponseLanguage(message);
   const executionDiagnosticDetails: string[] = [];
   const recordExecutionDiagnostic = (
@@ -4856,9 +4861,15 @@ export async function chat(opts: {
     ...(firstEvidenceTargetPath ? [canonicalRelativePath(firstEvidenceTargetPath)] : []),
   ].filter((value, index, all) => value && all.indexOf(value) === index);
   const effectiveApprovalState = approvalState ??
-    (compoundWriteExecution ? "PENDING_APPROVAL" as const : undefined);
+    (deferredWriteProposal ? "PENDING_APPROVAL" as const : undefined);
   const effectiveApprovedFilePaths = approvedFilePaths ??
-    (compoundWriteExecution && eagerReadTargets.length > 0 ? eagerReadTargets : undefined);
+    (deferredWriteProposal
+      ? (repairPlanExecution && executionFilePaths.length > 0
+        ? executionFilePaths
+        : eagerReadTargets.length > 0
+          ? eagerReadTargets
+          : undefined)
+      : undefined);
 
   let firstEvidenceReadEmitted = false;
   if (eagerReadTargets.length > 0 && rootPath) {
@@ -6142,7 +6153,7 @@ export async function chat(opts: {
       : structuredOutputMode || capabilityProbeRequest
         ? "forensic"
         : undefined,
-    compoundWriteMode: compoundWriteExecution,
+    compoundWriteMode: deferredWriteProposal,
     executionTargetPaths: repairPlanExecution ? executionFilePaths : undefined,
     // A forensic request can be classified as single-file-shaped before a
     // usable file path is actually extracted (for example, when the user names
