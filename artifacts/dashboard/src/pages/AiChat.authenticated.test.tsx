@@ -342,6 +342,7 @@ beforeEach(() => {
     operationMode: undefined,
     outcome: undefined,
     failureKind: undefined,
+    providerFailureCategory: undefined,
     retryable: undefined,
     executionId: undefined,
     errorCode: undefined,
@@ -452,6 +453,73 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     assertSafeRecovery();
+  });
+
+  it('keeps a provider failure category and safe guidance from live SSE through reload', async () => {
+    const unsafeDiagnostic = [
+      'provider returned https://provider.example/v1/models',
+      'Authorization: Bearer provider-secret',
+      'headers=x-provider-secret',
+      'model=private-model at /srv/provider-runtime/chat.ts',
+    ].join(' ');
+    mocks.serverProposal = { changes: [] };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(composer, { target: { value: 'Retry the provider request' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+    await waitFor(() => expect(mocks.streamCallbacks).toBeDefined());
+
+    act(() => {
+      (mocks.streamCallbacks as { onError?: (event: Record<string, unknown>) => void }).onError?.({
+        type: 'error',
+        code: 'RATE_LIMITED',
+        message: unsafeDiagnostic,
+        outcome: 'FAILED',
+        failureKind: 'RECOVERY_FAILURE',
+        providerFailureCategory: 'RATE_LIMITED',
+        retryable: true,
+        recoveryState: 'REQUIRED',
+      });
+    });
+
+    expect(await screen.findByText('Rate limited')).toBeInTheDocument();
+    expect(screen.getByText(/rate limit was reached/i)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(
+      /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
+    );
+
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: '',
+      outcome: 'FAILED',
+      errorCode: 'RATE_LIMITED',
+      errorMessage: unsafeDiagnostic,
+      failureKind: 'RECOVERY_FAILURE',
+      providerFailureCategory: 'RATE_LIMITED',
+      retryable: true,
+      toolTrace: JSON.stringify([{
+        kind: 'terminal_outcome',
+        code: 'RATE_LIMITED',
+        outcome: 'FAILED',
+        failureKind: 'RECOVERY_FAILURE',
+        providerFailureCategory: 'RATE_LIMITED',
+        retryable: true,
+        recoveryState: 'REQUIRED',
+      }]),
+    };
+
+    cleanup();
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText('Rate limited')).toBeInTheDocument();
+    expect(screen.getByText(/rate limit was reached/i)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(
+      /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
+    );
   });
 
   it('shows a retained partial provider response and incomplete execution diagnostic for generic chat', async () => {

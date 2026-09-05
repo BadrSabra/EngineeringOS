@@ -5972,6 +5972,11 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     expect(errorEvent).toBeDefined();
     expect(typeof errorEvent!["code"]).toBe("string");
     expect(typeof errorEvent!["message"]).toBe("string");
+    expect(errorEvent).toMatchObject({
+      providerFailureCategory: "MODEL_UNAVAILABLE",
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+    });
     // MODEL_NOT_FOUND errors must not be retryable (no free models remain)
     expect(errorEvent!["retryable"]).toBe(false);
 
@@ -5981,13 +5986,49 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     expect(res.text).not.toContain(sensitivePath);
     expect(res.text).not.toContain(internalId);
 
-    // No `done` event — the error path ends the stream without persisting a message
+    // The error path ends the stream without a success-looking done event, but
+    // it still persists one terminal assistant row for reconnect/history.
     const doneEvent = events.find((e) => e["type"] === "done");
     expect(doneEvent).toBeUndefined();
 
     // The stream is closed after the error event (no more data follows)
     const lastEvent = events[events.length - 1];
     expect(lastEvent!["type"]).toBe("error");
+
+    const sessions = await db
+      .select({ id: aiChatSessionsTable.id })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.projectId, projectId));
+    expect(sessions).toHaveLength(1);
+    const sessionId = sessions[0]!.id;
+    const storedRows = await db
+      .select({
+        toolTrace: aiChatMessagesTable.toolTrace,
+        errorMessage: aiChatMessagesTable.errorMessage,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, sessionId))
+      .orderBy(aiChatMessagesTable.createdAt);
+    const storedAssistant = storedRows.find((row) => row.toolTrace?.includes("terminal_outcome"));
+    expect(storedAssistant).toBeDefined();
+    expect(JSON.parse(storedAssistant?.toolTrace ?? "[]")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "terminal_outcome",
+        providerFailureCategory: "MODEL_UNAVAILABLE",
+      }),
+    ]));
+    expect(JSON.stringify(storedAssistant)).not.toContain(sensitivePath);
+    expect(JSON.stringify(storedAssistant)).not.toContain(internalId);
+
+    const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+    expect(history.status).toBe(200);
+    const historicalAssistant = history.body.find((message: { role: string }) => message.role === "assistant");
+    expect(historicalAssistant).toMatchObject({
+      outcome: "FAILED",
+      providerFailureCategory: "MODEL_UNAVAILABLE",
+    });
+    expect(JSON.stringify(history.body)).not.toContain(sensitivePath);
+    expect(JSON.stringify(history.body)).not.toContain(internalId);
   });
 
   it("should expose a bounded Retry-After hint for an exhausted rate-limited chain", async () => {

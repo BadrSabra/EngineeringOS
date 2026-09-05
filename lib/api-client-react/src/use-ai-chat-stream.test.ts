@@ -130,6 +130,7 @@ describe('processAiStream — semantic trace dispatch', () => {
         parseCode: 'RAW_PROVIDER_PARSE',
         outcome: 'FAILED',
         failureKind: 'TOOL_FAILURE',
+         providerFailureCategory: 'RATE_LIMITED',
         retryable: true,
         recoveryState: 'REQUIRED',
       })),
@@ -140,6 +141,7 @@ describe('processAiStream — semantic trace dispatch', () => {
       code: 'TOOL_FAILURE',
       message: 'provider secret at [runtime path]',
       failureKind: 'TOOL_FAILURE',
+       providerFailureCategory: 'RATE_LIMITED',
       retryable: true,
       recoveryState: 'REQUIRED',
     }));

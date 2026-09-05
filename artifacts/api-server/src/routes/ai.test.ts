@@ -935,6 +935,70 @@ describe("POST /api/ai/chat", () => {
     }
   });
 
+  it("keeps the bounded provider failure category across POST, persistence, and history", async () => {
+    const { chat: mockChat, GroqClientError } = await import("@workspace/ai-orchestrator");
+    const rawProviderDetails = [
+      "provider response: https://provider.example/v1/chat/completions",
+      "Authorization: Bearer provider-secret",
+      "model=private-model",
+      "at /srv/provider-runtime/chat.ts",
+    ].join(" ");
+    // The fallback chain has two configured providers in this fixture. Fail
+    // both attempts, then let the module mock restore its normal success
+    // implementation for the tests that follow.
+    vi.mocked(mockChat)
+      .mockRejectedValueOnce(new GroqClientError("RATE_LIMITED", rawProviderDetails))
+      .mockRejectedValueOnce(new GroqClientError("RATE_LIMITED", rawProviderDetails));
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const post = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "Trigger a bounded provider failure" });
+
+    expect(post.status).toBe(429);
+    expect(post.body).toMatchObject({
+      code: "RATE_LIMITED",
+      outcome: "FAILED",
+      retryable: true,
+      recoveryState: "REQUIRED",
+      providerFailureCategory: "RATE_LIMITED",
+    });
+    expect(post.body.sessionId).toEqual(expect.any(String));
+
+    const storedRows = await db
+      .select({
+        toolTrace: aiChatMessagesTable.toolTrace,
+        errorMessage: aiChatMessagesTable.errorMessage,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, post.body.sessionId))
+      .limit(10);
+    const storedAssistant = storedRows.find((row) => row.toolTrace?.includes("terminal_outcome"));
+    expect(storedAssistant).toBeDefined();
+    const storedTrace = JSON.parse(storedAssistant?.toolTrace ?? "[]") as Array<Record<string, unknown>>;
+    expect(storedTrace).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "terminal_outcome",
+        providerFailureCategory: "RATE_LIMITED",
+      }),
+    ]));
+    expect(JSON.stringify(storedAssistant)).not.toContain(rawProviderDetails);
+    expect(storedAssistant?.errorMessage).not.toContain("provider-secret");
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${post.body.sessionId}/messages`);
+    expect(history.status).toBe(200);
+    const assistant = history.body.find((message: { role: string }) => message.role === "assistant");
+    expect(assistant).toMatchObject({
+      outcome: "FAILED",
+      providerFailureCategory: "RATE_LIMITED",
+    });
+    expect(JSON.stringify(history.body)).not.toContain(rawProviderDetails);
+    expect(JSON.stringify(history.body)).not.toMatch(/provider-secret|provider\.example|private-model|provider-runtime/i);
+  });
+
   it("returns 400 when proposalId is missing", async () => {
     const res = await request(app)
       .post("/api/ai/chat/apply-changes")
