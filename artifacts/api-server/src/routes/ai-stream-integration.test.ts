@@ -4108,6 +4108,14 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(reloaded?.status).toBe("failed");
     expect(reloaded?.checkpointVersion).toBe(terminal?.checkpointVersion);
     expect(parseAiExecutionCheckpoint(reloaded?.checkpoint)).toEqual(terminalCheckpoint);
+
+    const resume = await request(app)
+      .post(`/api/ai/executions/${terminal!.id}/resume-capability`);
+    expect(resume.status).toBe(409);
+    expect(resume.body).toMatchObject({
+      code: "EXECUTION_NOT_RESUMABLE",
+      status: "failed",
+    });
   });
 
   it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {
