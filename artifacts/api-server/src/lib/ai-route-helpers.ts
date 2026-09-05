@@ -765,7 +765,6 @@ export function handleOrchestratorError(
         : "The AI request was not completed because the provider configuration could not satisfy it.",
       outcome: "FAILED",
       retryable,
-      failureKind: "RECOVERY_FAILURE",
       recoveryState: "REQUIRED",
       correlationId: randomUUID(),
       ...(ctx.executionLedger
