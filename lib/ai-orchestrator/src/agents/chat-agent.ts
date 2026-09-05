@@ -9544,6 +9544,33 @@ export async function chat(opts: {
             ? String((error as { code?: unknown }).code ?? "unknown")
             : "unknown";
       recoveryFailureKind = errorCode === "TIMEOUT" ? "TIMEOUT" : "PROVIDER_FAILURE";
+      const attemptedRecoveryModels =
+        error &&
+        typeof error === "object" &&
+        "providerAttemptedModels" in error &&
+        Array.isArray((error as { providerAttemptedModels?: unknown }).providerAttemptedModels) &&
+        (error as { providerAttemptedModels: unknown[] }).providerAttemptedModels.length > 0
+          ? (error as { providerAttemptedModels: string[] }).providerAttemptedModels
+          : [
+              error &&
+              typeof error === "object" &&
+              "providerModel" in error &&
+              typeof (error as { providerModel?: unknown }).providerModel === "string"
+                ? (error as { providerModel: string }).providerModel
+                : recoveryModel || model,
+            ];
+      // Persist the recovery attempt even when the provider fails before
+      // returning a usable response. This keeps the durable execution trace
+      // honest about correction/recovery work without exposing raw provider
+      // diagnostics to the user-facing response.
+      for (const attemptedModel of attemptedRecoveryModels) {
+        relayAgentStep({
+          kind: "recovery_model_call",
+          model: attemptedModel,
+          provider: providerId,
+          attempt: recoveryAttemptsUsed,
+        });
+      }
       console.warn(JSON.stringify({
         scope: "chat-agent",
         code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
