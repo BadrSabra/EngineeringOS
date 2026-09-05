@@ -2,15 +2,15 @@
   "kind": "live-api-process-recovery",
   "version": 1,
   "redacted": true,
-  "revision": "b6a13a8df0a6",
+  "revision": "d6c33852b523",
   "build": {
     "artifact": "artifacts/api-server/dist/index.mjs",
-    "sha256": "0927cba2de71553f101a1dd45f1864c901b6eba832326edfc14fe2c732803a3f"
+    "sha256": "573ad24342285a03fd38076a7618a15d542e93a2188e7ef46a16cae129d51bb1"
   },
   "provider": {
-    "id": "gemini",
-    "model": "gemini-3-flash-preview",
-    "supportsTools": false,
+    "id": "openrouter",
+    "model": "poolside/laguna-s-2.1:free",
+    "supportsTools": true,
     "credential": "environment-only",
     "fixtureProviderCredentialsForwarded": false
   },
@@ -25,8 +25,8 @@
     "exitCode": 0,
     "testFilesPassed": 1,
     "testsPassed": 1,
-    "testsSkipped": 50,
-    "durationMs": 14581
+    "testsSkipped": 58,
+    "durationMs": 48221
   },
   "milestones": {
     "initialHealth": "passed",
