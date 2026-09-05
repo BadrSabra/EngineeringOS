@@ -1,0 +1,16 @@
+---
+name: Capability Probe root causes
+description: Durable failure modes in the two-file C1–C7 probe across evidence closure, diagnostics, and terminal persistence.
+---
+
+The Capability Probe has three distinct states that must never be conflated: source bodies retained, claim-specific evidence accepted, and final claims closed. A run can have complete named-file reads while accepted evidence remains zero and the result is still `CLAIM_UNCLOSED`, not `NO_EVIDENCE_FOUND` or `NO_VERIFIED_FINDING`.
+
+**Why:** A live failed execution showed complete coverage for both required files, zero accepted evidence, a generic `NO_EVIDENCE_FOUND` terminal marker, and a later `CLAIM_UNCLOSED` diagnostic. Deriving terminal metadata from different intermediate trace snapshots produced inconsistent public state.
+
+**How to apply:** Compute one server-owned terminal summary after all capability-specific diagnostics are appended, persist that summary transactionally with the assistant outcome and checkpoint, and make every SSE/history/reconnect projection consume it.
+
+Capability-specific citation recovery must not manufacture support from generic executable lines. A fallback excerpt is evidence only when the model or verifier selected the exact claim/source relationship; otherwise recovery can launder an unsupported C1–C7 claim into an apparently valid report.
+
+**Why:** The current micro-probe fallback can append the first executable-looking line from a requested file after citation validation fails, which is unrelated to claim-specific proof.
+
+**How to apply:** Make candidate evidence IDs and exact source paths mandatory, validate every claim against its selected candidate, and treat candidate discovery as deterministic over the full retained body rather than a first-match window.

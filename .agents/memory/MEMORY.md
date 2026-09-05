@@ -98,3 +98,4 @@
 - [Live proposal hydration](live-proposal-hydration.md) — preserve a streamed pending proposal until the session query observes its durable approval record.
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
 - [Forensic truncation marker collision](forensic-truncation-marker-collision.md) — literal marker constants in source can be mistaken for tool-appended truncation.
+- [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal and diagnostic projections must use one final trace snapshot.
