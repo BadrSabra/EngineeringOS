@@ -1197,7 +1197,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.pendingChanges).toEqual([]);
       expect(result.sources).toContain("verified.ts");
       expect(calls[0]?.model).toBe("llama-3.1-8b-instant");
-      expect(calls[3]?.model).toBeUndefined();
+      // Recovery now pins the first agent-owned candidate instead of letting
+      // OpenRouter silently re-resolve from the catalog head.
+      expect(calls[3]?.model).toBe("llama-3.1-8b-instant");
       expect(calls[4]?.model).toBe("fallback-model");
       // The Recovery chain now allows up to three bounded candidates, so the
       // final-model fail-through is exercised instead of being skipped. It
@@ -2658,7 +2660,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.response).not.toContain("Recovery summary only");
       expect(result.response).not.toContain("Completed source reads were preserved");
       expect(result.response).not.toContain("stale.ts");
-      expect(calls[2]?.model).toBeUndefined();
+      // The recovery request is pinned to the first candidate in the same
+      // chain used by the subsequent fallback assertion.
+      expect(calls[2]?.model).toBe("recovery-model");
       expect(calls[3]?.model).toBe("final-model");
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
