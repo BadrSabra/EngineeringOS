@@ -3842,7 +3842,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
       if (
         allowedReads &&
-        tc.function.name === "read_file" &&
+        (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
         (typeof args.path !== "string" ||
           !allowedReads.has(args.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "")))
       ) {
@@ -3856,6 +3856,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           JSON.stringify({
             scope: "tool-execution-engine",
             code: "READ_PATH_POLICY_BLOCKED",
+            tool: tc.function.name,
             requestedPath: typeof args.path === "string" ? args.path : null,
             allowedReadPaths: [...allowedReads],
           }),
