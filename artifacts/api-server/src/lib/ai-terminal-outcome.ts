@@ -230,11 +230,30 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     trace,
     /(?:RECOVERY_FAILED|RECOVERY_REQUIRED|CORRECTION_FAILED|CONTRACT_.*FAILED)/i,
   );
+  const capabilityProbeClaimUnclosed = hasDiagnostic(
+    trace,
+    /CAPABILITY_PROBE_(?:CLAIM_UNCLOSED|EVIDENCE_RECOVERY_REJECTED)/i,
+  );
 
   // Execution evidence and forensic audit evidence are different contracts.
   // Only the authoritative route intent may activate forensic terminal rules;
   // delivery turns can require execution proof without becoming audits.
   const forensic = input.forensic === true;
+  // A capability probe with retained source bodies but unclosed claims is a
+  // terminal proof failure, not a resumable execution. The resume endpoint
+  // deliberately rejects this checkpoint because replaying the same evidence
+  // cannot establish the missing claim closure.
+  if (forensic && capabilityProbeClaimUnclosed) {
+    return {
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      retryable: false,
+      code: "FORENSIC_INCOMPLETE",
+      message: "The capability probe retained source evidence, but its required claims remain unclosed.",
+      recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    };
+  }
   if (forensic && (
     finalState === "FAILED"
     || recoveryFailure

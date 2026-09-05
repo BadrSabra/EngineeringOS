@@ -4049,9 +4049,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const events = parseSseEvents(response.text);
     const done = events.find((event) => event.type === "done");
     expect(done).toMatchObject({
+      retryable: false,
+      recoveryState: "INCOMPLETE",
       message: {
         outcome: "FAILED",
         errorCode: "FORENSIC_INCOMPLETE",
+        retryable: false,
+        recoveryState: "INCOMPLETE",
         forensicDiagnostic: {
           verdict: "ANALYSIS_INCOMPLETE",
           reasonCode: "CLAIM_UNCLOSED",

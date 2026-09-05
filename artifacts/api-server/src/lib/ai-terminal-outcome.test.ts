@@ -74,6 +74,26 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("does not advertise resume for a capability probe with unclosed claims", () => {
+    expect(classify([
+      {
+        kind: "diagnostic",
+        code: "CAPABILITY_PROBE_CLAIM_UNCLOSED",
+        details: ["retained source bodies did not close C1–C7"],
+      },
+      {
+        kind: "decision_trace",
+        trace: { finalState: "FAILED", recoveryFailureKind: "PROVIDER_FAILURE" },
+      },
+    ])).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      retryable: false,
+      recoveryState: "INCOMPLETE",
+      code: "FORENSIC_INCOMPLETE",
+    });
+  });
+
   it("accepts only evidence-gated NO_FINDING as a normal forensic success", () => {
     expect(classify([
       { kind: "forensic_status", sourceCoverage: "COMPLETE", behavioralAssessment: "COMPLETE", findingStatus: "NO_FINDING" },
