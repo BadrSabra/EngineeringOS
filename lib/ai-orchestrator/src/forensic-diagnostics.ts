@@ -231,6 +231,12 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
   const finalState = String(record(latest(entries, "decision_trace")).finalState ?? "");
   const evidenceConsistent = integrity.consistent === true;
   const scope = fromCoverage(status, integrity);
+  const capabilityProbeClaimsUnclosed =
+    coverage === "COMPLETE" &&
+    (
+      hasCode(entries, /CAPABILITY_PROBE_CLAIM_UNCLOSED/) ||
+      hasCode(entries, /CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED/)
+    );
   const cancelled = outcome.failureKind === "CANCELLATION"
     || done.stopReason === "cancelled"
     || toolFailure?.resultKind === "cancelled";
@@ -255,6 +261,7 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
   else if (analysisCategory === "root_unavailable" || analysisCategory === "stale_revision" || String(toolFailure?.diagnosticCode ?? "").includes("SCOPE")) {
     reasonCode = "SCOPE_BLOCKED_READ";
   } else if (toolFailure) reasonCode = "TOOL_FAILURE";
+  else if (capabilityProbeClaimsUnclosed) reasonCode = "CLAIM_UNCLOSED";
   else if (terminalKind === "NO_RESPONSE_RECOVERY_BLOCKED" || outcome.failureKind === "RECOVERY_FAILURE" || hasCode(entries, /RECOVERY.*(?:FAILED|BLOCKED)|CORRECTION_FAILED/i)) {
     reasonCode = "RECOVERY_BLOCKED";
   } else if (terminalKind === "EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED" || done.stopReason === "claim_unclosed") {
