@@ -36,6 +36,7 @@ import {
   runCapabilityMicroProbes,
   validateCapabilityProbeCitations,
 } from "../agents/chat-agent.js";
+import { createExecutionLedger } from "../execution-ledger.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
 
@@ -465,6 +466,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
 
   it("recovers from a synthesis timeout using the retained two-file evidence", async () => {
     const rootPath = await makeProbeRoot();
+    const executionLedger = createExecutionLedger({ mode: "tool_chat" });
     let callCount = 0;
     const fakeStrategy = {
       providerId: "openrouter",
@@ -498,9 +500,11 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps.push(step),
+        executionLedger,
       });
 
       expect(callCount).toBe(2);
+      expect(executionLedger.snapshot().counts.recovery).toBe(1);
       expect(result.response).toContain("C1");
       expect(result.response).toContain("NO FINDING");
       expect(result.response).toContain(
@@ -624,6 +628,14 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
           step.kind === "diagnostic" &&
           step.code === "CAPABILITY_PROBE_CLAIM_UNCLOSED",
       )).toBe(true);
+      const decisionTrace = [...steps]
+        .reverse()
+        .find((step) => step.kind === "decision_trace");
+      expect(decisionTrace?.kind).toBe("decision_trace");
+      if (decisionTrace?.kind === "decision_trace") {
+        expect(decisionTrace.trace).not.toHaveProperty("scopedFindingStatus");
+        expect(decisionTrace.trace).not.toHaveProperty("verdictScope");
+      }
       expect(steps.some(
         (step) =>
           (step.kind === "tool_call" || step.kind === "tool_result") &&

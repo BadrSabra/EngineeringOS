@@ -9521,6 +9521,9 @@ export async function chat(opts: {
     const recoveryWindow = capabilityProbeRecoveryDeadline(Date.now(), requestDeadline);
     const recoveryDeadline = recoveryWindow.deadlineAt;
     capabilityProbeRecoveryDeadlineAt = recoveryDeadline;
+    const recoveryModel = providerId === "openrouter"
+      ? undefined
+      : result.model || model;
     const recoveryAdmitted = executionLedger?.admit("recovery", {
       provider: providerId,
       model: recoveryModel,
@@ -9534,9 +9537,6 @@ export async function chat(opts: {
       responseBeforeBehaviorEvidence,
       forensicFileContents,
     );
-    const recoveryModel = providerId === "openrouter"
-      ? undefined
-      : result.model || model;
     if (
       executionLedger?.isExhausted() ||
       recoveryDeadline <= Date.now()
