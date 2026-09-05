@@ -2,14 +2,14 @@
   "kind": "code-agent-benchmark-deterministic-baseline",
   "version": 1,
   "suiteVersion": "flight-deck-v2",
-  "generatedAt": "2026-09-05T22:26:46.739Z",
+  "generatedAt": "2026-09-05T22:01:20.466Z",
   "source": "expected-terminal-contract-replay",
   "qualityEligible": false,
   "scorecard": {
     "kind": "code-agent-benchmark",
     "version": 1,
     "suiteVersion": "flight-deck-v2",
-    "generatedAt": "2026-09-05T22:26:46.739Z",
+    "generatedAt": "2026-09-05T22:01:20.466Z",
     "cases": [
       {
         "caseId": "single-file-001",
