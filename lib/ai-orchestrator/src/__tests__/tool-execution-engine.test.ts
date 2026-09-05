@@ -1458,6 +1458,43 @@ describe("executeToolLoop", () => {
     )).toBe(false);
   });
 
+  it("does not expose prefetched tools to the provider when the server allow-list is empty", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([makeResponse("prefetched answer")]);
+    const steps: AgentStep[] = [];
+    const prefetched = new Map([["src/forensic.ts", "export const inspected = true;\n"]]);
+    const tools = [
+      { type: "function" as const, function: { name: "read_file", description: "", parameters: {} } },
+      { type: "function" as const, function: { name: "search_code", description: "", parameters: {} } },
+    ];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools,
+      rootPath: "/project",
+      initialFileContents: prefetched,
+      allowedToolNames: [],
+      pendingChanges: [],
+      maxIterations: 1,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    const providerOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(providerOptions.tools).toBeUndefined();
+    expect(providerOptions.toolManifest).toBeUndefined();
+    const done = [...steps].reverse().find((step) => step.kind === "done");
+    expect(done?.kind).toBe("done");
+    if (done?.kind === "done") {
+      expect(done.loopToolCalls).toBe(0);
+    }
+  });
+
   it("emits a bounded provider diagnostic for a Repair Plan timeout", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
