@@ -35,3 +35,13 @@ accepted evidence.
 
 **How to apply:** Let the probe-specific citation/claim validator own
 acceptance, while the server-owned prefetch and read allow-list own scope.
+
+The tool allow-list is a dispatcher fence, not a provider-manifest fence:
+setting it to an empty set can still expose the original tool definitions to the
+model, which then produces blocked tool-call loops.
+
+**Why:** The latest live trace showed repeated `read_file` requests while the
+dispatcher rejected them, consuming model turns without adding evidence.
+
+**How to apply:** For no-tool synthesis, filter the tool definitions sent to the
+provider as well as keeping the server-side dispatch authorization.
