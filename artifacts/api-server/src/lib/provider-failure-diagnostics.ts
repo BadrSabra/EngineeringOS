@@ -68,6 +68,8 @@ export function classifyProviderFailure(
   if (code === "NETWORK_ERROR" || code === "SERVER_ERROR") {
     return "TRANSPORT_FAILURE";
   }
-  if (input.fallbackExhausted) return "FALLBACK_EXHAUSTED";
+  if (input.fallbackExhausted || providerCode === "FALLBACK_EXHAUSTED") {
+    return "FALLBACK_EXHAUSTED";
+  }
   return "UNKNOWN";
 }

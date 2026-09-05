@@ -227,27 +227,6 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     };
   }
 
-  const providerFailureCategory = input.providerError
-    ? classifyProviderFailure({
-        ...input.providerError,
-        cancelled,
-      })
-    : undefined;
-  if (providerFailureCategory) {
-    return {
-      outcome: "FAILED",
-      failureKind: "RECOVERY_FAILURE",
-      providerFailureCategory,
-      retryable: providerFailureCategory !== "MODEL_REJECTED"
-        && providerFailureCategory !== "MALFORMED_RESPONSE"
-        && providerFailureCategory !== "UNKNOWN",
-      code: "FORENSIC_RECOVERY_FAILED",
-      message: "The AI provider could not complete the request.",
-      recoveryState: "REQUIRED",
-      evidenceAccepted: false,
-    };
-  }
-
   const decision = record(latest(trace, "decision_trace"));
   const auditState = record(latest(trace, "audit_state"));
   const forensicStatus = {
@@ -283,6 +262,26 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
       code: "FORENSIC_INCOMPLETE",
       message: "The capability probe retained source evidence, but its required claims remain unclosed.",
       recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    };
+  }
+  const providerFailureCategory = input.providerError
+    ? classifyProviderFailure({
+        ...input.providerError,
+        cancelled,
+      })
+    : undefined;
+  if (providerFailureCategory) {
+    return {
+      outcome: "FAILED",
+      failureKind: "RECOVERY_FAILURE",
+      providerFailureCategory,
+      retryable: providerFailureCategory !== "MODEL_REJECTED"
+        && providerFailureCategory !== "MALFORMED_RESPONSE"
+        && providerFailureCategory !== "UNKNOWN",
+      code: "FORENSIC_RECOVERY_FAILED",
+      message: "The AI provider could not complete the request.",
+      recoveryState: "REQUIRED",
       evidenceAccepted: false,
     };
   }
