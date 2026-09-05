@@ -220,6 +220,21 @@ function derivePersistedEvidenceVerdict(params: {
   return "NOT_RECORDED";
 }
 
+function hasTraceDiagnosticCode(traceSteps: AgentStep[], code: string): boolean {
+  return traceSteps.some((step) =>
+    step.kind === "diagnostic" && step.code === code,
+  );
+}
+
+function hasCapabilityProbeClaimUnclosed(
+  traceSteps: AgentStep[],
+  forensicDiagnostic?: ForensicDiagnostic | null,
+): boolean {
+  return forensicDiagnostic?.reasonCode === "CLAIM_UNCLOSED" ||
+    hasTraceDiagnosticCode(traceSteps, "CAPABILITY_PROBE_CLAIM_UNCLOSED") ||
+    hasTraceDiagnosticCode(traceSteps, "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED");
+}
+
 // ── AI-02: Last-resort response sanitizer ────────────────────────────────────
 // Even if the AI orchestrator has its own normalisation layer, a JSON envelope
 // may slip through (e.g. a provider returns {"response":"...","sources":[...]}).
@@ -5115,7 +5130,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         trace: traceSteps,
         requiresEvidence: streamTurnIntent.requiresEvidence,
         forensic: streamTurnIntent.kind === "FORENSIC_AUDIT"
-          || capabilityProbeDiagnostic?.reasonCode === "CLAIM_UNCLOSED",
+          || (isCapabilityProbeRequest(message) && streamTurnIntent.requiresEvidence),
         cancelled: activeExecutionAbortController.signal.aborted,
         endedBeforeEvidence,
       });
@@ -5267,10 +5282,11 @@ router.post("/ai/chat/stream", async (req, res) => {
             nodeStates: executionNodeStates,
             streamedPreview: streamedContent,
             recentSteps: serializeExecutionCheckpointSteps(traceSteps),
-            ...(forensicDiagnostic?.reasonCode === "CLAIM_UNCLOSED"
+            ...(hasCapabilityProbeClaimUnclosed(traceSteps, forensicDiagnostic)
               ? {
                   evidenceVerdict: "CLAIM_UNCLOSED" as const,
-                  evidenceReason: forensicDiagnostic.explanation,
+                  evidenceReason: forensicDiagnostic?.explanation
+                    ?? "Source evidence was retained, but the required capability claims were not closed.",
                 }
               : {}),
           });
@@ -5620,10 +5636,11 @@ router.post("/ai/chat/stream", async (req, res) => {
             cancelled: false,
             nodeStates: executionNodeStates,
             recentSteps: serializeExecutionCheckpointSteps(traceSteps),
-            ...(forensicDiagnostic?.reasonCode === "CLAIM_UNCLOSED"
+            ...(hasCapabilityProbeClaimUnclosed(traceSteps, forensicDiagnostic)
               ? {
                   evidenceVerdict: "CLAIM_UNCLOSED" as const,
-                  evidenceReason: forensicDiagnostic.explanation,
+                  evidenceReason: forensicDiagnostic?.explanation
+                    ?? "Source evidence was retained, but the required capability claims were not closed.",
                 }
               : {}),
           });
@@ -6186,7 +6203,11 @@ router.get("/ai/executions/history", async (req, res) => {
       proofRequired,
       evidenceVerdict,
     });
-    const resumable = execution.status === "paused" || execution.status === "failed";
+    const capabilityProbeTerminalFailure =
+      request?.message && isCapabilityProbeRequest(request.message) &&
+      checkpointRecord.stage === "failed";
+    const resumable = execution.status === "paused" ||
+      (execution.status === "failed" && !capabilityProbeTerminalFailure);
     const disposition = evidenceVerdict === "PROVEN"
       ? "RETAIN_FOR_REVIEW"
       : "NEW_RUN_RECOMMENDED";

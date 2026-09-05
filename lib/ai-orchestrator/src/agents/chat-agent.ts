@@ -1987,6 +1987,13 @@ export async function runCapabilityMicroProbes(opts: {
         result = await invoke(false);
       } catch (error) {
         if (group.name === "grounding") throw error;
+        if (
+          opts.deadlineAt !== undefined &&
+          Date.now() + CAPABILITY_PROBE_RECOVERY_RESERVE_MS >= opts.deadlineAt
+        ) {
+          deadlineExhausted = true;
+          break;
+        }
         console.warn(JSON.stringify({
           scope: "chat-agent",
           code: "CAPABILITY_MICRO_PROBE_RETRY",

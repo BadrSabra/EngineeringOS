@@ -1201,6 +1201,23 @@ export async function recoverAiExecutionResumeToken(params: {
   userId: string;
 }): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
   const resumeToken = createResumeToken();
+  const [candidate] = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      inArray(aiExecutionsTable.status, ["paused", "failed"]),
+    ))
+    .limit(1);
+  if (!candidate) return undefined;
+  const checkpoint = parseAiExecutionCheckpoint(candidate.checkpoint);
+  if (
+    candidate.status === "failed" &&
+    checkpoint?.evidenceVerdict === "CLAIM_UNCLOSED"
+  ) {
+    return undefined;
+  }
   const [execution] = await db
     .update(aiExecutionsTable)
     .set({
