@@ -9692,7 +9692,7 @@ export async function chat(opts: {
       !hasCapabilityProbeSourceGrounding(responseBeforeBehaviorEvidence, forensicFileContents)
     )
   ) {
-    const microProbeDeadlineAt = capabilityProbeRecoveryDeadlineAt;
+    const microProbeDeadlineAt = capabilityProbeRecoveryDeadlineAt ?? undefined;
     const microProbeBlocked =
       executionLedger?.isExhausted() === true ||
       microProbeDeadlineAt === undefined ||
