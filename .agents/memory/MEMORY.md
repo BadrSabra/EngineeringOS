@@ -6,6 +6,7 @@
 - [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
+- [Recovery telemetry semantics](recovery-telemetry-semantics.md) — provider fallback, forensic recovery, and resume are separate layers; ledger recovery counts are intentionally narrower.
 - [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
 - [AI fixture determinism](ai-fixture-determinism.md) — injected AI validation and provider-turn fixtures must fail closed when queues are exhausted; real execution requires explicit opt-in.
 - [AI fixture provider lifecycle](ai-fixture-provider-lifecycle.md) — deterministic chat fixtures must stub lifecycle selectability when fallback rechecks a dummy provider key.
