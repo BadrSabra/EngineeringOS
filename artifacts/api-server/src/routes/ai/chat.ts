@@ -3090,7 +3090,7 @@ router.post("/ai/chat", async (req, res) => {
           activeTaskState: resumableTaskStateAtStart,
           linkedTaskId: effectiveLinkedTaskId,
           createSessionIfMissing: true,
-          outcome: cancelled ? "INTERRUPTED" : "FAILED",
+          outcome: "FAILED",
           errorCode: err.code,
           errorMessage: "The AI provider could not complete the request.",
           createdAt: now,
