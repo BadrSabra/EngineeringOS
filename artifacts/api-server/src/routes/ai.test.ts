@@ -747,6 +747,13 @@ afterAll(() => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+  vi.mocked(mockChat).mockReset();
+  vi.mocked(mockChat).mockResolvedValue({
+    response: "AI response text",
+    sources: ["metrics", "tasks"],
+    pendingChanges: [],
+  });
   for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
   }
