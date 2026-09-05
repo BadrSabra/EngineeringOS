@@ -144,8 +144,20 @@ export const openrouterStrategy: ProviderStrategy = {
       return result;
     } catch (err) {
       // PR-07: record failure so the circuit opens after the threshold.
-      if (shouldRecordCircuitFailure(err)) {
+      if (
+        opts.circuitFailurePolicy !== "suppress" &&
+        shouldRecordCircuitFailure(err)
+      ) {
         recordCircuitFailure("openrouter");
+      } else if (opts.circuitFailurePolicy === "suppress") {
+        console.info(
+          JSON.stringify({
+            scope: "circuit-breaker",
+            code: "CIRCUIT_FAILURE_SUPPRESSED",
+            provider: "openrouter",
+            reason: "request-local recovery failure",
+          }),
+        );
       }
       const failedModel =
         err instanceof GroqClientError && err.providerModel

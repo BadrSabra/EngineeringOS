@@ -50,6 +50,7 @@ import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 import { resolveExecutionProvider } from "../model-selection/provider-strategy.js";
 import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+import type { ModelCapability } from "../openrouter/model-catalog.js";
 import { GroqClientError, type AgentErrorCode, type QualityFailure } from "../errors.js";
 import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
@@ -516,8 +517,8 @@ const CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS = 15_000;
  * consume the only time left to render an explicit incomplete result.
  */
 const CAPABILITY_PROBE_RECOVERY_RESERVE_MS = 8_000;
-const CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS = 4_000;
-const CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS = 2_000;
+const CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS = 8_000;
+const CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS = 4_000;
 
 /**
  * Return the server-owned recovery cutoff. The final reserve is deliberately
@@ -1762,14 +1763,17 @@ function buildCapabilityMicroProbeMessages(
       content:
         "You are running one tiny read-only capability micro-probe. " +
         "Use only the verified source excerpts below. Never invent a symbol, path, line, or behavior. " +
-        "Return plain text only; do not return JSON, an object, or a code fence.",
+        "Return compact plain text only; do not return a report, JSON object, or code fence. " +
+        "Select verified evidence by ID so the server can attach the exact source bytes.",
     },
     {
       role: "user",
       content: [
         group.instruction,
         "Use exactly one line per requested label in this shape:",
-        "C1: PASS/FAIL — answer; Evidence: `exact contiguous source fragment`.",
+        "C1: PASS/FAIL — short answer; Evidence ID: E1.",
+        "Use an Evidence ID for every line that makes a source-backed claim. " +
+          "Do not copy a long source excerpt; the verifier will attach the exact fragment.",
         ...(candidates.size > 0
           ? [
               "For the grounding claim, select one verified evidence candidate by adding `Evidence ID: <ID>`; do not invent an ID.",
@@ -1883,6 +1887,9 @@ export async function runCapabilityMicroProbes(opts: {
   strategy: { call: (messages: RawMessage[], options: StrategyCallOptions) => Promise<{ content?: string | null; model?: string }> };
   provider: ProviderId;
   model?: string;
+  quality?: "fast" | "powerful";
+  capability?: ModelCapability;
+  maxFallbackModels?: number;
   apiKey?: string;
   signal?: AbortSignal;
   executionLedger?: ExecutionLedger;
@@ -1892,6 +1899,7 @@ export async function runCapabilityMicroProbes(opts: {
 }): Promise<{ response: string; sources: string[]; model?: string } | null> {
   const lines = new Map<string, string>();
   let lastModel: string | undefined;
+  let activeModel = opts.model;
   const completedGroups = new Set<string>();
   let deadlineExhausted = false;
 
@@ -1910,7 +1918,17 @@ export async function runCapabilityMicroProbes(opts: {
           (recoverySignal) => opts.strategy.call(
             microProbePacket.messages,
             {
-              model: opts.model,
+              model: activeModel,
+              ...(opts.provider === "openrouter"
+                ? {
+                    // Micro-probes synthesize a strict evidence report. Do not
+                    // fall back to the default fast chat model: that pool has
+                    // repeatedly timed out during live recovery and can poison
+                    // the provider circuit with request-local failures.
+                    quality: opts.quality ?? "powerful",
+                    capability: opts.capability ?? "json",
+                  }
+                : {}),
               maxTokens: retry ? 500 : 900,
               timeoutMs: Math.min(
                 retry
@@ -1923,7 +1941,13 @@ export async function runCapabilityMicroProbes(opts: {
                     : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
               ),
               retryTransient: false,
-              maxFallbackModels: 1,
+              maxFallbackModels: retry
+                ? 1
+                : opts.maxFallbackModels ??
+                  (opts.provider === "openrouter" ? 3 : 1),
+              ...(opts.provider === "openrouter"
+                ? { circuitFailurePolicy: "suppress" as const }
+                : {}),
               apiKey: opts.apiKey,
               signal: recoverySignal,
               executionLedger: opts.executionLedger,
@@ -1937,6 +1961,7 @@ export async function runCapabilityMicroProbes(opts: {
           opts.signal,
         );
       let result;
+      let didRetry = false;
       try {
         result = await invoke(false);
       } catch (error) {
@@ -1947,6 +1972,7 @@ export async function runCapabilityMicroProbes(opts: {
           group: group.name,
           reason: error instanceof Error ? error.message : String(error),
         }));
+        didRetry = true;
         result = await invoke(true);
       }
       const retryRequirement =
@@ -1962,6 +1988,7 @@ export async function runCapabilityMicroProbes(opts: {
         !retryRequirement.test(result.content ?? "")
       ) {
         try {
+          didRetry = true;
           const retryResult = await invoke(true);
           if (retryResult.content) result = retryResult;
         } catch (error) {
@@ -1974,7 +2001,37 @@ export async function runCapabilityMicroProbes(opts: {
         }
       }
       lastModel = result.model || lastModel;
-      const extractedLines = extractCapabilityMicroProbeLines(result.content ?? "", group.labels);
+      activeModel = result.model || activeModel;
+      let extractedLines = extractCapabilityMicroProbeLines(result.content ?? "", group.labels);
+      // A successful but incomplete compact response is cheaper to repair than
+      // replaying the whole capability probe. Give the same model one targeted
+      // retry for the missing labels, while preserving the bounded deadline and
+      // the single-model retry policy.
+      if (
+        !didRetry &&
+        group.labels.some((label) => !extractedLines.has(label))
+      ) {
+        try {
+          const retryResult = await invoke(true);
+          const retryLines = extractCapabilityMicroProbeLines(
+            retryResult.content ?? "",
+            group.labels,
+          );
+          if (retryLines.size >= extractedLines.size) {
+            result = retryResult;
+            extractedLines = retryLines;
+            lastModel = result.model || lastModel;
+            activeModel = result.model || activeModel;
+          }
+        } catch (error) {
+          console.warn(JSON.stringify({
+            scope: "chat-agent",
+            code: "CAPABILITY_MICRO_PROBE_RETRY_FAILED",
+            group: group.name,
+            reason: error instanceof Error ? error.message : String(error),
+          }));
+        }
+      }
       const quotedFragments = [...(result.content ?? "").matchAll(/`([^`\n]{8,})`/g)].map((match) => match[1]!);
       const directEvidenceCandidate = [...microProbePacket.candidates.values()].find((candidate) =>
         quotedFragments.includes(candidate.fragment),
@@ -9610,7 +9667,14 @@ export async function chat(opts: {
     const microProbeRecovery = await runCapabilityMicroProbes({
       strategy,
       provider: providerId,
-      model: providerId === "openrouter" ? undefined : result.model || model,
+      model: result.model || model,
+      ...(providerId === "openrouter"
+        ? {
+            quality: "powerful" as const,
+            capability: "json" as const,
+            maxFallbackModels: 3,
+          }
+        : {}),
       apiKey,
       signal,
       executionLedger,

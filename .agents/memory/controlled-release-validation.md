@@ -46,3 +46,30 @@ durable turn timestamps and create intermittent release failures.
 **How to apply:** Classify release checks by execution boundary when building
 child environments; use bounded fixture barriers when the assertion depends on
 which concurrent turn was submitted first.
+
+Free OpenRouter catalog models are not a reliable positive receipt source for the
+live capability probe: some reach read tools but emit malformed structured output,
+while the shared fast recovery model can time out and open the circuit; a stable
+tool-capable provider/model is required for accepted C1–C7 evidence.
+
+**Why:** A live probe can therefore prove provider reachability, real reads, and
+fail-closed recovery without proving positive evidence acceptance; treating those
+as equivalent would create a false release signal.
+
+**How to apply:** Keep the live probe opt-in and disposable, preserve the
+`ANALYSIS_INCOMPLETE` receipt, and rerun only after an approved provider/model with
+reliable JSON and recovery latency is configured. Never infer positive acceptance
+from complete source reads or partial micro-probe labels; require durable
+`acceptedEvidenceCount` and `acceptedClaimCount` values.
+
+Bounded capability-probe recovery should request a powerful JSON-capable model
+chain, retry only one candidate after the first bounded chain, and suppress
+request-local recovery failures from the global provider circuit.
+
+**Why:** Live free-tier runs can partially succeed, then exhaust several model
+timeouts while correcting one missing capability; replaying the full chain
+inflates latency and can falsely mark a healthy provider circuit as unavailable.
+
+**How to apply:** Keep the recovery deadline and final-output reserve unchanged;
+use provider-owned fallback only for the first attempt, keep retries single-model,
+and retain fail-closed `ANALYSIS_INCOMPLETE` when evidence remains unaccepted.

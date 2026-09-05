@@ -219,7 +219,18 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       expect(requestDeadline - recoveryWindow.deadlineAt).toBe(recoveryWindow.reserveMs);
 
       const strategy = {
-        call: vi.fn(async () => new Promise<{ content: string; model: string }>(() => undefined)),
+        call: vi.fn(async (
+          _messages: unknown,
+          options: Record<string, unknown>,
+        ) => {
+          expect(options).toMatchObject({
+            model: "initial-model",
+            quality: "powerful",
+            capability: "json",
+            maxFallbackModels: 3,
+          });
+          return new Promise<{ content: string; model: string }>(() => undefined);
+        }),
       };
       const recovery = runCapabilityMicroProbes({
         strategy,
@@ -242,6 +253,43 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("retries only the missing labels and lets the server attach verified evidence IDs", async () => {
+    let callCount = 0;
+    const strategy = {
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => {
+        callCount += 1;
+        const content =
+          callCount === 1
+            ? "C1: PASS — isPromptProsePath exists; Evidence ID: E1."
+            : callCount === 2
+              ? "C1: PASS — isPromptProsePath exists; Evidence ID: E1.\n" +
+                "C3: PASS — the answer is grounded; Evidence ID: E1."
+              : callCount === 3
+                ? "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is absent; Evidence ID: E2."
+                : callCount === 4
+                  ? "C7: PASS — run() and write_file are absent; Evidence ID: E3."
+                  : "C6: PASS — no eval( or Function( call exists; Evidence ID: E4.";
+        return { content, model: opts.model ?? "initial-model" };
+      }),
+    };
+
+    const result = await runCapabilityMicroProbes({
+      strategy,
+      provider: "openrouter",
+      model: "initial-model",
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(callCount).toBe(5);
+    expect(result?.response).toContain('return value.includes(\'defect/repair\');');
+    expect(result?.response).toContain('return "executed:" + name;');
+    expect(result?.response).toMatch(/Overall score: 7\/7/);
   });
 
   it("chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication", async () => {

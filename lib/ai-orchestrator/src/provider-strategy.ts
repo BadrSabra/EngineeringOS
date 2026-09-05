@@ -36,6 +36,11 @@ export type StrategyCallOptions = {
   /** Let bounded callers skip provider-level transient retries. */
   retryTransient?: boolean;
   /**
+   * Recovery failures are request-local and must not poison the provider
+   * circuit after the caller has already bounded its fallback attempts.
+   */
+  circuitFailurePolicy?: "record" | "suppress";
+  /**
    * Cap the number of provider-owned fallback candidates for this call.
    * Used by bounded forensic Recovery; ordinary calls leave it unset.
    */
