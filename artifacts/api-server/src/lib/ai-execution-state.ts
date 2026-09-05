@@ -1737,7 +1737,9 @@ export async function failAiExecution(params: {
       updatedAt: new Date(),
       leaseUntil: null,
       lastHeartbeatAt: null,
-      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      ...(terminalCheckpoint
+        ? { checkpointVersion: terminalCheckpoint.sequence }
+        : { checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1` }),
       ...(terminalCheckpoint ? { checkpoint: JSON.stringify(terminalCheckpoint) } : {}),
     })
     .where(and(
@@ -1766,7 +1768,9 @@ export async function failAiExecution(params: {
         updatedAt: new Date(),
         leaseUntil: null,
         lastHeartbeatAt: null,
-        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+        ...(cancellationCheckpoint
+          ? { checkpointVersion: cancellationCheckpoint.sequence }
+          : { checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1` }),
         ...(cancellationCheckpoint ? { checkpoint: JSON.stringify(cancellationCheckpoint) } : {}),
       })
       .where(and(
