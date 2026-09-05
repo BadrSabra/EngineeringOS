@@ -1270,7 +1270,12 @@ function mergeTerminalCheckpoint(
       ? {
           operation: params.cancelled
             ? { ...operation, state: "cancelled", ...(terminalBinding ? { binding: terminalBinding } : {}), updatedAt: now }
-            : { ...operation, ...(terminalBinding ? { binding: terminalBinding } : {}) },
+            : {
+                ...operation,
+                state: "failed",
+                ...(terminalBinding ? { binding: terminalBinding } : {}),
+                updatedAt: now,
+              },
         }
       : {}),
     ...(terminalBinding ? { recipeBinding: terminalBinding } : {}),

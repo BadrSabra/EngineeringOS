@@ -4208,6 +4208,11 @@ router.post("/ai/chat/stream", async (req, res) => {
       ? "No accepted validation evidence has been recorded."
       : "Ordinary chat response; Flight Deck proof is not required.";
     const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
+      // Once a terminal writer wins, no queued or late stream callback may
+      // enqueue another checkpoint. The database lease gate is still the
+      // authority, but this guard prevents noisy rejected writes and keeps the
+      // terminal checkpoint the last local intent.
+      if (executionTerminal) return;
       const sequence = ++checkpointSequence;
       const completeCheckpoint: AiExecutionCheckpoint = {
         ...checkpoint,
