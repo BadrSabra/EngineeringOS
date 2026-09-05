@@ -2039,6 +2039,7 @@ paths:
               "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "...",
               "outcome": "SUCCEEDED" | "FAILED" | "INTERRUPTED",
               "failureKind": "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
+               "providerFailureCategory": "TIMEOUT" | "MODEL_REJECTED" | "MODEL_UNAVAILABLE" | "RATE_LIMITED" | "FALLBACK_EXHAUSTED" | "TRANSPORT_FAILURE" | "MALFORMED_RESPONSE" | "UNKNOWN" | undefined,
               "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE",
               "forensicDiagnostic": { "$ref": "#/components/schemas/ForensicDiagnostic" } | null }, "sources": [...],
             "pendingChanges": [{ "path": "...", "absolutePath": "...", "newContent": "...",
@@ -2076,6 +2077,7 @@ paths:
            { "type": "error", "code": "...", "message": "...", "executionId"?: "...",
               "sessionId"?: "...", "outcome"?: "FAILED" | "INTERRUPTED",
               "failureKind"?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
+              "providerFailureCategory"?: "TIMEOUT" | "MODEL_REJECTED" | "MODEL_UNAVAILABLE" | "RATE_LIMITED" | "FALLBACK_EXHAUSTED" | "TRANSPORT_FAILURE" | "MALFORMED_RESPONSE" | "UNKNOWN",
               "quality"?: { "code": "QUALITY_REVIEW_LOW", "score": 0.42, "threshold": 0.78, "reasons": ["bounded reason"] },
               "retryable"?: true | false, "recoveryState"?: "NONE" | "REQUIRED" | "INCOMPLETE",
               "forensicDiagnostic"?: { "$ref": "#/components/schemas/ForensicDiagnostic" },
@@ -5175,6 +5177,10 @@ components:
           nullable: true
           enum: [QUALITY_REVIEW, TOOL_FAILURE, CANCELLATION, RECOVERY_FAILURE, INCOMPLETE]
           description: Bounded terminal classification; present only for non-success assistant turns
+        providerFailureCategory:
+          nullable: true
+          description: Server-owned bounded provider failure category; never contains provider messages or credentials.
+          $ref: "#/components/schemas/ProviderFailureCategory"
         retryable:
           type: boolean
           description: Whether the same bounded operation may be retried
@@ -5221,6 +5227,11 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    ProviderFailureCategory:
+      type: string
+      enum: [TIMEOUT, MODEL_REJECTED, MODEL_UNAVAILABLE, RATE_LIMITED, FALLBACK_EXHAUSTED, TRANSPORT_FAILURE, MALFORMED_RESPONSE, UNKNOWN]
+      description: Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.
 
     AiAcceptanceDisposition:
       type: object
