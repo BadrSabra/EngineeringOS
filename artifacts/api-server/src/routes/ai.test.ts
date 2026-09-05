@@ -1157,12 +1157,14 @@ describe("POST /api/ai/chat", () => {
 
   it("does not consume a proposal when behavioral verification blocks the write", async () => {
     const projectId = randomUUID();
+    const rootPath = `/tmp/apply-replay-${projectId}`;
     const now = new Date();
+    await fs.mkdir(rootPath, { recursive: true });
     await db.insert(projectsTable).values({
       id: projectId,
       ownerId: "test-user",
       name: `apply-replay-${projectId.slice(0, 8)}`,
-      rootPath: "/tmp",
+      rootPath,
       language: "typescript",
       status: "active",
       createdAt: now,
@@ -1172,7 +1174,7 @@ describe("POST /api/ai/chat", () => {
     const fileName = `apply-replay-${randomUUID().slice(0, 8)}.ts`;
     const changes = [{
       path: `lib/ai-orchestrator/${fileName}`,
-      absolutePath: `/tmp/lib/ai-orchestrator/${fileName}`,
+      absolutePath: `${rootPath}/lib/ai-orchestrator/${fileName}`,
       newContent: "export const replay = true;",
       originalContent: null,
       reason: "Replay test proposal",
@@ -1202,7 +1204,7 @@ describe("POST /api/ai/chat", () => {
         .limit(1);
       expect(proposal?.status).toBe("pending");
     } finally {
-      await fs.rm(`/tmp/lib/ai-orchestrator/${fileName}`, { force: true });
+      await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
 
