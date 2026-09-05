@@ -44,6 +44,7 @@ import type {
 import type { ExecutionLedger } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { decryptApiKey } from "./credentials-crypto.js";
+import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
 export type { ProviderId };
 /**
@@ -724,6 +725,11 @@ export function handleOrchestratorError(
   },
 ): boolean {
   if (!(err instanceof GroqClientError)) return false;
+  const providerFailureCategory = classifyProviderFailure({
+    code: err.code,
+    providerCode: err.providerCode,
+    providerStatus: err.providerStatus,
+  });
 
   logger.error(
     { err, projectId: ctx?.projectId, operation: ctx?.operation, provider: ctx?.provider },
@@ -764,6 +770,7 @@ export function handleOrchestratorError(
       ...(ctx.executionLedger
         ? { executionLedger: toPublicExecutionLedgerSnapshot(ctx.executionLedger.snapshot()) }
         : {}),
+      ...(providerFailureCategory ? { providerFailureCategory } : {}),
       ...(ctx.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
     });
     return true;
@@ -802,6 +809,7 @@ export function handleOrchestratorError(
     terminalStatus: "INCOMPLETE" as const,
     ...(ctx?.incompleteReview?.sessionId ? { sessionId: ctx.incompleteReview.sessionId } : {}),
     ...(ctx?.incompleteReview?.failureKind ? { failureKind: ctx.incompleteReview.failureKind } : {}),
+    ...(providerFailureCategory ? { providerFailureCategory } : {}),
     ...providerAvailabilityProjection(err, providerId, providerConsole, providerStatus),
   };
 
