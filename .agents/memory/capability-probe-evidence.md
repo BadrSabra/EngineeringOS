@@ -22,3 +22,16 @@ chat-agent completion gate. Missing, empty, or truncated bodies must remain an
 explicit ANALYSIS_INCOMPLETE / not-proven outcome, while recovery may only use
 already-retained reads. Bound citation recovery by the parent deadline and
 reserve the final-output tail before starting provider calls.
+
+Capability probes are their own evidence lane: do not run the generic behavior
+evidence validator after the two named bodies are retained, and do not expose
+search/list tools after complete prefetch. If prefetch is incomplete, recovery
+may use only the two read tools within the manifest.
+
+**Why:** The generic validator expects executable control-flow evidence for a
+behavior answer and can reject valid C1–C7 results; open-ended search after
+prefetch caused scope drift and consumed the synthesis budget without adding
+accepted evidence.
+
+**How to apply:** Let the probe-specific citation/claim validator own
+acceptance, while the server-owned prefetch and read allow-list own scope.
