@@ -400,6 +400,7 @@ export function classifyOpenRouterFailure(
     case "MODEL_UNAVAILABLE":
     case "PLAN_RESTRICTED":
     case "EMPTY_RESPONSE":
+    case "INVALID_TOOL_CALL":
       return {
         action: "choose-alternative",
         terminal: false,
@@ -410,7 +411,6 @@ export function classifyOpenRouterFailure(
     case "AUTH_ERROR":
     case "QUOTA":
     case "INVALID_CONFIG":
-    case "INVALID_TOOL_CALL":
       return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
   }
 }
@@ -428,7 +428,8 @@ function isModelUnavailableError(err: unknown): err is GroqClientError {
     (err.code === "MODEL_NOT_FOUND" ||
       err.code === "PLAN_RESTRICTED" ||
       err.code === "MODEL_UNAVAILABLE" ||
-      err.code === "EMPTY_RESPONSE")
+      err.code === "EMPTY_RESPONSE" ||
+      err.code === "INVALID_TOOL_CALL")
   );
 }
 
