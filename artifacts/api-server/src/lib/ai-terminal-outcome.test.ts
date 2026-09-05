@@ -31,6 +31,35 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("projects a typed provider category without turning an incomplete forensic run into success", () => {
+    expect(classify([
+      { kind: "decision_trace", trace: { finalState: "FAILED", recoveryFailureKind: "PROVIDER_FAILURE" } },
+    ], {
+      providerError: { code: "RATE_LIMITED", providerStatus: 429 },
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "RECOVERY_FAILURE",
+      providerFailureCategory: "RATE_LIMITED",
+      retryable: true,
+      recoveryState: "REQUIRED",
+      evidenceAccepted: false,
+    });
+  });
+
+  it("keeps capability-probe claim closure ahead of provider classification", () => {
+    expect(classify([
+      { kind: "diagnostic", code: "CAPABILITY_PROBE_CLAIM_UNCLOSED" },
+    ], {
+      providerError: { code: "TIMEOUT" },
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      providerFailureCategory: undefined,
+      retryable: false,
+      recoveryState: "INCOMPLETE",
+    });
+  });
+
   it("classifies a required tool failure as failed instead of successful", () => {
     expect(classify([
       { kind: "tool_result", resultKind: "failed", diagnosticCode: "TOOL_EXECUTION_FAILED", resultSummary: "Tool failed safely." },
