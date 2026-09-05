@@ -14,6 +14,8 @@ completed-read boundary, not fabricated proof of absence.
 **Why:** A provider can produce a plausible seven-line report from partial
 context or attach one plausible quote to several unrelated answers; accepting
 that would turn an evidence inventory into an unsupported capability verdict.
+Even a live HTTP 200 with a terminal `done` event can still be
+`ANALYSIS_INCOMPLETE` when the persisted evidence counts are zero.
 
 **How to apply:** Keep the manifest shared by the canonical prompt and the
 chat-agent completion gate. Missing, empty, or truncated bodies must remain an
