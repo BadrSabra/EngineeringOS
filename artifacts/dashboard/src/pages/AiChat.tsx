@@ -136,6 +136,7 @@ type ChatMessage = {
   outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
   errorCode?: string | null;
   errorMessage?: string | null;
+  providerFailureCategory?: AiStreamErrorEvent['providerFailureCategory'];
   /** Optional persisted release report attached to a historical run. */
   missionCorrelationReport?: MissionCorrelationReport | null;
   /** The API found a non-null persisted report that is not readable by this dashboard. */
@@ -964,7 +965,37 @@ function describeAiError(err: unknown): string {
  * replaying that persisted payload. Support references are deliberately
  * allowlisted because they are safe for operators to search.
  */
-function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'errorCode' | 'errorMessage' | 'content'>): string {
+function providerFailureCategoryLabel(category: AiStreamErrorEvent['providerFailureCategory']): string | null {
+  switch (category) {
+    case 'TIMEOUT': return 'Provider timed out';
+    case 'MODEL_REJECTED': return 'Provider rejected the request';
+    case 'MODEL_UNAVAILABLE': return 'Model unavailable';
+    case 'RATE_LIMITED': return 'Rate limited';
+    case 'FALLBACK_EXHAUSTED': return 'All configured providers failed';
+    case 'TRANSPORT_FAILURE': return 'Provider connection failed';
+    case 'MALFORMED_RESPONSE': return 'Provider response was invalid';
+    case 'UNKNOWN': return 'Provider failure';
+    default: return null;
+  }
+}
+
+function providerFailureCategoryGuidance(category: AiStreamErrorEvent['providerFailureCategory']): string | null {
+  switch (category) {
+    case 'TIMEOUT': return 'The provider took too long to respond. Retry the request.';
+    case 'MODEL_REJECTED': return 'The provider rejected this request. Check the provider configuration or choose another provider.';
+    case 'MODEL_UNAVAILABLE': return 'The requested model is unavailable. Retry later or choose another provider.';
+    case 'RATE_LIMITED': return 'The provider rate limit was reached. Wait a moment, then retry or choose another provider.';
+    case 'FALLBACK_EXHAUSTED': return 'All configured providers failed to complete the request. Retry later or configure another provider.';
+    case 'TRANSPORT_FAILURE': return 'The provider connection failed. Retry in a moment; choose another provider if it persists.';
+    case 'MALFORMED_RESPONSE': return 'The provider returned an invalid response. Retry or choose another provider.';
+    case 'UNKNOWN': return 'The provider could not complete the request. Retry in a moment or choose another provider.';
+    default: return null;
+  }
+}
+
+function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'providerFailureCategory' | 'errorCode' | 'errorMessage' | 'content'>): string {
+  const categoryGuidance = providerFailureCategoryGuidance(message.providerFailureCategory);
+  if (categoryGuidance) return categoryGuidance;
   const raw = [
     message.failureKind,
     message.errorCode,
@@ -4781,7 +4812,8 @@ function MessageBubble({
     : null;
   const failureKindLabel = isGenericInterruptedTurn
     ? 'Connection interrupted'
-    : msg.failureKind === 'QUALITY_REVIEW'
+    : providerFailureCategoryLabel(msg.providerFailureCategory)
+      ?? msg.failureKind === 'QUALITY_REVIEW'
     ? 'Quality review rejected'
     : msg.failureKind === 'PROVIDER_FORMAT'
       ? 'Provider format issue'
@@ -9100,6 +9132,8 @@ export default function AiChat() {
 
   /** Translate an AiStreamErrorEvent to a user-facing error description. */
   function describeStreamError(err: AiStreamErrorEvent): string {
+    const categoryGuidance = providerFailureCategoryGuidance(err.providerFailureCategory);
+    if (categoryGuidance) return categoryGuidance;
     // Reuse describeAiError by constructing a temporary AiApiError from
     // the SSE error event's code → HTTP status mapping.
     const statusForCode: Record<string, number> = {
@@ -9960,6 +9994,7 @@ export default function AiChat() {
                 errorCode: err.code,
                 errorMessage: safeMessage,
                 failureKind: err.failureKind,
+                providerFailureCategory: err.providerFailureCategory,
                 retryable: err.retryable,
                 recoveryState: err.recoveryState,
                 acceptanceDisposition: err.acceptanceDisposition,
