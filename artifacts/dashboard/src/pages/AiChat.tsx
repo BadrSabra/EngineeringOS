@@ -4812,26 +4812,27 @@ function MessageBubble({
     : null;
   const failureKindLabel = isGenericInterruptedTurn
     ? 'Connection interrupted'
-    : providerFailureCategoryLabel(msg.providerFailureCategory)
-      ?? msg.failureKind === 'QUALITY_REVIEW'
-    ? 'Quality review rejected'
-    : msg.failureKind === 'PROVIDER_FORMAT'
-      ? 'Provider format issue'
-    : msg.failureKind === 'RATE_LIMIT'
-      ? 'Rate limit'
-      : msg.failureKind === 'CONFIGURATION'
-        ? 'Configuration issue'
-        : msg.failureKind === 'TRANSPORT'
-          ? 'Connection interrupted'
-          : msg.failureKind === 'TOOL_FAILURE'
-            ? 'Required tool failed'
-            : msg.failureKind === 'CANCELLATION'
-              ? 'Cancelled before completion'
-              : msg.failureKind === 'RECOVERY_FAILURE'
-                ? 'Recovery failed'
-                : msg.failureKind === 'INCOMPLETE'
-                  ? 'Incomplete evidence'
-          : 'Provider failure';
+    : providerFailureCategoryLabel(msg.providerFailureCategory) ?? (
+      msg.failureKind === 'QUALITY_REVIEW'
+        ? 'Quality review rejected'
+        : msg.failureKind === 'PROVIDER_FORMAT'
+          ? 'Provider format issue'
+          : msg.failureKind === 'RATE_LIMIT'
+            ? 'Rate limit'
+            : msg.failureKind === 'CONFIGURATION'
+              ? 'Configuration issue'
+              : msg.failureKind === 'TRANSPORT'
+                ? 'Connection interrupted'
+                : msg.failureKind === 'TOOL_FAILURE'
+                  ? 'Required tool failed'
+                  : msg.failureKind === 'CANCELLATION'
+                    ? 'Cancelled before completion'
+                    : msg.failureKind === 'RECOVERY_FAILURE'
+                      ? 'Recovery failed'
+                      : msg.failureKind === 'INCOMPLETE'
+                        ? 'Incomplete evidence'
+                        : 'Provider failure'
+    );
   const preservedFailureReport = failedTurn
     && !internalTechnicalDump
     && (isForensicFallbackMessage(displayContent) || /\bANALYSIS_INCOMPLETE\b/i.test(displayContent))
