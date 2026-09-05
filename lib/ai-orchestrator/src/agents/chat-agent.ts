@@ -9692,26 +9692,42 @@ export async function chat(opts: {
       !hasCapabilityProbeSourceGrounding(responseBeforeBehaviorEvidence, forensicFileContents)
     )
   ) {
-    recoveryAttemptsUsed += 1;
-    const microProbeRecovery = await runCapabilityMicroProbes({
-      strategy,
-      provider: providerId,
-      model: result.model || model,
-      ...(providerId === "openrouter"
-        ? {
-            quality: "powerful" as const,
-            capability: "json" as const,
-            maxFallbackModels: 3,
-          }
-        : {}),
-      apiKey,
-      signal,
-      executionLedger,
-      fileContents: forensicFileContents,
-      pendingChanges,
-      deadlineAt: capabilityProbeRecoveryDeadlineAt ?? undefined,
-    });
-    if (microProbeRecovery) {
+    const microProbeDeadlineAt = capabilityProbeRecoveryDeadlineAt;
+    const microProbeBlocked =
+      executionLedger?.isExhausted() === true ||
+      microProbeDeadlineAt === undefined ||
+      Date.now() + CAPABILITY_PROBE_RECOVERY_RESERVE_MS >= microProbeDeadlineAt;
+    if (microProbeBlocked) {
+      recoveryFailureKind ??= "TIMEOUT";
+      relayAgentStep({
+        kind: "diagnostic",
+        code: "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT",
+        details: ["recovery budget or deadline left no bounded micro-probe window"],
+      });
+    } else {
+      recoveryAttemptsUsed += 1;
+      const microProbeRecovery = await runCapabilityMicroProbes({
+        strategy,
+        provider: providerId,
+        model: result.model || model,
+        ...(providerId === "openrouter"
+          ? {
+              quality: "powerful" as const,
+              capability: "json" as const,
+              // The structured correction above already had one bounded
+              // fallback. Keep micro-probes to one model per group so a
+              // failed synthesis cannot multiply provider latency.
+              maxFallbackModels: 1,
+            }
+          : {}),
+        apiKey,
+        signal,
+        executionLedger,
+        fileContents: forensicFileContents,
+        pendingChanges,
+        deadlineAt: microProbeDeadlineAt,
+      });
+      if (microProbeRecovery) {
       const microValidation = validateBehaviorEvidence(
         message,
         microProbeRecovery.response,
@@ -9757,6 +9773,7 @@ export async function chat(opts: {
           code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
           details: ["bounded capability-specific recovery did not close the C1–C7 evidence gate"],
         });
+      }
       }
     }
   }
