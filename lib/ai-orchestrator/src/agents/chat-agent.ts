@@ -954,6 +954,8 @@ function validateCapabilityProbeResponse(response: string): string[] {
   return violations;
 }
 
+const CAPABILITY_PROBE_LABELS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"] as const;
+
 /**
  * Capability reports need a literal source fragment, but a negative result is
  * still valid when the fragment is a declaration rather than a behavioral
@@ -1038,6 +1040,20 @@ export function validateCapabilityProbeCitations(
     violations,
     citedSources: [...citedSources],
   };
+}
+
+function getCapabilityProbeRecoveryTargets(
+  response: string,
+  fileContents: ReadonlyMap<string, string>,
+): readonly string[] {
+  const violations = [
+    ...validateCapabilityProbeResponse(response),
+    ...validateCapabilityProbeCitations(response, fileContents).violations,
+  ];
+  const targets = CAPABILITY_PROBE_LABELS.filter((label) =>
+    violations.some((violation) => new RegExp(`\\b${label}\\b`, "i").test(violation)),
+  );
+  return targets.length > 0 ? targets : CAPABILITY_PROBE_LABELS;
 }
 
 /**
@@ -1490,6 +1506,7 @@ export function buildForensicRecoveryMessages(
 export function buildCapabilityProbeRecoveryMessages(
   fileContents: ReadonlyMap<string, string>,
   priorCandidate: string,
+  targetCapabilities: readonly string[] = CAPABILITY_PROBE_LABELS,
 ): RawMessage[] {
   let remaining = MAX_RECOVERY_EVIDENCE_CHARS;
   const records = [...fileContents.entries()]
@@ -1508,6 +1525,9 @@ export function buildCapabilityProbeRecoveryMessages(
         bounded.excerpt,
       ].join("\n");
     });
+  const targets = targetCapabilities.length > 0
+    ? targetCapabilities.join(", ")
+    : CAPABILITY_PROBE_LABELS.join(", ");
 
   return [
     {
@@ -1524,7 +1544,8 @@ export function buildCapabilityProbeRecoveryMessages(
          "The previous probe answer did not contain a verifiable exact source excerpt.",
          "Return ONLY a short plain-text report. Do not return JSON, an object, or a code fence.",
          "Use exactly one labelled line for each of C1, C2, C3, C4, C5, C6, and C7, plus an overall X/7 score.",
-         "Use this literal line shape: C1: PASS/FAIL — answer; evidence: `exact source fragment`.",
+         "Use this literal line shape: C1: PASS/FAIL — answer; evidence: exact/project-relative/source.ts `exact source fragment`.",
+         `Prioritize repairing these claims, which failed validation: ${targets}. Still return the complete C1–C7 report.`,
          "Do not use forensic headings such as Executive Verdict, Evidence Map, Findings, Repair Plan, or Final Judgment.",
          "Every C1–C7 line is a separate claim. When the claim is supported by code, cite the exact contiguous source fragment that supports that line and include the exact file path. Do not use one generic quote for unrelated claims.",
          "For a negative claim, say MISSING/NO honestly and cite the completed-read manifest as the scope boundary; never invent a quote proving absence.",
@@ -7547,7 +7568,7 @@ export async function chat(opts: {
       code: "EMPTY_PROVIDER_EVIDENCE_REPORT",
       sourceCount: forensicFileContents.size,
     }));
-  } else if (!parsed.ok) {
+  } else if (!parsed.ok && !capabilityProbeRequest) {
     console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
     const forensicCorrection =
       stagedForensicSynthesis
@@ -9491,6 +9512,10 @@ export async function chat(opts: {
     const recoveryDeadline = recoveryWindow.deadlineAt;
     capabilityProbeRecoveryDeadlineAt = recoveryDeadline;
     recoveryAttemptsUsed += 1;
+    const capabilityRecoveryTargets = getCapabilityProbeRecoveryTargets(
+      responseBeforeBehaviorEvidence,
+      forensicFileContents,
+    );
     const recoveryModel = providerId === "openrouter"
       ? undefined
       : result.model || model;
@@ -9510,6 +9535,7 @@ export async function chat(opts: {
           buildCapabilityProbeRecoveryMessages(
             forensicFileContents,
             responseBeforeBehaviorEvidence,
+            capabilityRecoveryTargets,
           ),
           {
             model: recoveryModel,
