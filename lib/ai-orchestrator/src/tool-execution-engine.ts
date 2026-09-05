@@ -2845,9 +2845,23 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const availableIterationTools = synthesisOnly ? [] : compoundProposalTools();
     const iterationTools = availableIterationTools?.filter(
       (tool) =>
+        (allowedTools === null || allowedTools.has(tool.function.name)) &&
         !disabledForThisIteration.has(tool.function.name) &&
         !(searchBudgetEnabled && searchBudgetExhausted && tool.function.name === "search_code"),
     );
+    // `toolManifest` is a normalization/authorization aid, not a second
+    // provider-facing tool list. Once the server has narrowed the current
+    // iteration to no executable tools, omit both fields so the provider
+    // cannot emit a stale native/textual tool call for the original manifest.
+    // When tools remain exposed, retain the full authorized manifest so a
+    // stale call from an earlier narrowed iteration is still validated against
+    // the server-owned authorization boundary.
+    const providerToolOptions = iterationTools && iterationTools.length > 0
+      ? {
+          tools: iterationTools,
+          ...(opts.tools && opts.tools.length > 0 ? { toolManifest: opts.tools } : {}),
+        }
+      : {};
 
     // Keep the complete messages in memory for provenance/evidence validation,
     // but never resend unbounded tool bodies to a provider. This applies to
@@ -2866,8 +2880,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               taskType,
               ...(opts.capability ? { capability: opts.capability } : {}),
               ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
-              ...(iterationTools != null ? { tools: iterationTools } : {}),
-              ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
+              ...providerToolOptions,
               ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
             }),
             attemptCount: synthesisAttempts - synthesisAttemptsBeforeCall,
@@ -2881,8 +2894,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         taskType,
         ...(opts.capability ? { capability: opts.capability } : {}),
         ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
-        ...(iterationTools != null ? { tools: iterationTools } : {}),
-        ...(!synthesisOnly && opts.tools ? { toolManifest: opts.tools } : {}),
+        ...providerToolOptions,
         ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
       });
       result = callResult.result;
@@ -2982,7 +2994,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 apiKey,
                 taskType,
                  ...(opts.capability ? { capability: opts.capability } : {}),
-                ...(iterationTools != null ? { tools: iterationTools } : {}),
+                ...providerToolOptions,
                 ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
             })
           : await callWithExecutionBudget(outboundMessages, {
@@ -2994,8 +3006,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
              taskType,
              ...(opts.capability ? { capability: opts.capability } : {}),
             ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
-            ...(iterationTools != null ? { tools: iterationTools } : {}),
-             ...(opts.tools ? { toolManifest: opts.tools } : {}),
+            ...providerToolOptions,
             ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
             });
           result = fallbackResult;
