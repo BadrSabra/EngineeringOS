@@ -1232,7 +1232,7 @@ async function persistFailedChatTurn(params: {
   toolTrace?: AgentStep[];
   executionLedgerSnapshot?: ExecutionLedgerPublicSnapshot;
   contextProvenance?: ReturnType<typeof projectContextProvenance>;
-}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; acceptanceDisposition?: AiAcceptanceDisposition; contextProvenance?: ReturnType<typeof projectContextProvenance> } | undefined> {
+}): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; providerFailureCategory?: ProviderFailureCategory; acceptanceDisposition?: AiAcceptanceDisposition; contextProvenance?: ReturnType<typeof projectContextProvenance> } | undefined> {
   return db.transaction(async (tx) => {
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -1523,22 +1523,19 @@ async function persistFailedChatTurn(params: {
       errorMessage: assistantErrorMessage,
       toolTrace: terminalTrace,
       createdAt: params.assistantAt,
+      ...(params.terminalOutcome?.providerFailureCategory
+        ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
+        : {}),
       ...(publicAcceptanceDisposition({
         code: params.errorCode,
         outcome: params.outcome,
         failureKind: params.terminalOutcome?.failureKind,
-        ...(params.terminalOutcome?.providerFailureCategory
-          ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
-          : {}),
         recoveryState: params.terminalOutcome?.recoveryState,
       }) ? {
         acceptanceDisposition: publicAcceptanceDisposition({
           code: params.errorCode,
           outcome: params.outcome,
           failureKind: params.terminalOutcome?.failureKind,
-          ...(params.terminalOutcome?.providerFailureCategory
-            ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
-            : {}),
           recoveryState: params.terminalOutcome?.recoveryState,
         }),
       } : {}),
