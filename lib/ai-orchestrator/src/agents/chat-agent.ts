@@ -6241,7 +6241,9 @@ export async function chat(opts: {
     // only when it contains at least one concrete file.
     allowedToolNames:
       capabilityProbeRequest
-        ? Array.from(RECOVERY_READ_TOOL_NAMES)
+        ? hasCompleteCapabilityProbeEvidence(prefetchFileContents)
+          ? []
+          : ["read_file", "read_file_range"]
         : singleFileForensicMode && singleFilePaths.length > 0
           ? ["read_file"]
           : undefined,
@@ -9406,6 +9408,7 @@ export async function chat(opts: {
     responseBeforeBehaviorEvidence = `${responseBeforeBehaviorEvidence}\n\nNOT PROVEN`;
   }
   const shouldValidateBehaviorEvidence =
+    !capabilityProbeRequest &&
     explicitBehaviorQueryRequested &&
     (Boolean(rootPath) || toolSources.length > 0 || forensicFileContents.size > 0);
   let behaviorEvidenceValidation = shouldValidateBehaviorEvidence
