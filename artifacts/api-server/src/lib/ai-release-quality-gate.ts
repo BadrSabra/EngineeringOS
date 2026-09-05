@@ -33,7 +33,15 @@ export type AiReleaseCheckDefinition = {
 export type AiReleaseCheckResult = AiReleaseCheckDefinition & {
   status: "passed" | "failed" | "skipped";
   failureCode?: string;
+  diagnostic?: AiReleaseCheckDiagnostic;
   durationMs: number;
+};
+
+export type AiReleaseCheckDiagnostic = {
+  classification: "assertion_failure" | "harness_failure";
+  code: "TEST_ASSERTION_FAILED" | "HARNESS_EXECUTION_FAILED";
+  testFiles: string[];
+  testIds: string[];
 };
 
 export type AiReleaseQualityDecision = {
@@ -181,6 +189,10 @@ const SAFE_FAILURE_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
 const SAFE_RUNTIME_ORACLE_IDENTIFIER = /^[a-z0-9][a-z0-9._:/-]{0,159}$/i;
 const SAFE_RUNTIME_ORACLE_COMMAND = /^pnpm(?: [^\r\n]{0,238})?$/;
 const MAX_RUNTIME_ORACLE_CHECKS = 64;
+const MAX_DIAGNOSTIC_ITEMS = 8;
+const MAX_CAPTURED_OUTPUT = 128 * 1024;
+const SAFE_TEST_FILE = /\b(?:src|lib|scripts)\/[A-Za-z0-9_./-]+\.test\.[A-Za-z0-9]+\b/;
+const SAFE_TEST_ID = /^[A-Za-z0-9][A-Za-z0-9 _.:/()[\]{}'#-]{0,159}$/;
 
 function normalizedFailureCode(result: AiReleaseCheckResult): string | undefined {
   if (result.status !== "failed") return undefined;
@@ -188,6 +200,82 @@ function normalizedFailureCode(result: AiReleaseCheckResult): string | undefined
     return result.failureCode;
   }
   return `${result.id.toUpperCase().replaceAll("-", "_")}_FAILED`;
+}
+
+function safeDiagnosticText(value: string): string | undefined {
+  const normalized = value
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+  if (
+    !normalized ||
+    !SAFE_TEST_ID.test(normalized) ||
+    /(?:bearer|api[_ -]?key|credential|password|secret|token|prompt|\/(?:home|tmp|srv|workspace)\b|https?:)/i.test(normalized)
+  ) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function failureDiagnostic(
+  check: AiReleaseCheckDefinition,
+  output: string,
+  hasExitCode: boolean,
+): AiReleaseCheckDiagnostic {
+  const files = new Set<string>();
+  for (const source of [check.command, output]) {
+    for (const match of source.matchAll(new RegExp(SAFE_TEST_FILE.source, "g"))) {
+      files.add(match[0]);
+    }
+  }
+
+  const testIds = new Set<string>();
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^\s*[×x]\s+(.+?)\s*$/);
+    const identifier = match ? safeDiagnosticText(match[1]) : undefined;
+    if (identifier) testIds.add(identifier);
+  }
+
+  const isAssertionFailure =
+    testIds.size > 0 ||
+    /(?:Failed Tests|Test Files\s+.*failed|AssertionError|expected .* to)/i.test(output);
+  return {
+    classification: isAssertionFailure ? "assertion_failure" : "harness_failure",
+    code: isAssertionFailure ? "TEST_ASSERTION_FAILED" : "HARNESS_EXECUTION_FAILED",
+    testFiles: [...files].slice(0, MAX_DIAGNOSTIC_ITEMS),
+    testIds: [...testIds].slice(0, MAX_DIAGNOSTIC_ITEMS),
+    // An exit without a code is an execution/harness failure even when a
+    // child emitted a misleading test-like line before it failed to start.
+    ...(hasExitCode ? {} : { classification: "harness_failure" as const, code: "HARNESS_EXECUTION_FAILED" as const }),
+  };
+}
+
+function normalizedDiagnostic(value: AiReleaseCheckDiagnostic | undefined): AiReleaseCheckDiagnostic | undefined {
+  if (!value) return undefined;
+  const classification = value.classification === "assertion_failure" || value.classification === "harness_failure"
+    ? value.classification
+    : undefined;
+  const code = value.code === "TEST_ASSERTION_FAILED" || value.code === "HARNESS_EXECUTION_FAILED"
+    ? value.code
+    : undefined;
+  if (!classification || !code) return undefined;
+
+  const testFiles = (Array.isArray(value.testFiles) ? value.testFiles : [])
+    .filter((file): file is string => typeof file === "string" && SAFE_TEST_FILE.test(file))
+    .map((file) => file.slice(0, 160))
+    .slice(0, MAX_DIAGNOSTIC_ITEMS);
+  const testIds = (Array.isArray(value.testIds) ? value.testIds : [])
+    .filter((identifier): identifier is string => typeof identifier === "string")
+    .map(safeDiagnosticText)
+    .filter((identifier): identifier is string => Boolean(identifier))
+    .slice(0, MAX_DIAGNOSTIC_ITEMS);
+  return {
+    classification,
+    code,
+    testFiles,
+    testIds,
+  };
 }
 
 function normalizedRuntimeOraclePreflight(
@@ -240,9 +328,13 @@ export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[
   const normalizedResults: AiReleaseCheckResult[] = results.map((result) => {
     const safeCode = normalizedFailureCode(result);
     if (result.status === "failed") {
-      return { ...result, failureCode: safeCode };
+      return {
+        ...result,
+        failureCode: safeCode,
+        diagnostic: normalizedDiagnostic(result.diagnostic),
+      };
     }
-    return { ...result, failureCode: undefined };
+    return { ...result, failureCode: undefined, diagnostic: undefined };
   });
   const blockers = normalizedResults
     .filter((result) => result.status === "failed" && result.blocking)
@@ -289,21 +381,34 @@ async function runCommand(check: AiReleaseCheckDefinition, cwd: string): Promise
     } else {
       delete childEnv.RUN_CONTROLLED_RELEASE_VALIDATION;
     }
+    let output = "";
+    const capture = (chunk: Buffer | string): void => {
+      if (output.length >= MAX_CAPTURED_OUTPUT) return;
+      output += chunk.toString().slice(0, MAX_CAPTURED_OUTPUT - output.length);
+    };
     const child = spawn("sh", ["-c", check.command], {
       cwd,
       env: childEnv,
-      stdio: ["ignore", "ignore", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
+    child.stdout?.on("data", capture);
+    child.stderr?.on("data", capture);
     child.once("error", () => resolve({
       ...check,
       status: "failed",
       failureCode: failureCode(check, null, null),
+      diagnostic: failureDiagnostic(check, output, false),
       durationMs: Date.now() - started,
     }));
     child.once("exit", (exitCode, signal) => resolve({
       ...check,
       status: exitCode === 0 ? "passed" : "failed",
-      ...(exitCode === 0 ? {} : { failureCode: failureCode(check, exitCode, signal) }),
+      ...(exitCode === 0
+        ? {}
+        : {
+            failureCode: failureCode(check, exitCode, signal),
+            diagnostic: failureDiagnostic(check, output, true),
+          }),
       durationMs: Date.now() - started,
     }));
   });

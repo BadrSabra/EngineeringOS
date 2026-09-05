@@ -25,7 +25,7 @@ feature-for-feature parity with a hosted IDE.
 
 The evidence baseline is [`actual-capability-baseline-v1.md`](actual-capability-baseline-v1.md).
 The latest provider-free release decision passed its enabled AI contracts
-(9 passed, 0 blocking failures), and the deterministic runtime-oracle blocker
+(11 passed, 0 blocking failures), and the deterministic runtime-oracle blocker
 is closed. A controlled run on 2026-08-26 also recorded authenticated Clerk
 shell/audit browser evidence and isolated Git route evidence, but not a
 complete discovery-to-push journey. This is still not a production claim:

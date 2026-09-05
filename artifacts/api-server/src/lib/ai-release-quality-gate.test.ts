@@ -58,6 +58,52 @@ describe("AI release quality gate", () => {
     expect(decision.blockers).toContain("BENCHMARK_FAILED");
   });
 
+  it("keeps failure diagnostics bounded and classifies assertion evidence safely", () => {
+    const decision = evaluateAiReleaseQuality([
+      result({
+        id: "ai-contract-and-json",
+        status: "failed",
+        failureCode: "AI_CONTRACT_AND_JSON_FAILED_1",
+        diagnostic: {
+          classification: "assertion_failure",
+          code: "TEST_ASSERTION_FAILED",
+          testFiles: ["src/routes/ai.test.ts", "/home/runner/workspace/provider-output.test.ts"],
+          testIds: ["structured response contract", "Bearer provider-key-secret"],
+        },
+      }),
+    ]);
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.checks[0]?.diagnostic).toEqual({
+      classification: "assertion_failure",
+      code: "TEST_ASSERTION_FAILED",
+      testFiles: ["src/routes/ai.test.ts"],
+      testIds: ["structured response contract"],
+    });
+    expect(JSON.stringify(decision)).not.toMatch(/provider-key|raw-provider|Bearer|\/home\/runner/i);
+  });
+
+  it("preserves a stable harness diagnostic when no assertion is observable", () => {
+    const decision = evaluateAiReleaseQuality([
+      result({
+        id: "ai-contract-and-json",
+        status: "failed",
+        diagnostic: {
+          classification: "harness_failure",
+          code: "HARNESS_EXECUTION_FAILED",
+          testFiles: ["src/routes/ai-route-parity.test.ts"],
+          testIds: [],
+        },
+      }),
+    ]);
+
+    expect(decision.checks[0]?.diagnostic).toMatchObject({
+      classification: "harness_failure",
+      code: "HARNESS_EXECUTION_FAILED",
+      testIds: [],
+    });
+  });
+
   it("reports skipped preview cases while preserving a deterministic decision", () => {
     const checks = getAiReleaseChecks();
     const preview = checks.find((check) => check.id === "dashboard-preview-contract")!;
