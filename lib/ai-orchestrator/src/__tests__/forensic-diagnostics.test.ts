@@ -29,6 +29,27 @@ describe("forensic diagnostic projection", () => {
     });
   });
 
+  it("uses integrity coverage and preserves CLAIM_UNCLOSED over stale success telemetry", () => {
+    expect(deriveForensicDiagnostic([
+      {
+        kind: "forensic_status",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "NO_FINDING",
+        rootCoverage: [],
+      },
+      {
+        kind: "evidence_integrity",
+        consistent: true,
+        evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+      },
+      { kind: "decision_trace", finalState: "VERIFIED" },
+      { kind: "diagnostic", code: "CAPABILITY_PROBE_CLAIM_UNCLOSED" },
+    ])).toMatchObject({
+      verdict: "ANALYSIS_INCOMPLETE",
+      reasonCode: "CLAIM_UNCLOSED",
+    });
+  });
+
   it("fails closed and retains bounded unread/truncated scope", () => {
     const result = deriveForensicDiagnostic(completeTrace({
       sourceCoverage: "PARTIAL",

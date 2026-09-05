@@ -160,6 +160,21 @@ describe("autonomous operation contract", () => {
     }))).toBeUndefined();
   });
 
+  it("round-trips a claim-unclosed forensic verdict through a terminal checkpoint", () => {
+    const checkpoint = parseAiExecutionCheckpoint(JSON.stringify({
+      stage: "failed",
+      sequence: 3,
+      evidenceVerdict: "CLAIM_UNCLOSED",
+      evidenceReason: "Source evidence was retained, but the required forensic claim was not closed.",
+      updatedAt: new Date().toISOString(),
+    }));
+    expect(checkpoint).toMatchObject({
+      stage: "failed",
+      evidenceVerdict: "CLAIM_UNCLOSED",
+      evidenceReason: expect.stringContaining("required forensic claim"),
+    });
+  });
+
   it("fails closed for stale identity, scope, phase, and lease ownership", () => {
     const binding = createRecipeOperationBinding({
       projectId: "project-1",
