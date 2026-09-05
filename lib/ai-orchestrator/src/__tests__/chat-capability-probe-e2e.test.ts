@@ -464,6 +464,9 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
           step.code === "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
       )).toBe(true);
       expect(steps.some(
+        (step) => step.kind === "recovery_model_call" && step.attempt >= 1,
+      )).toBe(true);
+      expect(steps.some(
         (step) =>
           (step.kind === "tool_call" || step.kind === "tool_result") &&
           (step.tool === "write_file" || step.tool === "replace_text"),
