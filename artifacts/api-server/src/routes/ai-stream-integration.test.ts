@@ -55,6 +55,7 @@ import {
   hashPatchBase,
   type ExecutionNode,
 } from "@workspace/ai-orchestrator";
+import { CAPABILITY_PROBE_MESSAGE } from "../../../../lib/ai-orchestrator/src/prompts/capability-probe.js";
 import {
   claimAiExecution,
   checkpointAiExecution,
@@ -3942,6 +3943,171 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
     expect(replayedIntegrity?.["completedReadFiles"]).toEqual([source]);
     expect(replayedIntegrity?.["retainedBodyFiles"]).toEqual([source]);
+  });
+
+  it("terminalizes an incomplete capability probe and rejects later checkpoint writes", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sources = [
+      "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
+      "lib/ai-orchestrator/src/tools/file-tools.ts",
+    ];
+    const message = CAPABILITY_PROBE_MESSAGE;
+    const incomplete = "ANALYSIS_INCOMPLETE — source coverage is complete, but required claims remain unclosed.";
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      args[3]?.(incomplete);
+      args[6]?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: sources[0],
+        cached: false,
+        prefetched: true,
+        outputLength: 100,
+      });
+      args[6]?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: sources[1],
+        cached: false,
+        prefetched: true,
+        outputLength: 100,
+      });
+      args[6]?.({
+        kind: "forensic_status",
+        auditScope: "PRODUCTION",
+        productionReachability: "NOT_PROVEN",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "INCOMPLETE",
+        findingStatus: "NOT_PROVEN",
+        repairReadiness: "BLOCKED",
+        implementationFiles: 2,
+        contextFiles: 0,
+        generatedFiles: 0,
+        requestedFiles: sources,
+        rootCoverage: [{
+          root: ".",
+          discoveredFiles: 2,
+          readFiles: 2,
+          unreadFiles: 0,
+          status: "COMPLETE",
+          unreadPaths: [],
+          truncatedPaths: [],
+        }],
+      });
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: 2,
+        uniqueFilesRead: 2,
+        evidenceFileCount: 2,
+        acceptedEvidenceCount: 0,
+        completedReadFiles: sources,
+        retainedBodyFiles: sources,
+        acceptedEvidenceFiles: [],
+        acceptedClaimCount: 0,
+        evidenceSourceCoverage: {
+          status: "COMPLETE",
+          requestedFiles: sources,
+          roots: [],
+        },
+      });
+      args[6]?.({
+        kind: "diagnostic",
+        code: "CAPABILITY_PROBE_CLAIM_UNCLOSED",
+        details: ["complete source bodies were retained, but the C1–C7 claims were not closed"],
+      });
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 2,
+        prefetchToolCalls: 2,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: true,
+        diagnosticCodes: ["CAPABILITY_PROBE_CLAIM_UNCLOSED"],
+      });
+      return {
+        result: {
+          response: incomplete,
+          sources,
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text);
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({
+      message: {
+        outcome: "FAILED",
+        errorCode: "FORENSIC_INCOMPLETE",
+        forensicDiagnostic: {
+          verdict: "ANALYSIS_INCOMPLETE",
+          reasonCode: "CLAIM_UNCLOSED",
+        },
+      },
+    });
+
+    const [terminal] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        checkpoint: aiExecutionsTable.checkpoint,
+        checkpointVersion: aiExecutionsTable.checkpointVersion,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    const terminalCheckpoint = parseAiExecutionCheckpoint(terminal?.checkpoint);
+    expect(terminal).toMatchObject({ status: "failed" });
+    expect(terminalCheckpoint).toMatchObject({
+      stage: "failed",
+      evidenceVerdict: "CLAIM_UNCLOSED",
+      operation: { state: "failed" },
+    });
+    expect(terminalCheckpoint?.evidenceReason).toContain("Source evidence was retained");
+
+    const attemptedOverwrite = await checkpointAiExecution({
+      executionId: terminal!.id,
+      workerId: terminal?.workerId ?? "",
+      checkpoint: {
+        stage: "completed",
+        // checkpointVersion is the database ordering value and is a 32-bit
+        // integer; the terminal checkpoint's wall-clock sequence is not.
+        sequence: (terminal?.checkpointVersion ?? 0) + 1,
+        operation: terminalCheckpoint?.operation
+          ? { ...terminalCheckpoint.operation, state: "succeeded" }
+          : undefined,
+        detail: "late stale checkpoint",
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    expect(attemptedOverwrite).toBe(false);
+
+    const [reloaded] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        checkpoint: aiExecutionsTable.checkpoint,
+        checkpointVersion: aiExecutionsTable.checkpointVersion,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(reloaded?.status).toBe("failed");
+    expect(reloaded?.checkpointVersion).toBe(terminal?.checkpointVersion);
+    expect(parseAiExecutionCheckpoint(reloaded?.checkpoint)).toEqual(terminalCheckpoint);
   });
 
   it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {

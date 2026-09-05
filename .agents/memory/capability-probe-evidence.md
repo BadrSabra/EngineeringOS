@@ -45,3 +45,14 @@ dispatcher rejected them, consuming model turns without adding evidence.
 
 **How to apply:** For no-tool synthesis, filter the tool definitions sent to the
 provider as well as keeping the server-side dispatch authorization.
+
+Durable execution checkpoint parsers must accept every evidence verdict that the
+forensic diagnostic layer can emit, including explicit incomplete-claim verdicts.
+
+**Why:** A terminal writer can persist a new verdict successfully while an
+older parser silently drops it during reload, making a failed operation appear
+to have no durable evidence classification.
+
+**How to apply:** When adding or changing a forensic verdict, update the
+checkpoint parser and add an integration assertion that reloads the terminal
+checkpoint and verifies the verdict survives a rejected late write.
