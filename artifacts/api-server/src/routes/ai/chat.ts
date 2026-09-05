@@ -5118,10 +5118,6 @@ router.post("/ai/chat/stream", async (req, res) => {
           behaviorEvidence: undefined,
         };
       }
-      const capabilityProbeDiagnostic =
-        isCapabilityProbeRequest(message) && streamTurnIntent.requiresEvidence
-          ? deriveForensicDiagnostic(traceSteps)
-          : undefined;
       // Classify every terminal result before it can reach the successful
       // assistant-message transaction. This keeps JSON and SSE semantics
       // identical and makes cancellation/tool/recovery precedence explicit.
