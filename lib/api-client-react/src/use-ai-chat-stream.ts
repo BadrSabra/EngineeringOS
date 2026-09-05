@@ -114,6 +114,7 @@ export type AiStreamDoneEvent = {
     errorCode?: string | null;
     errorMessage?: string | null;
     failureKind?: 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE' | null;
+    providerFailureCategory?: ProviderFailureCategory | null;
     retryable?: boolean;
     recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
     forensicDiagnostic?: ForensicDiagnostic;
@@ -123,6 +124,8 @@ export type AiStreamDoneEvent = {
   sources: string[];
   /** Same trace as message.toolTrace, exposed for stream consumers. */
   toolTrace?: string | null;
+  /** Safe server-owned category for provider failures on failed done events. */
+  providerFailureCategory?: ProviderFailureCategory;
   pendingChanges: Array<{
     path: string;
     absolutePath: string;
@@ -254,6 +257,7 @@ export type AiStreamErrorEvent = {
   outcome?: 'FAILED' | 'INTERRUPTED';
   failureKind?: 'PROVIDER_FORMAT' | 'QUALITY_REVIEW' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT'
     | 'TOOL_FAILURE' | 'CANCELLATION' | 'RECOVERY_FAILURE' | 'INCOMPLETE';
+  providerFailureCategory?: ProviderFailureCategory;
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
   acceptanceDisposition?: AiAcceptanceDisposition;
   forensicDiagnostic?: ForensicDiagnostic;
@@ -261,6 +265,16 @@ export type AiStreamErrorEvent = {
   executionLedger?: ExecutionLedgerPublicSnapshot;
   correlationId?: string;
 };
+
+export type ProviderFailureCategory =
+  | 'TIMEOUT'
+  | 'MODEL_REJECTED'
+  | 'MODEL_UNAVAILABLE'
+  | 'RATE_LIMITED'
+  | 'FALLBACK_EXHAUSTED'
+  | 'TRANSPORT_FAILURE'
+  | 'MALFORMED_RESPONSE'
+  | 'UNKNOWN';
 
 export type AiAcceptanceDisposition = {
   reasonCodes: ['EXECUTION_ACCEPTANCE_INCOMPLETE'];
@@ -277,6 +291,16 @@ const PUBLIC_FAILURE_KINDS = new Set([
   'RECOVERY_FAILURE',
   'INCOMPLETE',
 ]);
+const PROVIDER_FAILURE_CATEGORIES = new Set<ProviderFailureCategory>([
+  'TIMEOUT',
+  'MODEL_REJECTED',
+  'MODEL_UNAVAILABLE',
+  'RATE_LIMITED',
+  'FALLBACK_EXHAUSTED',
+  'TRANSPORT_FAILURE',
+  'MALFORMED_RESPONSE',
+  'UNKNOWN',
+]);
 
 function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
   const safeCode = /^[A-Za-z][A-Za-z0-9_]{2,79}$/.test(event.code)
@@ -288,6 +312,11 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
     .slice(0, 500);
   const safeFailureKind = PUBLIC_FAILURE_KINDS.has(event.failureKind ?? '')
     ? event.failureKind
+    : undefined;
+  const safeProviderFailureCategory = PROVIDER_FAILURE_CATEGORIES.has(
+    event.providerFailureCategory ?? '',
+  )
+    ? event.providerFailureCategory
     : undefined;
   const safeQuality = event.quality
     ? {
@@ -331,12 +360,14 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
   delete safeEvent.operatorAction;
   delete safeEvent.acceptanceDisposition;
   delete safeEvent.failureKind;
+  delete safeEvent.providerFailureCategory;
   delete safeEvent.quality;
   return {
     ...safeEvent,
     code: safeCode,
     message: safeMessage,
     ...(safeFailureKind ? { failureKind: safeFailureKind } : {}),
+    ...(safeProviderFailureCategory ? { providerFailureCategory: safeProviderFailureCategory } : {}),
     ...(safeQuality ? { quality: safeQuality } : {}),
     ...(safeAcceptance ? { acceptanceDisposition: safeAcceptance } : {}),
   };
