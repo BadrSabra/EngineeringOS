@@ -235,14 +235,13 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
   // coverage over stale generic forensic status/terminal entries: a complete
   // retained body plus zero accepted claims is CLAIM_UNCLOSED, not
   // NO_EVIDENCE_REACHED.
-  const coverageCandidates = [
-    integrityCoverage,
+  const declaredCoverage = [
     audit.sourceCoverage,
     status.sourceCoverage,
-  ].map((value) => String(value ?? "").toUpperCase()).filter(Boolean);
-  const coverage = coverageCandidates.includes("COMPLETE")
-    ? "COMPLETE"
-    : coverageCandidates[0] ?? "NONE";
+  ]
+    .map((value) => String(value ?? "").toUpperCase())
+    .filter((value) => value && value !== "NONE");
+  const coverage = declaredCoverage[0] ?? String(integrityCoverage ?? "NONE").toUpperCase();
   const finding = String(status.findingStatus ?? audit.findingStatus ?? "NOT_PROVEN");
   const behavior = String(status.behavioralAssessment ?? audit.behaviorAssessment ?? "NOT_STARTED");
   const finalState = String(record(latest(entries, "decision_trace")).finalState ?? "");

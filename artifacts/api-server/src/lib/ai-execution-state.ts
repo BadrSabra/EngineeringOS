@@ -1578,6 +1578,7 @@ export async function completeAiExecution(params: {
       operationId: aiExecutionsTable.operationId,
       request: aiExecutionsTable.request,
       checkpoint: aiExecutionsTable.checkpoint,
+      checkpointVersion: aiExecutionsTable.checkpointVersion,
       leaseUntil: aiExecutionsTable.leaseUntil,
     })
     .from(aiExecutionsTable)
