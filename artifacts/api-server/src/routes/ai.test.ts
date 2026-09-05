@@ -408,6 +408,13 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
       this.catalogStatus = options?.context?.catalogStatus;
       this.catalogError = options?.context?.catalogError;
     }
+      toProviderContext() {
+        return {
+          providerCode: this.providerCode,
+          catalogStatus: this.catalogStatus,
+          catalogError: this.catalogError,
+        };
+      }
   },
   // PR-07: circuit breaker — collectAvailableProviders calls isCircuitOpen for
   // every candidate provider. Must be in the mock or all routes that trigger
@@ -979,7 +986,6 @@ describe("POST /api/ai/chat", () => {
       .post("/api/ai/chat")
       .send({ projectId, message: "Trigger a bounded provider failure" });
 
-    throw new Error(`DEBUG bounded provider failure response: ${post.status} ${post.text}`);
     expect(post.status).toBe(429);
     expect(post.body).toMatchObject({
       code: "RATE_LIMITED",
