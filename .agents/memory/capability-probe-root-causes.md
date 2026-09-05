@@ -14,3 +14,9 @@ Capability-specific citation recovery must not manufacture support from generic 
 **Why:** The current micro-probe fallback can append the first executable-looking line from a requested file after citation validation fails, which is unrelated to claim-specific proof.
 
 **How to apply:** Make candidate evidence IDs and exact source paths mandatory, validate every claim against its selected candidate, and treat candidate discovery as deterministic over the full retained body rather than a first-match window.
+
+When a Capability Probe ends with `CLAIM_UNCLOSED` or rejected capability evidence, public terminal telemetry must be non-resumable (`retryable: false`, `recoveryState: INCOMPLETE`) because the capability resume endpoint rejects that checkpoint.
+
+**Why:** Advertising `recoveryState: REQUIRED` while rejecting the same execution at resume exposed contradictory operator state and suggested a recovery path that cannot close the missing claims.
+
+**How to apply:** Let the server-owned terminal classifier recognize capability-specific claim-closure diagnostics before generic forensic recovery failure; preserve the incomplete report and checkpoint while directing operators to start a new run.
