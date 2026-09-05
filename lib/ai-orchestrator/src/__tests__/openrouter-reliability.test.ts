@@ -160,6 +160,19 @@ describe("circuit-breaker", () => {
         new GroqClientError("SERVER_ERROR", "provider unavailable"),
       ),
     ).toBe(true);
+    expect(
+      shouldRecordCircuitFailure(
+        new GroqClientError("EMPTY_RESPONSE", "model returned no final content"),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRecordCircuitFailure(
+        new GroqClientError(
+          "INVALID_TOOL_CALL",
+          "model returned a tool call outside the request contract",
+        ),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -538,6 +551,10 @@ describe("error classification", () => {
     expect(classifyOpenRouterFailure("EMPTY_RESPONSE")).toMatchObject({
       action: "choose-alternative",
       evidenceStatus: "incomplete",
+    });
+    expect(classifyOpenRouterFailure("INVALID_TOOL_CALL")).toMatchObject({
+      action: "choose-alternative",
+      terminal: false,
     });
     expect(classifyOpenRouterFailure("RATE_LIMITED").action).toBe("wait");
     expect(classifyOpenRouterFailure("TIMEOUT").action).toBe("retry");

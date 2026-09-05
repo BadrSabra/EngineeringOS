@@ -442,6 +442,68 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(seenModels[1]).not.toBe(seenModels[0]);
   });
 
+  it("INVALID_TOOL_CALL → advances to the next model candidate", async () => {
+    let callCount = 0;
+    const seenModels: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      callCount++;
+      seenModels.push(String(body.model));
+      if (callCount === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: null,
+                tool_calls: [{
+                  id: "bad-tool",
+                  type: "function",
+                  function: {
+                    name: "push",
+                    arguments: "{}",
+                  },
+                }],
+              },
+            }],
+            model: body.model,
+            usage: {},
+          }),
+          text: async () => "",
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: "ok-after-invalid-tool" } }],
+          model: body.model,
+          usage: {},
+        }),
+        text: async () => "",
+      } as Response;
+    }));
+
+    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+      tools: [{
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "read a file",
+          parameters: { type: "object", properties: {} },
+        },
+      }],
+    });
+
+    expect(result.content).toBe("ok-after-invalid-tool");
+    expect(callCount).toBe(2);
+    expect(seenModels[1]).not.toBe(seenModels[0]);
+  });
+
   it("429 with no quota keywords → RATE_LIMITED (not fallback-worthy)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: false, status: 429,

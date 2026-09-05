@@ -48,7 +48,11 @@ export function shouldRecordCircuitFailure(error: unknown): boolean {
   if (!(error instanceof GroqClientError)) return true;
   return !(
     error.code === "INVALID_CONFIG" ||
-    error.providerCode === "MODEL_CAPABILITY_MISMATCH"
+    error.providerCode === "MODEL_CAPABILITY_MISMATCH" ||
+    // These are model/contract failures. A healthy OpenRouter endpoint can
+    // return either when one free-tier candidate cannot honor this request.
+    error.code === "EMPTY_RESPONSE" ||
+    error.code === "INVALID_TOOL_CALL"
   );
 }
 

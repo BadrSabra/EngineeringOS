@@ -3574,6 +3574,10 @@ function buildForensicRecoveryOptions(
   signal?: AbortSignal,
 ): StrategyCallOptions {
   const base: StrategyCallOptions = {
+    // Recovery is driven by the agent-owned ordered chain. Keep the planned
+    // candidate pinned so provider fallback cannot restart from its first
+    // catalog entry on every recovery attempt.
+    model,
     // Six sections plus a bounded Evidence Map can exceed 2k tokens even when
     // concise. A truncated JSON envelope cannot be recovered by the parser,
     // while 4k keeps this pass bounded within a single provider round-trip.
@@ -3599,9 +3603,9 @@ function buildForensicRecoveryOptions(
 
   if (provider === "openrouter") {
     // Recovery is a new provider attempt, not a continuation of the tool
-    // loop. Do not pin it to the model that just produced an unusable/empty
-    // synthesis: OpenRouter can resolve the current live free-tier chain and
-    // advance when a candidate returns EMPTY_RESPONSE.
+    // loop. It still uses the agent-owned chat chain and pins the candidate
+    // selected for this attempt. This keeps the chain's bookkeeping aligned
+    // with the model actually sent to OpenRouter.
     return {
       ...base,
       quality: "powerful",
@@ -7899,12 +7903,17 @@ export async function chat(opts: {
         // the forensic evidence contract. Treat that as a failed candidate and
         // advance through the already-resolved live chain instead of rebuilding
         // the Evidence Map immediately.
+        const recoveryReadTools = Array.isArray(tools)
+          ? tools.filter((tool) => RECOVERY_READ_TOOL_NAMES.has(tool.function.name))
+          : [];
         const resolvedRecoveryModelChain = strategy.ownsModelFallback
           ? providerId === "openrouter"
             ? resolveFallbackChain({
-                capability: "reasoning",
+                // Recovery produces a JSON report. It is a chat contract even
+                // when the preceding tool loop used a reasoning model.
+                capability: "chat",
                 quality: "powerful",
-                requireTools: false,
+                requireTools: recoveryReadTools.length > 0,
               }).map((candidate) => candidate.id)
             : [model]
           : [model, ...(modelDecision.fallbackChain ?? [])]
@@ -8122,7 +8131,7 @@ export async function chat(opts: {
             providerId,
             plannedRecoveryModel,
             apiKey,
-            undefined,
+            recoveryReadTools,
             signal,
           );
           recoveryOptions.timeoutMs = Math.min(
@@ -8142,9 +8151,6 @@ export async function chat(opts: {
           // (never write_file / replace_text) so the recovery model can re-read
           // the actual source to ground a disputed claim, and bind the whole
           // round to a bounded MAX_RECOVERY_TOOL_ROUNDS loop via executeFileTool.
-          const recoveryReadTools = Array.isArray(tools)
-            ? tools.filter((tool) => RECOVERY_READ_TOOL_NAMES.has(tool.function.name))
-            : [];
           if (recoveryReadTools.length > 0) {
             recoveryOptions.tools = recoveryReadTools;
             recoveryOptions.toolChoice = "auto";
@@ -8161,6 +8167,25 @@ export async function chat(opts: {
                 strategy.call(recoveryRoundMessages, recoveryOptions),
                 Math.min(recoveryOptions.timeoutMs ?? 30_000, remainingRecoveryMs),
               );
+              if (
+                Array.isArray(recovery.toolCalls) &&
+                recovery.toolCalls.length > 0 &&
+                recoveryReadTools.length === 0
+              ) {
+                const recoveryModel =
+                  recovery.model || recoveryOptions.model || plannedRecoveryModel;
+                throw new GroqClientError(
+                  "INVALID_TOOL_CALL",
+                  "Recovery returned tool calls during a no-tools report turn",
+                  {
+                    context: {
+                      providerName: providerId,
+                      providerModel: recoveryModel,
+                      providerCode: "NO_TOOLS_TOOL_CALL",
+                    },
+                  },
+                );
+              }
               // A recovery model may issue read tool calls instead of an
               // envelope on its first round. Execute only the allowed read
               // tools, append the results, and re-request the envelope — bounded
