@@ -1836,6 +1836,23 @@ export interface ExecutionLedgerSnapshot {
   terminalReason?: ExecutionLedgerSnapshotTerminalReason;
 }
 
+/**
+ * Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.
+ */
+export type ProviderFailureCategory = typeof ProviderFailureCategory[keyof typeof ProviderFailureCategory];
+
+
+export const ProviderFailureCategory = {
+  TIMEOUT: 'TIMEOUT',
+  MODEL_REJECTED: 'MODEL_REJECTED',
+  MODEL_UNAVAILABLE: 'MODEL_UNAVAILABLE',
+  RATE_LIMITED: 'RATE_LIMITED',
+  FALLBACK_EXHAUSTED: 'FALLBACK_EXHAUSTED',
+  TRANSPORT_FAILURE: 'TRANSPORT_FAILURE',
+  MALFORMED_RESPONSE: 'MALFORMED_RESPONSE',
+  UNKNOWN: 'UNKNOWN',
+} as const;
+
 export type AiAcceptanceDispositionReasonCodesItem = typeof AiAcceptanceDispositionReasonCodesItem[keyof typeof AiAcceptanceDispositionReasonCodesItem];
 
 
@@ -2035,6 +2052,8 @@ export interface AiChatMessage {
   errorMessage?: string | null;
   /** Bounded terminal classification; present only for non-success assistant turns */
   failureKind?: AiChatMessageFailureKind;
+  /** Server-owned bounded provider failure category; never contains provider messages or credentials. */
+  providerFailureCategory?: ProviderFailureCategory | null;
   /** Whether the same bounded operation may be retried */
   retryable?: boolean;
   /** Bounded recovery/incomplete state for terminal outcomes */

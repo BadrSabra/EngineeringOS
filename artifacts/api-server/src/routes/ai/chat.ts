@@ -3005,6 +3005,7 @@ router.post("/ai/chat", async (req, res) => {
 
     let result: Awaited<ReturnType<typeof chat>>;
     const traceSteps: AgentStep[] = [];
+    const sessionIdToUse = existingSession?.id ?? sessionId ?? randomUUID();
     try {
       const chatOut = await chatWithFallback(
         req.userId,
@@ -3065,17 +3066,53 @@ router.post("/ai/chat", async (req, res) => {
         };
       }
     } catch (err) {
-      if (handleOrchestratorError(err, res, {
-        projectId,
-        operation: "chat",
-        provider,
-        publicContract: "chat",
-        executionLedger,
-      })) return;
+      if (err instanceof GroqClientError) {
+        const providerFailureCategory = classifyProviderFailure({
+          code: err.code,
+          providerCode: err.providerCode,
+          providerStatus: err.providerStatus,
+        });
+        const retryable = err.code === "TIMEOUT"
+          || err.code === "NETWORK_ERROR"
+          || err.code === "SERVER_ERROR"
+          || err.code === "RATE_LIMITED";
+        const terminalOutcome = {
+          failureKind: "RECOVERY_FAILURE" as const,
+          providerFailureCategory,
+          retryable,
+          recoveryState: "REQUIRED" as const,
+        };
+        await persistFailedChatTurn({
+          sessionId: sessionIdToUse,
+          projectId,
+          message,
+          turnIntent: turnIntent.kind,
+          activeTaskState: resumableTaskStateAtStart,
+          linkedTaskId: effectiveLinkedTaskId,
+          createSessionIfMissing: true,
+          outcome: "FAILED",
+          errorCode: err.code,
+          errorMessage: "The AI provider could not complete the request.",
+          createdAt: now,
+          assistantAt: msgNow,
+          toolTrace: traceSteps,
+          terminalOutcome,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+        }).catch((persistError) => {
+          logger.error({ persistError, sessionId: sessionIdToUse }, "chat: failed to persist provider failure");
+        });
+        if (handleOrchestratorError(err, res, {
+          projectId,
+          operation: "chat",
+          provider,
+          publicContract: "chat",
+          executionLedger,
+          incompleteReview: { sessionId: sessionIdToUse },
+        })) return;
+      }
       throw err;
     }
 
-    const sessionIdToUse = existingSession?.id ?? randomUUID();
     const terminalOutcome = classifyAiTerminalOutcome({
       result,
       trace: traceSteps,
@@ -5378,6 +5415,27 @@ router.post("/ai/chat/stream", async (req, res) => {
         outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
         trace: traceSteps,
       });
+      const cancelled = Boolean(executionAbortController?.signal.aborted);
+      const providerFailureCategory = classifyProviderFailure({
+        code: err instanceof GroqClientError ? err.code : undefined,
+        providerCode: err instanceof GroqClientError ? err.providerCode : undefined,
+        providerStatus: err instanceof GroqClientError ? err.providerStatus : undefined,
+        cancelled,
+      });
+      const providerErrorCode = err instanceof GroqClientError ? err.code : "UNKNOWN";
+      const providerRetryable = err instanceof GroqClientError
+        ? err.code === "RATE_LIMITED"
+          || err.code === "TIMEOUT"
+          || err.code === "NETWORK_ERROR"
+          || err.code === "SERVER_ERROR"
+          || err.code === "MODEL_UNAVAILABLE"
+        : true;
+      const terminalOutcome = {
+        failureKind: cancelled ? "CANCELLATION" as const : "RECOVERY_FAILURE" as const,
+        ...(providerFailureCategory ? { providerFailureCategory } : {}),
+        retryable: cancelled ? true : providerRetryable,
+        recoveryState: cancelled ? "INCOMPLETE" as const : "REQUIRED" as const,
+      };
       if (err instanceof GroqClientError) {
         if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
           recordInvalidModel(provider);
@@ -5391,24 +5449,25 @@ router.post("/ai/chat/stream", async (req, res) => {
         // Provider messages, model identifiers, paths, and upstream diagnostics
         // stay in the structured server log above. The stream exposes only the
         // bounded public error contract.
-        const retryable = err.code === "RATE_LIMITED"
-          || err.code === "TIMEOUT"
-          || err.code === "NETWORK_ERROR"
-          || err.code === "SERVER_ERROR"
-          || err.code === "MODEL_UNAVAILABLE";
+        const retryable = providerRetryable;
         sse({
           type: "error",
           code: err.code,
-          message: retryable
+          message: cancelled
+            ? "The AI request was cancelled before completion."
+            : retryable
             ? "The AI request could not complete. Please retry."
             : "The AI request was not completed because the provider configuration could not satisfy it.",
           outcome: "FAILED",
-          failureKind: "PROVIDER_FAILURE",
+          failureKind: terminalOutcome.failureKind,
           retryable,
-          recoveryState: "REQUIRED",
+          recoveryState: terminalOutcome.recoveryState,
           correlationId: randomUUID(),
           executionLedger: executionLedgerSnapshot,
           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+          ...(terminalOutcome.providerFailureCategory
+            ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+            : {}),
         });
       } else {
         logger.error({ err }, "chat stream: unexpected non-GroqClientError");
@@ -5417,8 +5476,15 @@ router.post("/ai/chat/stream", async (req, res) => {
           code: "unknown",
           message: "The AI provider could not complete the request. Retry in a moment or configure another provider.",
           correlationId: randomUUID(),
+          outcome: cancelled ? "INTERRUPTED" : "FAILED",
+          failureKind: terminalOutcome.failureKind,
+          retryable: terminalOutcome.retryable,
+          recoveryState: terminalOutcome.recoveryState,
           executionLedger: executionLedgerSnapshot,
           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+          ...(terminalOutcome.providerFailureCategory
+            ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+            : {}),
         });
       }
       const persistedProviderFailure = await persistFailedChatTurn({
@@ -5427,14 +5493,17 @@ router.post("/ai/chat/stream", async (req, res) => {
         message,
         turnIntent: streamTurnIntent.kind,
         executionId: aiExecution?.id,
-        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
-        errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
-        errorMessage: "The AI provider could not complete the request.",
+        outcome: cancelled ? "INTERRUPTED" : "FAILED",
+        errorCode: providerErrorCode,
+        errorMessage: cancelled
+          ? "The AI request was cancelled before completion."
+          : "The AI provider could not complete the request.",
         createdAt: now,
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+        terminalOutcome,
       }).catch((persistError) => {
         logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure");
         return undefined;

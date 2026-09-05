@@ -345,6 +345,7 @@ export * from './project';
 export * from './projectStatus';
 export * from './projectSummary';
 export * from './projectSummaryTaskCounts';
+export * from './providerFailureCategory';
 export * from './providerKeyStatus';
 export * from './providerLifecycleCapability';
 export * from './providerLifecycleCapabilityEvidence';

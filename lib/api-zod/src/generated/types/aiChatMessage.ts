@@ -20,6 +20,7 @@ import type { BehaviorEvidence } from './behaviorEvidence';
 import type { ExecutionLedgerSnapshot } from './executionLedgerSnapshot';
 import type { ForensicDiagnostic } from './forensicDiagnostic';
 import type { MissionCorrelationReport } from './missionCorrelationReport';
+import type { ProviderFailureCategory } from './providerFailureCategory';
 
 export interface AiChatMessage {
   id: string;
@@ -39,6 +40,8 @@ export interface AiChatMessage {
   errorMessage?: string | null;
   /** Bounded terminal classification; present only for non-success assistant turns */
   failureKind?: AiChatMessageFailureKind;
+  /** Server-owned bounded provider failure category; never contains provider messages or credentials. */
+  providerFailureCategory?: ProviderFailureCategory | null;
   /** Whether the same bounded operation may be retried */
   retryable?: boolean;
   /** Bounded recovery/incomplete state for terminal outcomes */

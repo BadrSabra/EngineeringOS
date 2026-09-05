@@ -3265,6 +3265,7 @@ export const AiChatResponse = zod.object({
   "errorCode": zod.string().nullish(),
   "errorMessage": zod.string().nullish(),
   "failureKind": zod.enum(['QUALITY_REVIEW', 'TOOL_FAILURE', 'CANCELLATION', 'RECOVERY_FAILURE', 'INCOMPLETE']).nullish().describe('Bounded terminal classification; present only for non-success assistant turns'),
+  "providerFailureCategory": zod.union([zod.enum(['TIMEOUT', 'MODEL_REJECTED', 'MODEL_UNAVAILABLE', 'RATE_LIMITED', 'FALLBACK_EXHAUSTED', 'TRANSPORT_FAILURE', 'MALFORMED_RESPONSE', 'UNKNOWN']).describe('Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.'),zod.null()]).optional().describe('Server-owned bounded provider failure category; never contains provider messages or credentials.'),
   "retryable": zod.boolean().optional().describe('Whether the same bounded operation may be retried'),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
   "acceptanceDisposition": zod.union([zod.object({
@@ -4292,6 +4293,7 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *       "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "...",
  *       "outcome": "SUCCEEDED" | "FAILED" | "INTERRUPTED",
  *       "failureKind": "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE" | undefined,
+ *        "providerFailureCategory": "TIMEOUT" | "MODEL_REJECTED" | "MODEL_UNAVAILABLE" | "RATE_LIMITED" | "FALLBACK_EXHAUSTED" | "TRANSPORT_FAILURE" | "MALFORMED_RESPONSE" | "UNKNOWN" | undefined,
  *       "retryable": true | false, "recoveryState": "NONE" | "REQUIRED" | "INCOMPLETE",
  *       "forensicDiagnostic": { "$ref": "#/components/schemas/ForensicDiagnostic" } | null }, "sources": [...],
  *     "pendingChanges": [{ "path": "...", "absolutePath": "...", "newContent": "...",
@@ -4329,6 +4331,7 @@ export const DiscardAiDeliveryRecoveryResponse = zod.void()
  *    { "type": "error", "code": "...", "message": "...", "executionId"?: "...",
  *       "sessionId"?: "...", "outcome"?: "FAILED" | "INTERRUPTED",
  *       "failureKind"?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE",
+ *       "providerFailureCategory"?: "TIMEOUT" | "MODEL_REJECTED" | "MODEL_UNAVAILABLE" | "RATE_LIMITED" | "FALLBACK_EXHAUSTED" | "TRANSPORT_FAILURE" | "MALFORMED_RESPONSE" | "UNKNOWN",
  *       "quality"?: { "code": "QUALITY_REVIEW_LOW", "score": 0.42, "threshold": 0.78, "reasons": ["bounded reason"] },
  *       "retryable"?: true | false, "recoveryState"?: "NONE" | "REQUIRED" | "INCOMPLETE",
  *       "forensicDiagnostic"?: { "$ref": "#/components/schemas/ForensicDiagnostic" },
@@ -5143,6 +5146,7 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "errorCode": zod.string().nullish(),
   "errorMessage": zod.string().nullish(),
   "failureKind": zod.enum(['QUALITY_REVIEW', 'TOOL_FAILURE', 'CANCELLATION', 'RECOVERY_FAILURE', 'INCOMPLETE']).nullish().describe('Bounded terminal classification; present only for non-success assistant turns'),
+  "providerFailureCategory": zod.union([zod.enum(['TIMEOUT', 'MODEL_REJECTED', 'MODEL_UNAVAILABLE', 'RATE_LIMITED', 'FALLBACK_EXHAUSTED', 'TRANSPORT_FAILURE', 'MALFORMED_RESPONSE', 'UNKNOWN']).describe('Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.'),zod.null()]).optional().describe('Server-owned bounded provider failure category; never contains provider messages or credentials.'),
   "retryable": zod.boolean().optional().describe('Whether the same bounded operation may be retried'),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']).optional().describe('Bounded recovery\/incomplete state for terminal outcomes'),
   "acceptanceDisposition": zod.union([zod.object({
