@@ -979,6 +979,7 @@ describe("POST /api/ai/chat", () => {
       .post("/api/ai/chat")
       .send({ projectId, message: "Trigger a bounded provider failure" });
 
+    console.log("DEBUG bounded provider failure response", post.status, post.body);
     expect(post.status).toBe(429);
     expect(post.body).toMatchObject({
       code: "RATE_LIMITED",
