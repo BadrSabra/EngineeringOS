@@ -413,6 +413,28 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   // every candidate provider. Must be in the mock or all routes that trigger
   // provider selection throw "No isCircuitOpen export defined on the mock".
   isCircuitOpen: vi.fn().mockReturnValue(false),
+  // Provider route tests use dummy credentials and mocked strategies. Keep the
+  // lifecycle gate deterministic too, otherwise the real model validator sees
+  // the dummy key and rejects the provider before the route mock is reached.
+  getProviderLifecycleSnapshot: vi.fn(async () => ({
+    provider: "groq" as const,
+    source: "server" as const,
+    keyIdentity: "fixture-key",
+    revision: 1,
+    generation: 1,
+    checkedAt: null,
+    expiresAt: null,
+    lastKnownGoodAt: null,
+    lastKnownGoodExpiresAt: null,
+    credentialStatus: "credentials_valid" as const,
+    modelStatus: "model_healthy" as const,
+    capabilityStatus: "capability_healthy" as const,
+    overallStatus: "ready" as const,
+    selectable: true,
+    roles: [],
+    capabilities: [],
+    reasonCodes: ["model_healthy" as const],
+  })),
   // PR-05/PR-11: metrics recording helpers called from chat.ts after each
   // provider attempt.  Must be stubs so the recording calls are no-ops in tests.
   recordRequest:        vi.fn(),
