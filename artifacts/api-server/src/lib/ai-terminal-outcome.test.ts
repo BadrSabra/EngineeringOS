@@ -47,17 +47,18 @@ describe("classifyAiTerminalOutcome", () => {
   });
 
   it("keeps capability-probe claim closure ahead of provider classification", () => {
-    expect(classify([
+    const outcome = classify([
       { kind: "diagnostic", code: "CAPABILITY_PROBE_CLAIM_UNCLOSED" },
     ], {
       providerError: { code: "TIMEOUT" },
-    })).toMatchObject({
+    });
+    expect(outcome).toMatchObject({
       outcome: "FAILED",
       failureKind: "INCOMPLETE",
-      providerFailureCategory: undefined,
       retryable: false,
       recoveryState: "INCOMPLETE",
     });
+    expect(outcome).not.toHaveProperty("providerFailureCategory");
   });
 
   it("classifies a required tool failure as failed instead of successful", () => {
