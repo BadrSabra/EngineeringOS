@@ -23,6 +23,8 @@ type CircuitState = {
   openedAt: number | null;
   /** true while we are probing after a cooldown */
   halfOpen: boolean;
+  /** true after the half-open probe has been reserved until it settles */
+  halfOpenProbeInFlight: boolean;
 };
 
 const _circuits = new Map<string, CircuitState>();
@@ -30,7 +32,12 @@ const _circuits = new Map<string, CircuitState>();
 function getOrCreate(provider: string): CircuitState {
   let s = _circuits.get(provider);
   if (!s) {
-    s = { consecutiveFailures: 0, openedAt: null, halfOpen: false };
+    s = {
+      consecutiveFailures: 0,
+      openedAt: null,
+      halfOpen: false,
+      halfOpenProbeInFlight: false,
+    };
     _circuits.set(provider, s);
   }
   return s;
@@ -46,21 +53,40 @@ export function isCircuitOpen(provider: string): boolean {
 
   const elapsed = Date.now() - s.openedAt;
   if (elapsed >= COOLDOWN_MS) {
-    // Transition to half-open — allow one probe request.
-    s.halfOpen = true;
-    console.info(
+    if (!s.halfOpenProbeInFlight) {
+      // Reserve the single half-open probe before returning. JavaScript's
+      // synchronous state transition makes concurrent callers observe the
+      // reservation rather than all entering the provider at once.
+      s.halfOpen = true;
+      s.halfOpenProbeInFlight = true;
+      console.info(
+        JSON.stringify({
+          scope: "circuit-breaker",
+          code: "CIRCUIT_HALF_OPEN",
+          provider,
+          consecutiveFailures: s.consecutiveFailures,
+          openedAt: s.openedAt,
+          halfOpen: true,
+          cooldownRemainingMs: 0,
+          hint: `${provider} cooldown elapsed — probing with one reserved request`,
+        }),
+      );
+      return false;
+    }
+
+    console.warn(
       JSON.stringify({
         scope: "circuit-breaker",
-        code: "CIRCUIT_HALF_OPEN",
+        code: "CIRCUIT_HALF_OPEN_PROBE_IN_FLIGHT",
         provider,
         consecutiveFailures: s.consecutiveFailures,
         openedAt: s.openedAt,
         halfOpen: true,
         cooldownRemainingMs: 0,
-        hint: `${provider} cooldown elapsed — entering half-open state, probing with one request`,
+        hint: `${provider} half-open probe already in flight — skipping concurrent request`,
       }),
     );
-    return false;
+    return true;
   }
 
   const cooldownRemainingMs = COOLDOWN_MS - elapsed;
@@ -87,6 +113,7 @@ export function recordCircuitFailure(provider: string): void {
   const s = getOrCreate(provider);
   s.consecutiveFailures += 1;
   s.halfOpen = false;
+  s.halfOpenProbeInFlight = false;
 
   if (s.consecutiveFailures >= CIRCUIT_OPEN_THRESHOLD && s.openedAt === null) {
     s.openedAt = Date.now();
@@ -119,6 +146,7 @@ export function recordCircuitSuccess(provider: string): void {
   s.consecutiveFailures = 0;
   s.openedAt = null;
   s.halfOpen = false;
+  s.halfOpenProbeInFlight = false;
 
   if (wasOpen) {
     console.info(

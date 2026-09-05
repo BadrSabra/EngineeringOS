@@ -139,6 +139,59 @@ describe("circuit-breaker", () => {
     expect(cooldownRemainingMs!).toBeLessThanOrEqual(2 * 60 * 1_000);
   });
 
+  it("allows only one probe after cooldown and blocks concurrent callers", () => {
+    vi.useFakeTimers({ now: 0 });
+    try {
+      for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
+      expect(isCircuitOpen("openrouter")).toBe(true);
+
+      vi.setSystemTime(2 * 60 * 1_000 + 1);
+      expect(isCircuitOpen("openrouter")).toBe(false);
+      expect(getCircuitState("openrouter").halfOpen).toBe(true);
+
+      // The reserved probe remains in flight until its strategy records a
+      // success or failure; another caller must not reach the provider.
+      expect(isCircuitOpen("openrouter")).toBe(true);
+      expect(getCircuitState("openrouter").halfOpen).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases the half-open reservation on probe success", () => {
+    vi.useFakeTimers({ now: 0 });
+    try {
+      for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
+      vi.setSystemTime(2 * 60 * 1_000 + 1);
+
+      expect(isCircuitOpen("openrouter")).toBe(false);
+      recordCircuitSuccess("openrouter");
+      expect(isCircuitOpen("openrouter")).toBe(false);
+      expect(getCircuitState("openrouter")).toMatchObject({
+        open: false,
+        halfOpen: false,
+        consecutiveFailures: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases the half-open reservation and restarts cooldown on probe failure", () => {
+    vi.useFakeTimers({ now: 0 });
+    try {
+      for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
+      vi.setSystemTime(2 * 60 * 1_000 + 1);
+
+      expect(isCircuitOpen("openrouter")).toBe(false);
+      recordCircuitFailure("openrouter");
+      expect(isCircuitOpen("openrouter")).toBe(true);
+      expect(getCircuitState("openrouter").halfOpen).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("isolates circuits per provider", () => {
     for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
     expect(isCircuitOpen("openrouter")).toBe(true);
