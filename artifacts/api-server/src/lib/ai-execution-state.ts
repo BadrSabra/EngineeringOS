@@ -1251,6 +1251,10 @@ function mergeTerminalCheckpoint(
 ): AiExecutionCheckpoint {
   const previous = parseAiExecutionCheckpoint(execution.checkpoint);
   const now = new Date().toISOString();
+  const sequence = Math.max(
+    execution.checkpointVersion,
+    typeof previous?.sequence === "number" ? previous.sequence : 0,
+  ) + 1;
   const operation = params.operation
     ?? previous?.operation;
   const previousBinding = previous?.recipeBinding ?? operation?.binding;
@@ -1265,7 +1269,7 @@ function mergeTerminalCheckpoint(
   return {
     ...(previous ?? {}),
     stage: params.cancelled ? "cancelled" : "failed",
-    sequence: Date.now(),
+    sequence,
     ...(operation
       ? {
           operation: params.cancelled
@@ -1521,6 +1525,7 @@ export async function heartbeatAiExecution(params: {
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
     ))
     .returning({ id: aiExecutionsTable.id });
   return Boolean(updated);
@@ -1567,6 +1572,12 @@ export async function completeAiExecution(params: {
     .limit(1);
   const request = current ? parseExecutionRequest(current.request) : undefined;
   const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+  const nextSequence = current
+    ? Math.max(
+        current.checkpointVersion,
+        typeof checkpoint?.sequence === "number" ? checkpoint.sequence : 0,
+      ) + 1
+    : 1;
   if (params.recipeBinding) {
     if (!current?.leaseUntil || current.leaseUntil <= new Date()) return false;
     try {
@@ -1619,10 +1630,10 @@ export async function completeAiExecution(params: {
       updatedAt: new Date(),
       leaseUntil: null,
       lastHeartbeatAt: null,
-      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      checkpointVersion: nextSequence,
       checkpoint: JSON.stringify({
         stage: "completed",
-        sequence: Date.now(),
+        sequence: nextSequence,
         ...(params.operation ? { operation: params.operation } : {}),
         ...(params.nodeStates && params.nodeStates.length > 0
           ? {

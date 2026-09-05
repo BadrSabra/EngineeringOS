@@ -231,7 +231,18 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
     typeof integrity.evidenceSourceCoverage === "object"
       ? (integrity.evidenceSourceCoverage as Record<string, unknown>).status
       : undefined;
-  const coverage = String(status.sourceCoverage ?? audit.sourceCoverage ?? integrityCoverage ?? "NONE");
+  // Evidence integrity is the server-owned read ledger. Prefer its complete
+  // coverage over stale generic forensic status/terminal entries: a complete
+  // retained body plus zero accepted claims is CLAIM_UNCLOSED, not
+  // NO_EVIDENCE_REACHED.
+  const coverageCandidates = [
+    integrityCoverage,
+    audit.sourceCoverage,
+    status.sourceCoverage,
+  ].map((value) => String(value ?? "").toUpperCase()).filter(Boolean);
+  const coverage = coverageCandidates.includes("COMPLETE")
+    ? "COMPLETE"
+    : coverageCandidates[0] ?? "NONE";
   const finding = String(status.findingStatus ?? audit.findingStatus ?? "NOT_PROVEN");
   const behavior = String(status.behavioralAssessment ?? audit.behaviorAssessment ?? "NOT_STARTED");
   const finalState = String(record(latest(entries, "decision_trace")).finalState ?? "");

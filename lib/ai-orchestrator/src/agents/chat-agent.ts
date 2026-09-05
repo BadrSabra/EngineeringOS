@@ -1714,10 +1714,10 @@ function buildCapabilityMicroProbeEvidenceCandidates(
     const matchIndex = lines.findIndex((line) => needles.some((needle) => line.includes(needle)));
     if (matchIndex < 0) return;
     const executableLine = lines
-      .slice(matchIndex, Math.min(lines.length, matchIndex + 16))
+      .slice(matchIndex)
       .find((line) => /^\s*(?:return|if|switch|throw)\b/.test(line))
       ?? lines
-        .slice(matchIndex, Math.min(lines.length, matchIndex + 16))
+        .slice(matchIndex)
         .find((line) => /\b(?:return|if|switch|throw|await|call)\b/.test(line));
     if (!executableLine?.trim()) return;
     candidates.set(id, {
@@ -2231,20 +2231,9 @@ export async function runCapabilityMicroProbes(opts: {
     const line = lines.get(label);
     if (!line || !requirement.test(line)) lines.set(label, fallbackLineFor(label));
   }
-  for (const label of ["C1", "C3", "C4", "C6"] as const) {
-    const line = lines.get(label);
-    if (line && !validateCapabilityProbeCitations(line, opts.fileContents).valid) {
-      const citation = contextCitation("profile-classifier.ts");
-      if (citation) lines.set(label, `${line} ${citation}`);
-    }
-  }
-  {
-    const line = lines.get("C7");
-    if (line && !validateCapabilityProbeCitations(line, opts.fileContents).valid) {
-      const citation = contextCitation("file-tools.ts");
-      if (citation) lines.set("C7", `${line} ${citation}`);
-    }
-  }
+  // Never append a generic executable line to launder an unsupported claim
+  // into a valid citation. The strict validator must see the model's
+  // claim-specific source fragment, or the claim remains unclosed.
   const ordered = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"].map(
     (label) => lines.get(label) ?? fallbackLineFor(label),
   );
