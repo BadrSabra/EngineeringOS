@@ -215,7 +215,8 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
     !status.sourceCoverage &&
     !status.findingStatus &&
     !latest(entries, "forensic_terminal") &&
-    !latest(entries, "audit_state")
+    !latest(entries, "audit_state") &&
+    !latest(entries, "evidence_integrity")
   ) return null;
   const audit = record(latest(entries, "audit_state"));
   const integrity = record(latest(entries, "evidence_integrity"));
@@ -225,7 +226,12 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
   const toolFailure = [...entries].reverse().find((entry) =>
     entry.kind === "tool_result" && ["failed", "unavailable", "cancelled"].includes(String(entry.resultKind)),
   );
-  const coverage = String(status.sourceCoverage ?? audit.sourceCoverage ?? "NONE");
+  const integrityCoverage =
+    integrity.evidenceSourceCoverage &&
+    typeof integrity.evidenceSourceCoverage === "object"
+      ? (integrity.evidenceSourceCoverage as Record<string, unknown>).status
+      : undefined;
+  const coverage = String(status.sourceCoverage ?? audit.sourceCoverage ?? integrityCoverage ?? "NONE");
   const finding = String(status.findingStatus ?? audit.findingStatus ?? "NOT_PROVEN");
   const behavior = String(status.behavioralAssessment ?? audit.behaviorAssessment ?? "NOT_STARTED");
   const finalState = String(record(latest(entries, "decision_trace")).finalState ?? "");
@@ -246,6 +252,13 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
     behavior === "COMPLETE" &&
     finalState === "VERIFIED" &&
     evidenceConsistent;
+  // Complete reads with an unclosed capability claim are incomplete, even if
+  // an older status entry says NO_FINDING/VERIFIED. Claim closure is the
+  // authoritative final-answer gate; never let a stale success-shaped status
+  // hide retained evidence that was not reconciled into claims.
+  if (capabilityProbeClaimsUnclosed && !cancelled) {
+    return diagnostic("ANALYSIS_INCOMPLETE", "CLAIM_UNCLOSED", scope.unread, scope.truncated, scope.unreadCount, scope.truncatedCount);
+  }
   if (acceptedNoFinding && !cancelled) {
     return diagnostic("NO_VERIFIED_FINDING", "COMPLETE_NO_FINDING", scope.unread, scope.truncated, scope.unreadCount, scope.truncatedCount);
   }

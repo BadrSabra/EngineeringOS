@@ -5604,6 +5604,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         });
         if (aiExecution) {
+          // Progress checkpoints may still be queued from the report-building
+          // phase. Settle them before the terminal failure so a stale running
+          // checkpoint cannot overwrite the forensic verdict on reconnect.
+          await checkpointChain;
           await failAiExecution({
             executionId: aiExecution.id,
             workerId: executionWorkerId!,
@@ -5611,6 +5615,12 @@ router.post("/ai/chat/stream", async (req, res) => {
             cancelled: false,
             nodeStates: executionNodeStates,
             recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+            ...(forensicDiagnostic?.reasonCode === "CLAIM_UNCLOSED"
+              ? {
+                  evidenceVerdict: "CLAIM_UNCLOSED" as const,
+                  evidenceReason: forensicDiagnostic.explanation,
+                }
+              : {}),
           });
         }
         await persistFailedChatTurn({

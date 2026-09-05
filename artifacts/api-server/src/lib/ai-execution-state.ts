@@ -806,7 +806,7 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
           }
         : {}),
       ...(typeof value.evidenceVerdict === "string" &&
-        ["PROVEN", "PARTIAL", "UNAVAILABLE", "BLOCKED", "NOT_RECORDED"].includes(value.evidenceVerdict)
+        ["PROVEN", "PARTIAL", "UNAVAILABLE", "BLOCKED", "CLAIM_UNCLOSED", "NOT_RECORDED"].includes(value.evidenceVerdict)
         ? { evidenceVerdict: value.evidenceVerdict as FlightDeckEvidenceVerdict }
         : {}),
       ...(typeof value.evidenceReason === "string"
