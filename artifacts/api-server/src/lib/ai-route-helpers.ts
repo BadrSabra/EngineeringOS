@@ -439,7 +439,6 @@ export async function runAgentWithFallback<T>(
   }
 
   let lastErr: GroqClientError | undefined;
-  let fallbackRefreshUsed = false;
 
   for (const providerEntry of orderedProviders) {
     if (options?.signal?.aborted) {
@@ -592,6 +591,7 @@ export async function chatWithFallback(
   }
 
   let lastErr: GroqClientError | undefined;
+  let fallbackRefreshUsed = false;
   // GAP-C1: collect every provider failure so the final error message shows
   // the full cascade, not just the last attempt.
   const providerErrors: Array<{ provider: string; code: string; message: string }> = [];
