@@ -80,6 +80,8 @@ type ProviderSelectionOptions = {
   requireTools?: boolean;
   /** Optional quality profile used to bias provider selection. */
   qualityProfile?: QualityProfile;
+  /** Force a fresh provider lifecycle/catalog check for bounded fallback recovery. */
+  refreshLifecycle?: boolean;
 };
 
 function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
@@ -94,7 +96,18 @@ async function collectAvailableProviders(
   options?: ProviderSelectionOptions,
 ): Promise<Array<{ provider: ProviderId; apiKey: string; source: "user" | "server" }>> {
   const available: Array<{ provider: ProviderId; apiKey: string; source: "user" | "server" }> = [];
-  const skipped: Array<{ provider: ProviderId; reason: string }> = [];
+  const skipped: Array<{
+    provider: ProviderId;
+    reason: string;
+    diagnostics?: {
+      selectable: boolean;
+      overallStatus: string;
+      credentialStatus: string;
+      modelStatus: string;
+      capabilityStatus: string;
+      reasonCodes: string[];
+    };
+  }> = [];
 
   for (const provider of PROVIDER_PRIORITY) {
     const credential = await resolveProviderCredential(userId, provider);
@@ -134,12 +147,29 @@ async function collectAvailableProviders(
       apiKey: credential.apiKey,
       source: credential.source,
       check:
+        options?.refreshLifecycle === true ||
         process.env.AI_LIFECYCLE_LIVE_CHECKS === "1" ||
         process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1",
       requirements: { requireTools: options?.requireTools },
     });
     if (!lifecycle.selectable) {
-      skipped.push({ provider, reason: lifecycle.reasonCodes[0] ?? "provider_unavailable" });
+      const reason =
+        lifecycle.reasonCodes.find((candidate) => candidate !== "model_healthy") ??
+        lifecycle.reasonCodes[0] ??
+        "provider_unavailable";
+      const diagnostics = {
+        selectable: lifecycle.selectable,
+        overallStatus: lifecycle.overallStatus,
+        credentialStatus: lifecycle.credentialStatus,
+        modelStatus: lifecycle.modelStatus,
+        capabilityStatus: lifecycle.capabilityStatus,
+        reasonCodes: lifecycle.reasonCodes,
+      };
+      logger.warn(
+        { provider, reason, lifecycle: diagnostics },
+        "Skipping provider — lifecycle is not selectable",
+      );
+      skipped.push({ provider, reason, diagnostics });
       continue;
     }
     // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).
@@ -394,7 +424,7 @@ export async function runAgentWithFallback<T>(
   run: (opts: { provider: ProviderId; apiKey: string; signal?: AbortSignal }) => Promise<T>,
   options?: ProviderSelectionOptions & { signal?: AbortSignal },
 ): Promise<{ result: T; effectiveProvider: ProviderId }> {
-  const orderedProviders = await collectAvailableProviders(userId, options);
+  let orderedProviders = await collectAvailableProviders(userId, options);
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
     const lifecycle = await getProviderLifecycleSnapshot({
       provider: initialProvider.provider,
@@ -409,6 +439,7 @@ export async function runAgentWithFallback<T>(
   }
 
   let lastErr: GroqClientError | undefined;
+  let fallbackRefreshUsed = false;
 
   for (const providerEntry of orderedProviders) {
     if (options?.signal?.aborted) {
@@ -634,6 +665,36 @@ export async function chatWithFallback(
           message: providerError.message,
         });
         lastErr = providerError;
+        if (!fallbackRefreshUsed) {
+          fallbackRefreshUsed = true;
+          const attemptedProviders = new Set([
+            ...providerErrors.map((error) => error.provider),
+            providerEntry.provider,
+          ]);
+          const refreshedProviders = await collectAvailableProviders(userId, {
+            ...options,
+            refreshLifecycle: true,
+          });
+          const addedProviders = refreshedProviders
+            .filter((candidate) =>
+              !attemptedProviders.has(candidate.provider) &&
+              !orderedProviders.some((existing) => existing.provider === candidate.provider),
+            );
+          if (addedProviders.length > 0) {
+            orderedProviders.push(...addedProviders);
+          }
+          logger.info(
+            {
+              scope: "provider-selection",
+              action: "refresh_fallback_candidates",
+              failedProvider: providerEntry.provider,
+              failedCode: providerError.code,
+              addedProviders: addedProviders.map((candidate) => candidate.provider),
+              candidateCount: addedProviders.length,
+            },
+            "refreshed fallback candidates after transient provider failure",
+          );
+        }
         continue;
       }
       // Non-recoverable error — surface immediately.
@@ -650,7 +711,10 @@ export async function chatWithFallback(
     : "No AI provider returned a response";
   executionLedger.setTerminal("provider_exhausted");
   throw lastErr
-    ? new GroqClientError(lastErr.code, exhaustedMsg)
+    ? new GroqClientError(lastErr.code, exhaustedMsg, {
+      context: lastErr.toProviderContext(),
+      cause: lastErr,
+    })
     : new GroqClientError("EMPTY_RESPONSE", exhaustedMsg);
 }
 

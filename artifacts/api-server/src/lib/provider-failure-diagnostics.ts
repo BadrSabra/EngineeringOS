@@ -49,7 +49,14 @@ export function classifyProviderFailure(
   if (code === "RATE_LIMITED" || status === 429 || providerCode === "RATE_LIMITED") {
     return "RATE_LIMITED";
   }
-  if (code === "MODEL_UNAVAILABLE" || status === 410 || status === 422) {
+  if (
+    code === "MODEL_UNAVAILABLE"
+    || status === 410
+    || status === 422
+    || providerCode === "UNAVAILABLE"
+    || providerCode === "SERVICE_UNAVAILABLE"
+    || (status === 503 && providerCode === "MODEL_UNAVAILABLE")
+  ) {
     return "MODEL_UNAVAILABLE";
   }
   if (

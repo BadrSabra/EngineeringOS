@@ -32,6 +32,12 @@ describe("classifyProviderFailure", () => {
       fallbackExhausted: true,
     })).toBe("MODEL_UNAVAILABLE");
     expect(classifyProviderFailure({
+      code: "SERVER_ERROR",
+      providerStatus: 503,
+      providerCode: "UNAVAILABLE",
+      fallbackExhausted: true,
+    })).toBe("MODEL_UNAVAILABLE");
+    expect(classifyProviderFailure({
       code: "MODEL_NOT_FOUND",
       fallbackExhausted: true,
     })).toBe("MODEL_REJECTED");

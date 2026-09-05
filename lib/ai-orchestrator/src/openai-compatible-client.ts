@@ -446,7 +446,9 @@ function extractProviderError(body: string): { code?: string; message?: string }
     if (typeof error === "object" && error !== null) {
       const errorObj = error as Record<string, unknown>;
       return {
-        code:    asString(errorObj.code) ?? asString(errorObj.type),
+        code:    asString(errorObj.code)
+          ?? asString(errorObj.status)
+          ?? asString(errorObj.type),
         message: asString(errorObj.message),
       };
     }
