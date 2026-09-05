@@ -313,10 +313,10 @@ function sanitizeStreamError(event: AiStreamErrorEvent): AiStreamErrorEvent {
   const safeFailureKind = PUBLIC_FAILURE_KINDS.has(event.failureKind ?? '')
     ? event.failureKind
     : undefined;
-  const safeProviderFailureCategory = PROVIDER_FAILURE_CATEGORIES.has(
-    event.providerFailureCategory ?? '',
-  )
-    ? event.providerFailureCategory
+  const providerFailureCategory = event.providerFailureCategory;
+  const safeProviderFailureCategory = providerFailureCategory
+    && PROVIDER_FAILURE_CATEGORIES.has(providerFailureCategory)
+    ? providerFailureCategory
     : undefined;
   const safeQuality = event.quality
     ? {
