@@ -1,4 +1,8 @@
 import type { AgentStep } from "@workspace/ai-orchestrator";
+import {
+  classifyProviderFailure,
+  type ProviderFailureCategory,
+} from "./provider-failure-diagnostics.js";
 
 export type AiTerminalFailureKind =
   | "QUALITY_REVIEW"
@@ -10,6 +14,7 @@ export type AiTerminalFailureKind =
 export type AiTerminalOutcome = {
   outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
   failureKind?: AiTerminalFailureKind;
+  providerFailureCategory?: ProviderFailureCategory;
   retryable: boolean;
   code?: string;
   message?: string;
@@ -100,6 +105,12 @@ type TerminalClassifierInput = {
   trace: readonly AgentStep[];
   cancelled?: boolean;
   transportInterrupted?: boolean;
+  providerError?: {
+    code?: unknown;
+    providerCode?: unknown;
+    providerStatus?: unknown;
+    fallbackExhausted?: boolean;
+  };
   endedBeforeEvidence?: boolean;
   requiresEvidence?: boolean;
   /** Route intent, rather than response prose, determines forensic gates. */
@@ -212,6 +223,27 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
         ? "The required project analysis was cancelled before completion."
         : safeToolMessage(toolResult),
       recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    };
+  }
+
+  const providerFailureCategory = input.providerError
+    ? classifyProviderFailure({
+        ...input.providerError,
+        cancelled,
+      })
+    : undefined;
+  if (providerFailureCategory) {
+    return {
+      outcome: "FAILED",
+      failureKind: "RECOVERY_FAILURE",
+      providerFailureCategory,
+      retryable: providerFailureCategory !== "MODEL_REJECTED"
+        && providerFailureCategory !== "MALFORMED_RESPONSE"
+        && providerFailureCategory !== "UNKNOWN",
+      code: "FORENSIC_RECOVERY_FAILED",
+      message: "The AI provider could not complete the request.",
+      recoveryState: "REQUIRED",
       evidenceAccepted: false,
     };
   }
