@@ -5250,6 +5250,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           });
         }
         if (aiExecution) {
+          // Let already-enqueued progress checkpoints settle before the
+          // terminal update. This avoids racing a final failed checkpoint
+          // against a stale running checkpoint from the same stream.
+          await checkpointChain;
           await failAiExecution({
             executionId: aiExecution.id,
             workerId: executionWorkerId!,
