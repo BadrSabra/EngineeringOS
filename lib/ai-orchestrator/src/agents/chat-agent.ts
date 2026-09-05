@@ -1932,6 +1932,17 @@ export async function runCapabilityMicroProbes(opts: {
       deadlineExhausted = true;
       break;
     }
+    if (
+      opts.executionLedger &&
+      !opts.executionLedger.admit("recovery", {
+        provider: opts.provider,
+        model: activeModel,
+        operation: `capability_micro_probe:${group.name}`,
+      })
+    ) {
+      deadlineExhausted = true;
+      break;
+    }
     try {
       const microProbePacket = buildCapabilityMicroProbeMessages(group, opts.fileContents);
       const invoke = (retry: boolean) =>
@@ -9510,6 +9521,14 @@ export async function chat(opts: {
     const recoveryWindow = capabilityProbeRecoveryDeadline(Date.now(), requestDeadline);
     const recoveryDeadline = recoveryWindow.deadlineAt;
     capabilityProbeRecoveryDeadlineAt = recoveryDeadline;
+    const recoveryAdmitted = executionLedger?.admit("recovery", {
+      provider: providerId,
+      model: recoveryModel,
+      operation: "capability_probe_citation_recovery",
+    }) ?? true;
+    if (!recoveryAdmitted) {
+      capabilityProbeRecoveryDeadlineAt = Date.now();
+    }
     recoveryAttemptsUsed += 1;
     const capabilityRecoveryTargets = getCapabilityProbeRecoveryTargets(
       responseBeforeBehaviorEvidence,
@@ -10576,8 +10595,12 @@ export async function chat(opts: {
       // ledger so a later audit over the same project — and the execution
       // handoff — reconcile against the SAME scope the verdict was issued
       // under, instead of recomputing a fresh default.
-      ...(runtimeLedger.scopedFindingStatus ? { scopedFindingStatus: runtimeLedger.scopedFindingStatus } : {}),
-      ...(runtimeLedger.verdictScope ? { verdictScope: runtimeLedger.verdictScope } : {}),
+      ...(verificationRejectionReasons.length === 0 && runtimeLedger.scopedFindingStatus
+        ? { scopedFindingStatus: runtimeLedger.scopedFindingStatus }
+        : {}),
+      ...(verificationRejectionReasons.length === 0 && runtimeLedger.verdictScope
+        ? { verdictScope: runtimeLedger.verdictScope }
+        : {}),
       // AI-OBJ-012: persist the structured objective verdict kind so the
       // execution handoff and dashboard can distinguish ANSWER_PARTIAL from
       // OBJECTIVE_BLOCKED without re-parsing verificationRejectionReasons.
