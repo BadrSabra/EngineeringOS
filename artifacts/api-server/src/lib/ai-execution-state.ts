@@ -1245,6 +1245,8 @@ function mergeTerminalCheckpoint(
     streamedPreview?: string;
     operation?: AutonomousOperationContract;
     acceptanceDisposition?: AiAcceptanceDisposition;
+    evidenceVerdict?: FlightDeckEvidenceVerdict;
+    evidenceReason?: string;
   },
 ): AiExecutionCheckpoint {
   const previous = parseAiExecutionCheckpoint(execution.checkpoint);
@@ -1283,6 +1285,12 @@ function mergeTerminalCheckpoint(
       : {}),
     ...(params.acceptanceDisposition
       ? { acceptanceDisposition: params.acceptanceDisposition }
+      : {}),
+    ...(params.evidenceVerdict
+      ? { evidenceVerdict: params.evidenceVerdict }
+      : {}),
+    ...(params.evidenceReason
+      ? { evidenceReason: params.evidenceReason.slice(0, 500) }
       : {}),
     detail: params.error.slice(0, 500),
     updatedAt: now,
@@ -1650,6 +1658,8 @@ export async function failAiExecution(params: {
   operation?: AutonomousOperationContract;
   recipeBinding?: RecipeOperationBinding;
   acceptanceDisposition?: AiAcceptanceDisposition;
+  evidenceVerdict?: FlightDeckEvidenceVerdict;
+  evidenceReason?: string;
 }): Promise<boolean> {
   const status = params.cancelled ? "cancelled" : "failed";
   const [current] = await db

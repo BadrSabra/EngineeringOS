@@ -182,6 +182,7 @@ const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PARTIAL",
   "UNAVAILABLE",
   "BLOCKED",
+  "CLAIM_UNCLOSED",
   "NOT_RECORDED",
 ]);
 
@@ -1199,6 +1200,8 @@ async function persistFailedChatTurn(params: {
   behaviorEvidence?: unknown;
   repairPlanMetadata?: unknown;
   terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "retryable" | "recoveryState">;
+  evidenceVerdict?: FlightDeckEvidenceVerdict;
+  evidenceReason?: string;
   createdAt: Date;
   assistantAt: Date;
   toolTrace?: AgentStep[];
@@ -5250,6 +5253,12 @@ router.post("/ai/chat/stream", async (req, res) => {
             nodeStates: executionNodeStates,
             streamedPreview: streamedContent,
             recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+            ...(forensicDiagnostic?.reasonCode === "CLAIM_UNCLOSED"
+              ? {
+                  evidenceVerdict: "CLAIM_UNCLOSED" as const,
+                  evidenceReason: forensicDiagnostic.explanation,
+                }
+              : {}),
           });
           executionTerminal = true;
         }

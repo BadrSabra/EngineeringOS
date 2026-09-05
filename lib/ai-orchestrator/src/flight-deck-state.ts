@@ -15,6 +15,7 @@ export type FlightDeckEvidenceVerdict =
   | "PARTIAL"
   | "UNAVAILABLE"
   | "BLOCKED"
+  | "CLAIM_UNCLOSED"
   | "NOT_RECORDED";
 
 export type FlightDeckStateInput = {
