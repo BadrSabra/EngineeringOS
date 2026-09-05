@@ -153,6 +153,11 @@ import {
   type AiAcceptanceDisposition,
   type AiTerminalOutcome,
 } from "../../lib/ai-terminal-outcome.js";
+import {
+  classifyProviderFailure,
+  isProviderFailureCategory,
+  type ProviderFailureCategory,
+} from "../../lib/provider-failure-diagnostics.js";
 import { inspectAiChange } from "../../lib/ai-change-guard.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -366,6 +371,7 @@ function publicQualityFailure(value: QualityFailure): QualityFailure {
 
 function terminalMetadataFromTrace(value: string | null | undefined): {
   failureKind?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE";
+  providerFailureCategory?: ProviderFailureCategory;
   retryable?: boolean;
   recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
   forensicDiagnostic?: ForensicDiagnostic;
@@ -377,6 +383,9 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
     entry && typeof entry === "object" && (entry as Record<string, unknown>).kind === "terminal_outcome",
   ) as Record<string, unknown> | undefined;
   const failureKind = terminal?.failureKind;
+  const providerFailureCategory = isProviderFailureCategory(terminal?.providerFailureCategory)
+    ? terminal.providerFailureCategory
+    : undefined;
   const forensicDiagnostic = deriveForensicDiagnostic(parsed);
   const acceptanceDisposition = publicAcceptanceDisposition({
     value: terminal?.acceptanceDisposition,
@@ -393,6 +402,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
       || failureKind === "INCOMPLETE"
         ? { failureKind }
         : {}),
+    ...(providerFailureCategory ? { providerFailureCategory } : {}),
     ...(typeof terminal?.retryable === "boolean" ? { retryable: terminal.retryable } : {}),
     ...(
       terminal?.recoveryState === "NONE"
@@ -1214,7 +1224,7 @@ async function persistFailedChatTurn(params: {
   taskResult?: unknown;
   behaviorEvidence?: unknown;
   repairPlanMetadata?: unknown;
-  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "retryable" | "recoveryState">;
+  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "retryable" | "recoveryState">;
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   createdAt: Date;
@@ -1460,6 +1470,9 @@ async function persistFailedChatTurn(params: {
               code: params.errorCode,
               outcome: params.outcome,
               failureKind: params.terminalOutcome.failureKind,
+              ...(params.terminalOutcome.providerFailureCategory
+                ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
+                : {}),
               retryable: params.terminalOutcome.retryable,
               recoveryState: params.terminalOutcome.recoveryState,
               ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
@@ -1514,12 +1527,18 @@ async function persistFailedChatTurn(params: {
         code: params.errorCode,
         outcome: params.outcome,
         failureKind: params.terminalOutcome?.failureKind,
+        ...(params.terminalOutcome?.providerFailureCategory
+          ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
+          : {}),
         recoveryState: params.terminalOutcome?.recoveryState,
       }) ? {
         acceptanceDisposition: publicAcceptanceDisposition({
           code: params.errorCode,
           outcome: params.outcome,
           failureKind: params.terminalOutcome?.failureKind,
+          ...(params.terminalOutcome?.providerFailureCategory
+            ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
+            : {}),
           recoveryState: params.terminalOutcome?.recoveryState,
         }),
       } : {}),
