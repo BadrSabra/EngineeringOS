@@ -3139,6 +3139,9 @@ router.post("/ai/chat", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           recoveryState: terminalOutcome.recoveryState,
         }),
+        ...(terminalOutcome.providerFailureCategory
+          ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+          : {}),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       };
       // The HTTP request completed, but the assistant turn did not. Keep the
@@ -3151,6 +3154,9 @@ router.post("/ai/chat", async (req, res) => {
         failureKind: terminalOutcome.failureKind,
         retryable: terminalOutcome.retryable,
         recoveryState: terminalOutcome.recoveryState,
+        ...(terminalOutcome.providerFailureCategory
+          ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+          : {}),
         code: terminalOutcome.code,
         error: safeMessage,
         errorMessage: safeMessage,
@@ -3159,6 +3165,9 @@ router.post("/ai/chat", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           retryable: terminalOutcome.retryable,
           recoveryState: terminalOutcome.recoveryState,
+          ...(terminalOutcome.providerFailureCategory
+            ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+            : {}),
           acceptanceDisposition: publicAcceptanceDisposition({
             code: terminalOutcome.code,
             outcome: terminalOutcome.outcome,
@@ -5232,6 +5241,9 @@ router.post("/ai/chat/stream", async (req, res) => {
             failureKind: terminalOutcome.failureKind,
             retryable: terminalOutcome.retryable,
             recoveryState: terminalOutcome.recoveryState,
+            ...(terminalOutcome.providerFailureCategory
+              ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+              : {}),
             executionId: aiExecution.id,
             sessionId: sessionIdToUse,
             executionLedger: executionLedgerSnapshot,
@@ -5265,6 +5277,9 @@ router.post("/ai/chat/stream", async (req, res) => {
               failureKind: terminalOutcome.failureKind,
               retryable: terminalOutcome.retryable,
               recoveryState: terminalOutcome.recoveryState,
+              ...(terminalOutcome.providerFailureCategory
+                ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+                : {}),
               executionLedger: executionLedgerSnapshot,
                contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
               ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
