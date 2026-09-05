@@ -7,4 +7,4 @@ Forensic Recovery is a formatting and verification pass, not a second open-ended
 
 **Why:** Provider-owned fallback chains and multiple evidence packets can multiply a nominal request timeout until a live audit remains open for several minutes without producing a usable report.
 
-**How to apply:** Let the orchestrator own the ordered recovery candidates, cap provider fallback within each attempt, abort or race each call against the remaining deadline, and return one sanitized `ANALYSIS_INCOMPLETE` report when no accepted report exists.
+**How to apply:** Let the orchestrator own the ordered recovery candidates, cap provider fallback within each attempt, skip later micro-probes when the reserve is exhausted, abort or race each call against the remaining deadline, and return one sanitized `ANALYSIS_INCOMPLETE` report when no accepted report exists.
