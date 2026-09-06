@@ -50,11 +50,27 @@ function textValues(trace: readonly CapabilityProbeTraceEntry[]): string[] {
 }
 
 function hasLabel(line: string, label: CapabilityLabel): boolean {
-  return new RegExp(`^\\s*(?:[-*]\\s*)?${label}\\b`, 'i').test(line);
+  return new RegExp(`^\\s*(?:#{1,6}\\s*)?(?:[-*]\\s*)?${label}\\b`, 'i').test(line);
+}
+
+function isMarkdownCapabilityHeading(line: string): boolean {
+  return /^\s*#{1,6}\s*(?:[-*]\s*)?C[1-7]\b/i.test(line);
 }
 
 function lineFor(lines: string[], label: CapabilityLabel): string | null {
-  return lines.find((line) => hasLabel(line, label)) ?? null;
+  const startIndex = lines.findIndex((line) => hasLabel(line, label));
+  if (startIndex < 0) return null;
+
+  const startLine = lines[startIndex];
+  if (!isMarkdownCapabilityHeading(startLine)) return startLine;
+
+  const nextHeadingIndex = lines.findIndex(
+    (line, index) => index > startIndex && isMarkdownCapabilityHeading(line),
+  );
+  return lines
+    .slice(startIndex, nextHeadingIndex < 0 ? lines.length : nextHeadingIndex)
+    .join('\n')
+    .trim();
 }
 
 function hasIncompleteSignal(content: string, values: readonly string[]): boolean {

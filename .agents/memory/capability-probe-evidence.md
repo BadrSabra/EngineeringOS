@@ -23,6 +23,18 @@ explicit ANALYSIS_INCOMPLETE / not-proven outcome, while recovery may only use
 already-retained reads. Bound citation recovery by the parent deadline and
 reserve the final-output tail before starting provider calls.
 
+Dashboard report parsing must accept live C1–C7 responses formatted as Markdown
+headings with PASS/source lines on following lines; group each heading through
+the next capability heading before scoring.
+
+**Why:** The controlled SSE fixture uses this provider-shaped formatting, and
+matching only the heading line produces seven unknown capabilities and hides a
+valid score after reconnect.
+
+**How to apply:** Keep the parser tolerant of harmless Markdown heading and
+bullet prefixes while preserving the complete section text for the canonical
+report card and its evidence-count assertions.
+
 Capability probes are their own evidence lane: do not run the generic behavior
 evidence validator after the two named bodies are retained, and do not expose
 search/list tools after complete prefetch. If prefetch is incomplete, recovery

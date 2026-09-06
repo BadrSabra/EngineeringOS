@@ -3150,14 +3150,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     expect((await probeResponsePromise).status()).toBe(200);
 
+    const report = page.getByRole("region", {
+      name: "Capability probe report",
+    });
+    await expect(report).toBeVisible();
     await expect(
-      page.locator("body"),
-    ).toContainText("Coverage: COMPLETE — both declared files were read to completion.");
-    await expect(page.locator("body")).toContainText(
-      "Overall score: 7/7 capabilities demonstrated.",
-    );
+      report.locator('[aria-label="Capability probe score 7 out of 7"]'),
+    ).toBeVisible();
     for (const capability of ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]) {
-      await expect(page.getByRole("heading", { name: capability, exact: true })).toBeVisible();
+      await expect(report.getByText(capability, { exact: true })).toBeVisible();
     }
     await expect(
       page.getByText("Behavior evidence · 2 excerpts", { exact: true }).first(),
@@ -3171,6 +3172,62 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       /file-tools\.ts[^\n]{0,80}(?:truncated|↕)/i,
     );
     expect(bodyText).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
+  });
+
+  test("rehydrates a completed Capability Probe without changing its report", async ({
+    page,
+  }) => {
+    const fixture = installCapabilityProbeFixture();
+    await installApiFixtures(page, { capabilityProbeAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
+
+    const report = page.getByRole("region", {
+      name: "Capability probe report",
+    });
+    await expect(report).toBeVisible();
+    await expect(
+      report.locator('[aria-label="Capability probe score 7 out of 7"]'),
+    ).toBeVisible();
+    await expect(report.getByText(/^C[1-7]$/, { exact: true })).toHaveCount(7);
+
+    const evidence = 'return value.includes("defect/repair");';
+    const beforeReload = await report.innerText();
+    const evidenceCountBeforeReload = await report
+      .getByText(evidence, { exact: false })
+      .count();
+    expect(evidenceCountBeforeReload).toBe(3);
+    expect(
+      await report.getByText("Why this report is incomplete", { exact: true }).count(),
+    ).toBe(0);
+
+    const historyResponsePromise = page.waitForResponse((response) =>
+      response.url().includes(`/api/ai/chat/${fixture.sessionId}/messages`),
+    );
+    await page.reload();
+    expect((await historyResponsePromise).status()).toBe(200);
+
+    const rehydratedReport = page.getByRole("region", {
+      name: "Capability probe report",
+    });
+    await expect(rehydratedReport).toBeVisible();
+    expect(await rehydratedReport.innerText()).toBe(beforeReload);
+    expect(
+      await rehydratedReport.getByText(evidence, { exact: false }).count(),
+    ).toBe(evidenceCountBeforeReload);
+    await expect(
+      rehydratedReport.locator('[aria-label="Capability probe score 7 out of 7"]'),
+    ).toBeVisible();
+    await expect(
+      rehydratedReport.getByText(/^C[1-7]$/, { exact: true }),
+    ).toHaveCount(7);
+    expect(
+      await rehydratedReport
+        .getByText("Why this report is incomplete", { exact: true })
+        .count(),
+    ).toBe(0);
   });
 
   test("opens failed task and workflow details with redacted recovery guidance", async ({

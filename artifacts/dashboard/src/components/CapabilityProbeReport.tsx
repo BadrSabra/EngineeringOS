@@ -101,7 +101,7 @@ export function CapabilityProbeReport({
             <span className="w-6 shrink-0 font-semibold">{capability.id}</span>
             <span className="min-w-0 whitespace-pre-wrap break-words">
               {capability.text
-                ? capability.text.replace(/^\s*(?:[-*]\s*)?C[1-7]\s*[:—-]?\s*/i, '')
+                ? capability.text.replace(/^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?C[1-7]\s*[:—-]?\s*/i, '')
                 : 'Not recorded'}
             </span>
           </div>

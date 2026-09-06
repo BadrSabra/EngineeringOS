@@ -21,6 +21,18 @@ describe('parseCapabilityProbeReport', () => {
     expect(report?.capabilities.map(({ id }) => id)).toEqual(['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7']);
   });
 
+  it('normalizes Markdown-heading capability labels from the live SSE report', () => {
+    const markdownReport = completeReport
+      .split('\n')
+      .map((line) => (line.startsWith('Overall score') ? line : `### ${line}`))
+      .join('\n');
+    const report = parseCapabilityProbeReport(markdownReport);
+
+    expect(report?.complete).toBe(true);
+    expect(report?.score).toBe(7);
+    expect(report?.capabilities.every(({ text }) => text?.startsWith('###'))).toBe(true);
+  });
+
   it('separates missing reads, citations, runtime conditions, and invalid Evidence IDs', () => {
     const report = parseCapabilityProbeReport(
       'ANALYSIS_INCOMPLETE — the capability probe could not close its claims.',

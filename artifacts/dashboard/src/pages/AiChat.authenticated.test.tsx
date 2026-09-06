@@ -3809,13 +3809,27 @@ it('shows Groq model readiness without requiring a personal key when the server 
       outcome: 'SUCCEEDED',
     };
 
+    const firstRender = renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const firstReport = await screen.findByRole('region', { name: 'Capability probe report' });
+    expect(firstReport).toBeInTheDocument();
+    expect(screen.getByLabelText('Capability probe score 7 out of 7')).toBeInTheDocument();
+    expect(screen.getAllByText(/^C[1-7]$/)).toHaveLength(7);
+    const firstReportText = firstReport.textContent;
+    const firstEvidenceCount = screen.getAllByText(evidence, { exact: false }).length;
+    expect(firstEvidenceCount).toBe(4);
+    expect(screen.queryByText(/Overall score: 7\/7/)).not.toBeInTheDocument();
+
+    firstRender.unmount();
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    expect(await screen.findByRole('region', { name: 'Capability probe report' })).toBeInTheDocument();
+    const rehydratedReport = await screen.findByRole('region', { name: 'Capability probe report' });
+    expect(rehydratedReport.textContent).toBe(firstReportText);
     expect(screen.getByLabelText('Capability probe score 7 out of 7')).toBeInTheDocument();
     expect(screen.getAllByText(/^C[1-7]$/)).toHaveLength(7);
-    expect(screen.getAllByText(evidence, { exact: false })).toHaveLength(4);
+    expect(screen.getAllByText(evidence, { exact: false })).toHaveLength(firstEvidenceCount);
     expect(screen.queryByText(/Overall score: 7\/7/)).not.toBeInTheDocument();
   });
 
@@ -3844,10 +3858,25 @@ it('shows Groq model readiness without requiring a personal key when the server 
       ]),
     };
 
+    const firstRender = renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const firstReport = await screen.findByRole('region', { name: 'Capability probe report' });
+    expect(firstReport).toBeInTheDocument();
+    expect(screen.getByText('Missing source reads:')).toBeInTheDocument();
+    expect(screen.getByText('Citations or claims incomplete:')).toBeInTheDocument();
+    expect(screen.getByText('Runtime conditions not satisfied:')).toBeInTheDocument();
+    expect(screen.getByText('Invalid Evidence IDs:')).toBeInTheDocument();
+    expect(screen.getByText('Capability probe incomplete')).toBeInTheDocument();
+    expect(screen.getByLabelText('Capability probe score unavailable')).toBeInTheDocument();
+
+    const firstReportText = firstReport.textContent;
+    firstRender.unmount();
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    expect(await screen.findByRole('region', { name: 'Capability probe report' })).toBeInTheDocument();
+    const rehydratedReport = await screen.findByRole('region', { name: 'Capability probe report' });
+    expect(rehydratedReport.textContent).toBe(firstReportText);
     expect(screen.getByText('Missing source reads:')).toBeInTheDocument();
     expect(screen.getByText('Citations or claims incomplete:')).toBeInTheDocument();
     expect(screen.getByText('Runtime conditions not satisfied:')).toBeInTheDocument();
