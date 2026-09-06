@@ -442,6 +442,11 @@ async function installApiFixtures(
     recoveryTasks?: Array<Record<string, unknown>>;
     recoveryWorkflows?: Array<Record<string, unknown>>;
     recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
+    modelQuality?: {
+      populatedUsage: Record<string, unknown>;
+      emptyUsage: Record<string, unknown>;
+      requests: string[];
+    };
     operatorAlertsPassthrough?: boolean;
     authenticatedProtectedApi?: boolean;
   },
@@ -954,6 +959,25 @@ async function installApiFixtures(
             api: { status: "ready" },
             database: { status: "ready" },
             schema: { status: "ready" },
+          },
+        }),
+      );
+    }
+    if (overrides?.modelQuality && path === "/api/ai/metrics") {
+      overrides.modelQuality.requests.push(route.request().url());
+      const isEmpty =
+        url.searchParams.get("provider") === "deepseek";
+      const usage = isEmpty
+        ? overrides.modelQuality.emptyUsage
+        : overrides.modelQuality.populatedUsage;
+      return route.fulfill(
+        jsonResponse({
+          metrics: [],
+          usage: {
+            ...usage,
+            windowDays: Number(
+              url.searchParams.get("days") ?? usage.windowDays ?? 30,
+            ),
           },
         }),
       );
@@ -4922,6 +4946,128 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(visibleText).not.toMatch(
       /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
     );
+  });
+
+  test("keeps durable model contract quality visible after reload and shows a scoped empty state", async ({
+    page,
+  }) => {
+    const requests: string[] = [];
+    const populatedUsage = {
+      schemaVersion: 2,
+      windowDays: 7,
+      retentionDays: 90,
+      totalAttempts: 3,
+      totalSuccesses: 2,
+      totalFailures: 1,
+      totalFallbackAttempts: 1,
+      providers: [
+        {
+          provider: "openrouter",
+          attempts: 3,
+          successes: 2,
+          failures: 1,
+          cancelled: 0,
+          fallbackAttempts: 1,
+          successRate: 2 / 3,
+          contract: {
+            evaluated: 3,
+            accepted: 2,
+            acceptanceRate: 2 / 3,
+            averageClaims: 4,
+            citationMatchRate: 0.75,
+            recoveryAttempts: 1,
+            recoveryAccepted: 1,
+            recoveryAcceptanceRate: 1,
+            failureKinds: { missing_citation: 1 },
+          },
+          models: [
+            {
+              model: "llama-e2e",
+              attempts: 3,
+              successes: 2,
+              failures: 1,
+              cancelled: 0,
+              contract: {
+                evaluated: 3,
+                accepted: 2,
+                acceptanceRate: 2 / 3,
+                averageClaims: 4,
+                citationMatchRate: 0.75,
+                recoveryAttempts: 1,
+                recoveryAccepted: 1,
+                recoveryAcceptanceRate: 1,
+                failureKinds: { missing_citation: 1 },
+              },
+              p50LatencyMs: 100,
+              p95LatencyMs: 200,
+            },
+          ],
+          p50LatencyMs: 100,
+          p95LatencyMs: 200,
+          usage: {
+            promptTokens: null,
+            completionTokens: null,
+            status: "unknown",
+          },
+          lastOccurredAt: "2026-01-01T00:02:00.000Z",
+        },
+      ],
+      timeline: [],
+    };
+    const emptyUsage = {
+      ...populatedUsage,
+      totalAttempts: 0,
+      totalSuccesses: 0,
+      totalFailures: 0,
+      totalFallbackAttempts: 0,
+      providers: [],
+    };
+    await installApiFixtures(page, {
+      modelQuality: { populatedUsage, emptyUsage, requests },
+    });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const card = page.getByRole("region", { name: "Model contract quality" });
+    const emptyState =
+      "No model contract telemetry matches this project, provider, and time window.";
+    await expect(card).toContainText("llama-e2e");
+    await expect(card).toContainText("Acceptance 66.7%");
+    await expect(card).toContainText("Citation match 75.0%");
+    await expect(card).toContainText("Recovery 1/1 · 100.0%");
+    await expect(card).toContainText("missing_citation (1)");
+    await card.getByLabel("Model quality time window").selectOption("7");
+    await expect.poll(() =>
+      requests.some((request) => {
+        const url = new URL(request);
+        return (
+          url.pathname.endsWith("/api/ai/metrics") &&
+          url.searchParams.get("projectId") === "e2e-project" &&
+          url.searchParams.get("days") === "7"
+        );
+      }),
+    ).toBe(true);
+
+    await page.reload();
+    await expect(card).toContainText("llama-e2e");
+    await expect(card).toContainText("Acceptance 66.7%");
+    await expect(card).toContainText("Citation match 75.0%");
+    await expect(card).toContainText("Recovery 1/1 · 100.0%");
+    await expect(card).toContainText("missing_citation (1)");
+
+    await card.getByLabel("Model quality provider").selectOption("deepseek");
+    await expect(card.getByText(emptyState, { exact: true })).toHaveCount(1);
+    await expect(card.getByText("llama-e2e", { exact: true })).toHaveCount(0);
+    await expect.poll(() =>
+      requests.some((request) => {
+        const url = new URL(request);
+        return (
+          url.pathname.endsWith("/api/ai/metrics") &&
+          url.searchParams.get("provider") === "deepseek" &&
+          url.searchParams.get("projectId") === "e2e-project"
+        );
+      }),
+    ).toBe(true);
   });
 
   test("keeps safe citation state across browser back and forward navigation with blocked evidence", async ({

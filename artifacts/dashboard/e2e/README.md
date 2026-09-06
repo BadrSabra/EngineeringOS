@@ -39,6 +39,12 @@ uses a controlled execution id for Flight Deck, and returns a deliberate
 provider-unavailable response for AI. Routing, Clerk session handoff, and
 rendering remain real browser behavior.
 
+The authenticated model-quality journey also intercepts `/api/ai/metrics` with
+the same durable `usage.providers[].models[]` shape returned by the API. It
+checks acceptance, citation-match, recovery, and failure-kind values after the
+initial load and a reload, then selects a provider with no model rows and
+asserts the empty state within the model-quality panel.
+
 ## Protected dashboard authentication smoke
 
 The shell check in `scripts/verify-setup.sh` only verifies configuration,

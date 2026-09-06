@@ -746,6 +746,41 @@ test("live provider journey requires a terminal done event for the started execu
   );
 });
 
+test("model-quality journey covers durable metrics and the scoped empty state", () => {
+  assert.match(
+    journeySource,
+    /path === "\/api\/ai\/metrics"/,
+    "The dashboard journey must fixture the authenticated model metrics endpoint.",
+  );
+  assert.match(
+    journeySource,
+    /populatedUsage[\s\S]*models:\s*\[/,
+    "The dashboard journey fixture must include durable model rows.",
+  );
+  for (const label of [
+    "Acceptance 66.7%",
+    "Citation match 75.0%",
+    "Recovery 1\\/1 · 100.0%",
+    "missing_citation \\(1\\)",
+  ]) {
+    assert.match(
+      journeySource,
+      new RegExp(label),
+      `The browser journey must assert ${label}.`,
+    );
+  }
+  assert.match(
+    journeySource,
+    /card\.getByText\(emptyState, \{ exact: true \}\)/,
+    "The empty-state assertion must remain scoped to the model-quality card.",
+  );
+  assert.match(
+    journeySource,
+    /await page\.reload\(\);[\s\S]*llama-e2e/,
+    "The journey must prove model-quality values remain visible after reload.",
+  );
+});
+
 test("API readiness separates liveness from schema readiness", () => {
   assert.match(healthSource, /router\.get\("\/readiness"/);
   assert.match(healthSource, /schema_incomplete/);
