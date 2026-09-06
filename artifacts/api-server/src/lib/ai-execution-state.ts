@@ -535,6 +535,7 @@ export type AiExecutionRequestEnvelope = {
   projectId: string;
   /** Stable server-owned identity shared by all phases of one operation. */
   operationId?: string;
+  capabilityProbe?: AiCapabilityProbeContract;
   /** Immutable resumable contract metadata, when this is a task execution. */
   resumeContract?: {
     taskType: string;
@@ -543,6 +544,7 @@ export type AiExecutionRequestEnvelope = {
     sessionId: string;
     projectRevision: string;
     requiresEvidence: boolean;
+    capabilityProbe?: AiCapabilityProbeContract;
     scope: {
       projectId: string;
       rootPath: string | null;
@@ -559,6 +561,18 @@ export type AiExecutionRequestEnvelope = {
   objective?: unknown;
   validationTargetPaths: string[];
   proofRequired?: boolean;
+};
+
+export type AiCapabilityProbeContract = {
+  sourceFiles: string[];
+  requiredClaims: string[];
+  outputContract: string;
+};
+
+export type AiCapabilityProbeCheckpoint = AiCapabilityProbeContract & {
+  status?: "PENDING" | "COMPLETE" | "INCOMPLETE";
+  missingClaims?: string[];
+  recoveryAttempted?: boolean;
 };
 
 export type AiExecutionNodeCheckpoint = Pick<
@@ -596,6 +610,7 @@ export type AiExecutionCheckpoint = {
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   proofRequired?: boolean;
+  capabilityProbe?: AiCapabilityProbeCheckpoint;
   acceptanceDisposition?: AiAcceptanceDisposition;
   detail?: string;
   operation?: AutonomousOperationContract;
@@ -687,10 +702,65 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
     ) {
       return undefined;
     }
+    if (value.capabilityProbe !== undefined && !parseCapabilityProbeContract(value.capabilityProbe)) {
+      return undefined;
+    }
+    if (value.resumeContract?.capabilityProbe !== undefined
+      && !parseCapabilityProbeContract(value.resumeContract.capabilityProbe)) {
+      return undefined;
+    }
     return value;
   } catch {
     return undefined;
   }
+}
+
+function parseCapabilityProbeContract(value: unknown): AiCapabilityProbeContract | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<AiCapabilityProbeContract>;
+  if (
+    !Array.isArray(candidate.sourceFiles)
+    || candidate.sourceFiles.length === 0
+    || candidate.sourceFiles.length > 8
+    || candidate.sourceFiles.some((file) => typeof file !== "string" || file.trim().length === 0 || file.length > 500)
+    || !Array.isArray(candidate.requiredClaims)
+    || candidate.requiredClaims.length === 0
+    || candidate.requiredClaims.length > 8
+    || candidate.requiredClaims.some((claim) => typeof claim !== "string" || claim.trim().length === 0 || claim.length > 20)
+    || typeof candidate.outputContract !== "string"
+    || candidate.outputContract.length === 0
+    || candidate.outputContract.length > 80
+  ) return undefined;
+  return {
+    sourceFiles: candidate.sourceFiles.map((file) => file.trim()),
+    requiredClaims: candidate.requiredClaims.map((claim) => claim.trim()),
+    outputContract: candidate.outputContract,
+  };
+}
+
+function parseCapabilityProbeCheckpoint(value: unknown): AiCapabilityProbeCheckpoint | undefined {
+  const contract = parseCapabilityProbeContract(value);
+  if (!contract || !value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<AiCapabilityProbeCheckpoint>;
+  if (
+    (candidate.status !== undefined && !["PENDING", "COMPLETE", "INCOMPLETE"].includes(candidate.status))
+    || (candidate.missingClaims !== undefined && (
+      !Array.isArray(candidate.missingClaims)
+      || candidate.missingClaims.some((claim) => typeof claim !== "string")
+    ))
+    || (candidate.recoveryAttempted !== undefined && typeof candidate.recoveryAttempted !== "boolean")
+  ) return undefined;
+  return {
+    ...contract,
+    ...(candidate.status ? { status: candidate.status } : {}),
+    ...(candidate.missingClaims ? {
+      missingClaims: candidate.missingClaims
+        .filter((claim): claim is string => typeof claim === "string")
+        .slice(0, 8)
+        .map((claim) => claim.slice(0, 20)),
+    } : {}),
+    ...(candidate.recoveryAttempted !== undefined ? { recoveryAttempted: candidate.recoveryAttempted } : {}),
+  };
 }
 
 export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint | undefined {
@@ -786,6 +856,10 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
     if (value.recipeBinding !== undefined && !recipeBinding) return undefined;
     if (recipeBinding && operation?.binding
       && JSON.stringify(recipeBinding) !== JSON.stringify(operation.binding)) return undefined;
+    const capabilityProbe = value.capabilityProbe === undefined
+      ? undefined
+      : parseCapabilityProbeCheckpoint(value.capabilityProbe);
+    if (value.capabilityProbe !== undefined && !capabilityProbe) return undefined;
     return {
       stage: value.stage as AiExecutionCheckpoint["stage"],
       sequence: value.sequence,
@@ -813,6 +887,7 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
         ? { evidenceReason: value.evidenceReason.slice(0, 500) }
         : {}),
       ...(typeof value.proofRequired === "boolean" ? { proofRequired: value.proofRequired } : {}),
+      ...(capabilityProbe ? { capabilityProbe } : {}),
       ...(typeof value.detail === "string" ? { detail: value.detail.slice(0, 500) } : {}),
       ...(operation ? { operation } : {}),
       ...(recipeBinding ? { recipeBinding } : {}),
@@ -1092,6 +1167,15 @@ export async function createAiExecution(params: {
         stage: "queued",
         sequence: 0,
         operation,
+        ...(params.request.capabilityProbe
+          ? {
+              capabilityProbe: {
+                ...params.request.capabilityProbe,
+                status: "PENDING" as const,
+                recoveryAttempted: false,
+              },
+            }
+          : {}),
         ...(params.recipeBinding ? { recipeBinding: params.recipeBinding } : {}),
         updatedAt: now.toISOString(),
       } satisfies AiExecutionCheckpoint),
@@ -1264,9 +1348,11 @@ function mergeTerminalCheckpoint(
     acceptanceDisposition?: AiAcceptanceDisposition;
     evidenceVerdict?: FlightDeckEvidenceVerdict;
     evidenceReason?: string;
+    capabilityProbe?: AiCapabilityProbeCheckpoint;
   },
 ): AiExecutionCheckpoint {
   const previous = parseAiExecutionCheckpoint(execution.checkpoint);
+  const request = parseExecutionRequest(execution.request);
   const now = new Date().toISOString();
   const sequence = Math.max(
     execution.checkpointVersion,
@@ -1318,6 +1404,24 @@ function mergeTerminalCheckpoint(
     ...(params.evidenceReason
       ? { evidenceReason: params.evidenceReason.slice(0, 500) }
       : {}),
+    ...(params.capabilityProbe
+      ? { capabilityProbe: params.capabilityProbe }
+      : previous?.capabilityProbe
+        ? {
+            capabilityProbe: {
+              ...previous.capabilityProbe,
+              status: "INCOMPLETE" as const,
+            },
+          }
+        : request?.capabilityProbe
+          ? {
+              capabilityProbe: {
+                ...request.capabilityProbe,
+                status: "INCOMPLETE" as const,
+                recoveryAttempted: false,
+              },
+            }
+          : {}),
     detail: params.error.slice(0, 500),
     updatedAt: now,
   } satisfies AiExecutionCheckpoint;
@@ -1557,6 +1661,7 @@ export async function completeAiExecution(params: {
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
+  capabilityProbe?: AiCapabilityProbeCheckpoint;
   proofRequired?: boolean;
   evidenceRefs?: readonly string[];
   evidence?: readonly Pick<
@@ -1668,6 +1773,7 @@ export async function completeAiExecution(params: {
           : {}),
         ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
         ...(typeof params.proofRequired === "boolean" ? { proofRequired: params.proofRequired } : {}),
+        ...(params.capabilityProbe ? { capabilityProbe: params.capabilityProbe } : {}),
         updatedAt: new Date().toISOString(),
       } satisfies AiExecutionCheckpoint),
     })

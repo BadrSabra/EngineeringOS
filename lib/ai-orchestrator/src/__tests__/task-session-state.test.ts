@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../prompts/profile-classifier.js";
+import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
 import {
   buildActiveTaskExecutionPlan,
   buildActiveTaskState,
@@ -18,6 +19,46 @@ import {
 
 describe("active task session state", () => {
   const auditClassification = classifyRequest("ابحث عن الفجوات في طبقة الذكاء الاصطناعي");
+
+  it("persists a capability probe contract without making ordinary behavior queries resumable", () => {
+    const probeClassification = classifyRequest(CAPABILITY_PROBE_MESSAGE);
+    const state = buildActiveTaskState({
+      classification: probeClassification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      capabilityProbe: true,
+      now: new Date("2026-08-16T12:00:00.000Z"),
+    });
+
+    expect(state).toMatchObject({
+      taskType: "BEHAVIOR_QUERY",
+      capabilityProbe: {
+        sourceFiles: [
+          "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
+          "lib/ai-orchestrator/src/tools/file-tools.ts",
+        ],
+        requiredClaims: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+        outputContract: "BEHAVIOR_ANSWER",
+      },
+    });
+    expect(parseActiveTaskState(serializeActiveTaskState(state))).toEqual(state);
+
+    const resumed = resumeActiveTaskClassification(
+      "أعد المحاولة",
+      classifyRequest("أعد المحاولة"),
+      state,
+    );
+    expect(resumed.resumed).toBe(true);
+    expect(resumed.classification.taskType).toBe("BEHAVIOR_QUERY");
+
+    expect(buildActiveTaskState({
+      classification: classifyRequest("ما معنى هذا؟"),
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+    })).toBeNull();
+  });
 
   it("round-trips a validated resumable task state", () => {
     const state = buildActiveTaskState({

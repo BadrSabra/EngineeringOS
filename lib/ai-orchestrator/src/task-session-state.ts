@@ -25,6 +25,10 @@ import {
   RecipeExecutionPolicySchema,
   RecipeStateSchema,
 } from "./recipe-contract.js";
+import {
+  CAPABILITY_PROBE_CLAIM_IDS,
+  CAPABILITY_PROBE_SOURCE_FILES,
+} from "./prompts/capability-probe.js";
 
 const RESUMABLE_TASK_TYPES = [
   "FINDING_ANALYSIS",
@@ -160,6 +164,11 @@ export const ActiveTaskStateSchema = z.object({
   evidence: z.object({
     readFiles: z.array(z.string().min(1)).max(48).default([]),
   }).strict().default({ readFiles: [] }),
+  capabilityProbe: z.object({
+    sourceFiles: z.array(z.string().min(1).max(500)).min(1).max(8),
+    requiredClaims: z.array(z.string().min(1).max(20)).min(1).max(8),
+    outputContract: z.enum(ACTIVE_OUTPUT_CONTRACTS),
+  }).strict().optional(),
   executionPlan: ActiveTaskExecutionPlanSchema.nullable().default(null),
   startedAt: z.string().datetime({ offset: true }),
   lastProgressAt: z.string().datetime({ offset: true }),
@@ -525,9 +534,10 @@ export function buildActiveTaskState(args: {
   revision?: string;
   operationId?: string;
   executionId?: string;
+  capabilityProbe?: boolean;
   now?: Date;
 }): ActiveTaskState | null {
-  if (!isResumableTaskType(args.classification.taskType)) return null;
+  if (!isResumableTaskType(args.classification.taskType) && !args.capabilityProbe) return null;
   const now = (args.now ?? new Date()).toISOString();
   const route = routeTask(args.classification.taskType);
   return {
@@ -546,6 +556,15 @@ export function buildActiveTaskState(args: {
     evidence: {
       readFiles: [],
     },
+    ...(args.capabilityProbe
+      ? {
+          capabilityProbe: {
+            sourceFiles: [...CAPABILITY_PROBE_SOURCE_FILES],
+            requiredClaims: [...CAPABILITY_PROBE_CLAIM_IDS],
+            outputContract: route.outputContract,
+          },
+        }
+      : {}),
     executionPlan: null,
     startedAt: now,
     lastProgressAt: now,
@@ -591,7 +610,7 @@ export function resumeActiveTaskClassification(
 ): { classification: ClassifiedRequest; resumed: boolean } {
   if (
     !state ||
-    !isResumableTaskType(state.taskType) ||
+    (!isResumableTaskType(state.taskType) && !state.capabilityProbe) ||
     state.scope.projectId.length === 0 ||
     !isTaskContinuationRequest(message)
   ) {

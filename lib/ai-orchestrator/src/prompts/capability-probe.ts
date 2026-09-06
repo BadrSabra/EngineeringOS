@@ -83,3 +83,13 @@ export const CAPABILITY_PROBE_SOURCE_FILES = [
   "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
   "lib/ai-orchestrator/src/tools/file-tools.ts",
 ] as const;
+
+export const CAPABILITY_PROBE_CLAIM_IDS = [
+  "C1",
+  "C2",
+  "C3",
+  "C4",
+  "C5",
+  "C6",
+  "C7",
+] as const;

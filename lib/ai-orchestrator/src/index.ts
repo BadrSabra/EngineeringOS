@@ -644,6 +644,11 @@ export type {
   TurnOperationMode,
 } from "./turn-intent.js";
 export {
+  CAPABILITY_PROBE_CLAIM_IDS,
+  CAPABILITY_PROBE_MESSAGE,
+  CAPABILITY_PROBE_SOURCE_FILES,
+} from "./prompts/capability-probe.js";
+export {
   AnalysisModeSchema,
   BehaviorAnswerSchema,
   buildResponseLanguageFallback,

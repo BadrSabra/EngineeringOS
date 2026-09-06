@@ -69,6 +69,8 @@ import {
   toPublicValidationResult,
   runRegisteredCommand,
   createServerCapabilityRegistry,
+  CAPABILITY_PROBE_CLAIM_IDS,
+  CAPABILITY_PROBE_SOURCE_FILES,
   toPublicRecipeReceipt,
   createExecutionLedger,
   toPublicExecutionLedgerSnapshot,
@@ -239,6 +241,22 @@ function hasCapabilityProbeClaimUnclosed(
   return forensicDiagnostic?.reasonCode === "CLAIM_UNCLOSED" ||
     hasTraceDiagnosticCode(traceSteps, "CAPABILITY_PROBE_CLAIM_UNCLOSED") ||
     hasTraceDiagnosticCode(traceSteps, "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED");
+}
+
+function capabilityProbeMissingClaims(
+  traceSteps: AgentStep[],
+  requiredClaims: string[],
+): string[] {
+  const latestEvidenceIntegrity = [...traceSteps]
+    .reverse()
+    .find((step): step is Extract<AgentStep, { kind: "evidence_integrity" }> =>
+      step.kind === "evidence_integrity",
+    );
+  if (!latestEvidenceIntegrity?.missingClaims) return [];
+  const allowed = new Set(requiredClaims);
+  return latestEvidenceIntegrity.missingClaims
+    .filter((claim) => allowed.has(claim))
+    .slice(0, 8);
 }
 
 // ── AI-02: Last-resort response sanitizer ────────────────────────────────────
@@ -2519,11 +2537,15 @@ async function recoverSessionTaskStateFromExecution(params: {
 
   for (const execution of executions) {
     const request = parseExecutionRequest(execution.request);
-    if (!request?.proofRequired || request.sessionId !== params.sessionId || !request.workspaceRevision) {
+    if (
+      (!request?.proofRequired && !request?.capabilityProbe)
+      || request.sessionId !== params.sessionId
+      || !request.workspaceRevision
+    ) {
       continue;
     }
     const classification = classifyRequest(request.message);
-    if (!isResumableTaskType(classification.taskType)) continue;
+    if (!isResumableTaskType(classification.taskType) && !request.capabilityProbe) continue;
     const state = buildActiveTaskState({
       classification,
       projectId: params.projectId,
@@ -2532,6 +2554,7 @@ async function recoverSessionTaskStateFromExecution(params: {
       revision: request.workspaceRevision,
       operationId: request.operationId ?? execution.operationId ?? undefined,
       executionId: execution.id,
+      capabilityProbe: Boolean(request.capabilityProbe),
     });
     if (state) return state;
   }
@@ -2562,6 +2585,7 @@ function nextSessionTaskState(args: {
   revision?: string;
   operationId?: string;
   executionId?: string;
+  capabilityProbe?: boolean;
   now: Date;
   readFiles: string[];
   executionPlan: ActiveTaskExecutionPlan | null;
@@ -2591,7 +2615,7 @@ function nextSessionTaskState(args: {
     );
   }
   const shouldPersistExecutionPlan = Boolean(args.executionPlan);
-  if (isResumableTaskType(args.classification.taskType) || shouldPersistExecutionPlan) {
+  if (isResumableTaskType(args.classification.taskType) || args.capabilityProbe || shouldPersistExecutionPlan) {
     const stateClassification = isResumableTaskType(args.classification.taskType)
       ? args.classification
       : {
@@ -2607,6 +2631,7 @@ function nextSessionTaskState(args: {
       revision: args.revision,
       operationId: args.operationId,
       executionId: args.executionId,
+      capabilityProbe: args.capabilityProbe,
       now: args.now,
     });
     return serializeActiveTaskState(state
@@ -2795,6 +2820,7 @@ router.post("/ai/chat", async (req, res) => {
     rootPath: validRootPath,
     linkedTaskId: effectiveLinkedTaskId,
     revision: project.updatedAt.toISOString(),
+    capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
     now: msgNow,
     readFiles: [],
     executionPlan: null,
@@ -3376,6 +3402,7 @@ router.post("/ai/chat", async (req, res) => {
       rootPath: validRootPath,
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
+      capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan,
@@ -3815,6 +3842,19 @@ router.post("/ai/chat/stream", async (req, res) => {
     implementationPlanResume: streamImplementationPlanResume,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
   });
+  const capabilityProbeContract = isCapabilityProbeRequest(message)
+    ? {
+        sourceFiles: [...CAPABILITY_PROBE_SOURCE_FILES],
+        requiredClaims: [...CAPABILITY_PROBE_CLAIM_IDS],
+        outputContract: streamTurnIntent.outputContract,
+      }
+    : streamResumableStateForTurn?.capabilityProbe
+      ? {
+          sourceFiles: [...streamResumableStateForTurn.capabilityProbe.sourceFiles],
+          requiredClaims: [...streamResumableStateForTurn.capabilityProbe.requiredClaims],
+          outputContract: streamResumableStateForTurn.capabilityProbe.outputContract,
+        }
+      : undefined;
   // Keep this compatible with consumers that still resolve the pre-scope
   // TurnIntent declaration while the workspace packages are being rebuilt.
   const streamAuditScopeDescription = (streamTurnIntent as unknown as {
@@ -3979,6 +4019,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
       ...(objective ? { objective } : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+      ...(capabilityProbeContract ? { capabilityProbe: capabilityProbeContract } : {}),
       // Session task linkage is context, not an autonomous execution request.
       // Only an explicit delivery/task execution, Build handoff, declared
       // objective, scoped implementation plan, or direct execution command
@@ -3990,7 +4031,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         || (implementationPlanScope && implementationPlanScope.size > 0)
         || isImmediateExecutionRequest(message),
       ),
-      ...(isResumableTaskType(streamClassification.taskType)
+      ...(isResumableTaskType(streamClassification.taskType) || capabilityProbeContract
         ? {
             resumeContract: {
               taskType: streamClassification.taskType,
@@ -3999,6 +4040,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               sessionId: sessionIdToUse,
               projectRevision: analysisCorrelation.projectRevision,
               requiresEvidence: streamTurnIntent.requiresEvidence,
+              ...(capabilityProbeContract ? { capabilityProbe: capabilityProbeContract } : {}),
               scope: {
                 projectId,
                 rootPath: validRootPath ?? null,
@@ -4204,6 +4246,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       rootPath: validRootPath,
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
+      capabilityProbe: Boolean(executionRequest.capabilityProbe),
       operationId: aiExecution.operationId ?? executionRequest.operationId,
       executionId: aiExecution.id,
       now: msgNow,
@@ -4304,6 +4347,30 @@ router.post("/ai/chat/stream", async (req, res) => {
       // terminal checkpoint the last local intent.
       if (executionTerminal) return;
       const sequence = ++checkpointSequence;
+      const capabilityProbeCheckpoint = executionRequest.capabilityProbe
+        ? {
+            ...executionRequest.capabilityProbe,
+            status: checkpoint.evidenceVerdict === "CLAIM_UNCLOSED"
+              || checkpoint.stage === "failed"
+              || checkpoint.stage === "cancelled"
+              ? "INCOMPLETE" as const
+              : checkpoint.stage === "completed"
+                ? "COMPLETE" as const
+                : "PENDING" as const,
+            ...(capabilityProbeMissingClaims(
+              traceSteps,
+              executionRequest.capabilityProbe.requiredClaims,
+            ).length > 0
+              ? {
+                  missingClaims: capabilityProbeMissingClaims(
+                    traceSteps,
+                    executionRequest.capabilityProbe.requiredClaims,
+                  ),
+                }
+              : {}),
+            recoveryAttempted: traceSteps.some((step) => step.kind === "forensic_recovery_start"),
+          }
+        : undefined;
       const completeCheckpoint: AiExecutionCheckpoint = {
         ...checkpoint,
         ...(autonomousOperation
@@ -4340,6 +4407,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
         proofRequired,
+        ...(capabilityProbeCheckpoint ? { capabilityProbe: capabilityProbeCheckpoint } : {}),
         sequence,
         updatedAt: new Date().toISOString(),
       };
@@ -5715,6 +5783,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       rootPath: validRootPath,
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
+      capabilityProbe: Boolean(executionRequest.capabilityProbe),
       operationId: aiExecution.operationId ?? executionRequest.operationId,
       executionId: aiExecution.id,
       now: msgNow,
@@ -6056,6 +6125,29 @@ router.post("/ai/chat/stream", async (req, res) => {
         operation: autonomousOperation,
       });
     } else {
+      const capabilityProbeTerminal = executionRequest.capabilityProbe
+        ? {
+            ...executionRequest.capabilityProbe,
+            status: hasCapabilityProbeClaimUnclosed(
+              traceSteps,
+              deriveForensicDiagnostic(traceSteps),
+            )
+              ? "INCOMPLETE" as const
+              : "COMPLETE" as const,
+            ...(capabilityProbeMissingClaims(
+              traceSteps,
+              executionRequest.capabilityProbe.requiredClaims,
+            ).length > 0
+              ? {
+                  missingClaims: capabilityProbeMissingClaims(
+                    traceSteps,
+                    executionRequest.capabilityProbe.requiredClaims,
+                  ),
+                }
+              : {}),
+            recoveryAttempted: traceSteps.some((step) => step.kind === "forensic_recovery_start"),
+          }
+        : undefined;
       const completed = await completeAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
@@ -6065,6 +6157,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         nodeStates: executionNodeStates,
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
+        ...(capabilityProbeTerminal ? { capabilityProbe: capabilityProbeTerminal } : {}),
         proofRequired,
         operationId: aiExecution.operationId ?? aiExecution.id,
         candidateIdentity: autonomousOperation?.candidateIdentity,

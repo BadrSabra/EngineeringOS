@@ -26,3 +26,9 @@ The complete-body predicate must be existential over the declared manifest, not 
 **Why:** A failed run retained the two declared bodies plus internal route/orchestrator reads; the exact-size check converted that valid source retention into `CAPABILITY_PROBE_RECOVERY_SKIPPED_INCOMPLETE`.
 
 **How to apply:** Validate every required manifest path independently, enforce the capability probe's two-file scope at routing/prefetch time, and omit generic forensic terminal markers when the loop is cancelled.
+
+Capability Probe reconnects are governed by an explicit persisted contract containing the required source manifest, C1–C7 claim IDs, and output contract; the generic `BEHAVIOR_QUERY` task type is not resumable by itself.
+
+**Why:** Short retry messages are ordinary chat when classified in isolation, and making all behavior questions resumable would allow unrelated questions to revive an older probe.
+
+**How to apply:** Persist and restore the probe contract in the execution request, resume contract, session state, and checkpoint; only that marker may opt a behavior query into continuation.

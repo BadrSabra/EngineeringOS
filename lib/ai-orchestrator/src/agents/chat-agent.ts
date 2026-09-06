@@ -9797,9 +9797,10 @@ export async function chat(opts: {
               Math.max(1, capabilityProbeRecoveryDeadlineAt! - Date.now()),
             ),
             retryTransient: false,
-            // The agent owns this one ordered correction attempt. Provider
-            // fallback would multiply the probe's run-level recovery budget.
-            maxFallbackModels: 1,
+            // Keep provider fallback bounded: one alternate model can recover
+            // a transient/retired-model failure without multiplying the
+            // probe's run-level recovery budget.
+            maxFallbackModels: 2,
             signal: recoverySignal,
             executionLedger,
           },

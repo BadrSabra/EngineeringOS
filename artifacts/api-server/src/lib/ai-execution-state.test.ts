@@ -87,6 +87,7 @@ import {
   createRecipeOperationBinding,
   checkRecipeOperationBinding,
   parseAiExecutionCheckpoint,
+  parseExecutionRequest,
   transitionAutonomousOperation,
   validateAutonomousOperationCompletion,
 } from "./ai-execution-state.js";
@@ -121,6 +122,71 @@ describe("createAiExecution", () => {
 });
 
 describe("autonomous operation contract", () => {
+  it("round-trips capability probe request and checkpoint metadata", () => {
+    const capabilityProbe = {
+      sourceFiles: [
+        "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
+        "lib/ai-orchestrator/src/tools/file-tools.ts",
+      ],
+      requiredClaims: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+      outputContract: "BEHAVIOR_ANSWER",
+    };
+    const request = parseExecutionRequest(JSON.stringify({
+      projectId: "project-1",
+      sessionId: "session-1",
+      message: "capability probe",
+      modelMessage: "capability probe",
+      validationTargetPaths: [],
+      capabilityProbe,
+      resumeContract: {
+        taskType: "BEHAVIOR_QUERY",
+        outputContract: "BEHAVIOR_ANSWER",
+        contextProfile: "chat-lite",
+        sessionId: "session-1",
+        projectRevision: "revision-1",
+        requiresEvidence: true,
+        capabilityProbe,
+        scope: {
+          projectId: "project-1",
+          rootPath: "/workspace/project-1",
+          linkedTaskId: null,
+        },
+      },
+    }));
+    expect(request?.capabilityProbe).toEqual(capabilityProbe);
+    expect(request?.resumeContract?.capabilityProbe).toEqual(capabilityProbe);
+
+    const checkpoint = parseAiExecutionCheckpoint(JSON.stringify({
+      stage: "failed",
+      sequence: 4,
+      capabilityProbe: {
+        ...capabilityProbe,
+        status: "INCOMPLETE",
+        missingClaims: ["C1", "C3"],
+        recoveryAttempted: true,
+      },
+      updatedAt: new Date().toISOString(),
+    }));
+    expect(checkpoint?.capabilityProbe).toMatchObject({
+      sourceFiles: capabilityProbe.sourceFiles,
+      requiredClaims: capabilityProbe.requiredClaims,
+      outputContract: "BEHAVIOR_ANSWER",
+      status: "INCOMPLETE",
+      missingClaims: ["C1", "C3"],
+      recoveryAttempted: true,
+    });
+    expect(parseExecutionRequest(JSON.stringify({
+      projectId: "project-1",
+      message: "capability probe",
+      modelMessage: "capability probe",
+      validationTargetPaths: [],
+      capabilityProbe: {
+        ...capabilityProbe,
+        sourceFiles: [],
+      },
+    }))).toBeUndefined();
+  });
+
   it("enforces the server-owned stage graph and evidence gate", () => {
     const planned = createAutonomousOperationContract({
       operationId: "operation-1",
