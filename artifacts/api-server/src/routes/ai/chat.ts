@@ -5398,7 +5398,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             projectId,
             userId: req.userId,
             operationId: analysisCorrelation.operationId,
-            correlationId: analysisCorrelation.operationId,
+            correlationId: aiExecution?.correlationId ?? analysisCorrelation.operationId,
           },
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
           objective,
@@ -5462,7 +5462,10 @@ router.post("/ai/chat/stream", async (req, res) => {
               userId: req.userId,
               executionId: aiExecution?.id ?? null,
               operationId: aiExecution?.operationId ?? analysisCorrelation.operationId ?? null,
-              correlationId: aiExecution?.operationId ?? analysisCorrelation.operationId ?? sessionIdToUse,
+              correlationId: aiExecution?.correlationId
+                ?? aiExecution?.operationId
+                ?? analysisCorrelation.operationId
+                ?? sessionIdToUse,
             }, {
               ...attempt,
               attemptId: `${aiExecution?.id ?? analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.provider}:${attempt.attemptNumber}`,
