@@ -99,3 +99,4 @@
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
 - [Forensic truncation marker collision](forensic-truncation-marker-collision.md) — literal marker constants in source can be mistaken for tool-appended truncation.
 - [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal and diagnostic projections must use one final trace snapshot.
+- [Provider usage normalization](provider-usage-normalization.md) — partial provider token metadata must be zero-filled at the public chat-output boundary.
