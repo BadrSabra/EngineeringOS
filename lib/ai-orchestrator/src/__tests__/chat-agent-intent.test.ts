@@ -21,6 +21,7 @@ import {
   isRepeatedConversationQuestion,
   buildResumedEvidenceLedger,
   structuredRecoveryParseDiagnostic,
+  normalizeCapabilityProbeRecoveryContent,
   type ChatMessage,
 } from "../agents/chat-agent.js";
 
@@ -338,6 +339,39 @@ describe("structuredRecoveryParseDiagnostic", () => {
         "parse code: MALFORMED_JSON",
       ],
     });
+  });
+});
+
+describe("normalizeCapabilityProbeRecoveryContent", () => {
+  const files = new Map([
+    ["lib/ai-orchestrator/src/prompts/profile-classifier.ts", "export function isPromptProsePath(value: string) { return false; }"],
+    ["lib/ai-orchestrator/src/tools/file-tools.ts", "export function read_file(path: string) { return path; }"],
+  ]);
+
+  it("salvages a complete JSON-like capability object after MALFORMED_JSON", () => {
+    const raw = `{
+      "C1": "PASS — isPromptProsePath; evidence: lib/ai-orchestrator/src/prompts/profile-classifier.ts \`return false;\`",
+      "C2": "PASS — read_file; evidence: lib/ai-orchestrator/src/tools/file-tools.ts \`read_file\`",
+      "C3": "PASS — grounded; evidence: lib/ai-orchestrator/src/prompts/profile-classifier.ts \`return false;\`",
+      "C4": "PASS — PROSE_PSEUDO_PATH_DENYLIST; evidence: lib/ai-orchestrator/src/prompts/profile-classifier.ts \`return false;\`",
+      "C5": "PASS — write_file abstention; evidence: lib/ai-orchestrator/src/tools/file-tools.ts \`read_file\`",
+      "C6": "PASS — NO eval(); evidence: lib/ai-orchestrator/src/prompts/profile-classifier.ts \`return false;\`",
+      "C7": "PASS — run() and write_file; evidence: lib/ai-orchestrator/src/tools/file-tools.ts \`read_file\`",
+      "score": "7/7",
+    }`;
+
+    const result = normalizeCapabilityProbeRecoveryContent(raw, files);
+
+    expect(result).not.toBeNull();
+    expect(result?.response).toContain("C1: PASS");
+    expect(result?.response).toContain("C7: PASS");
+    expect(result?.response).toContain("Overall score: 7/7");
+    expect(result?.sources).toEqual([...files.keys()]);
+  });
+
+  it("does not invent missing capability fields while salvaging", () => {
+    const raw = `{"C1":"PASS — isPromptProsePath", "C2":"PASS — read_file",}`;
+    expect(normalizeCapabilityProbeRecoveryContent(raw, files)).toBeNull();
   });
 });
 
