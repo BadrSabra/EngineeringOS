@@ -68,3 +68,16 @@ invented evidence.
 **How to apply:** Preserve only values already present in the provider
 completion, reject incomplete JSON-like objects, and keep missing claims on the
 incomplete path.
+
+C2 and C5 are server-observed execution facts: rebuild them from retained reads
+and pending changes at the final seam instead of relying on a model recovery
+group to remember them. They must not be used to promote missing source claims.
+
+**Why:** Recovery groups cover source-oriented claims and can fail before their
+late C2/C5 synthesis runs, leaving an observed read or write boundary absent
+from the diagnostic report even though the server owns that fact.
+
+**How to apply:** Keep C1/C3/C4/C6/C7 behind the strict source-fragment gate,
+but replace C2/C5 with server-owned lines after recovery and before final
+validation. Preserve the same semantic and citation checks; no retained read
+may substitute for an unclosed source claim.

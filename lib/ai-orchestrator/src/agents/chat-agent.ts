@@ -1042,6 +1042,54 @@ export function validateCapabilityProbeCitations(
   };
 }
 
+/**
+ * C2 and C5 describe the server-observed execution boundary, not model
+ * reasoning. Rebuild those two lines from retained reads and pending changes
+ * at the final seam so a failed C1/C3 micro-probe cannot make a runtime fact
+ * disappear. The exact source fragment remains a scope anchor for the
+ * capability citation gate; it never turns a missing code claim into PASS.
+ */
+export function applyCapabilityProbeRuntimeClaims(
+  response: string,
+  fileContents: ReadonlyMap<string, string>,
+  pendingChangeCount: number,
+): string {
+  const entries = [...fileContents.entries()];
+  const citation = entries
+    .map(([file, body]) => {
+      const fragment = body
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => /\b(?:return|if|switch|throw|await|call)\b/.test(line));
+      return fragment ? `Source: \`${file}\`; Evidence: \`${fragment}\`` : "";
+    })
+    .find(Boolean);
+  if (!citation) return response;
+
+  const runtimeLines = new Map<string, string>([
+    [
+      "C2",
+      `C2: PASS — the server retained ${fileContents.size} completed read_file/read_file_range source read(s) within the declared scope; the read evidence boundary is server-owned. ${citation}`,
+    ],
+    [
+      "C5",
+      pendingChangeCount > 0
+        ? `C5: FAIL — the server recorded ${pendingChangeCount} pending write change(s); no edit-abstention PASS is allowed. ${citation}`
+        : `C5: PASS — the server recorded no pending write changes; no write_file or replace_text change was produced. ${citation}`,
+    ],
+  ]);
+
+  const lines = response.trim().split("\n");
+  for (const [label, replacement] of runtimeLines) {
+    const index = lines.findIndex((line) =>
+      new RegExp(`^\\s*(?:[-*]\\s*)?${label}\\b`, "i").test(line),
+    );
+    if (index >= 0) lines[index] = replacement;
+    else lines.push(replacement);
+  }
+  return lines.join("\n");
+}
+
 function getCapabilityProbeRecoveryTargets(
   response: string,
   fileContents: ReadonlyMap<string, string>,
@@ -6329,11 +6377,12 @@ export async function chat(opts: {
       ? Math.max(0, budget.maxIterations - STRUCTURED_OUTPUT_SYNTHESIS_TURNS)
       : undefined,
     // The tool loop may reach its synthesis window after prefetch has already
-    // supplied the source bodies. Request a JSON envelope only for that
-    // no-tools synthesis call; the OpenAI-compatible client deliberately
-    // ignores response_format while tools are attached.
+    // supplied the source bodies. Request a JSON envelope only for the generic
+    // structured-forensic contract. Capability Probe has its own plain-text
+    // C1–C7 contract and parser; sending both instructions makes weaker
+    // providers choose an unstable envelope before evidence validation runs.
     responseFormat:
-      structuredOutputMode || capabilityProbeRequest
+      structuredOutputMode && !capabilityProbeRequest
         ? { type: "json_object" }
         : undefined,
     completeReads: completeReadEvidence,
@@ -7538,6 +7587,39 @@ export async function chat(opts: {
     isForensicOrEvidenceRun &&
     forensicFileContents.size > 0;
   let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
+  // Capability Probe has a distinct output contract from ordinary chat. Try
+  // its bounded normalizer before the generic ChatResponse envelope can
+  // discard a valid plain-text C1–C7 report or a top-level capability object.
+  // The normalized candidate still passes the same shape and exact-citation
+  // gates below; this only preserves provider output for those gates.
+  if (
+    capabilityProbeRequest &&
+    hasCompleteCapabilityProbeEvidence(forensicFileContents)
+  ) {
+    const normalizedCapability = normalizeCapabilityProbeRecoveryContent(
+      content,
+      forensicFileContents,
+    );
+    if (
+      normalizedCapability &&
+      validateCapabilityProbeResponse(normalizedCapability.response).length === 0
+    ) {
+      parsed = {
+        ok: true,
+        data: {
+          response: normalizedCapability.response,
+          sources: normalizedCapability.sources,
+        },
+      };
+      content = normalizedCapability.response;
+      console.info(JSON.stringify({
+        scope: "chat-agent",
+        code: "CAPABILITY_PROBE_CONTRACT_PARSED",
+        source: "initial-synthesis",
+        sourceCount: normalizedCapability.sources.length,
+      }));
+    }
+  }
   // Preserve the verified phase metadata across the execution handoff. The
   // route uses the returned plan to bind validation profiles and create the
   // approval proposal; execution must not turn an approved plan into an
@@ -9508,6 +9590,13 @@ export async function chat(opts: {
             ),
     ),
   );
+  if (capabilityProbeRequest && hasCompleteCapabilityProbeEvidence(forensicFileContents)) {
+    responseBeforeBehaviorEvidence = applyCapabilityProbeRuntimeClaims(
+      responseBeforeBehaviorEvidence,
+      forensicFileContents,
+      pendingChanges.length,
+    );
+  }
   // Keep the canonical protocol label visible even when the report contract
   // itself was deterministic and complete in shape but no source read exists.
   // This remains ANALYSIS_INCOMPLETE; NOT PROVEN is not a successful verdict.
@@ -9895,6 +9984,13 @@ export async function chat(opts: {
       }
       }
     }
+  }
+  if (capabilityProbeRequest && hasCompleteCapabilityProbeEvidence(forensicFileContents)) {
+    responseBeforeBehaviorEvidence = applyCapabilityProbeRuntimeClaims(
+      responseBeforeBehaviorEvidence,
+      forensicFileContents,
+      pendingChanges.length,
+    );
   }
   const capabilityProbeResponseViolations = capabilityProbeRequest
     ? validateCapabilityProbeResponse(responseBeforeBehaviorEvidence)

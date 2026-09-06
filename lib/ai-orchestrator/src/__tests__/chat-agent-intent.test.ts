@@ -23,6 +23,7 @@ import {
   structuredRecoveryParseDiagnostic,
   normalizeCapabilityProbeRecoveryContent,
   validateCapabilityProbeCitations,
+  applyCapabilityProbeRuntimeClaims,
   type ChatMessage,
 } from "../agents/chat-agent.js";
 
@@ -396,6 +397,33 @@ describe("normalizeCapabilityProbeRecoveryContent", () => {
     expect(validateCapabilityProbeCitations(result!.response, files)).toMatchObject({
       valid: false,
     });
+  });
+});
+
+describe("applyCapabilityProbeRuntimeClaims", () => {
+  it("rebuilds C2 and C5 from server-owned read and write state", () => {
+    const files = new Map([
+      ["src/profile.ts", "export function probe() {\n  return value;\n}"],
+    ]);
+    const response = [
+      "C1: PASS — grounded.",
+      "C2: PASS — model supplied this line.",
+      "C5: PASS — model supplied this line.",
+      "C7: PASS — grounded.",
+    ].join("\n");
+
+    const rebuilt = applyCapabilityProbeRuntimeClaims(response, files, 0);
+
+    expect(rebuilt).toContain("completed read_file/read_file_range source read(s)");
+    expect(rebuilt).toContain("no pending write changes");
+    expect(rebuilt).toContain("Source: `src/profile.ts`");
+    expect(rebuilt).toContain("Evidence: `return value;`");
+    expect(rebuilt).not.toContain("model supplied this line");
+  });
+
+  it("does not manufacture runtime citations when no retained source exists", () => {
+    const response = "C1: PASS — grounded.";
+    expect(applyCapabilityProbeRuntimeClaims(response, new Map(), 0)).toBe(response);
   });
 });
 
