@@ -44,6 +44,7 @@ const releaseFailureScenarios: ReleaseFailureScenario[] = [
     laterCommands: [
       "run security:reject-private-keys",
       "run validate:app-origins",
+      "run validate:dashboard-clerk",
       "run truth:baseline:check",
       "run truth:validate",
       "run benchmark:baseline:check",
@@ -603,7 +604,7 @@ test("keeps the local Project workflow and release validation separate", async (
   assert.equal(normalTestCommand, "pnpm -r --if-present run test");
   assert.equal(
     releaseTestCommand,
-    "pnpm run test:process-recovery-receipt && pnpm run security:reject-private-keys && pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "pnpm run test:process-recovery-receipt && pnpm run security:reject-private-keys && pnpm run validate:app-origins && pnpm run validate:dashboard-clerk && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:discovery-release && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
   );
   assert.equal(
     controlledReleaseTestCommand,

@@ -31,6 +31,9 @@ build-only defaults below when these optional overrides are absent:
 - `VITE_CLERK_PUBLISHABLE_KEY` is preferred, followed by
   `CLERK_PUBLISHABLE_KEY`. A labeled build-only placeholder is used only when
   neither public value is available; it does not prove that Clerk is configured.
+- Release validation rejects a missing, malformed, or build-only placeholder
+  Clerk key. It also scans the generated Dashboard output for that placeholder
+  before deployment cleanup can complete. The check never prints key values.
 
 The `dev` and `preview` commands remain fail-fast runtime commands: they require
 `PORT` and `BASE_PATH`, and the Dashboard additionally requires a valid public

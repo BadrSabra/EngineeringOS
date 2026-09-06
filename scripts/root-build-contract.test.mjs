@@ -90,6 +90,38 @@ test("Dashboard build embeds only the public Clerk override", async () => {
   assert.doesNotMatch(javascript, new RegExp(serverSecret));
 });
 
+test("Dashboard release validation rejects the build-only Clerk placeholder", () => {
+  const placeholder = "pk_test_build_only_placeholder";
+  const result = runPnpm(
+    ["run", "validate:dashboard-clerk"],
+    {
+      env: cleanWorkflowEnvironment({
+        VITE_CLERK_PUBLISHABLE_KEY: placeholder,
+      }),
+    },
+  );
+
+  assertFailsWith(result, /real Clerk publishable key is required/);
+  assert.doesNotMatch(
+    failureText(result),
+    new RegExp(placeholder),
+    "release diagnostics must not echo the configured public key",
+  );
+});
+
+test("Dashboard release validation accepts a real-looking public Clerk key", () => {
+  const result = runPnpm(
+    ["run", "validate:dashboard-clerk"],
+    {
+      env: cleanWorkflowEnvironment({
+        VITE_CLERK_PUBLISHABLE_KEY: "pk_live_release_contract_public",
+      }),
+    },
+  );
+
+  assert.equal(result.status, 0, failureText(result));
+});
+
 test("runtime commands remain fail-fast when required variables are absent", () => {
   for (const [name, cwd] of [
     ["Dashboard", dashboard],
