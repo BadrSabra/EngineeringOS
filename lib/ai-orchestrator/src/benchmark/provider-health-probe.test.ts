@@ -61,6 +61,49 @@ describe("providerHealthProbe", () => {
     });
   });
 
+  it("can mirror the target JSON and read-tool contract", async () => {
+    let captured: RawGroqResponse | undefined;
+    let capturedOptions: Parameters<ProviderStrategy["call"]>[1] | undefined;
+    const strategy: ProviderStrategy = {
+      ...strategyReturning(response([{
+        id: "probe-1",
+        type: "function",
+        function: { name: PROBE_TOOL_NAME, arguments: '{"probe":"ok"}' },
+      }])),
+      async call(_messages, options) {
+        capturedOptions = options;
+        captured = response([{
+          id: "probe-1",
+          type: "function",
+          function: { name: PROBE_TOOL_NAME, arguments: '{"probe":"ok"}' },
+        }]);
+        return captured;
+      },
+    };
+
+    const result = await probeProviderHealth({
+      provider: "groq",
+      strategy,
+      requireJsonMode: true,
+      additionalTools: [{
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a source file.",
+          parameters: { type: "object", required: ["path"] },
+        },
+      }],
+    });
+
+    expect(result.status).toBe("usable");
+    expect(captured).toBeDefined();
+    expect(capturedOptions?.responseFormat).toEqual({ type: "json_object" });
+    expect(capturedOptions?.tools?.map((tool) => tool.function.name)).toEqual([
+      PROBE_TOOL_NAME,
+      "read_file",
+    ]);
+  });
+
   it("classifies malformed tool arguments as provider unavailable", async () => {
     const result = await probeProviderHealth({
       provider: "openrouter",

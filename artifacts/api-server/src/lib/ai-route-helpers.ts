@@ -26,6 +26,7 @@ import {
   invalidateProviderLifecycle,
   validateGeminiDefaultModels,
   probeProviderHealth,
+  getCapabilityProbePreflightTools,
   toPublicExecutionLedgerSnapshot,
   isCapabilityProbeRequest,
 } from "@workspace/ai-orchestrator";
@@ -740,6 +741,8 @@ export async function chatWithFallback(
           timeoutMs: 15_000,
           maxFallbackModels: 1,
           signal: baseParams.signal,
+          additionalTools: getCapabilityProbePreflightTools(),
+          requireJsonMode: true,
         });
         const preflightAttemptId =
           `${attemptId ?? baseParams.telemetryContext?.correlationId ?? "chat"}:preflight:${providerIndex + 1}`;

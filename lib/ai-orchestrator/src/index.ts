@@ -87,6 +87,7 @@ export {
 export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities, getStrategy } from "./provider-registry.js";
 export {
   probeProviderHealth,
+  getCapabilityProbePreflightTools,
   PROBE_TOOL_NAME,
   type ProviderHealthProbeOptions,
   type ProviderHealthProbeResult,

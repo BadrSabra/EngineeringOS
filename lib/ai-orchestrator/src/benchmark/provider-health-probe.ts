@@ -8,6 +8,7 @@ import type {
   StrategyCallOptions,
   ToolDefinition,
 } from "../provider-strategy.js";
+import { FILE_TOOL_DEFINITIONS } from "../tools/file-tools.js";
 
 const PROBE_TOOL_NAME = "benchmark_health_probe";
 const PROBE_TIMEOUT_MS = 15_000;
@@ -86,9 +87,32 @@ export type ProviderHealthProbeOptions = {
    */
   maxFallbackModels?: number;
   signal?: AbortSignal;
+  /** Extra read-only tools used to mirror the target request contract. */
+  additionalTools?: ToolDefinition[];
+  /** Require the provider to accept the target structured-output mode. */
+  requireJsonMode?: boolean;
   /** Test seam; production uses the registered provider strategy. */
   strategy?: ProviderStrategy;
 };
+
+const CAPABILITY_READ_TOOL_NAMES = new Set([
+  "read_file",
+  "read_file_range",
+  "list_directory",
+  "search_code",
+]);
+
+export function getCapabilityProbePreflightTools(): ToolDefinition[] {
+  return FILE_TOOL_DEFINITIONS
+    .filter((tool) => CAPABILITY_READ_TOOL_NAMES.has(tool.function.name))
+    .map((tool) => ({
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters: { ...tool.function.parameters },
+      },
+    }));
+}
 
 const SAFE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
   "AUTH_ERROR",
@@ -348,8 +372,11 @@ export async function probeProviderHealth(
     timeoutMs: options.timeoutMs ?? PROBE_TIMEOUT_MS,
     retryTransient: false,
     toolChoice: "required",
-    tools: [PROBE_TOOL],
+    tools: [PROBE_TOOL, ...(options.additionalTools ?? [])],
     signal: options.signal,
+    ...(options.requireJsonMode
+      ? { responseFormat: { type: "json_object" as const } }
+      : {}),
     ...(options.provider === "openrouter"
       ? {
           quality: "fast" as const,
