@@ -4008,7 +4008,10 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     let executionRequest: AiExecutionRequestEnvelope = {
       projectId,
-      ...(streamResumableStateForTurn?.operationId
+      // Session task state is context, not proof that this request is a
+      // resume. Fresh executions must receive a new operation identity from
+      // createAiExecution; only an explicit execution can carry the old one.
+      ...(effectiveExecutionId && streamResumableStateForTurn?.operationId
         ? { operationId: streamResumableStateForTurn.operationId }
         : {}),
       sessionId: sessionIdToUse,
@@ -5605,13 +5608,36 @@ router.post("/ai/chat/stream", async (req, res) => {
         logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure");
         return undefined;
       });
-      if (aiExecution && (
-        !persistedProviderFailure
-        || persistedProviderFailure.outcome === "SUCCEEDED"
-      )) {
+      if (aiExecution) {
+        if (persistedProviderFailure?.outcome !== "SUCCEEDED") {
+          // The assistant failure is persisted above, but the execution row
+          // still needs its own terminal transition. Do this before finally
+          // runs so a provider code such as RATE_LIMITED is not replaced by
+          // the unrelated generic lifecycle error.
+          const executionFailure = cancelled
+            ? "Execution cancelled by the user."
+            : `AI provider failure: ${providerErrorCode}`;
+          await failAiExecution({
+            executionId: aiExecution.id,
+            workerId: executionWorkerId!,
+            error: executionFailure,
+            cancelled,
+            nodeStates: executionNodeStates,
+            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+            evidenceVerdict: "UNAVAILABLE",
+            evidenceReason: cancelled
+              ? "The execution was cancelled before source evidence could be collected."
+              : `The provider failed before source evidence could be collected (${providerErrorCode}).`,
+          }).catch((terminalError) => {
+            logger.warn(
+              { terminalError, executionId: aiExecution!.id, providerErrorCode },
+              "AI execution provider-failure terminal update failed",
+            );
+          });
+        }
+        // Whether this request persisted the failure or replayed an existing
+        // terminal message, no later finally block may reinterpret it.
         executionTerminal = true;
-        res.end();
-        return;
       }
       res.end();
       return;

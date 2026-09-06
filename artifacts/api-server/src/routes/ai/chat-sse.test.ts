@@ -743,6 +743,39 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("terminalizes provider failures with the provider code instead of the generic lifecycle error", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new Error("upstream rate limit"));
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "inspect the capability probe sources" });
+
+    expect(res.status).toBe(200);
+
+    const errorFrame = parseSseFrames(res.text).find((frame) =>
+      typeof frame === "object"
+      && frame !== null
+      && (frame as Record<string, unknown>).type === "error",
+    ) as Record<string, unknown> | undefined;
+    expect(errorFrame?.code).toBe("unknown");
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+        messages: Array<Record<string, unknown>>;
+      };
+    }).__chatTestFixture;
+    expect(dbFixture.execution.status).toBe("failed");
+    expect(dbFixture.execution.error).toBe("AI provider failure: UNKNOWN");
+    expect(dbFixture.execution.error).not.toBe("Execution ended before reaching a terminal result.");
+    expect(dbFixture.execution.finalMessageId).toBeTruthy();
+
+    const assistant = dbFixture.messages.find((message) => message.role === "assistant");
+    expect(assistant?.outcome).toBe("FAILED");
+    expect(assistant?.errorCode).toBe("UNKNOWN");
+  });
+
   it("creates the initial checkpoint before provider execution and avoids terminal double-send errors", async () => {
     const dbFixture = (await import("@workspace/db") as unknown as {
       __chatTestFixture: {
