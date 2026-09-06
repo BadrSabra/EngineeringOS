@@ -32,3 +32,9 @@ Capability Probe reconnects are governed by an explicit persisted contract conta
 **Why:** Short retry messages are ordinary chat when classified in isolation, and making all behavior questions resumable would allow unrelated questions to revive an older probe.
 
 **How to apply:** Persist and restore the probe contract in the execution request, resume contract, session state, and checkpoint; only that marker may opt a behavior query into continuation.
+
+Live provider success does not imply probe acceptance: citation recovery and micro-probes can consume additional quota after the initial response. A valid acceptance run therefore needs a provider with enough bounded recovery budget and at least one configured fallback.
+
+**Why:** The latest live run completed both declared source reads and recorded a successful Gemini attempt, but the malformed response produced zero accepted claims; Gemini then returned quota errors during recovery and Groq was unavailable because its key was not configured.
+
+**How to apply:** Treat provider capacity/configuration as a precondition for live C1–C7 acceptance, and inspect the recovery attempts separately from the initial provider success before diagnosing the acceptance gate.

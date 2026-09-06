@@ -8,3 +8,9 @@ Analysis results are only usable when their operation ID, workspace revision, an
 **Why:** Provider retries and reconnects can outlive the request that started them, while scans can mutate project state during execution.
 
 **How to apply:** Thread one correlation envelope through every analysis runner call, persist its workspace revision with durable executions for reconnects, reject mismatches before model/evidence ingestion, and check cancellation before any scan transaction writes.
+
+The durable execution row and provider telemetry must use the same correlation identity; assigning an initial analysis UUID to the execution row and later switching telemetry to the generated operation ID creates a cross-surface join gap even when each individual row is valid.
+
+**Why:** A live execution persisted one correlation ID on `ai_executions`, while its `ai_usage_events` rows used the execution operation ID as their correlation ID.
+
+**How to apply:** Choose the operation/correlation identity before execution creation, persist it once, and pass that same value to execution state, telemetry, events, checkpoints, and exported reports.
