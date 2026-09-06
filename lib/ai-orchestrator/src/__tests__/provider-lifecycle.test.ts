@@ -5,6 +5,7 @@ import {
   _resetProviderLifecycleForTest,
   getProviderLifecycleSnapshot,
   invalidateProviderLifecycle,
+  recordProviderLifecycleOutcome,
 } from "../provider-lifecycle.js";
 
 vi.mock("../groq-client.js", async (importOriginal) => {
@@ -128,6 +129,50 @@ describe("provider lifecycle", () => {
     });
     expect(refreshed.revision).toBeGreaterThan(first.revision);
     expect(validateGroqDefaultModels).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps rejected requests distinct from transient provider outages", async () => {
+    await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-request-rejected-key",
+      source: "user",
+      check: true,
+    });
+    recordProviderLifecycleOutcome({
+      provider: "groq",
+      apiKey: "groq-request-rejected-key",
+      source: "user",
+      code: "NON_200",
+    });
+    const rejected = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-request-rejected-key",
+      source: "user",
+      check: false,
+    });
+
+    await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-capability-mismatch-key",
+      source: "user",
+      check: true,
+    });
+    recordProviderLifecycleOutcome({
+      provider: "groq",
+      apiKey: "groq-capability-mismatch-key",
+      source: "user",
+      code: "INVALID_TOOL_CALL",
+    });
+    const capabilityMismatch = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-capability-mismatch-key",
+      source: "user",
+      check: false,
+    });
+
+    expect(rejected.reasonCodes).toContain("runtime_request_rejected");
+    expect(rejected.reasonCodes).not.toContain("runtime_transient_failure");
+    expect(capabilityMismatch.reasonCodes).toContain("runtime_capability_mismatch");
   });
 
   it("shares one in-flight check between concurrent callers", async () => {

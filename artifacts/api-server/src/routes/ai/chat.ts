@@ -4089,6 +4089,19 @@ router.post("/ai/chat/stream", async (req, res) => {
   let executionNodeStates: ActiveTaskExecutionPlan["nodes"] = [];
   let resumeCheckpoint: AiExecutionCheckpoint | undefined;
   let autonomousOperation: ReturnType<typeof createAutonomousOperationContract> | undefined;
+  const providerAttemptSummary: NonNullable<AiExecutionCheckpoint["providerAttempts"]> = [];
+  const rememberProviderAttempt = (attempt: {
+    provider: string;
+    outcome: "success" | "failure" | "cancelled";
+    providerFailureKind?: string | null;
+  }) => {
+    if (attempt.outcome !== "failure" || !attempt.providerFailureKind) return;
+    providerAttemptSummary.push({
+      provider: attempt.provider,
+      code: attempt.providerFailureKind,
+    });
+    if (providerAttemptSummary.length > 8) providerAttemptSummary.shift();
+  };
 
   try {
     res.setHeader("Content-Type", "text/event-stream");
@@ -4387,6 +4400,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         sessionId: sessionIdToUse,
         linkedTaskId: effectiveLinkedTaskId,
         buildPlanMessageId: effectiveBuildPlanMessageId,
+        correlationId: analysisCorrelation.operationId ?? sessionIdToUse,
       });
       aiExecution = created.execution;
       analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
@@ -5441,19 +5455,22 @@ router.post("/ai/chat/stream", async (req, res) => {
            ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
           executionLedger,
           ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
-          onProviderAttempt: (attempt) => recordAiUsageAttempt({
-            projectId,
-            userId: req.userId,
-            executionId: aiExecution?.id ?? null,
-            operationId: aiExecution?.operationId ?? analysisCorrelation.operationId ?? null,
-            correlationId: aiExecution?.operationId ?? analysisCorrelation.operationId ?? sessionIdToUse,
-          }, {
-            ...attempt,
-            attemptId: `${aiExecution?.id ?? analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.provider}:${attempt.attemptNumber}`,
-            usageStatus: attempt.usageStatus,
-            promptTokens: attempt.promptTokens,
-            completionTokens: attempt.completionTokens,
-          }),
+          onProviderAttempt: (attempt) => {
+            rememberProviderAttempt(attempt);
+            return recordAiUsageAttempt({
+              projectId,
+              userId: req.userId,
+              executionId: aiExecution?.id ?? null,
+              operationId: aiExecution?.operationId ?? analysisCorrelation.operationId ?? null,
+              correlationId: aiExecution?.operationId ?? analysisCorrelation.operationId ?? sessionIdToUse,
+            }, {
+              ...attempt,
+              attemptId: `${aiExecution?.id ?? analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.provider}:${attempt.attemptNumber}`,
+              usageStatus: attempt.usageStatus,
+              promptTokens: attempt.promptTokens,
+              completionTokens: attempt.completionTokens,
+            });
+          },
         },
         { provider, apiKey },
         onDelta,
@@ -5833,6 +5850,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             evidenceReason: cancelled
               ? "The execution was cancelled before source evidence could be collected."
               : `The provider failed before source evidence could be collected (${providerErrorCode}).`,
+            providerAttempts: providerAttemptSummary,
           }).catch((terminalError) => {
             logger.warn(
               { terminalError, executionId: aiExecution!.id, providerErrorCode },

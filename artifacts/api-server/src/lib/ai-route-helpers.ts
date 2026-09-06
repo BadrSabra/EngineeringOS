@@ -439,6 +439,7 @@ export async function runAgentWithFallback<T>(
       promptTokens?: number | null;
       completionTokens?: number | null;
       usageStatus?: "known" | "partial" | "unknown";
+       providerFailureKind?: string | null;
        } & AiContractTelemetry) => void | Promise<void>;
     telemetryContext?: AiTelemetryContext;
   },
@@ -500,12 +501,14 @@ export async function runAgentWithFallback<T>(
       if (attemptId) void reconcileAiBudgetReservation(attemptId);
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
+      const providerError = normalizeProviderFailure(err);
       const telemetryAttempt = {
         provider: providerEntry.provider,
         outcome: options?.signal?.aborted ? "cancelled" : "failure",
         latencyMs: Date.now() - providerStartedAt,
         attemptNumber: providerIndex + 1,
         fallbackCount: providerIndex,
+        providerFailureKind: providerError.code,
       } as const;
       await options?.onProviderAttempt?.(telemetryAttempt);
       if (options?.telemetryContext) {
@@ -519,7 +522,6 @@ export async function runAgentWithFallback<T>(
       if (options?.signal?.aborted) {
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
       }
-      const providerError = normalizeProviderFailure(err);
       recordProviderLifecycleOutcome({
         provider: providerEntry.provider,
         source: providerEntry.source,
@@ -625,6 +627,7 @@ export async function chatWithFallback(
       promptTokens?: number | null;
       completionTokens?: number | null;
       usageStatus?: "known" | "partial" | "unknown";
+      providerFailureKind?: string | null;
     } & AiContractTelemetry) => void | Promise<void>;
     /** Content-free owner/project identity used for provider admission. */
     telemetryContext?: AiTelemetryContext;
@@ -769,6 +772,7 @@ export async function chatWithFallback(
       if (attemptId) void reconcileAiBudgetReservation(attemptId);
       return { result, effectiveProvider: providerEntry.provider, executionLedger };
     } catch (err) {
+      const providerError = normalizeProviderFailure(err);
       await baseParams.onProviderAttempt?.({
         provider: providerEntry.provider,
         model: null,
@@ -776,9 +780,9 @@ export async function chatWithFallback(
         latencyMs: Date.now() - providerStartedAt,
         attemptNumber: providerIndex + 1,
         fallbackCount: providerIndex,
+        providerFailureKind: providerError.code,
       });
       if (attemptId) void reconcileAiBudgetReservation(attemptId);
-      const providerError = normalizeProviderFailure(err);
       recordProviderLifecycleOutcome({
         provider: providerEntry.provider,
         source: providerEntry.source,

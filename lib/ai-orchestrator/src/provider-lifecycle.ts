@@ -17,7 +17,7 @@ import {
   type ProviderId,
 } from "./provider-registry.js";
 import { validateDeepSeekDefaultModels, type DeepSeekDefaultModelValidation } from "./deepseek-client.js";
-import { GroqClientError } from "./errors.js";
+import { GroqClientError, type GroqErrorCode } from "./errors.js";
 
 export type CredentialSource = "server" | "user";
 export type LifecycleModelRole = "fast" | "powerful";
@@ -37,6 +37,8 @@ export type ProviderLifecycleReasonCode =
   | "circuit_open"
   | "runtime_model_not_found"
   | "runtime_auth_failed"
+  | "runtime_request_rejected"
+  | "runtime_capability_mismatch"
   | "runtime_transient_failure";
 
 export type LifecycleRoleState = {
@@ -436,14 +438,18 @@ export function recordProviderLifecycleOutcome(input: {
   source: CredentialSource;
   apiKey: string;
   model?: string;
-  code: "MODEL_NOT_FOUND" | "AUTH_ERROR" | "TIMEOUT" | "SERVER_ERROR" | "RATE_LIMITED";
+  code: GroqErrorCode;
 }): void {
   const key = cacheKey(input.provider, input.source, fingerprint(input.apiKey));
   const entry = cache.get(key);
   if (!entry) return;
   const reason: ProviderLifecycleReasonCode =
     input.code === "MODEL_NOT_FOUND" ? "runtime_model_not_found" :
-      input.code === "AUTH_ERROR" ? "runtime_auth_failed" : "runtime_transient_failure";
+      input.code === "AUTH_ERROR" ? "runtime_auth_failed" :
+        input.code === "NON_200" || input.code === "INVALID_CONFIG" ? "runtime_request_rejected" :
+          input.code === "INVALID_TOOL_CALL" || input.code === "MODEL_UNAVAILABLE"
+            ? "runtime_capability_mismatch"
+            : "runtime_transient_failure";
   const modelMissing = input.code === "MODEL_NOT_FOUND" || input.code === "AUTH_ERROR";
   const snapshot = entry.snapshot;
   const roles = input.model

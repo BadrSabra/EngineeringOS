@@ -577,6 +577,11 @@ export type AiCapabilityProbeCheckpoint = AiCapabilityProbeContract & {
   recoveryFailureKind?: string;
 };
 
+export type AiProviderAttemptCheckpoint = {
+  provider: string;
+  code: string;
+};
+
 export type AiExecutionNodeCheckpoint = Pick<
   ExecutionNode,
   | "id"
@@ -613,6 +618,7 @@ export type AiExecutionCheckpoint = {
   evidenceReason?: string;
   proofRequired?: boolean;
   capabilityProbe?: AiCapabilityProbeCheckpoint;
+  providerAttempts?: AiProviderAttemptCheckpoint[];
   acceptanceDisposition?: AiAcceptanceDisposition;
   detail?: string;
   operation?: AutonomousOperationContract;
@@ -870,6 +876,19 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       ? undefined
       : parseCapabilityProbeCheckpoint(value.capabilityProbe);
     if (value.capabilityProbe !== undefined && !capabilityProbe) return undefined;
+    const providerAttempts = Array.isArray(value.providerAttempts)
+      ? value.providerAttempts
+          .filter((attempt) => Boolean(attempt) && typeof attempt === "object")
+          .map((attempt) => attempt as { provider?: unknown; code?: unknown })
+          .filter((attempt): attempt is { provider: string; code: string } =>
+            typeof attempt.provider === "string" && typeof attempt.code === "string",
+          )
+          .slice(-8)
+          .map((attempt) => ({
+            provider: attempt.provider.slice(0, 40),
+            code: attempt.code.slice(0, 80),
+          }))
+      : undefined;
     return {
       stage: value.stage as AiExecutionCheckpoint["stage"],
       sequence: value.sequence,
@@ -898,6 +917,7 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
         : {}),
       ...(typeof value.proofRequired === "boolean" ? { proofRequired: value.proofRequired } : {}),
       ...(capabilityProbe ? { capabilityProbe } : {}),
+      ...(providerAttempts && providerAttempts.length > 0 ? { providerAttempts } : {}),
       ...(typeof value.detail === "string" ? { detail: value.detail.slice(0, 500) } : {}),
       ...(operation ? { operation } : {}),
       ...(recipeBinding ? { recipeBinding } : {}),
@@ -1359,6 +1379,7 @@ function mergeTerminalCheckpoint(
     evidenceVerdict?: FlightDeckEvidenceVerdict;
     evidenceReason?: string;
     capabilityProbe?: AiCapabilityProbeCheckpoint;
+    providerAttempts?: AiProviderAttemptCheckpoint[];
   },
 ): AiExecutionCheckpoint {
   const previous = parseAiExecutionCheckpoint(execution.checkpoint);
@@ -1432,6 +1453,16 @@ function mergeTerminalCheckpoint(
               },
             }
           : {}),
+    ...(params.providerAttempts && params.providerAttempts.length > 0
+      ? {
+          providerAttempts: params.providerAttempts
+            .slice(-8)
+            .map((attempt) => ({
+              provider: attempt.provider.slice(0, 40),
+              code: attempt.code.slice(0, 80),
+            })),
+        }
+      : {}),
     detail: params.error.slice(0, 500),
     updatedAt: now,
   } satisfies AiExecutionCheckpoint;
@@ -1810,6 +1841,7 @@ export async function failAiExecution(params: {
   acceptanceDisposition?: AiAcceptanceDisposition;
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
+  providerAttempts?: AiProviderAttemptCheckpoint[];
 }): Promise<boolean> {
   const status = params.cancelled ? "cancelled" : "failed";
   const [current] = await db

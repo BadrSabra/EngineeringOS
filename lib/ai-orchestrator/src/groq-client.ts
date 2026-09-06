@@ -15,7 +15,11 @@
  * gets its own cached Groq client instance.
  */
 import Groq from "groq-sdk";
-import { GroqClientError, type GroqErrorCode } from "./errors.js";
+import {
+  GroqClientError,
+  redactProviderErrorText,
+  type GroqErrorCode,
+} from "./errors.js";
 import type { ExecutionLedger } from "./execution-ledger.js";
 import {
   createContentOnlyStreamGuard,
@@ -523,47 +527,91 @@ export async function completeRaw(
   throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
 }
 
-function classifySdkError(err: unknown, aborted: boolean): GroqClientError {
+function classifySdkError(err: unknown, aborted: boolean, model?: string): GroqClientError {
   if (err instanceof GroqClientError) return err;
   if (aborted) return new GroqClientError("TIMEOUT", "Groq request timed out", { cause: err });
 
-  const status = (err as { status?: number } | undefined)?.status;
+  const candidate = err as {
+    status?: unknown;
+    code?: unknown;
+    message?: unknown;
+    error?: unknown;
+    headers?: { get?: (name: string) => string | null };
+  } | undefined;
+  const status = typeof candidate?.status === "number" ? candidate.status : undefined;
+  const errorBody = candidate?.error;
+  const errorRecord = errorBody && typeof errorBody === "object"
+    ? errorBody as { code?: unknown; message?: unknown; error?: unknown }
+    : undefined;
+  const nestedError = errorRecord?.error && typeof errorRecord.error === "object"
+    ? errorRecord.error as { code?: unknown; message?: unknown }
+    : undefined;
+  const providerCode = [
+    nestedError?.code,
+    errorRecord?.code,
+    candidate?.code,
+  ].find((value): value is string => typeof value === "string" && value.length > 0);
+  const providerMessage = [
+    nestedError?.message,
+    errorRecord?.message,
+    candidate?.message,
+  ].find((value): value is string => typeof value === "string" && value.length > 0);
+  const context = {
+    providerStatus: status,
+    providerCode: providerCode ? redactProviderErrorText(providerCode.slice(0, 120)) : undefined,
+    providerMessage: providerMessage
+      ? redactProviderErrorText(providerMessage.slice(0, 240))
+      : undefined,
+    providerName: "Groq",
+    providerModel: model,
+    retryAfterMs: (() => {
+      const raw = candidate?.headers?.get?.("retry-after");
+      const seconds = raw ? Number(raw) : NaN;
+      return Number.isFinite(seconds) ? Math.min(60_000, Math.max(0, Math.ceil(seconds * 1000))) : undefined;
+    })(),
+  };
   if (typeof status === "number") {
     if (status === 404) {
-      const model = (err as { error?: { error?: { message?: string } }; message?: string } | undefined);
-      const providerMessage =
-        model?.error?.error?.message ??
-        model?.message ??
+      const missingModelMessage =
+        providerMessage ??
         "Groq did not recognize the requested model.";
       return new GroqClientError(
         "MODEL_NOT_FOUND",
-        `Groq model not found (404) — ${providerMessage}`,
+        `Groq model not found (404) — ${missingModelMessage}`,
         {
           cause: err,
-          context: {
-            providerStatus: status,
-            providerName: "Groq",
-            providerModel: undefined,
-            providerMessage,
-          },
+          context: { ...context, providerMessage: missingModelMessage },
         },
       );
     }
     if (status === 401 || status === 403) {
-      return new GroqClientError("AUTH_ERROR", `Groq API authentication failed (${status})`, { cause: err });
+      return new GroqClientError("AUTH_ERROR", `Groq API authentication failed (${status})`, {
+        cause: err,
+        context,
+      });
     }
     if (status === 429) {
-      return new GroqClientError("RATE_LIMITED", "Groq API rate limit exceeded", { cause: err });
+      return new GroqClientError("RATE_LIMITED", "Groq API rate limit exceeded", {
+        cause: err,
+        context,
+      });
     }
     if (status >= 500) {
-      return new GroqClientError("SERVER_ERROR", `Groq API server error (${status})`, { cause: err });
+      return new GroqClientError("SERVER_ERROR", `Groq API server error (${status})`, {
+        cause: err,
+        context,
+      });
     }
-    return new GroqClientError("NON_200", `Groq API responded with status ${status}`, { cause: err });
+    return new GroqClientError(
+      "NON_200",
+      `Groq API responded with status ${status}${providerMessage ? ` — ${providerMessage}` : ""}`,
+      { cause: err, context },
+    );
   }
   return new GroqClientError(
     "NETWORK_ERROR",
-    err instanceof Error ? err.message : "Network error contacting Groq",
-    { cause: err },
+    providerMessage ?? (err instanceof Error ? err.message : "Network error contacting Groq"),
+    { cause: err, context },
   );
 }
 
@@ -576,7 +624,7 @@ async function sendRequest(client: Groq, request: ChatRequest, timeoutMs: number
   try {
     return await client.chat.completions.create(request, { signal: controller.signal });
   } catch (err) {
-    throw classifySdkError(err, controller.signal.aborted);
+    throw classifySdkError(err, controller.signal.aborted, request.model);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
@@ -700,7 +748,7 @@ export async function* completeStream(
       providerAttemptStartedAt,
       providerAttemptError,
     );
-    throw classifySdkError(err, controller.signal.aborted);
+    throw classifySdkError(err, controller.signal.aborted, model);
   }
 
   let hadContent = false;
@@ -726,7 +774,7 @@ export async function* completeStream(
       throw err;
     }
     circuitRecord(circuitKey, false);
-    throw classifySdkError(err, controller.signal.aborted);
+    throw classifySdkError(err, controller.signal.aborted, model);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);

@@ -117,12 +117,18 @@ describe("groq-client", () => {
     await expect(complete([{ role: "user", content: "hi" }])).rejects.toMatchObject({ code: "EMPTY_RESPONSE" });
   });
 
-  it("classifies an SDK error with a numeric status as NON_200", async () => {
+  it("classifies an SDK error with a numeric status and preserves bounded provider context", async () => {
     vi.doMock("groq-sdk", () => ({
       default: class {
         chat = {
           completions: {
-            create: vi.fn().mockRejectedValue(Object.assign(new Error("bad request"), { status: 400 })),
+            create: vi.fn().mockRejectedValue(Object.assign(new Error("bad request"), {
+              status: 400,
+              error: {
+                code: "invalid_request_error",
+                message: "tool schema rejected",
+              },
+            })),
           },
         };
       },
@@ -130,6 +136,11 @@ describe("groq-client", () => {
     const { complete } = await import("../groq-client.js");
     await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 0 })).rejects.toMatchObject({
       code: "NON_200",
+      providerStatus: 400,
+      providerCode: "invalid_request_error",
+      providerMessage: "tool schema rejected",
+      providerName: "Groq",
+      providerModel: expect.any(String),
     });
   });
 
