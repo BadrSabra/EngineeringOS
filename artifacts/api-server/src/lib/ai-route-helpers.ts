@@ -15,6 +15,7 @@ import {
   chat,
   buildProjectContext,
   GroqClientError,
+  getStrategy,
   PROVIDER_PRIORITY,
   PROVIDER_REGISTRY,
   sortProviderIdsByQuality,
@@ -25,6 +26,7 @@ import {
   invalidateProviderLifecycle,
   validateGeminiDefaultModels,
   toPublicExecutionLedgerSnapshot,
+  isCapabilityProbeRequest,
 } from "@workspace/ai-orchestrator";
 import type {
   ProviderId,
@@ -439,7 +441,7 @@ export async function runAgentWithFallback<T>(
       promptTokens?: number | null;
       completionTokens?: number | null;
       usageStatus?: "known" | "partial" | "unknown";
-       providerFailureKind?: string | null;
+      providerFailureKind?: string | null;
        } & AiContractTelemetry) => void | Promise<void>;
     telemetryContext?: AiTelemetryContext;
   },
@@ -628,6 +630,8 @@ export async function chatWithFallback(
       completionTokens?: number | null;
       usageStatus?: "known" | "partial" | "unknown";
       providerFailureKind?: string | null;
+      attemptId?: string;
+      operation?: string;
     } & AiContractTelemetry) => void | Promise<void>;
     /** Content-free owner/project identity used for provider admission. */
     telemetryContext?: AiTelemetryContext;
@@ -645,6 +649,9 @@ export async function chatWithFallback(
   const executionLedger =
     baseParams.executionLedger ??
     createExecutionLedger({ mode: "tool_chat", signal: baseParams.signal });
+  const capabilityProbeTurn =
+    isCapabilityProbeRequest(baseParams.message) ||
+    Boolean(baseParams.activeTaskState?.capabilityProbe);
   const orderedProviders = await collectAvailableProviders(userId, options);
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
     const lifecycle = await getProviderLifecycleSnapshot({
@@ -663,14 +670,17 @@ export async function chatWithFallback(
     executionLedger.setTerminal("provider_exhausted");
     throw new GroqClientError(
       "INVALID_CONFIG",
-      options?.requireTools
-        ? "No tool-capable AI provider is configured"
-        : "No AI provider returned a response",
+      capabilityProbeTurn
+        ? "No provider is configured and selectable for the capability probe"
+        : options?.requireTools
+          ? "No tool-capable AI provider is configured"
+          : "No AI provider returned a response",
     );
   }
 
   let lastErr: GroqClientError | undefined;
   let fallbackRefreshUsed = false;
+  let capabilityRecoveryAttemptSerial = 0;
   // GAP-C1: collect every provider failure so the final error message shows
   // the full cascade, not just the last attempt.
   const providerErrors: Array<{ provider: string; code: string; message: string }> = [];
@@ -746,6 +756,30 @@ export async function chatWithFallback(
         signal: baseParams.signal,
         turnIntent: baseParams.turnIntent,
         retainedEvidence,
+        capabilityRecoveryProviders: capabilityProbeTurn
+          ? orderedProviders
+              .filter((candidate) => candidate.provider !== providerEntry.provider)
+              .map((candidate) => ({
+                provider: candidate.provider,
+                apiKey: candidate.apiKey,
+                strategy: getStrategy(candidate.provider),
+              }))
+          : undefined,
+        onProviderAttempt: capabilityProbeTurn
+          ? async (attempt) => {
+              capabilityRecoveryAttemptSerial += 1;
+              await baseParams.onProviderAttempt?.({
+                ...attempt,
+                attemptId: `${attemptId ?? baseParams.telemetryContext?.correlationId ?? "chat"}:recovery:${capabilityRecoveryAttemptSerial}`,
+                contractOutcome: "not_applicable",
+                recoveryOutcome: "not_attempted",
+                contractClaimCount: 0,
+                contractCitationMatchCount: 0,
+                contractRecoveryLatencyMs: null,
+                contractFailureKind: null,
+              });
+            }
+          : undefined,
          executionLedger,
          capabilityRegistry: baseParams.capabilityRegistry,
       } as Parameters<typeof chat>[0]);

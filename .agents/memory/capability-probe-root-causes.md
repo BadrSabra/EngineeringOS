@@ -38,3 +38,9 @@ Live provider success does not imply probe acceptance: citation recovery and mic
 **Why:** The latest live run completed both declared source reads and recorded a successful Gemini attempt, but the malformed response produced zero accepted claims; Gemini then returned quota errors during recovery and Groq was unavailable because its key was not configured.
 
 **How to apply:** Treat provider capacity/configuration as a precondition for live C1–C7 acceptance, and inspect the recovery attempts separately from the initial provider success before diagnosing the acceptance gate.
+
+Capability-probe recovery must consume only the request's server-authorized, currently selectable provider candidates; it must never invent a provider fallback from a process-wide key.
+
+**Why:** A primary provider may be valid while another provider is absent, unhealthy, circuit-open, or outside the request's credential scope. An implicit Groq fallback created misleading recovery failures and hid the real provider cascade.
+
+**How to apply:** Build recovery candidates after credential, lifecycle, capability, and circuit checks; pass their keys explicitly, record each nested attempt with a safe unique attempt ID, and keep a single configured provider valid for isolated deterministic runs.

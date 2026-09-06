@@ -373,6 +373,84 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     expect(callCount).toBe(4);
   });
 
+  it("uses only authorized recovery providers and records nested provider attempts", async () => {
+    const attempts: Array<{
+      provider: string;
+      outcome: string;
+      operation: string;
+    }> = [];
+    let primaryCallCount = 0;
+    const responseFor = (prompt: string): string => {
+      if (prompt.includes("C1") && prompt.includes("C3")) {
+        return "C1: PASS — isPromptProsePath exists; Evidence ID: E1.\n" +
+          "C3: PASS — the named function is grounded; Evidence ID: E1.";
+      }
+      if (prompt.includes("C4")) {
+        return "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is MISSING; Evidence ID: E2.";
+      }
+      if (prompt.includes("C7")) {
+        return "C7: PASS — run() is MISSING; Evidence ID: E3.";
+      }
+      return "C6: PASS — eval( and Function( are MISSING; Evidence ID: E4.";
+    };
+    const primary = {
+      call: vi.fn(async (messages: unknown[]) => {
+        primaryCallCount += 1;
+        if (primaryCallCount === 1) {
+          throw new GroqClientError("QUOTA", "simulated primary recovery quota");
+        }
+        return { content: responseFor(JSON.stringify(messages)), model: "gemini-test" };
+      }),
+    };
+    const authorizedFallback = {
+      call: vi.fn(async (messages: unknown[]) => ({
+        content: responseFor(JSON.stringify(messages)),
+        model: "openrouter-recovery",
+      })),
+    };
+
+    const result = await runCapabilityMicroProbes({
+      strategy: primary,
+      provider: "gemini",
+      model: "gemini-test",
+      fallbackProviders: [{
+        provider: "openrouter",
+        strategy: authorizedFallback,
+        apiKey: "authorized-fallback-key",
+      }],
+      onProviderAttempt: (attempt) => {
+        attempts.push({
+          provider: attempt.provider,
+          outcome: attempt.outcome,
+          operation: attempt.operation,
+        });
+      },
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result?.response).toContain("Overall score: 7/7 capabilities demonstrated.");
+    expect(authorizedFallback.call).toHaveBeenCalledTimes(1);
+    expect(attempts.slice(0, 2)).toEqual([
+      {
+        provider: "gemini",
+        outcome: "failure",
+        operation: "capability_micro_probe:grounding",
+      },
+      {
+        provider: "openrouter",
+        outcome: "success",
+        operation: "capability_micro_probe:grounding",
+      },
+    ]);
+    expect(new Set(attempts.map((attempt) => attempt.provider))).toEqual(
+      new Set(["gemini", "openrouter"]),
+    );
+  });
+
   it("uses JSON mode for Gemini micro-probes and retries grounding after a timeout", async () => {
     const calls: Array<{ responseFormat?: unknown }> = [];
     let firstCall = true;

@@ -2372,6 +2372,17 @@ type CapabilityRecoveryProvider = {
   apiKey?: string;
 };
 
+type CapabilityRecoveryTelemetryAttempt = {
+  provider: ProviderId;
+  model?: string | null;
+  outcome: "success" | "failure" | "cancelled";
+  latencyMs: number;
+  attemptNumber: number;
+  fallbackCount: number;
+  providerFailureKind?: string | null;
+  operation: string;
+};
+
 type CapabilityRecoveryCallResult = {
   content?: string | null;
   model?: string;
@@ -2395,6 +2406,7 @@ async function callCapabilityRecoveryWithFallback(opts: {
   signal?: AbortSignal;
   executionLedger?: ExecutionLedger;
   operation: string;
+  onProviderAttempt?: (attempt: CapabilityRecoveryTelemetryAttempt) => void | Promise<void>;
 }): Promise<{
   result: CapabilityRecoveryCallResult;
   provider: ProviderId;
@@ -2414,6 +2426,7 @@ async function callCapabilityRecoveryWithFallback(opts: {
         : opts.deadlineAt - Date.now();
     if (remainingMs <= 0) break;
     const timeoutMs = Math.min(opts.attemptTimeoutMs, Math.max(1, remainingMs));
+    const providerStartedAt = Date.now();
     try {
       const result = await awaitAbortableRecovery(
         (recoverySignal) => candidate.strategy.call(opts.messages, {
@@ -2434,6 +2447,16 @@ async function callCapabilityRecoveryWithFallback(opts: {
         timeoutMs,
         opts.signal,
       );
+      await opts.onProviderAttempt?.({
+        provider: candidate.provider,
+        model: result.model || candidate.model || null,
+        outcome: "success",
+        latencyMs: Date.now() - providerStartedAt,
+        attemptNumber: candidateIndex + 1,
+        fallbackCount: candidateIndex,
+        providerFailureKind: null,
+        operation: opts.operation,
+      });
       const content = result.content?.trim() ?? "";
       if (!content) {
         throw Object.assign(new Error("capability recovery returned no content"), {
@@ -2465,6 +2488,16 @@ async function callCapabilityRecoveryWithFallback(opts: {
           : error instanceof Error && error.name === "AbortError"
             ? "TIMEOUT"
             : "PROVIDER_FAILURE";
+      await opts.onProviderAttempt?.({
+        provider: candidate.provider,
+        model: candidate.model ?? null,
+        outcome: opts.signal?.aborted ? "cancelled" : "failure",
+        latencyMs: Date.now() - providerStartedAt,
+        attemptNumber: candidateIndex + 1,
+        fallbackCount: candidateIndex,
+        providerFailureKind: code,
+        operation: opts.operation,
+      });
       console.warn(JSON.stringify({
         scope: "chat-agent",
         code: "CAPABILITY_RECOVERY_PROVIDER_FAILED",
@@ -2493,6 +2526,7 @@ export async function runCapabilityMicroProbes(opts: {
   fallbackProviders?: readonly CapabilityRecoveryProvider[];
   signal?: AbortSignal;
   executionLedger?: ExecutionLedger;
+  onProviderAttempt?: (attempt: CapabilityRecoveryTelemetryAttempt) => void | Promise<void>;
   fileContents: ReadonlyMap<string, string>;
   pendingChanges: readonly PendingChange[];
   deadlineAt?: number;
@@ -2571,6 +2605,7 @@ export async function runCapabilityMicroProbes(opts: {
           signal: opts.signal,
           executionLedger: opts.executionLedger,
           operation: `capability_micro_probe:${group.name}`,
+          onProviderAttempt: opts.onProviderAttempt,
         });
         return call.result;
       };
@@ -4730,6 +4765,13 @@ export async function chat(opts: {
    capabilityCatalogRequest?: CapabilityCatalogRequest;
    /** Request-owned budget shared with provider fallback and nested orchestration. */
    executionLedger?: ExecutionLedger;
+   /** Best-effort telemetry for bounded capability-probe recovery attempts. */
+   onProviderAttempt?: (attempt: CapabilityRecoveryTelemetryAttempt) => void | Promise<void>;
+   /**
+    * Server-authorized recovery providers. This list is supplied only after
+    * credential, lifecycle, capability, and circuit checks at the API boundary.
+    */
+   capabilityRecoveryProviders?: readonly CapabilityRecoveryProvider[];
 }): Promise<ChatResult> {
   const {
     message,
@@ -4773,6 +4815,8 @@ export async function chat(opts: {
     capabilityRegistry,
     capabilityCatalogRequest,
     executionLedger: suppliedExecutionLedger,
+    onProviderAttempt,
+    capabilityRecoveryProviders,
   } = opts;
   const executionLedger =
     suppliedExecutionLedger ??
@@ -5501,13 +5545,33 @@ export async function chat(opts: {
   const providerDecision = resolveExecutionProvider(executionPlan, provider);
   const providerId = providerDecision.providerId;
   const strategy = getStrategy(providerId);
-  // Capability recovery may switch once to the server's Groq fallback when
-  // Gemini is the primary provider. Groq resolves its own server-side
-  // credential, so the user's Gemini credential is never forwarded.
-  const capabilityRecoveryFallbackProviders: readonly CapabilityRecoveryProvider[] =
-    providerId !== "groq"
-      ? [{ provider: "groq", strategy: getStrategy("groq") }]
-      : [];
+  // Capability recovery is restricted to providers selected by the API route.
+  // Never invent a Groq fallback here: a provider key can be valid for the
+  // primary request while another provider is absent, unhealthy, or outside
+  // the request's authorized selection set.
+  const capabilityRecoveryFallbackProviders =
+    capabilityRecoveryProviders ?? [];
+  let capabilityRecoveryTelemetrySequence = 0;
+  const reportCapabilityRecoveryAttempt = async (
+    attempt: CapabilityRecoveryTelemetryAttempt,
+  ): Promise<void> => {
+    capabilityRecoveryTelemetrySequence += 1;
+    try {
+      await onProviderAttempt?.({
+        ...attempt,
+        operation: attempt.operation,
+      });
+    } catch (error) {
+      // Telemetry is best effort and must never turn a usable recovery response
+      // into a provider failure or alter the evidence gate.
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "CAPABILITY_RECOVERY_TELEMETRY_FAILED",
+        operation: attempt.operation,
+        reason: error instanceof Error ? error.name : "unknown",
+      }));
+    }
+  };
   const modelDecision = resolveExecutionModel(providerId, executionPlan);
 
   const pendingChanges: PendingChange[] = [];
@@ -10232,6 +10296,7 @@ export async function chat(opts: {
         signal,
         executionLedger,
         operation: "capability_probe_citation_recovery",
+        onProviderAttempt: reportCapabilityRecoveryAttempt,
       });
       const recovery = recoveryCall.result;
       relayAgentStep({
@@ -10433,6 +10498,7 @@ export async function chat(opts: {
         pendingChanges,
         deadlineAt: microProbeDeadlineAt,
         deadlineIncludesTerminalReserve: true,
+        onProviderAttempt: reportCapabilityRecoveryAttempt,
       });
       if (microProbeRecovery) {
       const microValidation = validateBehaviorEvidence(
