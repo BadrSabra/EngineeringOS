@@ -40,6 +40,25 @@ describe("AI release quality gate", () => {
     ]));
   });
 
+  it("registers the blocking capability-probe provider matrix with safe contract coverage", () => {
+    const check = getAiReleaseChecks().find(
+      (candidate) => candidate.id === "ai-capability-probe-provider-matrix",
+    );
+    expect(check).toMatchObject({
+      kind: "contract",
+      blocking: true,
+      enabled: true,
+      command: "pnpm --filter @workspace/ai-orchestrator run test:capability-probe-release",
+    });
+    expect(check?.coverage).toEqual(expect.arrayContaining([
+      "plain-text C1-C7 ordering",
+      "server-owned C2/C5 runtime claims",
+      "computed capability score",
+      "fail-closed Evidence IDs",
+      "provider fixture drift diagnostics",
+    ]));
+  });
+
   it("blocks a failed typecheck or false-success benchmark without raw output", () => {
     const decision = evaluateAiReleaseQuality([
       result({ id: "api-typecheck", kind: "typecheck", failureCode: "API_TYPECHECK_FAILED_2", status: "failed" }),

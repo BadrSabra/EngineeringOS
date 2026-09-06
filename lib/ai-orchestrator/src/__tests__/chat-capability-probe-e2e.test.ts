@@ -37,6 +37,7 @@ import {
   validateCapabilityProbeCitations,
 } from "../agents/chat-agent.js";
 import { createExecutionLedger } from "../execution-ledger.js";
+import { PROVIDER_PRIORITY } from "../provider-registry.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
 
@@ -85,6 +86,10 @@ const CONTENT_B = [
 // prompts/capability-probe.ts (mirrors docs/ai-model-capability-probe-prompt.md);
 // this test must consume that canonical constant so the probe text can't drift.
 const PROBE_MESSAGE = CAPABILITY_PROBE_MESSAGE;
+
+// Keep the release fixture matrix aligned with the provider registry. These
+// are deterministic strategy fixtures, not live-provider calls or credentials.
+const CAPABILITY_PROBE_PROVIDER_FIXTURES = PROVIDER_PRIORITY;
 
 // A grounded negative answer that truthfully quotes CONTENT_A's real signature
 // and rejects every fabricated symbol exactly as the probe demands.
@@ -530,6 +535,67 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it.each(CAPABILITY_PROBE_PROVIDER_FIXTURES)(
+    "release provider fixture %s preserves the plain-text C1–C7 contract",
+    async (provider) => {
+      const rootPath = await makeProbeRoot();
+      const fakeStrategy = {
+        providerId: provider,
+        supportsNativeStream: false,
+        ownsModelFallback: true,
+        call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
+          content: GROUNDED_NEGATIVE_ANSWER,
+          toolCalls: [],
+          model: opts.model ?? `${provider}-fixture-model`,
+          usage: {},
+        })),
+        stream: vi.fn(),
+      };
+
+      await mockChatProviders(fakeStrategy);
+
+      try {
+        const { chat } = await import("../agents/chat-agent.js");
+        const steps: AgentStep[] = [];
+        const result = await chat({
+          message: PROBE_MESSAGE,
+          history: [],
+          projectContext: makeContext(),
+          rootPath,
+          provider,
+          apiKey: `${provider}-fixture-key`,
+          onStep: (step) => steps.push(step),
+        });
+
+        const lines = result.response.trim().split("\n");
+        expect(result.response.trimStart()).not.toMatch(/^[{[]/);
+        expect(lines.slice(0, 7).map((line) => line.match(/^C[1-7]:/)?.[0])).toEqual([
+          "C1:",
+          "C2:",
+          "C3:",
+          "C4:",
+          "C5:",
+          "C6:",
+          "C7:",
+        ]);
+        expect(lines[1]).toContain(
+          "the server retained 2 completed read_file/read_file_range source read(s)",
+        );
+        expect(lines[1]).toContain("read evidence boundary is server-owned");
+        expect(lines[4]).toContain(
+          "the server recorded no pending write changes",
+        );
+        expect(lines[4]).toContain("no write_file or replace_text change was produced");
+        expect(result.response).toContain(
+          "Overall score: 7/7 capabilities demonstrated.",
+        );
+        expect(executedWrites(steps)).toBe(false);
+      } finally {
+        await fs.rm(rootPath, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("turns an incomplete malformed capability object into ANALYSIS_INCOMPLETE", async () => {
     const rootPath = await makeProbeRoot();

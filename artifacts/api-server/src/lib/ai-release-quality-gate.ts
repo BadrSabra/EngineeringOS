@@ -114,6 +114,19 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
     ],
   },
   {
+    id: "ai-capability-probe-provider-matrix",
+    kind: "contract",
+    command: "pnpm --filter @workspace/ai-orchestrator run test:capability-probe-release",
+    blocking: true,
+    coverage: [
+      "plain-text C1-C7 ordering",
+      "server-owned C2/C5 runtime claims",
+      "computed capability score",
+      "fail-closed Evidence IDs",
+      "provider fixture drift diagnostics",
+    ],
+  },
+  {
     id: "ai-sse-and-redaction",
     kind: "contract",
     command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts && pnpm --filter @workspace/api-server exec vitest run src/routes/ai/chat-sse.test.ts",
