@@ -52,7 +52,6 @@ import {
   recordAiUsageAttempt,
 } from "./ai-telemetry.js";
 import type { AiTelemetryContext, AiContractTelemetry } from "./ai-telemetry.js";
-import { admitAiProviderAttempt, reconcileAiBudgetReservation } from "./ai-budget.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
@@ -478,13 +477,6 @@ export async function runAgentWithFallback<T>(
     const attemptId = options?.telemetryContext
       ? `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
       : undefined;
-    if (options?.telemetryContext?.projectId && attemptId) {
-      await admitAiProviderAttempt({
-        ownerId: options.telemetryContext.userId,
-        projectId: options.telemetryContext.projectId,
-        attemptId,
-      });
-    }
     const providerStartedAt = Date.now();
     try {
       const result = await run({ ...providerEntry, signal: options?.signal });
@@ -503,7 +495,6 @@ export async function runAgentWithFallback<T>(
           usageStatus: "unknown",
         });
       }
-      if (attemptId) void reconcileAiBudgetReservation(attemptId);
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
       const providerError = normalizeProviderFailure(err);
@@ -523,7 +514,6 @@ export async function runAgentWithFallback<T>(
           usageStatus: "unknown",
         });
       }
-      if (attemptId) void reconcileAiBudgetReservation(attemptId);
       if (options?.signal?.aborted) {
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
       }
@@ -704,13 +694,6 @@ export async function chatWithFallback(
     const attemptId = baseParams.telemetryContext
       ? `${baseParams.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
       : undefined;
-    if (baseParams.telemetryContext?.projectId && attemptId) {
-      await admitAiProviderAttempt({
-        ownerId: baseParams.telemetryContext.userId,
-        projectId: baseParams.telemetryContext.projectId,
-        attemptId,
-      });
-    }
     if (lastErr) {
       logger.info(
         { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
@@ -794,13 +777,6 @@ export async function chatWithFallback(
             code: health.failureCode ?? failureCode,
             message: health.failureReason ?? "Capability preflight failed",
           });
-           // The preflight branch continues without entering the provider
-           // execution catch below. Reconcile the parent admission explicitly;
-           // otherwise every failed preflight leaves a reserved attempt that
-           // permanently inflates the project's projected daily budget.
-           if (attemptId) {
-             await reconcileAiBudgetReservation(attemptId);
-           }
           lastErr = preflightError;
           continue;
         }
@@ -888,7 +864,6 @@ export async function chatWithFallback(
             : Date.now() - recoveryStartedAt,
         }),
       });
-      if (attemptId) void reconcileAiBudgetReservation(attemptId);
       return { result, effectiveProvider: providerEntry.provider, executionLedger };
     } catch (err) {
       const providerError = normalizeProviderFailure(err);
@@ -901,7 +876,6 @@ export async function chatWithFallback(
         fallbackCount: providerIndex,
         providerFailureKind: providerError.code,
       });
-      if (attemptId) void reconcileAiBudgetReservation(attemptId);
       recordProviderLifecycleOutcome({
         provider: providerEntry.provider,
         source: providerEntry.source,

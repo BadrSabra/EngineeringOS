@@ -184,7 +184,6 @@ import {
 } from "../../lib/delivery-workspace.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import { recordAiUsageAttempt } from "../../lib/ai-telemetry.js";
-import { admitAiProviderAttempt } from "../../lib/ai-budget.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -4046,29 +4045,6 @@ router.post("/ai/chat/stream", async (req, res) => {
   });
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
-  // Reserve the first provider call before opening SSE. The shared fallback
-  // helper reuses this idempotent reservation and reserves each later
-  // fallback independently.
-  const streamAdmissionAttemptId = `${analysisCorrelation.operationId}:${provider}:1`;
-  try {
-    await admitAiProviderAttempt({
-      ownerId: req.userId,
-      projectId,
-      attemptId: streamAdmissionAttemptId,
-    });
-  } catch (error) {
-    if ((error as { code?: unknown } | null)?.code === "AI_BUDGET_EXHAUSTED") {
-      return res.status(429).json({
-        code: "AI_BUDGET_EXHAUSTED",
-        error: "This project's daily AI budget is exhausted.",
-        outcome: "FAILED",
-        retryable: false,
-        recoveryState: "NONE",
-      });
-    }
-    throw error;
-  }
-
   // Read-only project and forensic turns may safely overlap. The apply lock is
   // reserved for an approved Build handoff, where the model can produce a
   // scoped write proposal and the existing write/approval gates apply.
