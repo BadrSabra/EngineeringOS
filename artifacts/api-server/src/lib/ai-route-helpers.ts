@@ -884,7 +884,7 @@ export async function chatWithFallback(
       const providerError = normalizeProviderFailure(err);
       await baseParams.onProviderAttempt?.({
         provider: providerEntry.provider,
-        model: null,
+        model: providerError.providerModel ?? null,
         outcome: baseParams.signal?.aborted ? "cancelled" : "failure",
         latencyMs: Date.now() - providerStartedAt,
         attemptNumber: providerIndex + 1,
