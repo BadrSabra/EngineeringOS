@@ -234,6 +234,43 @@ function hasTraceDiagnosticCode(traceSteps: AgentStep[], code: string): boolean 
   );
 }
 
+function isCapabilityProbeRecoveryDiagnostic(code: string): boolean {
+  return code.startsWith("CAPABILITY_PROBE_EVIDENCE_RECOVERY_")
+    || code.startsWith("CAPABILITY_MICRO_PROBE_");
+}
+
+function hasCapabilityProbeRecoveryActivity(traceSteps: AgentStep[]): boolean {
+  return traceSteps.some((step) =>
+    step.kind === "forensic_recovery_start"
+      || step.kind === "recovery_model_call"
+      || (step.kind === "diagnostic" && isCapabilityProbeRecoveryDiagnostic(step.code)),
+  );
+}
+
+function latestCapabilityProbeRecoveryMetadata(traceSteps: AgentStep[]): {
+  attempt?: number;
+  failureKind?: string;
+} {
+  let attempt: number | undefined;
+  let failureKind: string | undefined;
+  for (const step of traceSteps) {
+    if (step.kind === "forensic_recovery_start" && Number.isInteger(step.attempt)) {
+      attempt = Math.max(attempt ?? 0, step.attempt);
+    } else if (step.kind === "decision_trace") {
+      if (Number.isInteger(step.trace.recoveryAttempt)) {
+        attempt = Math.max(attempt ?? 0, step.trace.recoveryAttempt!);
+      }
+      if (typeof step.trace.recoveryFailureKind === "string" && step.trace.recoveryFailureKind.trim()) {
+        failureKind = step.trace.recoveryFailureKind.trim().slice(0, 80);
+      }
+    }
+  }
+  return {
+    ...(attempt !== undefined ? { attempt } : {}),
+    ...(failureKind ? { failureKind } : {}),
+  };
+}
+
 function hasCapabilityProbeClaimUnclosed(
   traceSteps: AgentStep[],
   forensicDiagnostic?: ForensicDiagnostic | null,
@@ -1226,6 +1263,21 @@ type ServerPendingChange = {
   evidence?: PatchEvidenceLink[];
 };
 
+function shouldRefineProviderFailure(params: {
+  existing: { outcome: string | null; errorCode: string | null; toolTrace: string | null };
+  incoming: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory">;
+}): boolean {
+  if (params.existing.outcome !== "FAILED" && params.existing.outcome !== "INTERRUPTED") return false;
+  // A later provider failure is never allowed to replace an already persisted
+  // semantic/recovery result.
+  if (params.incoming.providerFailureCategory || !params.incoming.failureKind) return false;
+  const existingMetadata = terminalMetadataFromTrace(params.existing.toolTrace);
+  return Boolean(existingMetadata.providerFailureCategory)
+    || (typeof params.existing.errorCode === "string"
+      && ["RATE_LIMITED", "TIMEOUT", "NETWORK_ERROR", "SERVER_ERROR", "MODEL_UNAVAILABLE", "AUTH_ERROR"]
+        .includes(params.existing.errorCode));
+}
+
 async function persistFailedChatTurn(params: {
   sessionId: string;
   projectId: string;
@@ -1253,6 +1305,46 @@ async function persistFailedChatTurn(params: {
   contextProvenance?: ReturnType<typeof projectContextProvenance>;
 }): Promise<{ id: string; sessionId: string; role: string; content: string; outcome: string | null; errorCode: string | null; errorMessage: string | null; toolTrace: string | null; createdAt: Date; executionLedger?: ExecutionLedgerPublicSnapshot; providerFailureCategory?: ProviderFailureCategory; acceptanceDisposition?: AiAcceptanceDisposition; contextProvenance?: ReturnType<typeof projectContextProvenance> } | undefined> {
   return db.transaction(async (tx) => {
+    const trace = params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null;
+    const traceWithProvenance = params.contextProvenance
+      ? appendContextProvenanceTrace(trace, params.contextProvenance)
+      : trace;
+    const persistedTrace = params.executionLedgerSnapshot
+      ? appendExecutionLedgerTrace(traceWithProvenance, params.executionLedgerSnapshot)
+      : traceWithProvenance;
+    const terminalTrace = params.terminalOutcome && persistedTrace
+      ? (() => {
+          const parsed = parseStoredJson(persistedTrace);
+          const recovery = params.toolTrace
+            ? latestCapabilityProbeRecoveryMetadata(params.toolTrace)
+            : {};
+          const acceptanceDisposition = publicAcceptanceDisposition({
+            code: params.errorCode,
+            outcome: params.outcome,
+            failureKind: params.terminalOutcome.failureKind,
+            recoveryState: params.terminalOutcome.recoveryState,
+          });
+          return JSON.stringify([
+            ...(Array.isArray(parsed) ? parsed : []),
+            {
+              kind: "terminal_outcome",
+              code: params.errorCode,
+              outcome: params.outcome,
+              failureKind: params.terminalOutcome.failureKind,
+              ...(params.terminalOutcome.providerFailureCategory
+                ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
+                : {}),
+              retryable: params.terminalOutcome.retryable,
+              recoveryState: params.terminalOutcome.recoveryState,
+              ...(recovery.attempt !== undefined ? { recoveryAttempt: recovery.attempt } : {}),
+              ...(recovery.failureKind ? { recoveryFailureKind: recovery.failureKind } : {}),
+              ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
+            },
+          ]);
+        })()
+      : persistedTrace;
+    const assistantContent = params.content ? sanitizeResponseText(params.content).slice(0, 12_000) : "";
+    const assistantErrorMessage = redactUserFacingText(params.errorMessage).slice(0, 500);
     if (params.createSessionIfMissing) {
       const [session] = await tx
         .select({ id: aiChatSessionsTable.id })
@@ -1315,6 +1407,57 @@ async function persistFailedChatTurn(params: {
           .where(eq(aiChatMessagesTable.id, lockedExecution.finalMessageId))
           .limit(1);
         if (!existingFinal) return undefined;
+        if (shouldRefineProviderFailure({
+          existing: existingFinal,
+          incoming: params.terminalOutcome ?? { failureKind: undefined, providerFailureCategory: undefined },
+        })) {
+          await tx.update(aiChatMessagesTable)
+            .set({
+              content: assistantContent,
+              sources: params.sources !== undefined
+                ? JSON.stringify(redactUserFacingValue(params.sources))
+                : null,
+              taskResult: params.taskResult !== undefined
+                ? JSON.stringify(redactUserFacingValue(params.taskResult))
+                : null,
+              behaviorEvidence: params.behaviorEvidence !== undefined
+                ? JSON.stringify(redactUserFacingValue(params.behaviorEvidence))
+                : null,
+              repairPlanMetadata: params.repairPlanMetadata !== undefined
+                ? JSON.stringify(redactUserFacingValue(params.repairPlanMetadata))
+                : null,
+              outcome: params.outcome,
+              errorCode: params.errorCode,
+              errorMessage: assistantErrorMessage,
+              toolTrace: terminalTrace,
+            })
+            .where(eq(aiChatMessagesTable.id, existingFinal.id));
+          if (params.activeTaskState !== undefined) {
+            await tx.update(aiChatSessionsTable)
+              .set({
+                activeTaskState: params.activeTaskState,
+                updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${params.assistantAt})`,
+              })
+              .where(and(
+                eq(aiChatSessionsTable.id, params.sessionId),
+                sessionTaskStateIsAtOrBefore(params.assistantAt),
+              ));
+          }
+          return {
+            id: existingFinal.id,
+            sessionId: params.sessionId,
+            role: "assistant",
+            content: assistantContent,
+            outcome: params.outcome,
+            errorCode: params.errorCode,
+            errorMessage: assistantErrorMessage,
+            toolTrace: terminalTrace,
+            ...terminalMetadataFromTrace(terminalTrace),
+            createdAt: existingFinal.createdAt,
+            ...(params.executionLedgerSnapshot ? { executionLedger: params.executionLedgerSnapshot } : {}),
+            ...(params.contextProvenance ? { contextProvenance: params.contextProvenance } : {}),
+          };
+        }
         return {
           id: existingFinal.id,
           sessionId: params.sessionId,
@@ -1466,42 +1609,7 @@ async function persistFailedChatTurn(params: {
           sessionTaskStateIsAtOrBefore(params.assistantAt),
         ));
     }
-    const trace = params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null;
-    const traceWithProvenance = params.contextProvenance
-      ? appendContextProvenanceTrace(trace, params.contextProvenance)
-      : trace;
-    const persistedTrace = params.executionLedgerSnapshot
-      ? appendExecutionLedgerTrace(traceWithProvenance, params.executionLedgerSnapshot)
-      : traceWithProvenance;
-    const terminalTrace = params.terminalOutcome && persistedTrace
-      ? (() => {
-          const parsed = parseStoredJson(persistedTrace);
-          const acceptanceDisposition = publicAcceptanceDisposition({
-            code: params.errorCode,
-            outcome: params.outcome,
-            failureKind: params.terminalOutcome?.failureKind,
-            recoveryState: params.terminalOutcome?.recoveryState,
-          });
-          return JSON.stringify([
-            ...(Array.isArray(parsed) ? parsed : []),
-            {
-              kind: "terminal_outcome",
-              code: params.errorCode,
-              outcome: params.outcome,
-              failureKind: params.terminalOutcome.failureKind,
-              ...(params.terminalOutcome.providerFailureCategory
-                ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
-                : {}),
-              retryable: params.terminalOutcome.retryable,
-              recoveryState: params.terminalOutcome.recoveryState,
-              ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
-            },
-          ]);
-        })()
-      : persistedTrace;
     const assistantId = reservedAssistantId ?? randomUUID();
-    const assistantContent = params.content ? sanitizeResponseText(params.content).slice(0, 12_000) : "";
-    const assistantErrorMessage = redactUserFacingText(params.errorMessage).slice(0, 500);
     await tx.insert(aiChatMessagesTable).values({
       id: assistantId,
       sessionId: params.sessionId,
@@ -2405,7 +2513,7 @@ function serializeToolTrace(
           ...(synthesisStep.synthesisTimeoutMs !== undefined ? { synthesisTimeoutMs: synthesisStep.synthesisTimeoutMs } : {}),
           ...(synthesisStep.synthesisElapsedMs !== undefined ? { synthesisElapsedMs: synthesisStep.synthesisElapsedMs } : {}),
           ...(synthesisStep.synthesisTimedOut !== undefined ? { synthesisTimedOut: synthesisStep.synthesisTimedOut } : {}),
-          ...(steps.some((candidate) => candidate.kind === "forensic_recovery_start")
+           ...(hasCapabilityProbeRecoveryActivity(steps)
             ? { recoveryStarted: true }
             : {}),
           diagnosticCodes,
@@ -2603,20 +2711,39 @@ function nextSessionTaskState(args: {
       ...(args.operationId ? { operationId: args.operationId.slice(0, 160) } : {}),
       ...(args.executionId ? { executionId: args.executionId.slice(0, 160) } : {}),
     };
-    const existingPlan = identityBound.executionPlan;
+    const canonicalized = args.capabilityProbe
+      ? {
+          ...identityBound,
+          taskType: "BEHAVIOR_QUERY" as const,
+          outputContract: "BEHAVIOR_ANSWER" as const,
+          capabilityProbe: identityBound.capabilityProbe
+            ? {
+                ...identityBound.capabilityProbe,
+                outputContract: "BEHAVIOR_ANSWER" as const,
+              }
+            : undefined,
+        }
+      : identityBound;
+    const existingPlan = canonicalized.executionPlan;
     const progressedPlan = existingPlan
       ? advanceImplementationPlan(existingPlan, args.readFiles)
       : null;
     return serializeActiveTaskState(
       {
-        ...mergeActiveTaskEvidence(identityBound, args.readFiles, args.now),
-        executionPlan: args.executionPlan ?? progressedPlan ?? identityBound.executionPlan,
+        ...mergeActiveTaskEvidence(canonicalized, args.readFiles, args.now),
+        executionPlan: args.executionPlan ?? progressedPlan ?? canonicalized.executionPlan,
       },
     );
   }
   const shouldPersistExecutionPlan = Boolean(args.executionPlan);
   if (isResumableTaskType(args.classification.taskType) || args.capabilityProbe || shouldPersistExecutionPlan) {
-    const stateClassification = isResumableTaskType(args.classification.taskType)
+    const stateClassification = args.capabilityProbe
+      ? {
+          ...args.classification,
+          taskType: "BEHAVIOR_QUERY" as const,
+          outputContract: "BEHAVIOR_ANSWER" as const,
+        }
+      : isResumableTaskType(args.classification.taskType)
       ? args.classification
       : {
           ...args.classification,
@@ -4347,6 +4474,21 @@ router.post("/ai/chat/stream", async (req, res) => {
     // lifecycle checkpoint below. Initialize it before creating or invoking
     // the checkpoint writer so this closure never hits the temporal dead zone.
     const traceSteps: AgentStep[] = [];
+    const failureActiveTaskState = (): string | null => nextSessionTaskState({
+      persisted: streamResumableStateForTurn,
+      classification: streamClassification,
+      resumed: streamClassificationResolution.resumed || Boolean(aiExecution && effectiveExecutionId),
+      projectId,
+      rootPath: validRootPath,
+      linkedTaskId: activeTask?.id ?? effectiveLinkedTaskId,
+      revision: analysisCorrelation.projectRevision,
+      operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
+      executionId: aiExecution?.id,
+      capabilityProbe: Boolean(executionRequest.capabilityProbe),
+      now: msgNow,
+      readFiles: collectReadEvidencePaths(traceSteps),
+      executionPlan: executionPlanForRun,
+    });
     const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
       // Once a terminal writer wins, no queued or late stream callback may
       // enqueue another checkpoint. The database lease gate is still the
@@ -4375,7 +4517,14 @@ router.post("/ai/chat/stream", async (req, res) => {
                   ),
                 }
               : {}),
-            recoveryAttempted: traceSteps.some((step) => step.kind === "forensic_recovery_start"),
+            recoveryAttempted: hasCapabilityProbeRecoveryActivity(traceSteps),
+            ...(() => {
+              const recovery = latestCapabilityProbeRecoveryMetadata(traceSteps);
+              return {
+                ...(recovery.attempt !== undefined ? { recoveryAttempt: recovery.attempt } : {}),
+                ...(recovery.failureKind ? { recoveryFailureKind: recovery.failureKind } : {}),
+              };
+            })(),
           }
         : undefined;
       const completeCheckpoint: AiExecutionCheckpoint = {
@@ -4935,7 +5084,7 @@ router.post("/ai/chat/stream", async (req, res) => {
            ...(synthesisStep.synthesisElapsedMs !== undefined ? { synthesisElapsedMs: synthesisStep.synthesisElapsedMs } : {}),
            ...(synthesisStep.synthesisTimedOut !== undefined ? { synthesisTimedOut: synthesisStep.synthesisTimedOut } : {}),
           ...(step.sourceRetrieval ? { sourceRetrieval: step.sourceRetrieval } : {}),
-          ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
+           ...(hasCapabilityProbeRecoveryActivity(traceSteps)
             ? { recoveryStarted: true }
             : {}),
           modelsUsed: traceSteps
@@ -4974,7 +5123,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           executionSummary &&
           (
             step.code === "CAPABILITY_PROBE_EVIDENCE_RECOVERED" ||
-            step.code.startsWith("CAPABILITY_PROBE_EVIDENCE_RECOVERY_")
+            isCapabilityProbeRecoveryDiagnostic(step.code)
           )
         ) {
           executionSummary.recoveryStarted = true;
@@ -5318,6 +5467,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           projectId,
           message,
           turnIntent: streamTurnIntent.kind,
+           activeTaskState: failureActiveTaskState(),
           executionId: aiExecution?.id,
           outcome: terminalOutcome.outcome,
           errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
@@ -5592,6 +5742,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         projectId,
         message,
         turnIntent: streamTurnIntent.kind,
+           activeTaskState: failureActiveTaskState(),
         executionId: aiExecution?.id,
         outcome: cancelled ? "INTERRUPTED" : "FAILED",
         errorCode: providerErrorCode,
@@ -5668,6 +5819,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         projectId,
         message,
         turnIntent: streamTurnIntent.kind,
+           activeTaskState: failureActiveTaskState(),
         executionId: aiExecution?.id,
         outcome: "FAILED",
         errorCode: quality.code,
@@ -5721,6 +5873,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           projectId,
           message,
           turnIntent: streamTurnIntent.kind,
+           activeTaskState: failureActiveTaskState(),
           executionId: aiExecution?.id,
           outcome: "FAILED",
           errorCode: "MODEL_OUTPUT_INVALID",
@@ -5870,6 +6023,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           projectId,
           message,
           turnIntent: streamTurnIntent.kind,
+           activeTaskState: failureActiveTaskState(),
           executionId: aiExecution?.id,
           outcome: "FAILED",
           errorCode: error.code,
@@ -6174,7 +6328,14 @@ router.post("/ai/chat/stream", async (req, res) => {
                   ),
                 }
               : {}),
-            recoveryAttempted: traceSteps.some((step) => step.kind === "forensic_recovery_start"),
+            recoveryAttempted: hasCapabilityProbeRecoveryActivity(traceSteps),
+            ...(() => {
+              const recovery = latestCapabilityProbeRecoveryMetadata(traceSteps);
+              return {
+                ...(recovery.attempt !== undefined ? { recoveryAttempt: recovery.attempt } : {}),
+                ...(recovery.failureKind ? { recoveryFailureKind: recovery.failureKind } : {}),
+              };
+            })(),
           }
         : undefined;
       const completed = await completeAiExecution({

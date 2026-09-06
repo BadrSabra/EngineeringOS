@@ -5469,6 +5469,27 @@ export async function chat(opts: {
         turnIntent.compoundWrite,
       )
     : undefined;
+  if (
+    modelHasTools &&
+    (!tools
+      || !tools.some((tool) => tool.function.name === "read_file")
+      || !tools.some((tool) => tool.function.name === "read_file_range"))
+  ) {
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "TOOL_UNAVAILABLE",
+      details: [
+        "This evidence-gated request requires both read_file and read_file_range.",
+        `provider=${providerId}`,
+        `toolCount=${tools?.length ?? 0}`,
+      ],
+    });
+    throw new GroqClientError(
+      "INVALID_CONFIG",
+      "Required source-evidence tools are unavailable for this provider request.",
+      { context: { providerCode: "TOOL_MANIFEST_INCOMPLETE" } },
+    );
+  }
 
   if (singleFileForensicMode) {
     console.info(

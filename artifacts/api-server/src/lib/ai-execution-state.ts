@@ -573,6 +573,8 @@ export type AiCapabilityProbeCheckpoint = AiCapabilityProbeContract & {
   status?: "PENDING" | "COMPLETE" | "INCOMPLETE";
   missingClaims?: string[];
   recoveryAttempted?: boolean;
+  recoveryAttempt?: number;
+  recoveryFailureKind?: string;
 };
 
 export type AiExecutionNodeCheckpoint = Pick<
@@ -749,6 +751,12 @@ function parseCapabilityProbeCheckpoint(value: unknown): AiCapabilityProbeCheckp
       || candidate.missingClaims.some((claim) => typeof claim !== "string")
     ))
     || (candidate.recoveryAttempted !== undefined && typeof candidate.recoveryAttempted !== "boolean")
+    || (candidate.recoveryAttempt !== undefined && (
+      !Number.isInteger(candidate.recoveryAttempt) || candidate.recoveryAttempt < 0 || candidate.recoveryAttempt > 32
+    ))
+    || (candidate.recoveryFailureKind !== undefined && (
+      typeof candidate.recoveryFailureKind !== "string" || candidate.recoveryFailureKind.length > 80
+    ))
   ) return undefined;
   return {
     ...contract,
@@ -760,6 +768,8 @@ function parseCapabilityProbeCheckpoint(value: unknown): AiCapabilityProbeCheckp
         .map((claim) => claim.slice(0, 20)),
     } : {}),
     ...(candidate.recoveryAttempted !== undefined ? { recoveryAttempted: candidate.recoveryAttempted } : {}),
+    ...(candidate.recoveryAttempt !== undefined ? { recoveryAttempt: candidate.recoveryAttempt } : {}),
+    ...(candidate.recoveryFailureKind ? { recoveryFailureKind: candidate.recoveryFailureKind.slice(0, 80) } : {}),
   };
 }
 
