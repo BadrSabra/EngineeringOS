@@ -17,6 +17,37 @@ const TEST_USER = {
     process.env.DASHBOARD_E2E_EMAIL ??
     "engineeringos-dashboard-smoke@example.com",
 };
+const ISOLATION_SECOND_USER = {
+  firstName: "EngineeringOS",
+  lastName: "Dashboard Isolation",
+  email:
+    process.env.DASHBOARD_E2E_ISOLATION_EMAIL ??
+    "engineeringos-dashboard-isolation@example.com",
+};
+const ISOLATION_PROJECTS = {
+  primary: [
+    {
+      id: "e2e-isolation-primary-project",
+      name: "Primary Owner Project",
+      language: "TypeScript",
+      framework: "React",
+      status: "active",
+      rootPath: "/controlled/isolation-primary",
+      qualityScore: 91,
+    },
+  ],
+  secondary: [
+    {
+      id: "e2e-isolation-secondary-project",
+      name: "Secondary Owner Project",
+      language: "Python",
+      framework: "FastAPI",
+      status: "active",
+      rootPath: "/controlled/isolation-secondary",
+      qualityScore: 88,
+    },
+  ],
+} satisfies Record<"primary" | "secondary", Array<Record<string, unknown>>>;
 const EXECUTION_ID = "e2e-controlled-execution";
 const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
 const LIVE_TEST_TIMEOUT_MARGIN_MS = 5_000;
@@ -291,7 +322,10 @@ function installBrowserErrorMonitor(
   };
 }
 
-async function expectAuthenticatedProjectsRequest(page: Page): Promise<void> {
+async function expectAuthenticatedProjectsRequest(
+  page: Page,
+  expectedProjects?: Array<Record<string, unknown>>,
+): Promise<Array<Record<string, unknown>>> {
   const result = await page.evaluate(async () => {
     const response = await fetch("/api/projects?__e2e_auth=1", {
       credentials: "include",
@@ -309,6 +343,11 @@ async function expectAuthenticatedProjectsRequest(page: Page): Promise<void> {
     Array.isArray(result.body),
     "The protected projects API must return its normal list response",
   ).toBe(true);
+  const projects = result.body as Array<Record<string, unknown>>;
+  if (expectedProjects) {
+    expect(projects).toEqual(expectedProjects);
+  }
+  return projects;
 }
 
 async function restartApiForCampaign(page: Page) {
@@ -458,6 +497,7 @@ async function installApiFixtures(
     };
     operatorAlertsPassthrough?: boolean;
     authenticatedProtectedApi?: boolean;
+    authenticatedProtectedProjects?: Array<Record<string, unknown>>;
     sessionExpiry?: {
       failDashboardRequests: boolean;
       failureCount: number;
@@ -497,6 +537,11 @@ async function installApiFixtures(
       path === "/api/projects" &&
       url.searchParams.get("__e2e_auth") === "1"
     ) {
+      if (overrides.authenticatedProtectedProjects) {
+        return route.fulfill(
+          jsonResponse(overrides.authenticatedProtectedProjects),
+        );
+      }
       // This one request must reach the real API through the dashboard origin
       // so the Clerk session cookie follows the same path as the application.
       return route.continue();
@@ -2349,7 +2394,12 @@ function installInterruptedResumeFixture() {
   };
 }
 
-async function createReleaseSignInUrl(page: Page) {
+type ClerkTestUser = typeof TEST_USER;
+
+async function createReleaseSignInUrl(
+  page: Page,
+  user: ClerkTestUser = TEST_USER,
+) {
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (!secretKey) {
     throw new Error(
@@ -2362,7 +2412,7 @@ async function createReleaseSignInUrl(page: Page) {
     "Content-Type": "application/json",
   };
   const userResponse = await page.request.get(
-    `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(TEST_USER.email)}`,
+    `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(user.email)}`,
     { headers },
   );
   let userId = parseClerkUserLookupResponse(await userResponse.json());
@@ -2373,9 +2423,9 @@ async function createReleaseSignInUrl(page: Page) {
       {
         headers,
         data: {
-          email_address: [TEST_USER.email],
-          first_name: TEST_USER.firstName,
-          last_name: TEST_USER.lastName,
+          email_address: [user.email],
+          first_name: user.firstName,
+          last_name: user.lastName,
           skip_password_checks: true,
           skip_password_requirement: true,
         },
@@ -2423,7 +2473,10 @@ async function navigateBrowserHistory(
   }
 }
 
-async function programmaticSignIn(page: Page) {
+async function programmaticSignIn(
+  page: Page,
+  user: ClerkTestUser = TEST_USER,
+) {
   const signInLink = page.getByRole("link", { name: "Sign In", exact: true });
   let signInLoaded = false;
   for (let attempt = 0; attempt < 3 && !signInLoaded; attempt += 1) {
@@ -2446,7 +2499,7 @@ async function programmaticSignIn(page: Page) {
         "Clerk browser helper is unavailable. Run this journey in the Replit browser runner, which injects signInClerkUser.",
       );
     }
-    await navigateClerkHandoff(page, await createReleaseSignInUrl(page));
+    await navigateClerkHandoff(page, await createReleaseSignInUrl(page, user));
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
     );
@@ -2454,7 +2507,7 @@ async function programmaticSignIn(page: Page) {
     return;
   }
   const signInUrl = await helper({
-    ...TEST_USER,
+    ...user,
     ttl: 900,
     basePath: DASHBOARD_PATH,
   });
@@ -3278,6 +3331,62 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expectAuthenticatedProjectsRequest(page);
 
     browserErrors.assertClean();
+  });
+
+  test("proves isolated Clerk users only receive their own protected projects", async ({
+    browser,
+  }) => {
+    const primaryContext = await browser.newContext();
+    const secondaryContext = await browser.newContext();
+    const primaryPage = await primaryContext.newPage();
+    const secondaryPage = await secondaryContext.newPage();
+    const primaryErrors = installBrowserErrorMonitor(primaryPage);
+    const secondaryErrors = installBrowserErrorMonitor(secondaryPage);
+
+    try {
+      await Promise.all([
+        installApiFixtures(primaryPage, {
+          authenticatedProtectedApi: true,
+          authenticatedProtectedProjects: ISOLATION_PROJECTS.primary,
+        }),
+        installApiFixtures(secondaryPage, {
+          authenticatedProtectedApi: true,
+          authenticatedProtectedProjects: ISOLATION_PROJECTS.secondary,
+        }),
+      ]);
+      await Promise.all([
+        programmaticSignIn(primaryPage, TEST_USER),
+        programmaticSignIn(secondaryPage, ISOLATION_SECOND_USER),
+      ]);
+
+      const [primaryProjects, secondaryProjects] = await Promise.all([
+        expectAuthenticatedProjectsRequest(
+          primaryPage,
+          ISOLATION_PROJECTS.primary,
+        ),
+        expectAuthenticatedProjectsRequest(
+          secondaryPage,
+          ISOLATION_PROJECTS.secondary,
+        ),
+      ]);
+      const secondaryIds = new Set(
+        secondaryProjects.map((project) => project.id),
+      );
+      const primaryIds = new Set(primaryProjects.map((project) => project.id));
+      expect(
+        primaryProjects.every((project) => !secondaryIds.has(project.id)),
+        "The primary Clerk session must not receive the secondary user's projects",
+      ).toBe(true);
+      expect(
+        secondaryProjects.every((project) => !primaryIds.has(project.id)),
+        "The secondary Clerk session must not receive the primary user's projects",
+      ).toBe(true);
+
+      primaryErrors.assertClean();
+      secondaryErrors.assertClean();
+    } finally {
+      await Promise.all([primaryContext.close(), secondaryContext.close()]);
+    }
   });
 
   test("clears protected dashboard content after the Clerk session expires", async ({

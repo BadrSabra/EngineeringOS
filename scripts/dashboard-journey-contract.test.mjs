@@ -708,7 +708,7 @@ test("authenticated dashboard smoke proves the protected redirect and session", 
   );
   assert.match(
     journeySource,
-    /async function expectAuthenticatedProjectsRequest\(page: Page\)/,
+    /async function expectAuthenticatedProjectsRequest\(\s*page: Page,/,
     "The smoke must define an authenticated protected-API assertion.",
   );
   assert.match(
@@ -730,6 +730,49 @@ test("authenticated dashboard smoke proves the protected redirect and session", 
     journeySource,
     /redactBrowserDiagnostic[\s\S]*__clerk_ticket/,
     "Browser diagnostics must redact Clerk tickets and sensitive fields.",
+  );
+});
+
+test("authenticated dashboard journey proves Clerk project isolation", () => {
+  assert.match(
+    journeySource,
+    /proves isolated Clerk users only receive their own protected projects/,
+    "The journey must keep a named multi-user ownership smoke.",
+  );
+  assert.match(
+    journeySource,
+    /browser\.newContext\(\)[\s\S]*browser\.newContext\(\)/,
+    "The ownership smoke must use two isolated browser contexts.",
+  );
+  assert.match(
+    journeySource,
+    /programmaticSignIn\(primaryPage, TEST_USER\)[\s\S]*programmaticSignIn\(secondaryPage, ISOLATION_SECOND_USER\)/,
+    "Each isolated context must use a distinct Clerk handoff user.",
+  );
+  assert.match(
+    journeySource,
+    /authenticatedProtectedProjects[\s\S]*ISOLATION_PROJECTS\.primary/,
+    "The ownership smoke must use deterministic primary-user project fixtures.",
+  );
+  assert.match(
+    journeySource,
+    /authenticatedProtectedProjects[\s\S]*ISOLATION_PROJECTS\.secondary/,
+    "The ownership smoke must use deterministic secondary-user project fixtures.",
+  );
+  assert.match(
+    journeySource,
+    /primaryProjects\.every\(\(project\) => !secondaryIds\.has\(project\.id\)\)/,
+    "The primary response must exclude secondary-user project ids.",
+  );
+  assert.match(
+    journeySource,
+    /secondaryProjects\.every\(\(project\) => !primaryIds\.has\(project\.id\)\)/,
+    "The secondary response must exclude primary-user project ids.",
+  );
+  assert.match(
+    journeySource,
+    /await Promise\.all\(\[primaryContext\.close\(\), secondaryContext\.close\(\)\]\)/,
+    "The ownership smoke must close both isolated contexts.",
   );
 });
 
