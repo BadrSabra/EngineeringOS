@@ -25,6 +25,7 @@ import {
   recordProviderLifecycleOutcome,
   invalidateProviderLifecycle,
   validateGeminiDefaultModels,
+  probeProviderHealth,
   toPublicExecutionLedgerSnapshot,
   isCapabilityProbeRequest,
 } from "@workspace/ai-orchestrator";
@@ -731,6 +732,75 @@ export async function chatWithFallback(
       onStep?.(step);
     };
     try {
+      if (capabilityProbeTurn) {
+        const preflightStartedAt = Date.now();
+        const health = await probeProviderHealth({
+          provider: providerEntry.provider,
+          apiKey: providerEntry.apiKey,
+          timeoutMs: 15_000,
+          maxFallbackModels: 1,
+          signal: baseParams.signal,
+        });
+        const preflightAttemptId =
+          `${attemptId ?? baseParams.telemetryContext?.correlationId ?? "chat"}:preflight:${providerIndex + 1}`;
+        const preflightTelemetry = {
+          provider: providerEntry.provider,
+          model: health.model,
+          latencyMs: Math.max(health.latencyMs, Date.now() - preflightStartedAt),
+          attemptNumber: providerIndex + 1,
+          fallbackCount: providerIndex,
+          operation: "capability_preflight",
+          attemptId: preflightAttemptId,
+          contractOutcome: "not_applicable" as const,
+          recoveryOutcome: "not_attempted" as const,
+          contractClaimCount: 0,
+          contractCitationMatchCount: 0,
+          contractRecoveryLatencyMs: null,
+          contractFailureKind: null,
+          usageStatus: "unknown" as const,
+        };
+
+        if (health.status !== "usable") {
+          const failureCode = FALLBACK_TRIGGER_CODES.has(health.failureCode ?? "")
+            ? health.failureCode as GroqErrorCode
+            : "NON_200" as const;
+          const preflightError = new GroqClientError(
+            failureCode,
+            health.failureReason ?? `Capability preflight failed for ${providerEntry.provider}`,
+            { context: { providerModel: health.model ?? undefined } },
+          );
+          await baseParams.onProviderAttempt?.({
+            ...preflightTelemetry,
+            outcome: baseParams.signal?.aborted ? "cancelled" : "failure",
+            providerFailureKind: health.failureCode ?? failureCode,
+          });
+          if (baseParams.signal?.aborted) {
+            throw Object.assign(new Error("Execution cancelled"), {
+              name: "AbortError",
+              cause: preflightError,
+            });
+          }
+          recordProviderLifecycleOutcome({
+            provider: providerEntry.provider,
+            source: providerEntry.source,
+            apiKey: providerEntry.apiKey,
+            code: failureCode,
+          });
+          providerErrors.push({
+            provider: providerEntry.provider,
+            code: health.failureCode ?? failureCode,
+            message: health.failureReason ?? "Capability preflight failed",
+          });
+          lastErr = preflightError;
+          continue;
+        }
+
+        await baseParams.onProviderAttempt?.({
+          ...preflightTelemetry,
+          outcome: "success",
+        });
+      }
+
       // The API package can briefly consume an older workspace declaration
       // while the orchestrator adds this request-scoped additive option.
       // Keep the compatibility cast at this package boundary only.
