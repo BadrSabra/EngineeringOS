@@ -8593,7 +8593,7 @@ export default function AiChat() {
   });
 
   // PR-06: poll runtime health metrics so provider cards show live state
-  const { data: metricsData } = useGetAiMetrics<MetricsResponse>({
+  const { data: metricsData } = useGetAiMetrics<MetricsResponse>(undefined, {
     query: {
       queryKey: ['ai-metrics'],
       staleTime: 15_000,

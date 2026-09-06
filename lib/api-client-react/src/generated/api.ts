@@ -70,6 +70,7 @@ import type {
   GetAiChatFileContentParams,
   GetAiExecution200,
   GetAiMetrics200,
+  GetAiMetricsParams,
   GetGraphEntityImpactParams,
   GetGraphEntityNeighbors200,
   GetGraphPathParams,
@@ -8662,20 +8663,27 @@ export const useDeleteProviderKey = <TError = ErrorType<void>,
       return useMutation(getDeleteProviderKeyMutationOptions(options));
     }
 
-export const getGetAiMetricsUrl = () => {
+export const getGetAiMetricsUrl = (params?: GetAiMetricsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/ai/metrics`
+  return stringifiedParams.length > 0 ? `/api/ai/metrics?${stringifiedParams}` : `/api/ai/metrics`
 }
 
 /**
  * @summary Get per-provider request metrics and circuit-breaker state
  */
-export const getAiMetrics = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetAiMetrics200> => {
+export const getAiMetrics = async (params?: GetAiMetricsParams, options?: Parameters<typeof customFetch>[1]): Promise<GetAiMetrics200> => {
 
-  return customFetch<GetAiMetrics200>(getGetAiMetricsUrl(),
+  return customFetch<GetAiMetrics200>(getGetAiMetricsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -8688,23 +8696,23 @@ export const getAiMetrics = async ( options?: Parameters<typeof customFetch>[1])
 
 
 
-export const getGetAiMetricsQueryKey = () => {
+export const getGetAiMetricsQueryKey = (params?: GetAiMetricsParams,) => {
     return [
-    `/api/ai/metrics`
+    `/api/ai/metrics`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetAiMetricsQueryOptions = <TData = Awaited<ReturnType<typeof getAiMetrics>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetAiMetricsQueryOptions = <TData = Awaited<ReturnType<typeof getAiMetrics>>, TError = ErrorType<unknown>>(params?: GetAiMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetAiMetricsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetAiMetricsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiMetrics>>> = ({ signal }) => getAiMetrics({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiMetrics>>> = ({ signal }) => getAiMetrics(params, { signal, ...requestOptions });
 
 
 
@@ -8722,11 +8730,11 @@ export type GetAiMetricsQueryError = ErrorType<unknown>
  */
 
 export function useGetAiMetrics<TData = Awaited<ReturnType<typeof getAiMetrics>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: GetAiMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetAiMetricsQueryOptions(options)
+  const queryOptions = getGetAiMetricsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

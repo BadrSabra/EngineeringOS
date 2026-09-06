@@ -256,6 +256,11 @@ export const ChatTaskResultSchema = z.discriminatedUnion("kind", [
 export type ChatTaskResult = z.infer<typeof ChatTaskResultSchema>;
 
 export const ChatOutputSchema = ChatResponseSchema.extend({
+  /** Provider-reported usage for this final response, when available. */
+  usage: z.object({
+    promptTokens: z.number().int().nonnegative(),
+    completionTokens: z.number().int().nonnegative(),
+  }).optional(),
   pendingChanges: z.array(PendingChangeSchema).default([]),
   resolvedModel: ResolvedModelSchema.optional(),
   /** Server-verified Repair Plan phases, absent for ordinary chat turns. */

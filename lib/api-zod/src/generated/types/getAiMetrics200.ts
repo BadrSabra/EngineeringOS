@@ -6,9 +6,11 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiProviderMetric } from './aiProviderMetric';
+import type { AiUsageSummary } from './aiUsageSummary';
 import type { BehavioralModelScorecard } from './behavioralModelScorecard';
 
 export type GetAiMetrics200 = {
   metrics: AiProviderMetric[];
   behavioralScorecards: BehavioralModelScorecard[];
+  usage: AiUsageSummary;
 };

@@ -7,6 +7,7 @@ import { deriveFlightDeckState } from "@workspace/ai-orchestrator";
 import type { AutonomousDeliveryAcceptanceSummary } from "@workspace/ai-orchestrator";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import type { ApiCodeAgentRuntimeOraclePreflight } from "../../lib/ai-code-agent-benchmark.js";
+import { getAiUsageSummary } from "../../lib/ai-telemetry.js";
 
 const router = Router();
 
@@ -833,7 +834,7 @@ router.get("/ai/benchmark/empirical-scorecard", async (_req, res) => {
  */
 router.get("/ai/mission-control", async (req, res) => {
   try {
-    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, rawEmpiricalScorecard, rawReleaseGate, preflightHistory, executions] = await Promise.all([
+    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, rawEmpiricalScorecard, rawReleaseGate, preflightHistory, executions, usage] = await Promise.all([
       readOptionalJson(scorecardPath()),
       readOptionalJson(baselinePath()),
       readOptionalJson(freeTierEnvelopePath()),
@@ -847,6 +848,7 @@ router.get("/ai/mission-control", async (req, res) => {
         .where(eq(aiExecutionsTable.userId, req.userId))
         .orderBy(desc(aiExecutionsTable.updatedAt))
         .limit(24),
+      getAiUsageSummary({ userId: req.userId }),
     ]);
     const scorecard =
       isBoundedScorecard(rawScorecard)
@@ -889,6 +891,7 @@ router.get("/ai/mission-control", async (req, res) => {
       benchmark: scorecard || baseline || freeTierEnvelope || autonomousDeliveryAcceptance || empiricalCampaign || releaseGate || preflightHistory.length > 0
         ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance, empiricalCampaign, releaseGate, preflightHistory }
         : null,
+      usage,
       executions: await Promise.all(executions.map(async (execution) => (
         projectExecution(execution, await loadOperationEvidence(execution))
       ))),

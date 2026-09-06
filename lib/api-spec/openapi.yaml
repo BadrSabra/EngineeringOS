@@ -3032,6 +3032,21 @@ paths:
       operationId: getAiMetrics
       summary: Get per-provider request metrics and circuit-breaker state
       tags: [AI]
+      parameters:
+        - name: projectId
+          in: query
+          schema: { type: string, maxLength: 160 }
+          description: Limit durable usage to one owner-scoped project.
+        - name: provider
+          in: query
+          schema:
+            type: string
+            enum: [groq, deepseek, openrouter, gemini]
+          description: Limit durable usage to one provider.
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90, default: 30 }
+          description: Durable usage window in days.
       responses:
         "200":
           description: Provider metrics array
@@ -3039,7 +3054,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [metrics, behavioralScorecards]
+                required: [metrics, usage, behavioralScorecards]
                 properties:
                   metrics:
                     type: array
@@ -3049,6 +3064,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/BehavioralModelScorecard"
+                  usage:
+                    $ref: "#/components/schemas/AiUsageSummary"
 
   /api/ai/operator-alerts:
     get:
@@ -4039,7 +4056,7 @@ components:
     AiMissionControl:
       type: object
       additionalProperties: false
-      required: [updatedAt, executions]
+      required: [updatedAt, executions, usage]
       properties:
         updatedAt:
           type: string
@@ -4060,6 +4077,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AiMissionControlExecution"
+        usage:
+          $ref: "#/components/schemas/AiUsageSummary"
 
     OperationEvidenceProjection:
       type: object
@@ -4715,6 +4734,70 @@ components:
           type: ["integer", "null"]
         lifecycle:
           $ref: "#/components/schemas/ProviderLifecycleSnapshot"
+
+    AiUsageSummary:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, windowDays, retentionDays, totalAttempts, totalSuccesses,
+                 totalFailures, totalFallbackAttempts, providers, timeline]
+      properties:
+        schemaVersion: { type: integer, enum: [1] }
+        windowDays: { type: integer, minimum: 1, maximum: 90 }
+        retentionDays: { type: integer, minimum: 1, maximum: 3650 }
+        totalAttempts: { type: integer, minimum: 0 }
+        totalSuccesses: { type: integer, minimum: 0 }
+        totalFailures: { type: integer, minimum: 0 }
+        totalFallbackAttempts: { type: integer, minimum: 0 }
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiUsageProviderSummary"
+        timeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiUsageTimelinePoint"
+
+    AiUsageProviderSummary:
+      type: object
+      additionalProperties: false
+      required: [provider, attempts, successes, failures, cancelled, fallbackAttempts,
+                 successRate, p50LatencyMs, p95LatencyMs, usage, lastOccurredAt]
+      properties:
+        provider: { type: string }
+        attempts: { type: integer, minimum: 0 }
+        successes: { type: integer, minimum: 0 }
+        failures: { type: integer, minimum: 0 }
+        cancelled: { type: integer, minimum: 0 }
+        fallbackAttempts: { type: integer, minimum: 0 }
+        successRate: { type: ["number", "null"] }
+        p50LatencyMs: { type: ["integer", "null"] }
+        p95LatencyMs: { type: ["integer", "null"] }
+        usage:
+          type: object
+          additionalProperties: false
+          required: [promptTokens, completionTokens, status]
+          properties:
+            promptTokens: { type: ["integer", "null"], minimum: 0 }
+            completionTokens: { type: ["integer", "null"], minimum: 0 }
+            status:
+              type: string
+              enum: [known, partial, unknown]
+        lastOccurredAt:
+          type: ["string", "null"]
+          format: date-time
+
+    AiUsageTimelinePoint:
+      type: object
+      additionalProperties: false
+      required: [day, attempts, successes, failures, promptTokens, completionTokens, usageKnown]
+      properties:
+        day: { type: string, format: date }
+        attempts: { type: integer, minimum: 0 }
+        successes: { type: integer, minimum: 0 }
+        failures: { type: integer, minimum: 0 }
+        promptTokens: { type: ["integer", "null"], minimum: 0 }
+        completionTokens: { type: ["integer", "null"], minimum: 0 }
+        usageKnown: { type: boolean }
 
     GroqModelAvailability:
       type: object

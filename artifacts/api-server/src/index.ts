@@ -31,6 +31,7 @@ import {
 import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
 import { drainPendingAudits, loadPendingAudits } from "./lib/audit";
 import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
+import { pruneExpiredAiUsage } from "./lib/ai-telemetry";
 import { assertDatabaseApplicationSchema } from "./lib/database-schema-preflight";
 import {
   recordGroqModelCatalogDrift,
@@ -198,6 +199,9 @@ await pruneHistoricalAiDiagnostics();
 // Keep compact task history bounded without touching audit logs/events or
 // active and resumable executions. The sweep is batched and retryable.
 await pruneTaskExecutionHistory();
+// Keep provider-attempt telemetry bounded across restarts. This sweep is
+// retry-safe and independent from durable execution/audit retention.
+await pruneExpiredAiUsage();
 
 // Reload audit writes that failed in a previous process before accepting
 // traffic, then let the normal retry worker drain them in the background.

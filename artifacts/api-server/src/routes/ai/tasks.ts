@@ -260,7 +260,15 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
         projectContext,
         ...opts,
       }, { onProgress: writeProgress }),
-      { qualityProfile: "task_execution" },
+      {
+        qualityProfile: "task_execution",
+        telemetryContext: {
+          projectId: task.projectId,
+          userId: req.userId,
+          operationId: correlationId,
+          correlationId,
+        },
+      },
     ));
   } catch (err) {
     logger.error({ err, taskId, correlationId }, "AI execution failed while running agent");
@@ -589,7 +597,15 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
             projectContext,
             ...opts,
           }, { onProgress: writeAutoProgress }),
-          { qualityProfile: "task_execution" },
+          {
+            qualityProfile: "task_execution",
+            telemetryContext: {
+              projectId: task.projectId,
+              userId,
+              operationId: correlationId,
+              correlationId,
+            },
+          },
         ));
       } catch (execErr) {
         logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed");

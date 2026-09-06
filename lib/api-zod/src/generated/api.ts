@@ -4012,6 +4012,42 @@ export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRe
 
 export const getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesMax = 128;
 
+export const getAiMissionControlResponseUsageWindowDaysMax = 90;
+
+export const getAiMissionControlResponseUsageRetentionDaysMax = 3650;
+
+export const getAiMissionControlResponseUsageTotalAttemptsMin = 0;
+
+export const getAiMissionControlResponseUsageTotalSuccessesMin = 0;
+
+export const getAiMissionControlResponseUsageTotalFailuresMin = 0;
+
+export const getAiMissionControlResponseUsageTotalFallbackAttemptsMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemAttemptsMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemSuccessesMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemFailuresMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemCancelledMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemFallbackAttemptsMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemUsagePromptTokensMin = 0;
+
+export const getAiMissionControlResponseUsageProvidersItemUsageCompletionTokensMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemAttemptsMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemSuccessesMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemFailuresMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemPromptTokensMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemCompletionTokensMin = 0;
+
 
 
 export const GetAiMissionControlResponse = zod.object({
@@ -4211,7 +4247,42 @@ export const GetAiMissionControlResponse = zod.object({
   "updatedAt": zod.coerce.date(),
   "startedAt": zod.coerce.date().nullish(),
   "completedAt": zod.coerce.date().nullish()
+})),
+  "usage": zod.object({
+  "schemaVersion": zod.literal(1),
+  "windowDays": zod.number().int().min(1).max(getAiMissionControlResponseUsageWindowDaysMax),
+  "retentionDays": zod.number().int().min(1).max(getAiMissionControlResponseUsageRetentionDaysMax),
+  "totalAttempts": zod.number().int().min(getAiMissionControlResponseUsageTotalAttemptsMin),
+  "totalSuccesses": zod.number().int().min(getAiMissionControlResponseUsageTotalSuccessesMin),
+  "totalFailures": zod.number().int().min(getAiMissionControlResponseUsageTotalFailuresMin),
+  "totalFallbackAttempts": zod.number().int().min(getAiMissionControlResponseUsageTotalFallbackAttemptsMin),
+  "providers": zod.array(zod.object({
+  "provider": zod.string(),
+  "attempts": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemAttemptsMin),
+  "successes": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemSuccessesMin),
+  "failures": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemFailuresMin),
+  "cancelled": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemCancelledMin),
+  "fallbackAttempts": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemFallbackAttemptsMin),
+  "successRate": zod.number().nullable(),
+  "p50LatencyMs": zod.number().int().nullable(),
+  "p95LatencyMs": zod.number().int().nullable(),
+  "usage": zod.object({
+  "promptTokens": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemUsagePromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(getAiMissionControlResponseUsageProvidersItemUsageCompletionTokensMin).nullable(),
+  "status": zod.enum(['known', 'partial', 'unknown'])
+}),
+  "lastOccurredAt": zod.coerce.date().nullable()
+})),
+  "timeline": zod.array(zod.object({
+  "day": zod.coerce.date(),
+  "attempts": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemAttemptsMin),
+  "successes": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemSuccessesMin),
+  "failures": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemFailuresMin),
+  "promptTokens": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemPromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemCompletionTokensMin).nullable(),
+  "usageKnown": zod.boolean()
 }))
+})
 })
 
 
@@ -5876,9 +5947,58 @@ export const DeleteProviderKeyResponse = zod.object({
 /**
  * @summary Get per-provider request metrics and circuit-breaker state
  */
+export const getAiMetricsQueryProjectIdMax = 160;
+
+export const getAiMetricsQueryDaysDefault = 30;
+export const getAiMetricsQueryDaysMax = 90;
+
+
+
+export const GetAiMetricsQueryParams = zod.object({
+  "projectId": zod.coerce.string().max(getAiMetricsQueryProjectIdMax).optional().describe('Limit durable usage to one owner-scoped project.'),
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']).optional().describe('Limit durable usage to one provider.'),
+  "days": zod.coerce.number().int().min(1).max(getAiMetricsQueryDaysMax).default(getAiMetricsQueryDaysDefault).describe('Durable usage window in days.')
+})
+
 export const getAiMetricsResponseMetricsItemLifecycleRevisionMin = 0;
 
 export const getAiMetricsResponseMetricsItemLifecycleGenerationMin = 0;
+
+export const getAiMetricsResponseUsageWindowDaysMax = 90;
+
+export const getAiMetricsResponseUsageRetentionDaysMax = 3650;
+
+export const getAiMetricsResponseUsageTotalAttemptsMin = 0;
+
+export const getAiMetricsResponseUsageTotalSuccessesMin = 0;
+
+export const getAiMetricsResponseUsageTotalFailuresMin = 0;
+
+export const getAiMetricsResponseUsageTotalFallbackAttemptsMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemAttemptsMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemSuccessesMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemFailuresMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemCancelledMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemFallbackAttemptsMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemUsagePromptTokensMin = 0;
+
+export const getAiMetricsResponseUsageProvidersItemUsageCompletionTokensMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemAttemptsMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemSuccessesMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemFailuresMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemPromptTokensMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemCompletionTokensMin = 0;
 
 
 
@@ -5944,7 +6064,42 @@ export const GetAiMetricsResponse = zod.object({
   "malformedJsonRate": zod.number(),
   "demoted": zod.boolean().describe('True when recent loop rate exceeds the task-execution demotion threshold'),
   "lastEventAt": zod.coerce.date()
+})),
+  "usage": zod.object({
+  "schemaVersion": zod.literal(1),
+  "windowDays": zod.number().int().min(1).max(getAiMetricsResponseUsageWindowDaysMax),
+  "retentionDays": zod.number().int().min(1).max(getAiMetricsResponseUsageRetentionDaysMax),
+  "totalAttempts": zod.number().int().min(getAiMetricsResponseUsageTotalAttemptsMin),
+  "totalSuccesses": zod.number().int().min(getAiMetricsResponseUsageTotalSuccessesMin),
+  "totalFailures": zod.number().int().min(getAiMetricsResponseUsageTotalFailuresMin),
+  "totalFallbackAttempts": zod.number().int().min(getAiMetricsResponseUsageTotalFallbackAttemptsMin),
+  "providers": zod.array(zod.object({
+  "provider": zod.string(),
+  "attempts": zod.number().int().min(getAiMetricsResponseUsageProvidersItemAttemptsMin),
+  "successes": zod.number().int().min(getAiMetricsResponseUsageProvidersItemSuccessesMin),
+  "failures": zod.number().int().min(getAiMetricsResponseUsageProvidersItemFailuresMin),
+  "cancelled": zod.number().int().min(getAiMetricsResponseUsageProvidersItemCancelledMin),
+  "fallbackAttempts": zod.number().int().min(getAiMetricsResponseUsageProvidersItemFallbackAttemptsMin),
+  "successRate": zod.number().nullable(),
+  "p50LatencyMs": zod.number().int().nullable(),
+  "p95LatencyMs": zod.number().int().nullable(),
+  "usage": zod.object({
+  "promptTokens": zod.number().int().min(getAiMetricsResponseUsageProvidersItemUsagePromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(getAiMetricsResponseUsageProvidersItemUsageCompletionTokensMin).nullable(),
+  "status": zod.enum(['known', 'partial', 'unknown'])
+}),
+  "lastOccurredAt": zod.coerce.date().nullable()
+})),
+  "timeline": zod.array(zod.object({
+  "day": zod.coerce.date(),
+  "attempts": zod.number().int().min(getAiMetricsResponseUsageTimelineItemAttemptsMin),
+  "successes": zod.number().int().min(getAiMetricsResponseUsageTimelineItemSuccessesMin),
+  "failures": zod.number().int().min(getAiMetricsResponseUsageTimelineItemFailuresMin),
+  "promptTokens": zod.number().int().min(getAiMetricsResponseUsageTimelineItemPromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(getAiMetricsResponseUsageTimelineItemCompletionTokensMin).nullable(),
+  "usageKnown": zod.boolean()
 }))
+})
 })
 
 

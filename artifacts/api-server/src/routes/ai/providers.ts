@@ -34,6 +34,11 @@ import {
 import { getDynamicCatalogStatus } from "@workspace/ai-orchestrator";
 import type { ProviderId } from "@workspace/ai-orchestrator";
 import type { Request, Response } from "express";
+import {
+  getAiUsageSummary,
+  AI_USAGE_DEFAULT_WINDOW_DAYS,
+  AI_USAGE_MAX_WINDOW_DAYS,
+} from "../../lib/ai-telemetry.js";
 
 const router = Router();
 
@@ -268,17 +273,38 @@ router.get("/ai/active-provider", async (req, res) => {
 /**
  * GET /api/ai/metrics
  *
- * PR-05/PR-06: Returns in-memory provider reliability metrics merged with
- * circuit-breaker state so the dashboard can show per-provider runtime health.
+ * Runtime health is still intentionally in-memory, but durable usage and
+ * reliability summaries are included from ai_usage_events so they survive a
+ * process restart.
  *
  * Shape per entry:
  *   requests, failures, fallbackSuccesses, invalidModels, latency percentiles,
  *   successRate, lastSuccessAt, lastFailureAt, consecutiveFailures   (PR-05)
  *   circuitOpen, cooldownRemainingMs                                 (PR-07)
  *
- * Resets on process restart — for runtime observability, not persistent analytics.
+ * Runtime counters reset on restart; `usage` is the persistent analytics
+ * projection and contains no prompts, source content, or credentials.
  */
 router.get("/ai/metrics", async (req, res) => {
+  const rawDays = req.query.days === undefined ? AI_USAGE_DEFAULT_WINDOW_DAYS : Number(req.query.days);
+  if (!Number.isSafeInteger(rawDays) || rawDays < 1 || rawDays > AI_USAGE_MAX_WINDOW_DAYS) {
+    return res.status(400).json({ error: `days must be an integer between 1 and ${AI_USAGE_MAX_WINDOW_DAYS}` });
+  }
+  const projectId = typeof req.query.projectId === "string" && req.query.projectId.trim()
+    ? req.query.projectId.trim().slice(0, 160)
+    : undefined;
+  const providerFilter = typeof req.query.provider === "string" && req.query.provider.trim()
+    ? req.query.provider.trim()
+    : undefined;
+  if (providerFilter && !isValidProvider(providerFilter)) {
+    return res.status(400).json({ error: "provider is not supported" });
+  }
+  const usage = await getAiUsageSummary({
+    userId: req.userId,
+    projectId,
+    provider: providerFilter,
+    days: rawDays,
+  });
   const metricsMap = new Map(getProviderMetrics().map((m) => [m.provider, m]));
   const configuredRows = await db
     .select({
@@ -353,7 +379,9 @@ router.get("/ai/metrics", async (req, res) => {
           : isCatalogStale
             ? "Retry shortly so the model catalog can refresh; configure another provider if it persists."
             : null,
-      correlationId: randomUUID(),
+      // This is a stable runtime health identity, not a fake per-response
+      // operation id. Durable operation correlation is exposed in `usage`.
+      correlationId: `provider-runtime:${provider}`,
       circuitOpen:         circuit.open,
       circuitHalfOpen:     circuit.halfOpen,
       cooldownRemainingMs: circuit.cooldownRemainingMs,
@@ -369,6 +397,7 @@ router.get("/ai/metrics", async (req, res) => {
       ageMs: catalog.ageMs,
       lastRefreshStatus: catalog.lastRefreshStatus,
     },
+    usage,
     behavioralScorecards: getBehavioralScorecards(),
   });
 });

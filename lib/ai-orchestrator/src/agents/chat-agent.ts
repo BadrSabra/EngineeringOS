@@ -10745,6 +10745,7 @@ export async function chat(opts: {
     sources: mergedSources,
     pendingChanges: getExecutionPendingChanges(),
     resolvedModel: resolvedModelInfo,
+    ...(result.usage ? { usage: result.usage } : {}),
     ...(structuredRepairPlan ? { repairPlan: structuredRepairPlan } : {}),
     ...(productionReachability ? { productionReachability } : {}),
     ...(graphGuidance?.crossFileTraces?.length

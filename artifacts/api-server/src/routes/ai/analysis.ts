@@ -379,7 +379,10 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
       req.userId,
       { provider, apiKey },
       (opts) => analyzeScan(projectContext, opts),
-      { qualityProfile: "analysis" },
+      {
+        qualityProfile: "analysis",
+        telemetryContext: { projectId, userId: req.userId, operationId: metadata.operationId, correlationId: metadata.operationId },
+      },
     ));
   } catch (err) {
     metadata.incomplete = true;
@@ -524,7 +527,10 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
       req.userId,
       { provider, apiKey },
       (opts) => reviewCode(projectContext, fileContents, opts),
-      { qualityProfile: "code_review" },
+      {
+        qualityProfile: "code_review",
+        telemetryContext: { projectId, userId: req.userId, operationId: metadata.operationId, correlationId: metadata.operationId },
+      },
     ));
   } catch (err) {
     metadata.incomplete = true;
@@ -679,7 +685,10 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
           message,
         }),
       }),
-      { qualityProfile: "analysis" },
+      {
+        qualityProfile: "analysis",
+        telemetryContext: { projectId, userId: req.userId, operationId: metadata.operationId, correlationId: metadata.operationId },
+      },
     ).then((output) => {
       effectiveProvider = output.effectiveProvider;
       return output;
@@ -867,7 +876,10 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
           message,
         }),
       }),
-      { qualityProfile: "code_review" },
+      {
+        qualityProfile: "code_review",
+        telemetryContext: { projectId, userId: req.userId, operationId: metadata.operationId, correlationId: metadata.operationId },
+      },
     ).then((output) => {
       effectiveProvider = output.effectiveProvider;
       return output;

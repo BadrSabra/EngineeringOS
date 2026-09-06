@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { useGetAiMissionControl } from '@workspace/api-client-react';
-import type { AiMissionControl } from '@workspace/api-client-react';
+import type { AiMissionControl, AiUsageSummary } from '@workspace/api-client-react';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -956,6 +956,70 @@ function SummaryMetric({
   );
 }
 
+function UsageSummaryCard({ usage }: { usage: AiUsageSummary | undefined }) {
+  if (!usage) {
+    return (
+      <section className="rounded-xl border border-border bg-card p-4" aria-label="AI usage summary">
+        <div className="flex items-center gap-2">
+          <Gauge className="h-4 w-4 text-primary" />
+          <h2 className="font-semibold">AI usage</h2>
+        </div>
+        <p className="mt-3 rounded-lg border border-dashed border-border/70 bg-background/20 p-4 text-center text-xs text-muted-foreground">
+          Usage history is not available yet.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="rounded-xl border border-border bg-card p-4" aria-label="AI usage summary">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Gauge className="h-4 w-4 text-primary" />
+            <h2 className="font-semibold">AI usage</h2>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Durable provider attempts over the last {usage.windowDays} days. Runtime health remains separate.
+          </p>
+        </div>
+        <span className="rounded-full border border-border/70 px-2 py-1 text-[10px] text-muted-foreground">
+          {usage.retentionDays}-day retention
+        </span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <SummaryMetric label="Attempts" value={String(usage.totalAttempts)} detail="provider calls" icon={<Activity className="h-3.5 w-3.5 text-primary" />} />
+        <SummaryMetric label="Success" value={String(usage.totalSuccesses)} detail={`${usage.totalAttempts ? Math.round((usage.totalSuccesses / usage.totalAttempts) * 100) : 0}% of attempts`} icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />} tone="text-emerald-200" />
+        <SummaryMetric label="Failed" value={String(usage.totalFailures)} detail="terminal provider failures" icon={<XCircle className="h-3.5 w-3.5 text-red-300" />} tone="text-red-200" />
+        <SummaryMetric label="Fallback" value={String(usage.totalFallbackAttempts)} detail="fallback attempts" icon={<RefreshCw className="h-3.5 w-3.5 text-amber-300" />} tone="text-amber-200" />
+      </div>
+      {usage.providers.length === 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">No provider attempts were recorded in this window.</p>
+      ) : (
+        <div className="mt-4 space-y-2">
+          {usage.providers.map((provider) => (
+            <div key={provider.provider} className="rounded-lg border border-border/60 bg-background/20 px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-semibold">{provider.provider}</span>
+                <span className="text-muted-foreground">{provider.attempts} attempts</span>
+                <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                  p50 {provider.p50LatencyMs === null ? 'unknown' : `${provider.p50LatencyMs} ms`} · p95 {provider.p95LatencyMs === null ? 'unknown' : `${provider.p95LatencyMs} ms`}
+                </span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                <span>Success {provider.successRate === null ? 'unknown' : `${Math.round(provider.successRate * 100)}%`}</span>
+                <span>Usage {provider.usage.status === 'unknown' ? 'unknown' : `${provider.usage.status}: ${provider.usage.promptTokens ?? 0} prompt / ${provider.usage.completionTokens ?? 0} completion tokens`}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 text-[10px] text-muted-foreground">
+        Token totals are shown only when the provider supplied usage. No cost is inferred.
+      </div>
+    </section>
+  );
+}
+
 function MissionSkeleton() {
   return (
     <div className="space-y-5" aria-label="Loading mission control" aria-busy="true">
@@ -1239,6 +1303,8 @@ export default function MissionControl() {
           </div>
         </div>
       </section>
+
+      <UsageSummaryCard usage={typedData?.usage} />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(330px,0.75fr)]">
         <section className="min-w-0 rounded-xl border border-border bg-card">

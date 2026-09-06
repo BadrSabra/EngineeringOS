@@ -7,10 +7,12 @@
  */
 import type { AiMissionControlBenchmark } from './aiMissionControlBenchmark';
 import type { AiMissionControlExecution } from './aiMissionControlExecution';
+import type { AiUsageSummary } from './aiUsageSummary';
 
 export interface AiMissionControl {
   updatedAt: Date;
   /** @nullable */
   benchmark?: AiMissionControlBenchmark;
   executions: AiMissionControlExecution[];
+  usage: AiUsageSummary;
 }

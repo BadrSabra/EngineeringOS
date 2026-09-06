@@ -181,6 +181,7 @@ import {
   atomicallyPromoteFile,
 } from "../../lib/delivery-workspace.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
+import { recordAiUsageAttempt } from "../../lib/ai-telemetry.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -3046,6 +3047,18 @@ router.post("/ai/chat", async (req, res) => {
           analysisToolRunner,
           analysisCorrelation,
           executionLedger,
+          onProviderAttempt: (attempt) => recordAiUsageAttempt({
+            projectId,
+            userId: req.userId,
+            operationId: analysisCorrelation.operationId ?? sessionIdToUse,
+            correlationId: analysisCorrelation.operationId ?? sessionIdToUse,
+          }, {
+            ...attempt,
+            attemptId: `${analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.provider}:${attempt.attemptNumber}`,
+            usageStatus: attempt.usageStatus,
+            promptTokens: attempt.promptTokens,
+            completionTokens: attempt.completionTokens,
+          }),
         },
         { provider, apiKey },
         undefined,
@@ -5157,6 +5170,19 @@ router.post("/ai/chat/stream", async (req, res) => {
            ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
           executionLedger,
           ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
+          onProviderAttempt: (attempt) => recordAiUsageAttempt({
+            projectId,
+            userId: req.userId,
+            executionId: aiExecution?.id ?? null,
+            operationId: aiExecution?.operationId ?? analysisCorrelation.operationId ?? null,
+            correlationId: aiExecution?.operationId ?? analysisCorrelation.operationId ?? sessionIdToUse,
+          }, {
+            ...attempt,
+            attemptId: `${aiExecution?.id ?? analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.provider}:${attempt.attemptNumber}`,
+            usageStatus: attempt.usageStatus,
+            promptTokens: attempt.promptTokens,
+            completionTokens: attempt.completionTokens,
+          }),
         },
         { provider, apiKey },
         onDelta,

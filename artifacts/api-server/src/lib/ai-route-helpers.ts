@@ -43,6 +43,8 @@ import type {
 } from "@workspace/ai-orchestrator";
 import type { ExecutionLedger } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
+import { recordAiUsageAttempt } from "./ai-telemetry.js";
+import type { AiTelemetryContext } from "./ai-telemetry.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
@@ -422,7 +424,20 @@ export async function runAgentWithFallback<T>(
   userId: string,
   initialProvider: { provider: ProviderId; apiKey: string; source?: "user" | "server" },
   run: (opts: { provider: ProviderId; apiKey: string; signal?: AbortSignal }) => Promise<T>,
-  options?: ProviderSelectionOptions & { signal?: AbortSignal },
+  options?: ProviderSelectionOptions & {
+    signal?: AbortSignal;
+    onProviderAttempt?: (attempt: {
+      provider: ProviderId;
+      outcome: "success" | "failure" | "cancelled";
+      latencyMs: number;
+      attemptNumber: number;
+      fallbackCount: number;
+      promptTokens?: number | null;
+      completionTokens?: number | null;
+      usageStatus?: "known" | "partial" | "unknown";
+    }) => void | Promise<void>;
+    telemetryContext?: AiTelemetryContext;
+  },
 ): Promise<{ result: T; effectiveProvider: ProviderId }> {
   let orderedProviders = await collectAvailableProviders(userId, options);
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
@@ -440,7 +455,7 @@ export async function runAgentWithFallback<T>(
 
   let lastErr: GroqClientError | undefined;
 
-  for (const providerEntry of orderedProviders) {
+  for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
     if (options?.signal?.aborted) {
       throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
     }
@@ -450,10 +465,41 @@ export async function runAgentWithFallback<T>(
         "primary provider error; retrying agent with fallback provider",
       );
     }
+    const providerStartedAt = Date.now();
     try {
       const result = await run({ ...providerEntry, signal: options?.signal });
+      const telemetryAttempt = {
+        provider: providerEntry.provider,
+        outcome: "success",
+        latencyMs: Date.now() - providerStartedAt,
+        attemptNumber: providerIndex + 1,
+        fallbackCount: providerIndex,
+      } as const;
+      void options?.onProviderAttempt?.(telemetryAttempt);
+      if (options?.telemetryContext) {
+        void recordAiUsageAttempt(options.telemetryContext, {
+          ...telemetryAttempt,
+          attemptId: `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`,
+          usageStatus: "unknown",
+        });
+      }
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
+      const telemetryAttempt = {
+        provider: providerEntry.provider,
+        outcome: options?.signal?.aborted ? "cancelled" : "failure",
+        latencyMs: Date.now() - providerStartedAt,
+        attemptNumber: providerIndex + 1,
+        fallbackCount: providerIndex,
+      } as const;
+      void options?.onProviderAttempt?.(telemetryAttempt);
+      if (options?.telemetryContext) {
+        void recordAiUsageAttempt(options.telemetryContext, {
+          ...telemetryAttempt,
+          attemptId: `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`,
+          usageStatus: "unknown",
+        });
+      }
       if (options?.signal?.aborted) {
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
       }
@@ -552,6 +598,18 @@ export async function chatWithFallback(
      executionLedger?: ExecutionLedger;
      /** Server-owned capability catalog registry for an active operation. */
      capabilityRegistry?: import("@workspace/ai-orchestrator").CapabilityRegistry;
+    /** Best-effort durable provider-attempt telemetry hook. */
+    onProviderAttempt?: (attempt: {
+      provider: ProviderId;
+      model?: string | null;
+      outcome: "success" | "failure" | "cancelled";
+      latencyMs: number;
+      attemptNumber: number;
+      fallbackCount: number;
+      promptTokens?: number | null;
+      completionTokens?: number | null;
+      usageStatus?: "known" | "partial" | "unknown";
+    }) => void | Promise<void>;
   },
   initialProvider: { provider: ProviderId; apiKey: string; source?: "user" | "server" },
   onDelta?: (delta: string) => void,
@@ -611,6 +669,7 @@ export async function chatWithFallback(
         "primary provider error; retrying with fallback provider",
       );
     }
+    const providerStartedAt = Date.now();
     try {
       // The API package can briefly consume an older workspace declaration
       // while the orchestrator adds this request-scoped additive option.
@@ -645,8 +704,27 @@ export async function chatWithFallback(
          executionLedger,
          capabilityRegistry: baseParams.capabilityRegistry,
       } as Parameters<typeof chat>[0]);
+      void baseParams.onProviderAttempt?.({
+        provider: providerEntry.provider,
+        model: result.resolvedModel?.id ?? null,
+        outcome: "success",
+        latencyMs: Date.now() - providerStartedAt,
+        attemptNumber: providerIndex + 1,
+        fallbackCount: providerIndex,
+        promptTokens: result.usage?.promptTokens,
+        completionTokens: result.usage?.completionTokens,
+        usageStatus: result.usage ? "known" : "unknown",
+      });
       return { result, effectiveProvider: providerEntry.provider, executionLedger };
     } catch (err) {
+      void baseParams.onProviderAttempt?.({
+        provider: providerEntry.provider,
+        model: null,
+        outcome: baseParams.signal?.aborted ? "cancelled" : "failure",
+        latencyMs: Date.now() - providerStartedAt,
+        attemptNumber: providerIndex + 1,
+        fallbackCount: providerIndex,
+      });
       const providerError = normalizeProviderFailure(err);
       recordProviderLifecycleOutcome({
         provider: providerEntry.provider,

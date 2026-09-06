@@ -812,11 +812,110 @@ export type AiMissionControlBenchmark = {
   empiricalCampaign?: AiEmpiricalQualityScorecard;
 } | null;
 
+export type AiUsageSummarySchemaVersion = typeof AiUsageSummarySchemaVersion[keyof typeof AiUsageSummarySchemaVersion];
+
+
+export const AiUsageSummarySchemaVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiUsageProviderSummaryUsageStatus = typeof AiUsageProviderSummaryUsageStatus[keyof typeof AiUsageProviderSummaryUsageStatus];
+
+
+export const AiUsageProviderSummaryUsageStatus = {
+  known: 'known',
+  partial: 'partial',
+  unknown: 'unknown',
+} as const;
+
+export type AiUsageProviderSummaryUsage = {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  promptTokens: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  completionTokens: number | null;
+  status: AiUsageProviderSummaryUsageStatus;
+};
+
+export interface AiUsageProviderSummary {
+  provider: string;
+  /** @minimum 0 */
+  attempts: number;
+  /** @minimum 0 */
+  successes: number;
+  /** @minimum 0 */
+  failures: number;
+  /** @minimum 0 */
+  cancelled: number;
+  /** @minimum 0 */
+  fallbackAttempts: number;
+  /** @nullable */
+  successRate: number | null;
+  /** @nullable */
+  p50LatencyMs: number | null;
+  /** @nullable */
+  p95LatencyMs: number | null;
+  usage: AiUsageProviderSummaryUsage;
+  /** @nullable */
+  lastOccurredAt: string | null;
+}
+
+export interface AiUsageTimelinePoint {
+  day: string;
+  /** @minimum 0 */
+  attempts: number;
+  /** @minimum 0 */
+  successes: number;
+  /** @minimum 0 */
+  failures: number;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  promptTokens: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  completionTokens: number | null;
+  usageKnown: boolean;
+}
+
+export interface AiUsageSummary {
+  schemaVersion: AiUsageSummarySchemaVersion;
+  /**
+     * @minimum 1
+     * @maximum 90
+     */
+  windowDays: number;
+  /**
+     * @minimum 1
+     * @maximum 3650
+     */
+  retentionDays: number;
+  /** @minimum 0 */
+  totalAttempts: number;
+  /** @minimum 0 */
+  totalSuccesses: number;
+  /** @minimum 0 */
+  totalFailures: number;
+  /** @minimum 0 */
+  totalFallbackAttempts: number;
+  providers: AiUsageProviderSummary[];
+  timeline: AiUsageTimelinePoint[];
+}
+
 export interface AiMissionControl {
   updatedAt: string;
   /** @nullable */
   benchmark?: AiMissionControlBenchmark;
   executions: AiMissionControlExecution[];
+  usage: AiUsageSummary;
 }
 
 export type AiPlanDecisionRequestDecision = typeof AiPlanDecisionRequestDecision[keyof typeof AiPlanDecisionRequestDecision];
@@ -4421,9 +4520,38 @@ export type DeleteProviderKey200 = {
   configured: boolean;
 };
 
+export type GetAiMetricsParams = {
+/**
+ * Limit durable usage to one owner-scoped project.
+ * @maxLength 160
+ */
+projectId?: string;
+/**
+ * Limit durable usage to one provider.
+ */
+provider?: GetAiMetricsProvider;
+/**
+ * Durable usage window in days.
+ * @minimum 1
+ * @maximum 90
+ */
+days?: number;
+};
+
+export type GetAiMetricsProvider = typeof GetAiMetricsProvider[keyof typeof GetAiMetricsProvider];
+
+
+export const GetAiMetricsProvider = {
+  groq: 'groq',
+  deepseek: 'deepseek',
+  openrouter: 'openrouter',
+  gemini: 'gemini',
+} as const;
+
 export type GetAiMetrics200 = {
   metrics: AiProviderMetric[];
   behavioralScorecards: BehavioralModelScorecard[];
+  usage: AiUsageSummary;
 };
 
 export type ListOperatorAlertsParams = {
