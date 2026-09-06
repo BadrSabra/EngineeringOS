@@ -149,6 +149,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Keep workflow-only Vite requirements out of the root build contract.
+      # This test also verifies the public Clerk bundle boundary and that
+      # runtime commands still fail fast when their workflow variables are
+      # absent.
+      - name: Validate workflow-free root build contract
+        run: pnpm run validate:root-build-contract
+
       - name: Reject tracked private-key material
         run: pnpm run security:reject-private-keys
 
