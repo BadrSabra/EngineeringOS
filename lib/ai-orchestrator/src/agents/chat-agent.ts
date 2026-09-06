@@ -10875,6 +10875,22 @@ export async function chat(opts: {
     structuredRepairPlan,
     acceptedBehaviorEvidence,
   });
+  // Provider adapters normally supply both usage counters, but some
+  // compatible providers and deterministic fixtures omit usage metadata or
+  // return an empty object. Treat unavailable counters as zero at the public
+  // output boundary instead of emitting a schema-invalid partial usage object.
+  const normalizedUsage = result.usage
+    ? {
+        promptTokens:
+          Number.isFinite(result.usage.promptTokens)
+            ? Math.max(0, Math.trunc(result.usage.promptTokens))
+            : 0,
+        completionTokens:
+          Number.isFinite(result.usage.completionTokens)
+            ? Math.max(0, Math.trunc(result.usage.completionTokens))
+            : 0,
+      }
+    : undefined;
 
   const output = {
     ...parsed.data,
@@ -10882,7 +10898,7 @@ export async function chat(opts: {
     sources: mergedSources,
     pendingChanges: getExecutionPendingChanges(),
     resolvedModel: resolvedModelInfo,
-    ...(result.usage ? { usage: result.usage } : {}),
+    ...(normalizedUsage ? { usage: normalizedUsage } : {}),
     ...(structuredRepairPlan ? { repairPlan: structuredRepairPlan } : {}),
     ...(productionReachability ? { productionReachability } : {}),
     ...(graphGuidance?.crossFileTraces?.length
