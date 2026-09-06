@@ -43,8 +43,11 @@ import type {
 } from "@workspace/ai-orchestrator";
 import type { ExecutionLedger } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
-import { recordAiUsageAttempt } from "./ai-telemetry.js";
-import type { AiTelemetryContext } from "./ai-telemetry.js";
+import {
+  deriveAiContractTelemetry,
+  recordAiUsageAttempt,
+} from "./ai-telemetry.js";
+import type { AiTelemetryContext, AiContractTelemetry } from "./ai-telemetry.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
@@ -435,7 +438,7 @@ export async function runAgentWithFallback<T>(
       promptTokens?: number | null;
       completionTokens?: number | null;
       usageStatus?: "known" | "partial" | "unknown";
-    }) => void | Promise<void>;
+       } & AiContractTelemetry) => void | Promise<void>;
     telemetryContext?: AiTelemetryContext;
   },
 ): Promise<{ result: T; effectiveProvider: ProviderId }> {
@@ -609,7 +612,7 @@ export async function chatWithFallback(
       promptTokens?: number | null;
       completionTokens?: number | null;
       usageStatus?: "known" | "partial" | "unknown";
-    }) => void | Promise<void>;
+    } & AiContractTelemetry) => void | Promise<void>;
   },
   initialProvider: { provider: ProviderId; apiKey: string; source?: "user" | "server" },
   onDelta?: (delta: string) => void,
@@ -670,6 +673,20 @@ export async function chatWithFallback(
       );
     }
     const providerStartedAt = Date.now();
+    let recoveryStartedAt: number | undefined;
+    let recoveryAccepted = false;
+    const relayStep = (step: AgentStep) => {
+      if (step.kind === "recovery_model_call" && recoveryStartedAt === undefined) {
+        recoveryStartedAt = Date.now();
+      }
+      if (
+        step.kind === "diagnostic" &&
+        step.code === "CAPABILITY_PROBE_EVIDENCE_RECOVERED"
+      ) {
+        recoveryAccepted = true;
+      }
+      onStep?.(step);
+    };
     try {
       // The API package can briefly consume an older workspace declaration
       // while the orchestrator adds this request-scoped additive option.
@@ -680,7 +697,7 @@ export async function chatWithFallback(
         provider: providerEntry.provider,
         onDelta,
         onStreamReset,
-        onStep,
+         onStep: relayStep,
         allowValidationTools: baseParams.allowValidationTools,
          approvalState: baseParams.approvalState,
          approvedFilePaths: baseParams.approvedFilePaths,
@@ -714,6 +731,15 @@ export async function chatWithFallback(
         promptTokens: result.usage?.promptTokens,
         completionTokens: result.usage?.completionTokens,
         usageStatus: result.usage ? "known" : "unknown",
+        ...deriveAiContractTelemetry({
+          message: baseParams.message,
+          response: result.response,
+          recoveryAttempted: recoveryStartedAt !== undefined,
+          recoveryAccepted,
+          recoveryLatencyMs: recoveryStartedAt === undefined
+            ? null
+            : Date.now() - recoveryStartedAt,
+        }),
       });
       return { result, effectiveProvider: providerEntry.provider, executionLedger };
     } catch (err) {

@@ -81,6 +81,12 @@ import {
   type SemanticBehaviorAnswer,
 } from "../task-contracts.js";
 import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type ChatTaskResult, type PendingChange, type ResolvedModelInfo, type RepairPlanMetadata } from "../schemas/chat.schema.js";
+import {
+  CapabilityProbeClaimSchema,
+  CapabilityProbeResponseSchema,
+  type CapabilityProbeClaimId,
+  type CapabilityProbeResponse,
+} from "../schemas/capability-probe.schema.js";
 import { extractJson, parseAgentResponse } from "../parsing.js";
 import {
   createImplementationPlan,
@@ -1087,14 +1093,14 @@ export function applyCapabilityProbeRuntimeClaims(
     [
       "C2",
       fileContents.size > 0
-        ? `C2: PASS — the server retained ${fileContents.size} completed read_file/read_file_range source read(s) within the declared scope; the read evidence boundary is server-owned.`
-        : "C2: FAIL — the server retained no completed source reads.",
+        ? `C2: PASS — the server retained ${fileContents.size} completed read_file/read_file_range source read(s) within the declared scope; the read evidence boundary is server-owned. Evidence ID: R1.`
+        : "C2: FAIL — the server retained no completed source reads. Evidence ID: R1.",
     ],
     [
       "C5",
       pendingChangeCount > 0
-        ? `C5: FAIL — the server recorded ${pendingChangeCount} pending write change(s); no edit-abstention PASS is allowed.`
-        : "C5: PASS — the server recorded no pending write changes; no write_file or replace_text change was produced.",
+        ? `C5: FAIL — the server recorded ${pendingChangeCount} pending write change(s); no edit-abstention PASS is allowed. Evidence ID: R2.`
+        : "C5: PASS — the server recorded no pending write changes; no write_file or replace_text change was produced. Evidence ID: R2.",
     ],
   ]);
 
@@ -1290,6 +1296,12 @@ export function normalizeCapabilityProbeRecoveryContent(
   const extracted = extractJson(raw);
   if (extracted.ok && extracted.data && typeof extracted.data === "object") {
     const value = extracted.data as Record<string, unknown>;
+    const canonical = parseCanonicalCapabilityProbeResponse(value);
+    if (canonical) {
+      const rendered = renderCanonicalCapabilityProbeResponse(canonical, fileContents);
+      if (!rendered) return null;
+      return { response: rendered, sources: verifiedSources };
+    }
     if (typeof value.response === "string") {
       return {
         response: withVerifiedSources(value.response),
@@ -1343,6 +1355,107 @@ export function normalizeCapabilityProbeRecoveryContent(
   return plain && /\bC1\b/i.test(plain) && !looksLikeIncompleteObject
     ? { response: withVerifiedSources(plain), sources: verifiedSources }
     : null;
+}
+
+function parseCanonicalCapabilityProbeResponse(
+  value: Record<string, unknown>,
+): CapabilityProbeResponse | null {
+  const parsed = CapabilityProbeResponseSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+
+  // A provider may wrap the canonical object in `response` while preserving
+  // the contract. Accept only the validated nested object, never a partial
+  // claim map or an unknown top-level shape.
+  const nested = value.response;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const nestedParsed = CapabilityProbeResponseSchema.safeParse(nested);
+    return nestedParsed.success ? nestedParsed.data : null;
+  }
+  return null;
+}
+
+function parseCanonicalJsonObject(raw: string): Record<string, unknown> | null {
+  const extracted = extractJson(raw);
+  return extracted.ok &&
+    extracted.data &&
+    typeof extracted.data === "object" &&
+    !Array.isArray(extracted.data)
+    ? extracted.data as Record<string, unknown>
+    : null;
+}
+
+function renderCanonicalCapabilityProbeClaim(
+  raw: string,
+  fileContents: ReadonlyMap<string, string>,
+  target: CapabilityProbeClaimId,
+): string | null {
+  const value = parseCanonicalJsonObject(raw);
+  if (!value) return null;
+  const rawClaim =
+    value.claim ??
+    (value.claims && typeof value.claims === "object" && !Array.isArray(value.claims)
+      ? (value.claims as Record<string, unknown>)[target]
+      : undefined);
+  const parsed = CapabilityProbeClaimSchema.safeParse(rawClaim);
+  if (!parsed.success) return null;
+  const catalog = buildCapabilityProbeEvidenceCatalog(fileContents);
+  const candidate = catalog.get(parsed.data.evidenceId);
+  if (!candidate || !candidate.claims.includes(target)) return null;
+  if ((target === "C2" && parsed.data.evidenceId !== "R1") ||
+      (target === "C5" && parsed.data.evidenceId !== "R2")) {
+    return null;
+  }
+  if (candidate.kind === "runtime") {
+    return `${target}: ${parsed.data.status} — ${parsed.data.answer.trim()} Evidence ID: ${candidate.id}`;
+  }
+  return [
+    `${target}: ${parsed.data.status} — ${parsed.data.answer.trim()}`,
+    `Source: \`${candidate.file}\``,
+    `Evidence ID: ${candidate.id}`,
+    `Evidence: \`${candidate.fragment}\``,
+  ].join("; ");
+}
+
+function mergeCapabilityProbeRecoveryClaim(
+  response: string,
+  target: CapabilityProbeClaimId,
+  replacement: string,
+): string {
+  const lines = response.trim().split("\n");
+  const index = lines.findIndex((line) =>
+    new RegExp(`^\\s*(?:[-*]\\s*)?${target}\\b`, "i").test(line),
+  );
+  if (index >= 0) lines[index] = replacement;
+  else lines.push(replacement);
+  return lines.join("\n");
+}
+
+function renderCanonicalCapabilityProbeResponse(
+  contract: CapabilityProbeResponse,
+  fileContents: ReadonlyMap<string, string>,
+): string | null {
+  const catalog = buildCapabilityProbeEvidenceCatalog(fileContents);
+  const lines = CAPABILITY_PROBE_LABELS.map((label) => {
+    const claim = contract.claims[label];
+    const candidate = catalog.get(claim.evidenceId);
+    if (!candidate || !candidate.claims.includes(label)) return null;
+    if ((label === "C2" && claim.evidenceId !== "R1") ||
+        (label === "C5" && claim.evidenceId !== "R2")) {
+      return null;
+    }
+    const answer = claim.answer.trim();
+    if (candidate.kind === "runtime") {
+      return `${label}: ${claim.status} — ${answer} Evidence ID: ${candidate.id}`;
+    }
+    return [
+      `${label}: ${claim.status} — ${answer}`,
+      `Source: \`${candidate.file}\``,
+      `Evidence ID: ${candidate.id}`,
+      `Evidence: \`${candidate.fragment}\``,
+    ].join("; ");
+  });
+  if (lines.some((line) => line === null)) return null;
+  return `${lines.join("\n")}\nOverall score: ${contract.overallScore}`;
 }
 
 /**
@@ -1755,6 +1868,8 @@ export function buildCapabilityProbeRecoveryMessages(
   const targets = targetCapabilities.length > 0
     ? targetCapabilities.join(", ")
     : CAPABILITY_PROBE_LABELS.join(", ");
+  const claimScoped = targetCapabilities.length === 1;
+  const claimTarget = targetCapabilities[0] as CapabilityProbeClaimId | undefined;
 
   return [
     {
@@ -1769,12 +1884,21 @@ export function buildCapabilityProbeRecoveryMessages(
       role: "user",
       content: [
          "The previous probe answer did not contain a verifiable exact source excerpt.",
-         "Return ONLY a short plain-text report. Do not return JSON, an object, or a code fence.",
-         "Use exactly one labelled line for each of C1, C2, C3, C4, C5, C6, and C7, plus an overall X/7 score.",
-         "Use this literal line shape: C1: PASS/FAIL — answer; evidence: exact/project-relative/source.ts `exact source fragment`.",
-         `Prioritize repairing these claims, which failed validation: ${targets}. Still return the complete C1–C7 report.`,
+         ...(claimScoped
+           ? [
+               `Repair only ${claimTarget}. Return ONLY this JSON object: {"status":"PASS","evidenceId":"E1","answer":"..."}.`,
+               "Do not return the other C1–C7 claims, an overall score, Markdown, or a code fence.",
+             ]
+           : [
+               "Return ONLY a short plain-text report. Do not return JSON, an object, or a code fence.",
+               "Use exactly one labelled line for each of C1, C2, C3, C4, C5, C6, and C7, plus an overall X/7 score.",
+               "Use this literal line shape: C1: PASS/FAIL — answer; evidence: exact/project-relative/source.ts `exact source fragment`.",
+               `Prioritize repairing these claims, which failed validation: ${targets}.`,
+             ]),
          "Do not use forensic headings such as Executive Verdict, Evidence Map, Findings, Repair Plan, or Final Judgment.",
-         "Every C1–C7 line is a separate claim. When the claim is supported by code, cite the exact contiguous source fragment that supports that line and include the exact file path. Do not use one generic quote for unrelated claims.",
+         claimScoped
+           ? "Select only a verifier-issued Evidence ID for the requested claim; the verifier will attach the exact source fragment."
+           : "Every C1–C7 line is a separate claim. When the claim is supported by code, cite the exact contiguous source fragment that supports that line and include the exact file path. Do not use one generic quote for unrelated claims.",
          "For a negative claim, say MISSING/NO honestly and cite the completed-read manifest as the scope boundary; never invent a quote proving absence.",
          "The quoted fragment must be source code, not only a filename or symbol name. Every cited path must be one of the FILE entries below.",
         "For a negative answer such as no eval()/Function() call, state MISSING/NO honestly; do not invent a quote proving absence. The exact quote from a real executable fragment may ground the overall read, while the negative claim remains limited to the completed file.",
@@ -1857,6 +1981,8 @@ type CapabilityMicroProbeEvidenceCandidate = {
   file: string;
   fragment: string;
   description: string;
+  kind: "source" | "runtime";
+  claims: readonly CapabilityProbeClaimId[];
 };
 
 const CAPABILITY_MICRO_PROBE_GROUPS: readonly CapabilityMicroProbeGroup[] = [
@@ -1929,6 +2055,8 @@ function buildCapabilityMicroProbeEvidenceCandidates(
   fileContents: ReadonlyMap<string, string>,
 ): Map<string, CapabilityMicroProbeEvidenceCandidate> {
   const candidates = new Map<string, CapabilityMicroProbeEvidenceCandidate>();
+  const groupLabels =
+    CAPABILITY_MICRO_PROBE_GROUPS.find((group) => group.name === groupName)?.labels ?? [];
   const addCandidate = (
     id: string,
     file: string | undefined,
@@ -1952,6 +2080,8 @@ function buildCapabilityMicroProbeEvidenceCandidates(
       file,
       fragment: executableLine.trim(),
       description,
+      kind: "source",
+      claims: groupLabels as readonly CapabilityProbeClaimId[],
     });
   };
 
@@ -1965,7 +2095,7 @@ function buildCapabilityMicroProbeEvidenceCandidates(
   } else if (groupName === "scope-boundary") {
     addCandidate("E2", profileFile, profileContent, ["PROSE_PSEUDO_PATH_DENYLIST"], "scope-boundary executable line");
   } else if (groupName === "anti-hallucination") {
-    addCandidate("E3", toolsFile, toolsContent, ["write_file", "run()"], "server-side tool boundary");
+    addCandidate("E3", toolsFile, toolsContent, ["write_file", "run"], "server-side tool boundary");
   } else if (groupName === "negative-behavior") {
     // An absence cannot be quoted. This executable context gives the model a
     // legal, literal anchor while the completed-read manifest limits the
@@ -1973,6 +2103,40 @@ function buildCapabilityMicroProbeEvidenceCandidates(
     addCandidate("E4", profileFile, profileContent, ["isPromptProsePath", "PROSE_PSEUDO_PATH_DENYLIST"], "profile classifier executable context");
   }
   return candidates;
+}
+
+/**
+ * Build the complete server-owned candidate manifest for the canonical probe
+ * contract. Micro-probes receive a smaller group-specific view, but final
+ * normalization and rendering use this full manifest so an Evidence ID can
+ * never be accepted merely because it looks plausible.
+ */
+function buildCapabilityProbeEvidenceCatalog(
+  fileContents: ReadonlyMap<string, string>,
+): Map<string, CapabilityMicroProbeEvidenceCandidate> {
+  const catalog = new Map<string, CapabilityMicroProbeEvidenceCandidate>();
+  for (const group of CAPABILITY_MICRO_PROBE_GROUPS) {
+    for (const [id, candidate] of buildCapabilityMicroProbeEvidenceCandidates(group.name, fileContents)) {
+      catalog.set(id, candidate);
+    }
+  }
+  catalog.set("R1", {
+    id: "R1",
+    file: "[server runtime]",
+    fragment: "server retained completed read_file/read_file_range source reads",
+    description: "server-owned completed source-read boundary",
+    kind: "runtime",
+    claims: ["C2"],
+  });
+  catalog.set("R2", {
+    id: "R2",
+    file: "[server runtime]",
+    fragment: "server recorded no pending write changes",
+    description: "server-owned write-abstention boundary",
+    kind: "runtime",
+    claims: ["C5"],
+  });
+  return catalog;
 }
 
 function buildCapabilityMicroProbeMessages(
@@ -9767,6 +9931,11 @@ export async function chat(opts: {
       responseBeforeBehaviorEvidence,
       forensicFileContents,
     );
+    // Recovery is claim-scoped: repair the first failed source claim with a
+    // small contract instead of asking a weaker provider to regenerate all
+    // seven claims and their citations again.
+    const capabilityRecoveryTarget =
+      capabilityRecoveryTargets[0] as CapabilityProbeClaimId | undefined;
     if (
       executionLedger?.isExhausted() ||
       recoveryDeadline <= Date.now()
@@ -9783,7 +9952,7 @@ export async function chat(opts: {
           buildCapabilityProbeRecoveryMessages(
             forensicFileContents,
             responseBeforeBehaviorEvidence,
-            capabilityRecoveryTargets,
+            capabilityRecoveryTarget ? [capabilityRecoveryTarget] : [],
           ),
           {
             model: recoveryModel,
@@ -9817,10 +9986,26 @@ export async function chat(opts: {
         provider: providerId,
         attempt: recoveryAttemptsUsed,
       });
-      const normalizedRecovery = normalizeCapabilityProbeRecoveryContent(
-        recovery.content ?? "",
-        forensicFileContents,
-      );
+      const claimScopedLine = capabilityRecoveryTarget
+        ? renderCanonicalCapabilityProbeClaim(
+            recovery.content ?? "",
+            forensicFileContents,
+            capabilityRecoveryTarget,
+          )
+        : null;
+      const normalizedRecovery = claimScopedLine && capabilityRecoveryTarget
+        ? {
+            response: mergeCapabilityProbeRecoveryClaim(
+              responseBeforeBehaviorEvidence,
+              capabilityRecoveryTarget,
+              claimScopedLine,
+            ),
+            sources: [...forensicFileContents.keys()],
+          }
+        : normalizeCapabilityProbeRecoveryContent(
+            recovery.content ?? "",
+            forensicFileContents,
+          );
       if (normalizedRecovery) {
         const recoveredResponse = normalizedRecovery.response;
         const recoveredValidation = validateBehaviorEvidence(
@@ -9852,7 +10037,11 @@ export async function chat(opts: {
           relayAgentStep({
             kind: "diagnostic",
             code: "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
-            details: ["one bounded correction produced a source-grounded C1–C7 report"],
+              details: [
+                capabilityRecoveryTarget
+                  ? `claim-scoped recovery closed ${capabilityRecoveryTarget}`
+                  : "one bounded correction produced a source-grounded C1–C7 report",
+              ],
           });
         } else {
           recoveryFailureKind = "EVIDENCE_FAILURE";
@@ -9864,7 +10053,11 @@ export async function chat(opts: {
           relayAgentStep({
             kind: "diagnostic",
             code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
-            details: ["corrected C1–C7 report failed the strict source-evidence gate"],
+            details: [
+              capabilityRecoveryTarget
+                ? `${capabilityRecoveryTarget}_CITATION_MISMATCH: claim-scoped response failed the strict source-evidence gate`
+                : "corrected C1–C7 report failed the strict source-evidence gate",
+            ],
           });
         }
       } else {
@@ -9876,7 +10069,11 @@ export async function chat(opts: {
         relayAgentStep({
           kind: "diagnostic",
           code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED",
-          details: ["correction did not contain a usable C1–C7 report"],
+          details: [
+            capabilityRecoveryTarget
+              ? `${capabilityRecoveryTarget}_MISSING: claim-scoped response was not usable`
+              : "correction did not contain a usable C1–C7 report",
+          ],
         });
       }
     } catch (error) {

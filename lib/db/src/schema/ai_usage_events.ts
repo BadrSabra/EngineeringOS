@@ -1,5 +1,24 @@
 import { pgTable, text, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
 
+export const AI_CONTRACT_OUTCOMES = [
+  "not_applicable",
+  "accepted",
+  "malformed_but_recovered",
+  "missing_claims",
+  "citation_mismatch",
+  "semantic_failure",
+  "provider_empty",
+] as const;
+export type AiContractOutcome = (typeof AI_CONTRACT_OUTCOMES)[number];
+
+export const AI_RECOVERY_OUTCOMES = [
+  "not_attempted",
+  "not_needed",
+  "accepted",
+  "failed",
+] as const;
+export type AiRecoveryOutcome = (typeof AI_RECOVERY_OUTCOMES)[number];
+
 /**
  * Durable, content-free AI provider attempt telemetry.
  *
@@ -26,6 +45,13 @@ export const aiUsageEventsTable = pgTable("ai_usage_events", {
   promptTokens: integer("prompt_tokens"),
   completionTokens: integer("completion_tokens"),
   usageStatus: text("usage_status").notNull().default("unknown"),
+  /** Provider HTTP outcome and contract outcome are intentionally separate. */
+  contractOutcome: text("contract_outcome").notNull().default("not_applicable"),
+  recoveryOutcome: text("recovery_outcome").notNull().default("not_attempted"),
+  contractClaimCount: integer("contract_claim_count").notNull().default(0),
+  contractCitationMatchCount: integer("contract_citation_match_count").notNull().default(0),
+  contractRecoveryLatencyMs: integer("contract_recovery_latency_ms"),
+  contractFailureKind: text("contract_failure_kind"),
   occurredAt: timestamp("occurred_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
 }, (t) => [

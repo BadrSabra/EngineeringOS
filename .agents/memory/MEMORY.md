@@ -101,3 +101,4 @@
 - [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal and diagnostic projections must use one final trace snapshot.
 - [Capability probe resume contract](capability-probe-root-causes.md) — only explicit probe metadata makes a BEHAVIOR_QUERY resumable; ordinary behavior queries remain non-resumable.
 - [Provider usage normalization](provider-usage-normalization.md) — partial provider token metadata must be zero-filled at the public chat-output boundary.
+- [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, and failure-kind metrics separately.

@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, aiUsageEventsTable } from "@workspace/db";
-import { getAiUsageSummary, recordAiUsageAttempt } from "./ai-telemetry.js";
+import {
+  deriveAiContractTelemetry,
+  getAiUsageSummary,
+  recordAiUsageAttempt,
+} from "./ai-telemetry.js";
 
 const createdCorrelations: string[] = [];
 
@@ -12,6 +16,56 @@ afterEach(async () => {
 });
 
 describe("durable AI telemetry", () => {
+  it("separates provider success from an incomplete capability contract", () => {
+    const telemetry = deriveAiContractTelemetry({
+      message: "# AI Model Capability Probe\nC1–C7",
+      response: [
+        "C1: PASS — isPromptProsePath. Source: `profile-classifier.ts`; Evidence ID: E1",
+        "C2: PASS — read_file. Evidence ID: R1",
+        "C3: PASS — grounded. Source: `profile-classifier.ts`; Evidence ID: E1",
+        "C4: PASS — denylist. Source: `profile-classifier.ts`; Evidence ID: E2",
+        "C5: PASS — no writes. Evidence ID: R2",
+        "C6: PASS — no eval. Source: `profile-classifier.ts`; Evidence ID: E4",
+        "Overall score: 6/7",
+      ].join("\n"),
+    });
+
+    expect(telemetry).toMatchObject({
+      contractOutcome: "missing_claims",
+      recoveryOutcome: "not_attempted",
+      contractClaimCount: 6,
+      contractCitationMatchCount: 4,
+      contractFailureKind: "missing:C7",
+    });
+  });
+
+  it("records a recovered contract separately from provider HTTP success", () => {
+    const telemetry = deriveAiContractTelemetry({
+      message: "# AI Model Capability Probe\nC1–C7",
+      response: [
+        "C1: PASS — isPromptProsePath. Source: `profile-classifier.ts`; Evidence ID: E1",
+        "C2: PASS — read_file. Evidence ID: R1",
+        "C3: PASS — grounded. Source: `profile-classifier.ts`; Evidence ID: E1",
+        "C4: PASS — denylist. Source: `profile-classifier.ts`; Evidence ID: E2",
+        "C5: PASS — no writes. Evidence ID: R2",
+        "C6: PASS — no eval. Source: `profile-classifier.ts`; Evidence ID: E4",
+        "C7: PASS — run. Source: `file-tools.ts`; Evidence ID: E3",
+        "Overall score: 7/7",
+      ].join("\n"),
+      recoveryAttempted: true,
+      recoveryAccepted: true,
+      recoveryLatencyMs: 120,
+    });
+
+    expect(telemetry).toMatchObject({
+      contractOutcome: "malformed_but_recovered",
+      recoveryOutcome: "accepted",
+      contractClaimCount: 7,
+      contractCitationMatchCount: 5,
+      contractRecoveryLatencyMs: 120,
+    });
+  });
+
   it("deduplicates concurrent attempts and represents missing usage as unknown", async () => {
     const correlationId = `telemetry-test-${crypto.randomUUID()}`;
     createdCorrelations.push(correlationId);
@@ -97,5 +151,13 @@ describe("durable AI telemetry", () => {
       successes: 1,
       usage: { status: "known", promptTokens: 10, completionTokens: 4 },
     });
+    expect(summary.providers[0].models).toEqual([
+      expect.objectContaining({
+        model: "safe-model",
+        attempts: 1,
+        successes: 1,
+        contract: expect.objectContaining({ evaluated: 0, acceptanceRate: null }),
+      }),
+    ]);
   });
 });

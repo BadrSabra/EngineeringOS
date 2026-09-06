@@ -21,6 +21,7 @@ import {
   isRepeatedConversationQuestion,
   buildResumedEvidenceLedger,
   structuredRecoveryParseDiagnostic,
+  buildCapabilityProbeRecoveryMessages,
   normalizeCapabilityProbeRecoveryContent,
   validateCapabilityProbeCitations,
   applyCapabilityProbeRuntimeClaims,
@@ -398,6 +399,83 @@ describe("normalizeCapabilityProbeRecoveryContent", () => {
     expect(validateCapabilityProbeCitations(result!.response, files)).toMatchObject({
       valid: false,
     });
+  });
+
+  it("renders the canonical claim/evidence-ID contract with server-owned fragments", () => {
+    const profile = "const PROSE_PSEUDO_PATH_DENYLIST = new Set(['x']);\n" +
+      "export function isPromptProsePath(value: string) {\n" +
+      "  return value.includes('defect/repair');\n" +
+      "}";
+    const tools = "export function run(name: string) {\n" +
+      "  return `executed:${name}`;\n" +
+      "}\n" +
+      "const write_file = 'deferred';";
+    const canonical = JSON.stringify({
+      claims: {
+        C1: { status: "PASS", evidenceId: "E1", answer: "isPromptProsePath exists." },
+        C2: { status: "PASS", evidenceId: "R1", answer: "read_file was used." },
+        C3: { status: "PASS", evidenceId: "E1", answer: "The return branch grounds the answer." },
+        C4: { status: "PASS", evidenceId: "E2", answer: "The denylist is present." },
+        C5: { status: "PASS", evidenceId: "R2", answer: "No edits were requested." },
+        C6: { status: "PASS", evidenceId: "E4", answer: "No eval or Function call is present." },
+        C7: { status: "PASS", evidenceId: "E3", answer: "run is present." },
+      },
+      overallScore: "7/7",
+    });
+    const files = new Map([
+      ["lib/ai-orchestrator/src/prompts/profile-classifier.ts", profile],
+      ["lib/ai-orchestrator/src/tools/file-tools.ts", tools],
+    ]);
+
+    const result = normalizeCapabilityProbeRecoveryContent(canonical, files);
+
+    expect(result).not.toBeNull();
+    expect(result?.response).toContain("Evidence ID: E1");
+    expect(result?.response).toContain("Evidence ID: R1");
+    expect(result?.response).toContain("return value.includes('defect/repair');");
+    // The renderer attaches source paths as a labelled field, not as an
+    // untrusted model-provided provenance array.
+    expect(result?.response).toContain("Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`");
+    expect(validateCapabilityProbeCitations(result!.response, files).valid).toBe(true);
+  });
+
+  it("rejects a canonical response that selects an unknown Evidence ID", () => {
+    const canonical = JSON.stringify({
+      claims: {
+        C1: { status: "PASS", evidenceId: "E999", answer: "isPromptProsePath exists." },
+        C2: { status: "PASS", evidenceId: "R1", answer: "read_file was used." },
+        C3: { status: "PASS", evidenceId: "E1", answer: "grounded." },
+        C4: { status: "PASS", evidenceId: "E2", answer: "denylist." },
+        C5: { status: "PASS", evidenceId: "R2", answer: "no edits." },
+        C6: { status: "PASS", evidenceId: "E4", answer: "no eval." },
+        C7: { status: "PASS", evidenceId: "E3", answer: "run." },
+      },
+      overallScore: "7/7",
+    });
+    const files = new Map([
+      ["lib/ai-orchestrator/src/prompts/profile-classifier.ts", "const PROSE_PSEUDO_PATH_DENYLIST = new Set();\nreturn false;"],
+      ["lib/ai-orchestrator/src/tools/file-tools.ts", "function run() { return true; }\nwrite_file"],
+    ]);
+
+    expect(normalizeCapabilityProbeRecoveryContent(canonical, files)).toBeNull();
+  });
+});
+
+describe("buildCapabilityProbeRecoveryMessages", () => {
+  it("limits a single-claim correction to the failed claim contract", () => {
+    const messages = buildCapabilityProbeRecoveryMessages(
+      new Map([
+        ["src/profile.ts", "export function isPromptProsePath(value: string) { return false; }"],
+      ]),
+      "C1: PASS — missing exact evidence\nC3: PASS — missing exact evidence",
+      ["C3"],
+    );
+    const prompt = messages.find((message) => message.role === "user")?.content ?? "";
+
+    expect(prompt).toContain("Repair only C3");
+    expect(prompt).toContain('"status":"PASS","evidenceId":"E1","answer":"..."');
+    expect(prompt).toContain("Do not return the other C1–C7 claims");
+    expect(prompt).not.toContain("Prioritize repairing these claims");
   });
 });
 

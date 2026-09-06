@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
-import { db, aiUsageEventsTable, operatorAlertsTable } from "@workspace/db";
+import {
+  db,
+  aiUsageEventsTable,
+  operatorAlertsTable,
+  AI_CONTRACT_OUTCOMES,
+  AI_RECOVERY_OUTCOMES,
+  type AiContractOutcome,
+  type AiRecoveryOutcome,
+} from "@workspace/db";
 import type { ProviderId } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 
@@ -31,7 +39,102 @@ export type AiTelemetryAttempt = {
   promptTokens?: number | null;
   completionTokens?: number | null;
   usageStatus?: "known" | "partial" | "unknown";
+  contractOutcome?: AiContractOutcome;
+  recoveryOutcome?: AiRecoveryOutcome;
+  contractClaimCount?: number;
+  contractCitationMatchCount?: number;
+  contractRecoveryLatencyMs?: number | null;
+  contractFailureKind?: string | null;
 };
+
+export type AiContractTelemetry = Pick<
+  AiTelemetryAttempt,
+  | "contractOutcome"
+  | "recoveryOutcome"
+  | "contractClaimCount"
+  | "contractCitationMatchCount"
+  | "contractRecoveryLatencyMs"
+  | "contractFailureKind"
+>;
+
+/**
+ * Classify the capability-probe contract independently from provider HTTP
+ * success. This is intentionally derived from the server-owned final report,
+ * not from model-reported sources or a 200 response.
+ */
+export function deriveAiContractTelemetry(params: {
+  message: string;
+  response: string;
+  recoveryAttempted?: boolean;
+  recoveryAccepted?: boolean;
+  recoveryLatencyMs?: number | null;
+}): AiContractTelemetry {
+  const isCapabilityProbe =
+    /(?:^|\n)\s*#\s*AI Model Capability Probe\b/i.test(params.message) ||
+    /\bAI Model Capability Probe\b[\s\S]*\bC[1-7]\b/i.test(params.message);
+  if (!isCapabilityProbe) {
+    return {
+      contractOutcome: "not_applicable",
+      recoveryOutcome: "not_attempted",
+      contractClaimCount: 0,
+      contractCitationMatchCount: 0,
+      contractRecoveryLatencyMs: null,
+      contractFailureKind: null,
+    };
+  }
+
+  const lines = params.response.trim().split("\n");
+  const claimLines = new Map<string, string>();
+  for (const label of ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]) {
+    const line = lines.find((candidate) =>
+      new RegExp(`^\\s*(?:[-*]\\s*)?${label}\\b`, "i").test(candidate),
+    );
+    if (line) claimLines.set(label, line);
+  }
+  const claimCount = claimLines.size;
+  const citationClaims = ["C1", "C3", "C4", "C6", "C7"];
+  const citationMatchCount = citationClaims.filter((label) =>
+    /Evidence\s*ID\s*:\s*[A-Za-z0-9_-]+|Evidence\s*:/i.test(claimLines.get(label) ?? ""),
+  ).length;
+  const missingClaims = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]
+    .filter((label) => !claimLines.has(label));
+  const failedClaims = [...claimLines.values()].filter((line) => /\bFAIL\b/i.test(line));
+  const hasOverallScore = /\b(?:overall\s+score|score)\s*:\s*\d+\s*\/\s*7\b/i.test(params.response);
+  let contractOutcome: AiContractOutcome;
+  let contractFailureKind: string | null = null;
+  if (!params.response.trim()) {
+    contractOutcome = "provider_empty";
+    contractFailureKind = "provider_empty";
+  } else if (missingClaims.length > 0 || !hasOverallScore) {
+    contractOutcome = "missing_claims";
+    contractFailureKind = missingClaims.length > 0
+      ? `missing:${missingClaims.join(",")}`
+      : "missing:overall_score";
+  } else if (citationMatchCount < citationClaims.length) {
+    contractOutcome = "citation_mismatch";
+    contractFailureKind = "citation_mismatch";
+  } else if (failedClaims.length > 0 || !/\b(?:Overall score|score)\b/i.test(params.response)) {
+    contractOutcome = "semantic_failure";
+    contractFailureKind = failedClaims.length > 0
+      ? `failed:${failedClaims.length}`
+      : "semantic_failure";
+  } else {
+    contractOutcome = params.recoveryAccepted ? "malformed_but_recovered" : "accepted";
+  }
+  const recoveryOutcome: AiRecoveryOutcome = params.recoveryAttempted
+    ? params.recoveryAccepted ? "accepted" : "failed"
+    : contractOutcome === "accepted"
+      ? "not_needed"
+      : "not_attempted";
+  return {
+    contractOutcome,
+    recoveryOutcome,
+    contractClaimCount: claimCount,
+    contractCitationMatchCount: citationMatchCount,
+    contractRecoveryLatencyMs: boundedInteger(params.recoveryLatencyMs),
+    contractFailureKind,
+  };
+}
 
 function boundedInteger(value: number | null | undefined): number | null {
   return Number.isSafeInteger(value) && value! >= 0 ? value! : null;
@@ -75,6 +178,16 @@ export async function recordAiUsageAttempt(
       promptTokens,
       completionTokens,
       usageStatus,
+      contractOutcome: AI_CONTRACT_OUTCOMES.includes(attempt.contractOutcome ?? "not_applicable")
+        ? attempt.contractOutcome ?? "not_applicable"
+        : "not_applicable",
+      recoveryOutcome: AI_RECOVERY_OUTCOMES.includes(attempt.recoveryOutcome ?? "not_attempted")
+        ? attempt.recoveryOutcome ?? "not_attempted"
+        : "not_attempted",
+      contractClaimCount: Math.max(0, Math.min(7, Math.floor(attempt.contractClaimCount ?? 0))),
+      contractCitationMatchCount: Math.max(0, Math.min(7, Math.floor(attempt.contractCitationMatchCount ?? 0))),
+      contractRecoveryLatencyMs: boundedInteger(attempt.contractRecoveryLatencyMs),
+      contractFailureKind: safeText(attempt.contractFailureKind, 80),
       occurredAt: now,
       expiresAt,
     }).onConflictDoNothing({ target: aiUsageEventsTable.attemptId });
@@ -119,6 +232,54 @@ function percentile(values: number[], p: number): number | null {
   return sorted[Math.max(0, Math.ceil(sorted.length * p) - 1)] ?? null;
 }
 
+function summarizeContract(entries: Array<{
+  contractOutcome: string;
+  recoveryOutcome: string;
+  contractClaimCount: number;
+  contractCitationMatchCount: number;
+  contractFailureKind: string | null;
+}>) {
+  const contractEvaluated = entries.filter((row) => row.contractOutcome !== "not_applicable");
+  const contractAccepted = entries.filter((row) =>
+    row.contractOutcome === "accepted" || row.contractOutcome === "malformed_but_recovered");
+  const recoveryAttempted = entries.filter((row) =>
+    row.recoveryOutcome !== "not_attempted" && row.recoveryOutcome !== "not_needed");
+  const recoveryAccepted = entries.filter((row) => row.recoveryOutcome === "accepted");
+  return {
+    evaluated: contractEvaluated.length,
+    accepted: contractAccepted.length,
+    acceptanceRate: contractEvaluated.length
+      ? Number((contractAccepted.length / contractEvaluated.length).toFixed(4))
+      : null,
+    averageClaims: contractEvaluated.length
+      ? Number((
+        contractEvaluated.reduce((sum, row) => sum + row.contractClaimCount, 0) /
+        contractEvaluated.length
+      ).toFixed(2))
+      : null,
+    citationMatchRate: contractEvaluated.length
+      ? Number((
+        contractEvaluated.reduce((sum, row) => sum + row.contractCitationMatchCount, 0) /
+        Math.max(1, contractEvaluated.reduce((sum, row) => sum + row.contractClaimCount, 0))
+      ).toFixed(4))
+      : null,
+    recoveryAttempts: recoveryAttempted.length,
+    recoveryAccepted: recoveryAccepted.length,
+    recoveryAcceptanceRate: recoveryAttempted.length
+      ? Number((recoveryAccepted.length / recoveryAttempted.length).toFixed(4))
+      : null,
+    failureKinds: Object.fromEntries(
+      entries
+        .filter((row) => row.contractFailureKind)
+        .reduce((counts, row) => {
+          const kind = row.contractFailureKind!;
+          counts.set(kind, (counts.get(kind) ?? 0) + 1);
+          return counts;
+        }, new Map<string, number>()),
+    ),
+  };
+}
+
 export async function getAiUsageSummary(params: {
   userId: string;
   projectId?: string;
@@ -158,6 +319,26 @@ export async function getAiUsageSummary(params: {
       cancelled: entries.filter((row) => row.outcome === "cancelled").length,
       fallbackAttempts: entries.reduce((sum, row) => sum + row.fallbackCount, 0),
       successRate: entries.length ? Number((successes / entries.length).toFixed(4)) : null,
+      contract: summarizeContract(entries),
+      models: [...new Set(entries.map((row) => row.model ?? "unknown"))].map((model) => {
+        const modelEntries = entries.filter((row) => (row.model ?? "unknown") === model);
+        return {
+          model,
+          attempts: modelEntries.length,
+          successes: modelEntries.filter((row) => row.outcome === "success").length,
+          failures: modelEntries.filter((row) => row.outcome === "failure").length,
+          cancelled: modelEntries.filter((row) => row.outcome === "cancelled").length,
+          contract: summarizeContract(modelEntries),
+          p50LatencyMs: percentile(
+            modelEntries.flatMap((row) => row.latencyMs === null ? [] : [row.latencyMs]),
+            0.5,
+          ),
+          p95LatencyMs: percentile(
+            modelEntries.flatMap((row) => row.latencyMs === null ? [] : [row.latencyMs]),
+            0.95,
+          ),
+        };
+      }),
       p50LatencyMs: percentile(latencies, 0.5),
       p95LatencyMs: percentile(latencies, 0.95),
       usage: {
@@ -181,7 +362,7 @@ export async function getAiUsageSummary(params: {
     timeline.set(day, current);
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     windowDays: days,
     retentionDays: AI_USAGE_RETENTION_DAYS,
     totalAttempts: rows.length,

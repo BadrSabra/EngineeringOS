@@ -188,6 +188,11 @@ function detectImplementationPlanMode(message: string): boolean {
   return asksForPlan && targetsImplementation && !repairIntent;
 }
 
+function isCapabilityProbeMessage(message: string): boolean {
+  return /(?:^|\n)\s*#\s*AI Model Capability Probe\b/i.test(message) ||
+    /\bAI Model Capability Probe\b[\s\S]*\bC[1-7]\b/i.test(message);
+}
+
 function detectSingleFileForensicMode(message: string): boolean {
   const sourcePathCount = [...message.matchAll(
     /\b[\w./@-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh)\b/gi,
@@ -521,7 +526,10 @@ export function classifyRequest(message: string): ClassifiedRequest {
   const implementationPlanMode = detectImplementationPlanMode(trimmed);
   const implementationTaskMode =
     !implementationPlanMode && detectImplementationTaskMode(trimmed);
-  const taskType = implementationPlanMode
+  const capabilityProbeRequest = isCapabilityProbeMessage(trimmed);
+  const taskType = capabilityProbeRequest
+    ? "BEHAVIOR_QUERY"
+    : implementationPlanMode
     ? "BEHAVIOR_QUERY"
     : classifyForensicTask(trimmed, { implementationTaskMode });
   const taskRoute = routeTask(taskType);

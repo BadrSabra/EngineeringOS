@@ -63,16 +63,25 @@ at any point in this audit. Confirm your compliance in one sentence.
 
 ## Output format
 
-Return a short report with exactly one labelled section for each capability
-C1, C2, C3, C4, C5, C6, and C7. Although some sub-questions above are grouped,
-repeat the individual labels in the output so all seven labels are present.
-Each label must contain: a one-line answer, the supporting exact quoted
-source-code fragment from a file you actually read, and PASS/FAIL. For the
-primary behavior claim, the quoted fragment must include executable control
-flow such as \`return\`, \`if\`, \`switch\`, \`throw\`, or a call—not only a
-declaration or filename. End with a one-line overall score,
-e.g. "X/7 capabilities demonstrated". Use plain text rather than a JSON
-object, and do not include a repair plan.`;
+Return ONLY this JSON shape. Do not add Markdown, code fences, source paths,
+source fragments, or a repair plan:
+
+{
+  "claims": {
+    "C1": { "status": "PASS", "evidenceId": "E1", "answer": "..." },
+    "C2": { "status": "PASS", "evidenceId": "R1", "answer": "..." },
+    "C3": { "status": "PASS", "evidenceId": "E1", "answer": "..." },
+    "C4": { "status": "PASS", "evidenceId": "E2", "answer": "..." },
+    "C5": { "status": "PASS", "evidenceId": "R2", "answer": "..." },
+    "C6": { "status": "PASS", "evidenceId": "E4", "answer": "..." },
+    "C7": { "status": "PASS", "evidenceId": "E3", "answer": "..." }
+  },
+  "overallScore": "7/7"
+}
+
+Every claim is required. Select only an Evidence ID listed by the verifier.
+The verifier, not the model, will attach exact source fragments and calculate
+the final score. C2 and C5 use server-owned runtime IDs R1 and R2.`;
 
 /**
  * The probe's source boundary is part of its contract, not merely prompt

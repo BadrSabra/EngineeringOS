@@ -50,3 +50,16 @@ export type { TaskAgentOutput } from "./task.schema.js";
 
 export { WorkflowPhaseSchema, WorkflowActionSchema, WorkflowDecisionSchema, parseWorkflowPhases } from "./workflow.schema.js";
 export type { WorkflowPhase, WorkflowAction, WorkflowDecision } from "./workflow.schema.js";
+
+export {
+  CapabilityProbeClaimIdSchema,
+  CapabilityProbeClaimSchema,
+  CapabilityProbeClaimsSchema,
+  CapabilityProbeResponseSchema,
+} from "./capability-probe.schema.js";
+export type {
+  CapabilityProbeClaimId,
+  CapabilityProbeClaim,
+  CapabilityProbeClaims,
+  CapabilityProbeResponse,
+} from "./capability-probe.schema.js";
