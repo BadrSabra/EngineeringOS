@@ -4741,7 +4741,7 @@ components:
       required: [schemaVersion, windowDays, retentionDays, totalAttempts, totalSuccesses,
                  totalFailures, totalFallbackAttempts, providers, timeline]
       properties:
-        schemaVersion: { type: integer, enum: [1] }
+        schemaVersion: { type: integer, enum: [1, 2] }
         windowDays: { type: integer, minimum: 1, maximum: 90 }
         retentionDays: { type: integer, minimum: 1, maximum: 3650 }
         totalAttempts: { type: integer, minimum: 0 }
@@ -4761,7 +4761,7 @@ components:
       type: object
       additionalProperties: false
       required: [provider, attempts, successes, failures, cancelled, fallbackAttempts,
-                 successRate, p50LatencyMs, p95LatencyMs, usage, lastOccurredAt]
+                 successRate, contract, models, p50LatencyMs, p95LatencyMs, usage, lastOccurredAt]
       properties:
         provider: { type: string }
         attempts: { type: integer, minimum: 0 }
@@ -4770,6 +4770,12 @@ components:
         cancelled: { type: integer, minimum: 0 }
         fallbackAttempts: { type: integer, minimum: 0 }
         successRate: { type: ["number", "null"] }
+        contract:
+          $ref: "#/components/schemas/AiUsageContractSummary"
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiUsageModelSummary"
         p50LatencyMs: { type: ["integer", "null"] }
         p95LatencyMs: { type: ["integer", "null"] }
         usage:
@@ -4785,6 +4791,41 @@ components:
         lastOccurredAt:
           type: ["string", "null"]
           format: date-time
+
+    AiUsageContractSummary:
+      type: object
+      additionalProperties: false
+      required: [evaluated, accepted, acceptanceRate, averageClaims, citationMatchRate,
+                 recoveryAttempts, recoveryAccepted, recoveryAcceptanceRate, failureKinds]
+      properties:
+        evaluated: { type: integer, minimum: 0 }
+        accepted: { type: integer, minimum: 0 }
+        acceptanceRate: { type: ["number", "null"] }
+        averageClaims: { type: ["number", "null"] }
+        citationMatchRate: { type: ["number", "null"] }
+        recoveryAttempts: { type: integer, minimum: 0 }
+        recoveryAccepted: { type: integer, minimum: 0 }
+        recoveryAcceptanceRate: { type: ["number", "null"] }
+        failureKinds:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+
+    AiUsageModelSummary:
+      type: object
+      additionalProperties: false
+      required: [model, attempts, successes, failures, cancelled, contract, p50LatencyMs, p95LatencyMs]
+      properties:
+        model: { type: string }
+        attempts: { type: integer, minimum: 0 }
+        successes: { type: integer, minimum: 0 }
+        failures: { type: integer, minimum: 0 }
+        cancelled: { type: integer, minimum: 0 }
+        contract:
+          $ref: "#/components/schemas/AiUsageContractSummary"
+        p50LatencyMs: { type: ["integer", "null"] }
+        p95LatencyMs: { type: ["integer", "null"] }
 
     AiUsageTimelinePoint:
       type: object

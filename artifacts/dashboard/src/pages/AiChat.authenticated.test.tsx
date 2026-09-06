@@ -119,6 +119,11 @@ const mocks = vi.hoisted(() => {
     fileContentRequest: undefined as unknown,
     streamIsPending: false,
     groqStatus: undefined as unknown,
+    aiMetrics: {
+      metrics: [] as unknown[],
+      behavioralScorecards: [] as unknown[],
+      usage: undefined as unknown,
+    },
     activeExecutionStatus: undefined as { status: string } | undefined,
     streamCallbacks: undefined as Record<string, unknown> | undefined,
     sentParams: undefined as {
@@ -214,7 +219,7 @@ vi.mock('@workspace/api-client-react', () => {
     useGetProviderKeyStatus: vi.fn(status),
     useGetOpenRouterKeyStatus: vi.fn(status),
     useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
-    useGetAiMetrics: vi.fn(() => ({ data: { metrics: [], behavioralScorecards: [] }, isLoading: false, isError: false, error: null })),
+    useGetAiMetrics: vi.fn(() => ({ data: mocks.aiMetrics, isLoading: false, isError: false, error: null })),
     useGetAiExecution: vi.fn(() => ({
       data: mocks.activeExecutionStatus,
       isLoading: false,
@@ -326,6 +331,11 @@ beforeEach(() => {
   mocks.toast.mockReset();
   mocks.serverProposal = undefined;
   mocks.groqStatus = undefined;
+  mocks.aiMetrics = {
+    metrics: [],
+    behavioralScorecards: [],
+    usage: undefined,
+  };
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.sessionsFetched = true;
@@ -379,6 +389,77 @@ afterEach(() => {
 });
 
 describe('AiChat authenticated generated mutations', () => {
+  it('shows model contract quality without exposing raw AI content', () => {
+    mocks.aiMetrics = {
+      metrics: [],
+      behavioralScorecards: [],
+      usage: {
+        schemaVersion: 2,
+        windowDays: 7,
+        retentionDays: 90,
+        totalAttempts: 3,
+        totalSuccesses: 2,
+        totalFailures: 1,
+        totalFallbackAttempts: 1,
+        providers: [{
+          provider: 'groq',
+          attempts: 3,
+          successes: 2,
+          failures: 1,
+          cancelled: 0,
+          fallbackAttempts: 1,
+          successRate: 2 / 3,
+          contract: {
+            evaluated: 3,
+            accepted: 2,
+            acceptanceRate: 2 / 3,
+            averageClaims: 4,
+            citationMatchRate: 0.75,
+            recoveryAttempts: 1,
+            recoveryAccepted: 1,
+            recoveryAcceptanceRate: 1,
+            failureKinds: { missing_citation: 1 },
+          },
+          models: [{
+            model: 'llama-test',
+            attempts: 3,
+            successes: 2,
+            failures: 1,
+            cancelled: 0,
+            contract: {
+              evaluated: 3,
+              accepted: 2,
+              acceptanceRate: 2 / 3,
+              averageClaims: 4,
+              citationMatchRate: 0.75,
+              recoveryAttempts: 1,
+              recoveryAccepted: 1,
+              recoveryAcceptanceRate: 1,
+              failureKinds: { missing_citation: 1 },
+            },
+            p50LatencyMs: 100,
+            p95LatencyMs: 200,
+          }],
+          p50LatencyMs: 100,
+          p95LatencyMs: 200,
+          usage: { promptTokens: null, completionTokens: null, status: 'unknown' },
+          lastOccurredAt: null,
+        }],
+        timeline: [],
+      },
+    };
+
+    renderAiChat();
+
+    const card = screen.getByRole('region', { name: 'Model contract quality' });
+    expect(card).toHaveTextContent('llama-test');
+    expect(card).toHaveTextContent('Acceptance 66.7%');
+    expect(card).toHaveTextContent('Citation match 75.0%');
+    expect(card).toHaveTextContent('Recovery 1/1 · 100.0%');
+    expect(card).toHaveTextContent('missing_citation (1)');
+    expect(card).not.toHaveTextContent(/prompt|source fragment|api key/i);
+  });
+
   it('uses the server-provided audit filename and falls back safely', () => {
     expect(auditExportFilename(
       'attachment; filename="incident-audit.json"',

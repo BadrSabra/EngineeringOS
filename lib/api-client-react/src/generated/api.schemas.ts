@@ -817,7 +817,47 @@ export type AiUsageSummarySchemaVersion = typeof AiUsageSummarySchemaVersion[key
 
 export const AiUsageSummarySchemaVersion = {
   NUMBER_1: 1,
+  NUMBER_2: 2,
 } as const;
+
+export type AiUsageContractSummaryFailureKinds = {[key: string]: number};
+
+export interface AiUsageContractSummary {
+  /** @minimum 0 */
+  evaluated: number;
+  /** @minimum 0 */
+  accepted: number;
+  /** @nullable */
+  acceptanceRate: number | null;
+  /** @nullable */
+  averageClaims: number | null;
+  /** @nullable */
+  citationMatchRate: number | null;
+  /** @minimum 0 */
+  recoveryAttempts: number;
+  /** @minimum 0 */
+  recoveryAccepted: number;
+  /** @nullable */
+  recoveryAcceptanceRate: number | null;
+  failureKinds: AiUsageContractSummaryFailureKinds;
+}
+
+export interface AiUsageModelSummary {
+  model: string;
+  /** @minimum 0 */
+  attempts: number;
+  /** @minimum 0 */
+  successes: number;
+  /** @minimum 0 */
+  failures: number;
+  /** @minimum 0 */
+  cancelled: number;
+  contract: AiUsageContractSummary;
+  /** @nullable */
+  p50LatencyMs: number | null;
+  /** @nullable */
+  p95LatencyMs: number | null;
+}
 
 export type AiUsageProviderSummaryUsageStatus = typeof AiUsageProviderSummaryUsageStatus[keyof typeof AiUsageProviderSummaryUsageStatus];
 
@@ -856,6 +896,8 @@ export interface AiUsageProviderSummary {
   fallbackAttempts: number;
   /** @nullable */
   successRate: number | null;
+  contract: AiUsageContractSummary;
+  models: AiUsageModelSummary[];
   /** @nullable */
   p50LatencyMs: number | null;
   /** @nullable */

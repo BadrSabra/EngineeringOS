@@ -6,11 +6,9 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiUsageContractSummary } from './aiUsageContractSummary';
-import type { AiUsageModelSummary } from './aiUsageModelSummary';
-import type { AiUsageProviderSummaryUsage } from './aiUsageProviderSummaryUsage';
 
-export interface AiUsageProviderSummary {
-  provider: string;
+export interface AiUsageModelSummary {
+  model: string;
   /** @minimum 0 */
   attempts: number;
   /** @minimum 0 */
@@ -19,17 +17,9 @@ export interface AiUsageProviderSummary {
   failures: number;
   /** @minimum 0 */
   cancelled: number;
-  /** @minimum 0 */
-  fallbackAttempts: number;
-  /** @nullable */
-  successRate: number | null;
   contract: AiUsageContractSummary;
-  models: AiUsageModelSummary[];
   /** @nullable */
   p50LatencyMs: number | null;
   /** @nullable */
   p95LatencyMs: number | null;
-  usage: AiUsageProviderSummaryUsage;
-  /** @nullable */
-  lastOccurredAt: Date | null;
 }

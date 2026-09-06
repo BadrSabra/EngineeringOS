@@ -71,6 +71,7 @@ import type {
   GroqModelAvailability,
   ProviderLifecycleSnapshot,
   AiProviderMetric,
+  AiUsageSummary,
 } from '@workspace/api-client-react';
 import type {
   BrowserValidationBlockReason,
@@ -621,7 +622,10 @@ type ActiveProvider     = { provider: 'groq' | 'deepseek' | 'openrouter' | 'gemi
 
 /** PR-06: runtime health snapshot returned by /api/ai/metrics */
 type ProviderRuntimeMetric = AiProviderMetric;
-type MetricsResponse = { metrics: ProviderRuntimeMetric[] };
+type MetricsResponse = {
+  metrics: ProviderRuntimeMetric[];
+  usage?: AiUsageSummary;
+};
 type PendingChange = {
   path: string;
   absolutePath: string;
@@ -793,6 +797,82 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
       {metric.operatorAction && <div className="pl-3 text-amber-200/80">{metric.operatorAction}</div>}
       {isActionable && metric.correlationId && <div className="pl-3 text-muted-foreground">Reference: {metric.correlationId}</div>}
     </div>
+  );
+}
+
+function contractRate(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${(value * 100).toFixed(1)}%`
+    : '—';
+}
+
+function ModelContractQualityCard({ usage }: { usage?: AiUsageSummary }) {
+  const models = usage?.providers.flatMap((provider) =>
+    provider.models.map((model) => ({ provider: provider.provider, ...model })),
+  ) ?? [];
+  const sortedModels = [...models].sort((a, b) => b.attempts - a.attempts || a.model.localeCompare(b.model));
+
+  return (
+    <section className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs" aria-label="Model contract quality">
+      <div className="flex items-start gap-2">
+        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+        <div className="min-w-0">
+          <h2 className="font-medium text-foreground">Model contract quality</h2>
+          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+            Acceptance and citation matching from the durable metrics window.
+          </p>
+        </div>
+      </div>
+
+      {sortedModels.length === 0 ? (
+        <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
+          No model contract telemetry is available yet.
+        </p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {sortedModels.map((model) => {
+            const failureKinds = Object.entries(model.contract.failureKinds)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 3);
+            return (
+              <div key={`${model.provider}:${model.model}`} className="rounded border border-border/60 bg-background/25 px-2.5 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[10px]" title={model.model}>{model.model}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{model.attempts} attempt{model.attempts === 1 ? '' : 's'}</span>
+                </div>
+                <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                  <span>Acceptance <strong className="font-medium text-emerald-200">{contractRate(model.contract.acceptanceRate)}</strong></span>
+                  <span>Citation match <strong className="font-medium text-sky-200">{contractRate(model.contract.citationMatchRate)}</strong></span>
+                  <span>
+                    Recovery{' '}
+                    <strong className="font-medium text-amber-200">
+                      {model.contract.recoveryAttempts > 0
+                        ? `${model.contract.recoveryAccepted}/${model.contract.recoveryAttempts} · ${contractRate(model.contract.recoveryAcceptanceRate)}`
+                        : 'none'}
+                    </strong>
+                  </span>
+                  <span>Evaluated <strong className="font-medium text-foreground">{model.contract.evaluated}</strong></span>
+                </div>
+                <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
+                  {failureKinds.length > 0 ? (
+                    <span>
+                      Failure kinds:{' '}
+                      {failureKinds.map(([kind, count], index) => (
+                        <span key={kind}>
+                          {index > 0 ? ', ' : ''}{kind} ({count})
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span>No contract failures recorded</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -10563,6 +10643,7 @@ export default function AiChat() {
 
           {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
           <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-[45%] md:overflow-y-auto">
+            <ModelContractQualityCard usage={metricsData?.usage} />
             <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
             <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
             <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />
