@@ -685,6 +685,54 @@ test("release journey gates browser work on one bounded readiness handshake", ()
   );
 });
 
+test("authenticated dashboard smoke proves the protected redirect and session", () => {
+  assert.match(
+    journeySource,
+    /proves the protected dashboard requires and accepts Clerk authentication/,
+    "The journey must keep a named protected-dashboard authentication smoke.",
+  );
+  assert.match(
+    journeySource,
+    /page\.goto\(`\$\{DASHBOARD_PATH\}projects`\)/,
+    "The smoke must visit a protected route before the Clerk handoff.",
+  );
+  assert.match(
+    journeySource,
+    /getByRole\("link", \{ name: "Sign In", exact: true \}\)/,
+    "The pre-auth state must show the public entry point.",
+  );
+  assert.match(
+    journeySource,
+    /getByRole\("heading", \{ name: "System Overview" \}\)[\s\S]*not\.toBeVisible\(\)/,
+    "The protected dashboard must not render before authentication.",
+  );
+  assert.match(
+    journeySource,
+    /async function expectAuthenticatedProjectsRequest\(page: Page\)/,
+    "The smoke must define an authenticated protected-API assertion.",
+  );
+  assert.match(
+    journeySource,
+    /fetch\("\/api\/projects\?__e2e_auth=1", \{[\s\S]*credentials: "include"/,
+    "The protected API assertion must use the authenticated browser origin.",
+  );
+  assert.match(
+    journeySource,
+    /authenticatedProtectedApi[\s\S]*url\.searchParams\.get\("__e2e_auth"\)/,
+    "Only the explicit protected API probe may pass through the fixture route.",
+  );
+  assert.match(
+    journeySource,
+    /page\.on\("pageerror"[\s\S]*page\.on\("console"/,
+    "The smoke must fail on page errors and console errors.",
+  );
+  assert.match(
+    journeySource,
+    /redactBrowserDiagnostic[\s\S]*__clerk_ticket/,
+    "Browser diagnostics must redact Clerk tickets and sensitive fields.",
+  );
+});
+
 test("live provider journey requires a terminal done event for the started execution", () => {
   assert.match(
     journeySource,

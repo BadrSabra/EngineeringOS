@@ -234,6 +234,74 @@ async function expectDashboardReady(page: Page) {
   await expect(page.getByText("SYSTEM ONLINE", { exact: true })).toBeVisible();
 }
 
+function redactBrowserDiagnostic(value: string): string {
+  return value
+    .replace(/https?:\/\/\S+/gi, "[URL]")
+    .replace(
+      /(?:__clerk_ticket|authorization|cookie|set-cookie|token|secret|password)[^,\s]*/gi,
+      "[REDACTED]",
+    )
+    .slice(0, 300);
+}
+
+function installBrowserErrorMonitor(page: Page) {
+  const diagnostics: string[] = [];
+  const record = (kind: string, message: string) => {
+    let path = DASHBOARD_PATH;
+    try {
+      path = new URL(page.url()).pathname;
+    } catch {
+      // Keep the diagnostic path-free if navigation has not committed yet.
+    }
+    diagnostics.push(`${kind} at ${path}: ${redactBrowserDiagnostic(message)}`);
+  };
+
+  page.on("pageerror", (error) => {
+    record("pageerror", error.message);
+  });
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    const location = message.location().url;
+    const knownProviderFixtureNoise =
+      message.text() ===
+        "Failed to load resource: the server responded with a status of 428 (Precondition Required)" &&
+      location.includes("/api/ai/");
+    // The provider-free fixture deliberately returns 428 for AI routes. The
+    // browser reports that non-2xx resource as console.error; no other
+    // console error is allowed by the authentication smoke.
+    if (!knownProviderFixtureNoise) record("console.error", message.text());
+  });
+
+  return {
+    assertClean() {
+      expect(
+        diagnostics,
+        "Authenticated dashboard handoff emitted browser errors",
+      ).toEqual([]);
+    },
+  };
+}
+
+async function expectAuthenticatedProjectsRequest(page: Page): Promise<void> {
+  const result = await page.evaluate(async () => {
+    const response = await fetch("/api/projects?__e2e_auth=1", {
+      credentials: "include",
+    });
+    return {
+      status: response.status,
+      body: (await response.json().catch(() => undefined)) as unknown,
+    };
+  });
+  expect(
+    result.status,
+    "The Clerk-authenticated browser session must access the protected projects API",
+  ).toBe(200);
+  expect(
+    Array.isArray(result.body),
+    "The protected projects API must return its normal list response",
+  ).toBe(true);
+}
+
 async function restartApiForCampaign(page: Page) {
   const controlUrl = process.env.DASHBOARD_E2E_CONTROL_URL;
   if (!controlUrl) throw new Error("Dashboard campaign control URL is missing.");
@@ -375,6 +443,7 @@ async function installApiFixtures(
     recoveryWorkflows?: Array<Record<string, unknown>>;
     recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
     operatorAlertsPassthrough?: boolean;
+    authenticatedProtectedApi?: boolean;
   },
 ) {
   await page.route("**/api/**", async (route) => {
@@ -403,6 +472,15 @@ async function installApiFixtures(
       overrides?.operatorAlertsPassthrough &&
       path === "/api/ai/operator-alerts"
     ) {
+      return route.continue();
+    }
+    if (
+      overrides?.authenticatedProtectedApi &&
+      path === "/api/projects" &&
+      url.searchParams.get("__e2e_auth") === "1"
+    ) {
+      // This one request must reach the real API through the dashboard origin
+      // so the Clerk session cookie follows the same path as the application.
       return route.continue();
     }
 
@@ -3126,6 +3204,33 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+  });
+
+  test("proves the protected dashboard requires and accepts Clerk authentication", async ({
+    page,
+  }) => {
+    const browserErrors = installBrowserErrorMonitor(page);
+    await installApiFixtures(page, { authenticatedProtectedApi: true });
+
+    await page.goto(`${DASHBOARD_PATH}projects`);
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+    );
+    await expect(
+      page.getByRole("link", { name: "Sign In", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "System Overview" }),
+    ).not.toBeVisible();
+
+    await programmaticSignIn(page);
+    await expectDashboardReady(page);
+    await expect(
+      page.getByText("Smoke Project", { exact: true }).first(),
+    ).toBeVisible();
+    await expectAuthenticatedProjectsRequest(page);
+
+    browserErrors.assertClean();
   });
 
   test("runs the Capability Probe action with complete source-grounded C1-C7 coverage", async ({

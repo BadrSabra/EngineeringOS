@@ -39,6 +39,43 @@ uses a controlled execution id for Flight Deck, and returns a deliberate
 provider-unavailable response for AI. Routing, Clerk session handoff, and
 rendering remain real browser behavior.
 
+## Protected dashboard authentication smoke
+
+The shell check in `scripts/verify-setup.sh` only verifies configuration,
+service reachability, and the health endpoint. A `200` health response does
+not prove that a Clerk session can enter the protected dashboard.
+
+The dedicated browser smoke named
+`proves the protected dashboard requires and accepts Clerk authentication`
+first opens `/dashboard/projects` while signed out and verifies that the
+protected dashboard is not rendered and the public landing page is shown. It
+then uses the existing isolated-user handoff (`signInClerkUser`, or the
+release-only Clerk Backend API fallback), verifies `/dashboard/` with
+`System Overview` and `SYSTEM ONLINE`, and makes a real authenticated
+`/api/projects` request through the dashboard origin and API proxy, preserving
+the browser's Clerk session cookie. The page-level project response remains a
+deterministic fixture; no AI provider is called.
+
+Run only this smoke in the controlled release runner with:
+
+```sh
+APP_ORIGINS="https://${REPLIT_DEV_DOMAIN}" \
+RELEASE_VALIDATION_WAIT_FOR_LOCK=1 \
+DASHBOARD_E2E_EXECUTABLE_PATH="$(command -v chromium)" \
+DASHBOARD_E2E_SKIP_API_CONTRACTS=1 \
+DASHBOARD_E2E_GREP="proves the protected dashboard requires and accepts Clerk authentication" \
+pnpm run validate:dashboard-journey
+```
+
+This command is opt-in and requires the same isolated Clerk user, Chromium,
+and running release services as the full journey. It does not create a
+production user, fill a Clerk password form, print session material, or
+enable a live AI-provider run. Browser `pageerror` and `console.error`
+events fail the smoke; diagnostics retain only a bounded message and path,
+with Clerk tickets and sensitive fields redacted. The only allowed console
+noise is the documented provider-free fixture's `428` response for an
+`/api/ai/` resource; all other console errors remain failures.
+
 ## Bounded live-provider correlation run
 
 The live-provider path is opt-in and never runs as part of the normal smoke

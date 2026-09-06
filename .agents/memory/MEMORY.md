@@ -104,3 +104,4 @@
 - [Provider usage normalization](provider-usage-normalization.md) — partial provider token metadata must be zero-filled at the public chat-output boundary.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, and failure-kind metrics separately.
 - [Vite build/runtime separation](vite-build-runtime-separation.md) — build-only non-secret defaults must be selected by the Vite build command; dev/preview stay fail-fast on workflow configuration.
+- [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
