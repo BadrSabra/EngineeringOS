@@ -5749,6 +5749,14 @@ export async function chat(opts: {
   const prefetchExcludeFiles = (): Set<string> =>
     new Set(prefetchFileContents.keys());
 
+  // Keep the complete server-owned manifest separate from the narrowed list
+  // exposed on the current provider iteration. Forensic modes intentionally
+  // hide tools such as read_file_range after their scope is established, but
+  // the provider normalizer and the configuration guard still need the full
+  // authorized source-evidence surface.
+  const toolManifest = modelHasTools
+    ? buildProviderTools(providerId, rootPath)
+    : undefined;
   const tools = modelHasTools
     ? buildProviderTools(
         providerId,
@@ -5767,11 +5775,12 @@ export async function chat(opts: {
         turnIntent.compoundWrite,
       )
     : undefined;
+  const executionToolManifest = turnIntent.requiresEvidence ? toolManifest : undefined;
   if (
     modelHasTools &&
-    (!tools
-      || !tools.some((tool) => tool.function.name === "read_file")
-      || !tools.some((tool) => tool.function.name === "read_file_range"))
+    (!toolManifest
+      || !toolManifest.some((tool) => tool.function.name === "read_file")
+      || !toolManifest.some((tool) => tool.function.name === "read_file_range"))
   ) {
     relayAgentStep({
       kind: "diagnostic",
@@ -5779,7 +5788,7 @@ export async function chat(opts: {
       details: [
         "This evidence-gated request requires both read_file and read_file_range.",
         `provider=${providerId}`,
-        `toolCount=${tools?.length ?? 0}`,
+        `toolCount=${toolManifest?.length ?? 0}`,
       ],
     });
     throw new GroqClientError(
@@ -6575,6 +6584,7 @@ export async function chat(opts: {
           provider: providerId,
           apiKey,
           tools,
+          toolManifest: executionToolManifest,
           rootPath,
           pendingChanges: nodePendingChanges,
           initialFileContents: nodeInitialContents,
@@ -6906,6 +6916,7 @@ export async function chat(opts: {
     apiKey,
     capability: modelDecision.capability,
     tools,
+    toolManifest,
     rootPath: rootPath ?? "",
     pendingChanges,
     initialFileContents: prefetchFileContents,

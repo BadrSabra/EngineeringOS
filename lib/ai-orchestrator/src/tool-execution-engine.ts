@@ -1106,6 +1106,13 @@ export type ToolLoopOpts = {
   tools: ToolDefinitionLike[] | undefined;
 
   /**
+   * Complete server-owned authorization manifest. This remains separate from
+   * the narrowed provider-facing list so stale calls from an earlier
+   * iteration can still be normalized against the full authorized surface.
+   */
+  toolManifest?: ToolDefinitionLike[];
+
+  /**
    * Absolute path to the project root.  Required for executeSingleTool but
    * never touched when tools is undefined.  Pass "" when rootPath is absent.
    */
@@ -1759,6 +1766,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     requireDependencyProof = false,
     onStep,
     executionLedger: suppliedExecutionLedger,
+    toolManifest,
   } = opts;
   const executionLedger =
     suppliedExecutionLedger ??
@@ -2862,7 +2870,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       : iterationTools.length > 0
         ? {
             tools: iterationTools,
-            ...(opts.tools && opts.tools.length > 0 ? { toolManifest: opts.tools } : {}),
+            ...((toolManifest ?? opts.tools) && (toolManifest ?? opts.tools)!.length > 0
+              ? { toolManifest: toolManifest ?? opts.tools }
+              : {}),
           }
         : { tools: [] };
 
