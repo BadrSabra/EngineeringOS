@@ -49,6 +49,8 @@ import {
 import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
 import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
+import { CapabilityProbeReport } from '@/components/CapabilityProbeReport';
+import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
 // body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
 // not pull server-only deps (groq-sdk, db) into the client.
@@ -4781,6 +4783,9 @@ function MessageBubble({
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
   const sources = parseSources(msg.sources);
   const toolTrace = parseToolTrace(msg.toolTrace);
+  const capabilityProbeReport = !isUser
+    ? parseCapabilityProbeReport(msg.content, toolTrace)
+    : null;
   const activityTrace = toolTrace.filter((entry) => entry.kind !== 'execution_ledger');
   const forensicDiagnostic = !isUser && !isChatTurn
     ? msg.forensicDiagnostic
@@ -4922,7 +4927,21 @@ function MessageBubble({
         >
           {failedTurn ? (
             <>
-              {structuredFailure ? (
+              {capabilityProbeReport ? (
+                <>
+                  <CapabilityProbeReport
+                    content={msg.content}
+                    trace={toolTrace}
+                    report={capabilityProbeReport}
+                  />
+                  <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
+                    <div className="font-medium">Capability probe incomplete</div>
+                    <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">
+                      {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Fail-closed result'}
+                    </div>
+                  </div>
+                </>
+              ) : structuredFailure ? (
                 <div
                   className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100"
                   role="status"
@@ -4991,7 +5010,13 @@ function MessageBubble({
                 </>
               )}
             </>
-          ) : isUser ? userFacingContent : (
+          ) : isUser ? userFacingContent : capabilityProbeReport ? (
+            <CapabilityProbeReport
+              content={msg.content}
+              trace={toolTrace}
+              report={capabilityProbeReport}
+            />
+          ) : (
             <ReactMarkdown
               components={{
                 p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,

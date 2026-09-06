@@ -3790,6 +3790,72 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(mocks.sentParams?.projectId).toBe('project-1');
   });
 
+  it('renders a completed capability probe as one canonical scored report from history', async () => {
+    const evidence = '`return value.includes("defect/repair");`';
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: [
+        `C1: PASS — isPromptProsePath exists; Source: \`profile-classifier.ts\`; Evidence: ${evidence}`,
+        'C2: PASS — completed read_file/read_file_range source read(s)',
+        `C3: PASS — grounded source claim; Source: \`profile-classifier.ts\`; Evidence: ${evidence}`,
+        `C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is MISSING; Source: \`profile-classifier.ts\`; Evidence: ${evidence}`,
+        'C5: PASS — no pending write changes',
+        `C6: PASS — no eval() call; Source: \`profile-classifier.ts\`; Evidence: ${evidence}`,
+        'C7: PASS — run() is MISSING; Source: `file-tools.ts`; Evidence: `return "executed:" + name;`',
+        'Overall score: 7/7 capabilities demonstrated.',
+      ].join('\n'),
+      toolTrace: JSON.stringify([{ kind: 'done', stopReason: 'response' }]),
+      outcome: 'SUCCEEDED',
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByRole('region', { name: 'Capability probe report' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Capability probe score 7 out of 7')).toBeInTheDocument();
+    expect(screen.getAllByText(/^C[1-7]$/)).toHaveLength(7);
+    expect(screen.getAllByText(evidence, { exact: false })).toHaveLength(4);
+    expect(screen.queryByText(/Overall score: 7\/7/)).not.toBeInTheDocument();
+  });
+
+  it('shows distinct fail-closed reasons for an incomplete capability probe after history reload', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: 'ANALYSIS_INCOMPLETE — the capability probe did not retain complete source bodies for both named files; no C1–C7 result is proven.',
+      outcome: 'FAILED',
+      errorCode: 'CAPABILITY_PROBE_INCOMPLETE',
+      errorMessage: 'The capability probe is incomplete.',
+      toolTrace: JSON.stringify([
+        {
+          kind: 'evidence_integrity',
+          sourceCoverage: 'PARTIAL',
+          completeReads: false,
+          retainedBodyFiles: ['profile-classifier.ts'],
+          violations: ['invalid Evidence ID does not resolve to no records'],
+        },
+        {
+          kind: 'diagnostic',
+          code: 'CAPABILITY_PROBE_CLAIM_UNCLOSED',
+          details: ['Citations did not match an exact source fragment; C5 runtime conditions were not satisfied.'],
+        },
+        { kind: 'done', stopReason: 'response' },
+      ]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByRole('region', { name: 'Capability probe report' })).toBeInTheDocument();
+    expect(screen.getByText('Missing source reads:')).toBeInTheDocument();
+    expect(screen.getByText('Citations or claims incomplete:')).toBeInTheDocument();
+    expect(screen.getByText('Runtime conditions not satisfied:')).toBeInTheDocument();
+    expect(screen.getByText('Invalid Evidence IDs:')).toBeInTheDocument();
+    expect(screen.getByText('Capability probe incomplete')).toBeInTheDocument();
+    expect(screen.getByLabelText('Capability probe score unavailable')).toBeInTheDocument();
+  });
+
   it('streams Analyze progress and renders its structured result with the activity timeline', async () => {
     renderAiChat();
 
