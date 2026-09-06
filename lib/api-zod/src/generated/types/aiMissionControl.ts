@@ -7,7 +7,9 @@
  */
 import type { AiMissionControlBenchmark } from './aiMissionControlBenchmark';
 import type { AiMissionControlExecution } from './aiMissionControlExecution';
+import type { AiProjectBudgetSummary } from './aiProjectBudgetSummary';
 import type { AiUsageSummary } from './aiUsageSummary';
+import type { OperatorAlert } from './operatorAlert';
 
 export interface AiMissionControl {
   updatedAt: Date;
@@ -15,4 +17,6 @@ export interface AiMissionControl {
   benchmark?: AiMissionControlBenchmark;
   executions: AiMissionControlExecution[];
   usage: AiUsageSummary;
+  budget?: AiProjectBudgetSummary | null;
+  budgetAlerts?: OperatorAlert[];
 }

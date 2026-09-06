@@ -1,13 +1,14 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Router } from "express";
-import { desc, eq } from "drizzle-orm";
-import { db, aiExecutionsTable } from "@workspace/db";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { db, aiExecutionsTable, operatorAlertsTable, projectsTable } from "@workspace/db";
 import { deriveFlightDeckState } from "@workspace/ai-orchestrator";
 import type { AutonomousDeliveryAcceptanceSummary } from "@workspace/ai-orchestrator";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import type { ApiCodeAgentRuntimeOraclePreflight } from "../../lib/ai-code-agent-benchmark.js";
 import { getAiUsageSummary } from "../../lib/ai-telemetry.js";
+import { getAiProjectBudgetSummary } from "../../lib/ai-budget.js";
 
 const router = Router();
 
@@ -834,7 +835,15 @@ router.get("/ai/benchmark/empirical-scorecard", async (_req, res) => {
  */
 router.get("/ai/mission-control", async (req, res) => {
   try {
-    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, rawEmpiricalScorecard, rawReleaseGate, preflightHistory, executions, usage] = await Promise.all([
+    const requestedProjectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+    const ownedProject = requestedProjectId
+      ? await db.select({ id: projectsTable.id }).from(projectsTable).where(and(
+        eq(projectsTable.id, requestedProjectId),
+        eq(projectsTable.ownerId, req.userId),
+      )).limit(1)
+      : [];
+    const ownedProjectId = ownedProject[0]?.id;
+    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, rawEmpiricalScorecard, rawReleaseGate, preflightHistory, executions, usage, budget, budgetAlerts] = await Promise.all([
       readOptionalJson(scorecardPath()),
       readOptionalJson(baselinePath()),
       readOptionalJson(freeTierEnvelopePath()),
@@ -849,6 +858,16 @@ router.get("/ai/mission-control", async (req, res) => {
         .orderBy(desc(aiExecutionsTable.updatedAt))
         .limit(24),
       getAiUsageSummary({ userId: req.userId }),
+      ownedProjectId
+        ? getAiProjectBudgetSummary({ ownerId: req.userId, projectId: ownedProjectId })
+        : Promise.resolve(null),
+      ownedProjectId
+        ? db.select().from(operatorAlertsTable).where(and(
+          eq(operatorAlertsTable.ownerId, req.userId),
+          eq(operatorAlertsTable.projectId, ownedProjectId),
+          inArray(operatorAlertsTable.status, ["open", "acknowledged"]),
+        )).orderBy(desc(operatorAlertsTable.lastSeenAt)).limit(100)
+        : Promise.resolve([]),
     ]);
     const scorecard =
       isBoundedScorecard(rawScorecard)
@@ -892,6 +911,8 @@ router.get("/ai/mission-control", async (req, res) => {
         ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance, empiricalCampaign, releaseGate, preflightHistory }
         : null,
       usage,
+      budget,
+      budgetAlerts,
       executions: await Promise.all(executions.map(async (execution) => (
         projectExecution(execution, await loadOperationEvidence(execution))
       ))),

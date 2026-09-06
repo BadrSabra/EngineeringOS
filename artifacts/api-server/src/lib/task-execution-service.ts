@@ -316,7 +316,16 @@ export async function executeTaskLifecycle(params: {
         projectContext,
         ...opts,
       }, { onProgress: progress, signal: executionAbortController.signal }),
-      { qualityProfile: "task_execution", signal: executionAbortController.signal },
+      {
+        qualityProfile: "task_execution",
+        signal: executionAbortController.signal,
+        telemetryContext: {
+          projectId: before.projectId,
+          userId: params.userId,
+          operationId: correlationId,
+          correlationId,
+        },
+      },
     );
     executionProvider = effectiveProvider;
     if (effectiveProvider !== params.provider.provider) stages.push("provider_fallback");

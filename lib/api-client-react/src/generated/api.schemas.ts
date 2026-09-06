@@ -952,12 +952,183 @@ export interface AiUsageSummary {
   timeline: AiUsageTimelinePoint[];
 }
 
+export type AiProjectBudgetSummarySchemaVersion = typeof AiProjectBudgetSummarySchemaVersion[keyof typeof AiProjectBudgetSummarySchemaVersion];
+
+
+export const AiProjectBudgetSummarySchemaVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiProjectBudgetSummaryState = typeof AiProjectBudgetSummaryState[keyof typeof AiProjectBudgetSummaryState];
+
+
+export const AiProjectBudgetSummaryState = {
+  normal: 'normal',
+  warning: 'warning',
+  exhausted: 'exhausted',
+} as const;
+
+export type AiProjectBudgetSummaryTokenUsageStatus = typeof AiProjectBudgetSummaryTokenUsageStatus[keyof typeof AiProjectBudgetSummaryTokenUsageStatus];
+
+
+export const AiProjectBudgetSummaryTokenUsageStatus = {
+  known: 'known',
+  partial: 'partial',
+  unknown: 'unknown',
+} as const;
+
+export type AiProjectBudgetSummaryTokenUsage = {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  promptTokens: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  completionTokens: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  total: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  remaining: number | null;
+  status: AiProjectBudgetSummaryTokenUsageStatus;
+};
+
+export interface AiProjectBudgetSummary {
+  schemaVersion: AiProjectBudgetSummarySchemaVersion;
+  projectId: string;
+  /**
+     * @minimum 1
+     * @maximum 10000
+     */
+  dailyAttemptLimit: number;
+  /**
+     * @minimum 1000
+     * @maximum 10000000
+     */
+  dailyTokenLimit: number;
+  /**
+     * @minimum 0.5
+     * @maximum 0.99
+     */
+  warningThreshold: number;
+  resetAt: string;
+  /** @minimum 0 */
+  consumedAttempts: number;
+  /** @minimum 0 */
+  reservedAttempts: number;
+  /** @minimum 0 */
+  remainingAttempts: number;
+  state: AiProjectBudgetSummaryState;
+  tokenUsage: AiProjectBudgetSummaryTokenUsage;
+  updatedAt: string;
+}
+
+export type OperatorAlertKind = typeof OperatorAlertKind[keyof typeof OperatorAlertKind];
+
+
+export const OperatorAlertKind = {
+  groq_model_catalog_drift: 'groq_model_catalog_drift',
+  groq_model_catalog_unavailable: 'groq_model_catalog_unavailable',
+  ai_budget_warning: 'ai_budget_warning',
+  ai_budget_exhausted: 'ai_budget_exhausted',
+  ai_budget_recovered: 'ai_budget_recovered',
+} as const;
+
+export type OperatorAlertStatus = typeof OperatorAlertStatus[keyof typeof OperatorAlertStatus];
+
+
+export const OperatorAlertStatus = {
+  open: 'open',
+  acknowledged: 'acknowledged',
+  resolved: 'resolved',
+} as const;
+
+export type OperatorAlertProvider = typeof OperatorAlertProvider[keyof typeof OperatorAlertProvider];
+
+
+export const OperatorAlertProvider = {
+  groq: 'groq',
+} as const;
+
+export type OperatorAlertModelRole = typeof OperatorAlertModelRole[keyof typeof OperatorAlertModelRole];
+
+
+export const OperatorAlertModelRole = {
+  fast: 'fast',
+  powerful: 'powerful',
+  catalog: 'catalog',
+} as const;
+
+/**
+ * @nullable
+ */
+export type OperatorAlertSeverity = typeof OperatorAlertSeverity[keyof typeof OperatorAlertSeverity] | null;
+
+
+export const OperatorAlertSeverity = {
+  info: 'info',
+  warning: 'warning',
+  critical: 'critical',
+} as const;
+
+export interface OperatorAlert {
+  id: string;
+  fingerprint: string;
+  kind: OperatorAlertKind;
+  status: OperatorAlertStatus;
+  provider: OperatorAlertProvider;
+  modelRole: OperatorAlertModelRole;
+  modelId: string;
+  title: string;
+  message: string;
+  remediation: string;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  /** @nullable */
+  resolvedAt: string | null;
+  /** @nullable */
+  ownerId?: string | null;
+  /** @nullable */
+  projectId?: string | null;
+  /** @nullable */
+  severity?: OperatorAlertSeverity;
+}
+
 export interface AiMissionControl {
   updatedAt: string;
   /** @nullable */
   benchmark?: AiMissionControlBenchmark;
   executions: AiMissionControlExecution[];
   usage: AiUsageSummary;
+  budget?: AiProjectBudgetSummary | null;
+  budgetAlerts?: OperatorAlert[];
+}
+
+export interface UpdateAiProjectBudgetInput {
+  /**
+     * @minimum 1
+     * @maximum 10000
+     */
+  dailyAttemptLimit: number;
+  /**
+     * @minimum 1000
+     * @maximum 10000000
+     */
+  dailyTokenLimit: number;
+  /**
+     * @minimum 0.5
+     * @maximum 0.99
+     */
+  warningThreshold: number;
 }
 
 export type AiPlanDecisionRequestDecision = typeof AiPlanDecisionRequestDecision[keyof typeof AiPlanDecisionRequestDecision];
@@ -1128,56 +1299,6 @@ export interface GroqKeyStatus {
   last4?: string | null;
   /** @nullable */
   updatedAt?: string | null;
-}
-
-export type OperatorAlertKind = typeof OperatorAlertKind[keyof typeof OperatorAlertKind];
-
-
-export const OperatorAlertKind = {
-  groq_model_catalog_drift: 'groq_model_catalog_drift',
-  groq_model_catalog_unavailable: 'groq_model_catalog_unavailable',
-} as const;
-
-export type OperatorAlertStatus = typeof OperatorAlertStatus[keyof typeof OperatorAlertStatus];
-
-
-export const OperatorAlertStatus = {
-  open: 'open',
-  resolved: 'resolved',
-} as const;
-
-export type OperatorAlertProvider = typeof OperatorAlertProvider[keyof typeof OperatorAlertProvider];
-
-
-export const OperatorAlertProvider = {
-  groq: 'groq',
-} as const;
-
-export type OperatorAlertModelRole = typeof OperatorAlertModelRole[keyof typeof OperatorAlertModelRole];
-
-
-export const OperatorAlertModelRole = {
-  fast: 'fast',
-  powerful: 'powerful',
-  catalog: 'catalog',
-} as const;
-
-export interface OperatorAlert {
-  id: string;
-  fingerprint: string;
-  kind: OperatorAlertKind;
-  status: OperatorAlertStatus;
-  provider: OperatorAlertProvider;
-  modelRole: OperatorAlertModelRole;
-  modelId: string;
-  title: string;
-  message: string;
-  remediation: string;
-  occurrenceCount: number;
-  firstSeenAt: string;
-  lastSeenAt: string;
-  /** @nullable */
-  resolvedAt: string | null;
 }
 
 export interface OperatorAlertsResponse {
@@ -4497,6 +4618,33 @@ export type CancelAiExecutionById200 = {
   /** UUID of the AI execution */
   id: string;
   status: CancelAiExecutionById200Status;
+};
+
+export type GetAiMissionControlParams = {
+/**
+ * Optional owner-scoped project whose AI budget and alerts should be included.
+ */
+projectId?: string;
+};
+
+export type ListAiProjectBudgetAlertsParams = {
+activeOnly?: boolean;
+};
+
+export type UpdateAiProjectBudgetAlertBodyAction = typeof UpdateAiProjectBudgetAlertBodyAction[keyof typeof UpdateAiProjectBudgetAlertBodyAction];
+
+
+export const UpdateAiProjectBudgetAlertBodyAction = {
+  acknowledge: 'acknowledge',
+  resolve: 'resolve',
+} as const;
+
+export type UpdateAiProjectBudgetAlertBody = {
+  action: UpdateAiProjectBudgetAlertBodyAction;
+};
+
+export type UpdateAiProjectBudgetAlert200 = {
+  alert: OperatorAlert;
 };
 
 export type ListRecoverableAiDeliveriesParams = {

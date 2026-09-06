@@ -39,6 +39,7 @@ import type {
   AiOrchestrationDecision,
   AiPendingProposal,
   AiPlanDecisionRequest,
+  AiProjectBudgetSummary,
   AiQualityReviewError,
   AiRebaseChangesRequest,
   AiRebaseChangesResult,
@@ -71,6 +72,7 @@ import type {
   GetAiExecution200,
   GetAiMetrics200,
   GetAiMetricsParams,
+  GetAiMissionControlParams,
   GetGraphEntityImpactParams,
   GetGraphEntityNeighbors200,
   GetGraphPathParams,
@@ -100,6 +102,7 @@ import type {
   ListAiChatSessionsParams,
   ListAiExecutionHistory200Item,
   ListAiExecutionHistoryParams,
+  ListAiProjectBudgetAlertsParams,
   ListEvents200,
   ListEventsParams,
   ListGraphEntitiesParams,
@@ -139,6 +142,9 @@ import type {
   StartDiscoveryInput,
   Task,
   TaskLog,
+  UpdateAiProjectBudgetAlert200,
+  UpdateAiProjectBudgetAlertBody,
+  UpdateAiProjectBudgetInput,
   UpdateGitConfigInput,
   UpdateProjectInput,
   UpdateRuleInput,
@@ -5620,20 +5626,27 @@ export function useGetAiEmpiricalQualityScorecard<TData = Awaited<ReturnType<typ
 
 
 
-export const getGetAiMissionControlUrl = () => {
+export const getGetAiMissionControlUrl = (params?: GetAiMissionControlParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/ai/mission-control`
+  return stringifiedParams.length > 0 ? `/api/ai/mission-control?${stringifiedParams}` : `/api/ai/mission-control`
 }
 
 /**
  * @summary Get the bounded AI execution ledger and benchmark posture
  */
-export const getAiMissionControl = async ( options?: Parameters<typeof customFetch>[1]): Promise<AiMissionControl> => {
+export const getAiMissionControl = async (params?: GetAiMissionControlParams, options?: Parameters<typeof customFetch>[1]): Promise<AiMissionControl> => {
 
-  return customFetch<AiMissionControl>(getGetAiMissionControlUrl(),
+  return customFetch<AiMissionControl>(getGetAiMissionControlUrl(params),
   {
     ...options,
     method: 'GET'
@@ -5646,23 +5659,23 @@ export const getAiMissionControl = async ( options?: Parameters<typeof customFet
 
 
 
-export const getGetAiMissionControlQueryKey = () => {
+export const getGetAiMissionControlQueryKey = (params?: GetAiMissionControlParams,) => {
     return [
-    `/api/ai/mission-control`
+    `/api/ai/mission-control`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetAiMissionControlQueryOptions = <TData = Awaited<ReturnType<typeof getAiMissionControl>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMissionControl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetAiMissionControlQueryOptions = <TData = Awaited<ReturnType<typeof getAiMissionControl>>, TError = ErrorType<ApiError>>(params?: GetAiMissionControlParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMissionControl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetAiMissionControlQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetAiMissionControlQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiMissionControl>>> = ({ signal }) => getAiMissionControl({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiMissionControl>>> = ({ signal }) => getAiMissionControl(params, { signal, ...requestOptions });
 
 
 
@@ -5680,11 +5693,11 @@ export type GetAiMissionControlQueryError = ErrorType<ApiError>
  */
 
 export function useGetAiMissionControl<TData = Awaited<ReturnType<typeof getAiMissionControl>>, TError = ErrorType<ApiError>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMissionControl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: GetAiMissionControlParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMissionControl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetAiMissionControlQueryOptions(options)
+  const queryOptions = getGetAiMissionControlQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -5696,6 +5709,336 @@ export function useGetAiMissionControl<TData = Awaited<ReturnType<typeof getAiMi
 
 
 
+
+export const getGetAiProjectBudgetUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/ai/projects/${projectId}/budget`
+}
+
+/**
+ * @summary Read the authenticated owner's daily AI budget and usage
+ */
+export const getAiProjectBudget = async (projectId: string, options?: Parameters<typeof customFetch>[1]): Promise<AiProjectBudgetSummary> => {
+
+  return customFetch<AiProjectBudgetSummary>(getGetAiProjectBudgetUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiProjectBudgetQueryKey = (projectId: string,) => {
+    return [
+    `/api/ai/projects/${projectId}/budget`
+    ] as const;
+    }
+
+
+export const getGetAiProjectBudgetQueryOptions = <TData = Awaited<ReturnType<typeof getAiProjectBudget>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiProjectBudget>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiProjectBudgetQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiProjectBudget>>> = ({ signal }) => getAiProjectBudget(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiProjectBudget>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiProjectBudgetQueryResult = NonNullable<Awaited<ReturnType<typeof getAiProjectBudget>>>
+export type GetAiProjectBudgetQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read the authenticated owner's daily AI budget and usage
+ */
+
+export function useGetAiProjectBudget<TData = Awaited<ReturnType<typeof getAiProjectBudget>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiProjectBudget>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiProjectBudgetQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAiProjectBudgetUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/ai/projects/${projectId}/budget`
+}
+
+/**
+ * @summary Update the authenticated owner's daily AI budget
+ */
+export const updateAiProjectBudget = async (projectId: string,
+    updateAiProjectBudgetInput: UpdateAiProjectBudgetInput, options?: Parameters<typeof customFetch>[1]): Promise<AiProjectBudgetSummary> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AiProjectBudgetSummary>(getUpdateAiProjectBudgetUrl(projectId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateAiProjectBudgetInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateAiProjectBudgetMutationKey = () => ['updateAiProjectBudget'] as const;
+
+export const getUpdateAiProjectBudgetMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiProjectBudget>>, TError,UpdateAiProjectBudgetMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAiProjectBudget>>, TError,UpdateAiProjectBudgetMutationVariables, TContext> => {
+
+const mutationKey = getUpdateAiProjectBudgetMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAiProjectBudget>>, UpdateAiProjectBudgetMutationVariables> = (props) => {
+          const {projectId,data} = props ?? {};
+
+          return  updateAiProjectBudget(projectId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAiProjectBudgetMutationResult = NonNullable<Awaited<ReturnType<typeof updateAiProjectBudget>>>
+    export type UpdateAiProjectBudgetMutationBody = BodyType<UpdateAiProjectBudgetInput>
+    export type UpdateAiProjectBudgetMutationError = ErrorType<void>
+    export type UpdateAiProjectBudgetMutationVariables = {projectId: string;data: BodyType<UpdateAiProjectBudgetInput>}
+
+    /**
+ * @summary Update the authenticated owner's daily AI budget
+ */
+export const useUpdateAiProjectBudget = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiProjectBudget>>, TError,UpdateAiProjectBudgetMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAiProjectBudget>>,
+        TError,
+        UpdateAiProjectBudgetMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateAiProjectBudgetMutationOptions(options));
+    }
+
+export const getListAiProjectBudgetAlertsUrl = (projectId: string,
+    params?: ListAiProjectBudgetAlertsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/projects/${projectId}/budget/alerts?${stringifiedParams}` : `/api/ai/projects/${projectId}/budget/alerts`
+}
+
+/**
+ * @summary List owner-scoped AI budget alerts for a project
+ */
+export const listAiProjectBudgetAlerts = async (projectId: string,
+    params?: ListAiProjectBudgetAlertsParams, options?: Parameters<typeof customFetch>[1]): Promise<OperatorAlertsResponse> => {
+
+  return customFetch<OperatorAlertsResponse>(getListAiProjectBudgetAlertsUrl(projectId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiProjectBudgetAlertsQueryKey = (projectId: string,
+    params?: ListAiProjectBudgetAlertsParams,) => {
+    return [
+    `/api/ai/projects/${projectId}/budget/alerts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAiProjectBudgetAlertsQueryOptions = <TData = Awaited<ReturnType<typeof listAiProjectBudgetAlerts>>, TError = ErrorType<unknown>>(projectId: string,
+    params?: ListAiProjectBudgetAlertsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiProjectBudgetAlerts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiProjectBudgetAlertsQueryKey(projectId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiProjectBudgetAlerts>>> = ({ signal }) => listAiProjectBudgetAlerts(projectId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiProjectBudgetAlerts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiProjectBudgetAlertsQueryResult = NonNullable<Awaited<ReturnType<typeof listAiProjectBudgetAlerts>>>
+export type ListAiProjectBudgetAlertsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List owner-scoped AI budget alerts for a project
+ */
+
+export function useListAiProjectBudgetAlerts<TData = Awaited<ReturnType<typeof listAiProjectBudgetAlerts>>, TError = ErrorType<unknown>>(
+ projectId: string,
+    params?: ListAiProjectBudgetAlertsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiProjectBudgetAlerts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiProjectBudgetAlertsQueryOptions(projectId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAiProjectBudgetAlertUrl = (projectId: string,
+    alertId: string,) => {
+
+
+
+
+  return `/api/ai/projects/${projectId}/budget/alerts/${alertId}`
+}
+
+/**
+ * @summary Acknowledge or resolve an owned project budget alert
+ */
+export const updateAiProjectBudgetAlert = async (projectId: string,
+    alertId: string,
+    updateAiProjectBudgetAlertBody: UpdateAiProjectBudgetAlertBody, options?: Parameters<typeof customFetch>[1]): Promise<UpdateAiProjectBudgetAlert200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<UpdateAiProjectBudgetAlert200>(getUpdateAiProjectBudgetAlertUrl(projectId,alertId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateAiProjectBudgetAlertBody)
+  }
+);}
+
+
+
+
+
+export const getUpdateAiProjectBudgetAlertMutationKey = () => ['updateAiProjectBudgetAlert'] as const;
+
+export const getUpdateAiProjectBudgetAlertMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiProjectBudgetAlert>>, TError,UpdateAiProjectBudgetAlertMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAiProjectBudgetAlert>>, TError,UpdateAiProjectBudgetAlertMutationVariables, TContext> => {
+
+const mutationKey = getUpdateAiProjectBudgetAlertMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAiProjectBudgetAlert>>, UpdateAiProjectBudgetAlertMutationVariables> = (props) => {
+          const {projectId,alertId,data} = props ?? {};
+
+          return  updateAiProjectBudgetAlert(projectId,alertId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAiProjectBudgetAlertMutationResult = NonNullable<Awaited<ReturnType<typeof updateAiProjectBudgetAlert>>>
+    export type UpdateAiProjectBudgetAlertMutationBody = BodyType<UpdateAiProjectBudgetAlertBody>
+    export type UpdateAiProjectBudgetAlertMutationError = ErrorType<void>
+    export type UpdateAiProjectBudgetAlertMutationVariables = {projectId: string;alertId: string;data: BodyType<UpdateAiProjectBudgetAlertBody>}
+
+    /**
+ * @summary Acknowledge or resolve an owned project budget alert
+ */
+export const useUpdateAiProjectBudgetAlert = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiProjectBudgetAlert>>, TError,UpdateAiProjectBudgetAlertMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAiProjectBudgetAlert>>,
+        TError,
+        UpdateAiProjectBudgetAlertMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateAiProjectBudgetAlertMutationOptions(options));
+    }
 
 export const getListRecoverableAiDeliveriesUrl = (params: ListRecoverableAiDeliveriesParams,) => {
   const normalizedParams = new URLSearchParams();

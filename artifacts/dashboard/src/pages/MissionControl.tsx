@@ -24,7 +24,11 @@ import {
   Zap,
 } from 'lucide-react';
 import { Link } from 'wouter';
-import { useGetAiMissionControl } from '@workspace/api-client-react';
+import {
+  useGetAiMissionControl,
+  useUpdateAiProjectBudget,
+  useUpdateAiProjectBudgetAlert,
+} from '@workspace/api-client-react';
 import type { AiMissionControl, AiUsageSummary } from '@workspace/api-client-react';
 
 type JsonRecord = Record<string, unknown>;
@@ -1040,6 +1044,9 @@ function MissionSkeleton() {
 }
 
 export default function MissionControl() {
+  const projectId = new URLSearchParams(window.location.search).get('projectId') ?? '';
+  const [budgetForm, setBudgetForm] = useState({ dailyAttemptLimit: 100, dailyTokenLimit: 100000, warningThreshold: 0.8 });
+  const [budgetMessage, setBudgetMessage] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comparisonLiveId, setComparisonLiveId] = useState<string | null>(null);
   const [comparisonImportedId, setComparisonImportedId] = useState<string | null>(null);
@@ -1051,13 +1058,28 @@ export default function MissionControl() {
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const historyPageSize = 8;
-  const { data, error, isError, isLoading, isFetching, refetch } = useGetAiMissionControl({
-    query: {
-      queryKey: ['ai-mission-control'],
-      staleTime: 15_000,
-      retry: false,
+  const { data, error, isError, isLoading, isFetching, refetch } = useGetAiMissionControl(
+    { projectId: projectId || undefined },
+    {
+      query: {
+        queryKey: ['ai-mission-control', projectId],
+        staleTime: 15_000,
+        retry: false,
+      },
     },
-  });
+  );
+  const budgetMutation = useUpdateAiProjectBudget();
+  const alertMutation = useUpdateAiProjectBudgetAlert();
+  const budget = (data as AiMissionControl | undefined)?.budget;
+  useEffect(() => {
+    if (budget) {
+      setBudgetForm({
+        dailyAttemptLimit: budget.dailyAttemptLimit,
+        dailyTokenLimit: budget.dailyTokenLimit,
+        warningThreshold: budget.warningThreshold,
+      });
+    }
+  }, [budget?.dailyAttemptLimit, budget?.dailyTokenLimit, budget?.warningThreshold]);
 
   const typedData = data as AiMissionControl | undefined;
   const executions = useMemo(() => asExecutions(typedData?.executions), [typedData?.executions]);
@@ -1303,6 +1325,81 @@ export default function MissionControl() {
           </div>
         </div>
       </section>
+
+      {!projectId ? (
+        <section className="rounded-xl border border-dashed border-border/70 bg-card p-4 text-sm text-muted-foreground">
+          Add <code className="rounded border border-border px-1">?projectId=…</code> to manage a project AI budget.
+        </section>
+      ) : (
+        <section className="rounded-xl border border-primary/20 bg-card p-4 shadow-sm sm:p-5" aria-label="AI project budget">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+                <Gauge className="h-3.5 w-3.5" /> Project AI budget
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">UTC daily admission limits. Provider pricing and billing are never shown.</p>
+            </div>
+            <span className="rounded-full border border-border px-2 py-1 text-[10px] uppercase">
+              {budget?.state ?? (isFetching ? 'loading' : 'unavailable')}
+            </span>
+          </div>
+          {budget && (
+            <>
+              <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                <SummaryMetric label="Consumed" value={`${budget.consumedAttempts}`} detail={`of ${budget.dailyAttemptLimit} attempts`} icon={<Activity className="h-3.5 w-3.5 text-primary" />} />
+                <SummaryMetric label="Remaining" value={`${budget.remainingAttempts}`} detail="admission slots" icon={<Gauge className="h-3.5 w-3.5 text-emerald-300" />} tone={budget.remainingAttempts === 0 ? 'text-red-200' : 'text-emerald-200'} />
+                <SummaryMetric label="Tokens" value={budget.tokenUsage.status} detail={budget.tokenUsage.remaining == null ? 'usage is not fully known' : `${budget.tokenUsage.remaining} remaining`} icon={<Zap className="h-3.5 w-3.5 text-primary" />} />
+                <SummaryMetric label="Reset" value={formatDate(budget.resetAt) ?? 'UTC'} detail="next daily reset" icon={<Clock3 className="h-3.5 w-3.5 text-primary" />} />
+              </div>
+              <form
+                className="mt-4 grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-4 sm:items-end"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setBudgetMessage(null);
+                  budgetMutation.mutate({ projectId, data: budgetForm }, {
+                    onSuccess: () => { setBudgetMessage('Budget saved.'); void refetch(); },
+                    onError: () => setBudgetMessage('Budget could not be saved.'),
+                  });
+                }}
+              >
+                {([
+                  ['dailyAttemptLimit', 'Daily attempts'],
+                  ['dailyTokenLimit', 'Daily tokens'],
+                  ['warningThreshold', 'Warning ratio'],
+                ] as const).map(([key, label]) => (
+                  <label key={key} className="text-xs text-muted-foreground">
+                    {label}
+                    <input
+                      type="number"
+                      step={key === 'warningThreshold' ? '0.01' : '1'}
+                      value={budgetForm[key]}
+                      onChange={(event) => setBudgetForm((current) => ({ ...current, [key]: Number(event.target.value) }))}
+                      className="mt-1 h-8 w-full rounded-md border border-border bg-background/50 px-2 text-xs text-foreground"
+                    />
+                  </label>
+                ))}
+                <button type="submit" disabled={budgetMutation.isPending} className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-60">
+                  {budgetMutation.isPending ? 'Saving…' : 'Save budget'}
+                </button>
+              </form>
+              {budgetMessage && <p className="mt-2 text-xs text-muted-foreground">{budgetMessage}</p>}
+              {((data as AiMissionControl | undefined)?.budgetAlerts ?? []).length > 0 && (
+                <div className="mt-4 space-y-2 border-t border-border/60 pt-4">
+                  {(data as AiMissionControl).budgetAlerts?.map((alert) => (
+                    <div key={alert.id} className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-300" />
+                      <span className="min-w-0 flex-1">{alert.title}</span>
+                      <button type="button" onClick={() => alertMutation.mutate({ projectId, alertId: alert.id, data: { action: 'acknowledge' } }, { onSuccess: () => void refetch() })} className="rounded border border-border px-2 py-1 text-[10px]">Acknowledge</button>
+                      <button type="button" onClick={() => alertMutation.mutate({ projectId, alertId: alert.id, data: { action: 'resolve' } }, { onSuccess: () => void refetch() })} className="rounded border border-border px-2 py-1 text-[10px]">Resolve</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {isError && <p className="mt-3 text-xs text-red-200">Budget could not be loaded. Check project access and try again.</p>}
+        </section>
+      )}
 
       <UsageSummaryCard usage={typedData?.usage} />
 

@@ -21,3 +21,4 @@ export * from "./uploads.js";
 export * from "./browser_validation_profiles.js";
 export * from "./operator_alerts.js";
 export * from "./ai_usage_events.js";
+export * from "./ai_project_budgets.js";

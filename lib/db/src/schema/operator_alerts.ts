@@ -2,6 +2,7 @@ import { pgTable, text, timestamp, integer, pgEnum, index, unique } from "drizzl
 
 export const operatorAlertStatusEnum = pgEnum("operator_alert_status", [
   "open",
+  "acknowledged",
   "resolved",
 ]);
 
@@ -9,6 +10,9 @@ export const operatorAlertKindEnum = pgEnum("operator_alert_kind", [
   "groq_model_catalog_drift",
   "groq_model_catalog_unavailable",
   "ai_usage_quota_exceeded",
+  "ai_budget_warning",
+  "ai_budget_exhausted",
+  "ai_budget_recovered",
 ]);
 
 /**
@@ -31,10 +35,14 @@ export const operatorAlertsTable = pgTable("operator_alerts", {
   firstSeenAt: timestamp("first_seen_at").notNull().defaultNow(),
   lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
   resolvedAt: timestamp("resolved_at"),
+  ownerId: text("owner_id"),
+  projectId: text("project_id"),
+  severity: text("severity").notNull().default("info"),
 }, (t) => [
   unique("operator_alerts_fingerprint_unique").on(t.fingerprint),
   index("idx_operator_alerts_status_last_seen").on(t.status, t.lastSeenAt),
   index("idx_operator_alerts_provider").on(t.provider),
+  index("idx_operator_alerts_owner_project").on(t.ownerId, t.projectId),
 ]);
 
 export type InsertOperatorAlert = typeof operatorAlertsTable.$inferInsert;

@@ -48,6 +48,7 @@ import {
   recordAiUsageAttempt,
 } from "./ai-telemetry.js";
 import type { AiTelemetryContext, AiContractTelemetry } from "./ai-telemetry.js";
+import { admitAiProviderAttempt, reconcileAiBudgetReservation } from "./ai-budget.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
@@ -468,6 +469,16 @@ export async function runAgentWithFallback<T>(
         "primary provider error; retrying agent with fallback provider",
       );
     }
+    const attemptId = options?.telemetryContext
+      ? `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
+      : undefined;
+    if (options?.telemetryContext?.projectId && attemptId) {
+      await admitAiProviderAttempt({
+        ownerId: options.telemetryContext.userId,
+        projectId: options.telemetryContext.projectId,
+        attemptId,
+      });
+    }
     const providerStartedAt = Date.now();
     try {
       const result = await run({ ...providerEntry, signal: options?.signal });
@@ -482,10 +493,11 @@ export async function runAgentWithFallback<T>(
       if (options?.telemetryContext) {
         void recordAiUsageAttempt(options.telemetryContext, {
           ...telemetryAttempt,
-          attemptId: `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`,
+          attemptId,
           usageStatus: "unknown",
         });
       }
+      if (attemptId) void reconcileAiBudgetReservation(attemptId);
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
       const telemetryAttempt = {
@@ -499,10 +511,11 @@ export async function runAgentWithFallback<T>(
       if (options?.telemetryContext) {
         void recordAiUsageAttempt(options.telemetryContext, {
           ...telemetryAttempt,
-          attemptId: `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`,
+          attemptId,
           usageStatus: "unknown",
         });
       }
+      if (attemptId) void reconcileAiBudgetReservation(attemptId);
       if (options?.signal?.aborted) {
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
       }
@@ -613,6 +626,8 @@ export async function chatWithFallback(
       completionTokens?: number | null;
       usageStatus?: "known" | "partial" | "unknown";
     } & AiContractTelemetry) => void | Promise<void>;
+    /** Content-free owner/project identity used for provider admission. */
+    telemetryContext?: AiTelemetryContext;
   },
   initialProvider: { provider: ProviderId; apiKey: string; source?: "user" | "server" },
   onDelta?: (delta: string) => void,
@@ -665,6 +680,16 @@ export async function chatWithFallback(
   for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
     if (providerIndex > 0 && !executionLedger.admit("provider_change", { provider: providerEntry.provider })) {
       break;
+    }
+    const attemptId = baseParams.telemetryContext
+      ? `${baseParams.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
+      : undefined;
+    if (baseParams.telemetryContext?.projectId && attemptId) {
+      await admitAiProviderAttempt({
+        ownerId: baseParams.telemetryContext.userId,
+        projectId: baseParams.telemetryContext.projectId,
+        attemptId,
+      });
     }
     if (lastErr) {
       logger.info(
@@ -741,6 +766,7 @@ export async function chatWithFallback(
             : Date.now() - recoveryStartedAt,
         }),
       });
+      if (attemptId) void reconcileAiBudgetReservation(attemptId);
       return { result, effectiveProvider: providerEntry.provider, executionLedger };
     } catch (err) {
       void baseParams.onProviderAttempt?.({
@@ -751,6 +777,7 @@ export async function chatWithFallback(
         attemptNumber: providerIndex + 1,
         fallbackCount: providerIndex,
       });
+      if (attemptId) void reconcileAiBudgetReservation(attemptId);
       const providerError = normalizeProviderFailure(err);
       recordProviderLifecycleOutcome({
         provider: providerEntry.provider,
@@ -892,6 +919,25 @@ export function handleOrchestratorError(
     executionLedger?: ExecutionLedger;
   },
 ): boolean {
+  if ((err as { code?: unknown } | null)?.code === "AI_BUDGET_EXHAUSTED") {
+    if (ctx?.publicContract === "chat") {
+      res.status(429).json({
+        code: "AI_BUDGET_EXHAUSTED",
+        error: "This project's daily AI budget is exhausted.",
+        outcome: "FAILED",
+        retryable: false,
+        recoveryState: "NONE",
+      });
+    } else {
+      res.status(429).json({
+        code: "AI_BUDGET_EXHAUSTED",
+        error: "This project's daily AI budget is exhausted.",
+        retryable: false,
+        failureKind: "RATE_LIMIT",
+      });
+    }
+    return true;
+  }
   if (!(err instanceof GroqClientError)) return false;
   const providerFailureCategory = classifyProviderFailure({
     code: err.code,

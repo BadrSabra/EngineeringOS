@@ -3950,6 +3950,10 @@ export const GetAiEmpiricalQualityScorecardResponse = zod.object({
 /**
  * @summary Get the bounded AI execution ledger and benchmark posture
  */
+export const GetAiMissionControlQueryParams = zod.object({
+  "projectId": zod.coerce.string().optional().describe('Optional owner-scoped project whose AI budget and alerts should be included.')
+})
+
 export const getAiMissionControlResponseBenchmarkReleaseGateBlockersMax = 16;
 
 export const getAiMissionControlResponseBenchmarkReleaseGateRuntimeOraclePreflightChecksItemScenarioIdMax = 160;
@@ -4075,6 +4079,28 @@ export const getAiMissionControlResponseUsageTimelineItemFailuresMin = 0;
 export const getAiMissionControlResponseUsageTimelineItemPromptTokensMin = 0;
 
 export const getAiMissionControlResponseUsageTimelineItemCompletionTokensMin = 0;
+
+export const getAiMissionControlResponseBudgetOneDailyAttemptLimitMax = 10000;
+
+export const getAiMissionControlResponseBudgetOneDailyTokenLimitMin = 1000;
+export const getAiMissionControlResponseBudgetOneDailyTokenLimitMax = 10000000;
+
+export const getAiMissionControlResponseBudgetOneWarningThresholdMin = 0.5;
+export const getAiMissionControlResponseBudgetOneWarningThresholdMax = 0.99;
+
+export const getAiMissionControlResponseBudgetOneConsumedAttemptsMin = 0;
+
+export const getAiMissionControlResponseBudgetOneReservedAttemptsMin = 0;
+
+export const getAiMissionControlResponseBudgetOneRemainingAttemptsMin = 0;
+
+export const getAiMissionControlResponseBudgetOneTokenUsagePromptTokensMin = 0;
+
+export const getAiMissionControlResponseBudgetOneTokenUsageCompletionTokensMin = 0;
+
+export const getAiMissionControlResponseBudgetOneTokenUsageTotalMin = 0;
+
+export const getAiMissionControlResponseBudgetOneTokenUsageRemainingMin = 0;
 
 
 
@@ -4341,6 +4367,238 @@ export const GetAiMissionControlResponse = zod.object({
   "completionTokens": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemCompletionTokensMin).nullable(),
   "usageKnown": zod.boolean()
 }))
+}),
+  "budget": zod.union([zod.object({
+  "schemaVersion": zod.literal(1),
+  "projectId": zod.string(),
+  "dailyAttemptLimit": zod.number().int().min(1).max(getAiMissionControlResponseBudgetOneDailyAttemptLimitMax),
+  "dailyTokenLimit": zod.number().int().min(getAiMissionControlResponseBudgetOneDailyTokenLimitMin).max(getAiMissionControlResponseBudgetOneDailyTokenLimitMax),
+  "warningThreshold": zod.number().min(getAiMissionControlResponseBudgetOneWarningThresholdMin).max(getAiMissionControlResponseBudgetOneWarningThresholdMax),
+  "resetAt": zod.coerce.date(),
+  "consumedAttempts": zod.number().int().min(getAiMissionControlResponseBudgetOneConsumedAttemptsMin),
+  "reservedAttempts": zod.number().int().min(getAiMissionControlResponseBudgetOneReservedAttemptsMin),
+  "remainingAttempts": zod.number().int().min(getAiMissionControlResponseBudgetOneRemainingAttemptsMin),
+  "state": zod.enum(['normal', 'warning', 'exhausted']),
+  "tokenUsage": zod.object({
+  "promptTokens": zod.number().int().min(getAiMissionControlResponseBudgetOneTokenUsagePromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(getAiMissionControlResponseBudgetOneTokenUsageCompletionTokensMin).nullable(),
+  "total": zod.number().int().min(getAiMissionControlResponseBudgetOneTokenUsageTotalMin).nullable(),
+  "remaining": zod.number().int().min(getAiMissionControlResponseBudgetOneTokenUsageRemainingMin).nullable(),
+  "status": zod.enum(['known', 'partial', 'unknown'])
+}),
+  "updatedAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "budgetAlerts": zod.array(zod.object({
+  "id": zod.string(),
+  "fingerprint": zod.string(),
+  "kind": zod.enum(['groq_model_catalog_drift', 'groq_model_catalog_unavailable', 'ai_budget_warning', 'ai_budget_exhausted', 'ai_budget_recovered']),
+  "status": zod.enum(['open', 'acknowledged', 'resolved']),
+  "provider": zod.enum(['groq']),
+  "modelRole": zod.enum(['fast', 'powerful', 'catalog']),
+  "modelId": zod.string(),
+  "title": zod.string(),
+  "message": zod.string(),
+  "remediation": zod.string(),
+  "occurrenceCount": zod.number().int(),
+  "firstSeenAt": zod.coerce.date(),
+  "lastSeenAt": zod.coerce.date(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "ownerId": zod.string().nullish(),
+  "projectId": zod.string().nullish(),
+  "severity": zod.union([zod.literal('info'),zod.literal('warning'),zod.literal('critical'),zod.literal(null)]).nullish()
+})).optional()
+})
+
+
+/**
+ * @summary Read the authenticated owner's daily AI budget and usage
+ */
+export const GetAiProjectBudgetParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const getAiProjectBudgetResponseDailyAttemptLimitMax = 10000;
+
+export const getAiProjectBudgetResponseDailyTokenLimitMin = 1000;
+export const getAiProjectBudgetResponseDailyTokenLimitMax = 10000000;
+
+export const getAiProjectBudgetResponseWarningThresholdMin = 0.5;
+export const getAiProjectBudgetResponseWarningThresholdMax = 0.99;
+
+export const getAiProjectBudgetResponseConsumedAttemptsMin = 0;
+
+export const getAiProjectBudgetResponseReservedAttemptsMin = 0;
+
+export const getAiProjectBudgetResponseRemainingAttemptsMin = 0;
+
+export const getAiProjectBudgetResponseTokenUsagePromptTokensMin = 0;
+
+export const getAiProjectBudgetResponseTokenUsageCompletionTokensMin = 0;
+
+export const getAiProjectBudgetResponseTokenUsageTotalMin = 0;
+
+export const getAiProjectBudgetResponseTokenUsageRemainingMin = 0;
+
+
+
+export const GetAiProjectBudgetResponse = zod.object({
+  "schemaVersion": zod.literal(1),
+  "projectId": zod.string(),
+  "dailyAttemptLimit": zod.number().int().min(1).max(getAiProjectBudgetResponseDailyAttemptLimitMax),
+  "dailyTokenLimit": zod.number().int().min(getAiProjectBudgetResponseDailyTokenLimitMin).max(getAiProjectBudgetResponseDailyTokenLimitMax),
+  "warningThreshold": zod.number().min(getAiProjectBudgetResponseWarningThresholdMin).max(getAiProjectBudgetResponseWarningThresholdMax),
+  "resetAt": zod.coerce.date(),
+  "consumedAttempts": zod.number().int().min(getAiProjectBudgetResponseConsumedAttemptsMin),
+  "reservedAttempts": zod.number().int().min(getAiProjectBudgetResponseReservedAttemptsMin),
+  "remainingAttempts": zod.number().int().min(getAiProjectBudgetResponseRemainingAttemptsMin),
+  "state": zod.enum(['normal', 'warning', 'exhausted']),
+  "tokenUsage": zod.object({
+  "promptTokens": zod.number().int().min(getAiProjectBudgetResponseTokenUsagePromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(getAiProjectBudgetResponseTokenUsageCompletionTokensMin).nullable(),
+  "total": zod.number().int().min(getAiProjectBudgetResponseTokenUsageTotalMin).nullable(),
+  "remaining": zod.number().int().min(getAiProjectBudgetResponseTokenUsageRemainingMin).nullable(),
+  "status": zod.enum(['known', 'partial', 'unknown'])
+}),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update the authenticated owner's daily AI budget
+ */
+export const UpdateAiProjectBudgetParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const updateAiProjectBudgetBodyDailyAttemptLimitMax = 10000;
+
+export const updateAiProjectBudgetBodyDailyTokenLimitMin = 1000;
+export const updateAiProjectBudgetBodyDailyTokenLimitMax = 10000000;
+
+export const updateAiProjectBudgetBodyWarningThresholdMin = 0.5;
+export const updateAiProjectBudgetBodyWarningThresholdMax = 0.99;
+
+
+
+export const UpdateAiProjectBudgetBody = zod.object({
+  "dailyAttemptLimit": zod.number().int().min(1).max(updateAiProjectBudgetBodyDailyAttemptLimitMax),
+  "dailyTokenLimit": zod.number().int().min(updateAiProjectBudgetBodyDailyTokenLimitMin).max(updateAiProjectBudgetBodyDailyTokenLimitMax),
+  "warningThreshold": zod.number().min(updateAiProjectBudgetBodyWarningThresholdMin).max(updateAiProjectBudgetBodyWarningThresholdMax)
+})
+
+export const updateAiProjectBudgetResponseDailyAttemptLimitMax = 10000;
+
+export const updateAiProjectBudgetResponseDailyTokenLimitMin = 1000;
+export const updateAiProjectBudgetResponseDailyTokenLimitMax = 10000000;
+
+export const updateAiProjectBudgetResponseWarningThresholdMin = 0.5;
+export const updateAiProjectBudgetResponseWarningThresholdMax = 0.99;
+
+export const updateAiProjectBudgetResponseConsumedAttemptsMin = 0;
+
+export const updateAiProjectBudgetResponseReservedAttemptsMin = 0;
+
+export const updateAiProjectBudgetResponseRemainingAttemptsMin = 0;
+
+export const updateAiProjectBudgetResponseTokenUsagePromptTokensMin = 0;
+
+export const updateAiProjectBudgetResponseTokenUsageCompletionTokensMin = 0;
+
+export const updateAiProjectBudgetResponseTokenUsageTotalMin = 0;
+
+export const updateAiProjectBudgetResponseTokenUsageRemainingMin = 0;
+
+
+
+export const UpdateAiProjectBudgetResponse = zod.object({
+  "schemaVersion": zod.literal(1),
+  "projectId": zod.string(),
+  "dailyAttemptLimit": zod.number().int().min(1).max(updateAiProjectBudgetResponseDailyAttemptLimitMax),
+  "dailyTokenLimit": zod.number().int().min(updateAiProjectBudgetResponseDailyTokenLimitMin).max(updateAiProjectBudgetResponseDailyTokenLimitMax),
+  "warningThreshold": zod.number().min(updateAiProjectBudgetResponseWarningThresholdMin).max(updateAiProjectBudgetResponseWarningThresholdMax),
+  "resetAt": zod.coerce.date(),
+  "consumedAttempts": zod.number().int().min(updateAiProjectBudgetResponseConsumedAttemptsMin),
+  "reservedAttempts": zod.number().int().min(updateAiProjectBudgetResponseReservedAttemptsMin),
+  "remainingAttempts": zod.number().int().min(updateAiProjectBudgetResponseRemainingAttemptsMin),
+  "state": zod.enum(['normal', 'warning', 'exhausted']),
+  "tokenUsage": zod.object({
+  "promptTokens": zod.number().int().min(updateAiProjectBudgetResponseTokenUsagePromptTokensMin).nullable(),
+  "completionTokens": zod.number().int().min(updateAiProjectBudgetResponseTokenUsageCompletionTokensMin).nullable(),
+  "total": zod.number().int().min(updateAiProjectBudgetResponseTokenUsageTotalMin).nullable(),
+  "remaining": zod.number().int().min(updateAiProjectBudgetResponseTokenUsageRemainingMin).nullable(),
+  "status": zod.enum(['known', 'partial', 'unknown'])
+}),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List owner-scoped AI budget alerts for a project
+ */
+export const ListAiProjectBudgetAlertsParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const listAiProjectBudgetAlertsQueryActiveOnlyDefault = true;
+
+export const ListAiProjectBudgetAlertsQueryParams = zod.object({
+  "activeOnly": zod.coerce.boolean().default(listAiProjectBudgetAlertsQueryActiveOnlyDefault)
+})
+
+export const ListAiProjectBudgetAlertsResponse = zod.object({
+  "alerts": zod.array(zod.object({
+  "id": zod.string(),
+  "fingerprint": zod.string(),
+  "kind": zod.enum(['groq_model_catalog_drift', 'groq_model_catalog_unavailable', 'ai_budget_warning', 'ai_budget_exhausted', 'ai_budget_recovered']),
+  "status": zod.enum(['open', 'acknowledged', 'resolved']),
+  "provider": zod.enum(['groq']),
+  "modelRole": zod.enum(['fast', 'powerful', 'catalog']),
+  "modelId": zod.string(),
+  "title": zod.string(),
+  "message": zod.string(),
+  "remediation": zod.string(),
+  "occurrenceCount": zod.number().int(),
+  "firstSeenAt": zod.coerce.date(),
+  "lastSeenAt": zod.coerce.date(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "ownerId": zod.string().nullish(),
+  "projectId": zod.string().nullish(),
+  "severity": zod.union([zod.literal('info'),zod.literal('warning'),zod.literal('critical'),zod.literal(null)]).nullish()
+}))
+})
+
+
+/**
+ * @summary Acknowledge or resolve an owned project budget alert
+ */
+export const UpdateAiProjectBudgetAlertParams = zod.object({
+  "projectId": zod.coerce.string(),
+  "alertId": zod.coerce.string()
+})
+
+export const UpdateAiProjectBudgetAlertBody = zod.object({
+  "action": zod.enum(['acknowledge', 'resolve'])
+})
+
+export const UpdateAiProjectBudgetAlertResponse = zod.object({
+  "alert": zod.object({
+  "id": zod.string(),
+  "fingerprint": zod.string(),
+  "kind": zod.enum(['groq_model_catalog_drift', 'groq_model_catalog_unavailable', 'ai_budget_warning', 'ai_budget_exhausted', 'ai_budget_recovered']),
+  "status": zod.enum(['open', 'acknowledged', 'resolved']),
+  "provider": zod.enum(['groq']),
+  "modelRole": zod.enum(['fast', 'powerful', 'catalog']),
+  "modelId": zod.string(),
+  "title": zod.string(),
+  "message": zod.string(),
+  "remediation": zod.string(),
+  "occurrenceCount": zod.number().int(),
+  "firstSeenAt": zod.coerce.date(),
+  "lastSeenAt": zod.coerce.date(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "ownerId": zod.string().nullish(),
+  "projectId": zod.string().nullish(),
+  "severity": zod.union([zod.literal('info'),zod.literal('warning'),zod.literal('critical'),zod.literal(null)]).nullish()
 })
 })
 
@@ -6239,8 +6497,8 @@ export const ListOperatorAlertsResponse = zod.object({
   "alerts": zod.array(zod.object({
   "id": zod.string(),
   "fingerprint": zod.string(),
-  "kind": zod.enum(['groq_model_catalog_drift', 'groq_model_catalog_unavailable']),
-  "status": zod.enum(['open', 'resolved']),
+  "kind": zod.enum(['groq_model_catalog_drift', 'groq_model_catalog_unavailable', 'ai_budget_warning', 'ai_budget_exhausted', 'ai_budget_recovered']),
+  "status": zod.enum(['open', 'acknowledged', 'resolved']),
   "provider": zod.enum(['groq']),
   "modelRole": zod.enum(['fast', 'powerful', 'catalog']),
   "modelId": zod.string(),
@@ -6250,7 +6508,10 @@ export const ListOperatorAlertsResponse = zod.object({
   "occurrenceCount": zod.number().int(),
   "firstSeenAt": zod.coerce.date(),
   "lastSeenAt": zod.coerce.date(),
-  "resolvedAt": zod.coerce.date().nullable()
+  "resolvedAt": zod.coerce.date().nullable(),
+  "ownerId": zod.string().nullish(),
+  "projectId": zod.string().nullish(),
+  "severity": zod.union([zod.literal('info'),zod.literal('warning'),zod.literal('critical'),zod.literal(null)]).nullish()
 }))
 })
 

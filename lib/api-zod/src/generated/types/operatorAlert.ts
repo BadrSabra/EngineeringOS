@@ -8,6 +8,7 @@
 import type { OperatorAlertKind } from './operatorAlertKind';
 import type { OperatorAlertModelRole } from './operatorAlertModelRole';
 import type { OperatorAlertProvider } from './operatorAlertProvider';
+import type { OperatorAlertSeverity } from './operatorAlertSeverity';
 import type { OperatorAlertStatus } from './operatorAlertStatus';
 
 export interface OperatorAlert {
@@ -26,4 +27,10 @@ export interface OperatorAlert {
   lastSeenAt: Date;
   /** @nullable */
   resolvedAt: Date | null;
+  /** @nullable */
+  ownerId?: string | null;
+  /** @nullable */
+  projectId?: string | null;
+  /** @nullable */
+  severity?: OperatorAlertSeverity;
 }

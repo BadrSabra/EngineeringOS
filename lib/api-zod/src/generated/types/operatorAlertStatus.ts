@@ -11,5 +11,6 @@ export type OperatorAlertStatus = typeof OperatorAlertStatus[keyof typeof Operat
 
 export const OperatorAlertStatus = {
   open: 'open',
+  acknowledged: 'acknowledged',
   resolved: 'resolved',
 } as const;

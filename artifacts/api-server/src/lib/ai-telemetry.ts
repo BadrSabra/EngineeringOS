@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import type { ProviderId } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
+import { reconcileAiBudgetReservation } from "./ai-budget.js";
 
 export const AI_USAGE_RETENTION_DAYS = 90;
 export const AI_USAGE_DEFAULT_WINDOW_DAYS = 30;
@@ -191,6 +192,7 @@ export async function recordAiUsageAttempt(
       occurredAt: now,
       expiresAt,
     }).onConflictDoNothing({ target: aiUsageEventsTable.attemptId });
+    await reconcileAiBudgetReservation(attemptId);
     const dayStart = new Date(now);
     dayStart.setUTCHours(0, 0, 0, 0);
     const daily = await db.select({ count: sql<number>`count(*)` })
