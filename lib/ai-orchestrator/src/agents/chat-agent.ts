@@ -903,7 +903,6 @@ export function isCapabilityProbeRequest(message: string): boolean {
 function hasCompleteCapabilityProbeEvidence(
   fileContents: ReadonlyMap<string, string>,
 ): boolean {
-  if (fileContents.size !== CAPABILITY_PROBE_SOURCE_FILES.length) return false;
   return CAPABILITY_PROBE_SOURCE_FILES.every((file) => {
     const body = fileContents.get(file);
     return typeof body === "string" &&
@@ -2913,6 +2912,11 @@ function relayForensicTerminal(opts: {
     objectiveBlocked = false,
   } = opts;
   if (!onStep) return;
+  // Cancellation is its own terminal state. Preserve the evidence collected
+  // so far, but do not manufacture a normal forensic terminal such as
+  // NO_EVIDENCE_FOUND; the route-level diagnostic derives CANCELLED from the
+  // durable interruption trace.
+  if (loopResult.kind === "cancelled") return;
   const findingsSection = report.match(/##\s*3\)\s*Findings([\s\S]*?)(?=##\s*\d|$)/i)?.[1] ?? "";
   const hasFinding = /(?:^|\n)\s*(?:[*-]\s*)?ID:\s*F-\d+\s*·/i.test(findingsSection);
   const finalJudgment = report.match(/##\s*6\)\s*Final Judgment([\s\S]*)$/i)?.[1] ?? report;
@@ -4441,7 +4445,8 @@ export async function chat(opts: {
   // the first evidence target, but the later proposal phase must not inherit
   // the forensic-only read_file manifest.
   const singleFileForensicMode =
-    classifiedSingleFileForensicMode && !turnIntent.compoundExecution;
+    (classifiedSingleFileForensicMode || capabilityProbeRequest) &&
+    !turnIntent.compoundExecution;
   const forensicTaskType = turnIntent.forensicTaskType;
   const capabilityCatalogPrompt = capabilityRegistry
     ? formatCapabilityCatalogPrompt(buildCapabilityCatalog(capabilityRegistry, {
@@ -4467,7 +4472,9 @@ export async function chat(opts: {
   const objectiveClaims = objective ? decomposeObjectiveClaims(objective) : [];
   const objectiveClaimIds = objectiveClaims.map((c) => c.claimId);
   const singleFilePaths = singleFileForensicMode
-    ? extractSingleFilePaths(message).slice(0, 5)
+    ? capabilityProbeRequest
+      ? [...CAPABILITY_PROBE_SOURCE_FILES]
+      : extractSingleFilePaths(message).slice(0, 5)
     : [];
   // First-Evidence Gate may pin an explicit primary FILE (DIRECT_READ). That
   // target must ALWAYS be admissible as evidence — even when a text-derived

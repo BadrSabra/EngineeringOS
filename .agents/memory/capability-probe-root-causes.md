@@ -20,3 +20,9 @@ When a Capability Probe ends with `CLAIM_UNCLOSED` or rejected capability eviden
 **Why:** Advertising `recoveryState: REQUIRED` while rejecting the same execution at resume exposed contradictory operator state and suggested a recovery path that cannot close the missing claims.
 
 **How to apply:** Let the server-owned terminal classifier recognize capability-specific claim-closure diagnostics before generic forensic recovery failure; preserve the incomplete report and checkpoint while directing operators to start a new run.
+
+The complete-body predicate must be existential over the declared manifest, not an exact map-size comparison. Extra internal reads are scope telemetry to reject or filter, but they must not make two complete required bodies appear incomplete.
+
+**Why:** A failed run retained the two declared bodies plus internal route/orchestrator reads; the exact-size check converted that valid source retention into `CAPABILITY_PROBE_RECOVERY_SKIPPED_INCOMPLETE`.
+
+**How to apply:** Validate every required manifest path independently, enforce the capability probe's two-file scope at routing/prefetch time, and omit generic forensic terminal markers when the loop is cancelled.
