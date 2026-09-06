@@ -743,6 +743,58 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("creates the initial checkpoint before provider execution and avoids terminal double-send errors", async () => {
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+      };
+    }).__chatTestFixture;
+
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((step: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit this codebase" });
+
+    expect(response.status, response.text).toBe(200);
+    expect(response.headers["content-type"]).toMatch(/text\/event-stream/);
+    expect(response.text).not.toContain("ERR_HTTP_HEADERS_SENT");
+    expect(response.text).not.toContain("Cannot access 'traceSteps' before initialization");
+    expect(parseSseFrames(response.text)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "execution_started" }),
+        expect.objectContaining({ type: "done" }),
+      ]),
+    );
+    expect(dbFixture.execution.checkpoint).not.toBe("{}");
+    expect(JSON.parse(String(dbFixture.execution.checkpoint))).toMatchObject({
+      stage: expect.any(String),
+      sequence: expect.any(Number),
+    });
+  });
+
+  it("emits one terminal SSE error instead of sending JSON after headers are committed", async () => {
+    vi.mocked(buildProjectContext).mockRejectedValueOnce(new Error("unexpected stream fixture failure"));
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "Summarize the project context." });
+
+    expect(response.status, response.text).toBe(200);
+    expect(response.headers["content-type"]).toMatch(/text\/event-stream/);
+    expect(response.text).not.toContain("ERR_HTTP_HEADERS_SENT");
+    expect(parseSseFrames(response.text)).toContainEqual(expect.objectContaining({
+      type: "error",
+      code: "STREAM_INTERNAL_ERROR",
+      outcome: "FAILED",
+    }));
+  });
+
   it("keeps context provenance identical across JSON, SSE done, persistence, and history", async () => {
     vi.mocked(buildProjectContext)
       .mockImplementationOnce(async () => ({

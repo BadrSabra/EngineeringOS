@@ -4340,6 +4340,10 @@ router.post("/ai/chat/stream", async (req, res) => {
     let executionEvidenceReason = proofRequired
       ? "No accepted validation evidence has been recorded."
       : "Ordinary chat response; Flight Deck proof is not required.";
+    // Checkpoints include the accumulated agent trace, including the first
+    // lifecycle checkpoint below. Initialize it before creating or invoking
+    // the checkpoint writer so this closure never hits the temporal dead zone.
+    const traceSteps: AgentStep[] = [];
     const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
       // Once a terminal writer wins, no queued or late stream callback may
       // enqueue another checkpoint. The database lease gate is still the
@@ -4608,7 +4612,6 @@ router.post("/ai/chat/stream", async (req, res) => {
     // delta event. The accumulated string is used below for DB persistence.
     let streamedContent = "";
     let streamingActive = false;
-    const traceSteps: AgentStep[] = [];
     const diagnosticCodes: string[] = [];
     const executionDiagnosticDetails: string[] = [];
     let executionSummary:
@@ -6343,6 +6346,37 @@ router.post("/ai/chat/stream", async (req, res) => {
         : undefined,
     });
     res.end();
+    return;
+  } catch (err) {
+    logger.error(
+      { err, executionId: aiExecution?.id ?? null },
+      "chat stream: unexpected error after SSE setup",
+    );
+    // SSE headers are already committed for this try block. Do not let
+    // Express attempt a second JSON response (ERR_HTTP_HEADERS_SENT); emit a
+    // bounded terminal frame and close the stream once instead.
+    if (res.headersSent) {
+      if (!res.writableEnded) {
+        try {
+          res.write(`data: ${JSON.stringify({
+            type: "error",
+            code: "STREAM_INTERNAL_ERROR",
+            message: "The AI request could not complete. Please retry.",
+            outcome: "FAILED",
+            retryable: true,
+            ...(aiExecution?.id ? { executionId: aiExecution.id } : {}),
+          })}\n\n`);
+        } catch (writeError) {
+          logger.warn(
+            { writeError, executionId: aiExecution?.id ?? null },
+            "chat stream: terminal SSE write failed",
+          );
+        }
+        if (!res.writableEnded) res.end();
+      }
+    } else if (!res.writableEnded) {
+      res.status(500).json({ error: "The AI request could not complete." });
+    }
     return;
   } finally {
     if (aiExecution && !executionTerminal) {
