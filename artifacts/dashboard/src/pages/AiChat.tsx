@@ -626,6 +626,17 @@ type MetricsResponse = {
   metrics: ProviderRuntimeMetric[];
   usage?: AiUsageSummary;
 };
+type MetricsProviderFilter = 'all' | 'groq' | 'deepseek' | 'openrouter' | 'gemini';
+
+const METRICS_PROVIDER_OPTIONS: Array<{ value: MetricsProviderFilter; label: string }> = [
+  { value: 'all', label: 'All providers' },
+  { value: 'openrouter', label: 'OpenRouter' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'groq', label: 'Groq' },
+];
+
+const METRICS_WINDOW_OPTIONS = [7, 30, 90] as const;
 type PendingChange = {
   path: string;
   absolutePath: string;
@@ -806,7 +817,29 @@ function contractRate(value: number | null | undefined): string {
     : '—';
 }
 
-function ModelContractQualityCard({ usage }: { usage?: AiUsageSummary }) {
+function ModelContractQualityCard({
+  usage,
+  projectLabel,
+  provider,
+  days,
+  isLoading,
+  isFetching,
+  isError,
+  onProviderChange,
+  onDaysChange,
+  onRetry,
+}: {
+  usage?: AiUsageSummary;
+  projectLabel: string;
+  provider: MetricsProviderFilter;
+  days: number;
+  isLoading: boolean;
+  isFetching: boolean;
+  isError: boolean;
+  onProviderChange: (provider: MetricsProviderFilter) => void;
+  onDaysChange: (days: number) => void;
+  onRetry: () => void;
+}) {
   const models = usage?.providers.flatMap((provider) =>
     provider.models.map((model) => ({ provider: provider.provider, ...model })),
   ) ?? [];
@@ -824,9 +857,53 @@ function ModelContractQualityCard({ usage }: { usage?: AiUsageSummary }) {
         </div>
       </div>
 
-      {sortedModels.length === 0 ? (
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <label className="min-w-0 text-[10px] text-muted-foreground">
+          <span className="mb-1 block">Provider</span>
+          <select
+            aria-label="Model quality provider"
+            value={provider}
+            onChange={(event) => onProviderChange(event.target.value as MetricsProviderFilter)}
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-[10px] text-foreground"
+          >
+            {METRICS_PROVIDER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-0 text-[10px] text-muted-foreground">
+          <span className="mb-1 block">Time window</span>
+          <select
+            aria-label="Model quality time window"
+            value={days}
+            onChange={(event) => onDaysChange(Number(event.target.value))}
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-[10px] text-foreground"
+          >
+            {METRICS_WINDOW_OPTIONS.map((windowDays) => (
+              <option key={windowDays} value={windowDays}>{windowDays} days</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Project: <span className="text-foreground/80">{projectLabel}</span>
+        {isFetching && !isLoading && <span className="ml-1.5 text-primary">Refreshing…</span>}
+      </p>
+
+      {isLoading ? (
+        <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground" role="status">
+          Loading model contract telemetry…
+        </p>
+      ) : isError ? (
+        <div className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
+          <p>Unable to load model contract telemetry for this filter.</p>
+          <Button type="button" variant="ghost" size="sm" className="mt-1 h-6 px-2 text-[10px]" onClick={onRetry}>
+            Try again
+          </Button>
+        </div>
+      ) : sortedModels.length === 0 ? (
         <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
-          No model contract telemetry is available yet.
+          No model contract telemetry matches this project, provider, and time window.
         </p>
       ) : (
         <div className="mt-3 space-y-2">
@@ -7972,6 +8049,8 @@ export default function AiChat() {
   const { isLoaded, user } = useUser();
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [metricsProvider, setMetricsProvider] = useState<MetricsProviderFilter>('all');
+  const [metricsWindowDays, setMetricsWindowDays] = useState<number>(30);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   // AI-TASK-006: task linkage — read from URL search params so the Tasks page
   // can deep-link to /ai?taskId=<uuid>&projectId=<id> to open a task-aware session.
@@ -8697,10 +8776,25 @@ export default function AiChat() {
     },
   });
 
-  // PR-06: poll runtime health metrics so provider cards show live state
-  const { data: metricsData } = useGetAiMetrics<MetricsResponse>(undefined, {
+  // PR-06: poll runtime health metrics so provider cards show live state.
+  // Durable model-quality usage is scoped to the project selected in the
+  // sidebar and the operator's provider/window filters. The generated hook
+  // includes these params in its query key, so changing any filter refetches
+  // the corresponding aggregate without exposing raw AI content.
+  const metricsParams = {
+    projectId: selectedProjectId || undefined,
+    provider: metricsProvider === 'all' ? undefined : metricsProvider,
+    days: metricsWindowDays,
+  } as const;
+  const {
+    data: metricsData,
+    isLoading: metricsLoading,
+    isFetching: metricsFetching,
+    isError: metricsError,
+    refetch: refetchMetrics,
+  } = useGetAiMetrics<MetricsResponse>(metricsParams, {
     query: {
-      queryKey: ['ai-metrics'],
+      queryKey: ['ai-metrics', metricsParams],
       staleTime: 15_000,
       refetchInterval: 30_000,
       enabled: isLoaded,
@@ -10467,6 +10561,7 @@ export default function AiChat() {
         <div className="p-2 border-b border-border">
           <div className="relative">
             <select
+              aria-label="Project for chat and model quality"
               value={selectedProjectId}
               onChange={(e) => {
                 resetConversationView({ forgetCurrentExecution: false });
@@ -10643,7 +10738,18 @@ export default function AiChat() {
 
           {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
           <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-[45%] md:overflow-y-auto">
-            <ModelContractQualityCard usage={metricsData?.usage} />
+            <ModelContractQualityCard
+              usage={metricsData?.usage}
+              projectLabel={projects.find((project) => project.id === selectedProjectId)?.name ?? (selectedProjectId || 'All projects')}
+              provider={metricsProvider}
+              days={metricsWindowDays}
+              isLoading={metricsLoading}
+              isFetching={metricsFetching}
+              isError={metricsError}
+              onProviderChange={setMetricsProvider}
+              onDaysChange={setMetricsWindowDays}
+              onRetry={() => void refetchMetrics()}
+            />
             <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
             <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
             <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />

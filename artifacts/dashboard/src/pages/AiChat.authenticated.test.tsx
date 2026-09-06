@@ -124,6 +124,7 @@ const mocks = vi.hoisted(() => {
       behavioralScorecards: [] as unknown[],
       usage: undefined as unknown,
     },
+    useGetAiMetrics: vi.fn(),
     activeExecutionStatus: undefined as { status: string } | undefined,
     streamCallbacks: undefined as Record<string, unknown> | undefined,
     sentParams: undefined as {
@@ -219,7 +220,12 @@ vi.mock('@workspace/api-client-react', () => {
     useGetProviderKeyStatus: vi.fn(status),
     useGetOpenRouterKeyStatus: vi.fn(status),
     useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
-    useGetAiMetrics: vi.fn(() => ({ data: mocks.aiMetrics, isLoading: false, isError: false, error: null })),
+    useGetAiMetrics: mocks.useGetAiMetrics.mockImplementation(() => ({
+      data: mocks.aiMetrics,
+      isLoading: false,
+      isError: false,
+      error: null,
+    })),
     useGetAiExecution: vi.fn(() => ({
       data: mocks.activeExecutionStatus,
       isLoading: false,
@@ -458,6 +464,27 @@ describe('AiChat authenticated generated mutations', () => {
     expect(card).toHaveTextContent('Recovery 1/1 · 100.0%');
     expect(card).toHaveTextContent('missing_citation (1)');
     expect(card).not.toHaveTextContent(/prompt|source fragment|api key/i);
+  });
+
+  it('refreshes model quality with the selected project, provider, and time window', () => {
+    renderAiChat();
+
+    expect(mocks.useGetAiMetrics).toHaveBeenLastCalledWith(
+      { projectId: 'project-1', provider: undefined, days: 30 },
+      expect.objectContaining({ query: expect.any(Object) }),
+    );
+
+    fireEvent.change(screen.getByLabelText('Model quality provider'), {
+      target: { value: 'gemini' },
+    });
+    fireEvent.change(screen.getByLabelText('Model quality time window'), {
+      target: { value: '7' },
+    });
+
+    expect(mocks.useGetAiMetrics).toHaveBeenLastCalledWith(
+      { projectId: 'project-1', provider: 'gemini', days: 7 },
+      expect.objectContaining({ query: expect.any(Object) }),
+    );
   });
 
   it('uses the server-provided audit filename and falls back safely', () => {
@@ -1214,7 +1241,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(await screen.findByText(/Execution execution-/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Project one session' })).toHaveClass('bg-primary/10');
 
-    const projectSelector = screen.getByRole('combobox');
+    const projectSelector = screen.getByLabelText('Project for chat and model quality');
     fireEvent.change(projectSelector, { target: { value: 'project-2' } });
     expect(await screen.findByRole('button', { name: 'Project two session' }))
       .toHaveClass('bg-primary/10');
@@ -1284,7 +1311,7 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
     expect(await screen.findByText(/Execution alpha-ex/)).toBeInTheDocument();
 
-    const projectSelector = screen.getByRole('combobox');
+    const projectSelector = screen.getByLabelText('Project for chat and model quality');
     fireEvent.change(projectSelector, { target: { value: 'project-2' } });
     expect(await screen.findByText(/Execution beta-exe/)).toBeInTheDocument();
     expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');

@@ -4909,7 +4909,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("Accepted: source span verified.", { exact: true }).last(),
     ).toBeVisible();
 
-    await page.getByRole("combobox").selectOption("e2e-project-two");
+    await page
+      .getByLabel("Project for chat and model quality")
+      .selectOption("e2e-project-two");
     await expect(
       page.getByRole("button", { name: blocked.question, exact: true }),
     ).toBeVisible();
@@ -4933,7 +4935,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("Accepted: source span verified.", { exact: true }),
     ).toHaveCount(0);
 
-    await page.getByRole("combobox").selectOption("e2e-project-one");
+    await page
+      .getByLabel("Project for chat and model quality")
+      .selectOption("e2e-project-one");
     await page
       .getByRole("button", { name: accepted.question, exact: true })
       .click();
