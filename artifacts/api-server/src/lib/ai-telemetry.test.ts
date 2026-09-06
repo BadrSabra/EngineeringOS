@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
+import request from "supertest";
+import app from "../app.js";
 import { db, aiUsageEventsTable } from "@workspace/db";
 import {
   deriveAiContractTelemetry,
@@ -8,6 +13,7 @@ import {
 } from "./ai-telemetry.js";
 
 const createdCorrelations: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   for (const correlationId of createdCorrelations.splice(0)) {
@@ -187,5 +193,118 @@ describe("durable AI telemetry", () => {
         contract: expect.objectContaining({ evaluated: 0, acceptanceRate: null }),
       }),
     ]);
+  });
+
+  it("records a primary outage and fallback success across a reconnect-safe summary boundary", async () => {
+    const correlationId = `telemetry-restart-${crypto.randomUUID()}`;
+    const projectId = `telemetry-restart-project-${crypto.randomUUID()}`;
+    const secretPrompt = `fixture-prompt-secret-${crypto.randomUUID()}`;
+    const secretSource = `/tmp/fixture-source-secret-${crypto.randomUUID()}.ts`;
+    const secretProviderKey = `fixture-provider-key-${crypto.randomUUID()}`;
+    const originalGroqKey = process.env.GROQ_API_KEY;
+    createdCorrelations.push(correlationId);
+    process.env.GROQ_API_KEY = secretProviderKey;
+
+    const context = {
+      userId: "test-user",
+      projectId,
+      operationId: correlationId,
+      correlationId,
+    };
+    await recordAiUsageAttempt(context, {
+      attemptId: `${correlationId}:openrouter:1`,
+      provider: "openrouter",
+      model: "primary-fixture-model",
+      outcome: "failure",
+      latencyMs: 140,
+      attemptNumber: 1,
+      fallbackCount: 0,
+      usageStatus: "unknown",
+    });
+    await recordAiUsageAttempt(context, {
+      attemptId: `${correlationId}:gemini:2`,
+      provider: "gemini",
+      model: "fallback-fixture-model",
+      outcome: "success",
+      latencyMs: 90,
+      attemptNumber: 2,
+      fallbackCount: 1,
+      promptTokens: 18,
+      completionTokens: 7,
+      usageStatus: "known",
+    });
+
+    const rows = await db
+      .select()
+      .from(aiUsageEventsTable)
+      .where(eq(aiUsageEventsTable.correlationId, correlationId));
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.attemptId)).toEqual(expect.arrayContaining([
+      `${correlationId}:openrouter:1`,
+      `${correlationId}:gemini:2`,
+    ]));
+    expect(rows.every((row) => row.correlationId === correlationId)).toBe(true);
+    expect(rows[0]).not.toHaveProperty("prompt");
+    expect(rows[0]).not.toHaveProperty("source");
+    expect(JSON.stringify(rows)).not.toContain(secretPrompt);
+    expect(JSON.stringify(rows)).not.toContain(secretSource);
+
+    // A reconnect is a fresh read of durable state, not a replay of provider
+    // work. Both reads must retain the same attempt history and correlation.
+    try {
+      const summaryBeforeReconnect = await getAiUsageSummary({
+        userId: context.userId,
+        projectId,
+        days: 7,
+      });
+      const telemetryModule = pathToFileURL(
+        `${process.cwd()}/src/lib/ai-telemetry.ts`,
+      ).href;
+      const reconnectScript = [
+        `import { getAiUsageSummary } from ${JSON.stringify(telemetryModule)};`,
+        "(async () => {",
+        "  const summary = await getAiUsageSummary({",
+        "    userId: process.env.TELEMETRY_USER,",
+        "    projectId: process.env.TELEMETRY_PROJECT,",
+        "    days: 7,",
+        "  });",
+        "  console.log(JSON.stringify(summary));",
+        "})();",
+      ].join("\n");
+      const reconnect = await execFileAsync(
+        "pnpm",
+        ["exec", "tsx", "-e", reconnectScript],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            NODE_ENV: "test",
+            TELEMETRY_USER: context.userId,
+            TELEMETRY_PROJECT: projectId,
+          },
+        },
+      );
+      const reconnectSummary = JSON.parse(reconnect.stdout.trim().split("\n").at(-1) ?? "");
+      expect(reconnectSummary).toEqual(summaryBeforeReconnect);
+      expect(summaryBeforeReconnect).toMatchObject({
+        totalAttempts: 2,
+        totalSuccesses: 1,
+        totalFailures: 1,
+        totalFallbackAttempts: 1,
+      });
+
+      const response = await request(app)
+        .get("/api/ai/metrics")
+        .query({ projectId, days: 7 });
+      expect(response.status).toBe(200);
+      expect(response.body.usage).toEqual(summaryBeforeReconnect);
+      expect(JSON.stringify(response.body)).not.toContain(secretProviderKey);
+      expect(JSON.stringify(response.body)).not.toContain(secretPrompt);
+      expect(JSON.stringify(response.body)).not.toContain(secretSource);
+      expect(JSON.stringify(response.body)).not.toMatch(/api[_-]?key|provider[_-]?key/i);
+    } finally {
+      if (originalGroqKey === undefined) delete process.env.GROQ_API_KEY;
+      else process.env.GROQ_API_KEY = originalGroqKey;
+    }
   });
 });

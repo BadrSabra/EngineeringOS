@@ -25,6 +25,14 @@ if (process.env.DATABASE_URL) {
     "-t",
     "persists bounded synthesis timeout telemetry while keeping incomplete reports sanitized",
   ]);
+  checks.push([
+    "exec",
+    "vitest",
+    "run",
+    "src/lib/ai-telemetry.test.ts",
+    "-t",
+    "records a primary outage and fallback success across a reconnect-safe summary boundary",
+  ]);
 } else {
   console.log(
     "Skipping API synthesis telemetry assertion because DATABASE_URL is not configured; engine validation remains provider-free.",
