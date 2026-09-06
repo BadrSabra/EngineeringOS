@@ -1140,7 +1140,9 @@ function extractCapabilityProbeNearJsonFields(
   while ((match = keyPattern.exec(text))) {
     const label = match[1]?.toUpperCase();
     if (!label || fields.has(label)) continue;
-    const value = readCapabilityProbeNearJsonValue(text, keyPattern.lastIndex).trim();
+    let valueStart = keyPattern.lastIndex;
+    while (/\s/.test(text[valueStart] ?? "")) valueStart++;
+    const value = readCapabilityProbeNearJsonValue(text, valueStart).trim();
     if (value) fields.set(label, value);
   }
 
@@ -1214,7 +1216,8 @@ export function normalizeCapabilityProbeRecoveryContent(
     .replace(/```(?:json|text)?/gi, "")
     .replace(/```/g, "")
     .trim();
-  return plain && /\bC1\b/i.test(plain)
+  const looksLikeIncompleteObject = /(?:^|\n)\s*[{[]/.test(plain);
+  return plain && /\bC1\b/i.test(plain) && !looksLikeIncompleteObject
     ? { response: withVerifiedSources(plain), sources: verifiedSources }
     : null;
 }
