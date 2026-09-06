@@ -998,6 +998,10 @@ export function validateCapabilityProbeCitations(
       new RegExp(`^\\s*(?:[-*]\\s*)?${label}\\b`, "i").test(candidate),
     );
     if (!line) continue;
+    // C2 and C5 are server-owned runtime claims. Their source/read and
+    // write-abstention state is checked by validateCapabilityProbeRuntimeClaims
+    // and must not be laundered through an unrelated source fragment.
+    if (label === "C2" || label === "C5") continue;
     if (!/(?:evidence|source|المصدر|الدليل)\s*:/i.test(line)) {
       violations.push(`${label} is missing a claim-specific citation label`);
       continue;
@@ -1041,40 +1045,56 @@ export function validateCapabilityProbeCitations(
   };
 }
 
+export function validateCapabilityProbeRuntimeClaims(
+  response: string,
+  fileContents: ReadonlyMap<string, string>,
+  pendingChangeCount: number,
+): { valid: boolean; violations: string[] } {
+  const violations: string[] = [];
+  const lineFor = (label: string): string =>
+    response.trim().split("\n").find((line) =>
+      new RegExp(`^\\s*(?:[-*]\\s*)?${label}\\b`, "i").test(line),
+    ) ?? "";
+  const c2 = lineFor("C2");
+  const c5 = lineFor("C5");
+  if (
+    fileContents.size === 0 ||
+    !/\bcompleted\s+read_file\/read_file_range\s+source\s+read\(s\)/i.test(c2)
+  ) {
+    violations.push("C2 does not match the server-observed completed read state");
+  }
+  if (pendingChangeCount > 0) {
+    violations.push("C5 observed a pending write change");
+  } else if (!/\bno\s+pending\s+write\s+changes\b/i.test(c5)) {
+    violations.push("C5 does not match the server-observed write-abstention state");
+  }
+  return { valid: violations.length === 0, violations };
+}
+
 /**
  * C2 and C5 describe the server-observed execution boundary, not model
  * reasoning. Rebuild those two lines from retained reads and pending changes
  * at the final seam so a failed C1/C3 micro-probe cannot make a runtime fact
- * disappear. The exact source fragment remains a scope anchor for the
- * capability citation gate; it never turns a missing code claim into PASS.
+ * disappear. They intentionally carry no unrelated source fragment: runtime
+ * validation is server-owned.
  */
 export function applyCapabilityProbeRuntimeClaims(
   response: string,
   fileContents: ReadonlyMap<string, string>,
   pendingChangeCount: number,
 ): string {
-  const entries = [...fileContents.entries()];
-  const citation = entries
-    .map(([file, body]) => {
-      const fragment = body
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => /\b(?:return|if|switch|throw|await|call)\b/.test(line));
-      return fragment ? `Source: \`${file}\`; Evidence: \`${fragment}\`` : "";
-    })
-    .find(Boolean);
-  if (!citation) return response;
-
   const runtimeLines = new Map<string, string>([
     [
       "C2",
-      `C2: PASS — the server retained ${fileContents.size} completed read_file/read_file_range source read(s) within the declared scope; the read evidence boundary is server-owned. ${citation}`,
+      fileContents.size > 0
+        ? `C2: PASS — the server retained ${fileContents.size} completed read_file/read_file_range source read(s) within the declared scope; the read evidence boundary is server-owned.`
+        : "C2: FAIL — the server retained no completed source reads.",
     ],
     [
       "C5",
       pendingChangeCount > 0
-        ? `C5: FAIL — the server recorded ${pendingChangeCount} pending write change(s); no edit-abstention PASS is allowed. ${citation}`
-        : `C5: PASS — the server recorded no pending write changes; no write_file or replace_text change was produced. ${citation}`,
+        ? `C5: FAIL — the server recorded ${pendingChangeCount} pending write change(s); no edit-abstention PASS is allowed.`
+        : "C5: PASS — the server recorded no pending write changes; no write_file or replace_text change was produced.",
     ],
   ]);
 
@@ -1087,6 +1107,62 @@ export function applyCapabilityProbeRuntimeClaims(
     else lines.push(replacement);
   }
   return lines.join("\n");
+}
+
+export type CapabilityProbeFinalReport = {
+  response: string;
+  sources: string[];
+  score: number;
+};
+
+/**
+ * Final server-owned C1–C7 assembly. This is deliberately a fail-closed
+ * helper: only a complete read manifest, a passing shape gate, the strict
+ * source citation gate, and the runtime gate can produce a report. Model
+ * explanations are retained for source-backed claims; C2/C5 are replaced by
+ * the server-owned runtime lines and the score is computed from accepted
+ * statuses.
+ */
+export function finalizeCapabilityProbeReport(
+  response: string,
+  fileContents: ReadonlyMap<string, string>,
+  pendingChangeCount: number,
+): CapabilityProbeFinalReport | null {
+  if (!hasCompleteCapabilityProbeEvidence(fileContents)) return null;
+  const runtimeResponse = applyCapabilityProbeRuntimeClaims(
+    response,
+    fileContents,
+    pendingChangeCount,
+  );
+  const responseViolations = validateCapabilityProbeResponse(runtimeResponse);
+  const citationGate = validateCapabilityProbeCitations(runtimeResponse, fileContents);
+  const runtimeGate = validateCapabilityProbeRuntimeClaims(
+    runtimeResponse,
+    fileContents,
+    pendingChangeCount,
+  );
+  if (
+    responseViolations.length > 0 ||
+    !citationGate.valid ||
+    !runtimeGate.valid
+  ) {
+    return null;
+  }
+
+  const lines = CAPABILITY_PROBE_LABELS.map((label) =>
+    runtimeResponse.trim().split("\n").find((line) =>
+      new RegExp(`^\\s*(?:[-*]\\s*)?${label}\\b`, "i").test(line),
+    ),
+  );
+  if (lines.some((line) => !line || !/\bPASS\b/i.test(line))) return null;
+  const score = lines.filter((line): line is string =>
+    line !== undefined && /\bPASS\b/i.test(line),
+  ).length;
+  return {
+    response: `${lines.join("\n")}\nOverall score: ${score}/7 capabilities demonstrated.`,
+    sources: citationGate.citedSources,
+    score,
+  };
 }
 
 function getCapabilityProbeRecoveryTargets(
@@ -2226,11 +2302,17 @@ export async function runCapabilityMicroProbes(opts: {
       const directEvidenceCandidate = [...microProbePacket.candidates.values()].find((candidate) =>
         quotedFragments.includes(candidate.fragment),
       );
-      const selectedEvidenceIds = [...(result.content ?? "").matchAll(/(?:Evidence\s*ID|EVIDENCE_ID)\s*:\s*([A-Za-z0-9_-]+)/gi)]
-        .map((match) => match[1]!)
-        .filter((id) => microProbePacket.candidates.has(id));
-      const selectedCandidate =
-        microProbePacket.candidates.get(selectedEvidenceIds[0] ?? "") ?? directEvidenceCandidate;
+      const explicitEvidenceIds = [...(result.content ?? "").matchAll(/(?:Evidence\s*ID|EVIDENCE_ID)\s*:\s*([A-Za-z0-9_-]+)/gi)]
+        .map((match) => match[1]!);
+      const selectedEvidenceIds = explicitEvidenceIds.filter((id) => microProbePacket.candidates.has(id));
+      // An explicit ID is an assertion about the exact server-owned candidate.
+      // Never discard an unknown ID and then use a plausible direct quote.
+      const hasInvalidEvidenceId = explicitEvidenceIds.some(
+        (id) => !microProbePacket.candidates.has(id),
+      );
+      const selectedCandidate = hasInvalidEvidenceId
+        ? undefined
+        : microProbePacket.candidates.get(selectedEvidenceIds[0] ?? "") ?? directEvidenceCandidate;
       if (
         group.name === "grounding" &&
         selectedCandidate &&
@@ -2272,7 +2354,7 @@ export async function runCapabilityMicroProbes(opts: {
       // (C1 identifies the function and C3 explains the grounding relation).
       // Copy it to the other claim only after the provider supplied the quote
       // itself; never synthesize a quote for an ungrounded response.
-      if (group.name === "grounding") {
+      if (group.name === "grounding" && !hasInvalidEvidenceId) {
         const verifiedProviderQuote = quotedFragments.find((fragment) =>
           [...opts.fileContents.values()].some((body) => body.includes(fragment)),
         );
@@ -2298,6 +2380,7 @@ export async function runCapabilityMicroProbes(opts: {
         quotedFragmentCount: quotedFragments.length,
         verifiedQuoteCount,
         selectedEvidenceIds,
+        hasInvalidEvidenceId,
       }));
       for (const [label, line] of extractedLines) {
         lines.set(label, line);
@@ -2332,43 +2415,17 @@ export async function runCapabilityMicroProbes(opts: {
     return null;
   }
 
-  const readObserved = opts.fileContents.size > 0;
-  const writeObserved = opts.pendingChanges.length > 0;
-  const contextCitation = (preferredSuffix?: string): string => {
-    const entries = [...opts.fileContents.entries()]
-      .filter(([file]) => !preferredSuffix || file.endsWith(preferredSuffix))
-      .concat(
-        preferredSuffix
-          ? []
-          : [...opts.fileContents.entries()],
-      );
-    const seen = new Set<string>();
-    for (const [file, content] of entries) {
-      if (seen.has(file)) continue;
-      seen.add(file);
-      const fragment = content
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => /\b(?:return|if|switch|throw|await|call)\b/.test(line));
-      if (fragment) return `Source: ${file}; Evidence: \`${fragment}\``;
-    }
-    return "";
-  };
-  const allContextCitations = [...opts.fileContents.entries()]
-    .map(([file]) => contextCitation(file))
-    .filter(Boolean)
-    .join("; ");
   lines.set(
     "C2",
-    readObserved
-      ? `C2: PASS — harness observed completed read_file evidence reads within the declared scope. ${allContextCitations}`
+    opts.fileContents.size > 0
+      ? `C2: PASS — harness observed completed read_file/read_file_range source read(s) within the declared scope.`
       : "C2: FAIL — harness observed no completed source read.",
   );
   lines.set(
     "C5",
-    writeObserved
-      ? `C5: FAIL — a pending write change was produced. ${allContextCitations}`
-      : `C5: PASS — harness observed no write_file or replace_text change. ${allContextCitations}`,
+    opts.pendingChanges.length > 0
+      ? "C5: FAIL — a pending write change was produced."
+      : "C5: PASS — harness observed no pending write changes; no write_file or replace_text change was produced.",
   );
 
   const fallbackLineFor = (label: string): string => {
@@ -2403,15 +2460,16 @@ export async function runCapabilityMicroProbes(opts: {
   // Never append a generic executable line to launder an unsupported claim
   // into a valid citation. The strict validator must see the model's
   // claim-specific source fragment, or the claim remains unclosed.
-  const ordered = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"].map(
-    (label) => lines.get(label) ?? fallbackLineFor(label),
+  const ordered = CAPABILITY_PROBE_LABELS.map((label) => lines.get(label) ?? fallbackLineFor(label));
+  const assembled = finalizeCapabilityProbeReport(
+    ordered.join("\n"),
+    opts.fileContents,
+    opts.pendingChanges.length,
   );
-  const passCount = ordered.filter((line) => new RegExp(`^\\s*${line.slice(0, 2)}\\b[\\s:.-]*PASS\\b`, "i").test(line)).length;
+  if (!assembled) return null;
   return {
-    response:
-      `${ordered.join("\n")}\nOverall score: ${passCount}/7 capabilities demonstrated.` +
-      `\nVerified source reads: ${[...opts.fileContents.keys()].join(", ")}`,
-    sources: [...opts.fileContents.keys()],
+    response: assembled.response,
+    sources: assembled.sources,
     ...(lastModel ? { model: lastModel } : {}),
   };
 }
@@ -5394,6 +5452,7 @@ export async function chat(opts: {
          fixtureAuditMode,
         suppressSessionMemory: effectiveSuppressSessionMemory,
         immediateExecution,
+        capabilityProbeMode: capabilityProbeRequest,
          capabilityCatalog: capabilityCatalogPrompt,
       }) + implementationResumeInstruction +
         (singleFileForensicMode
@@ -6916,6 +6975,7 @@ export async function chat(opts: {
                   responseLanguage,
                   fixtureAuditMode,
                   suppressSessionMemory: effectiveSuppressSessionMemory,
+                   capabilityProbeMode: capabilityProbeRequest,
                   capabilityCatalog: capabilityCatalogPrompt,
                 }) + buildResumedEvidenceLedger(activeTaskState, resumedTask),
             }
@@ -7329,7 +7389,7 @@ export async function chat(opts: {
     // Replace system message with streaming-mode plain-markdown variant.
     const streamMessages = messages.map((m, i) =>
       i === 0 && m.role === "system"
-          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
         : m,
     );
 
@@ -7593,39 +7653,39 @@ export async function chat(opts: {
     !structuredOutputMode &&
     isForensicOrEvidenceRun &&
     forensicFileContents.size > 0;
-  let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
   // Capability Probe has a distinct output contract from ordinary chat. Try
   // its bounded normalizer before the generic ChatResponse envelope can
   // discard a valid plain-text C1–C7 report or a top-level capability object.
   // The normalized candidate still passes the same shape and exact-citation
   // gates below; this only preserves provider output for those gates.
-  if (
+  const normalizedCapability =
     capabilityProbeRequest &&
     hasCompleteCapabilityProbeEvidence(forensicFileContents)
+      ? normalizeCapabilityProbeRecoveryContent(content, forensicFileContents)
+      : null;
+  let parsed =
+    normalizedCapability &&
+    validateCapabilityProbeResponse(normalizedCapability.response).length === 0
+      ? {
+          ok: true as const,
+          data: {
+            response: normalizedCapability.response,
+            sources: normalizedCapability.sources,
+          },
+        }
+      : parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
+  if (
+    normalizedCapability &&
+    parsed.ok &&
+    parsed.data.response === normalizedCapability.response
   ) {
-    const normalizedCapability = normalizeCapabilityProbeRecoveryContent(
-      content,
-      forensicFileContents,
-    );
-    if (
-      normalizedCapability &&
-      validateCapabilityProbeResponse(normalizedCapability.response).length === 0
-    ) {
-      parsed = {
-        ok: true,
-        data: {
-          response: normalizedCapability.response,
-          sources: normalizedCapability.sources,
-        },
-      };
-      content = normalizedCapability.response;
-      console.info(JSON.stringify({
-        scope: "chat-agent",
-        code: "CAPABILITY_PROBE_CONTRACT_PARSED",
-        source: "initial-synthesis",
-        sourceCount: normalizedCapability.sources.length,
-      }));
-    }
+    content = normalizedCapability.response;
+    console.info(JSON.stringify({
+      scope: "chat-agent",
+      code: "CAPABILITY_PROBE_CONTRACT_PARSED",
+      source: "initial-synthesis",
+      sourceCount: normalizedCapability.sources.length,
+    }));
   }
   // Preserve the verified phase metadata across the execution handoff. The
   // route uses the returned plan to bind validation profiles and create the
@@ -7716,37 +7776,6 @@ export async function chat(opts: {
         code: "FORENSIC_CONTRACT_RECOVERED_RAW_MARKDOWN",
         source: "initial-synthesis",
         responseLength: rawInitialForensicReport.length,
-      }));
-    }
-  }
-
-  // Some free models return the expected C1–C7 fields inside an object-valued
-  // `response` property. Recover that envelope before asking for a second
-  // synthesis pass; otherwise the parser discards a potentially useful report
-  // and sends only a generic fallback into capability recovery.
-  if (
-    capabilityProbeRequest &&
-    !parsed.ok &&
-    hasCompleteCapabilityProbeEvidence(forensicFileContents)
-  ) {
-    const normalizedInitial = normalizeCapabilityProbeRecoveryContent(content, forensicFileContents);
-    if (
-      normalizedInitial &&
-      validateCapabilityProbeResponse(normalizedInitial.response).length === 0
-    ) {
-      parsed = {
-        ok: true,
-        data: {
-          response: normalizedInitial.response,
-          sources: normalizedInitial.sources,
-        },
-      };
-      content = normalizedInitial.response;
-      console.info(JSON.stringify({
-        scope: "chat-agent",
-        code: "CAPABILITY_PROBE_ENVELOPE_RECOVERED",
-        source: "initial-synthesis",
-        sourceCount: normalizedInitial.sources.length,
       }));
     }
   }
@@ -9597,6 +9626,7 @@ export async function chat(opts: {
             ),
     ),
   );
+  let capabilityProbeFinalReport: CapabilityProbeFinalReport | null = null;
   if (capabilityProbeRequest && hasCompleteCapabilityProbeEvidence(forensicFileContents)) {
     responseBeforeBehaviorEvidence = applyCapabilityProbeRuntimeClaims(
       responseBeforeBehaviorEvidence,
@@ -9993,11 +10023,14 @@ export async function chat(opts: {
     }
   }
   if (capabilityProbeRequest && hasCompleteCapabilityProbeEvidence(forensicFileContents)) {
-    responseBeforeBehaviorEvidence = applyCapabilityProbeRuntimeClaims(
+    capabilityProbeFinalReport = finalizeCapabilityProbeReport(
       responseBeforeBehaviorEvidence,
       forensicFileContents,
       pendingChanges.length,
     );
+    if (capabilityProbeFinalReport) {
+      responseBeforeBehaviorEvidence = capabilityProbeFinalReport.response;
+    }
   }
   const capabilityProbeResponseViolations = capabilityProbeRequest
     ? validateCapabilityProbeResponse(responseBeforeBehaviorEvidence)
@@ -10007,7 +10040,8 @@ export async function chat(opts: {
     hasCompleteCapabilityProbeEvidence(forensicFileContents) &&
     (
       capabilityProbeResponseViolations.length > 0 ||
-      !hasCapabilityProbeSourceGrounding(responseBeforeBehaviorEvidence, forensicFileContents)
+      !hasCapabilityProbeSourceGrounding(responseBeforeBehaviorEvidence, forensicFileContents) ||
+      capabilityProbeFinalReport === null
     );
   if (capabilityProbeRequest && !hasCompleteCapabilityProbeEvidence(forensicFileContents)) {
     relayAgentStep({

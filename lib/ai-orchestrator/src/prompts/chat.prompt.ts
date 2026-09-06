@@ -77,6 +77,7 @@ function buildChatRulesBlock(
   streamingMode: boolean,
   immediateExecution = false,
   structuredOutputMode = false,
+  capabilityProbeMode = false,
 ): string {
   // Rule 9 has three modes:
   //   structuredOutputMode → user defined an exact output schema; no Plan prefix, just comply
@@ -140,9 +141,11 @@ ${rule5}
 
 ${rule9}`,
     `**Source discipline**: In the sources array, list only the specific entity names, metric labels (e.g. "Perf: 99.0"), or file paths you actually cited in the response. If you have no specific citations, use an empty array — never include a generic fallback string like "no project data available" as a source.`,
-    streamingMode
-      ? "Your reply MUST be plain markdown prose — do NOT wrap it in JSON. Just answer directly."
-      : `Your reply MUST be valid JSON with exactly this shape — no text before or after the JSON object:{"response":"<your answer in markdown prose>","sources":["<entity name, metric label, or file path>"]}`,
+    capabilityProbeMode
+      ? `**Capability Probe output contract — ACTIVE:** Return the existing plain-text C1–C7 report only. Emit exactly one labelled line for each of C1, C2, C3, C4, C5, C6, and C7, followed by one overall score line such as "Overall score: 7/7 capabilities demonstrated." Do not return JSON, a ChatResponse envelope, a code fence, or the six-section forensic report. Keep C1/C3/C4/C6/C7 grounded in exact source fragments from the named files; C2 and C5 describe only the server-observed read/write state.`
+      : streamingMode
+        ? "Your reply MUST be plain markdown prose — do NOT wrap it in JSON. Just answer directly."
+        : `Your reply MUST be valid JSON with exactly this shape — no text before or after the JSON object:{"response":"<your answer in markdown prose>","sources":["<entity name, metric label, or file path>"]}`,
   );
 }
 
@@ -320,6 +323,7 @@ export function buildChatSystemPrompt({
   profile = "chat-normal",
   immediateExecution = false,
   structuredOutputMode = false,
+  capabilityProbeMode = false,
   outputContract = structuredOutputMode ? "FORENSIC_REPORT" : "GENERIC_RESPONSE",
   responseLanguage,
   fixtureAuditMode = false,
@@ -343,6 +347,11 @@ export function buildChatSystemPrompt({
    * agent's role for this turn.
    */
   structuredOutputMode?: boolean;
+  /**
+   * Capability Probe has a plain-text C1–C7 contract even though ordinary
+   * non-streaming chat uses the ChatResponse JSON envelope.
+   */
+  capabilityProbeMode?: boolean;
   /**
    * Task-specific result contract. This is independent from the generic
    * structured-output flag so CODE_EXTRACTION and BEHAVIOR_QUERY do not inherit
@@ -420,7 +429,12 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     // correct reasoning pattern before it encounters the output constraints.
     structuredOutputMode ? buildStructuredOutputFewShot() : null,
     buildChatToolSection(hasTools),
-    buildChatRulesBlock(streamingMode, immediateExecution, structuredOutputMode),
+    buildChatRulesBlock(
+      streamingMode,
+      immediateExecution,
+      structuredOutputMode,
+      capabilityProbeMode,
+    ),
     fixtureAuditMode
       ? promptSection(
           "Fixture/capability audit boundary",

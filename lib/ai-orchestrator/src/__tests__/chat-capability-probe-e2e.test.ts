@@ -271,7 +271,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     }
   });
 
-  it("retries only the missing labels and lets the server attach verified evidence IDs", async () => {
+  it("rejects explicit Evidence IDs that are not in the server-owned candidate map", async () => {
     let callCount = 0;
     const strategy = {
       call: vi.fn(async (_messages: unknown, opts: { model?: string }) => {
@@ -303,9 +303,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     });
 
     expect(callCount).toBe(5);
-    expect(result?.response).toContain('return value.includes(\'defect/repair\');');
-    expect(result?.response).toContain('return "executed:" + name;');
-    expect(result?.response).toMatch(/Overall score: 7\/7/);
+    expect(result).toBeNull();
   });
 
   it("chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication", async () => {

@@ -26,6 +26,21 @@ function makeMemoryContext(): ProjectContext {
 }
 
 describe("forensic prompt safety", () => {
+  it("uses the plain-text capability contract instead of the generic ChatResponse envelope", () => {
+    const prompt = buildChatSystemPrompt({
+      context: makeContext(),
+      hasTools: true,
+      capabilityProbeMode: true,
+      streamingMode: false,
+    });
+
+    expect(prompt).toContain("Capability Probe output contract — ACTIVE");
+    expect(prompt).toContain("exactly one labelled line for each of C1, C2, C3, C4, C5, C6, and C7");
+    expect(prompt).toContain("C2 and C5 describe only the server-observed read/write state");
+    expect(prompt).not.toContain('{"response":"<your answer in markdown prose>"');
+    expect(prompt).not.toContain("Your reply MUST be valid JSON");
+  });
+
   it("does not treat bounded tool output as proof of source corruption", () => {
     const prompt = buildChatSystemPrompt({
       context: makeContext(),

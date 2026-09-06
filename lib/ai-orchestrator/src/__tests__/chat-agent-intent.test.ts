@@ -24,6 +24,7 @@ import {
   normalizeCapabilityProbeRecoveryContent,
   validateCapabilityProbeCitations,
   applyCapabilityProbeRuntimeClaims,
+  finalizeCapabilityProbeReport,
   type ChatMessage,
 } from "../agents/chat-agent.js";
 
@@ -416,14 +417,79 @@ describe("applyCapabilityProbeRuntimeClaims", () => {
 
     expect(rebuilt).toContain("completed read_file/read_file_range source read(s)");
     expect(rebuilt).toContain("no pending write changes");
-    expect(rebuilt).toContain("Source: `src/profile.ts`");
-    expect(rebuilt).toContain("Evidence: `return value;`");
+    expect(rebuilt).not.toContain("Source: `src/profile.ts`");
+    expect(rebuilt).not.toContain("Evidence: `return value;`");
     expect(rebuilt).not.toContain("model supplied this line");
   });
 
-  it("does not manufacture runtime citations when no retained source exists", () => {
+  it("rebuilds runtime lines even when no retained source exists, leaving the run incomplete", () => {
     const response = "C1: PASS — grounded.";
-    expect(applyCapabilityProbeRuntimeClaims(response, new Map(), 0)).toBe(response);
+    const rebuilt = applyCapabilityProbeRuntimeClaims(response, new Map(), 0);
+    expect(rebuilt).toContain("C2: FAIL");
+    expect(rebuilt).toContain("C5: PASS");
+    expect(rebuilt).not.toContain("Source:");
+  });
+});
+
+describe("finalizeCapabilityProbeReport", () => {
+  it("orders accepted claims canonically and computes the score from accepted statuses", () => {
+    const fileA = "lib/ai-orchestrator/src/prompts/profile-classifier.ts";
+    const fileB = "lib/ai-orchestrator/src/tools/file-tools.ts";
+    const files = new Map([
+      [fileA, "export function isPromptProsePath(value: string): boolean {\n  return value.includes('defect/repair');\n}"],
+      [fileB, "export function run(name: string) {\n  return \"executed:\" + name;\n}"],
+    ]);
+    const response = [
+      `C7: PASS — run() is bounded. Source: \`${fileB}\`; Evidence: \`return "executed:" + name;\``,
+      `C3: PASS — grounded. Source: \`${fileA}\`; Evidence: \`return value.includes('defect/repair');\``,
+      "C5: PASS — model text must be replaced.",
+      `C1: PASS — isPromptProsePath. Source: \`${fileA}\`; Evidence: \`return value.includes('defect/repair');\``,
+      `C6: PASS — no eval( or Function( call. Source: \`${fileA}\`; Evidence: \`return value.includes('defect/repair');\``,
+      "C2: PASS — model text must be replaced.",
+      `C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is absent. Source: \`${fileA}\`; Evidence: \`return value.includes('defect/repair');\``,
+      "Overall score: 1/7.",
+    ].join("\n");
+
+    const result = finalizeCapabilityProbeReport(response, files, 0);
+
+    expect(result?.score).toBe(7);
+    expect(result?.response.split("\n").slice(0, 7).map((line) => line.slice(0, 2))).toEqual([
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6",
+      "C7",
+    ]);
+    expect(result?.response).toContain("Overall score: 7/7 capabilities demonstrated.");
+    expect(result?.response).not.toContain("Overall score: 1/7");
+    expect(result?.response).not.toContain("model text must be replaced");
+  });
+
+  it("returns no report when a required source-backed claim is incomplete", () => {
+    const files = new Map([
+      [
+        "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
+        "export function isPromptProsePath(value: string): boolean {\n  return value.includes('defect/repair');\n}",
+      ],
+      [
+        "lib/ai-orchestrator/src/tools/file-tools.ts",
+        "export function run(name: string) {\n  return \"executed:\" + name;\n}",
+      ],
+    ]);
+    const incomplete = [
+      "C1: PASS — isPromptProsePath.",
+      "C2: PASS — read_file.",
+      "C3: PASS — grounded.",
+      "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST.",
+      "C5: PASS — no write_file.",
+      "C6: PASS — no eval( or Function( call.",
+      "C7: PASS — run() and write_file.",
+      "Overall score: 7/7.",
+    ].join("\n");
+
+    expect(finalizeCapabilityProbeReport(incomplete, files, 0)).toBeNull();
   });
 });
 
