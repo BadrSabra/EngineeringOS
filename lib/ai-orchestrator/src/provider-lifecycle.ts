@@ -101,6 +101,8 @@ export type ProviderLifecycleOptions = {
   requirements?: ProviderLifecycleRequirements;
   /** Refresh the provider catalog/check. Metrics should leave this false. */
   check?: boolean;
+  /** Bypass a still-valid TTL snapshot for an explicit live validation. */
+  forceRefresh?: boolean;
 };
 
 type CacheEntry = {
@@ -377,7 +379,12 @@ export async function getProviderLifecycleSnapshot(
       ],
     };
   }
-  if (options.check && existing?.snapshot.expiresAt && Date.parse(existing.snapshot.expiresAt) > Date.now()) {
+  if (
+    options.check &&
+    !options.forceRefresh &&
+    existing?.snapshot.expiresAt &&
+    Date.parse(existing.snapshot.expiresAt) > Date.now()
+  ) {
     return existing.snapshot;
   }
   if (existing?.inFlight) return existing.inFlight;

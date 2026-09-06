@@ -158,6 +158,7 @@ async function collectAvailableProviders(
         options?.refreshLifecycle === true ||
         process.env.AI_LIFECYCLE_LIVE_CHECKS === "1" ||
         process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1",
+      forceRefresh: options?.refreshLifecycle === true,
       requirements: { requireTools: options?.requireTools },
     });
     if (!lifecycle.selectable) {
@@ -652,13 +653,17 @@ export async function chatWithFallback(
   const capabilityProbeTurn =
     isCapabilityProbeRequest(baseParams.message) ||
     Boolean(baseParams.activeTaskState?.capabilityProbe);
-  const orderedProviders = await collectAvailableProviders(userId, options);
+  const selectionOptions = capabilityProbeTurn
+    ? { ...options, refreshLifecycle: true }
+    : options;
+  const orderedProviders = await collectAvailableProviders(userId, selectionOptions);
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
     const lifecycle = await getProviderLifecycleSnapshot({
       provider: initialProvider.provider,
       apiKey: initialProvider.apiKey,
       source: initialProvider.source ?? "user",
       check: true,
+      forceRefresh: capabilityProbeTurn,
       requirements: { requireTools: options?.requireTools },
     });
     if (lifecycle.selectable && !isCircuitOpen(initialProvider.provider)) {

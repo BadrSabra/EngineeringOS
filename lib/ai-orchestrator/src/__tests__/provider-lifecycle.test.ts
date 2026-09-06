@@ -64,6 +64,26 @@ describe("provider lifecycle", () => {
     expect(validateGroqDefaultModels).toHaveBeenCalledTimes(2);
   });
 
+  it("bypasses a valid TTL snapshot when forceRefresh is requested", async () => {
+    const first = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-force-refresh-key",
+      source: "user",
+      check: true,
+    });
+
+    const refreshed = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-force-refresh-key",
+      source: "user",
+      check: true,
+      forceRefresh: true,
+    });
+
+    expect(refreshed.revision).toBeGreaterThan(first.revision);
+    expect(validateGroqDefaultModels).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a selectable last-known-good snapshot during a transient refresh failure", async () => {
     const healthy = await getProviderLifecycleSnapshot({
       provider: "groq",
