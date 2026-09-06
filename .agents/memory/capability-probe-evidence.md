@@ -56,3 +56,15 @@ to have no durable evidence classification.
 **How to apply:** When adding or changing a forensic verdict, update the
 checkpoint parser and add an integration assertion that reloads the terminal
 checkpoint and verifies the verdict survives a rejected late write.
+
+Near-JSON capability responses may be salvaged only when all seven C1–C7
+fields are present; recovered lines must still pass the probe-specific semantic
+and exact-source citation gates.
+
+**Why:** Providers can return a complete capability record with a malformed
+wrapper, but accepting partial field extraction would turn parser recovery into
+invented evidence.
+
+**How to apply:** Preserve only values already present in the provider
+completion, reject incomplete JSON-like objects, and keep missing claims on the
+incomplete path.
