@@ -3116,6 +3116,7 @@ function relayForensicTerminal(opts: {
   loopResult: ToolLoopResult;
   fileContents: Map<string, string>;
   claimsUnclosedButEvidenceAvailable: boolean;
+  capabilityProbeClaimUnclosed?: boolean;
   report: string;
   /**
    * AI-OBJ-005: when the Objective Completion Gate refuses finalization, the
@@ -3130,6 +3131,7 @@ function relayForensicTerminal(opts: {
     loopResult,
     fileContents,
     claimsUnclosedButEvidenceAvailable,
+    capabilityProbeClaimUnclosed = false,
     report,
     objectiveBlocked = false,
   } = opts;
@@ -3148,6 +3150,8 @@ function relayForensicTerminal(opts: {
     "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined;
   const evidenceAcquired =
     sourceRetrieval?.firstEvidenceAcquired === true || fileContents.size > 0;
+  const claimsUnclosedWithEvidence =
+    claimsUnclosedButEvidenceAvailable || capabilityProbeClaimUnclosed;
   // AI-OBJ-005: an objective-blocked run is never a completed verdict — force the
   // terminal to the claim-unclosed / unavailable state regardless of inventory.
   if (objectiveBlocked) {
@@ -3182,7 +3186,7 @@ function relayForensicTerminal(opts: {
     terminalKind: classifyForensicTerminal({
       evidenceAcquired,
       budgetExhausted,
-      claimsUnclosedButEvidenceAvailable,
+      claimsUnclosedButEvidenceAvailable: claimsUnclosedWithEvidence,
       recoveryBlocked,
     }),
   });
@@ -10139,9 +10143,7 @@ export async function chat(opts: {
       }));
       relayAgentStep({
         kind: "diagnostic",
-        code: errorCode === "TIMEOUT"
-          ? "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT"
-          : "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
+        code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_FAILED",
         details: [`recovery provider outcome: ${errorCode}`],
       });
     }
@@ -10953,6 +10955,7 @@ export async function chat(opts: {
       loopResult,
       fileContents: forensicFileContents,
       claimsUnclosedButEvidenceAvailable,
+      capabilityProbeClaimUnclosed,
       report: terminalResponse,
       objectiveBlocked: Boolean(objectiveBlocksVerdict),
     });

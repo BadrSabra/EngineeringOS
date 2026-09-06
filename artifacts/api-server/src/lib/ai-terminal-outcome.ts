@@ -241,6 +241,10 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     trace,
     /(?:RECOVERY_FAILED|RECOVERY_REQUIRED|CORRECTION_FAILED|CONTRACT_.*FAILED)/i,
   );
+  const recoveryAttempted = trace.some((step) =>
+    step.kind === "forensic_recovery_start"
+      || step.kind === "recovery_model_call",
+  ) || recoveryFailure || recoveryDiagnostic;
   const capabilityProbeClaimUnclosed = hasDiagnostic(
     trace,
     /CAPABILITY_PROBE_(?:CLAIM_UNCLOSED|EVIDENCE_RECOVERY_REJECTED)/i,
@@ -274,14 +278,14 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
   if (providerFailureCategory) {
     return {
       outcome: "FAILED",
-      failureKind: "RECOVERY_FAILURE",
+      failureKind: recoveryAttempted ? "RECOVERY_FAILURE" : "INCOMPLETE",
       providerFailureCategory,
       retryable: providerFailureCategory !== "MODEL_REJECTED"
         && providerFailureCategory !== "MALFORMED_RESPONSE"
         && providerFailureCategory !== "UNKNOWN",
-      code: "FORENSIC_RECOVERY_FAILED",
+      code: recoveryAttempted ? "FORENSIC_RECOVERY_FAILED" : "AI_PROVIDER_FAILURE",
       message: "The AI provider could not complete the request.",
-      recoveryState: "REQUIRED",
+      recoveryState: recoveryAttempted ? "REQUIRED" : "INCOMPLETE",
       evidenceAccepted: false,
     };
   }

@@ -802,6 +802,13 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
           step.kind === "diagnostic" &&
           step.code === "CAPABILITY_PROBE_CLAIM_UNCLOSED",
       )).toBe(true);
+      const terminal = [...steps]
+        .reverse()
+        .find((step) => step.kind === "forensic_terminal");
+      expect(terminal?.kind).toBe("forensic_terminal");
+      if (terminal?.kind === "forensic_terminal") {
+        expect(terminal.terminalKind).toBe("EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED");
+      }
       const decisionTrace = [...steps]
         .reverse()
         .find((step) => step.kind === "decision_trace");

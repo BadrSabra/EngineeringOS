@@ -6219,7 +6219,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     expect(errorEvent).toMatchObject({
       providerFailureCategory: "MODEL_UNAVAILABLE",
       outcome: "FAILED",
-      recoveryState: "REQUIRED",
+      recoveryState: "INCOMPLETE",
     });
     // MODEL_NOT_FOUND errors must not be retryable (no free models remain)
     expect(errorEvent!["retryable"]).toBe(false);

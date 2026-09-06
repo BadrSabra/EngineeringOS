@@ -46,6 +46,22 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("keeps a provider failure before recovery as incomplete instead of required recovery", () => {
+    expect(classify([
+      { kind: "iteration_start", iter: 0, maxIterations: 120 },
+    ], {
+      providerError: { code: "SERVER_ERROR", providerStatus: 502 },
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      providerFailureCategory: "TRANSPORT_FAILURE",
+      retryable: true,
+      recoveryState: "INCOMPLETE",
+      code: "AI_PROVIDER_FAILURE",
+      evidenceAccepted: false,
+    });
+  });
+
   it("keeps capability-probe claim closure ahead of provider classification", () => {
     const outcome = classify([
       { kind: "diagnostic", code: "CAPABILITY_PROBE_CLAIM_UNCLOSED" },

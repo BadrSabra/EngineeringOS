@@ -247,6 +247,15 @@ function hasCapabilityProbeRecoveryActivity(traceSteps: AgentStep[]): boolean {
   );
 }
 
+function hasRecoveryAttempted(traceSteps: AgentStep[]): boolean {
+  return hasCapabilityProbeRecoveryActivity(traceSteps) ||
+    traceSteps.some((step) =>
+      step.kind === "decision_trace" &&
+      Number.isInteger(step.trace.recoveryAttempt) &&
+      step.trace.recoveryAttempt! > 0,
+    );
+}
+
 function latestCapabilityProbeRecoveryMetadata(traceSteps: AgentStep[]): {
   attempt?: number;
   failureKind?: string;
@@ -3243,10 +3252,14 @@ router.post("/ai/chat", async (req, res) => {
           || err.code === "SERVER_ERROR"
           || err.code === "RATE_LIMITED";
         const terminalOutcome = {
-          failureKind: "RECOVERY_FAILURE" as const,
+          failureKind: hasRecoveryAttempted(traceSteps)
+            ? "RECOVERY_FAILURE" as const
+            : "INCOMPLETE" as const,
           providerFailureCategory,
           retryable,
-          recoveryState: "REQUIRED" as const,
+          recoveryState: hasRecoveryAttempted(traceSteps)
+            ? "REQUIRED" as const
+            : "INCOMPLETE" as const,
         };
         await persistFailedChatTurn({
           sessionId: sessionIdToUse,
@@ -5681,10 +5694,16 @@ router.post("/ai/chat/stream", async (req, res) => {
           || err.code === "MODEL_UNAVAILABLE"
         : true;
       const terminalOutcome = {
-        failureKind: cancelled ? "CANCELLATION" as const : "RECOVERY_FAILURE" as const,
+        failureKind: cancelled
+          ? "CANCELLATION" as const
+          : hasRecoveryAttempted(traceSteps)
+            ? "RECOVERY_FAILURE" as const
+            : "INCOMPLETE" as const,
         ...(providerFailureCategory ? { providerFailureCategory } : {}),
         retryable: cancelled ? true : providerRetryable,
-        recoveryState: cancelled ? "INCOMPLETE" as const : "REQUIRED" as const,
+        recoveryState: cancelled || !hasRecoveryAttempted(traceSteps)
+          ? "INCOMPLETE" as const
+          : "REQUIRED" as const,
       };
       if (err instanceof GroqClientError) {
         if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
