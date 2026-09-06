@@ -20,6 +20,22 @@ All services start automatically via the configured workflows:
 | Dashboard | `artifacts/dashboard: web` |
 | Mockup sandbox | `artifacts/mockup-sandbox: Component Preview Server` |
 
+### Build versus runtime environment
+
+`pnpm run build` runs codegen, typechecking, and every workspace package build
+without depending on workflow-injected variables. Vite uses the non-secret
+build-only defaults below when these optional overrides are absent:
+
+- `BUILD_PORT` and `BUILD_BASE_PATH` override the build-time server metadata for
+  the Dashboard and mockup sandbox.
+- `VITE_CLERK_PUBLISHABLE_KEY` is preferred, followed by
+  `CLERK_PUBLISHABLE_KEY`. A labeled build-only placeholder is used only when
+  neither public value is available; it does not prove that Clerk is configured.
+
+The `dev` and `preview` commands remain fail-fast runtime commands: they require
+`PORT` and `BASE_PATH`, and the Dashboard additionally requires a valid public
+Clerk key. `CLERK_SECRET_KEY` is never read into or embedded in browser output.
+
 ## Post-import setup (already done)
 
 1. `pnpm install` — restores node_modules

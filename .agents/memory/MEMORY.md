@@ -103,3 +103,4 @@
 - [Capability probe resume contract](capability-probe-root-causes.md) — only explicit probe metadata makes a BEHAVIOR_QUERY resumable; ordinary behavior queries remain non-resumable.
 - [Provider usage normalization](provider-usage-normalization.md) — partial provider token metadata must be zero-filled at the public chat-output boundary.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, and failure-kind metrics separately.
+- [Vite build/runtime separation](vite-build-runtime-separation.md) — build-only non-secret defaults must be selected by the Vite build command; dev/preview stay fail-fast on workflow configuration.
