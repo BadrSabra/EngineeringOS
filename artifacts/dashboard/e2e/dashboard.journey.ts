@@ -244,7 +244,10 @@ function redactBrowserDiagnostic(value: string): string {
     .slice(0, 300);
 }
 
-function installBrowserErrorMonitor(page: Page) {
+function installBrowserErrorMonitor(
+  page: Page,
+  options: { allowSessionExpiry401?: boolean } = {},
+) {
   const diagnostics: string[] = [];
   const record = (kind: string, message: string) => {
     let path = DASHBOARD_PATH;
@@ -266,10 +269,16 @@ function installBrowserErrorMonitor(page: Page) {
       message.text() ===
         "Failed to load resource: the server responded with a status of 428 (Precondition Required)" &&
       location.includes("/api/ai/");
+    const knownSessionExpiryNoise =
+      options.allowSessionExpiry401 === true &&
+      message.text() ===
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)";
     // The provider-free fixture deliberately returns 428 for AI routes. The
     // browser reports that non-2xx resource as console.error; no other
     // console error is allowed by the authentication smoke.
-    if (!knownProviderFixtureNoise) record("console.error", message.text());
+    if (!knownProviderFixtureNoise && !knownSessionExpiryNoise) {
+      record("console.error", message.text());
+    }
   });
 
   return {
@@ -449,6 +458,10 @@ async function installApiFixtures(
     };
     operatorAlertsPassthrough?: boolean;
     authenticatedProtectedApi?: boolean;
+    sessionExpiry?: {
+      failDashboardRequests: boolean;
+      failureCount: number;
+    };
   },
 ) {
   await page.route("**/api/**", async (route) => {
@@ -620,6 +633,16 @@ async function installApiFixtures(
       );
     }
 
+    if (
+      overrides?.sessionExpiry &&
+      path === "/api/dashboard" &&
+      overrides.sessionExpiry.failDashboardRequests
+    ) {
+      overrides.sessionExpiry.failureCount += 1;
+      return route.fulfill(
+        jsonResponse({ error: "Unauthorized" }, 401),
+      );
+    }
     if (path === "/api/dashboard")
       return route.fulfill(jsonResponse(dashboardFixture));
     if (overrides?.taskActions) {
@@ -3253,6 +3276,43 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("Smoke Project", { exact: true }).first(),
     ).toBeVisible();
     await expectAuthenticatedProjectsRequest(page);
+
+    browserErrors.assertClean();
+  });
+
+  test("clears protected dashboard content after the Clerk session expires", async ({
+    page,
+  }) => {
+    const browserErrors = installBrowserErrorMonitor(page, {
+      allowSessionExpiry401: true,
+    });
+    const sessionExpiry = {
+      failDashboardRequests: false,
+      failureCount: 0,
+    };
+    await installApiFixtures(page, { sessionExpiry });
+    await programmaticSignIn(page);
+
+    await expectDashboardReady(page);
+    await expect(
+      page.getByText("Smoke Project", { exact: true }).first(),
+    ).toBeVisible();
+
+    sessionExpiry.failDashboardRequests = true;
+    await page.getByRole("button", { name: "Refresh status" }).click();
+
+    await expect(
+      page.getByText("Your session has expired. Sign in again to continue.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "System Overview" }),
+    ).not.toBeVisible();
+    await expect(
+      page.getByText("Smoke Project", { exact: true }),
+    ).not.toBeVisible();
+    expect(sessionExpiry.failureCount).toBeGreaterThan(0);
 
     browserErrors.assertClean();
   });

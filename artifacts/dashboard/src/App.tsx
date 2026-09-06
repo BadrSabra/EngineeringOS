@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ClerkProvider, Show, useClerk } from '@clerk/react';
 import { Toaster } from '@/components/ui/toaster';
@@ -137,6 +137,39 @@ function Router() {
   );
 }
 
+function SessionExpiryGuard() {
+  const { addListener } = useClerk();
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const previousUserIdRef = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    const onExpired = () => {
+      queryClient.clear();
+      setSessionExpired(true);
+    };
+    window.addEventListener('engineeringos:session-expired', onExpired);
+
+    const unsubscribe = addListener(({ user }) => {
+      const userId = user?.id ?? null;
+      if (
+        userId &&
+        previousUserIdRef.current !== undefined &&
+        previousUserIdRef.current !== userId
+      ) {
+        setSessionExpired(false);
+      }
+      previousUserIdRef.current = userId;
+    });
+
+    return () => {
+      window.removeEventListener('engineeringos:session-expired', onExpired);
+      unsubscribe();
+    };
+  }, [addListener]);
+
+  return sessionExpired ? null : <Router />;
+}
+
 // Clears cached query data when the signed-in user changes so a browser
 // left open across a sign-out/sign-in never shows the previous user's data.
 function ClerkQueryClientCacheInvalidator() {
@@ -187,7 +220,7 @@ function ClerkProviderWithRoutes() {
     >
       <ClerkQueryClientCacheInvalidator />
       <SessionRecoveryBanner />
-      <Router />
+      <SessionExpiryGuard />
     </ClerkProvider>
   );
 }
