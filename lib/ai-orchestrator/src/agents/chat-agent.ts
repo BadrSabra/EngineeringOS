@@ -1062,7 +1062,98 @@ function getCapabilityProbeRecoveryTargets(
  * plain text despite the JSON request. Normalize only those two bounded shapes;
  * the capability/evidence validators remain authoritative after normalization.
  */
-function normalizeCapabilityProbeRecoveryContent(
+function readCapabilityProbeNearJsonValue(text: string, start: number): string {
+  const first = text[start];
+  if (first === `"` || first === "'") {
+    let escaped = false;
+    for (let index = start + 1; index < text.length; index++) {
+      const char = text[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === first) {
+        return text
+          .slice(start + 1, index)
+          .replace(/\\(["'])/g, "$1")
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t");
+      }
+    }
+    return text.slice(start + 1).trim();
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index++) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === `"`) inString = false;
+      continue;
+    }
+    if (char === `"`) {
+      inString = true;
+      continue;
+    }
+    if (char === "{" || char === "[") {
+      depth++;
+      continue;
+    }
+    if (char === "}" || char === "]") {
+      if (depth === 0) return text.slice(start, index).trim().replace(/,\s*$/, "");
+      depth--;
+      continue;
+    }
+    if (depth === 0 && (char === "," || char === "\n")) {
+      return text.slice(start, index).trim().replace(/,\s*$/, "");
+    }
+  }
+  return text.slice(start).trim().replace(/,\s*$/, "");
+}
+
+/**
+ * Recover capability fields from a JSON-like object without pretending that
+ * the object was valid JSON. Some providers emit quoted C1–C7 keys with a
+ * trailing comma, single-quoted values, or an unterminated final wrapper.
+ * This extractor only preserves values already present in the completion; the
+ * normal capability and exact-source gates remain authoritative.
+ */
+function extractCapabilityProbeNearJsonFields(
+  raw: string,
+): { fields: Map<string, string>; score?: string } {
+  const text = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/```(?:json|text)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  const fields = new Map<string, string>();
+  const keyPattern = /["']?\b(C[1-7])\b["']?\s*:/gi;
+  let match: RegExpExecArray | null;
+  while ((match = keyPattern.exec(text))) {
+    const label = match[1]?.toUpperCase();
+    if (!label || fields.has(label)) continue;
+    const value = readCapabilityProbeNearJsonValue(text, keyPattern.lastIndex).trim();
+    if (value) fields.set(label, value);
+  }
+
+  const scoreMatch = text.match(
+    /["']?(?:overall|score)["']?\s*:\s*(?:"([^"]+)"|'([^']+)'|([^,\n}]+))/i,
+  );
+  const score = scoreMatch
+    ? (scoreMatch[1] ?? scoreMatch[2] ?? scoreMatch[3] ?? "").trim()
+    : undefined;
+  return { fields, ...(score ? { score } : {}) };
+}
+
+export function normalizeCapabilityProbeRecoveryContent(
   raw: string,
   fileContents: ReadonlyMap<string, string>,
 ): { response: string; sources: string[] } | null {
@@ -1106,6 +1197,16 @@ function normalizeCapabilityProbeRecoveryContent(
       if (score) lines.push(score);
       return { response: withVerifiedSources(lines.join("\n")), sources: verifiedSources };
     }
+  }
+
+  // A malformed JSON wrapper can still contain a complete capability record.
+  // Salvage only when all seven fields are present; never synthesize missing
+  // claims and still run the normal semantic/citation gates afterward.
+  const nearJson = extractCapabilityProbeNearJsonFields(raw);
+  if (nearJson.fields.size === 7) {
+    const lines = CAPABILITY_PROBE_LABELS.map((key) => `${key}: ${nearJson.fields.get(key)}`);
+    if (nearJson.score) lines.push(`Overall score: ${nearJson.score}`);
+    return { response: withVerifiedSources(lines.join("\n")), sources: verifiedSources };
   }
 
   const plain = raw
