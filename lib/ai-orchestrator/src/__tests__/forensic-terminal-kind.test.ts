@@ -60,6 +60,15 @@ describe("classifyForensicTerminal precedence (task #56 / FEG-017)", () => {
       budgetExhausted: true,
       claimsUnclosedButEvidenceAvailable: true,
     })).toBe("EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED");
+    // A provider may also end the bounded recovery window with an empty
+    // response. Retained evidence plus unclosed claims remains the more
+    // actionable explanation than the transport-level recovery detail.
+    expect(classifyForensicTerminal({
+      evidenceAcquired: true,
+      budgetExhausted: true,
+      claimsUnclosedButEvidenceAvailable: true,
+      recoveryBlocked: true,
+    })).toBe("EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED");
   });
 
   it("evidence plus a budget cap is INVESTIGATION_BUDGET_EXHAUSTED", () => {

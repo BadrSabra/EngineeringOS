@@ -41,9 +41,9 @@ export function classifyForensicTerminal(opts: {
     claimsUnclosedButEvidenceAvailable,
     recoveryBlocked = false,
   } = opts;
-  if (recoveryBlocked) return "NO_RESPONSE_RECOVERY_BLOCKED";
   if (!evidenceAcquired) return "INVESTIGATION_NOT_STARTED";
   if (claimsUnclosedButEvidenceAvailable) return "EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED";
+  if (recoveryBlocked) return "NO_RESPONSE_RECOVERY_BLOCKED";
   if (budgetExhausted) return "INVESTIGATION_BUDGET_EXHAUSTED";
   return "NO_EVIDENCE_FOUND";
 }
